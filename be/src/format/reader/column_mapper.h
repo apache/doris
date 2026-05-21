@@ -19,8 +19,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -28,12 +31,11 @@
 #include "core/data_type/data_type.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/reader/expr/literal.h"
+#include "format/reader/file_reader.h"
 namespace doris::reader {
 
 struct TableColumn;
 struct TableFilter;
-struct SchemaField;
-struct FileScanRequest;
 
 enum class TableColumnMappingMode {
     BY_FIELD_ID,
@@ -51,6 +53,8 @@ enum TableVirtualColumnType {
 struct ColumnMapping {
     int32_t table_column_id = -1;
     std::optional<int32_t> file_column_id;
+    std::optional<size_t> file_child_index;
+    size_t table_child_index = 0;
     DataTypePtr file_type;
     DataTypePtr table_type;
 
@@ -73,6 +77,11 @@ struct TableColumnMapperOptions {
     TableColumnMappingMode mode = TableColumnMappingMode::BY_FIELD_ID;
     bool allow_missing_columns = true;
     bool enable_reader_expression_fallback = true;
+
+    // Optional external name mapping for files that do not carry embedded field ids. The key is a
+    // file-local field name/path and the value is the table/global field id. FileScanRequest still
+    // uses SchemaField::id as the file-local column id.
+    std::map<std::string, ColumnId> name_mapping;
 };
 
 // 通用 table schema 到 file schema 映射层。
@@ -103,12 +112,36 @@ public:
     // 下推的表达式应通过 reader_expression_map 或 table-level finalize/filter fallback 处理。
     virtual Status localize_filters(const std::map<int32_t, TableFilter>& table_filters,
                                     FileScanRequest* file_request) const;
+    const SchemaField* find_file_field_by_table_column_id(
+            ColumnId table_column_id, const std::vector<SchemaField>& file_schema) const;
     void clear() { _mappings.clear(); }
     const std::vector<ColumnMapping>& mappings() const { return _mappings; }
 
 private:
+    Status _create_column_mapping(const TableColumn& table_column,
+                                  std::optional<size_t> table_child_index,
+                                  const std::vector<SchemaField>& file_schema,
+                                  const std::map<std::string, Field>& partition_values,
+                                  std::string_view field_path, size_t source_column_index,
+                                  ColumnMapping* mapping);
     const SchemaField* _find_file_field(const TableColumn& table_column,
                                         const std::vector<SchemaField>& file_schema) const;
+    const SchemaField* _find_file_field(const TableColumn& table_column,
+                                        const std::vector<SchemaField>& file_schema,
+                                        std::string_view field_path, size_t* field_index) const;
+    std::optional<ColumnId> _mapped_field_id_by_name(std::string_view field_path) const;
+    Status _create_struct_child_mappings(const TableColumn& table_column,
+                                         const SchemaField& file_field,
+                                         const std::map<std::string, Field>& partition_values,
+                                         std::string_view field_path, ColumnMapping* mapping);
+    Status _create_array_child_mapping(const TableColumn& table_column,
+                                       const SchemaField& file_field,
+                                       const std::map<std::string, Field>& partition_values,
+                                       std::string_view field_path, ColumnMapping* mapping);
+    Status _create_map_child_mappings(const TableColumn& table_column,
+                                      const SchemaField& file_field,
+                                      const std::map<std::string, Field>& partition_values,
+                                      std::string_view field_path, ColumnMapping* mapping);
 
     const ColumnMapping* _find_mapping(ColumnId table_column_id) const {
         for (const auto& mapping : _mappings) {
@@ -120,7 +153,7 @@ private:
     }
 
     bool _is_same_type(const DataTypePtr& table_type, const DataTypePtr& file_type) const {
-        return table_type == file_type;
+        return table_type != nullptr && file_type != nullptr && table_type->equals(*file_type);
     }
 
     TableColumnMapperOptions _options;

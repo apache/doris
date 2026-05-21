@@ -19,31 +19,53 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <optional>
+#include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
+#include "core/block/block.h"
+#include "core/column/column.h"
 #include "format/reader/file_reader.h"
 #include "format/reader/table_reader.h"
 
 namespace doris {
-class Block;
+class EqualityDeleteBase;
+class RuntimeProfile;
 } // namespace doris
 
 namespace doris::iceberg {
 
+enum class IcebergDeleteContent : int8_t {
+    POSITION_DELETE = 1,
+    EQUALITY_DELETE = 2,
+    DELETION_VECTOR = 3,
+};
+
 // Iceberg data file 摘要。它描述当前要读取的物理 data file，不承载列映射逻辑。
 struct IcebergDataFile final : public reader::BaseDataFile {
+    std::string original_path;
     int64_t sequence_number = 0;
     int64_t first_row_id = -1;
+    int64_t last_updated_sequence_number = -1;
+    int32_t partition_spec_id = 0;
+    std::string partition_data_json;
 };
 
 // Iceberg delete file 摘要。position/equality/deletion vector 的具体读取在
 // IcebergTableReader 实现阶段补齐。
 struct IcebergDeleteFile final : public reader::BaseDataFile {
+    IcebergDeleteContent content = IcebergDeleteContent::POSITION_DELETE;
     int64_t sequence_number = 0;
+    std::optional<int64_t> position_lower_bound;
+    std::optional<int64_t> position_upper_bound;
+    std::optional<int64_t> content_offset;
+    std::optional<int64_t> content_size_in_bytes;
     std::vector<reader::ColumnId> equality_field_ids;
 };
 
@@ -55,45 +77,109 @@ struct IcebergScanTask final : public reader::ScanTask {
     std::vector<IcebergDeleteFile> deletion_vectors;
 };
 
+class IcebergDataReaderFactory {
+public:
+    virtual ~IcebergDataReaderFactory() = default;
+    virtual Status create(const IcebergScanTask& task,
+                          std::unique_ptr<reader::FileReader>* reader) = 0;
+};
+
+struct IcebergEqualityDeleteData {
+    std::vector<reader::ColumnId> field_ids;
+    Block delete_block;
+};
+
+class IcebergDeleteFileLoader {
+public:
+    virtual ~IcebergDeleteFileLoader() = default;
+
+    virtual Status load_position_deletes(const IcebergDeleteFile& delete_file,
+                                         const IcebergDataFile& data_file,
+                                         std::vector<int64_t>* rows) = 0;
+
+    virtual Status load_deletion_vector(const IcebergDeleteFile& delete_file,
+                                        const IcebergDataFile& data_file,
+                                        std::vector<int64_t>* rows) = 0;
+
+    virtual Status load_equality_deletes(const IcebergDeleteFile& delete_file,
+                                         const std::vector<reader::SchemaField>& data_file_schema,
+                                         IcebergEqualityDeleteData* delete_data) = 0;
+};
+
+struct IcebergTableReadParams {
+    reader::TableReadOptions table_options;
+    std::shared_ptr<IcebergDataReaderFactory> data_reader_factory;
+    std::shared_ptr<IcebergDeleteFileLoader> delete_file_loader;
+    std::map<std::string, reader::ColumnId> name_mapping;
+    RuntimeProfile* profile = nullptr;
+};
+
 // Iceberg table-level reader。
 // 该层继承 TableReader，复用多文件编排和动态分区裁剪等通用能力；同时组合
 // FileReader 完成 data file 物理读取，不继承具体文件格式 reader。
 class IcebergTableReader : public reader::TableReader {
 public:
-    ~IcebergTableReader() override = default;
+    IcebergTableReader();
+    ~IcebergTableReader() override;
+
+    using reader::TableReader::init;
+    Status init(IcebergTableReadParams params);
+    Status close() override;
 
 protected:
-    // 将 file-local block 转换为 table/global schema block。
-    // 这里执行 ColumnMapping 中的 finalize_expr、缺失列填充、partition/generated 列
-    // 物化以及复杂列 remap。
-    Status finalize_chunk(Block* block) override {
-        // 真实实现会根据 ColumnMapping 执行 finalize_expr/default/partition/generated
-        // expressions，把 file-local block 写成 table block。
-        RETURN_IF_ERROR(apply_equality_deletes(block));
-        return Status::OK();
-    }
+    Status create_reader_for_task(const reader::ScanTask& task,
+                                  std::unique_ptr<reader::FileReader>* reader) override;
+    Status open_reader() override;
+    Status close_current_reader() override;
+    Status finalize_chunk(Block* block) override;
+    Status materialize_virtual_columns(Block* table_block) override;
 
-    // 物化 Iceberg 虚拟列。
-    // 例如 _row_id、_last_updated_sequence_number 等，它们不来自 Parquet 文件物理列。
-    Status materialize_virtual_columns(Block* table_block) override {
-        // 真实实现会物化 _row_id、_last_updated_sequence_number 等 Iceberg 虚拟列。
-        return Status::OK();
-    }
+private:
+    Status build_position_visibility(reader::FileScanRequest* request);
+    Status load_position_delete_rows(std::vector<int64_t>* rows);
+    Status load_deletion_vector_rows(std::vector<int64_t>* rows);
+    Status build_equality_delete_state(reader::FileScanRequest* request,
+                                       const std::vector<reader::SchemaField>& file_schema);
+    Status apply_residual_filters(Block* block, IColumn::Filter* filter);
+    Status apply_position_deletes(Block* block, IColumn::Filter* filter);
+    Status apply_equality_deletes(Block* block, IColumn::Filter* filter);
+    Status materialize_legacy_row_id(Block* block);
+    Status materialize_row_lineage_row_id(Block* block);
+    Status materialize_last_updated_sequence_number(Block* block);
+    Status clear_task_state();
 
-    // 将 Iceberg position delete / deletion vector 转换成底层 reader 可消费的删除信息。
-    // 这一步发生在读取 data file 前，因此会修改 FileScanRequest。
-    Status apply_position_deletes(reader::FileScanRequest* request) {
-        // 真实实现会把 position delete / deletion vector 转换成 file-local delete 信息。
-        (void)request;
-        return Status::OK();
-    }
+    void update_row_lineage_file_column_state();
+    std::map<int32_t, reader::TableFilter> file_pushdown_filters() const;
+    bool needs_row_positions() const;
+    bool has_projected_column(const std::string& name) const;
+    bool is_row_lineage_column(const reader::TableColumn& column) const;
+    const reader::TableColumn* find_projected_column(reader::ColumnId field_id) const;
+    Status ensure_equality_key_column(reader::ColumnId field_id,
+                                      const std::vector<reader::SchemaField>& file_schema,
+                                      reader::FileScanRequest* request);
+    std::shared_ptr<IcebergDataReaderFactory> _data_reader_factory;
+    std::shared_ptr<IcebergDeleteFileLoader> _delete_file_loader;
+    RuntimeProfile* _runtime_profile = nullptr;
 
-    // 在 table block 上应用 equality delete。
-    // equality delete 依赖 table-level 列语义，因此不能下沉到 ParquetReader。
-    Status apply_equality_deletes(Block* block) {
-        // 真实实现会在 table block 上应用 equality delete。
-        return Status::OK();
-    }
+    const IcebergScanTask* _current_iceberg_task = nullptr;
+    const IcebergDataFile* _current_data_file = nullptr;
+
+    std::shared_ptr<std::vector<int64_t>> _position_delete_rows;
+    bool _need_row_positions = false;
+    std::vector<int64_t> _current_batch_row_positions;
+    bool _row_lineage_row_id_from_file = false;
+    bool _row_lineage_last_updated_sequence_number_from_file = false;
+
+    std::vector<Block> _equality_delete_blocks;
+    std::vector<std::vector<int>> _equality_delete_field_ids;
+    std::vector<std::unique_ptr<EqualityDeleteBase>> _equality_delete_impls;
+    std::unordered_map<int, std::string> _id_to_block_column_name;
+    std::set<std::string> _equality_helper_column_names;
+    std::map<std::string, reader::ColumnId> _name_mapping;
+
+    static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
+    static constexpr const char* ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER =
+            "_last_updated_sequence_number";
 };
 
 } // namespace doris::iceberg

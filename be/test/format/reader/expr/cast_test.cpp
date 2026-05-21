@@ -184,6 +184,7 @@ TEST_F(CastTest, ColumnMapperBuildsCastProjectionForTypeMismatch) {
     file_field.id = 0;
     file_field.name = "value";
     file_field.type = std::make_shared<DataTypeInt32>();
+    file_field.field_id = 7;
     std::vector<reader::SchemaField> file_schema {file_field};
 
     auto status = mapper.create_mapping(projected_columns, {}, file_schema);

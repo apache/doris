@@ -19,7 +19,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -58,6 +60,12 @@ struct SchemaField {
     DataTypePtr type;
     std::vector<SchemaField> children;
     ColumnType column_type = ColumnType::DATA_COLUMN;
+
+    // Optional logical field id embedded in the file schema. For Iceberg Parquet files this
+    // corresponds to the Parquet field_id. The file-local id above remains the identifier used in
+    // FileScanRequest so legacy files without embedded ids can still be addressed by synthetic
+    // file-local ids after table-level name mapping.
+    std::optional<int32_t> field_id;
 };
 
 // 已经 localize 到文件 schema 的过滤条件。
@@ -108,6 +116,11 @@ struct FileScanRequest {
     // non_predicate_columns: [1, 0]
     // projected_columns are columns in blocks returned to table reader: [1, 0] means only name and id are projected,
     std::vector<ColumnId> projected_columns;
+
+    // Request data-file-local 0-based row positions for each returned row. Table-format readers
+    // use this for row-level deletes and virtual row id columns. FileReader only exposes the
+    // positions; it does not interpret Iceberg delete semantics.
+    bool need_row_positions = false;
 };
 
 // 文件物理读取层通用接口。
@@ -143,22 +156,37 @@ public:
     virtual Status init(const FileScanRequest& request) {
         // 真实实现会根据 projected columns、local filters 和 reader expressions
         // 初始化文件格式自己的物理读取计划。
-        // _request.projected_file_columns = request.projected_file_columns;
+        _request.predicate_columns = request.predicate_columns;
+        _request.non_predicate_columns = request.non_predicate_columns;
         _request.local_filters = request.local_filters;
         _request.reader_expression_map = request.reader_expression_map;
+        _request.partition_values = request.partition_values;
+        _request.projected_columns = request.projected_columns;
+        _request.need_row_positions = request.need_row_positions;
         return Status::OK();
     }
 
     // 读取下一批 file-local block。
     // file_block 的列顺序和类型必须遵守 FileScanRequest，而不是 table/global schema。
-    // eof 表示当前文件 reader 是否读完；多文件切换由 TableReader 负责。
-    virtual Status get_block(Block* file_block, bool* eof) {
+    // rows 返回当前批次行数；eof 表示当前文件 reader 是否读完，多文件切换由
+    // TableReader 负责。
+    virtual Status next(Block* file_block, size_t* rows, bool* eof) {
         // stub 默认立即 EOF。
+        if (rows != nullptr) {
+            *rows = 0;
+        }
         if (eof != nullptr) {
             *eof = true;
         }
         _eof = true;
         return Status::OK();
+    }
+
+    // Return row positions for the most recently produced batch when
+    // FileScanRequest::need_row_positions is true. Default readers do not provide row positions.
+    virtual const std::vector<int64_t>& current_batch_row_positions() const {
+        static const std::vector<int64_t> EMPTY_ROW_POSITIONS;
+        return EMPTY_ROW_POSITIONS;
     }
 
     // 关闭当前物理文件 reader 并释放文件层状态。
