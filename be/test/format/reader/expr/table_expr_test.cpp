@@ -15,9 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/reader/expr/literal.h"
-#include "format/reader/expr/slot_ref.h"
-
 #include <gtest/gtest.h>
 
 #include <memory>
@@ -28,6 +25,8 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
+#include "format/reader/expr/literal.h"
+#include "format/reader/expr/slot_ref.h"
 #include "runtime/descriptors.h"
 #include "testutil/column_helper.h"
 
