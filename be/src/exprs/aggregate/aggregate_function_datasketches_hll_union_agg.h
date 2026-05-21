@@ -18,8 +18,8 @@
 #pragma once
 #include <stddef.h>
 
-#include <algorithm>
 #include <DataSketches/hll.hpp>
+#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 #include <optional>
@@ -73,9 +73,9 @@ struct AggregateFunctionHllSketchData {
               * See: datasketches-cpp/hll/include/hll.hpp:451
               */
             constexpr uint8_t MIN_UNION_LOG_K = 7;
-            const uint8_t union_lg_k = std::clamp<uint8_t>(sketch_data.get_lg_config_k(),
-                                                           MIN_UNION_LOG_K,
-                                                           datasketches::hll_constants::MAX_LOG_K);
+            const uint8_t union_lg_k =
+                    std::clamp<uint8_t>(sketch_data.get_lg_config_k(), MIN_UNION_LOG_K,
+                                        datasketches::hll_constants::MAX_LOG_K);
             hll_union_data.emplace(union_lg_k, Alloc());
         }
         try {
@@ -122,8 +122,9 @@ struct AggregateFunctionHllSketchData {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "Internal error happened when serialize HLL sketch: {}", e.what());
         } catch (...) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "Internal error happened when serialize HLL sketch: unknown exception.");
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Internal error happened when serialize HLL sketch: unknown exception.");
         }
     }
     void read(BufferReadable& buf) {
@@ -148,7 +149,8 @@ struct AggregateFunctionHllSketchData {
             try {
                 return hll_union_data->get_estimate();
             } catch (const doris::Exception& e) {
-                throw Exception(e.code(), "Internal error happened when get HLL sketch estimate: {}",
+                throw Exception(e.code(),
+                                "Internal error happened when get HLL sketch estimate: {}",
                                 e.to_string());
             } catch (const std::exception& e) {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -204,9 +206,8 @@ public:
 private:
     static void ALWAYS_INLINE add_one(Data& data, const IColumn& column, ssize_t row_num) {
         if constexpr (is_string_type(T) || is_varbinary(T)) {
-            const auto& src_column =
-                    assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                TypeCheckOnRelease::DISABLE>(column);
+            const auto& src_column = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                                 TypeCheckOnRelease::DISABLE>(column);
             StringRef value = src_column.get_data_at(static_cast<size_t>(row_num));
             if (value.empty()) {
                 throw Exception(ErrorCode::CORRUPTION,
