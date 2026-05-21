@@ -94,7 +94,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     }
 
     public List<Tablet> getTablets() {
-        return tablets;
+        return Lists.newArrayList(tablets);
     }
 
     public List<Long> getTabletIdsInOrder() {

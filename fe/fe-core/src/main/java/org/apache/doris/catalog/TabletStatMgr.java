@@ -382,7 +382,14 @@ public class TabletStatMgr extends MasterDaemon {
         if (result.isSetTabletStatList()) {
             for (TTabletStat stat : result.getTabletStatList()) {
                 if (invertedIndex.getTabletMeta(stat.getTabletId()) != null) {
-                    Replica replica = invertedIndex.getReplica(stat.getTabletId(), beId);
+                    Replica replica;
+                    try {
+                        replica = invertedIndex.getReplica(stat.getTabletId(), beId);
+                    } catch (IllegalStateException e) {
+                        LOG.debug("skip stale tablet stat update for tablet {} on backend {}",
+                                stat.getTabletId(), beId, e);
+                        continue;
+                    }
                     if (replica != null) {
                         replica.setDataSize(stat.getDataSize());
                         replica.setRemoteDataSize(stat.getRemoteDataSize());

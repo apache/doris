@@ -254,7 +254,7 @@ public class LocalTablet extends Tablet {
 
     @Override
     public List<Replica> getReplicas() {
-        return this.replicas;
+        return Lists.newArrayList(this.replicas);
     }
 
     @Override
