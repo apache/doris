@@ -34,7 +34,6 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "io/cache/block_file_cache_factory.h"
-#include "storage/field.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
 

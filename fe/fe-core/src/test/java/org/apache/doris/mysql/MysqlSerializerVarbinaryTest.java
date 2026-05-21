@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
@@ -116,6 +117,35 @@ public class MysqlSerializerVarbinaryTest {
         off += 1;
         int flags = leUInt2(out, off);
         Assertions.assertEquals(0, flags); // not BINARY
+    }
+
+    @Test
+    public void testFieldPacketForTimestampTzUsesStringMetadata() {
+        MysqlSerializer ser = MysqlSerializer.newInstance();
+        Type type = ScalarType.createTimeStampTzType(6);
+        ser.writeField("ts", type);
+        byte[] out = ser.toArray();
+
+        Assertions.assertEquals(MysqlColType.MYSQL_TYPE_STRING, type.getPrimitiveType().toMysqlType());
+
+        int off = skipFieldHeaderStrings(out);
+        int charset = leUInt2(out, off);
+        Assertions.assertEquals(33, charset); // utf8_general_ci
+        off += 2;
+
+        long displayLen = leUInt4(out, off);
+        Assertions.assertEquals(32L, displayLen);
+        off += 4;
+
+        int colType = out[off] & 0xFF;
+        Assertions.assertEquals(MysqlColType.MYSQL_TYPE_STRING.getCode(), colType);
+        off += 1;
+
+        int flags = leUInt2(out, off);
+        Assertions.assertEquals(0, flags);
+        off += 2;
+
+        Assertions.assertEquals(0, out[off] & 0xFF);
     }
 
     @Test

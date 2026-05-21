@@ -15,25 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/collection_value.h"
+package org.apache.doris.filesystem.properties;
 
-#include <string.h>
+/**
+ * High-level storage classification used by the filesystem framework.
+ */
+public enum StorageKind {
+    /**
+     * Object storage systems such as S3, OSS, COS, OBS, GCS, and Azure Blob.
+     */
+    OBJECT_STORAGE,
 
-namespace doris {
+    /**
+     * HDFS-compatible file systems such as HDFS and OSS-HDFS.
+     */
+    HDFS_COMPATIBLE,
 
-void CollectionValue::shallow_copy(const CollectionValue* value) {
-    _length = value->_length;
-    _null_signs = value->_null_signs;
-    _data = value->_data;
-    _has_null = value->_has_null;
+    /**
+     * Broker-based file systems.
+     */
+    BROKER,
+
+    /**
+     * Local file system.
+     */
+    LOCAL,
+
+    /**
+     * HTTP-based file systems.
+     */
+    HTTP
 }
-
-void CollectionValue::copy_null_signs(const CollectionValue* other) {
-    if (other->_has_null) {
-        memcpy(_null_signs, other->_null_signs, other->size());
-    } else {
-        _null_signs = nullptr;
-    }
-}
-
-} // namespace doris

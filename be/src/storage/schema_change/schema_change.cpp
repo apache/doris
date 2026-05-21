@@ -56,7 +56,6 @@
 #include "runtime/runtime_state.h"
 #include "storage/data_dir.h"
 #include "storage/delete/delete_handler.h"
-#include "storage/field.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_writer.h"
 #include "storage/iterator/olap_data_convertor.h"
@@ -87,8 +86,6 @@
 #include "util/trace.h"
 
 namespace doris {
-
-class CollectionValue;
 
 using namespace ErrorCode;
 
@@ -1533,12 +1530,6 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
 Status SchemaChangeJob::_init_column_mapping(ColumnMapping* column_mapping,
                                              const TabletColumn& column_schema,
                                              const std::string& value) {
-    auto t = StorageFieldFactory::create(column_schema);
-    Defer defer([t]() { delete t; });
-    if (t == nullptr) {
-        return Status::Uninitialized("Unsupport field creation of {}", column_schema.name());
-    }
-
     if (!column_schema.is_nullable() || value.length() != 0) {
         RETURN_IF_ERROR(column_schema.get_vec_type()->get_serde()->from_fe_string(
                 value, column_mapping->default_value));

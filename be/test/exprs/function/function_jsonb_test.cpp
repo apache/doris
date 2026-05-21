@@ -16,13 +16,15 @@
 // under the License.
 
 #include <gtest/gtest.h>
-#include <stdint.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "core/column/column_const.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -40,6 +42,67 @@
 
 namespace doris {
 using namespace ut_type;
+
+namespace {
+
+ColumnPtr create_jsonb_column(size_t rows) {
+    auto jsonb_type = std::make_shared<DataTypeJsonb>();
+    auto jsonb_column = jsonb_type->create_column();
+    for (size_t i = 0; i < rows; ++i) {
+        EXPECT_TRUE(insert_cell(jsonb_column, jsonb_type, STRING(R"({"a":{"b":1}})")));
+    }
+    return jsonb_column;
+}
+
+ColumnPtr create_path_column(const std::vector<std::string>& paths) {
+    auto path_type = std::make_shared<DataTypeString>();
+    auto path_column = path_type->create_column();
+    for (const auto& path : paths) {
+        EXPECT_TRUE(insert_cell(path_column, path_type, STRING(path)));
+    }
+    return path_column;
+}
+
+ColumnPtr create_const_path_column(const std::string& path, size_t rows) {
+    return ColumnConst::create(create_path_column({path}), rows);
+}
+
+Status execute_json_keys_with_path(ColumnPtr path_column, size_t rows) {
+    auto jsonb_type = std::make_shared<DataTypeJsonb>();
+    auto path_type = std::make_shared<DataTypeString>();
+    auto return_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>())));
+
+    Block block;
+    block.insert({create_jsonb_column(rows), jsonb_type, "jsonb"});
+    block.insert({std::move(path_column), path_type, "path"});
+
+    FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
+            "json_keys", block.get_columns_with_type_and_name(), return_type);
+    DORIS_CHECK(func != nullptr);
+
+    FunctionUtils fn_utils(return_type, {jsonb_type, path_type}, false);
+    auto* fn_ctx = fn_utils.get_fn_ctx();
+    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+
+    block.insert({nullptr, return_type, "result"});
+    auto st = func->execute(fn_ctx, block, {0, 1}, block.columns() - 1, rows);
+
+    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    return st;
+}
+
+void expect_invalid_json_keys_super_wildcard_path(const Status& st) {
+    EXPECT_EQ(st.code(), ErrorCode::INVALID_JSON_PATH) << st.to_string();
+    EXPECT_NE(st.to_string().find(
+                      "path expressions may not contain the * and ** tokens or an array range"),
+              std::string::npos)
+            << st.to_string();
+}
+
+} // namespace
 
 TEST(FunctionJsonbTEST, JsonbParseTest) {
     std::string func_name = "json_parse";
@@ -184,6 +247,15 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToValueTest) {
                          {{STRING("{}"), STRING("{}"), STRING("{}")}, Null()}};
     auto st = check_function<DataTypeJsonb, true>(func_name, input_types2, data_set2);
     ASSERT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT) << st.to_string();
+}
+
+TEST(FunctionJsonbTEST, JsonbKeysRejectSuperWildcardPath) {
+    auto const_path_status = execute_json_keys_with_path(create_const_path_column("$**.a", 1), 1);
+    expect_invalid_json_keys_super_wildcard_path(const_path_status);
+
+    auto non_const_path_status =
+            execute_json_keys_with_path(create_path_column({"$.a", "$**.a"}), 2);
+    expect_invalid_json_keys_super_wildcard_path(non_const_path_status);
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractTest) {

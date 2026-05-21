@@ -27,7 +27,7 @@
 #include "common/consts.h"
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
-#include "storage/field.h"
+#include "storage/key_coder.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/tablet/tablet_schema.h"
@@ -125,7 +125,7 @@ RowCursor RowCursor::clone() const {
 
 void RowCursor::pad_char_fields() {
     for (size_t i = 0; i < _fields.size(); ++i) {
-        const StorageField* col = _schema->column(cast_set<uint32_t>(i));
+        const TabletColumn* col = _schema->column(cast_set<uint32_t>(i));
         if (col->type() == FieldType::OLAP_FIELD_TYPE_CHAR && !_fields[i].is_null()) {
             String padded = _fields[i].get<TYPE_CHAR>();
             padded.resize(col->length(), '\0');
@@ -144,40 +144,41 @@ std::string RowCursor::to_string() const {
             result.append("1&NULL");
         } else {
             result.append("0&");
-            result.append(_fields[i].to_debug_string(
-                    _schema->column(cast_set<uint32_t>(i))->get_scale()));
+            result.append(
+                    _fields[i].to_debug_string(_schema->column(cast_set<uint32_t>(i))->frac()));
         }
     }
     return result;
 }
 
-void RowCursor::_encode_field(const StorageField* storage_field, const Field& f, bool full_encode,
-                              std::string* buf) const {
-    FieldType ft = storage_field->type();
+void RowCursor::_encode_column_value(const TabletColumn* column, const Field& value,
+                                     bool full_encode, std::string* buf) const {
+    FieldType ft = column->type();
+    const KeyCoder* coder = get_key_coder(ft);
 
     if (field_is_slice_type(ft)) {
         // String types: CHAR, VARCHAR, STRING — all stored as String in Field.
-        const String& str = f.get<TYPE_STRING>();
+        const String& str = value.get<TYPE_STRING>();
 
         if (ft == FieldType::OLAP_FIELD_TYPE_CHAR) {
             // CHAR type: must pad with \0 to the declared column length
-            size_t col_len = storage_field->length();
+            size_t col_len = column->length();
             String padded(col_len, '\0');
             memcpy(padded.data(), str.data(), std::min(str.size(), col_len));
 
             Slice slice(padded.data(), col_len);
             if (full_encode) {
-                storage_field->full_encode_ascending(&slice, buf);
+                coder->full_encode_ascending(&slice, buf);
             } else {
-                storage_field->encode_ascending(&slice, buf);
+                coder->encode_ascending(&slice, column->index_length(), buf);
             }
         } else {
             // VARCHAR / STRING: use actual length
             Slice slice(str.data(), str.size());
             if (full_encode) {
-                storage_field->full_encode_ascending(&slice, buf);
+                coder->full_encode_ascending(&slice, buf);
             } else {
-                storage_field->encode_ascending(&slice, buf);
+                coder->encode_ascending(&slice, column->index_length(), buf);
             }
         }
         return;
@@ -186,11 +187,10 @@ void RowCursor::_encode_field(const StorageField* storage_field, const Field& f,
     // Non-string scalar keys are fixed-width; their KeyCoder::encode_ascending
     // ignores `index_size` and delegates to full_encode_ascending, so the
     // `full_encode` flag here is a no-op and we always call the full helper.
-    const KeyCoder* coder = storage_field->key_coder();
     switch (ft) {
-#define CASE(FT, PT)                                                \
-    case FieldType::FT:                                             \
-        full_encode_field_as_key<PrimitiveType::PT>(f, coder, buf); \
+#define CASE(FT, PT)                                                    \
+    case FieldType::FT:                                                 \
+        full_encode_field_as_key<PrimitiveType::PT>(value, coder, buf); \
         break;
         DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(CASE)
 #undef CASE
@@ -204,8 +204,8 @@ template <bool is_mow>
 void RowCursor::encode_key_with_padding(std::string* buf, size_t num_keys,
                                         bool padding_minimal) const {
     for (uint32_t cid = 0; cid < num_keys; cid++) {
-        auto* storage_field = _schema->column(cid);
-        if (storage_field == nullptr) {
+        auto* column = _schema->column(cid);
+        if (column == nullptr) {
             if (padding_minimal) {
                 buf->push_back(KeyConsts::KEY_MINIMAL_MARKER);
             } else {
@@ -224,7 +224,7 @@ void RowCursor::encode_key_with_padding(std::string* buf, size_t num_keys,
         }
 
         buf->push_back(KeyConsts::KEY_NORMAL_MARKER);
-        _encode_field(storage_field, _fields[cid], is_mow, buf);
+        _encode_column_value(column, _fields[cid], is_mow, buf);
     }
 }
 
@@ -240,7 +240,7 @@ void RowCursor::encode_key(std::string* buf, size_t num_keys) const {
             continue;
         }
         buf->push_back(KeyConsts::KEY_NORMAL_MARKER);
-        _encode_field(_schema->column(cid), _fields[cid], full_encode, buf);
+        _encode_column_value(_schema->column(cid), _fields[cid], full_encode, buf);
     }
 }
 

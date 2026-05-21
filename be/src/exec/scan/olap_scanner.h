@@ -68,6 +68,7 @@ public:
         TabletReadSource read_source;
         int64_t limit;
         bool aggregation;
+        bool read_row_binlog = false;
     };
 
     OlapScanner(ScanLocalStateBase* parent, Params&& params);

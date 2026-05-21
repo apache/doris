@@ -265,7 +265,9 @@ class S3OutputStreamTest {
     private static class CapturingStorage extends S3ObjStorage {
 
         CapturingStorage() {
-            super(Map.of()); // empty properties — no AWS client is built
+            super(Map.of(
+                    "s3.endpoint", "https://minio.local",
+                    "s3.region", "us-east-1"));
         }
 
         @Override

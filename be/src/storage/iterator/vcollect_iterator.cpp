@@ -75,6 +75,10 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
         _merge = false;
     }
 
+    if (_reader->_reader_type == ReaderType::READER_BINLOG) {
+        _merge = false;
+    }
+
     // When data is none overlapping, no need to build heap to traverse data
     if (!ori_data_overlapping) {
         _merge = false;

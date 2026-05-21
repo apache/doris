@@ -44,7 +44,6 @@
 #include "exprs/vexpr_fwd.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "runtime/runtime_profile.h"
-#include "storage/field.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/index/index_iterator.h"
 #include "storage/iterators.h"
@@ -209,7 +208,7 @@ private:
     // CHAR type in storage layer padding the 0 in length. But query engine need ignore the padding 0.
     // so segment iterator need to shrink char column before output it. only use in vec query engine.
     void _vec_init_char_column_id(Block* block);
-    bool _has_char_type(const StorageField& column_desc);
+    bool _has_char_type(const TabletColumn& column_desc);
 
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }
@@ -221,6 +220,8 @@ private:
                                        MutableColumns& column_block, size_t nrows);
     [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint16_t& nrows_read);
     void _replace_version_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
+    void _update_lsn_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
+    void _update_tso_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     Status _init_current_block(Block* block, std::vector<MutableColumnPtr>& non_pred_vector,
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
@@ -254,8 +255,7 @@ private:
             if (block_cid >= block->columns()) {
                 continue;
             }
-            DataTypePtr storage_type =
-                    _segment->get_data_type_of(_schema->column(cid)->get_desc(), _opts);
+            DataTypePtr storage_type = _segment->get_data_type_of(*_schema->column(cid), _opts);
             if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
                 // Do additional cast
                 MutableColumnPtr tmp = storage_type->create_column();

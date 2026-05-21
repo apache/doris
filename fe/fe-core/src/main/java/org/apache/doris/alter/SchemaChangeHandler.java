@@ -321,6 +321,12 @@ public class SchemaChangeHandler extends AlterHandler {
     private void addColumnRowBinlog(List<Column> rowBinlogSchema, Column newColumn, ColumnPosition columnPos,
                                     Set<String> newColNameSet, boolean needHistoricalValue,
                                     IntSupplier columnUniqueIdSupplier) throws DdlException {
+        if (!newColumn.isVisible()) {
+            // row binlog schema is generated from visible columns only, so schema change must not
+            // sync hidden system columns such as sequence/delete/version/skip-bitmap columns.
+            return;
+        }
+
         if (newColumn.isAutoInc() || newColumn.getDataType().isVariantType()) {
             throw new DdlException("can't add AutoInc/Variant column " + " on table with binlog<Row>, column: "
                     + newColumn.getDataType());
