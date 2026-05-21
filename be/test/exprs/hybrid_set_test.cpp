@@ -551,7 +551,7 @@ TEST_F(HybridSetTest, FindBatch) {
     ASSERT_EQ(result_column->get_data()[6], 0);
     ASSERT_EQ(result_column->get_data()[7], 0);
 
-    // Only bloom fitler need to handle nullaware(VRuntimeFilterWrapper::execute),
+    // Only bloom fitler need to handle nullaware(RuntimeFilterExpr::execute),
     // So HybridSet will return false when find null value.
     string_set2->find_batch_nullable(*string_column, string_column->size(),
                                      nullmap_column->get_data(), result_column->get_data());
