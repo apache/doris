@@ -18,6 +18,8 @@
 #include "exec/sink/viceberg_delete_sink.h"
 
 #include <gtest/gtest.h>
+#include <parquet/api/reader.h>
+#include <parquet/schema.h>
 #include <rapidjson/document.h>
 
 #include <filesystem>
@@ -35,7 +37,9 @@
 #include "exec/common/endian.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Types_types.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "testutil/mock/mock_runtime_state.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -478,6 +482,49 @@ TEST_F(VIcebergDeleteSinkTest, TestGenerateDeleteFilePath) {
     }
     ASSERT_TRUE(delete_file_path.rfind(expected_base, 0) == 0);
     ASSERT_NE(std::string::npos, delete_file_path.find("delete_pos_"));
+}
+
+TEST_F(VIcebergDeleteSinkTest, TestWritePositionDeleteParquetFieldIds) {
+    std::filesystem::path temp_dir = std::filesystem::temp_directory_path() /
+                                     ("iceberg_position_delete_test_" + generate_uuid_string());
+    ASSERT_TRUE(std::filesystem::create_directories(temp_dir));
+
+    TDataSink t_data_sink = build_local_delete_sink(temp_dir.string(), 2);
+    VExprContextSPtrs output_exprs;
+    auto sink = std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
+    ObjectPool pool;
+    ASSERT_TRUE(sink->init_properties(&pool).ok());
+
+    MockRuntimeState state;
+    RuntimeProfile profile("iceberg_delete_sink");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+
+    std::map<std::string, IcebergFileDeletion> file_deletions;
+    auto [file_it, inserted] =
+            file_deletions.emplace("file1.parquet", IcebergFileDeletion(1, "[\"p=1\"]"));
+    ASSERT_TRUE(inserted);
+    file_it->second.rows_to_delete.add((uint32_t)10);
+    file_it->second.rows_to_delete.add((uint32_t)20);
+
+    ASSERT_TRUE(sink->_write_position_delete_files(file_deletions).ok());
+    ASSERT_EQ(1, sink->_commit_data_list.size());
+
+    const auto& commit_data = sink->_commit_data_list[0];
+    std::unique_ptr<parquet::ParquetFileReader> parquet_reader =
+            parquet::ParquetFileReader::OpenFile(commit_data.file_path, false);
+    std::shared_ptr<parquet::FileMetaData> file_metadata = parquet_reader->metadata();
+    const auto& group_node =
+            static_cast<const parquet::schema::GroupNode&>(*file_metadata->schema()->group_node());
+
+    ASSERT_EQ(2, group_node.field_count());
+    auto file_path_field = group_node.field(0);
+    auto pos_field = group_node.field(1);
+    EXPECT_EQ("file_path", file_path_field->name());
+    EXPECT_EQ(2147483546, file_path_field->field_id());
+    EXPECT_EQ("pos", pos_field->name());
+    EXPECT_EQ(2147483545, pos_field->field_id());
+
+    ASSERT_TRUE(std::filesystem::remove_all(temp_dir) > 0);
 }
 
 TEST_F(VIcebergDeleteSinkTest, TestUnsupportedDeleteType) {
