@@ -34,7 +34,6 @@ Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& project
                                          const std::map<std::string, Field>& partition_values,
                                          const std::vector<SchemaField>& file_schema) {
     _mappings.clear();
-    DCHECK_EQ(file_schema.size(), 0);
     for (const auto& table_column : projected_columns) {
         ColumnMapping mapping;
         mapping.table_column_id = table_column.id;
