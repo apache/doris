@@ -84,13 +84,12 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testBasicUnion) {
     agg_func->add(place, columns, 1, *arena);
 
     // Get result
-    ColumnInt64 result_column;
+    ColumnFloat64 result_column;
     agg_func->insert_result_into(place, result_column);
 
-    // After union, we expect ~150 unique values (0-149)
-    int64_t estimate = result_column.get_data()[0];
-    EXPECT_GE(estimate, 130); // HLL estimate has some error, allow 13% error
-    EXPECT_LE(estimate, 170);
+    double estimate = result_column.get_data()[0];
+    EXPECT_GE(estimate, 130.0);
+    EXPECT_LE(estimate, 170.0);
 
     agg_func->destroy(place);
 }
@@ -138,8 +137,8 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testMergeTwoAggStates) {
     agg_func->insert_result_into(place1, result);
     int64_t estimate = result.get_data()[0];
 
-    EXPECT_GE(estimate, 170);
-    EXPECT_LE(estimate, 230); // 200 unique values expected
+    EXPECT_GE(estimate, 170.0);
+    EXPECT_LE(estimate, 230.0); // 200 unique values expected
 
     agg_func->destroy(place1);
     agg_func->destroy(place2);
@@ -208,10 +207,9 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testEmptyState) {
             arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
     agg_func->create(place);
 
-    ColumnInt64 result;
+    ColumnFloat64 result;
     agg_func->insert_result_into(place, result);
-
-    EXPECT_EQ(result.get_data()[0], 0);
+    EXPECT_DOUBLE_EQ(result.get_data()[0], 0.0);
 
     agg_func->destroy(place);
 }
@@ -257,7 +255,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testSerializeDeserialize) {
     agg_func->insert_result_into(place, result1);
     agg_func->insert_result_into(new_place, result2);
 
-    EXPECT_EQ(result1.get_data()[0], result2.get_data()[0]);
+    EXPECT_DOUBLE_EQ(result1.get_data()[0], result2.get_data()[0]);
 
     agg_func->destroy(place);
     agg_func->destroy(new_place);
@@ -289,7 +287,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testReset) {
 
     ColumnInt64 result;
     agg_func->insert_result_into(place, result);
-    EXPECT_EQ(result.get_data()[0], 0);
+    EXPECT_DOUBLE_EQ(result.get_data()[0], 0.0);
 
     agg_func->destroy(place);
 }
@@ -328,7 +326,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testResetThenAddReinitializ
 
     ColumnInt64 result;
     agg_func->insert_result_into(place, result);
-    EXPECT_EQ(result.get_data()[0], static_cast<int64_t>(sketch2.get_estimate()));
+    EXPECT_DOUBLE_EQ(result.get_data()[0], sketch2.get_estimate());
 
     agg_func->destroy(place);
 }
@@ -369,10 +367,10 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testFactoryCreateAndAliases
         return result.get_data()[0];
     };
 
-    int64_t expected = static_cast<int64_t>(sketch.get_estimate());
-    EXPECT_EQ(run_and_get_result(fn_main), expected);
-    EXPECT_EQ(run_and_get_result(fn_alias_union_count), expected);
-    EXPECT_EQ(run_and_get_result(fn_alias_cardinality), expected);
+    double expected = sketch.get_estimate();
+    EXPECT_DOUBLE_EQ(run_and_get_result(fn_main), expected);
+    EXPECT_DOUBLE_EQ(run_and_get_result(fn_alias_union_count), expected);
+    EXPECT_DOUBLE_EQ(run_and_get_result(fn_alias_cardinality), expected);
 }
 
 TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
@@ -409,9 +407,9 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
         return result.get_data()[0];
     };
 
-    int64_t expected = static_cast<int64_t>(sketch.get_estimate());
-    EXPECT_EQ(run_and_get_result(fn_varchar), expected);
-    EXPECT_EQ(run_and_get_result(fn_varchar_alias), expected);
+    double expected = sketch.get_estimate();
+    EXPECT_DOUBLE_EQ(run_and_get_result(fn_varchar), expected);
+    EXPECT_DOUBLE_EQ(run_and_get_result(fn_varchar_alias), expected);
 
     DataTypes nullable_varchar_types = {
             make_nullable(std::make_shared<DataTypeString>(-1, TYPE_VARCHAR))};
@@ -510,7 +508,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testResetOnEmptyState) {
 
     ColumnInt64 result;
     agg_func->insert_result_into(place, result);
-    EXPECT_EQ(result.get_data()[0], 0);
+    EXPECT_DOUBLE_EQ(result.get_data()[0], 0.0);
 
     agg_func->destroy(place);
 }
@@ -539,7 +537,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testVarbinaryInput) {
 
     ColumnInt64 result;
     fn->insert_result_into(place, result);
-    EXPECT_EQ(result.get_data()[0], static_cast<int64_t>(sketch.get_estimate()));
+    EXPECT_DOUBLE_EQ(result.get_data()[0], sketch.get_estimate());
 
     fn->destroy(place);
 }
@@ -567,7 +565,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testSerializeDeserializeEmp
 
     ColumnInt64 result;
     agg_func->insert_result_into(new_place, result);
-    EXPECT_EQ(result.get_data()[0], 0);
+    EXPECT_DOUBLE_EQ(result.get_data()[0], 0.0);
 
     agg_func->destroy(place);
     agg_func->destroy(new_place);

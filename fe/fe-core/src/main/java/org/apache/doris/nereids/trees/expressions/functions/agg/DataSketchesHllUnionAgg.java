@@ -24,11 +24,11 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionTrait;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.base.Preconditions;
@@ -40,7 +40,7 @@ import java.util.List;
 public class DataSketchesHllUnionAgg extends NotNullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, FunctionTrait, RollUpTrait {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).args(StringType.INSTANCE)
+            FunctionSignature.ret(DoubleType.INSTANCE).args(StringType.INSTANCE)
     );
 
     /**
@@ -102,6 +102,6 @@ public class DataSketchesHllUnionAgg extends NotNullableAggregateFunction
 
     @Override
     public Expression resultForEmptyInput() {
-        return new BigIntLiteral(0);
+        return new DoubleLiteral(0);
     }
 }

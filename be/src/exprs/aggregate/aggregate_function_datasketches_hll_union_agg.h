@@ -143,10 +143,10 @@ struct AggregateFunctionHllSketchData {
                             "HLL sketch data corrupted when read: unknown exception.");
         }
     }
-    int64_t get_result() const {
+    double get_result() const {
         if (hll_union_data.has_value()) {
             try {
-                return static_cast<int64_t>(hll_union_data->get_estimate());
+                return hll_union_data->get_estimate();
             } catch (const doris::Exception& e) {
                 throw Exception(e.code(), "Internal error happened when get HLL sketch estimate: {}",
                                 e.to_string());
@@ -160,7 +160,7 @@ struct AggregateFunctionHllSketchData {
                         "Internal error happened when get HLL sketch estimate: unknown exception.");
             }
         }
-        return 0;
+        return 0.0;
     }
 };
 
@@ -176,7 +176,7 @@ public:
             : IAggregateFunctionDataHelper<Data, AggregateFunctionDataSketchesHllUnionAgg<T, Data>>(
                       argument_types_) {}
     String get_name() const override { return Data::get_name(); }
-    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
@@ -198,7 +198,7 @@ public:
         this->data(place).read(buf);
     }
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        assert_cast<ColumnInt64&>(to).get_data().push_back(this->data(place).get_result());
+        assert_cast<ColumnFloat64&>(to).get_data().push_back(this->data(place).get_result());
     }
 
 private:
