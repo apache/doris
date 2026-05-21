@@ -27,6 +27,7 @@
 
 namespace parquet {
 class ColumnDescriptor;
+class RowGroupReader;
 
 namespace internal {
 class RecordReader;
@@ -81,13 +82,14 @@ public:
 };
 
 // Parquet column reader 工厂。
-// 工厂绑定当前 row group 的 Arrow Parquet core reader 列表，并根据 file-local schema
-// tree 创建 Doris 自己的 column reader。后续 reader options、Dremel assembler、延时物化
-// cache/skip 策略都应挂在该工厂上下文里，而不是继续扩展自由函数参数。
+// 工厂绑定当前 row group，并根据 file-local schema tree 创建 Doris 自己的 column
+// reader。Arrow internal RecordReader 的创建和缓存必须封装在这里，避免泄露到
+// ParquetReader 主流程。后续 reader options、Dremel assembler、延时物化 cache/skip
+// 策略都应挂在该工厂上下文里，而不是继续扩展自由函数参数。
 class ParquetColumnReaderFactory {
 public:
-    explicit ParquetColumnReaderFactory(
-            const std::vector<std::shared_ptr<::parquet::internal::RecordReader>>& record_readers);
+    ParquetColumnReaderFactory(std::shared_ptr<::parquet::RowGroupReader> row_group,
+                               int num_leaf_columns);
 
     // 根据 file-local schema tree 创建 column reader。复杂类型会在这里递归创建
     // children。该入口只理解 Parquet file schema，不处理 table/global schema。
@@ -101,13 +103,18 @@ private:
     Status create_struct(const ParquetColumnSchema& column_schema,
                          std::unique_ptr<ParquetColumnReader>* reader) const;
 
+    Status get_record_reader(int leaf_column_id, const ::parquet::ColumnDescriptor* descriptor,
+                             const std::string& name,
+                             std::shared_ptr<::parquet::internal::RecordReader>* reader) const;
+
     Status create_primitive_reader(int file_column_id,
                                    const ::parquet::ColumnDescriptor* descriptor, DataTypePtr type,
                                    std::string name,
                                    std::shared_ptr<::parquet::internal::RecordReader> record_reader,
                                    std::unique_ptr<ParquetColumnReader>* reader) const;
 
-    const std::vector<std::shared_ptr<::parquet::internal::RecordReader>>& _record_readers;
+    std::shared_ptr<::parquet::RowGroupReader> _row_group;
+    mutable std::vector<std::shared_ptr<::parquet::internal::RecordReader>> _record_readers;
 };
 
 } // namespace parquet

@@ -1061,8 +1061,9 @@ Status ParquetColumnReader::read_selected(const std::vector<uint16_t>& selection
 }
 
 ParquetColumnReaderFactory::ParquetColumnReaderFactory(
-        const std::vector<std::shared_ptr<::parquet::internal::RecordReader>>& record_readers)
-        : _record_readers(record_readers) {}
+        std::shared_ptr<::parquet::RowGroupReader> row_group, int num_leaf_columns)
+        : _row_group(std::move(row_group)),
+          _record_readers(static_cast<size_t>(num_leaf_columns)) {}
 
 Status ParquetColumnReaderFactory::create_primitive_reader(
         int file_column_id, const ::parquet::ColumnDescriptor* descriptor, DataTypePtr type,
@@ -1098,16 +1099,50 @@ Status ParquetColumnReaderFactory::create_primitive(
                 column_schema.name);
     }
     std::shared_ptr<::parquet::internal::RecordReader> record_reader;
-    if (supports_record_reader(column_schema.descriptor)) {
-        record_reader = _record_readers[column_schema.leaf_column_id];
-    }
-    if (record_reader == nullptr) {
-        return Status::InternalError("Parquet record reader is not initialized for column {}",
-                                     column_schema.name);
-    }
+    RETURN_IF_ERROR(get_record_reader(column_schema.leaf_column_id, column_schema.descriptor,
+                                      column_schema.name, &record_reader));
     return create_primitive_reader(column_schema.leaf_column_id, column_schema.descriptor,
                                    column_schema.type, column_schema.name, std::move(record_reader),
                                    reader);
+}
+
+Status ParquetColumnReaderFactory::get_record_reader(
+        int leaf_column_id, const ::parquet::ColumnDescriptor* descriptor, const std::string& name,
+        std::shared_ptr<::parquet::internal::RecordReader>* reader) const {
+    if (reader == nullptr) {
+        return Status::InvalidArgument("reader is null");
+    }
+    if (_row_group == nullptr) {
+        return Status::InternalError("Parquet row group reader is not initialized for column {}",
+                                     name);
+    }
+    if (leaf_column_id < 0 || leaf_column_id >= static_cast<int>(_record_readers.size())) {
+        return Status::InvalidArgument("Invalid parquet leaf column id {} for column {}",
+                                       leaf_column_id, name);
+    }
+    if (!supports_record_reader(descriptor)) {
+        return Status::NotSupported(
+                "Current parquet reader only supports RecordReader-backed columns; column {} is "
+                "not supported",
+                name);
+    }
+    if (_record_readers[leaf_column_id] == nullptr) {
+        try {
+            _record_readers[leaf_column_id] =
+                    _row_group->RecordReader(leaf_column_id, /*read_dictionary=*/false);
+        } catch (const ::parquet::ParquetException& e) {
+            return Status::Corruption("Failed to create parquet record reader for column {}: {}",
+                                      name, e.what());
+        } catch (const std::exception& e) {
+            return Status::InternalError("Failed to create parquet record reader for column {}: {}",
+                                         name, e.what());
+        }
+    }
+    if (_record_readers[leaf_column_id] == nullptr) {
+        return Status::Corruption("Failed to create parquet record reader for column {}", name);
+    }
+    *reader = _record_readers[leaf_column_id];
+    return Status::OK();
 }
 
 Status ParquetColumnReaderFactory::create_struct(
