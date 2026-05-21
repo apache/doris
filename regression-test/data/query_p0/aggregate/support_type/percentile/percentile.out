@@ -20,3 +20,24 @@
 -- !percentile_double --
 2.718281828
 
+-- !percentile_double_nan --
+1.5
+
+-- !percentile_float_nan --
+1.5
+
+-- !percentile_array_double_nan --
+[1.25, 1.5, 1.75]
+
+-- !percentile_approx_double_nan --
+1.5
+
+-- !percentile_all_nan --
+NaN
+
+-- !percentile_array_all_nan --
+[NaN, NaN, NaN]
+
+-- !percentile_approx_all_nan --
+NaN
+
