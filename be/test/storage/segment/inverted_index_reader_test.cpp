@@ -2721,8 +2721,8 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         for (const auto& value : values) {
-            status = column_writer->add_values(column.name(),
-                                               reinterpret_cast<const void*>(&value), 1);
+            status = column_writer->add_values(column.name(), reinterpret_cast<const void*>(&value),
+                                               1);
             EXPECT_TRUE(status.ok()) << status;
         }
 

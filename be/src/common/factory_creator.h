@@ -47,8 +47,7 @@
 #define _DORIS_CREATE_SHARED_IMPL(TypeName) \
     std::shared_ptr<TypeName>(new TypeName(std::forward<Args>(args)...))
 #else
-#define _DORIS_CREATE_SHARED_IMPL(TypeName) \
-    std::make_shared<TypeName>(std::forward<Args>(args)...)
+#define _DORIS_CREATE_SHARED_IMPL(TypeName) std::make_shared<TypeName>(std::forward<Args>(args)...)
 #endif
 
 #define ENABLE_FACTORY_CREATOR(TypeName)                                             \
