@@ -49,7 +49,7 @@ suite("test_datasketches_hll_union_agg") {
     // 1) Basic union: {0..6} U {20..29} => 17 distinct values
     qt_basic_union """SELECT CAST(ROUND(datasketches_hll_union_agg(sk)) AS BIGINT) FROM ${tableName}"""
 
-    // 2) Aliases should behave identically (print all 3 results in one row)
+    // 2) Aliases should behave identically
     qt_aliases """SELECT
             CAST(ROUND(datasketches_hll_union_agg(sk)) AS BIGINT),
             CAST(ROUND(ds_hll_estimate(sk)) AS BIGINT),
@@ -141,11 +141,11 @@ suite("test_datasketches_hll_union_agg") {
         exception "CORRUPTION"
     }
     test {
-        sql """SELECT ds_hll_union_count(from_base64('AA=='))"""
+        sql """SELECT ds_hll_estimate(from_base64('AA=='))"""
         exception "CORRUPTION"
     }
     test {
-        sql """SELECT ds_cardinality(from_base64('AA=='))"""
+        sql """SELECT datasketches_hll_estimate(from_base64('AA=='))"""
         exception "CORRUPTION"
     }
 
