@@ -118,6 +118,12 @@ inline HashKeyType get_hash_key_type(const std::vector<DataTypePtr>& data_types)
             t->get_primitive_type() == TYPE_JSONB) {
             return HashKeyType::string_key;
         }
+        if (t->get_primitive_type() == TYPE_VARIANT) {
+            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                            "VARIANT type is not supported as a hash key. Cast the VARIANT "
+                            "expression to STRING or another supported scalar type before using "
+                            "it in DISTINCT, GROUP BY, JOIN, or other hash operations.");
+        }
         throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type, type={}", t->get_name());
     }
 
