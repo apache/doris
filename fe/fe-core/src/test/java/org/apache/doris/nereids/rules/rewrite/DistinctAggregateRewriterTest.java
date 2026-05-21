@@ -38,10 +38,10 @@ import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Mock;
-import mockit.MockUp;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;

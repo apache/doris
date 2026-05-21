@@ -9,6 +9,6 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------hashAgg[GLOBAL]
 ----------------PhysicalProject
-------------------filter(( not (URL like '%.google.%')) and ( not (length(SearchPhrase) = 0)) and (Title like '%Google%'))
+------------------filter(( not (SearchPhrase = '')) and ( not (URL like '%.google.%')) and (Title like '%Google%'))
 --------------------PhysicalOlapScan[hits]
 
