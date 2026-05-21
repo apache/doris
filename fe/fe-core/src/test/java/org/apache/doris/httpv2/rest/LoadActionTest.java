@@ -194,6 +194,7 @@ public class LoadActionTest {
         Mockito.when(request.getHeader("Authorization")).thenReturn(null);
         Mockito.when(request.getContentLengthLong()).thenReturn(contentLength);
         Mockito.when(request.getHeader("Transfer-Encoding")).thenReturn(transferEncoding);
+        Mockito.when(request.getHeader("transfer-encoding")).thenReturn(transferEncoding);
         if (stubInputStream) {
             Mockito.when(request.getInputStream()).thenReturn(new IdleServletInputStream());
         }
