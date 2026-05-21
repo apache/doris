@@ -1051,6 +1051,11 @@ struct TNestedLoopJoinNode {
   9: optional list<Exprs.TExpr> mark_join_conjuncts
   // deprecated
   10: optional bool use_specific_projections
+
+  // Slots that need to be materialized after join conjunct evaluation.
+  // If this field is not set, BE keeps the legacy behavior.
+  // If this field is set to an empty list, no payload slot needs materialization.
+  11: optional list<Types.TSlotId> materialized_slot_ids
 }
 
 struct TMergeJoinNode {

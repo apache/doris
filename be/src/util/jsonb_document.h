@@ -1037,6 +1037,9 @@ inline const JsonbValue* JsonbDocument::createValue(const char* pb, size_t size)
     }
 
     const auto* val = (const JsonbValue*)doc->payload_;
+    // Same as checkAndCreateDocument(), this is intentionally a lightweight structural check for
+    // hot paths. Do not recursively validate container bodies here unless the caller is a clearly
+    // untrusted raw binary boundary and accepts the O(document size) cost.
     if (size != sizeof(JsonbHeader) + val->numPackedBytes()) {
         return nullptr;
     }
@@ -1285,6 +1288,8 @@ inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
         return parse_array(stream, path);
     }
     // $.a or $.[0]
+    // Keep $.[0] for backward compatibility: although the dot before an array
+    // leg is non-standard, existing JSONB users may rely on it.
     else if (stream->peek() == BEGIN_MEMBER) {
         // advance past the .
         stream->skip(1);
@@ -1327,7 +1332,8 @@ inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
                 return false;
             }
 
-            // $.[0]
+            // $**.[0]
+            // Keep the dot-array form compatible with the root path behavior.
             if (stream->peek() == BEGIN_ARRAY) {
                 return parse_array(stream, path);
             }
@@ -1390,6 +1396,8 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
     std::string_view idx_string(stream->get_leg_ptr(), stream->get_leg_len());
     int index = 0;
 
+    // Match "last" case-insensitively for compatibility with existing JSONB
+    // paths such as [Last] and [LAST].
     if (stream->get_leg_len() >= 4 &&
         std::equal(LAST, LAST + 4, stream->get_leg_ptr(),
                    [](char c1, char c2) { return std::tolower(c1) == std::tolower(c2); })) {
@@ -1408,6 +1416,8 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
             idx_string = idx_string.substr(pos + 1);
             idx_string = trim(idx_string);
 
+            // Keep numeric-prefix parsing for last-N offsets as existing JSONB
+            // path behavior.
             auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(),
                                           index);
             if (result.ec != std::errc()) {
@@ -1425,6 +1435,9 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
         return true;
     }
 
+    // Preserve legacy numeric-prefix parsing for array indexes. std::from_chars
+    // may stop before the end (for example [1.5] is parsed as index 1), and
+    // current JSONB path semantics treat that as supported behavior.
     auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(), index);
 
     if (result.ec != std::errc()) {
