@@ -23,7 +23,7 @@ suite("test_tablet_stat_mgr_concurrent_partition_churn", "nonConcurrent") {
     String dbName = context.config.getDbNameByFile(context.file)
     sql "select 1"
 
-    String tableName = "test_issue_59138"
+    String tableName = "test_tablet_stat_mgr_churn"
     String oldInterval = null
     AtomicBoolean stopped = new AtomicBoolean(false)
     AtomicReference<Throwable> firstError = new AtomicReference<>()
@@ -40,6 +40,7 @@ suite("test_tablet_stat_mgr_concurrent_partition_churn", "nonConcurrent") {
 
     def readAppendedLog = { File file, long offset ->
         if (!file.exists()) {
+            logger.warn("skip checking appended log because {} does not exist", file.getAbsolutePath())
             return ""
         }
         RandomAccessFile raf = new RandomAccessFile(file, "r")
@@ -127,7 +128,7 @@ suite("test_tablet_stat_mgr_concurrent_partition_churn", "nonConcurrent") {
         def tableWorker = startWorker {
             int i = 0
             while (!stopped.get()) {
-                String tempTable = "tmp_issue_59138_${i}"
+                String tempTable = "tmp_tablet_stat_mgr_churn_${i}"
                 sql """
                     CREATE TABLE ${tempTable} (
                         `k1` INT NOT NULL,

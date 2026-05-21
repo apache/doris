@@ -418,7 +418,14 @@ public class TabletStatMgr extends MasterDaemon {
                     // the replica is obsolete, ignore it.
                     continue;
                 }
-                Replica replica = invertedIndex.getReplica(entry.getKey(), beId);
+                Replica replica;
+                try {
+                    replica = invertedIndex.getReplica(entry.getKey(), beId);
+                } catch (IllegalStateException e) {
+                    LOG.debug("skip stale tablet stat update for tablet {} on backend {}",
+                            entry.getKey(), beId, e);
+                    continue;
+                }
                 if (replica == null) {
                     // replica may be deleted from catalog, ignore it.
                     continue;
