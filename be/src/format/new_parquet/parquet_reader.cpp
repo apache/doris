@@ -381,28 +381,7 @@ void mark_required_leaf_columns(const ParquetColumnSchema& column_schema,
 }
 
 bool leaf_can_use_record_reader(const ParquetColumnSchema& column_schema) {
-    const auto* descriptor = column_schema.descriptor;
-    if (descriptor == nullptr || descriptor->max_repetition_level() != 0) {
-        return false;
-    }
-    const auto& logical_type = descriptor->logical_type();
-    const bool has_logical_or_converted_type =
-            descriptor->converted_type() != ::parquet::ConvertedType::NONE ||
-            (logical_type != nullptr && logical_type->is_valid() && !logical_type->is_none());
-    if (has_logical_or_converted_type) {
-        return false;
-    }
-    switch (descriptor->physical_type()) {
-    case ::parquet::Type::BOOLEAN:
-    case ::parquet::Type::INT32:
-    case ::parquet::Type::INT64:
-    case ::parquet::Type::FLOAT:
-    case ::parquet::Type::DOUBLE:
-        return column_schema.type != nullptr &&
-               remove_nullable(column_schema.type)->get_primitive_type() != INVALID_TYPE;
-    default:
-        return false;
-    }
+    return supported_flat_column_type(column_schema.descriptor) != nullptr;
 }
 
 const ParquetColumnSchema* find_leaf_schema(
@@ -482,17 +461,9 @@ Status open_next_row_group(ParquetReaderScanState* state, bool* has_row_group) {
         state->current_filter_columns.reserve(state->filter_fields.size());
         state->current_output_columns.reserve(state->projected_fields.size());
 
-        std::vector<std::shared_ptr<::parquet::ColumnReader>> arrow_readers(
-                state->schema->num_columns());
         std::vector<std::shared_ptr<::parquet::internal::RecordReader>> record_readers(
                 state->schema->num_columns());
         for (int leaf_column_id : state->required_leaf_columns) {
-            arrow_readers[leaf_column_id] = state->current_row_group->Column(leaf_column_id);
-            if (arrow_readers[leaf_column_id] == nullptr) {
-                return Status::Corruption(
-                        "Failed to create parquet column reader for leaf column {}",
-                        leaf_column_id);
-            }
             const auto* leaf_schema = find_leaf_schema(state->file_schema, leaf_column_id);
             if (leaf_schema != nullptr && leaf_can_use_record_reader(*leaf_schema)) {
                 record_readers[leaf_column_id] = state->current_row_group->RecordReader(
@@ -505,7 +476,7 @@ Status open_next_row_group(ParquetReaderScanState* state, bool* has_row_group) {
             }
         }
 
-        ParquetColumnReaderFactory column_reader_factory(arrow_readers, record_readers);
+        ParquetColumnReaderFactory column_reader_factory(record_readers);
         for (int file_field_id : state->filter_fields) {
             const auto& column_schema = state->file_schema[file_field_id];
             std::unique_ptr<ParquetColumnReader> column_reader;
@@ -719,15 +690,13 @@ Status ParquetReader::init(const reader::FileScanRequest& request) {
     return Status::OK();
 }
 
-Status ParquetReader::next(Block* file_block, size_t* rows, bool* eof) {
-    if (rows != nullptr) {
-        *rows = 0;
-    }
+Status ParquetReader::get_block(Block* file_block, bool* eof) {
     if (eof != nullptr) {
         *eof = false;
     }
-    if (file_block == nullptr || rows == nullptr || eof == nullptr) {
-        return Status::InvalidArgument("ParquetReader::next requires non-null output arguments");
+    if (file_block == nullptr || eof == nullptr) {
+        return Status::InvalidArgument(
+                "ParquetReader::get_block requires non-null output arguments");
     }
     if (_eof) {
         *eof = true;
@@ -759,12 +728,13 @@ Status ParquetReader::next(Block* file_block, size_t* rows, bool* eof) {
         const int64_t batch_rows =
                 std::min<int64_t>(DEFAULT_PARQUET_READ_BATCH_SIZE, remaining_rows);
         const int64_t physical_rows_read = batch_rows;
-        RETURN_IF_ERROR(read_current_row_group_batch(_state.get(), batch_rows, file_block, rows));
+        size_t rows = 0;
+        RETURN_IF_ERROR(read_current_row_group_batch(_state.get(), batch_rows, file_block, &rows));
         _state->current_row_group_rows_read += physical_rows_read;
         if (_state->current_row_group_rows_read >= _state->current_row_group_rows) {
             reset_current_row_group(_state.get());
         }
-        if (*rows == 0) {
+        if (rows == 0) {
             continue;
         }
         *eof = false;
