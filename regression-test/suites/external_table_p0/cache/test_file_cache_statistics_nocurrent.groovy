@@ -41,7 +41,7 @@ final String INITIAL_TOTAL_READ_COUNTS_NOT_GREATER_THAN_0_MSG = HIT_AND_READ_COU
 final String TOTAL_HIT_COUNTS_DID_NOT_INCREASE_MSG = HIT_AND_READ_COUNTS_CHECK_FAILED_PREFIX + "total_hit_counts did not increase after cache operation"
 final String TOTAL_READ_COUNTS_DID_NOT_INCREASE_MSG = HIT_AND_READ_COUNTS_CHECK_FAILED_PREFIX + "total_read_counts did not increase after cache operation"
 
-suite("test_file_cache_statistics", "p0,external") {
+suite("test_file_cache_statistics_nocurrent", "p0,external,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
@@ -256,4 +256,3 @@ suite("test_file_cache_statistics", "p0,external") {
     sql """set global enable_file_cache=false"""
     return true
 }
-
