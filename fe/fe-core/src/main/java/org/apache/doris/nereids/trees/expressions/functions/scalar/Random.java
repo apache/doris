@@ -23,12 +23,10 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -76,8 +74,6 @@ public class Random extends UniqueFunction
 
     public Random(ExprId uniqueId, boolean ignoreUniqueId, Expression arg) {
         super("random", uniqueId, ignoreUniqueId, arg);
-        // align with original planner behavior, refer to: org/apache/doris/analysis/Expr.getBuiltinFunction()
-        Preconditions.checkState(arg instanceof Literal, "The param of rand function must be literal");
     }
 
     public Random(ExprId uniqueId, boolean ignoreUniqueId, Expression lchild, Expression rchild) {
@@ -97,7 +93,7 @@ public class Random extends UniqueFunction
     public void checkLegalityBeforeTypeCoercion() {
         // align with original planner behavior, refer to:
         // org/apache/doris/analysis/Expr.getBuiltinFunction()
-        for (Expression child : children()) {
+        for (Expression child : getArguments()) {
             if (!child.isLiteral()) {
                 throw new AnalysisException("The param of rand function must be literal ");
             }
