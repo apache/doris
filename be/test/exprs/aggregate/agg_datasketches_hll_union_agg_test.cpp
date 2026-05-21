@@ -425,6 +425,54 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
     EXPECT_EQ(fn_unsupported, nullptr);
 }
 
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testLowLgKSketchDoesNotReportCorruption) {
+    DataTypes argument_types = {std::make_shared<DataTypeString>()};
+    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
+            TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>>(argument_types);
+
+    datasketches::hll_sketch sketch(4, datasketches::HLL_8);
+    for (int i = 0; i < 100; ++i) {
+        sketch.update(i);
+    }
+    const auto ser = sketch.serialize_compact();
+
+    auto column_string = ColumnString::create();
+    column_string->insert_data((const char*)ser.data(), ser.size());
+
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+
+    const IColumn* columns[1] = {column_string.get()};
+    EXPECT_NO_THROW(agg_func->add(place, columns, 0, *arena));
+
+    ColumnInt64 add_result;
+    agg_func->insert_result_into(place, add_result);
+
+    EXPECT_GE(add_result.get_data()[0], 50);
+    EXPECT_LE(add_result.get_data()[0], 150);
+
+    auto buf = ColumnString::create();
+    BufferWritable w(*buf);
+    StringRef d((const char*)ser.data(), ser.size());
+    w.write_binary(d);
+    w.commit();
+
+    AggregateDataPtr place2 =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place2);
+
+    BufferReadable r(buf->get_data_at(0));
+    EXPECT_NO_THROW(agg_func->deserialize(place2, r, *arena));
+
+    ColumnInt64 deserialize_result;
+    agg_func->insert_result_into(place2, deserialize_result);
+    EXPECT_EQ(deserialize_result.get_data()[0], add_result.get_data()[0]);
+
+    agg_func->destroy(place);
+    agg_func->destroy(place2);
+}
+
 TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testAddEmptyStringThrows) {
     DataTypes argument_types = {std::make_shared<DataTypeString>()};
     auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<

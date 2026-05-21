@@ -18,6 +18,7 @@
 #pragma once
 #include <stddef.h>
 
+#include <algorithm>
 #include <DataSketches/hll.hpp>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
@@ -55,7 +56,7 @@ struct AggregateFunctionHllSketchData {
       * as this value is used as a performance baseline in the relevant documentation.
       * (https://datasketches.apache.org/docs/HLL/HllPerformance.html)
       */
-    static const uint8_t DEFAULT_LOG_K = 12;
+    static constexpr uint8_t DEFAULT_LOG_K = 12;
     using Alloc = CustomStdAllocator<uint8_t>;
     using Sketch = datasketches::hll_sketch_alloc<Alloc>;
     using Union = datasketches::hll_union_alloc<Alloc>;
@@ -66,13 +67,27 @@ struct AggregateFunctionHllSketchData {
 
     void merge(const Sketch& sketch_data) {
         if (!hll_union_data.has_value()) {
-            hll_union_data.emplace(sketch_data.get_lg_config_k(), Alloc());
+            /** We clamp max lg_k to [7, 21],
+              * considering that the code comment requires 7 to 21.
+              * See: datasketches-cpp/hll/include/hll.hpp:451
+              */
+            constexpr uint8_t MIN_UNION_LOG_K = 7;
+            const uint8_t union_lg_k = std::clamp<uint8_t>(sketch_data.get_lg_config_k(),
+                                                           MIN_UNION_LOG_K,
+                                                           datasketches::hll_constants::MAX_LOG_K);
+            hll_union_data.emplace(union_lg_k, Alloc());
         }
         try {
             hll_union_data->update(sketch_data);
+        } catch (const doris::Exception& e) {
+            throw Exception(e.code(), "Internal error happened when update HLL sketch: {}",
+                            e.to_string());
+        } catch (const std::exception& e) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Internal error happened when update HLL sketch: {}", e.what());
         } catch (...) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "Internal error happened when update HLL sketch.");
+                            "Internal error happened when update HLL sketch: unknown exception.");
         }
     }
     void reset() {
@@ -99,9 +114,15 @@ struct AggregateFunctionHllSketchData {
         try {
             auto cache = hll_union_data->get_result();
             write_sketch(buf, cache);
+        } catch (const doris::Exception& e) {
+            throw Exception(e.code(), "Internal error happened when serialize HLL sketch: {}",
+                            e.to_string());
+        } catch (const std::exception& e) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Internal error happened when serialize HLL sketch: {}", e.what());
         } catch (...) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "Internal error happened when serialize HLL sketch.");
+                            "Internal error happened when serialize HLL sketch: unknown exception.");
         }
     }
     void read(BufferReadable& buf) {
@@ -110,17 +131,32 @@ struct AggregateFunctionHllSketchData {
         try {
             auto cache = Sketch::deserialize(d.data, d.size, Alloc());
             merge(cache);
+        } catch (const doris::Exception& e) {
+            throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when read: {}",
+                            e.to_string());
+        } catch (const std::exception& e) {
+            throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when read: {}",
+                            e.what());
         } catch (...) {
-            throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when read.");
+            throw Exception(ErrorCode::CORRUPTION,
+                            "HLL sketch data corrupted when read: unknown exception.");
         }
     }
     int64_t get_result() const {
         if (hll_union_data.has_value()) {
             try {
                 return static_cast<int64_t>(hll_union_data->get_estimate());
-            } catch (...) {
+            } catch (const doris::Exception& e) {
+                throw Exception(e.code(), "Internal error happened when get HLL sketch estimate: {}",
+                                e.to_string());
+            } catch (const std::exception& e) {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
-                                "Internal error happened when get HLL sketch estimate.");
+                                "Internal error happened when get HLL sketch estimate: {}",
+                                e.what());
+            } catch (...) {
+                throw Exception(
+                        ErrorCode::INTERNAL_ERROR,
+                        "Internal error happened when get HLL sketch estimate: unknown exception.");
             }
         }
         return 0;
@@ -134,7 +170,10 @@ template <PrimitiveType T, typename Data>
 struct OneAdder {
     static void ALWAYS_INLINE add(Data& data, const IColumn& column, size_t row_num) {
         if constexpr (is_string_type(T) || is_varbinary(T)) {
-            StringRef value = column.get_data_at(row_num);
+            const auto& src_column =
+                    assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                TypeCheckOnRelease::DISABLE>(column);
+            StringRef value = src_column.get_data_at(row_num);
             if (value.empty()) {
                 throw Exception(ErrorCode::CORRUPTION,
                                 "HLL sketch data corrupted when add: empty input.");
@@ -144,8 +183,15 @@ struct OneAdder {
                 using Alloc = typename Data::Alloc;
                 Sketch sketch_data = Sketch::deserialize(value.begin(), value.size, Alloc());
                 data.merge(sketch_data);
+            } catch (const doris::Exception& e) {
+                throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when add: {}",
+                                e.to_string());
+            } catch (const std::exception& e) {
+                throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when add: {}",
+                                e.what());
             } catch (...) {
-                throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when add.");
+                throw Exception(ErrorCode::CORRUPTION,
+                                "HLL sketch data corrupted when add: unknown exception.");
             }
         }
     }
