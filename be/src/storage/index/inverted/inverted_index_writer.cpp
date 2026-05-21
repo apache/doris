@@ -17,6 +17,9 @@
 
 #include "storage/index/inverted/inverted_index_writer.h"
 
+#include <cstring>
+
+#include "common/cast_set.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
@@ -31,6 +34,71 @@ const int32_t MERGE_FACTOR = 100000000;
 const int32_t MAX_LEAF_COUNT = 1024;
 const float MAXMBSortInHeap = 512.0 * 8;
 const int DIMS = 1;
+
+namespace {
+
+template <typename T>
+int64_t vector_memory_size(const std::vector<T>& vector) {
+    return cast_set<int64_t>(vector.capacity() * sizeof(T));
+}
+
+int64_t bytes_ref_memory_size(const std::shared_ptr<lucene::util::BytesRef>& bytes_ref) {
+    if (bytes_ref == nullptr) {
+        return 0;
+    }
+    return cast_set<int64_t>(sizeof(lucene::util::BytesRef)) + vector_memory_size(bytes_ref->bytes);
+}
+
+int64_t heap_point_writer_memory_size(
+        const std::shared_ptr<lucene::util::bkd::heap_point_writer>& writer) {
+    if (writer == nullptr) {
+        return 0;
+    }
+
+    int64_t size = cast_set<int64_t>(sizeof(lucene::util::bkd::heap_point_writer));
+    size += vector_memory_size(writer->doc_IDs_);
+    size += vector_memory_size(writer->ords_long_);
+    size += vector_memory_size(writer->ords_);
+    size += vector_memory_size(writer->blocks_);
+    for (const auto& block : writer->blocks_) {
+        size += vector_memory_size(block);
+    }
+    size += bytes_ref_memory_size(writer->cache_);
+    size += bytes_ref_memory_size(writer->cache1_);
+    return size;
+}
+
+int64_t bkd_writer_memory_size(const std::shared_ptr<lucene::util::bkd::bkd_writer>& writer) {
+    if (writer == nullptr) {
+        return 0;
+    }
+
+    int64_t size = cast_set<int64_t>(sizeof(lucene::util::bkd::bkd_writer));
+    size += vector_memory_size(writer->min_packed_value_);
+    size += vector_memory_size(writer->max_packed_value_);
+    size += vector_memory_size(writer->scratch_diff_);
+    size += vector_memory_size(writer->scratch1_);
+    size += vector_memory_size(writer->scratch2_);
+    size += vector_memory_size(writer->common_prefix_lengths_);
+    size += heap_point_writer_memory_size(writer->heap_point_writer_);
+    return size;
+}
+
+int64_t ram_directory_memory_size(const std::shared_ptr<DorisFSDirectory>& dir) {
+    if (dir == nullptr || std::strcmp(dir->getObjectName(), "DorisRAMFSDirectory") != 0) {
+        return 0;
+    }
+
+    int64_t size = 0;
+    std::vector<std::string> files;
+    dir->list(&files);
+    for (const auto& file : files) {
+        size += dir->fileLength(file.c_str());
+    }
+    return size;
+}
+
+} // namespace
 
 template <FieldType field_type>
 InvertedIndexColumnWriter<field_type>::InvertedIndexColumnWriter(const std::string& field_name,
@@ -566,8 +634,12 @@ Status InvertedIndexColumnWriter<field_type>::add_value(const CppType& value) {
 
 template <FieldType field_type>
 int64_t InvertedIndexColumnWriter<field_type>::size() const {
-    //TODO: get memory size of inverted index
-    return 0;
+    int64_t size = cast_set<int64_t>(_null_bitmap.getSizeInBytes(false));
+    if constexpr (field_is_numeric_type(field_type)) {
+        size += bkd_writer_memory_size(_bkd_writer);
+    }
+    size += ram_directory_memory_size(_dir);
+    return size;
 }
 
 template <FieldType field_type>

@@ -721,6 +721,12 @@ uint64_t ScalarColumnWriter::estimate_buffer_size() {
     if (_opts.need_bloom_filter) {
         size += _bloom_filter_index_builder->size();
     }
+    if (_opts.need_inverted_index) {
+        for (const auto& builder : _inverted_index_builders) {
+            DORIS_CHECK(builder != nullptr);
+            size += builder->size();
+        }
+    }
     return size;
 }
 
@@ -1121,9 +1127,18 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
 }
 
 uint64_t ArrayColumnWriter::estimate_buffer_size() {
-    return _offset_writer->estimate_buffer_size() +
-           (is_nullable() ? _null_writer->estimate_buffer_size() : 0) +
-           _item_writer->estimate_buffer_size();
+    uint64_t size = _offset_writer->estimate_buffer_size() +
+                    (is_nullable() ? _null_writer->estimate_buffer_size() : 0) +
+                    _item_writer->estimate_buffer_size();
+    if (_opts.need_inverted_index) {
+        DORIS_CHECK(_inverted_index_writer != nullptr);
+        size += _inverted_index_writer->size();
+    }
+    if (_opts.need_ann_index) {
+        DORIS_CHECK(_ann_index_writer != nullptr);
+        size += _ann_index_writer->size();
+    }
+    return size;
 }
 
 Status ArrayColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,

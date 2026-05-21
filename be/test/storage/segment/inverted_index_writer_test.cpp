@@ -25,9 +25,11 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstring>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -788,6 +790,71 @@ TEST_F(InvertedIndexWriterTest, NullsWrite) {
 // Test case for numeric values
 TEST_F(InvertedIndexWriterTest, NumericWrite) {
     test_numeric_write("test_rowset_3", 0);
+}
+
+TEST_F(InvertedIndexWriterTest, HighCardinalityBkdMemoryEstimate) {
+    auto tablet_schema = create_schema();
+
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(0);
+    auto* properties = index_meta_pb->mutable_properties();
+    (*properties)["type"] = "bkd";
+
+    TabletIndex idx_meta;
+    idx_meta.init_from_pb(*index_meta_pb.get());
+
+    std::string rowset_id = "test_rowset_high_cardinality_memory";
+    int seg_id = 0;
+    std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, rowset_id, seg_id))};
+    std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+
+    io::FileWriterPtr file_writer;
+    io::FileWriterOptions opts;
+    auto fs = io::global_local_filesystem();
+    Status sts = fs->create_file(index_path, &file_writer, &opts);
+    ASSERT_TRUE(sts.ok()) << sts;
+    auto index_file_writer = std::make_unique<IndexFileWriter>(
+            fs, index_path_prefix, rowset_id, seg_id, InvertedIndexStorageFormatPB::V2,
+            std::move(file_writer));
+
+    const TabletColumn& column = tablet_schema->column(0);
+    ASSERT_NE(&column, nullptr);
+    std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
+    ASSERT_NE(field.get(), nullptr);
+
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                            &idx_meta);
+    ASSERT_TRUE(status.ok()) << status;
+
+    const int64_t initial_size = column_writer->size();
+    int64_t peak_size = initial_size;
+    constexpr size_t value_count = 4096;
+    constexpr size_t batch_size = 512;
+    std::vector<int32_t> values(value_count);
+    std::iota(values.begin(), values.end(), 0);
+
+    for (size_t offset = 0; offset < values.size(); offset += batch_size) {
+        size_t count = std::min(batch_size, values.size() - offset);
+        status = column_writer->add_values("c1", values.data() + offset, count);
+        ASSERT_TRUE(status.ok()) << status;
+        peak_size = std::max(peak_size, column_writer->size());
+    }
+
+    EXPECT_GT(peak_size, initial_size);
+    EXPECT_GE(peak_size - initial_size, static_cast<int64_t>(values.size() * sizeof(int32_t)));
+
+    status = column_writer->finish();
+    ASSERT_TRUE(status.ok()) << status;
+    status = index_file_writer->begin_close();
+    ASSERT_TRUE(status.ok()) << status;
+    status = index_file_writer->finish_close();
+    ASSERT_TRUE(status.ok()) << status;
 }
 
 // Test case for Unicode string values with enable_correct_term_write=true
