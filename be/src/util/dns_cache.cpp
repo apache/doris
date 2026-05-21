@@ -184,5 +184,3 @@ void DNSCache::_refresh_cache() {
 }
 
 } // end of namespace doris
-
-} // end of namespace doris
