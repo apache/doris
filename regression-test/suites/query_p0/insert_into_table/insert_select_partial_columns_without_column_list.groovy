@@ -181,6 +181,14 @@ suite("insert_select_partial_columns_without_column_list", "p0") {
             select * from insert_select_partial_unique_dst order by id, score, v1, v2
         """
 
+        sql "set enable_unique_key_partial_update=true;"
+        sql "insert into insert_select_partial_unique_dst select id, score from insert_select_partial_unique_src"
+        sql "sync"
+        order_qt_unique_partial_session_enabled """
+            select * from insert_select_partial_unique_dst order by id, score, v1, v2
+        """
+        sql "set enable_unique_key_partial_update=false;"
+
         sql "drop table if exists insert_select_partial_seq_dst"
         sql "drop table if exists insert_select_partial_seq_src"
         sql """

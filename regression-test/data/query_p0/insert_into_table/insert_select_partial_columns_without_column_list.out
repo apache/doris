@@ -21,6 +21,10 @@
 1	11	100	\N
 2	20	100	\N
 
+-- !unique_partial_session_enabled --
+1	11	100	\N
+2	20	100	\N
+
 -- !seq_with_input --
 1	10	2024-01-01T00:00
 2	20	2024-01-02T00:00

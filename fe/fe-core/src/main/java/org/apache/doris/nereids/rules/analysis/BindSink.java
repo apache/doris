@@ -227,9 +227,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> bindColumns = bindColumnsResult.first;
         int extraColumnsNum = bindColumnsResult.second;
         if (sink.getDMLCommandType() == DMLCommandType.INSERT
-                && ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate()
-                && table.getEnableUniqueKeyMergeOnWrite()
+                && isPartialUpdate
                 && sink.getColNames().isEmpty()
                 && child.getOutput().size() < bindColumns.size()) {
             throw new AnalysisException("insert into cols should be corresponding to the query output");
