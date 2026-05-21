@@ -419,6 +419,9 @@ PartitionedHashJoinSinkOperatorX::PartitionedHashJoinSinkOperatorX(ObjectPool* p
 Status PartitionedHashJoinSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     _partition_count = state->spill_hash_join_partition_count();
     RETURN_IF_ERROR(JoinBuildSinkOperatorX::init(tnode, state));
+    if (_is_mark_join && _join_op == TJoinOp::RIGHT_ANTI_JOIN) {
+        return Status::InternalError("Hash join does not support right anti mark join");
+    }
     _name = "PARTITIONED_HASH_JOIN_SINK_OPERATOR";
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
     std::vector<TExpr> partition_exprs;
