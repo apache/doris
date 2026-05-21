@@ -21,9 +21,11 @@ import org.apache.doris.common.Config;
 
 import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletInputStream;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.util.ArrayDeque;
@@ -44,7 +46,36 @@ public class StreamLoadRedirectDrainUtilTest {
                         new QueueAvailableServletInputStream("hello".getBytes(), 5, 0, 0, 0), 16);
 
         Assertions.assertEquals(5, drainResult.getDrainedBytes());
+        Assertions.assertTrue(drainResult.getElapsedMillis() >= 0);
         Assertions.assertEquals(StreamLoadRedirectDrainUtil.ExitReason.EOF, drainResult.getExitReason());
+    }
+
+    @Test
+    public void testDrainRequestBodyAfterRedirectUsesRequestInputStream() throws Exception {
+        Config.stream_load_redirect_bounded_drain_max_idle_time_ms = 100;
+        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(request.getInputStream())
+                .thenReturn(new QueueAvailableServletInputStream("hello".getBytes(), 5, 0, 0, 0));
+
+        StreamLoadRedirectDrainUtil.DrainResult drainResult =
+                StreamLoadRedirectDrainUtil.drainRequestBodyAfterRedirect(request, 16);
+
+        Assertions.assertEquals(5, drainResult.getDrainedBytes());
+        Assertions.assertTrue(drainResult.getElapsedMillis() >= 0);
+        Assertions.assertEquals(StreamLoadRedirectDrainUtil.ExitReason.EOF, drainResult.getExitReason());
+    }
+
+    @Test
+    public void testDrainRequestBodyAfterRedirectReturnsErrorWhenGetInputStreamFails() throws Exception {
+        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(request.getInputStream()).thenThrow(new IOException("open error"));
+
+        StreamLoadRedirectDrainUtil.DrainResult drainResult =
+                StreamLoadRedirectDrainUtil.drainRequestBodyAfterRedirect(request, 16);
+
+        Assertions.assertEquals(0, drainResult.getDrainedBytes());
+        Assertions.assertEquals(0, drainResult.getElapsedMillis());
+        Assertions.assertEquals(StreamLoadRedirectDrainUtil.ExitReason.ERROR, drainResult.getExitReason());
     }
 
     @Test
@@ -126,6 +157,34 @@ public class StreamLoadRedirectDrainUtilTest {
 
         Assertions.assertEquals(0, drainResult.getDrainedBytes());
         Assertions.assertEquals(StreamLoadRedirectDrainUtil.ExitReason.EOF, drainResult.getExitReason());
+    }
+
+    @Test
+    public void testDrainRequestBodyRejectsNonPositiveMaxBytes() {
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> StreamLoadRedirectDrainUtil.drainRequestBodyAfterRedirect(new NeverReadyServletInputStream(), 0));
+    }
+
+    @Test
+    public void testDrainRequestBodyReturnsEofWhenReadReturnsNegative() {
+        Config.stream_load_redirect_bounded_drain_max_idle_time_ms = 100;
+        StreamLoadRedirectDrainUtil.DrainResult drainResult =
+                StreamLoadRedirectDrainUtil.drainRequestBodyAfterRedirect(new ReadNegativeServletInputStream(), 8);
+
+        Assertions.assertEquals(0, drainResult.getDrainedBytes());
+        Assertions.assertTrue(drainResult.getElapsedMillis() >= 0);
+        Assertions.assertEquals(StreamLoadRedirectDrainUtil.ExitReason.EOF, drainResult.getExitReason());
+    }
+
+    @Test
+    public void testDrainRequestBodyReadZeroTriggersIdleTimeout() {
+        Config.stream_load_redirect_bounded_drain_max_idle_time_ms = 0;
+        StreamLoadRedirectDrainUtil.DrainResult drainResult =
+                StreamLoadRedirectDrainUtil.drainRequestBodyAfterRedirect(new ReadZeroServletInputStream(), 8);
+
+        Assertions.assertEquals(0, drainResult.getDrainedBytes());
+        Assertions.assertTrue(drainResult.getElapsedMillis() >= 0);
+        Assertions.assertEquals(StreamLoadRedirectDrainUtil.ExitReason.IDLE_TIMEOUT, drainResult.getExitReason());
     }
 
     private static class QueueAvailableServletInputStream extends ServletInputStream {
@@ -232,6 +291,68 @@ public class StreamLoadRedirectDrainUtilTest {
         @Override
         public boolean isFinished() {
             return true;
+        }
+
+        @Override
+        public boolean isReady() {
+            return true;
+        }
+
+        @Override
+        public void setReadListener(ReadListener readListener) {
+        }
+    }
+
+    private static class ReadNegativeServletInputStream extends ServletInputStream {
+        @Override
+        public int read() {
+            return -1;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) {
+            return -1;
+        }
+
+        @Override
+        public int available() {
+            return 1;
+        }
+
+        @Override
+        public boolean isFinished() {
+            return false;
+        }
+
+        @Override
+        public boolean isReady() {
+            return true;
+        }
+
+        @Override
+        public void setReadListener(ReadListener readListener) {
+        }
+    }
+
+    private static class ReadZeroServletInputStream extends ServletInputStream {
+        @Override
+        public int read() {
+            return 0;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) {
+            return 0;
+        }
+
+        @Override
+        public int available() {
+            return 1;
+        }
+
+        @Override
+        public boolean isFinished() {
+            return false;
         }
 
         @Override
