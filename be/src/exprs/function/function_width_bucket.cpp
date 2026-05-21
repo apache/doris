@@ -81,7 +81,7 @@ public:
         DataTypePtr expr_type = block.get_by_position(arguments[0]).type;
 
         if (!_execute_by_type(*expr_ptr, *min_value_ptr, *max_value_ptr, num_buckets,
-                              *nested_column_ptr, expr_type)) {
+                              nested_column_ptr, expr_type)) {
             return Status::InvalidArgument("Unsupported type for width_bucket: {}",
                                            expr_type->get_name());
         }
@@ -94,11 +94,11 @@ private:
     template <typename ColumnType>
     void _execute(const IColumn& expr_column, const IColumn& min_value_column,
                   const IColumn& max_value_column, const int64_t num_buckets,
-                  IColumn& nested_column) const {
+                  ColumnInt64::MutablePtr& nested_column) const {
         const auto& expr_column_concrete = assert_cast<const ColumnType&>(expr_column);
         const auto& min_value_column_concrete = assert_cast<const ColumnType&>(min_value_column);
         const auto& max_value_column_concrete = assert_cast<const ColumnType&>(max_value_column);
-        auto& nested_column_concrete = assert_cast<ColumnInt64&>(nested_column);
+        auto& nested_column_concrete = *nested_column;
 
         size_t input_rows_count = expr_column.size();
 
@@ -123,7 +123,8 @@ private:
 
     bool _execute_by_type(const IColumn& expr_column, const IColumn& min_value_column,
                           const IColumn& max_value_column, const int64_t num_buckets,
-                          IColumn& nested_column_column, DataTypePtr& expr_type) const {
+                          ColumnInt64::MutablePtr& nested_column_column,
+                          DataTypePtr& expr_type) const {
         switch (expr_type->get_primitive_type()) {
         case PrimitiveType::TYPE_TINYINT:
             _execute<ColumnInt8>(expr_column, min_value_column, max_value_column, num_buckets,

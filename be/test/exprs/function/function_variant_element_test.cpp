@@ -23,7 +23,7 @@ namespace doris {
 
 TEST(function_variant_element_test, extract_from_sparse_column) {
     auto variant_column = ColumnVariant::create(1 /*max_subcolumns_count*/, false);
-    auto* variant_ptr = assert_cast<ColumnVariant*>(variant_column.get());
+    auto* variant_ptr = variant_column.get();
 
     ColumnVariant::Subcolumn subcolumn(0, true, false);
     Field field = Field::create_field<TYPE_STRING>("John");

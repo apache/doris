@@ -548,7 +548,7 @@ TEST_F(DataTypeDecimalTest, to_string) {
         std::cout << "test datatype to string: " << dt.get_family_name() << std::endl;
         using DataType = decltype(dt);
         using ColumnType = typename std::remove_reference<DataType>::type::ColumnType;
-        const auto* col_with_type = assert_cast<const ColumnType*>(&source_column);
+        const auto* col_with_type = &source_column;
 
         size_t row_count = source_column.size();
         {

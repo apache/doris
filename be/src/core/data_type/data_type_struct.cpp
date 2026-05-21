@@ -61,11 +61,11 @@ static Status check_tuple_names(const Strings& names) {
     std::unordered_set<String> names_set;
     for (const auto& name : names) {
         if (name.empty()) {
-            return Status::InvalidArgument("Names of tuple elements cannot be empty");
+            return Status::InvalidArgument("Names of struct elements cannot be empty");
         }
 
         if (!names_set.insert(name).second) {
-            return Status::InvalidArgument("Names of tuple elements must be unique");
+            return Status::InvalidArgument("Names of struct elements must be unique");
         }
     }
 

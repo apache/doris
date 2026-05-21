@@ -149,7 +149,7 @@ TEST_F(SparseColumnOptimizationTest, AllNullColumn) {
     std::vector<bool> null_flags = {true, true, true, true, true, true, true, true, true, true};
 
     auto src = create_nullable_column(values, null_flags);
-    const auto* nullable_src = assert_cast<const ColumnNullable*>(src.get());
+    const auto* nullable_src = src.get();
 
     // Create destination columns
     auto dst_optimized = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
@@ -161,11 +161,10 @@ TEST_F(SparseColumnOptimizationTest, AllNullColumn) {
     copy_rows_original(src.get(), 0, 10, dst_original.get());
 
     // Verify results are equal
-    EXPECT_TRUE(columns_equal(assert_cast<const ColumnNullable*>(dst_optimized.get()),
-                              assert_cast<const ColumnNullable*>(dst_original.get())));
+    EXPECT_TRUE(columns_equal(dst_optimized.get(), dst_original.get()));
 
     // Verify all are NULL
-    const auto* result = assert_cast<const ColumnNullable*>(dst_optimized.get());
+    const auto* result = dst_optimized.get();
     EXPECT_EQ(result->size(), 10);
     EXPECT_TRUE(is_all_null(result, 0, 10));
 }
@@ -177,7 +176,7 @@ TEST_F(SparseColumnOptimizationTest, AllNonNullColumn) {
                                     false, false, false, false, false};
 
     auto src = create_nullable_column(values, null_flags);
-    const auto* nullable_src = assert_cast<const ColumnNullable*>(src.get());
+    const auto* nullable_src = src.get();
 
     auto dst_optimized = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
     auto dst_original = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
@@ -185,11 +184,10 @@ TEST_F(SparseColumnOptimizationTest, AllNonNullColumn) {
     copy_rows_with_optimization(nullable_src, 0, 10, dst_optimized.get());
     copy_rows_original(src.get(), 0, 10, dst_original.get());
 
-    EXPECT_TRUE(columns_equal(assert_cast<const ColumnNullable*>(dst_optimized.get()),
-                              assert_cast<const ColumnNullable*>(dst_original.get())));
+    EXPECT_TRUE(columns_equal(dst_optimized.get(), dst_original.get()));
 
     // Verify all are non-NULL
-    const auto* result = assert_cast<const ColumnNullable*>(dst_optimized.get());
+    const auto* result = dst_optimized.get();
     EXPECT_EQ(result->size(), 10);
     EXPECT_TRUE(is_all_non_null(result, 0, 10));
 
@@ -207,7 +205,7 @@ TEST_F(SparseColumnOptimizationTest, SparseMixedColumn) {
     std::vector<bool> null_flags = {false, true, true, true, true, false, true, true, true, true};
 
     auto src = create_nullable_column(values, null_flags);
-    const auto* nullable_src = assert_cast<const ColumnNullable*>(src.get());
+    const auto* nullable_src = src.get();
 
     auto dst_optimized = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
     auto dst_original = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
@@ -215,11 +213,10 @@ TEST_F(SparseColumnOptimizationTest, SparseMixedColumn) {
     copy_rows_with_optimization(nullable_src, 0, 10, dst_optimized.get());
     copy_rows_original(src.get(), 0, 10, dst_original.get());
 
-    EXPECT_TRUE(columns_equal(assert_cast<const ColumnNullable*>(dst_optimized.get()),
-                              assert_cast<const ColumnNullable*>(dst_original.get())));
+    EXPECT_TRUE(columns_equal(dst_optimized.get(), dst_original.get()));
 
     // Verify count
-    const auto* result = assert_cast<const ColumnNullable*>(dst_optimized.get());
+    const auto* result = dst_optimized.get();
     EXPECT_EQ(result->size(), 10);
     EXPECT_EQ(count_non_null(result, 0, 10), 2);
 
@@ -241,7 +238,7 @@ TEST_F(SparseColumnOptimizationTest, DenseMixedColumn) {
                                     false, false, false, false, true};
 
     auto src = create_nullable_column(values, null_flags);
-    const auto* nullable_src = assert_cast<const ColumnNullable*>(src.get());
+    const auto* nullable_src = src.get();
 
     auto dst_optimized = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
     auto dst_original = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
@@ -249,10 +246,9 @@ TEST_F(SparseColumnOptimizationTest, DenseMixedColumn) {
     copy_rows_with_optimization(nullable_src, 0, 10, dst_optimized.get());
     copy_rows_original(src.get(), 0, 10, dst_original.get());
 
-    EXPECT_TRUE(columns_equal(assert_cast<const ColumnNullable*>(dst_optimized.get()),
-                              assert_cast<const ColumnNullable*>(dst_original.get())));
+    EXPECT_TRUE(columns_equal(dst_optimized.get(), dst_original.get()));
 
-    const auto* result = assert_cast<const ColumnNullable*>(dst_optimized.get());
+    const auto* result = dst_optimized.get();
     EXPECT_EQ(count_non_null(result, 0, 10), 8);
 }
 
@@ -262,7 +258,7 @@ TEST_F(SparseColumnOptimizationTest, PartialRangeCopy) {
     std::vector<bool> null_flags = {false, true, true, true, true, true, true, true, true, false};
 
     auto src = create_nullable_column(values, null_flags);
-    const auto* nullable_src = assert_cast<const ColumnNullable*>(src.get());
+    const auto* nullable_src = src.get();
 
     // Copy middle range (indices 2-7, all NULL)
     auto dst_optimized = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
@@ -271,10 +267,9 @@ TEST_F(SparseColumnOptimizationTest, PartialRangeCopy) {
     copy_rows_with_optimization(nullable_src, 2, 6, dst_optimized.get());
     copy_rows_original(src.get(), 2, 6, dst_original.get());
 
-    EXPECT_TRUE(columns_equal(assert_cast<const ColumnNullable*>(dst_optimized.get()),
-                              assert_cast<const ColumnNullable*>(dst_original.get())));
+    EXPECT_TRUE(columns_equal(dst_optimized.get(), dst_original.get()));
 
-    const auto* result = assert_cast<const ColumnNullable*>(dst_optimized.get());
+    const auto* result = dst_optimized.get();
     EXPECT_EQ(result->size(), 6);
     EXPECT_TRUE(is_all_null(result, 0, 6));
 }
@@ -292,7 +287,7 @@ TEST_F(SparseColumnOptimizationTest, LargeSparseCopy) {
     }
 
     auto src = create_nullable_column(values, null_flags);
-    const auto* nullable_src = assert_cast<const ColumnNullable*>(src.get());
+    const auto* nullable_src = src.get();
 
     auto dst_optimized = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
     auto dst_original = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
@@ -300,10 +295,9 @@ TEST_F(SparseColumnOptimizationTest, LargeSparseCopy) {
     copy_rows_with_optimization(nullable_src, 0, num_rows, dst_optimized.get());
     copy_rows_original(src.get(), 0, num_rows, dst_original.get());
 
-    EXPECT_TRUE(columns_equal(assert_cast<const ColumnNullable*>(dst_optimized.get()),
-                              assert_cast<const ColumnNullable*>(dst_original.get())));
+    EXPECT_TRUE(columns_equal(dst_optimized.get(), dst_original.get()));
 
-    const auto* result = assert_cast<const ColumnNullable*>(dst_optimized.get());
+    const auto* result = dst_optimized.get();
     EXPECT_EQ(result->size(), num_rows);
     // 1024 / 20 = 51.2 -> 52 non-NULL rows (0, 20, 40, ..., 1000, 1020)
     EXPECT_EQ(count_non_null(result, 0, num_rows), 52);
@@ -315,7 +309,7 @@ TEST_F(SparseColumnOptimizationTest, MultipleCopies) {
     std::vector<bool> null_flags = {false, true, true, true, false};
 
     auto src = create_nullable_column(values, null_flags);
-    const auto* nullable_src = assert_cast<const ColumnNullable*>(src.get());
+    const auto* nullable_src = src.get();
 
     auto dst_optimized = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
     auto dst_original = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
@@ -326,10 +320,9 @@ TEST_F(SparseColumnOptimizationTest, MultipleCopies) {
         copy_rows_original(src.get(), 0, 5, dst_original.get());
     }
 
-    EXPECT_TRUE(columns_equal(assert_cast<const ColumnNullable*>(dst_optimized.get()),
-                              assert_cast<const ColumnNullable*>(dst_original.get())));
+    EXPECT_TRUE(columns_equal(dst_optimized.get(), dst_original.get()));
 
-    const auto* result = assert_cast<const ColumnNullable*>(dst_optimized.get());
+    const auto* result = dst_optimized.get();
     EXPECT_EQ(result->size(), 15);
     EXPECT_EQ(count_non_null(result, 0, 15), 6); // 2 non-NULL per copy * 3 copies
 }
@@ -348,7 +341,7 @@ TEST_F(SparseColumnOptimizationTest, DisabledOptimization) {
     // When disabled, should still work correctly via direct copy path
     copy_rows_original(src.get(), 0, 5, dst.get());
 
-    const auto* result = assert_cast<const ColumnNullable*>(dst.get());
+    const auto* result = dst.get();
     EXPECT_EQ(result->size(), 5);
     EXPECT_TRUE(is_all_null(result, 0, 5));
 }
@@ -359,11 +352,11 @@ TEST_F(SparseColumnOptimizationTest, ReplaceColumnDataRange) {
     std::vector<bool> src_null_flags = {false, true, false, true, false};
 
     auto src = create_nullable_column(src_values, src_null_flags);
-    const auto* nullable_src = assert_cast<const ColumnNullable*>(src.get());
+    const auto* nullable_src = src.get();
 
     // Create destination with pre-filled NULLs
     auto dst = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
-    auto* nullable_dst = assert_cast<ColumnNullable*>(dst.get());
+    auto* nullable_dst = dst.get();
 
     // Pre-fill with NULLs
     nullable_dst->get_null_map_column().get_data().resize_fill(5, 1);
@@ -589,11 +582,11 @@ TEST_F(SparseColumnOptimizationTest, AllNonNullBatchOptimization) {
     std::vector<Int64> values = {10, 20, 30, 40, 50};
     std::vector<bool> null_flags = {false, false, false, false, false};
     auto src = create_nullable_column(values, null_flags);
-    const auto* nullable_src = assert_cast<const ColumnNullable*>(src.get());
+    const auto* nullable_src = src.get();
 
     // Create destination with pre-filled NULLs (simulating sparse optimization)
     auto dst = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
-    auto* nullable_dst = assert_cast<ColumnNullable*>(dst.get());
+    auto* nullable_dst = dst.get();
 
     // Pre-fill with NULLs
     nullable_dst->get_null_map_column().get_data().resize_fill(5, 1); // all NULL
@@ -635,7 +628,7 @@ TEST_F(SparseColumnOptimizationTest, BatchReplaceWithOffset) {
 
     // Create destination pre-filled with NULLs
     auto dst = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
-    auto* nullable_dst = assert_cast<ColumnNullable*>(dst.get());
+    auto* nullable_dst = dst.get();
 
     nullable_dst->get_null_map_column().get_data().resize_fill(5, 1);
     nullable_dst->get_nested_column().resize(5);
@@ -663,7 +656,7 @@ TEST_F(SparseColumnOptimizationTest, BatchReplaceWithOffset) {
 TEST_F(SparseColumnOptimizationTest, MixedBatchProcessing) {
     // Test mixed scenario: some batches all-NULL, some all-non-NULL, some mixed
     auto dst = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
-    auto* nullable_dst = assert_cast<ColumnNullable*>(dst.get());
+    auto* nullable_dst = dst.get();
 
     // Pre-fill with 15 NULLs
     nullable_dst->get_null_map_column().get_data().resize_fill(15, 1);
@@ -682,7 +675,7 @@ TEST_F(SparseColumnOptimizationTest, MixedBatchProcessing) {
     std::vector<Int64> values3 = {100, 101, 102, 103, 104};
     std::vector<bool> null_flags3 = {false, true, false, true, false};
     auto src3 = create_nullable_column(values3, null_flags3);
-    const auto* nullable_src3 = assert_cast<const ColumnNullable*>(src3.get());
+    const auto* nullable_src3 = src3.get();
     const auto& null_map3 = nullable_src3->get_null_map_data();
 
     for (size_t i = 0; i < 5; ++i) {
@@ -730,7 +723,7 @@ TEST_F(SparseColumnOptimizationTest, LargeBatchMemcpyPerformance) {
 
     // Create destination pre-filled with NULLs
     auto dst = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
-    auto* nullable_dst = assert_cast<ColumnNullable*>(dst.get());
+    auto* nullable_dst = dst.get();
     nullable_dst->get_null_map_column().get_data().resize_fill(num_rows, 1);
     nullable_dst->get_nested_column().resize(num_rows);
 
@@ -1110,7 +1103,7 @@ TEST_F(SparseColumnOptimizationTest, NullableColumnAllNullReplace) {
     auto src = create_nullable_column(src_values, src_null_flags);
 
     auto dst = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
-    auto* nullable_dst = assert_cast<ColumnNullable*>(dst.get());
+    auto* nullable_dst = dst.get();
 
     // Pre-fill with non-NULL values
     for (int i = 0; i < 5; ++i) {

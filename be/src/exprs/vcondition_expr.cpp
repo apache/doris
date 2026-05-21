@@ -680,7 +680,7 @@ Status VectorizedCoalesceExpr::execute_column(VExprContext* context, const Block
             /// Return the negated null map.
             auto res_column = ColumnUInt8::create(size);
             const auto* __restrict src_data = nullable->get_null_map_data().data();
-            auto* __restrict res_data = assert_cast<ColumnUInt8&>(*res_column).get_data().data();
+            auto* __restrict res_data = res_column->get_data().data();
 
             for (size_t i = 0; i < size; ++i) {
                 res_data[i] = !src_data[i];

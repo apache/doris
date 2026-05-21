@@ -57,7 +57,7 @@ struct UniformIntImpl {
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         auto res_column = ColumnInt64::create(input_rows_count);
-        auto& res_data = static_cast<ColumnInt64&>(*res_column).get_data();
+        auto& res_data = res_column->get_data();
 
         // Get min and max values (constants)
         const auto& left =

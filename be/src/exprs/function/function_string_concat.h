@@ -278,8 +278,7 @@ public:
                 } else if (auto target_nullable_column =
                                    check_and_get_column<ColumnNullable>(*target_column)) {
                     auto& target_null_map = target_nullable_column->get_null_map_data();
-                    VectorizedUtils::update_null_map(
-                            assert_cast<ColumnUInt8&>(*null_map).get_data(), target_null_map);
+                    VectorizedUtils::update_null_map(null_map->get_data(), target_null_map);
 
                     auto& target_str_column = assert_cast<const ColumnString&>(
                             target_nullable_column->get_nested_column());
@@ -303,7 +302,7 @@ public:
                     assert_cast<const ColumnInt32&>(pos_null_column->get_nested_column());
             auto& pos_null_map = pos_null_column->get_null_map_data();
             auto null_map = ColumnUInt8::create(input_rows_count, false);
-            auto& res_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
+            auto& res_null_map = null_map->get_data();
 
             for (size_t i = 0; i < input_rows_count; ++i) {
                 auto pos = pos_column.get_element(i);
@@ -324,7 +323,7 @@ public:
             auto& pos_column =
                     assert_cast<const ColumnInt32&>(*block.get_by_position(arguments[0]).column);
             auto null_map = ColumnUInt8::create(input_rows_count, false);
-            auto& res_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
+            auto& res_null_map = null_map->get_data();
 
             for (size_t i = 0; i < input_rows_count; ++i) {
                 auto pos = pos_column.get_element(i);

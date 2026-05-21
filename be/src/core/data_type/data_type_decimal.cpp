@@ -250,7 +250,7 @@ template <PrimitiveType T>
 void DataTypeDecimal<T>::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
     if constexpr (T == TYPE_DECIMALV2) {
-        const auto* real_type_t = assert_cast<const DataTypeDecimalV2*>(this);
+        const auto* real_type_t = this;
         col_meta->mutable_decimal_param()->set_precision(real_type_t->get_original_precision());
         col_meta->mutable_decimal_param()->set_scale(real_type_t->get_original_scale());
     } else {
