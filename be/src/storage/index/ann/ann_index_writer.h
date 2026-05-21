@@ -28,7 +28,6 @@
 #include <string>
 
 #include "core/pod_array.h"
-#include "runtime/collection_value.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
@@ -61,8 +60,6 @@ public:
     Status add_values(const std::string fn, const void* values, size_t count) override;
     Status add_array_values(size_t field_size, const void* value_ptr, const uint8_t* null_map,
                             const uint8_t* offsets_ptr, size_t count) override;
-    Status add_array_values(size_t field_size, const CollectionValue* values,
-                            size_t count) override;
     int64_t size() const override;
     Status finish() override;
 
