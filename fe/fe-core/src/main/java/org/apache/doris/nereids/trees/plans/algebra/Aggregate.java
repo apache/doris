@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisit
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
@@ -61,7 +60,17 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
     }
 
     default Set<AggregateFunction> getAggregateFunctions() {
-        return ExpressionUtils.collect(getOutputExpressions(), AggregateFunction.class::isInstance);
+        ImmutableSet.Builder<AggregateFunction> aggregateFunctions = ImmutableSet.builder();
+        for (Expression outputExpression : getOutputExpressions()) {
+            outputExpression.foreach(expression -> {
+                if (expression instanceof AggregateFunction) {
+                    aggregateFunctions.add((AggregateFunction) expression);
+                    return true;
+                }
+                return false;
+            });
+        }
+        return aggregateFunctions.build();
     }
 
     /**getAggregateFunctionWithGuardExpr*/

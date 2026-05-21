@@ -20,8 +20,10 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -31,7 +33,10 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.Set;
 
 class InferAggNotNullTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -123,5 +128,19 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
                                 logicalOlapScan()
                         )
                 );
+    }
+
+    @Test
+    void testGetAggregateFunctionsStopsAtAggregateFunction() {
+        Sum inner = new Sum(scan1.getOutput().get(1));
+        Sum outer = new Sum(inner);
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(), ImmutableList.of(new Alias(outer, "sum_k")))
+                .build();
+
+        Set<AggregateFunction> aggregateFunctions = ((LogicalAggregate<?>) plan).getAggregateFunctions();
+        Assertions.assertEquals(1, aggregateFunctions.size());
+        Assertions.assertTrue(aggregateFunctions.contains(outer));
+        Assertions.assertFalse(aggregateFunctions.contains(inner));
     }
 }

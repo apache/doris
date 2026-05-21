@@ -36,7 +36,6 @@ import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableSet;
 
-import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
@@ -51,7 +50,7 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
                 .when(agg -> agg.getGroupByExpressions().size() == 0)
                 .thenApply(ctx -> {
                     LogicalAggregate<Plan> agg = ctx.root;
-                    Set<AggregateFunction> aggregateFunctions = collectAggregateFunctions(agg);
+                    Set<AggregateFunction> aggregateFunctions = agg.getAggregateFunctions();
                     Set<Expression> isNotNulls = inferCommonNotNulls(aggregateFunctions, ctx.cascadesContext);
                     Set<Expression> predicates = Collections.emptySet();
                     if ((agg.child() instanceof Filter)) {
@@ -72,30 +71,6 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
                     }
                     return agg.withChildren(PlanUtils.filter(needGenerateNotNulls, agg.child()).get());
                 }).toRule(RuleType.INFER_AGG_NOT_NULL);
-    }
-
-    private Set<AggregateFunction> collectAggregateFunctions(LogicalAggregate<Plan> agg) {
-        ImmutableSet.Builder<AggregateFunction> aggregateFunctions = ImmutableSet.builder();
-        for (Expression outputExpression : agg.getOutputExpressions()) {
-            collectAggregateFunctions(outputExpression, aggregateFunctions);
-        }
-        return aggregateFunctions.build();
-    }
-
-    private void collectAggregateFunctions(
-            Expression expression, ImmutableSet.Builder<AggregateFunction> aggregateFunctions) {
-        ArrayDeque<Expression> expressions = new ArrayDeque<>();
-        expressions.push(expression);
-        while (!expressions.isEmpty()) {
-            Expression current = expressions.pop();
-            if (current instanceof AggregateFunction) {
-                aggregateFunctions.add((AggregateFunction) current);
-                continue;
-            }
-            for (Expression child : current.children()) {
-                expressions.push(child);
-            }
-        }
     }
 
     private Set<Expression> inferCommonNotNulls(
