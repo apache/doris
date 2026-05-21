@@ -115,7 +115,7 @@ DEFINE_mInt32(meta_service_conflict_error_retry_times, "10");
 
 DEFINE_Bool(enable_check_storage_vault, "true");
 
-DEFINE_mBool(skip_writing_empty_rowset_metadata, "false");
+DEFINE_mBool(skip_writing_empty_rowset_metadata, "true");
 
 DEFINE_mInt64(cloud_index_change_task_timeout_second, "3600");
 
@@ -134,7 +134,7 @@ DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
 DEFINE_mBool(enable_warmup_immediately_on_new_rowset, "false");
 
 // Packed file manager config
-DEFINE_mBool(enable_packed_file, "false");
+DEFINE_mBool(enable_packed_file, "true");
 DEFINE_mInt64(packed_file_size_threshold_bytes, "5242880"); // 5MB
 DEFINE_mInt64(packed_file_time_threshold_ms, "100");        // 100ms
 DEFINE_mInt64(packed_file_try_lock_timeout_ms, "5");        // 5ms
