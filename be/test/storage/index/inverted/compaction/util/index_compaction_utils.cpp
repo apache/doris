@@ -33,6 +33,7 @@
 #include "storage/compaction/base_compaction.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/inverted/query/query_factory.h"
+#include "storage/key_coder.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/rowset_factory.h"

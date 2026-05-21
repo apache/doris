@@ -38,7 +38,6 @@
 #include "io/fs/file_system.h"
 #include "runtime/descriptors.h"
 #include "storage/cache/page_cache.h"
-#include "storage/field.h"
 #include "storage/olap_common.h"
 #include "storage/schema.h"
 #include "storage/segment/page_handle.h"
@@ -187,9 +186,9 @@ public:
             int cid, const Schema& schema,
             const std::map<std::string, DataTypePtr>& target_cast_type_for_variants,
             const StorageReadOptions& read_options) {
-        const doris::StorageField* col = schema.column(cid);
+        const TabletColumn* col = schema.column(cid);
         DCHECK(col != nullptr) << "Column not found in schema for cid=" << cid;
-        DataTypePtr storage_column_type = get_data_type_of(col->get_desc(), read_options);
+        DataTypePtr storage_column_type = get_data_type_of(*col, read_options);
         if (storage_column_type == nullptr || col->type() != FieldType::OLAP_FIELD_TYPE_VARIANT ||
             !target_cast_type_for_variants.contains(col->name())) {
             // Default column iterator or not variant column

@@ -40,11 +40,8 @@
 #include "core/uint24.h"
 #include "core/value/ipv4_value.h"
 #include "core/value/ipv6_value.h"
-#include "core/value/map_value.h"
-#include "core/value/struct_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_timestamptz.h"
-#include "runtime/collection_value.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "util/slice.h"
@@ -58,8 +55,27 @@ static const std::vector<std::string> DATE_FORMATS {
         "%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d", "%y/%m/%d",
 };
 
+// Maps a storage FieldType to its in-memory cell representation.
+//
+// ARRAY / MAP / STRUCT are intentionally NOT specialized here: they are
+// containers of other types, so only their element types have a storage-layer
+// cell representation. The primary template below uses a deferred
+// static_assert so that instantiating `CppTypeTraits<X>` for any
+// unspecialized FieldType — most importantly ARRAY/MAP/STRUCT — fails at
+// build time with a clear message, rather than at runtime.
+namespace detail {
+template <FieldType>
+inline constexpr bool cpp_type_traits_unspecialized = false;
+} // namespace detail
+
 template <FieldType field_type>
-struct CppTypeTraits {};
+struct CppTypeTraits {
+    static_assert(detail::cpp_type_traits_unspecialized<field_type>,
+                  "CppTypeTraits not specialized for this FieldType. "
+                  "ARRAY / MAP / STRUCT and similar container types have no "
+                  "storage-layer cell representation — operate on the element "
+                  "type instead.");
+};
 
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL> {
@@ -214,18 +230,6 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_AGG_STATE> {
     using CppType = Slice;
 };
 
-template <>
-struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_STRUCT> {
-    using CppType = StructValue;
-};
-template <>
-struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_ARRAY> {
-    using CppType = CollectionValue;
-};
-template <>
-struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_MAP> {
-    using CppType = MapValue;
-};
 template <FieldType field_type>
 struct BaseFieldTypeTraits : public CppTypeTraits<field_type> {
     using CppType = typename CppTypeTraits<field_type>::CppType;
@@ -372,6 +376,27 @@ struct TypeTraits : public FieldTypeTraits<field_type> {
     static const int32_t size = sizeof(CppType);
 };
 
+// In-memory storage cell footprint for one value of `field_type`,
+// i.e. sizeof(CppTypeTraits<field_type>::CppType).
+//
+// This is NOT the schema-declared length:
+//   - CHAR(N) / VARCHAR(N) / STRING / JSONB / VARIANT / HLL / BITMAP /
+//     QUANTILE_STATE / AGG_STATE all return sizeof(Slice) == 16 (the ptr+len
+//     descriptor in a row buffer); for the user-declared N see
+//     TabletColumn::get_field_length_by_type.
+//
+// ARRAY / MAP / STRUCT are containers of other types — only their element
+// types have a storage-layer cell size. The container itself has no such size
+// at this layer, so it is not handled here. Passing one in is a programming
+// error and trips the default LOG(FATAL) below.
+//
+// VARIANT root data is still routed through ColumnReader/EncodingInfo at read
+// time, so VARIANT keeps its full traits chain even though the column-writer
+// step path doesn't reach it.
+//
+// Used for cell-level pointer arithmetic on row buffers, BKD bytes_per_dim
+// fallback when the index file has no header, and per-row footprint estimation
+// during compaction.
 inline size_t field_type_size(FieldType field_type) {
     switch (field_type) {
 #define DORIS_FIELD_TYPE_SIZE_CASE(ft) \
@@ -409,9 +434,6 @@ inline size_t field_type_size(FieldType field_type) {
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_BITMAP)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_QUANTILE_STATE)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_AGG_STATE)
-        DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_STRUCT)
-        DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_ARRAY)
-        DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_MAP)
 #undef DORIS_FIELD_TYPE_SIZE_CASE
     default:
         LOG(FATAL) << "field_type_size: unsupported FieldType " << int(field_type);
