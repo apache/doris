@@ -20,6 +20,7 @@ package org.apache.doris.cdcclient.utils;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.flink.cdc.connectors.mysql.source.config.ServerIdRange;
 
 import java.time.ZoneId;
 import java.util.Arrays;
@@ -43,11 +44,48 @@ public class ConfigUtil {
     private static ObjectMapper objectMapper = new ObjectMapper();
     private static final Logger LOG = LoggerFactory.getLogger(ConfigUtil.class);
 
-    public static String getServerId(String jobId) {
-        // Use bitwise AND with Integer.MAX_VALUE to strip the sign bit,
-        // which avoids the edge case where Math.abs(Integer.MIN_VALUE) returns MIN_VALUE
-        // (negative).
-        return String.valueOf(jobId.hashCode() & Integer.MAX_VALUE);
+    // Resolve user-configured server_id range, or derive from jobId hash with width = parallelism.
+    public static ServerIdRange resolveServerIdRange(
+            String jobId, int snapshotParallelism, String userInput) {
+        if (snapshotParallelism < 1) {
+            throw new IllegalArgumentException(
+                    "snapshot_parallelism must be >= 1, got " + snapshotParallelism);
+        }
+        ServerIdRange userRange = userInput == null ? null : ServerIdRange.from(userInput.trim());
+        if (userRange != null) {
+            // flink-cdc's ServerIdRange skips value validation; enforce MySQL constraints here.
+            if (userRange.getStartServerId() < 1) {
+                throw new IllegalArgumentException(
+                        "server_id must be >= 1 (0 disables MySQL replication), got " + userRange);
+            }
+            if (userRange.getStartServerId() > userRange.getEndServerId()) {
+                throw new IllegalArgumentException(
+                        "server_id range start "
+                                + userRange.getStartServerId()
+                                + " must not exceed end "
+                                + userRange.getEndServerId());
+            }
+            if (userRange.getNumberOfServerIds() < snapshotParallelism) {
+                throw new IllegalArgumentException(
+                        "server_id range size "
+                                + userRange.getNumberOfServerIds()
+                                + " must be >= snapshot_parallelism "
+                                + snapshotParallelism
+                                + ". Widen the range (e.g. '"
+                                + userRange.getStartServerId()
+                                + "-"
+                                + (userRange.getStartServerId() + snapshotParallelism - 1)
+                                + "') or reduce parallelism.");
+            }
+            return userRange;
+        }
+        int hash = jobId.hashCode() & Integer.MAX_VALUE;
+        int safeMax = Integer.MAX_VALUE - snapshotParallelism + 1;
+        int base = hash >= safeMax ? hash % safeMax : hash;
+        if (base == 0) {
+            base = 1;
+        }
+        return new ServerIdRange(base, base + snapshotParallelism - 1);
     }
 
     public static ZoneId getServerTimeZoneFromJdbcUrl(String jdbcUrl) {

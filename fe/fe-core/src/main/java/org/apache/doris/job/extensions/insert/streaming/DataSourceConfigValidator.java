@@ -53,7 +53,8 @@ public class DataSourceConfigValidator {
             DataSourceConfigKeys.SSL_MODE,
             DataSourceConfigKeys.SSL_ROOTCERT,
             DataSourceConfigKeys.SLOT_NAME,
-            DataSourceConfigKeys.PUBLICATION_NAME
+            DataSourceConfigKeys.PUBLICATION_NAME,
+            DataSourceConfigKeys.SERVER_ID
     );
 
     private static final Set<String> ALLOW_SSL_MODES = Sets.newHashSet(
