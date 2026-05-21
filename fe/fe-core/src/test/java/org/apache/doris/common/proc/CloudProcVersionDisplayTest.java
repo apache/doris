@@ -46,12 +46,12 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class CloudProcVersionDisplayTest {
     private static final long DB_ID = 10001L;
@@ -65,14 +65,11 @@ public class CloudProcVersionDisplayTest {
     private static final long STALE_REPLICA_VERSION = 1L;
     private static final int SCHEMA_HASH = 123456789;
 
-    @Mocked
     private Env env;
-    @Mocked
     private SystemInfoService systemInfoService;
-    @Mocked
     private TabletInvertedIndex invertedIndex;
-    @Mocked
     private InternalCatalog internalCatalog;
+    private MockedStatic<Env> envStatic;
 
     private String originDeployMode;
     private String originCloudUniqueId;
@@ -87,29 +84,24 @@ public class CloudProcVersionDisplayTest {
         Config.cloud_unique_id = "";
         Config.enable_query_hit_stats = false;
 
-        new Expectations(env) {
-            {
-                Env.getServingEnv();
-                minTimes = 0;
-                result = env;
+        env = Mockito.mock(Env.class);
+        systemInfoService = Mockito.mock(SystemInfoService.class);
+        invertedIndex = Mockito.mock(TabletInvertedIndex.class);
+        internalCatalog = Mockito.mock(InternalCatalog.class);
 
-                env.isReady();
-                minTimes = 0;
-                result = true;
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(systemInfoService.getAllBackendsByAllCluster()).thenReturn(ImmutableMap.of());
 
-                Env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                systemInfoService.getAllBackendsByAllCluster();
-                minTimes = 0;
-                result = ImmutableMap.of();
-            }
-        };
+        envStatic = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS);
+        envStatic.when(Env::getServingEnv).thenReturn(env);
+        envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
     }
 
     @After
     public void tearDown() {
+        if (envStatic != null) {
+            envStatic.close();
+        }
         Config.deploy_mode = originDeployMode;
         Config.cloud_unique_id = originCloudUniqueId;
         Config.enable_query_hit_stats = originEnableQueryHitStats;
@@ -132,25 +124,10 @@ public class CloudProcVersionDisplayTest {
     public void testReplicasProcNodeShowsPartitionCachedVersionInCloudMode() throws AnalysisException {
         ProcTestContext context = createProcTestContext();
 
-        new Expectations(env) {
-            {
-                Env.getCurrentInvertedIndex();
-                minTimes = 0;
-                result = invertedIndex;
-
-                invertedIndex.getTabletMeta(TABLET_ID);
-                minTimes = 0;
-                result = context.tabletMeta;
-
-                Env.getCurrentInternalCatalog();
-                minTimes = 0;
-                result = internalCatalog;
-
-                internalCatalog.getDbNullable(DB_ID);
-                minTimes = 0;
-                result = context.db;
-            }
-        };
+        envStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
+        envStatic.when(Env::getCurrentInternalCatalog).thenReturn(internalCatalog);
+        Mockito.when(invertedIndex.getTabletMeta(TABLET_ID)).thenReturn(context.tabletMeta);
+        Mockito.when(internalCatalog.getDbNullable(DB_ID)).thenReturn(context.db);
 
         ReplicasProcNode procNode = new ReplicasProcNode(TABLET_ID, context.tablet.getReplicas());
         ProcResult result = procNode.fetchResult();
