@@ -209,7 +209,7 @@ Status VParquetTransformer::_parse_properties() {
         //build arrow  writer properties
         ::parquet::ArrowWriterProperties::Builder arrow_builder;
         if (_parquet_options.enable_int96_timestamps) {
-            arrow_builder.enable_deprecated_int96_timestamps();
+            arrow_builder.enable_force_write_int96_timestamps();
         }
         arrow_builder.store_schema();
         _arrow_properties = arrow_builder.build();
