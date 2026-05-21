@@ -169,6 +169,10 @@ public interface TableIf {
 
     long fetchRowCount();
 
+    default long fetchRowCount(boolean cacheFileMetadata) {
+        return fetchRowCount();
+    }
+
     long getDataLength();
 
     long getAvgRowLength();

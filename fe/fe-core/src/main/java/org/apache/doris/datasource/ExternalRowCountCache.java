@@ -56,11 +56,13 @@ public class ExternalRowCountCache {
         private final long catalogId;
         private final long dbId;
         private final long tableId;
+        private final boolean cacheFileMetadata;
 
-        public RowCountKey(long catalogId, long dbId, long tableId) {
+        public RowCountKey(long catalogId, long dbId, long tableId, boolean cacheFileMetadata) {
             this.catalogId = catalogId;
             this.dbId = dbId;
             this.tableId = tableId;
+            this.cacheFileMetadata = cacheFileMetadata;
         }
 
         @Override
@@ -71,12 +73,13 @@ public class ExternalRowCountCache {
             if (!(obj instanceof RowCountKey)) {
                 return false;
             }
-            return ((RowCountKey) obj).tableId == this.tableId;
+            RowCountKey other = (RowCountKey) obj;
+            return other.tableId == this.tableId && other.cacheFileMetadata == this.cacheFileMetadata;
         }
 
         @Override
         public int hashCode() {
-            return (int) tableId;
+            return Long.hashCode(tableId) * 31 + Boolean.hashCode(cacheFileMetadata);
         }
     }
 
@@ -85,7 +88,7 @@ public class ExternalRowCountCache {
         protected Optional<Long> doLoad(RowCountKey rowCountKey) {
             try {
                 TableIf table = StatisticsUtil.findTable(rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId);
-                return Optional.of(table.fetchRowCount());
+                return Optional.of(table.fetchRowCount(rowCountKey.cacheFileMetadata));
             } catch (Exception e) {
                 String message = String.format("Failed to get table row count with catalogId %s, dbId %s, tableId %s. "
                                 + "Reason %s",
@@ -114,7 +117,16 @@ public class ExternalRowCountCache {
      * @return Cached row count or -1 if not exist
      */
     public long getCachedRowCount(long catalogId, long dbId, long tableId) {
-        RowCountKey key = new RowCountKey(catalogId, dbId, tableId);
+        return getCachedRowCount(catalogId, dbId, tableId, false);
+    }
+
+    /**
+     * Get cached row count for the given table. Return -1 if cached not loaded or table not exists.
+     * Cached will be loaded async.
+     * @return Cached row count or -1 if not exist
+     */
+    public long getCachedRowCount(long catalogId, long dbId, long tableId, boolean cacheFileMetadata) {
+        RowCountKey key = new RowCountKey(catalogId, dbId, tableId, cacheFileMetadata);
         try {
             CompletableFuture<Optional<Long>> f = rowCountCache.get(key);
             // Get row count synchronously by default.
@@ -139,7 +151,16 @@ public class ExternalRowCountCache {
      * @return Cached row count or -1 if not exist
      */
     public long getCachedRowCountIfPresent(long catalogId, long dbId, long tableId) {
-        RowCountKey key = new RowCountKey(catalogId, dbId, tableId);
+        return getCachedRowCountIfPresent(catalogId, dbId, tableId, false);
+    }
+
+    /**
+     * Get cached row count for the given table if present. Return -1 if cached not loaded.
+     * This method will not trigger async loading if cache is missing.
+     * @return Cached row count or -1 if not exist
+     */
+    public long getCachedRowCountIfPresent(long catalogId, long dbId, long tableId, boolean cacheFileMetadata) {
+        RowCountKey key = new RowCountKey(catalogId, dbId, tableId, cacheFileMetadata);
         try {
             CompletableFuture<Optional<Long>> f = rowCountCache.getIfPresent(key);
             if (f == null) {

@@ -132,6 +132,11 @@ public class ExternalView implements ViewIf {
     }
 
     @Override
+    public long fetchRowCount(boolean cacheFileMetadata) {
+        return externalTable.fetchRowCount(cacheFileMetadata);
+    }
+
+    @Override
     public long getDataLength() {
         return externalTable.getDataLength();
     }

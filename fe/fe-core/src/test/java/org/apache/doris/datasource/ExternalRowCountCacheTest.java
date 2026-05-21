@@ -19,10 +19,12 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Optional;
@@ -102,6 +104,28 @@ public class ExternalRowCountCacheTest {
                 Thread.sleep(1000);
             }
             Assertions.assertEquals(3, counter.get());
+        }
+    }
+
+    @Test
+    public void testCacheFileMetadataIsPartOfRowCountKey() throws Exception {
+        TableIf table = Mockito.mock(TableIf.class);
+        Mockito.when(table.fetchRowCount(false)).thenReturn(10L);
+        Mockito.when(table.fetchRowCount(true)).thenReturn(20L);
+
+        try (MockedStatic<StatisticsUtil> statisticsUtil = Mockito.mockStatic(StatisticsUtil.class)) {
+            statisticsUtil.when(() -> StatisticsUtil.findTable(1L, 1L, 1L)).thenReturn(table);
+            ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader();
+            ExternalRowCountCache.RowCountKey withoutFileMetadata =
+                    new ExternalRowCountCache.RowCountKey(1L, 1L, 1L, false);
+            ExternalRowCountCache.RowCountKey withFileMetadata =
+                    new ExternalRowCountCache.RowCountKey(1L, 1L, 1L, true);
+
+            Assertions.assertNotEquals(withoutFileMetadata, withFileMetadata);
+            Assertions.assertEquals(Optional.of(10L), loader.doLoad(withoutFileMetadata));
+            Assertions.assertEquals(Optional.of(20L), loader.doLoad(withFileMetadata));
+            Mockito.verify(table).fetchRowCount(false);
+            Mockito.verify(table).fetchRowCount(true);
         }
     }
 }
