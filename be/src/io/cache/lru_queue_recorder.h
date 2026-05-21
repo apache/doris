@@ -57,16 +57,17 @@ public:
     }
     void record_queue_event(FileCacheType type, CacheLRULogType log_type, const UInt128Wrapper hash,
                             const size_t offset, const size_t size);
-    void replay_queue_event(FileCacheType type);
+    size_t replay_queue_event(FileCacheType type, size_t max_events = 0);
     void evaluate_queue_diff(LRUQueue& base, std::string name,
                              std::lock_guard<std::mutex>& cache_lock);
     size_t get_lru_queue_update_cnt_from_last_dump(FileCacheType type);
     void reset_lru_queue_update_cnt_from_last_dump(FileCacheType type);
+    size_t get_lru_log_queue_size(FileCacheType type);
+    size_t get_total_lru_log_queue_size();
 
     CacheLRULogQueue& get_lru_log_queue(FileCacheType type);
     LRUQueue& get_shadow_queue(FileCacheType type);
 
-public:
     std::mutex _mutex_lru_log;
 
 private:

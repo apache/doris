@@ -19,14 +19,20 @@
 // and modified by Doris
 
 #include "io/cache/block_file_cache_test_common.h"
+#include "util/defer_op.h"
 
 namespace doris::io {
 
 TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
+    auto origin_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    Defer restore_tail_record_num {[&]() {
+        config::file_cache_background_lru_dump_tail_record_num = origin_tail_record_num;
+    }};
     config::enable_evict_file_cache_in_advance = false;
     config::file_cache_enter_disk_resource_limit_mode_percent = 99;
     config::file_cache_background_lru_dump_interval_ms = 3000;
     config::file_cache_background_lru_dump_update_cnt_threshold = 0;
+    config::file_cache_background_lru_dump_tail_record_num = 5000000;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -156,10 +162,11 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
     ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 500000);
 
     // all queue are filled, let's check the lru log records
-    ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size_approx(), 5);
-    ASSERT_EQ(cache._lru_recorder->_index_lru_log_queue.size_approx(), 5);
-    ASSERT_EQ(cache._lru_recorder->_normal_lru_log_queue.size_approx(), 5);
-    ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size_approx(), 5);
+    ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::TTL), 5);
+    ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::INDEX), 5);
+    ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::NORMAL), 5);
+    ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::DISPOSABLE), 5);
+    ASSERT_EQ(cache._lru_recorder->get_total_lru_log_queue_size(), 20);
 
     // then check the log replay
     std::this_thread::sleep_for(std::chrono::milliseconds(
@@ -175,10 +182,10 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
                                        context2); // move index queue 3rd element to the end
         cache.remove_if_cached(key3);             // remove all element from ttl queue
     }
-    ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size_approx(), 5);
-    ASSERT_EQ(cache._lru_recorder->_index_lru_log_queue.size_approx(), 1);
-    ASSERT_EQ(cache._lru_recorder->_normal_lru_log_queue.size_approx(), 0);
-    ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size_approx(), 0);
+    ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::TTL), 5);
+    ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::INDEX), 1);
+    ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::NORMAL), 0);
+    ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::DISPOSABLE), 0);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(
             2 * config::file_cache_background_lru_log_replay_interval_ms));
@@ -401,11 +408,58 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
     }
 }
 
+TEST_F(BlockFileCacheTest, test_lru_log_replay_bound_and_disable_record) {
+    auto origin_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    Defer restore_tail_record_num {[&]() {
+        config::file_cache_background_lru_dump_tail_record_num = origin_tail_record_num;
+    }};
+
+    io::FileCacheSettings settings;
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 5000000;
+    settings.query_queue_elements = 50000;
+    settings.index_queue_size = 5000000;
+    settings.index_queue_elements = 50000;
+    settings.disposable_queue_size = 5000000;
+    settings.disposable_queue_elements = 50000;
+    settings.capacity = 20000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    config::file_cache_background_lru_dump_tail_record_num = 100;
+    io::BlockFileCache cache(cache_base_path, settings);
+    auto hash = io::BlockFileCache::hash("bounded-replay-key");
+
+    for (size_t i = 0; i < 5; ++i) {
+        cache._lru_recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash,
+                                                i * 100, 100);
+    }
+    ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::NORMAL), 5);
+    ASSERT_EQ(cache._lru_recorder->replay_queue_event(FileCacheType::NORMAL, 2), 2);
+    ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::NORMAL), 3);
+    ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 2);
+
+    ASSERT_EQ(cache._lru_recorder->replay_queue_event(FileCacheType::NORMAL), 3);
+    ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::NORMAL), 0);
+    ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 5);
+
+    config::file_cache_background_lru_dump_tail_record_num = 0;
+    cache._lru_recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 600,
+                                            100);
+    ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::NORMAL), 0);
+}
+
 TEST_F(BlockFileCacheTest, test_lru_duplicate_queue_entry_restore) {
+    auto origin_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    Defer restore_tail_record_num {[&]() {
+        config::file_cache_background_lru_dump_tail_record_num = origin_tail_record_num;
+    }};
     config::enable_evict_file_cache_in_advance = false;
     config::file_cache_enter_disk_resource_limit_mode_percent = 99;
     config::file_cache_background_lru_dump_interval_ms = 3000;
     config::file_cache_background_lru_dump_update_cnt_threshold = 0;
+    config::file_cache_background_lru_dump_tail_record_num = 5000000;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }

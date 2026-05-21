@@ -1246,6 +1246,16 @@ DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
 DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
 DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "5000000");
 DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1000");
+DEFINE_mBool(enable_file_cache_adaptive_queue_consume, "true");
+DEFINE_mInt64(file_cache_lru_log_replay_adaptive_low_watermark, "100000");
+DEFINE_mInt64(file_cache_lru_log_replay_adaptive_high_watermark, "20000000");
+DEFINE_mInt64(file_cache_lru_log_replay_adaptive_min_interval_ms, "50");
+DEFINE_mInt64(file_cache_lru_log_replay_adaptive_max_batch_per_type, "100000");
+DEFINE_mInt64(file_cache_block_lru_update_adaptive_low_watermark, "10000");
+DEFINE_mInt64(file_cache_block_lru_update_adaptive_high_watermark, "100000");
+DEFINE_mInt64(file_cache_block_lru_update_adaptive_min_interval_ms, "200");
+DEFINE_mInt64(file_cache_block_lru_update_adaptive_max_batch, "10000");
+DEFINE_mInt64(file_cache_block_lru_update_lock_slice_batch, "1000");
 DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
 
 DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");

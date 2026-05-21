@@ -286,6 +286,8 @@ public:
 
     [[nodiscard]] bool get_async_open_success() const { return _async_open_done; }
 
+    [[nodiscard]] bool is_memory_storage() const;
+
     BlockFileCache& operator=(const BlockFileCache&) = delete;
     BlockFileCache(const BlockFileCache&) = delete;
 
@@ -470,6 +472,7 @@ private:
     void restore_lru_queues_from_disk(std::lock_guard<std::mutex>& cache_lock);
     void run_background_evict_in_advance();
     void run_background_block_lru_update();
+    void record_lru_recorder_log_queue_length();
 
     bool try_reserve_from_other_queue_by_time_interval(FileCacheType cur_type,
                                                        std::vector<FileCacheType> other_cache_types,
@@ -613,6 +616,11 @@ private:
     std::shared_ptr<bvar::LatencyRecorder> _recycle_keys_length_recorder;
     std::shared_ptr<bvar::LatencyRecorder> _update_lru_blocks_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _need_update_lru_blocks_length_recorder;
+    std::shared_ptr<bvar::LatencyRecorder> _lru_recorder_ttl_log_queue_length_recorder;
+    std::shared_ptr<bvar::LatencyRecorder> _lru_recorder_index_log_queue_length_recorder;
+    std::shared_ptr<bvar::LatencyRecorder> _lru_recorder_normal_log_queue_length_recorder;
+    std::shared_ptr<bvar::LatencyRecorder> _lru_recorder_disposable_log_queue_length_recorder;
+    std::shared_ptr<bvar::LatencyRecorder> _lru_recorder_total_log_queue_length_recorder;
     std::shared_ptr<bvar::LatencyRecorder> _ttl_gc_latency_us;
 
     std::shared_ptr<bvar::LatencyRecorder> _shadow_queue_levenshtein_distance;

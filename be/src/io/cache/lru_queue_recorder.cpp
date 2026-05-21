@@ -17,6 +17,7 @@
 
 #include "io/cache/lru_queue_recorder.h"
 
+#include "common/config.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_cache_common.h"
 
@@ -25,19 +26,24 @@ namespace doris::io {
 void LRUQueueRecorder::record_queue_event(FileCacheType type, CacheLRULogType log_type,
                                           const UInt128Wrapper hash, const size_t offset,
                                           const size_t size) {
+    if (_mgr->is_memory_storage() || config::file_cache_background_lru_dump_tail_record_num <= 0) {
+        return;
+    }
     CacheLRULogQueue& log_queue = get_lru_log_queue(type);
     log_queue.enqueue(std::make_unique<CacheLRULog>(log_type, hash, offset, size));
     ++(_lru_queue_update_cnt_from_last_dump[type]);
 }
 
-void LRUQueueRecorder::replay_queue_event(FileCacheType type) {
+size_t LRUQueueRecorder::replay_queue_event(FileCacheType type, size_t max_events) {
     // we don't need the real cache lock for the shadow queue, but we do need a lock to prevent read/write contension
     CacheLRULogQueue& log_queue = get_lru_log_queue(type);
     LRUQueue& shadow_queue = get_shadow_queue(type);
 
     std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
     std::unique_ptr<CacheLRULog> log;
-    while (log_queue.try_dequeue(log)) {
+    size_t replayed = 0;
+    while ((max_events == 0 || replayed < max_events) && log_queue.try_dequeue(log)) {
+        ++replayed;
         try {
             switch (log->type) {
             case CacheLRULogType::ADD: {
@@ -79,6 +85,7 @@ void LRUQueueRecorder::replay_queue_event(FileCacheType type) {
             LOG(WARNING) << "Failed to replay queue event: " << e.what();
         }
     }
+    return replayed;
 }
 
 // we evaluate the diff between two queue by calculate how many operation is
@@ -135,6 +142,17 @@ size_t LRUQueueRecorder::get_lru_queue_update_cnt_from_last_dump(FileCacheType t
 
 void LRUQueueRecorder::reset_lru_queue_update_cnt_from_last_dump(FileCacheType type) {
     _lru_queue_update_cnt_from_last_dump[type] = 0;
+}
+
+size_t LRUQueueRecorder::get_lru_log_queue_size(FileCacheType type) {
+    return get_lru_log_queue(type).size_approx();
+}
+
+size_t LRUQueueRecorder::get_total_lru_log_queue_size() {
+    return get_lru_log_queue_size(FileCacheType::TTL) +
+           get_lru_log_queue_size(FileCacheType::INDEX) +
+           get_lru_log_queue_size(FileCacheType::NORMAL) +
+           get_lru_log_queue_size(FileCacheType::DISPOSABLE);
 }
 
 } // end of namespace doris::io
