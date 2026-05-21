@@ -353,4 +353,18 @@ TEST_F(JsonbDocumentTest, contains_numeric_equality) {
     EXPECT_FALSE(jsonb_value(double_writer)->contains(jsonb_value(decimal128_non_integer_writer)));
 }
 
+TEST_F(JsonbDocumentTest, contains_invalid_decimal_scale) {
+    JsonbWriter invalid_decimal_writer;
+    ASSERT_TRUE(invalid_decimal_writer.writeDecimal(
+            Decimal32(int32_t(100)), 2, static_cast<uint32_t>(BeConsts::MAX_DECIMALV3_SCALE) + 1));
+
+    JsonbWriter double_writer;
+    ASSERT_TRUE(double_writer.writeDouble(1.0));
+
+    EXPECT_THROW(jsonb_value(invalid_decimal_writer)->contains(jsonb_value(double_writer)),
+                 Exception);
+    EXPECT_THROW(jsonb_value(double_writer)->contains(jsonb_value(invalid_decimal_writer)),
+                 Exception);
+}
+
 } // namespace doris

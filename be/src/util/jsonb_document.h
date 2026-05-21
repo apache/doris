@@ -1012,6 +1012,14 @@ struct JsonbScaledDecimal {
     uint32_t scale;
 };
 
+inline void validate_decimal_scale(uint32_t scale) {
+    if (scale > static_cast<uint32_t>(BeConsts::MAX_DECIMALV3_SCALE)) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "Invalid JSONB decimal scale: {}, max allowed scale: {}", scale,
+                        BeConsts::MAX_DECIMALV3_SCALE);
+    }
+}
+
 inline bool is_numeric(const JsonbValue* value) {
     return value->isInt() || value->isDouble() || value->isFloat() || value->isDecimal();
 }
@@ -1027,18 +1035,22 @@ inline JsonbScaledDecimal get_scaled_decimal(const JsonbValue* value) {
     switch (value->type) {
     case JsonbType::T_Decimal32: {
         const auto* decimal = value->unpack<JsonbDecimal32>();
+        validate_decimal_scale(decimal->scale);
         return {wide::Int256(decimal->val()), decimal->scale};
     }
     case JsonbType::T_Decimal64: {
         const auto* decimal = value->unpack<JsonbDecimal64>();
+        validate_decimal_scale(decimal->scale);
         return {wide::Int256(decimal->val()), decimal->scale};
     }
     case JsonbType::T_Decimal128: {
         const auto* decimal = value->unpack<JsonbDecimal128>();
+        validate_decimal_scale(decimal->scale);
         return {wide::Int256(decimal->val()), decimal->scale};
     }
     case JsonbType::T_Decimal256: {
         const auto* decimal = value->unpack<JsonbDecimal256>();
+        validate_decimal_scale(decimal->scale);
         return {decimal->val(), decimal->scale};
     }
     default:
@@ -1083,7 +1095,7 @@ inline constexpr auto kPowersOfFive = [] {
 }();
 
 inline wide::Int256 power_of_five(uint32_t exponent) {
-    DCHECK_LE(exponent, static_cast<uint32_t>(BeConsts::MAX_DECIMALV3_SCALE));
+    validate_decimal_scale(exponent);
     return kPowersOfFive[exponent];
 }
 
