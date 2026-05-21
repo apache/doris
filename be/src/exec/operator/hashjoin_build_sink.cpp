@@ -774,6 +774,12 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
 
 Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::prepare(state));
+    if (_is_broadcast_join && (_match_all_build || _is_right_semi_anti)) {
+        return Status::NotSupported(
+                "Broadcast hash join does not support {} because build-side rows must be "
+                "finalized exactly once",
+                to_string(_join_op));
+    }
     _use_shared_hash_table =
             _is_broadcast_join && state->enable_share_hash_table_for_broadcast_join();
     auto init_keep_column_flags = [&](auto& tuple_descs, auto& output_slot_flags) {
