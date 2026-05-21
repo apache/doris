@@ -2037,6 +2037,7 @@ public final class MetricRepo {
 
             CloudMetrics.CLUSTER_QUERY_LATENCY_HISTO.remove(clusterId + CloudMetrics.CLOUD_CLUSTER_DELIMITER
                     + clusterName);
+            // Meta-service RPC latency is keyed by method name only, so it is not removed by cluster.
 
             for (Backend backend : backends) {
                 List<MetricLabel> backendLabels = new ArrayList<>();

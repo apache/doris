@@ -44,9 +44,7 @@ public abstract class MetricVisitor {
 
     public abstract void visitHistogram(String prefix, String name, Histogram histogram);
 
-    public void visitHistogram(String prefix, String name, Histogram histogram, List<MetricLabel> labels) {
-        visitHistogram(prefix, name, histogram);
-    }
+    public abstract void visitHistogram(String prefix, String name, Histogram histogram, List<MetricLabel> labels);
 
     public abstract void visitNodeInfo();
 
