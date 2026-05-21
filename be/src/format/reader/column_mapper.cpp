@@ -20,20 +20,20 @@
 #include <vector>
 
 #include "common/status.h"
-#include "expr/slot_ref.h"
+#include "format/reader/expr/cast.h"
+#include "format/reader/expr/slot_ref.h"
 #include "format/reader/file_reader.h"
 #include "format/reader/table_reader.h"
 
 namespace doris::reader {
 
+static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
+static constexpr const char* ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER = "_last_updated_sequence_number";
+
 Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& projected_columns,
-                                         std::vector<SchemaField> block_schema,
                                          const std::map<std::string, Field>& partition_values,
                                          const std::vector<SchemaField>& file_schema) {
-    // 真实实现会做 field id/name matching、类型转换、复杂列 child mapping、缺失列
-    // default/partition/generated 表达式构造。
     _mappings.clear();
-    block_schema.clear();
     for (const auto& table_column : projected_columns) {
         ColumnMapping mapping;
         mapping.table_column_id = table_column.id;
@@ -43,24 +43,31 @@ Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& project
             mapping.file_type = file_field->type;
             mapping.is_trivial = _is_same_type(mapping.table_type, mapping.file_type);
             if (!mapping.is_trivial) {
-                // TODO:
-                return Status::NotSupported(
-                        "column mapping with type conversion is not supported yet: table column "
-                        "'{}' (id={}, type={}) vs file column (id={}, type={})",
-                        table_column.name, mapping.table_column_id, mapping.table_type->get_name(),
-                        mapping.file_column_id.value(), mapping.file_type->get_name());
+                // 1. Data type mismatch (caused by schema evolution) and casting is needed.
+                auto expr = Cast::create_shared(mapping.table_type);
+                expr->add_child(TableSlotRef::create_shared(mapping.file_column_id.value(),
+                                                            mapping.file_column_id.value(), -1,
+                                                            mapping.file_type, file_field->name));
+                mapping.projection = VExprContext::create_shared(expr);
             } else {
+                // 2. Data type matches, trivial mapping.
                 mapping.projection = VExprContext::create_shared(TableSlotRef::create_shared(
-                        *mapping.file_column_id, block_schema.size(), -1, mapping.table_type));
+                        mapping.file_column_id.value(), mapping.file_column_id.value(), -1,
+                        mapping.file_type, file_field->name));
             }
-            block_schema.push_back(SchemaField {
-                    mapping.file_column_id.value(), table_column.name, mapping.table_type, {}});
-        } else if (table_column.default_expr != nullptr) {
-            mapping.is_constant = true;
-            mapping.default_expr = table_column.default_expr;
         } else if (table_column.is_partition_key && partition_values.count(table_column.name) > 0) {
+            // 3. Partition column, use partition value as a constant mapping. Note that partition column may also have default expression, but partition value should take precedence if it exists.
             mapping.default_expr = VExprContext::create_shared(TableLiteral::create_shared(
                     mapping.table_type, partition_values.at(table_column.name)));
+        } else if (table_column.default_expr != nullptr) {
+            // 4. Table column does not exist in file (column adding by schema evolution), which has a default expression, use it as a constant mapping.
+            mapping.is_constant = true;
+            mapping.default_expr = table_column.default_expr;
+        } else if (table_column.name == ROW_LINEAGE_ROW_ID) {
+            // 5. Virtual column, use special mapping to indicate it should be materialized by table reader instead of read from file or evaluated from expression.
+            mapping.virtual_column_type = TableVirtualColumnType::ROW_ID;
+        } else if (table_column.name == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
+            mapping.virtual_column_type = TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER;
         } else {
             if (table_column.is_partition_key) {
                 return Status::InvalidArgument(

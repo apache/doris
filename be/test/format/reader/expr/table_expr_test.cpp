@@ -79,11 +79,14 @@ TEST(TableLiteralTest, ExecuteAppendsConstColumnToBlock) {
 
 TEST(TableSlotRefTest, KeepsSlotColumnIdsAndType) {
     auto type = std::make_shared<DataTypeInt32>();
-    auto slot_ref = TableSlotRef::create_shared(10, 20, 30, type);
+    std::string name = "file_col";
+    auto slot_ref = TableSlotRef::create_shared(10, 20, 30, type, name);
 
     EXPECT_EQ(slot_ref->slot_id(), 10);
     EXPECT_EQ(slot_ref->column_id(), 20);
     EXPECT_EQ(slot_ref->data_type(), type);
+    EXPECT_EQ(slot_ref->expr_name(), "file_col");
+    EXPECT_EQ(slot_ref->column_name(), "file_col");
     EXPECT_FALSE(slot_ref->is_constant());
 
     std::set<int> column_ids;
@@ -94,14 +97,16 @@ TEST(TableSlotRefTest, KeepsSlotColumnIdsAndType) {
 
 TEST(TableSlotRefTest, PrepareDoesNotRequireRowDescriptor) {
     auto type = std::make_shared<DataTypeInt32>();
-    auto slot_ref = TableSlotRef::create_shared(10, 20, 30, type);
+    std::string name = "";
+    auto slot_ref = TableSlotRef::create_shared(10, 20, 30, type, name);
 
     EXPECT_TRUE(slot_ref->prepare(nullptr, RowDescriptor(), nullptr).ok());
 }
 
 TEST(TableSlotRefTest, ExecuteReturnsReferencedColumnId) {
     auto type = std::make_shared<DataTypeInt32>();
-    auto slot_ref = TableSlotRef::create_shared(10, 1, 30, type);
+    std::string name = "";
+    auto slot_ref = TableSlotRef::create_shared(10, 1, 30, type, name);
     Block block;
     block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3}));
     block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({4, 5, 6}));

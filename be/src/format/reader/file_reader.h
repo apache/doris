@@ -42,6 +42,12 @@ namespace doris::reader {
 
 using ColumnId = int32_t;
 
+enum ColumnType {
+    DATA_COLUMN = 0, // normal data column
+    ROW_NUMBER = 1,  // row number in a file
+    FILE_NAME = 2,   // file name
+};
+
 // 文件本地 schema 字段。
 // 这是 FileReader 暴露给 table 层的 file-local schema 视图，不携带 table/global
 // schema 语义。Iceberg field id、name mapping、default/generated/partition 列都不在
@@ -51,6 +57,7 @@ struct SchemaField {
     std::string name;
     DataTypePtr type;
     std::vector<SchemaField> children;
+    ColumnType column_type = ColumnType::DATA_COLUMN;
 };
 
 // 已经 localize 到文件 schema 的过滤条件。
