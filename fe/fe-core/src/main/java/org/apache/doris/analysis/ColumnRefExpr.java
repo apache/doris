@@ -24,11 +24,16 @@ import org.apache.doris.thrift.TColumnRef;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.util.Optional;
 
 public class ColumnRefExpr extends Expr {
+    @SerializedName("cn")
     private String columnName;
+    @SerializedName("ci")
     private int columnId;
+    @SerializedName("in")
     private boolean isNullable;
 
     public ColumnRefExpr() {
