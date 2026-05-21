@@ -31,7 +31,7 @@ class TExprNode;
 class Block;
 class VExprContext;
 
-class VSlotRef MOCK_REMOVE(final) : public VExpr {
+class VSlotRef : public VExpr {
     ENABLE_FACTORY_CREATOR(VSlotRef);
 
 public:

@@ -40,6 +40,13 @@ enum class TableColumnMappingMode {
     BY_NAME,
 };
 
+
+enum TableVirtualColumnType {
+    INVALID = 0, // not a virtual column
+    ROW_ID = 1,
+    LAST_UPDATED_SEQUENCE_NUMBER = 2,
+};
+
 // 单个 table column 到 file column 的映射结果。
 // 这是 table 层和 file 层的核心边界对象。
 struct ColumnMapping {
@@ -59,6 +66,7 @@ struct ColumnMapping {
     std::vector<ColumnMapping> child_mappings;
     bool is_trivial = false;
     bool is_constant = false;
+    TableVirtualColumnType virtual_column_type = TableVirtualColumnType::INVALID;
     VExprContextSPtr default_expr;
 };
 
@@ -81,7 +89,6 @@ public:
     // 输出的 ColumnMapping 描述 table column 如何从 file column、常量列或表达式得到；
     // 后续 projection、filter localization 和 table block finalize 都应复用这份映射。
     virtual Status create_mapping(const std::vector<TableColumn>& projected_columns,
-                                  std::vector<SchemaField> block_schema,
                                   const std::map<std::string, Field>& partition_values,
                                   const std::vector<SchemaField>& file_schema);
 

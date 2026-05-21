@@ -232,11 +232,10 @@ protected:
     // 打开当前具体 reader。
     // 子类在这里基于当前 split/task 初始化底层 FileReader。
     virtual Status open_reader() {
-        std::vector<SchemaField> file_schema;
-        RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
-        RETURN_IF_ERROR(_data_reader.column_mapper.create_mapping(_options.projected_columns,
-                                                                  _data_reader.block_schema,
-                                                                  _partition_values, file_schema));
+        _data_reader.block_schema.clear();
+        RETURN_IF_ERROR(_data_reader.reader->get_schema(&_data_reader.block_schema));
+        RETURN_IF_ERROR(_data_reader.column_mapper.create_mapping(
+                _options.projected_columns, _partition_values, _data_reader.block_schema));
 
         FileScanRequest file_request;
         RETURN_IF_ERROR(_data_reader.column_mapper.create_scan_request(
@@ -270,7 +269,6 @@ protected:
     struct DataReader {
         std::unique_ptr<FileReader> reader;
         TableColumnMapper column_mapper;
-        // Schema of blocks from file reader.
         std::vector<SchemaField> block_schema;
     };
     DataReader _data_reader;
