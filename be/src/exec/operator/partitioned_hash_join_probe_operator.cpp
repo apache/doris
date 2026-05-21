@@ -28,7 +28,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
-#include "exec/operator/hashjoin_utils.h"
 #include "exec/pipeline/pipeline_task.h"
 #include "exec/spill/spill_file.h"
 #include "exec/spill/spill_file_manager.h"
@@ -543,7 +542,6 @@ Status PartitionedHashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeSt
     // default repartition max depth; can be overridden from session variable
     _repartition_max_depth = state->spill_repartition_max_depth();
     RETURN_IF_ERROR(JoinProbeOperatorX::init(tnode, state));
-    RETURN_IF_ERROR(validate_hash_join_mark_join_plan(_join_op, _is_mark_join, state, node_id()));
     _op_name = "PARTITIONED_HASH_JOIN_PROBE_OPERATOR";
     auto tnode_ = _tnode;
     tnode_.runtime_filters.clear();

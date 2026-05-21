@@ -26,7 +26,6 @@
 #include "common/logging.h"
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_nullable.h"
-#include "exec/operator/hashjoin_utils.h"
 #include "exec/operator/operator.h"
 #include "runtime/descriptors.h"
 
@@ -462,7 +461,6 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, Block* input_block, boo
 Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::init(tnode, state));
     DCHECK(tnode.__isset.hash_join_node);
-    RETURN_IF_ERROR(validate_hash_join_mark_join_plan(_join_op, _is_mark_join, state, node_id()));
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
     for (const auto& eq_join_conjunct : eq_join_conjuncts) {
         VExprContextSPtr ctx;
