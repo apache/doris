@@ -154,6 +154,15 @@ message(STATUS "build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
 option(BUILD_FILE_CACHE_LRU_TOOL "ON for building file cache lru tool or OFF for not" OFF)
 message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
 
+option(ENABLE_EXPR_ASAN "Build Exprs target with ASAN/UBSAN instrumentation" OFF)
+message(STATUS "enable expr asan: ${ENABLE_EXPR_ASAN}")
+
+set(DORIS_BE_ASAN_SOURCES "" CACHE STRING "Comma-separated list of BE source files to compile with ASAN/UBSAN instrumentation")
+if (DEFINED ENV{DORIS_BE_ASAN_SOURCES} AND NOT DORIS_BE_ASAN_SOURCES)
+    set(DORIS_BE_ASAN_SOURCES "$ENV{DORIS_BE_ASAN_SOURCES}" CACHE STRING "" FORCE)
+endif()
+message(STATUS "be asan sources: ${DORIS_BE_ASAN_SOURCES}")
+
 option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" ON)
 set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
 
@@ -453,6 +462,122 @@ set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-sanitize=fl
 if (COMPILER_CLANG)
     set(CXX_FLAGS_ASAN "${CXX_FLAGS_ASAN} -fsanitize-ignorelist=${UBSAN_IGNORELIST}")
 endif()
+set(DORIS_ASAN_COMPILE_OPTIONS
+    -O0
+    -fsanitize=address
+    -fsanitize=undefined
+    -fno-sanitize=float-cast-overflow
+)
+set(DORIS_ASAN_LINK_OPTIONS
+    -fsanitize=address
+    -fsanitize=undefined
+)
+if (COMPILER_CLANG)
+    list(APPEND DORIS_ASAN_COMPILE_OPTIONS -fsanitize-ignorelist=${UBSAN_IGNORELIST})
+elseif (COMPILER_GCC)
+    list(APPEND DORIS_ASAN_LINK_OPTIONS -static-libasan)
+endif()
+
+function(enable_doris_asan target)
+    target_compile_options(${target} PRIVATE ${DORIS_ASAN_COMPILE_OPTIONS})
+    target_compile_definitions(${target} PRIVATE
+        ADDRESS_SANITIZER
+        UNDEFINED_BEHAVIOR_SANITIZER
+    )
+endfunction()
+
+function(link_doris_asan_runtime target)
+    target_link_options(${target} PRIVATE ${DORIS_ASAN_LINK_OPTIONS})
+endfunction()
+
+set(DORIS_BE_ASAN_SOURCE_LIST)
+if (DORIS_BE_ASAN_SOURCES)
+    string(REPLACE "," ";" DORIS_BE_ASAN_SOURCE_CANDIDATES "${DORIS_BE_ASAN_SOURCES}")
+    foreach(source_candidate IN LISTS DORIS_BE_ASAN_SOURCE_CANDIDATES)
+        string(STRIP "${source_candidate}" source_candidate)
+        if (source_candidate STREQUAL "")
+            continue()
+        endif()
+
+        set(source_candidate_paths)
+        if (IS_ABSOLUTE "${source_candidate}")
+            list(APPEND source_candidate_paths "${source_candidate}")
+        else()
+            list(APPEND source_candidate_paths
+                "${BASE_DIR}/${source_candidate}"
+                "${BASE_DIR}/../${source_candidate}"
+            )
+        endif()
+
+        set(resolved_source_candidate)
+        foreach(source_candidate_path IN LISTS source_candidate_paths)
+            if (EXISTS "${source_candidate_path}")
+                get_filename_component(resolved_source_candidate "${source_candidate_path}" REALPATH)
+                break()
+            endif()
+        endforeach()
+
+        if (NOT resolved_source_candidate)
+            message(FATAL_ERROR "DORIS_BE_ASAN_SOURCES entry '${source_candidate}' does not exist")
+        endif()
+
+        string(FIND "${resolved_source_candidate}" "${BASE_DIR}/src/" be_src_pos)
+        if (NOT be_src_pos EQUAL 0)
+            message(FATAL_ERROR "DORIS_BE_ASAN_SOURCES entry '${source_candidate}' must be under ${BASE_DIR}/src")
+        endif()
+
+        list(APPEND DORIS_BE_ASAN_SOURCE_LIST "${resolved_source_candidate}")
+    endforeach()
+
+    list(REMOVE_DUPLICATES DORIS_BE_ASAN_SOURCE_LIST)
+endif()
+
+function(enable_doris_asan_for_sources target)
+    if (NOT DORIS_BE_ASAN_SOURCE_LIST)
+        return()
+    endif()
+
+    get_target_property(target_sources ${target} SOURCES)
+    if (NOT target_sources)
+        return()
+    endif()
+
+    get_target_property(target_source_dir ${target} SOURCE_DIR)
+    foreach(target_source IN LISTS target_sources)
+        get_filename_component(target_source_abs "${target_source}" ABSOLUTE BASE_DIR "${target_source_dir}")
+        list(FIND DORIS_BE_ASAN_SOURCE_LIST "${target_source_abs}" source_index)
+        if (source_index EQUAL -1)
+            continue()
+        endif()
+
+        set_property(SOURCE "${target_source_abs}" TARGET_DIRECTORY ${target} APPEND PROPERTY
+            COMPILE_OPTIONS ${DORIS_ASAN_COMPILE_OPTIONS})
+        set_property(SOURCE "${target_source_abs}" TARGET_DIRECTORY ${target} APPEND PROPERTY
+            COMPILE_DEFINITIONS ADDRESS_SANITIZER UNDEFINED_BEHAVIOR_SANITIZER)
+        set_property(SOURCE "${target_source_abs}" TARGET_DIRECTORY ${target} PROPERTY
+            SKIP_PRECOMPILE_HEADERS ON)
+        set_property(GLOBAL APPEND PROPERTY DORIS_BE_ASAN_MATCHED_SOURCES "${target_source_abs}")
+        message(STATUS "Enable BE source ASAN for target ${target}: ${target_source_abs}")
+    endforeach()
+endfunction()
+
+function(validate_doris_asan_sources)
+    if (NOT DORIS_BE_ASAN_SOURCE_LIST)
+        return()
+    endif()
+
+    get_property(matched_sources GLOBAL PROPERTY DORIS_BE_ASAN_MATCHED_SOURCES)
+    if (matched_sources)
+        list(REMOVE_DUPLICATES matched_sources)
+    endif()
+
+    foreach(requested_source IN LISTS DORIS_BE_ASAN_SOURCE_LIST)
+        list(FIND matched_sources "${requested_source}" matched_index)
+        if (matched_index EQUAL -1)
+            message(FATAL_ERROR "Requested BE ASAN source '${requested_source}' is not compiled by any registered BE target")
+        endif()
+    endforeach()
+endfunction()
 set(CXX_FLAGS_LSAN "-O0 -fsanitize=leak -DLEAK_SANITIZER")
 ## Use for BE-UT
 set(CXX_FLAGS_ASAN_UT "-O0 -fsanitize=address -DADDRESS_SANITIZER")
@@ -960,6 +1085,50 @@ if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
 endif()
 
 add_subdirectory(${SRC_DIR}/util)
+
+set(DORIS_BE_SOURCE_TARGETS
+    Agent
+    Common
+    Core
+    Exec
+    Exprs
+    Format
+    DorisGen
+    IO
+    Storage
+    Runtime
+    Service
+    doris_be
+    Udf
+    Cloud
+    Load
+    InformationSchema
+    meta_tool
+    packed_file_tool
+    index_tool
+    fs_benchmark_tool
+    file_cache_lru_tool
+    file_cache_microbench
+    task_executor_simulator
+)
+foreach(target IN LISTS DORIS_BE_SOURCE_TARGETS)
+    if (TARGET ${target})
+        enable_doris_asan_for_sources(${target})
+    endif()
+endforeach()
+
+if (ENABLE_EXPR_ASAN OR DORIS_BE_ASAN_SOURCES)
+    foreach(target IN LISTS DORIS_BE_SOURCE_TARGETS)
+        if (TARGET ${target})
+            get_target_property(target_type ${target} TYPE)
+            if (target_type STREQUAL "EXECUTABLE")
+                link_doris_asan_runtime(${target})
+            endif()
+        endif()
+    endforeach()
+endif()
+
+validate_doris_asan_sources()
 
 # this include doris_be_test
 if (MAKE_TEST)

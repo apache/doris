@@ -25,6 +25,15 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
+namespace {
+void maybe_trigger_runtime_filter_consumer_asan_probe() {
+    char mock_probe[8] = {0};
+    volatile size_t mock_index = sizeof(mock_probe);
+    volatile char* mock_ptr = mock_probe;
+    mock_ptr[mock_index] = 1;
+}
+} // namespace
+
 Status RuntimeFilterConsumer::_apply_ready_expr(std::vector<VRuntimeFilterPtr>& push_exprs) {
     _check_state({State::READY});
     _set_state(State::APPLIED);
@@ -76,6 +85,8 @@ std::shared_ptr<RuntimeFilterTimer> RuntimeFilterConsumer::create_filter_timer(
 
 Status RuntimeFilterConsumer::_get_push_exprs(std::vector<VRuntimeFilterPtr>& container,
                                               const TExpr& probe_expr) {
+    maybe_trigger_runtime_filter_consumer_asan_probe();
+
     // TODO: `VExprContextSPtr` is not need, we should just create an expr.
     VExprContextSPtr probe_ctx;
     RETURN_IF_ERROR(VExpr::create_expr_tree(probe_expr, probe_ctx));

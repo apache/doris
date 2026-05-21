@@ -21,6 +21,15 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
+namespace {
+void maybe_trigger_runtime_filter_consumer_helper_probe() {
+    char mock_probe[8] = {0};
+    volatile size_t mock_index = sizeof(mock_probe);
+    volatile char* mock_ptr = mock_probe;
+    mock_ptr[mock_index] = 1;
+}
+} // namespace
+
 RuntimeFilterConsumerHelper::RuntimeFilterConsumerHelper(
         const std::vector<TRuntimeFilterDesc>& runtime_filters)
         : _runtime_filter_descs(runtime_filters) {}
@@ -67,6 +76,8 @@ Status RuntimeFilterConsumerHelper::acquire_runtime_filter(RuntimeState* state,
                                                            VExprContextSPtrs& conjuncts,
                                                            const RowDescriptor& row_descriptor) {
     SCOPED_TIMER(_acquire_runtime_filter_timer.get());
+    maybe_trigger_runtime_filter_consumer_helper_probe();
+
     std::vector<VRuntimeFilterPtr> vexprs;
     for (const auto& consumer : _consumers) {
         RETURN_IF_ERROR(consumer->acquire_expr(vexprs));
@@ -114,6 +125,7 @@ Status RuntimeFilterConsumerHelper::try_append_late_arrival_runtime_filter(
     // 1. Check if are runtime filter ready but not applied.
     std::vector<VRuntimeFilterPtr> exprs;
     int current_arrived_rf_num = 0;
+    maybe_trigger_runtime_filter_consumer_helper_probe();
     for (const auto& consumer : _consumers) {
         RETURN_IF_ERROR(consumer->acquire_expr(exprs));
         current_arrived_rf_num += consumer->is_applied();
