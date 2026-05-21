@@ -31,6 +31,16 @@ suite("test_cdc_stream_tvf_postgres", "p0,external,pg,external_docker,external_d
         String bucket = getS3BucketName()
         String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
 
+        // --- Validation error tests (no JDBC connection needed) ---
+        test {
+            sql """select * from cdc_stream(
+                "type" = "postgres",
+                "jdbc_url" = "jdbc:postgresql://localhost:5432/db",
+                "table" = "t1",
+                "offset" = "latest")"""
+            exception "schema is required for PostgreSQL"
+        }
+
         // create test
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             // sql """CREATE SCHEMA IF NOT EXISTS ${pgSchema}"""

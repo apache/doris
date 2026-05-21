@@ -87,7 +87,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     List<SnapshotSplit> remainingSplits = new ArrayList<>();
     List<SnapshotSplit> finishedSplits = new ArrayList<>();
 
-    JdbcOffset currentOffset;
+    volatile JdbcOffset currentOffset;
     Map<String, String> endBinlogOffset;
 
     @SerializedName("chw")

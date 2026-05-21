@@ -118,6 +118,26 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         if (!properties.containsKey(DataSourceConfigKeys.OFFSET)) {
             throw new AnalysisException("offset is required");
         }
+        DataSourceType sourceType;
+        try {
+            sourceType = DataSourceType.valueOf(properties.get(DataSourceConfigKeys.TYPE).toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException("Unsupported type: " + properties.get(DataSourceConfigKeys.TYPE));
+        }
+        switch (sourceType) {
+            case MYSQL:
+                if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.DATABASE))) {
+                    throw new AnalysisException("database is required for MySQL");
+                }
+                break;
+            case POSTGRES:
+                if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.SCHEMA))) {
+                    throw new AnalysisException("schema is required for PostgreSQL");
+                }
+                break;
+            default:
+                throw new AnalysisException("Unsupported type: " + sourceType);
+        }
     }
 
     private void generateFileStatus() {

@@ -57,6 +57,24 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
             exception "offset is required"
         }
 
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://localhost:3306",
+                "table" = "t1",
+                "offset" = "latest")"""
+            exception "database is required for MySQL"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "unknown_db",
+                "jdbc_url" = "jdbc:foo://localhost:3306",
+                "table" = "t1",
+                "offset" = "latest")"""
+            exception "Unsupported type"
+        }
+
         // --- Data setup ---
 
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {

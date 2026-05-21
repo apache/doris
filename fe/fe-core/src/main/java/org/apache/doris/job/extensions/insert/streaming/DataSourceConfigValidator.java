@@ -163,6 +163,14 @@ public class DataSourceConfigValidator {
         if (key.equals(DataSourceConfigKeys.SSL_MODE) && !ALLOW_SSL_MODES.contains(value)) {
             return false;
         }
+        if (key.equals(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)
+                || key.equals(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
+            try {
+                return Integer.parseInt(value) > 0;
+            } catch (NumberFormatException e) {
+                return false;
+            }
+        }
         return true;
     }
 
