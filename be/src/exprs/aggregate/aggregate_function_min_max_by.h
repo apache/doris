@@ -312,7 +312,7 @@ public:
     }
 };
 
-template <template <typename> class AggregateFunctionTemplate, template <typename> class Data>
+template <template <typename> class Data>
 AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
                                                           const DataTypes& argument_types,
                                                           const DataTypePtr& result_type,
@@ -328,11 +328,11 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
         constexpr auto PT = DispatchType::PType;
         if constexpr (is_decimal(PT)) {
             result = creator_without_type::create_multi_arguments<
-                    AggregateFunctionTemplate<Data<SingleValueDataDecimal<PT>>>>(
+                    AggregateFunctionsMinMaxBy<Data<SingleValueDataDecimal<PT>>>>(
                     argument_types, result_is_nullable, attr);
         } else {
             result = creator_without_type::create_multi_arguments<
-                    AggregateFunctionTemplate<Data<SingleValueDataFixed<PT>>>>(
+                    AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<PT>>>>(
                     argument_types, result_is_nullable, attr);
         }
         return true;
@@ -346,13 +346,29 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
     case PrimitiveType::TYPE_VARCHAR:
     case PrimitiveType::TYPE_STRING:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataString>>>(argument_types,
-                                                                        result_is_nullable, attr);
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataString>>>(argument_types,
+                                                                         result_is_nullable, attr);
+    case PrimitiveType::TYPE_DATE:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_DATE>>>>(
+                argument_types, result_is_nullable, attr);
+    case PrimitiveType::TYPE_DATETIME:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_DATETIME>>>>(
+                argument_types, result_is_nullable, attr);
+    case PrimitiveType::TYPE_DATEV2:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_DATEV2>>>>(
+                argument_types, result_is_nullable, attr);
+    case PrimitiveType::TYPE_DATETIMEV2:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_DATETIMEV2>>>>(
+                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_ARRAY:
     case PrimitiveType::TYPE_MAP:
     case PrimitiveType::TYPE_STRUCT:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataComplexType>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataComplexType>>>(
                 argument_types, result_is_nullable, attr);
     default:
         return nullptr;
