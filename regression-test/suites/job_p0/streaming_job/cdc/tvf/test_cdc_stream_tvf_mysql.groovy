@@ -75,6 +75,15 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
             exception "Unsupported type"
         }
 
+        test {
+            sql """select * from cdc_stream(
+                "type" = "",
+                "jdbc_url" = "jdbc:mysql://localhost:3306",
+                "table" = "t1",
+                "offset" = "latest")"""
+            exception "type is required"
+        }
+
         // --- Data setup ---
 
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {

@@ -106,16 +106,16 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
     }
 
     private void validate(Map<String, String> properties) throws AnalysisException {
-        if (!properties.containsKey(DataSourceConfigKeys.JDBC_URL)) {
+        if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.JDBC_URL))) {
             throw new AnalysisException("jdbc_url is required");
         }
-        if (!properties.containsKey(DataSourceConfigKeys.TYPE)) {
+        if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.TYPE))) {
             throw new AnalysisException("type is required");
         }
-        if (!properties.containsKey(DataSourceConfigKeys.TABLE)) {
+        if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.TABLE))) {
             throw new AnalysisException("table is required");
         }
-        if (!properties.containsKey(DataSourceConfigKeys.OFFSET)) {
+        if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.OFFSET))) {
             throw new AnalysisException("offset is required");
         }
         DataSourceType sourceType;
