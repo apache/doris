@@ -85,7 +85,23 @@ public class TimeV2Literal extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
-        return 0;
+        throw new RuntimeException("Not support comparison between TIMEV2 literals");
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (!(obj instanceof TimeV2Literal)) {
+            return false;
+        }
+        return Double.compare(this.getValue(), ((TimeV2Literal) obj).getValue()) == 0;
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Double.hashCode(getValue());
     }
 
     @Override

@@ -22,6 +22,8 @@ import org.apache.doris.common.AnalysisException;
 
 import com.google.gson.annotations.SerializedName;
 
+import java.math.BigInteger;
+import java.net.InetAddress;
 import java.util.regex.Pattern;
 
 public class IPv6Literal extends LiteralExpr {
@@ -90,7 +92,45 @@ public class IPv6Literal extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
-        return 0;
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
+        if (expr instanceof NullLiteral) {
+            return 1;
+        }
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
+        }
+        if (expr instanceof IPv6Literal) {
+            return toUnsigned128(this.value).compareTo(toUnsigned128(((IPv6Literal) expr).value));
+        }
+        throw new RuntimeException("Cannot compare two values with different data types: "
+                + this + " (" + this.type + ") vs " + expr + " (" + expr.type + ")");
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (!(obj instanceof IPv6Literal)) {
+            return false;
+        }
+        return toUnsigned128(this.value).equals(toUnsigned128(((IPv6Literal) obj).value));
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + toUnsigned128(this.value).hashCode();
+    }
+
+    private static BigInteger toUnsigned128(String ipv6) {
+        try {
+            byte[] bytes = InetAddress.getByName(ipv6).getAddress();
+            return new BigInteger(1, bytes);
+        } catch (Exception e) {
+            throw new IllegalStateException("Invalid IPv6 literal: " + ipv6, e);
+        }
     }
 
     @Override
