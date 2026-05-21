@@ -564,12 +564,10 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashAgg[GLOBAL]
---------PhysicalOlapScan[test_skew_hint]
+------PhysicalOlapScan[test_skew_hint]
 
 -- !shape_not_rewrite --
 PhysicalResultSink
 --hashAgg[GLOBAL]
-----hashAgg[GLOBAL]
-------PhysicalOlapScan[test_skew_hint]
+----PhysicalOlapScan[test_skew_hint]
 
