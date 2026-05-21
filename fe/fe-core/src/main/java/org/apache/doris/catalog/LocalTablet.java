@@ -26,14 +26,13 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.List;
 import java.util.stream.LongStream;
 
@@ -41,7 +40,7 @@ public class LocalTablet extends Tablet {
     private static final Logger LOG = LogManager.getLogger(LocalTablet.class);
 
     @SerializedName(value = "rs", alternate = {"replicas"})
-    private List<Replica> replicas;
+    private volatile List<Replica> replicas;
     @SerializedName(value = "lastCheckTime")
     private long lastCheckTime;
 
@@ -224,29 +223,32 @@ public class LocalTablet extends Tablet {
         this.lastCheckTime = lastCheckTime;
     }
 
-    private boolean isLatestReplicaAndDeleteOld(Replica newReplica) {
-        boolean delete = false;
-        boolean hasBackend = false;
-        long version = newReplica.getVersion();
-        Iterator<Replica> iterator = replicas.iterator();
-        while (iterator.hasNext()) {
-            Replica replica = iterator.next();
-            if (replica.getBackendIdWithoutException() == newReplica.getBackendIdWithoutException()) {
-                hasBackend = true;
-                if (replica.getVersion() <= version) {
-                    iterator.remove();
-                    delete = true;
-                }
-            }
-        }
-
-        return delete || !hasBackend;
-    }
+    // Writers are synchronized on this tablet to prevent concurrent lost-update:
+    // some callers (e.g. InternalCatalog.createTablets, RestoreJob) do NOT hold
+    // the OlapTable write lock when modifying replicas.
+    // Readers capture the volatile reference once and iterate freely — no lock needed.
 
     @Override
-    public void addReplica(Replica replica, boolean isRestore) {
-        if (isLatestReplicaAndDeleteOld(replica)) {
-            replicas.add(replica);
+    public synchronized void addReplica(Replica replica, boolean isRestore) {
+        long version = replica.getVersion();
+        long backendId = replica.getBackendIdWithoutException();
+        boolean hasBackend = false;
+        boolean deletedOld = false;
+        List<Replica> current = replicas;
+        List<Replica> next = new ArrayList<>(current.size() + 1);
+        for (Replica r : current) {
+            if (r.getBackendIdWithoutException() == backendId) {
+                hasBackend = true;
+                if (r.getVersion() <= version) {
+                    deletedOld = true;
+                    continue; // drop stale replica
+                }
+            }
+            next.add(r);
+        }
+        if (deletedOld || !hasBackend) {
+            next.add(replica);
+            replicas = next; // volatile write; readers see the new immutable snapshot
             if (!isRestore) {
                 Env.getCurrentInvertedIndex().addReplica(id, replica);
             }
@@ -255,7 +257,8 @@ public class LocalTablet extends Tablet {
 
     @Override
     public List<Replica> getReplicas() {
-        return Lists.newArrayList(this.replicas);
+        // Volatile read: returns the current immutable snapshot; callers iterate without locking.
+        return Collections.unmodifiableList(replicas);
     }
 
     @Override
@@ -269,9 +272,12 @@ public class LocalTablet extends Tablet {
     }
 
     @Override
-    public boolean deleteReplica(Replica replica) {
-        if (replicas.contains(replica)) {
-            replicas.remove(replica);
+    public synchronized boolean deleteReplica(Replica replica) {
+        List<Replica> current = replicas;
+        if (current.contains(replica)) {
+            List<Replica> next = new ArrayList<>(current);
+            next.remove(replica);
+            replicas = next; // volatile write
             Env.getCurrentInvertedIndex().deleteReplica(id, replica.getBackendIdWithoutException());
             return true;
         }
@@ -279,15 +285,21 @@ public class LocalTablet extends Tablet {
     }
 
     @Override
-    public boolean deleteReplicaByBackendId(long backendId) {
-        Iterator<Replica> iterator = replicas.iterator();
-        while (iterator.hasNext()) {
-            Replica replica = iterator.next();
+    public synchronized boolean deleteReplicaByBackendId(long backendId) {
+        List<Replica> current = replicas;
+        List<Replica> next = new ArrayList<>(current.size());
+        Replica found = null;
+        for (Replica replica : current) {
             if (replica.getBackendIdWithoutException() == backendId) {
-                iterator.remove();
-                Env.getCurrentInvertedIndex().deleteReplica(id, backendId);
-                return true;
+                found = replica;
+            } else {
+                next.add(replica);
             }
+        }
+        if (found != null) {
+            replicas = next; // volatile write
+            Env.getCurrentInvertedIndex().deleteReplica(id, backendId);
+            return true;
         }
         return false;
     }

@@ -19,10 +19,10 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,7 +60,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     private Map<Long, Tablet> idToTablets;
     @SerializedName(value = "tablets")
     // this is for keeping tablet order
-    private List<Tablet> tablets;
+    private volatile List<Tablet> tablets;
 
     // for push after rollup index finished
     @SerializedName(value = "rollupIndexId")
@@ -94,12 +94,14 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     }
 
     public List<Tablet> getTablets() {
-        return Lists.newArrayList(tablets);
+        // Volatile read: returns the current immutable snapshot; callers iterate without locking.
+        return Collections.unmodifiableList(tablets);
     }
 
     public List<Long> getTabletIdsInOrder() {
-        List<Long> tabletIds = Lists.newArrayListWithCapacity(tablets.size());
-        for (Tablet tablet : tablets) {
+        List<Tablet> snapshot = tablets; // single volatile read
+        List<Long> tabletIds = new ArrayList<>(snapshot.size());
+        for (Tablet tablet : snapshot) {
             tabletIds.add(tablet.getId());
         }
         return tabletIds;
@@ -109,18 +111,26 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         return idToTablets.get(tabletId);
     }
 
-    public void clearTabletsForRestore() {
+    public synchronized void clearTabletsForRestore() {
         idToTablets.clear();
-        tablets.clear();
+        tablets = new ArrayList<>(); // volatile write
     }
 
-    public void addTablet(Tablet tablet, TabletMeta tabletMeta) {
+    public synchronized void addTablet(Tablet tablet, TabletMeta tabletMeta) {
         addTablet(tablet, tabletMeta, false);
     }
 
-    public void addTablet(Tablet tablet, TabletMeta tabletMeta, boolean isRestore) {
+    // Writers are synchronized on this index to prevent concurrent lost-update:
+    // some callers (e.g. InternalCatalog.createTablets) do NOT hold the OlapTable
+    // write lock when adding tablets.
+    // Copy-on-write makes incremental add O(n); bulk creation is thus O(n^2), but n
+    // (bucket count) is small and creation cost is dominated by replica/RPC work — the
+    // copy is negligible, and CME-safe reads on the hot query path are worth it.
+    public synchronized void addTablet(Tablet tablet, TabletMeta tabletMeta, boolean isRestore) {
         idToTablets.put(tablet.getId(), tablet);
-        tablets.add(tablet);
+        List<Tablet> next = new ArrayList<>(tablets);
+        next.add(tablet);
+        tablets = next; // volatile write; readers see the new immutable snapshot
         if (!isRestore) {
             Env.getCurrentInvertedIndex().addTablet(tablet.getId(), tabletMeta);
         }
@@ -241,8 +251,9 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     }
 
     public int getTabletOrderIdx(long tabletId) {
+        List<Tablet> snapshot = tablets; // single volatile read
         int idx = 0;
-        for (Tablet tablet : tablets) {
+        for (Tablet tablet : snapshot) {
             if (tablet.getId() == tabletId) {
                 return idx;
             }
@@ -279,15 +290,16 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
 
     @Override
     public String toString() {
+        List<Tablet> snapshot = tablets; // single volatile read
         StringBuilder buffer = new StringBuilder();
         buffer.append("index id: ").append(id).append("; ");
         buffer.append("index state: ").append(state.name()).append("; ");
 
         buffer.append("row count: ").append(rowCount).append("; ");
-        buffer.append("tablets size: ").append(tablets.size()).append("; ");
+        buffer.append("tablets size: ").append(snapshot.size()).append("; ");
         //
         buffer.append("tablets: [");
-        for (Tablet tablet : tablets) {
+        for (Tablet tablet : snapshot) {
             buffer.append("tablet: ").append(tablet.toString()).append(", ");
         }
         buffer.append("]; ");

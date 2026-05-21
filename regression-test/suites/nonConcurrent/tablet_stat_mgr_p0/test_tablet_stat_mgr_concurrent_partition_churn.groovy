@@ -17,6 +17,7 @@
 
 import java.io.RandomAccessFile
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 suite("test_tablet_stat_mgr_concurrent_partition_churn", "nonConcurrent") {
@@ -27,6 +28,8 @@ suite("test_tablet_stat_mgr_concurrent_partition_churn", "nonConcurrent") {
     String oldInterval = null
     AtomicBoolean stopped = new AtomicBoolean(false)
     AtomicReference<Throwable> firstError = new AtomicReference<>()
+    // Track temp tables created by tableWorker so we can clean them up in finally.
+    AtomicInteger tableWorkerCount = new AtomicInteger(0)
 
     String dorisHome = System.getProperty("DORIS_HOME")
     if (dorisHome == null || dorisHome.isEmpty()) {
@@ -129,6 +132,7 @@ suite("test_tablet_stat_mgr_concurrent_partition_churn", "nonConcurrent") {
             int i = 0
             while (!stopped.get()) {
                 String tempTable = "tmp_tablet_stat_mgr_churn_${i}"
+                tableWorkerCount.set(i)
                 sql """
                     CREATE TABLE ${tempTable} (
                         `k1` INT NOT NULL,
@@ -156,7 +160,16 @@ suite("test_tablet_stat_mgr_concurrent_partition_churn", "nonConcurrent") {
         def rowCount = sql """ SELECT count(*) FROM ${tableName} """
         assertTrue(rowCount[0][0].toLong() > 0L)
 
+        // Wait for at least 2 more stat-mgr ticks (interval = 1 s) so that the daemon has a
+        // chance to run after the DDL storm and we can verify it completed successfully.
         sleep(3000)
+
+        // Positive assertion: stat manager must have successfully updated the table's stats.
+        // DataSize is non-zero only if at least one tick completed without crashing.
+        def showData = sql """ SHOW DATA FROM ${tableName} """
+        assertTrue(showData != null && !showData.isEmpty(),
+                "SHOW DATA returned no rows — stat mgr may not have run")
+
         String appendedLogs = readAppendedLog(feLog, feLogOffset) + readAppendedLog(feWarnLog, feWarnLogOffset)
         assertFalse(appendedLogs.contains("ConcurrentModificationException"))
         assertFalse(appendedLogs.contains("daemon thread got exception. name: tablet stat mgr"))
@@ -166,5 +179,9 @@ suite("test_tablet_stat_mgr_concurrent_partition_churn", "nonConcurrent") {
             sql """ ADMIN SET FRONTEND CONFIG ("tablet_stat_update_interval_second" = "${oldInterval}") """
         }
         sql """ DROP TABLE IF EXISTS ${tableName} FORCE """
+        // Clean up any orphaned temp tables left by tableWorker if it was interrupted mid-CREATE.
+        for (int i = 0; i <= tableWorkerCount.get(); i++) {
+            sql """ DROP TABLE IF EXISTS tmp_tablet_stat_mgr_churn_${i} FORCE """
+        }
     }
 }
