@@ -57,6 +57,7 @@
 #include "storage/index/short_key_index.h"
 #include "storage/iterator/vgeneric_iterators.h"
 #include "storage/iterators.h"
+#include "storage/key_coder.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
