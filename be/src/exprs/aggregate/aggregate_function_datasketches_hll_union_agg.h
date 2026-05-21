@@ -29,6 +29,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "core/assert_cast.h"
 #include "core/column/column.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type_number.h"
@@ -162,18 +163,51 @@ struct AggregateFunctionHllSketchData {
         return 0;
     }
 };
-namespace detail {
-/** The structure for the delegation work to add one element to the `datasketches_hll_union_agg` aggregate functions.
-  * Used for partial specialization to add strings.
-  */
+
+/// Calculates the number of different values approximately using hll sketch.
 template <PrimitiveType T, typename Data>
-struct OneAdder {
-    static void ALWAYS_INLINE add(Data& data, const IColumn& column, size_t row_num) {
+class AggregateFunctionDataSketchesHllUnionAgg final
+        : public IAggregateFunctionDataHelper<Data,
+                                              AggregateFunctionDataSketchesHllUnionAgg<T, Data>>,
+          UnaryExpression,
+          NotNullableAggregateFunction {
+public:
+    AggregateFunctionDataSketchesHllUnionAgg(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionDataSketchesHllUnionAgg<T, Data>>(
+                      argument_types_) {}
+    String get_name() const override { return Data::get_name(); }
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
+             Arena&) const override {
+        add_one(this->data(place), *columns[0], row_num);
+    }
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena&) const override {
+        const auto& rhs_data = this->data(rhs);
+        if (!rhs_data.hll_union_data.has_value()) {
+            return;
+        }
+        this->data(place).merge(rhs_data.hll_union_data->get_result(datasketches::HLL_8));
+    }
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+        this->data(place).write(buf);
+    }
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena&) const override {
+        this->data(place).read(buf);
+    }
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        assert_cast<ColumnInt64&>(to).get_data().push_back(this->data(place).get_result());
+    }
+
+private:
+    static void ALWAYS_INLINE add_one(Data& data, const IColumn& column, ssize_t row_num) {
         if constexpr (is_string_type(T) || is_varbinary(T)) {
             const auto& src_column =
                     assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
                                 TypeCheckOnRelease::DISABLE>(column);
-            StringRef value = src_column.get_data_at(row_num);
+            StringRef value = src_column.get_data_at(static_cast<size_t>(row_num));
             if (value.empty()) {
                 throw Exception(ErrorCode::CORRUPTION,
                                 "HLL sketch data corrupted when add: empty input.");
@@ -194,44 +228,6 @@ struct OneAdder {
                                 "HLL sketch data corrupted when add: unknown exception.");
             }
         }
-    }
-};
-} // namespace detail
-/// Calculates the number of different values approximately using hll sketch.
-template <PrimitiveType T, typename Data>
-class AggregateFunctionDataSketchesHllUnionAgg final
-        : public IAggregateFunctionDataHelper<Data,
-                                              AggregateFunctionDataSketchesHllUnionAgg<T, Data>>,
-          VarargsExpression,
-          NotNullableAggregateFunction {
-public:
-    AggregateFunctionDataSketchesHllUnionAgg(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionDataSketchesHllUnionAgg<T, Data>>(
-                      argument_types_) {}
-    String get_name() const override { return Data::get_name(); }
-    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
-    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena&) const override {
-        detail::OneAdder<T, Data>::add(this->data(place), *columns[0], row_num);
-    }
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena&) const override {
-        const auto& rhs_data = this->data(rhs);
-        if (!rhs_data.hll_union_data.has_value()) {
-            return;
-        }
-        this->data(place).merge(rhs_data.hll_union_data->get_result(datasketches::HLL_8));
-    }
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        this->data(place).write(buf);
-    }
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena&) const override {
-        this->data(place).read(buf);
-    }
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        assert_cast<ColumnInt64&>(to).get_data().push_back(this->data(place).get_result());
     }
 };
 } // namespace doris
