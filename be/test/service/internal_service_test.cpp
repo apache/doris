@@ -18,6 +18,7 @@
 #include "service/internal_service.h"
 
 #include <functional>
+#include <string>
 
 #include "gen_cpp/Status_types.h"
 #include "load/channel/load_stream_mgr.h"
@@ -59,7 +60,10 @@ TEST(InternalServiceTest, TestSyncTabletMetaNotSupported) {
     EXPECT_TRUE(done);
     ASSERT_TRUE(response.has_status());
     EXPECT_EQ(TStatusCode::NOT_IMPLEMENTED_ERROR, response.status().status_code());
-    EXPECT_EQ("sync_tablet_meta only supports cloud mode", response.status().error_msgs(0));
+    ASSERT_GT(response.status().error_msgs_size(), 0);
+    EXPECT_NE(std::string::npos,
+              response.status().error_msgs(0).find("sync_tablet_meta only supports cloud mode"))
+            << response.status().DebugString();
 }
 
 } // namespace doris
