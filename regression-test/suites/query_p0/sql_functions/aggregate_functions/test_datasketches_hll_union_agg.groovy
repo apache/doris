@@ -52,8 +52,8 @@ suite("test_datasketches_hll_union_agg") {
     // 2) Aliases should behave identically (print all 3 results in one row)
     qt_aliases """SELECT
             CAST(ROUND(datasketches_hll_union_agg(sk)) AS BIGINT),
-            CAST(ROUND(ds_hll_union_count(sk)) AS BIGINT),
-            CAST(ROUND(ds_cardinality(sk)) AS BIGINT)
+            CAST(ROUND(ds_hll_estimate(sk)) AS BIGINT),
+            CAST(ROUND(datasketches_hll_estimate(sk)) AS BIGINT)
         FROM ${tableName}
     """
 
@@ -97,8 +97,8 @@ suite("test_datasketches_hll_union_agg") {
 
     qt_aliases_varchar """SELECT
             CAST(ROUND(datasketches_hll_union_agg(sk)) AS BIGINT),
-            CAST(ROUND(ds_hll_union_count(sk)) AS BIGINT),
-            CAST(ROUND(ds_cardinality(sk)) AS BIGINT)
+            CAST(ROUND(ds_hll_estimate(sk)) AS BIGINT),
+            CAST(ROUND(datasketches_hll_estimate(sk)) AS BIGINT)
         FROM ${varcharTableName}
     """
 
@@ -112,8 +112,8 @@ suite("test_datasketches_hll_union_agg") {
 
     qt_aliases_varbinary """SELECT
             CAST(ROUND(datasketches_hll_union_agg(sk)) AS BIGINT),
-            CAST(ROUND(ds_hll_union_count(sk)) AS BIGINT),
-            CAST(ROUND(ds_cardinality(sk)) AS BIGINT)
+            CAST(ROUND(ds_hll_estimate(sk)) AS BIGINT),
+            CAST(ROUND(datasketches_hll_estimate(sk)) AS BIGINT)
         FROM (
             SELECT from_base64_binary('${sk1Base64}') AS sk
             UNION ALL SELECT from_base64_binary('${sk2Base64}')

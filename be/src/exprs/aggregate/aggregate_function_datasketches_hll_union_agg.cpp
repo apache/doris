@@ -38,7 +38,7 @@ void register_aggregate_function_datasketches_HLL_union_agg(
     AggregateFunctionCreator creator =
             create_aggregate_function_datasketches_hll_union_agg<AggregateFunctionHllSketchData>;
     factory.register_function_both("datasketches_hll_union_agg", creator);
-    factory.register_alias("datasketches_hll_union_agg", "ds_hll_union_count");
-    factory.register_alias("datasketches_hll_union_agg", "ds_cardinality");
+    factory.register_alias("datasketches_hll_union_agg", "ds_hll_estimate");
+    factory.register_alias("datasketches_hll_union_agg", "datasketches_hll_estimate");
 }
 } // namespace doris

@@ -340,14 +340,14 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testFactoryCreateAndAliases
 
     auto fn_main =
             factory.get("datasketches_hll_union_agg", argument_types, nullptr, false, be_version);
-    auto fn_alias_union_count =
-            factory.get("ds_hll_union_count", argument_types, nullptr, false, be_version);
-    auto fn_alias_cardinality =
-            factory.get("ds_cardinality", argument_types, nullptr, false, be_version);
+    auto fn_alias_sr_estimate =
+            factory.get("ds_hll_estimate", argument_types, nullptr, false, be_version);
+    auto fn_alias_datasketches_estimate =
+            factory.get("datasketches_hll_estimate", argument_types, nullptr, false, be_version);
 
     ASSERT_NE(fn_main, nullptr);
-    ASSERT_NE(fn_alias_union_count, nullptr);
-    ASSERT_NE(fn_alias_cardinality, nullptr);
+    ASSERT_NE(fn_alias_sr_estimate, nullptr);
+    ASSERT_NE(fn_alias_datasketches_estimate, nullptr);
 
     datasketches::hll_sketch sketch(8, datasketches::HLL_8);
     for (int i = 0; i < 7; ++i) sketch.update(i);
@@ -369,8 +369,8 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testFactoryCreateAndAliases
 
     double expected = sketch.get_estimate();
     EXPECT_DOUBLE_EQ(run_and_get_result(fn_main), expected);
-    EXPECT_DOUBLE_EQ(run_and_get_result(fn_alias_union_count), expected);
-    EXPECT_DOUBLE_EQ(run_and_get_result(fn_alias_cardinality), expected);
+    EXPECT_DOUBLE_EQ(run_and_get_result(fn_alias_sr_estimate), expected);
+    EXPECT_DOUBLE_EQ(run_and_get_result(fn_alias_datasketches_estimate), expected);
 }
 
 TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
