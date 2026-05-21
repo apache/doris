@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -286,7 +287,11 @@ public class LoadActionTest {
         Backend backend = mockBackend("be-host", 8040, null);
         SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
         Env env = Mockito.mock(Env.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
         Mockito.when(systemInfoService.getBackend(1L)).thenReturn(backend);
+        // Provide the default catalog name required by ConnectContext.setEnv().
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(internalCatalog.getName()).thenReturn("internal");
         Mockito.when(request.getHeader("expect")).thenReturn("100-continue");
         Mockito.when(request.getHeader("label")).thenReturn("label1");
         Mockito.when(request.getRemoteAddr()).thenReturn("127.0.0.1");
