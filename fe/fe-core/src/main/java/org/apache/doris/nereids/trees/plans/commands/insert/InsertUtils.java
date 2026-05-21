@@ -624,7 +624,7 @@ public class InsertUtils {
         if (generatedColumnInfo != null) {
             // Preserve DEFAULT for generated columns so BindSink can recognize
             // that the user did not explicitly assign a value.
-            return new DefaultValueSlot();
+            return new Alias(new DefaultValueSlot(DataType.fromCatalogType(column.getType())), column.getName());
         }
         if (column.getDefaultValue() == null) {
             if (!column.isAllowNull() && !column.isAutoInc()) {

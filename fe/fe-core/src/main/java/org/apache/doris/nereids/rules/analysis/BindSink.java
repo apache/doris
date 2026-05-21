@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -354,12 +355,25 @@ public class BindSink implements AnalysisRuleFactory {
         int outputColumnSize = Math.min(child.getOutput().size(), bindColumns.size());
         for (int i = 0; i < outputColumnSize; i++) {
             Column col = bindColumns.get(i);
-            if (col.getGeneratedColumnInfo() != null && !(child.getOutput().get(i) instanceof DefaultValueSlot)) {
+            if (col.getGeneratedColumnInfo() != null
+                    && !isDefaultValueExpr(getOutputExpressionForGeneratedColumnCheck(child, i))) {
                 throw new AnalysisException("The value specified for generated column '"
                         + col.getName()
                         + "' in table '" + table.getName() + "' is not allowed.");
             }
         }
+    }
+
+    private static Expression getOutputExpressionForGeneratedColumnCheck(LogicalPlan child, int index) {
+        if (child instanceof LogicalOneRowRelation) {
+            return ((LogicalOneRowRelation) child).getProjects().get(index);
+        }
+        return child.getOutput().get(index);
+    }
+
+    private static boolean isDefaultValueExpr(Expression expr) {
+        return expr instanceof DefaultValueSlot
+                || (expr instanceof Alias && ((Alias) expr).child() instanceof DefaultValueSlot);
     }
 
     private LogicalProject<?> getOutputProjectByCoercion(List<Column> tableSchema, LogicalPlan child,
@@ -369,7 +383,7 @@ public class BindSink implements AnalysisRuleFactory {
             // remove default value slot in one row relation
             child = ((LogicalOneRowRelation) child).withProjects(((LogicalOneRowRelation) child)
                     .getProjects().stream()
-                    .filter(p -> !(p instanceof DefaultValueSlot))
+                    .filter(p -> !isDefaultValueExpr(p))
                     .collect(ImmutableList.toImmutableList()));
         }
         LogicalProject<?> fullOutputProject = new LogicalProject<>(fullOutputExprs, child);
@@ -406,6 +420,9 @@ public class BindSink implements AnalysisRuleFactory {
                 }
             } else {
                 castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
+            }
+            if (requireNonNullableOutput(col) && castExpr.nullable()) {
+                castExpr = new NonNullable(castExpr);
             }
             if (castExpr instanceof NamedExpression) {
                 castExprs.add(((NamedExpression) castExpr));
@@ -453,7 +470,7 @@ public class BindSink implements AnalysisRuleFactory {
             if (columnToChildOutput.containsKey(column)
                     // do not process explicitly use DEFAULT value here:
                     // insert into table t values(DEFAULT)
-                    && !(columnToChildOutput.get(column) instanceof DefaultValueSlot)) {
+                    && !isDefaultValueExpr(columnToChildOutput.get(column))) {
                 Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
                         columnToChildOutput.get(column), DataType.fromCatalogType(column.getType())),
                         column.getName());
@@ -565,6 +582,7 @@ public class BindSink implements AnalysisRuleFactory {
                     boundExpression = boundExpression.accept(
                             new AddSessionVarGuardRewriter(column.getSessionVariables()), Boolean.FALSE);
                 }
+                boundExpression = normalizeOutputExpression(boundExpression, column);
                 Alias output = new Alias(boundExpression, column.getName());
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());
@@ -596,8 +614,7 @@ public class BindSink implements AnalysisRuleFactory {
                     boundExpression = boundExpression.accept(
                             new AddSessionVarGuardRewriter(column.getSessionVariables()), Boolean.FALSE);
                 }
-                boundExpression = TypeCoercionUtils.castIfNotSameType(boundExpression,
-                        DataType.fromCatalogType(column.getType()));
+                boundExpression = normalizeOutputExpression(boundExpression, column);
                 Alias output = new Alias(boundExpression, column.getDefineExpr().accept(
                         ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                 columnToOutput.put(column.getName(), output);
@@ -615,6 +632,18 @@ public class BindSink implements AnalysisRuleFactory {
             }
         }
         return columnToOutput;
+    }
+
+    private static Expression normalizeOutputExpression(Expression expression, Column column) {
+        expression = TypeCoercionUtils.castIfNotSameType(expression, DataType.fromCatalogType(column.getType()));
+        if (requireNonNullableOutput(column) && expression.nullable()) {
+            return new NonNullable(expression);
+        }
+        return expression;
+    }
+
+    private static boolean requireNonNullableOutput(Column column) {
+        return !column.isAllowNull() || column.isKey();
     }
 
     private Plan bindBlackHoleSink(MatchingContext<UnboundBlackholeSink<Plan>> ctx) {
