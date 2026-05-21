@@ -83,38 +83,4 @@ public class Embed extends AIFunction {
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitEmbed(this, context);
     }
-
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        if (arity() == 1) {
-            return;
-        }
-        if (arity() == 2) {
-            String aiResourceName = requireStringLiteral(getArgument(0), "resource name",
-                    "AI Function must accept literal for the resource name.");
-            validateAIResource(aiResourceName);
-            return;
-        }
-        throw new AnalysisException("Function EMBED only accepts 1 or 2 arguments");
-    }
-
-    private static String requireStringLiteral(Expression arg, String argName, String errorMsg) {
-        if (!(arg instanceof StringLikeLiteral)) {
-            throw new AnalysisException(errorMsg);
-        }
-        String value = ((StringLikeLiteral) arg).getStringValue();
-        if (value == null || value.isEmpty()) {
-            throw new AnalysisException("EMBED " + argName + " can not be empty.");
-        }
-        return value;
-    }
-
-    private static void validateAIResource(String resourceName) {
-        Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
-        if (!(resource instanceof AIResource)) {
-            throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
-        }
-        Resource.registerUsedAIResourceName(resourceName);
-    }
-
 }
