@@ -26,6 +26,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
