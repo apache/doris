@@ -167,6 +167,13 @@ struct VOlapTablePartition {
     bool is_mutable;
     // -1 indicates partition with hash distribution
     int64_t load_tablet_idx = -1;
+    // FE-selected bucket owner BE for adaptive random bucket mode. -1 means use the current
+    // execution BE, which preserves the legacy BE-side calculation behaviour.
+    int64_t bucket_be_id = -1;
+    // Bucket indices (0-based) used by FIND_TABLET_RANDOM_BUCKET rotation. FE may preselect and
+    // send them; otherwise BE computes them from tablet location info and bucket_be_id/current BE.
+    // Empty means fallback to the fixed load_tablet_idx bucket.
+    std::vector<int32_t> local_bucket_seqs;
     int total_replica_num = 0;
     int load_required_replica_num = 0;
     // tablet_id -> set of backend_ids that have version gaps

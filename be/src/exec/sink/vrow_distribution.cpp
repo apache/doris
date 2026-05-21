@@ -290,7 +290,9 @@ void VRowDistribution::_filter_block_by_skip(Block* block, RowPartTabletIds& row
         if (!_skip[i]) {
             row_ids.emplace_back(i);
             partition_ids.emplace_back(_partitions[i]->id);
-            tablet_ids.emplace_back(_tablet_ids[i]);
+            if (!_tablet_finder->is_adaptive_random_bucket()) {
+                tablet_ids.emplace_back(_tablet_ids[i]);
+            }
         }
     }
 }
@@ -313,7 +315,9 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
             if (nullable_column->get_bool_inline(i) && !_skip[i]) {
                 row_ids.emplace_back(i);
                 partition_ids.emplace_back(_partitions[i]->id);
-                tablet_ids.emplace_back(_tablet_ids[i]);
+                if (!_tablet_finder->is_adaptive_random_bucket()) {
+                    tablet_ids.emplace_back(_tablet_ids[i]);
+                }
             }
         }
     } else if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
@@ -332,7 +336,9 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
             if (filter[i] != 0 && !_skip[i]) {
                 row_ids.emplace_back(i);
                 partition_ids.emplace_back(_partitions[i]->id);
-                tablet_ids.emplace_back(_tablet_ids[i]);
+                if (!_tablet_finder->is_adaptive_random_bucket()) {
+                    tablet_ids.emplace_back(_tablet_ids[i]);
+                }
             }
         }
     }
@@ -343,7 +349,9 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
 Status VRowDistribution::_filter_block(Block* block,
                                        std::vector<RowPartTabletIds>& row_part_tablet_ids) {
     for (int i = 0; i < _schema->indexes().size(); i++) {
-        _get_tablet_ids(block, i, _tablet_ids);
+        if (!_tablet_finder->is_adaptive_random_bucket()) {
+            _get_tablet_ids(block, i, _tablet_ids);
+        }
         auto& where_clause = _schema->indexes()[i]->where_clause;
         if (where_clause != nullptr) {
             RETURN_IF_ERROR(_filter_block_by_skip_and_where_clause(block, where_clause,
@@ -525,7 +533,9 @@ void VRowDistribution::_reset_row_part_tablet_ids(
         // This is important for performance.
         row_ids.reserve(rows);
         partition_ids.reserve(rows);
-        tablet_ids.reserve(rows);
+        if (!_tablet_finder->is_adaptive_random_bucket()) {
+            tablet_ids.reserve(rows);
+        }
     }
 }
 

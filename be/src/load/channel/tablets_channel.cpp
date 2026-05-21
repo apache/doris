@@ -144,7 +144,6 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     _schema = std::make_shared<OlapTableSchemaParam>();
     RETURN_IF_ERROR(_schema->init(request.schema()));
     _tuple_desc = _schema->tuple_desc();
-
     int max_sender = request.num_senders();
     /*
      * a tablets channel in reciever is related to a bulk of VNodeChannel of sender. each instance one or none.
@@ -175,6 +174,7 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     _closed_senders.Reset(max_sender);
 
     RETURN_IF_ERROR(_open_all_writers(request));
+    _init_receiver_side_random_bucket_state(request);
 
     _state = kOpened;
     return Status::OK();
@@ -257,9 +257,43 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
 
     _s_tablet_writer_count += incremental_tablet_num;
     LOG(INFO) << ss.str();
+    _init_receiver_side_random_bucket_state(params);
 
     _state = kOpened;
     return Status::OK();
+}
+
+void BaseTabletsChannel::_init_receiver_side_random_bucket_state(
+        const PTabletWriterOpenRequest& request) {
+    if (!request.is_receiver_side_random_bucket() || request.tablets().empty()) {
+        return;
+    }
+    if (_adaptive_random_bucket_state == nullptr) {
+        _adaptive_random_bucket_state = std::make_shared<AdaptiveRandomBucketState>(_load_id);
+    }
+    _random_bucket_partition_params.clear();
+    _random_bucket_partition_params.reserve(request.random_bucket_partitions_size());
+    for (const auto& partition : request.random_bucket_partitions()) {
+        RandomBucketPartitionParam params;
+        params.ordered_tablet_ids.reserve(partition.ordered_tablet_ids_size());
+        for (auto tablet_id : partition.ordered_tablet_ids()) {
+            params.ordered_tablet_ids.push_back(tablet_id);
+        }
+        _random_bucket_partition_params.emplace(partition.partition_id(), std::move(params));
+    }
+
+    for (const auto& [partition_id, params] : _random_bucket_partition_params) {
+        CHECK(!params.ordered_tablet_ids.empty())
+                << "ordered_tablet_ids is empty, load_id=" << _load_id
+                << ", partition_id=" << partition_id;
+        std::vector<int32_t> ordered_positions;
+        ordered_positions.reserve(params.ordered_tablet_ids.size());
+        for (size_t i = 0; i < params.ordered_tablet_ids.size(); ++i) {
+            ordered_positions.push_back(cast_set<int32_t>(i));
+        }
+        _adaptive_random_bucket_state->init_partition(partition_id, params.ordered_tablet_ids,
+                                                      ordered_positions, 0);
+    }
 }
 
 std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(const WriteRequest& request) {
@@ -616,9 +650,10 @@ Status BaseTabletsChannel::_write_block_data(
     [[maybe_unused]] size_t uncompressed_size = 0;
     [[maybe_unused]] int64_t uncompressed_time = 0;
     RETURN_IF_ERROR(send_data.deserialize(request.block(), &uncompressed_size, &uncompressed_time));
-    CHECK(send_data.rows() == request.tablet_ids_size())
-            << "block rows: " << send_data.rows()
-            << ", tablet_ids_size: " << request.tablet_ids_size();
+    int request_rows = request.is_receiver_side_random_bucket() ? request.partition_ids_size()
+                                                                : request.tablet_ids_size();
+    CHECK(send_data.rows() == request_rows)
+            << "block rows: " << send_data.rows() << ", request_rows: " << request_rows;
 
     g_tablets_channel_send_data_allocated_size << send_data.allocated_bytes();
     Defer defer {
@@ -660,9 +695,14 @@ Status BaseTabletsChannel::_write_block_data(
     SCOPED_TIMER(_write_block_timer);
     auto* tablet_load_infos = response->mutable_tablet_load_rowset_num_infos();
     for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
+        bool memtable_flushed = false;
         RETURN_IF_ERROR(write_tablet_data(tablet_to_rowidxs_it.first, [&](BaseDeltaWriter* writer) {
-            return writer->write(&send_data, tablet_to_rowidxs_it.second);
+            return writer->write(&send_data, tablet_to_rowidxs_it.second, &memtable_flushed);
         }));
+        if (memtable_flushed && request.is_receiver_side_random_bucket()) {
+            CHECK(_adaptive_random_bucket_state != nullptr);
+            _adaptive_random_bucket_state->rotate_by_tablet(tablet_to_rowidxs_it.first);
+        }
 
         auto tablet_writer_it = _tablet_writers.find(tablet_to_rowidxs_it.first);
         if (tablet_writer_it != _tablet_writers.end()) {
@@ -675,6 +715,135 @@ Status BaseTabletsChannel::_write_block_data(
         _next_seqs[request.sender_id()] = cur_seq + 1;
     }
     return Status::OK();
+}
+
+std::shared_ptr<std::mutex> BaseTabletsChannel::_get_partition_route_lock(int64_t partition_id) {
+    std::lock_guard<std::mutex> l(_partition_route_locks_lock);
+    auto& lock = _partition_route_locks[partition_id];
+    if (lock == nullptr) {
+        lock = std::make_shared<std::mutex>();
+    }
+    return lock;
+}
+
+Status BaseTabletsChannel::_write_block_data_for_receiver_side_random_bucket(
+        const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
+        std::unordered_map<int64_t, DorisVector<uint32_t>>& partition_to_rowidxs,
+        PTabletWriterAddBlockResult* response) {
+    Block send_data;
+    [[maybe_unused]] size_t uncompressed_size = 0;
+    [[maybe_unused]] int64_t uncompressed_time = 0;
+    RETURN_IF_ERROR(send_data.deserialize(request.block(), &uncompressed_size, &uncompressed_time));
+    CHECK(send_data.rows() == request.partition_ids_size())
+            << "block rows: " << send_data.rows()
+            << ", partition_ids_size: " << request.partition_ids_size();
+
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        for (const auto& [partition_id, _] : partition_to_rowidxs) {
+            _partition_ids.emplace(partition_id);
+        }
+    }
+
+    g_tablets_channel_send_data_allocated_size << send_data.allocated_bytes();
+    Defer defer {
+            [&]() { g_tablets_channel_send_data_allocated_size << -send_data.allocated_bytes(); }};
+
+    auto* tablet_errors = response->mutable_tablet_errors();
+    auto* tablet_load_infos = response->mutable_tablet_load_rowset_num_infos();
+
+    auto write_partition_data = [&](int64_t partition_id,
+                                    const DorisVector<uint32_t>& row_idxs) -> Status {
+        auto partition_lock = _get_partition_route_lock(partition_id);
+        std::lock_guard<std::mutex> partition_guard(*partition_lock);
+
+        CHECK(_adaptive_random_bucket_state != nullptr);
+        int64_t tablet_id = _adaptive_random_bucket_state->current_tablet(partition_id);
+        CHECK(tablet_id >= 0) << "invalid current tablet, load_id=" << _load_id
+                              << ", partition_id=" << partition_id;
+        LOG(INFO) << "FIND_TABLET_RANDOM_BUCKET: route+write begin"
+                  << ", load_id=" << _load_id << ", index_id=" << _index_id
+                  << ", sender_id=" << request.sender_id()
+                  << ", packet_seq=" << request.packet_seq()
+                  << ", partition_id=" << partition_id << ", tablet_id=" << tablet_id
+                  << ", row_count=" << row_idxs.size();
+
+        {
+            std::shared_lock<std::shared_mutex> broken_rlock(_broken_tablets_lock);
+            if (_is_broken_tablet(tablet_id)) {
+                LOG(INFO) << "FIND_TABLET_RANDOM_BUCKET: skip broken tablet"
+                          << ", load_id=" << _load_id << ", index_id=" << _index_id
+                          << ", sender_id=" << request.sender_id()
+                          << ", packet_seq=" << request.packet_seq()
+                          << ", partition_id=" << partition_id << ", tablet_id=" << tablet_id;
+                return Status::OK();
+            }
+        }
+
+        decltype(_tablet_writers.find(tablet_id)) tablet_writer_it;
+        {
+            std::lock_guard<std::mutex> l(_tablet_writers_lock);
+            tablet_writer_it = _tablet_writers.find(tablet_id);
+            if (tablet_writer_it == _tablet_writers.end()) {
+                return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
+            }
+        }
+
+        bool memtable_flushed = false;
+        Status st = tablet_writer_it->second->write(&send_data, row_idxs, &memtable_flushed);
+        if (!st.ok()) {
+            auto err_msg =
+                    fmt::format("tablet writer write failed, tablet_id={}, txn_id={}, err={}",
+                                tablet_id, _txn_id, st.to_string());
+            LOG(WARNING) << err_msg;
+            PTabletError* error = tablet_errors->Add();
+            error->set_tablet_id(tablet_id);
+            error->set_msg(err_msg);
+            static_cast<void>(tablet_writer_it->second->cancel_with_status(st));
+            _add_broken_tablet(tablet_id);
+            return Status::OK();
+        }
+
+        LOG(INFO) << "FIND_TABLET_RANDOM_BUCKET: route+write done"
+                  << ", load_id=" << _load_id << ", index_id=" << _index_id
+                  << ", sender_id=" << request.sender_id()
+                  << ", packet_seq=" << request.packet_seq()
+                  << ", partition_id=" << partition_id << ", tablet_id=" << tablet_id
+                  << ", row_count=" << row_idxs.size()
+                  << ", memtable_flushed=" << memtable_flushed;
+        if (memtable_flushed) {
+            _adaptive_random_bucket_state->rotate_by_tablet(tablet_id);
+        }
+        tablet_writer_it->second->set_tablet_load_rowset_num_info(tablet_load_infos);
+        return Status::OK();
+    };
+
+    SCOPED_TIMER(_write_block_timer);
+    for (const auto& [partition_id, row_idxs] : partition_to_rowidxs) {
+        RETURN_IF_ERROR(write_partition_data(partition_id, row_idxs));
+    }
+
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        _next_seqs[request.sender_id()] = cur_seq + 1;
+    }
+    return Status::OK();
+}
+
+void BaseTabletsChannel::_build_partition_to_rowidxs_for_receiver_side_random_bucket(
+        const PTabletWriterAddBlockRequest& request,
+        std::unordered_map<int64_t, DorisVector<uint32_t>>* partition_to_rowidxs) {
+    CHECK(_adaptive_random_bucket_state != nullptr);
+    CHECK(request.partition_ids_size() > 0);
+    for (uint32_t i = 0; i < request.partition_ids_size(); ++i) {
+        int64_t partition_id = request.partition_ids(i);
+        auto it = partition_to_rowidxs->find(partition_id);
+        if (it == partition_to_rowidxs->end()) {
+            partition_to_rowidxs->emplace(partition_id, std::initializer_list<uint32_t> {i});
+        } else {
+            it->second.emplace_back(i);
+        }
+    }
 }
 
 Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
@@ -696,10 +865,17 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
         return Status::OK();
     }
 
+    if (request.is_receiver_side_random_bucket()) {
+        std::unordered_map<int64_t /* partition_id */, DorisVector<uint32_t> /* row index */>
+                partition_to_rowidxs;
+        _build_partition_to_rowidxs_for_receiver_side_random_bucket(request, &partition_to_rowidxs);
+        return _write_block_data_for_receiver_side_random_bucket(request, cur_seq,
+                                                                 partition_to_rowidxs, response);
+    }
+
     std::unordered_map<int64_t /* tablet_id */, DorisVector<uint32_t> /* row index */>
             tablet_to_rowidxs;
     _build_tablet_to_rowidxs(request, &tablet_to_rowidxs);
-
     return _write_block_data(request, cur_seq, tablet_to_rowidxs, response);
 }
 

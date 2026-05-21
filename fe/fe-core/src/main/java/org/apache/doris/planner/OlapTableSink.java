@@ -98,6 +98,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -177,6 +178,12 @@ public class OlapTableSink extends DataSink {
         tSink.setLoadToSingleTablet(loadToSingleTablet);
         if (dstTable.getEnableLowMemoryLoad()) {
             tSink.setEnableLowMemoryLoad(true);
+        }
+        // Signal BE to use FIND_TABLET_RANDOM_BUCKET from the start so that auto-partition
+        // tables whose initial partition list is empty still enter the correct mode.
+        if (Config.isCloudMode() && Config.enable_adaptive_random_bucket_load
+                && dstTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo) {
+            tSink.setEnableAdaptiveRandomBucket(true);
         }
         tSink.setTxnTimeoutS(txnExpirationS);
         String vaultId = dstTable.getStorageVaultId();
@@ -573,6 +580,297 @@ public class OlapTableSink extends DataSink {
         }
 
         return partitionParam;
+    }
+
+    public static final class AdaptiveBucketAssignment {
+        private final long bucketBeId;
+        private final int loadTabletIdx;
+        private final List<Integer> localBucketSeqs;
+
+        public AdaptiveBucketAssignment(long bucketBeId, int loadTabletIdx, List<Integer> localBucketSeqs) {
+            this.bucketBeId = bucketBeId;
+            this.loadTabletIdx = loadTabletIdx;
+            this.localBucketSeqs = new ArrayList<>(localBucketSeqs);
+        }
+
+        public long getBucketBeId() {
+            return bucketBeId;
+        }
+
+        public int getLoadTabletIdx() {
+            return loadTabletIdx;
+        }
+
+        public List<Integer> getLocalBucketSeqs() {
+            return localBucketSeqs;
+        }
+    }
+
+    public static boolean shouldAssignAdaptiveRandomBucket(TOlapTableSink sink) {
+        return sink != null
+                && sink.isSetEnableAdaptiveRandomBucket()
+                && sink.isEnableAdaptiveRandomBucket()
+                && sink.isSetPartition()
+                && sink.getPartition() != null
+                && (!sink.getPartition().isSetDistributedColumns()
+                        || sink.getPartition().getDistributedColumns().isEmpty());
+    }
+
+    public static Map<Long, Map<Long, AdaptiveBucketAssignment>> computeAdaptiveRandomBucketAssignments(
+            List<Long> sinkBackendIds, List<TOlapTablePartition> partitions,
+            List<TTabletLocation> tabletLocations, int planFragmentNum) {
+        Map<Long, Map<Long, AdaptiveBucketAssignment>> assignments = new HashMap<>();
+        List<Long> orderedSinkBackendIds = sinkBackendIds.stream()
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+        for (Long sinkBackendId : orderedSinkBackendIds) {
+            assignments.put(sinkBackendId, new HashMap<>());
+        }
+        if (orderedSinkBackendIds.isEmpty() || partitions == null || tabletLocations == null) {
+            return assignments;
+        }
+
+        Map<Long, TTabletLocation> tabletLocationMap = new HashMap<>(tabletLocations.size());
+        for (TTabletLocation tabletLocation : tabletLocations) {
+            tabletLocationMap.put(tabletLocation.getTabletId(), tabletLocation);
+        }
+
+        for (TOlapTablePartition partition : partitions) {
+            if (!partition.isSetLoadTabletIdx() || partition.getNumBuckets() <= 0
+                    || partition.getIndexes().isEmpty()) {
+                continue;
+            }
+            Map<Long, List<Integer>> beToBucketSeqs = buildBeToBucketSeqs(partition, tabletLocationMap);
+            long baseTabletIndex = partition.getLoadTabletIdx();
+            int fallbackBucketIdx = (int) Math.floorMod(baseTabletIndex, (long) partition.getNumBuckets());
+            int targetBucketNum = Math.min(
+                    Math.min(orderedSinkBackendIds.size(), partition.getNumBuckets()),
+                    Math.max(planFragmentNum, 1));
+            if (targetBucketNum <= 0) {
+                continue;
+            }
+
+            List<Long> rotatedSinkBackendIds = rotateSinkBackendIds(orderedSinkBackendIds, baseTabletIndex);
+            Map<Integer, Long> bucketToOwnerBe = buildBucketToOwnerBe(beToBucketSeqs);
+            List<Integer> selectedBucketSeqs = selectAdaptiveBucketSeqs(rotatedSinkBackendIds,
+                    beToBucketSeqs, bucketToOwnerBe, baseTabletIndex, partition.getNumBuckets(), targetBucketNum);
+            if (selectedBucketSeqs.isEmpty()) {
+                selectedBucketSeqs = Collections.singletonList(fallbackBucketIdx);
+            }
+            if (selectedBucketSeqs.size() != targetBucketNum) {
+                LOG.warn("Adaptive random bucket selected {} buckets instead of target {} for partition {}, "
+                                + "sinkBackendIds={}, beToBucketSeqs={}, selectedBucketSeqs={}, fallbackBucketIdx={}",
+                        selectedBucketSeqs.size(), targetBucketNum, partition.getId(), orderedSinkBackendIds,
+                        beToBucketSeqs, selectedBucketSeqs, fallbackBucketIdx);
+            }
+
+            Map<Long, List<Integer>> openedBeToBucketSeqs = buildBeToBucketSeqs(bucketToOwnerBe, selectedBucketSeqs);
+            Map<Integer, Integer> bucketUseCounts = new HashMap<>();
+            Map<Long, String> sinkAssignments = LOG.isInfoEnabled() ? new HashMap<>() : null;
+            for (Long sinkBackendId : rotatedSinkBackendIds) {
+                int bucketSeq = selectLeastUsedBucketSeq(
+                        openedBeToBucketSeqs.get(sinkBackendId), bucketUseCounts, baseTabletIndex);
+                if (bucketSeq < 0) {
+                    bucketSeq = selectLeastUsedBucketSeq(selectedBucketSeqs, bucketUseCounts, baseTabletIndex);
+                }
+                if (bucketSeq < 0) {
+                    bucketSeq = fallbackBucketIdx;
+                }
+                long bucketBeId = bucketToOwnerBe.getOrDefault(bucketSeq, -1L);
+                if (bucketBeId <= 0) {
+                    LOG.warn("Adaptive random bucket falls back to bucket {} without owner BE for partition {}, "
+                                    + "sinkBackendId={}, selectedBucketSeqs={}, beToBucketSeqs={}",
+                            bucketSeq, partition.getId(), sinkBackendId, selectedBucketSeqs, beToBucketSeqs);
+                }
+                List<Integer> localBucketSeqs = rotateBucketSeqsForStartBucket(
+                        beToBucketSeqs.get(bucketBeId), bucketSeq);
+                assignments.get(sinkBackendId).put(partition.getId(),
+                        new AdaptiveBucketAssignment(bucketBeId, bucketSeq, localBucketSeqs));
+                bucketUseCounts.merge(bucketSeq, 1, Integer::sum);
+                if (sinkAssignments != null) {
+                    sinkAssignments.put(sinkBackendId,
+                            "bucket=" + bucketSeq + ",bucketBeId=" + bucketBeId
+                                    + ",localBucketSeqs=" + localBucketSeqs);
+                }
+            }
+            if (sinkAssignments != null) {
+                LOG.info("Adaptive random bucket plan partition={}, baseTabletIndex={}, targetBucketNum={}, "
+                                + "sinkBackendIds={}, rotatedSinkBackendIds={}, beToBucketSeqs={}, "
+                                + "selectedBucketSeqs={}, openedBeToBucketSeqs={}, sinkAssignments={}",
+                        partition.getId(), baseTabletIndex, targetBucketNum, orderedSinkBackendIds,
+                        rotatedSinkBackendIds, beToBucketSeqs, selectedBucketSeqs, openedBeToBucketSeqs,
+                        sinkAssignments);
+            }
+        }
+        return assignments;
+    }
+
+    public static void applyAdaptiveRandomBucketAssignments(List<TOlapTablePartition> partitions,
+            Map<Long, AdaptiveBucketAssignment> partitionAssignments) {
+        if (partitions == null || partitionAssignments == null || partitionAssignments.isEmpty()) {
+            return;
+        }
+        for (TOlapTablePartition partition : partitions) {
+            AdaptiveBucketAssignment assignment = partitionAssignments.get(partition.getId());
+            if (assignment == null) {
+                continue;
+            }
+            partition.setLoadTabletIdx(assignment.getLoadTabletIdx());
+            if (assignment.getBucketBeId() > 0) {
+                partition.setBucketBeId(assignment.getBucketBeId());
+            } else if (partition.isSetBucketBeId()) {
+                partition.unsetBucketBeId();
+            }
+            if (!assignment.getLocalBucketSeqs().isEmpty()) {
+                partition.setLocalBucketSeqs(new ArrayList<>(assignment.getLocalBucketSeqs()));
+            } else if (partition.isSetLocalBucketSeqs()) {
+                partition.unsetLocalBucketSeqs();
+            }
+            if (LOG.isInfoEnabled()) {
+                LOG.info("Adaptive random bucket apply partition={}, bucketBeId={}, loadTabletIdx={}, "
+                                + "localBucketSeqs={}",
+                        partition.getId(), assignment.getBucketBeId(), assignment.getLoadTabletIdx(),
+                        assignment.getLocalBucketSeqs());
+            }
+        }
+    }
+
+    private static Map<Long, List<Integer>> buildBeToBucketSeqs(TOlapTablePartition partition,
+            Map<Long, TTabletLocation> tabletLocationMap) {
+        Map<Long, List<Integer>> beToBucketSeqs = new HashMap<>();
+        List<Long> tablets = partition.getIndexes().get(0).getTablets();
+        for (int bucketSeq = 0; bucketSeq < tablets.size(); bucketSeq++) {
+            TTabletLocation tabletLocation = tabletLocationMap.get(tablets.get(bucketSeq));
+            if (tabletLocation == null || tabletLocation.getNodeIds() == null
+                    || tabletLocation.getNodeIds().isEmpty()) {
+                continue;
+            }
+            List<Long> sortedNodeIds = new ArrayList<>(tabletLocation.getNodeIds());
+            Collections.sort(sortedNodeIds);
+            long bucketBeId = sortedNodeIds.get(bucketSeq % sortedNodeIds.size());
+            beToBucketSeqs.computeIfAbsent(bucketBeId, ignored -> new ArrayList<>()).add(bucketSeq);
+        }
+        return beToBucketSeqs;
+    }
+
+    private static List<Long> rotateSinkBackendIds(List<Long> sinkBackendIds, long baseTabletIndex) {
+        if (sinkBackendIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        int startIdx = (int) Math.floorMod(baseTabletIndex, (long) sinkBackendIds.size());
+        List<Long> rotatedSinkBackendIds = new ArrayList<>(sinkBackendIds.size());
+        for (int offset = 0; offset < sinkBackendIds.size(); offset++) {
+            rotatedSinkBackendIds.add(sinkBackendIds.get((startIdx + offset) % sinkBackendIds.size()));
+        }
+        return rotatedSinkBackendIds;
+    }
+
+    private static Map<Integer, Long> buildBucketToOwnerBe(Map<Long, List<Integer>> beToBucketSeqs) {
+        Map<Integer, Long> bucketToOwnerBe = new HashMap<>();
+        for (Map.Entry<Long, List<Integer>> entry : beToBucketSeqs.entrySet()) {
+            for (Integer bucketSeq : entry.getValue()) {
+                bucketToOwnerBe.put(bucketSeq, entry.getKey());
+            }
+        }
+        return bucketToOwnerBe;
+    }
+
+    private static List<Integer> selectAdaptiveBucketSeqs(List<Long> rotatedSinkBackendIds,
+            Map<Long, List<Integer>> beToBucketSeqs, Map<Integer, Long> bucketToOwnerBe,
+            long baseTabletIndex, int numBuckets, int targetBucketNum) {
+        List<Integer> selectedBucketSeqs = new ArrayList<>(targetBucketNum);
+        HashSet<Integer> selectedBucketSet = new HashSet<>(targetBucketNum);
+        for (Long sinkBackendId : rotatedSinkBackendIds) {
+            int bucketSeq = selectBucketSeq(beToBucketSeqs.get(sinkBackendId), baseTabletIndex);
+            if (bucketSeq >= 0 && selectedBucketSet.add(bucketSeq)) {
+                selectedBucketSeqs.add(bucketSeq);
+                if (selectedBucketSeqs.size() >= targetBucketNum) {
+                    return selectedBucketSeqs;
+                }
+            }
+        }
+
+        HashSet<Long> sinkBackendIdSet = new HashSet<>(rotatedSinkBackendIds);
+        appendRemainingBucketSeqs(selectedBucketSeqs, selectedBucketSet, bucketToOwnerBe, sinkBackendIdSet,
+                baseTabletIndex, numBuckets, targetBucketNum, true);
+        appendRemainingBucketSeqs(selectedBucketSeqs, selectedBucketSet, bucketToOwnerBe, sinkBackendIdSet,
+                baseTabletIndex, numBuckets, targetBucketNum, false);
+        return selectedBucketSeqs;
+    }
+
+    private static void appendRemainingBucketSeqs(List<Integer> selectedBucketSeqs, HashSet<Integer> selectedBucketSet,
+            Map<Integer, Long> bucketToOwnerBe, HashSet<Long> sinkBackendIdSet, long baseTabletIndex,
+            int numBuckets, int targetBucketNum, boolean preferSinkBackendBuckets) {
+        for (int offset = 0; offset < numBuckets && selectedBucketSeqs.size() < targetBucketNum; offset++) {
+            int bucketSeq = (int) Math.floorMod(baseTabletIndex + offset, (long) numBuckets);
+            if (selectedBucketSet.contains(bucketSeq)) {
+                continue;
+            }
+            Long ownerBeId = bucketToOwnerBe.get(bucketSeq);
+            if (preferSinkBackendBuckets && (ownerBeId == null || !sinkBackendIdSet.contains(ownerBeId))) {
+                continue;
+            }
+            if (!preferSinkBackendBuckets && ownerBeId != null && sinkBackendIdSet.contains(ownerBeId)) {
+                continue;
+            }
+            selectedBucketSet.add(bucketSeq);
+            selectedBucketSeqs.add(bucketSeq);
+        }
+    }
+
+    private static Map<Long, List<Integer>> buildBeToBucketSeqs(Map<Integer, Long> bucketToOwnerBe,
+            List<Integer> bucketSeqs) {
+        Map<Long, List<Integer>> beToBucketSeqs = new HashMap<>();
+        for (Integer bucketSeq : bucketSeqs) {
+            Long ownerBeId = bucketToOwnerBe.get(bucketSeq);
+            if (ownerBeId == null) {
+                continue;
+            }
+            beToBucketSeqs.computeIfAbsent(ownerBeId, ignored -> new ArrayList<>()).add(bucketSeq);
+        }
+        return beToBucketSeqs;
+    }
+
+    private static int selectBucketSeq(List<Integer> bucketSeqs, long baseTabletIndex) {
+        if (bucketSeqs == null || bucketSeqs.isEmpty()) {
+            return -1;
+        }
+        int bucketPos = (int) Math.floorMod(baseTabletIndex, (long) bucketSeqs.size());
+        return bucketSeqs.get(bucketPos);
+    }
+
+    private static int selectLeastUsedBucketSeq(List<Integer> bucketSeqs, Map<Integer, Integer> bucketUseCounts,
+            long baseTabletIndex) {
+        if (bucketSeqs == null || bucketSeqs.isEmpty()) {
+            return -1;
+        }
+        int startIdx = (int) Math.floorMod(baseTabletIndex, (long) bucketSeqs.size());
+        int selectedBucketSeq = -1;
+        int selectedUseCount = Integer.MAX_VALUE;
+        for (int offset = 0; offset < bucketSeqs.size(); offset++) {
+            int candidateBucketSeq = bucketSeqs.get((startIdx + offset) % bucketSeqs.size());
+            int candidateUseCount = bucketUseCounts.getOrDefault(candidateBucketSeq, 0);
+            if (selectedBucketSeq < 0 || candidateUseCount < selectedUseCount) {
+                selectedBucketSeq = candidateBucketSeq;
+                selectedUseCount = candidateUseCount;
+            }
+        }
+        return selectedBucketSeq;
+    }
+
+    private static List<Integer> rotateBucketSeqsForStartBucket(List<Integer> bucketSeqs, int startBucketSeq) {
+        if (bucketSeqs == null || bucketSeqs.isEmpty()) {
+            return Collections.singletonList(startBucketSeq);
+        }
+        int startIdx = bucketSeqs.indexOf(startBucketSeq);
+        Preconditions.checkState(startIdx >= 0,
+                "start bucket %s must exist in bucketSeqs %s", startBucketSeq, bucketSeqs);
+        List<Integer> rotatedBucketSeqs = new ArrayList<>(bucketSeqs.size());
+        for (int offset = 0; offset < bucketSeqs.size(); offset++) {
+            rotatedBucketSeqs.add(bucketSeqs.get((startIdx + offset) % bucketSeqs.size()));
+        }
+        return rotatedBucketSeqs;
     }
 
     private TOlapTablePartitionParam createPartition(long dbId, OlapTable table)

@@ -74,9 +74,11 @@ DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
 
 void DeltaWriterV2::_update_profile(RuntimeProfile* profile) {
     auto child = profile->create_child(fmt::format("DeltaWriterV2 {}", _req.tablet_id), true, true);
+    auto lock_timer = ADD_TIMER(child, "LockTime");
     auto write_memtable_timer = ADD_TIMER(child, "WriteMemTableTime");
     auto wait_flush_limit_timer = ADD_TIMER(child, "WaitFlushLimitTime");
     auto close_wait_timer = ADD_TIMER(child, "CloseWaitTime");
+    COUNTER_SET(lock_timer, _lock_watch.elapsed_time());
     COUNTER_SET(write_memtable_timer, _write_memtable_time);
     COUNTER_SET(wait_flush_limit_timer, _wait_flush_limit_time);
     COUNTER_SET(close_wait_timer, _close_wait_time);
@@ -140,7 +142,11 @@ Status DeltaWriterV2::init() {
     return Status::OK();
 }
 
-Status DeltaWriterV2::write(const Block* block, const DorisVector<uint32_t>& row_idxs) {
+Status DeltaWriterV2::write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+                            bool* memtable_flushed) {
+    if (memtable_flushed != nullptr) {
+        *memtable_flushed = false;
+    }
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }
@@ -163,7 +169,7 @@ Status DeltaWriterV2::write(const Block* block, const DorisVector<uint32_t>& row
         }
     }
     SCOPED_RAW_TIMER(&_write_memtable_time);
-    return _memtable_writer->write(block, row_idxs);
+    return _memtable_writer->write(block, row_idxs, memtable_flushed);
 }
 
 Status DeltaWriterV2::close() {

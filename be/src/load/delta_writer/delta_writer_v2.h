@@ -68,7 +68,8 @@ public:
 
     Status init();
 
-    Status write(const Block* block, const DorisVector<uint32_t>& row_idxs);
+    Status write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+                 bool* memtable_flushed = nullptr);
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();

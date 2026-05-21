@@ -92,6 +92,7 @@ DeltaWriter::DeltaWriter(StorageEngine& engine, const WriteRequest& group_build_
 void BaseDeltaWriter::_init_profile(RuntimeProfile* profile) {
     DCHECK(profile != nullptr);
     _profile = profile->create_child(fmt::format("DeltaWriter {}", _req.tablet_id), true, true);
+    _lock_timer = ADD_TIMER(_profile, "LockTime");
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
     _wait_flush_limit_timer = ADD_TIMER(_profile, "WaitFlushLimitTime");
 }
@@ -165,7 +166,11 @@ Status BaseDeltaWriter::init() {
     return Status::OK();
 }
 
-Status DeltaWriter::write(const Block* block, const DorisVector<uint32_t>& row_idxs) {
+Status DeltaWriter::write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+                          bool* memtable_flushed) {
+    if (memtable_flushed != nullptr) {
+        *memtable_flushed = false;
+    }
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }
@@ -185,7 +190,7 @@ Status DeltaWriter::write(const Block* block, const DorisVector<uint32_t>& row_i
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-    return _memtable_writer->write(block, row_idxs);
+    return _memtable_writer->write(block, row_idxs, memtable_flushed);
 }
 
 Status BaseDeltaWriter::wait_flush() {
@@ -193,6 +198,17 @@ Status BaseDeltaWriter::wait_flush() {
         return Status::OK();
     }
     return _memtable_writer->wait_flush();
+}
+
+Status BaseDeltaWriter::flush_memtable_async() {
+    return _memtable_writer->flush_async();
+}
+
+Status DeltaWriter::flush_memtable_async() {
+    _lock_watch.start();
+    std::lock_guard<std::mutex> l(_lock);
+    _lock_watch.stop();
+    return BaseDeltaWriter::flush_memtable_async();
 }
 
 Status DeltaWriter::close() {
@@ -215,6 +231,9 @@ Status DeltaWriter::close() {
 
 Status BaseDeltaWriter::build_rowset() {
     SCOPED_TIMER(_close_wait_timer);
+    if (_lock_timer != nullptr) {
+        COUNTER_SET(_lock_timer, _lock_watch.elapsed_time());
+    }
     if (!_req.enable_low_memory_load) {
         RETURN_IF_ERROR(_memtable_writer->close_wait(_profile));
     }

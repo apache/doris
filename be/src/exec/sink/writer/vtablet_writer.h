@@ -221,7 +221,7 @@ struct WriterStats {
 };
 
 // pair<row_id,tablet_id>
-using Payload = std::pair<std::unique_ptr<IColumn::Selector>, std::vector<int64_t>>;
+using Payload = std::pair<std::unique_ptr<IColumn::Selector>, RowPartTabletIds*>;
 
 // every NodeChannel keeps a data transmission channel with one BE. for multiple times open, it has a dozen of requests and corresponding closures.
 class VNodeChannel {
@@ -594,6 +594,8 @@ private:
     std::unordered_map<int64_t, std::shared_ptr<VNodeChannel>> _node_channels;
     // from tablet_id to backend channel
     std::unordered_map<int64_t, std::vector<std::shared_ptr<VNodeChannel>>> _channels_by_tablet;
+    // from partition_id to FE-planned bucket owner channel in cloud receiver-side random bucket mode
+    std::unordered_map<int64_t, std::shared_ptr<VNodeChannel>> _channels_by_partition;
     bool _has_inc_node = false;
 
     // lock to protect _failed_channels and _failed_channels_msgs

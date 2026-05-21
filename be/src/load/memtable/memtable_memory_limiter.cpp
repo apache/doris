@@ -25,7 +25,9 @@
 #include "load/memtable/memtable.h"
 #include "load/memtable/memtable_writer.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "storage/adaptive_thread_pool_controller.h"
 #include "util/mem_info.h"
+#include "util/threadpool.h"
 
 namespace doris {
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(memtable_memory_limiter_mem_consumption, MetricUnit::BYTES, "",
@@ -121,15 +123,23 @@ int64_t MemTableMemoryLimiter::_need_flush() {
     return need_flush - _queue_mem_usage - _flush_mem_usage;
 }
 
-void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_check) {
-    // Check the soft limit.
+void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_check,
+                                                   WorkloadGroup* wg) {
+    ThreadPool* wg_flush_pool = (wg != nullptr) ? wg->get_memtable_flush_pool() : nullptr;
+    auto check_queue_overloaded = [wg_flush_pool]() -> bool {
+        if (!config::enable_memtable_flush_queue_backpressure) return false;
+        if (wg_flush_pool == nullptr) return false;
+        return wg_flush_pool->get_queue_size() > AdaptiveThreadPoolController::kQueueThreshold;
+    };
+
+    // Check the soft limit and flush pool queue backpressure.
     DCHECK(_load_soft_mem_limit > 0);
     do {
         DBUG_EXECUTE_IF("MemTableMemoryLimiter.handle_memtable_flush.limit_reached", {
             LOG(INFO) << "debug memtable limit reached";
             break;
         });
-        if (!_soft_limit_reached() || _load_usage_low()) {
+        if ((!_soft_limit_reached() || _load_usage_low()) && !check_queue_overloaded()) {
             return;
         }
     } while (false);
@@ -142,7 +152,10 @@ void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_c
         if (!first) {
             auto st = _hard_limit_end_cond.wait_for(l, std::chrono::milliseconds(1000));
             if (st == std::cv_status::timeout) {
-                LOG(INFO) << "timeout when waiting for memory hard limit end, try again";
+                LOG(INFO) << "timeout when waiting for memory hard limit end, try again"
+                          << (wg_flush_pool ? ", wg_queue_size=" +
+                                                      std::to_string(wg_flush_pool->get_queue_size())
+                                           : "");
             }
         }
         if (cancel_check && cancel_check()) {
@@ -177,8 +190,14 @@ void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_c
                 // will not reach here
             }
             _flush_active_memtables(need_flush);
+        } else if (check_queue_overloaded()) {
+            LOG(INFO) << "memtable queue backpressure: wg_queue_size="
+                      << wg_flush_pool->get_queue_size() << ">"
+                      << AdaptiveThreadPoolController::kQueueThreshold
+                      << ", load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
+                      << ", memtable writers num: " << _writers.size();
         }
-    } while (_hard_limit_reached() && !_load_usage_low());
+    } while ((_hard_limit_reached() && !_load_usage_low()) || check_queue_overloaded());
     g_memtable_memory_limit_waiting_threads << -1;
     timer.stop();
     int64_t time_ms = timer.elapsed_time() / 1000 / 1000;

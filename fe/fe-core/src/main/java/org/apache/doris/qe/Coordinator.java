@@ -60,6 +60,7 @@ import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.MultiCastPlanFragment;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
@@ -96,6 +97,7 @@ import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TAIResource;
 import org.apache.doris.thrift.TBrokerScanRange;
+import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TErrorTabletInfo;
@@ -105,6 +107,7 @@ import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFragmentInstanceReport;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParamsList;
@@ -155,6 +158,7 @@ import org.joda.time.DateTime;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -527,6 +531,54 @@ public class Coordinator implements CoordInterface {
         return result;
     }
 
+    private static void assignAdaptiveRandomBucketForFragment(
+            Collection<TPipelineFragmentParams> fragmentParamsList) {
+        List<TPipelineFragmentParams> sinkParams = fragmentParamsList.stream()
+                .filter(param -> param.getFragment().getOutputSink() != null
+                        && param.getFragment().getOutputSink().getType() == TDataSinkType.OLAP_TABLE_SINK)
+                .collect(Collectors.toList());
+        if (sinkParams.isEmpty()) {
+            return;
+        }
+        TOlapTableSink sink = sinkParams.get(0).getFragment().getOutputSink().getOlapTableSink();
+        if (!OlapTableSink.shouldAssignAdaptiveRandomBucket(sink)) {
+            return;
+        }
+        List<Long> sinkBackendIds = sinkParams.stream()
+                .map(TPipelineFragmentParams::getBackendId)
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+        int planFragmentNum = sinkParams.stream()
+                .mapToInt(TPipelineFragmentParams::getLocalParamsSize)
+                .sum();
+        if (LOG.isInfoEnabled()) {
+            LOG.info("Adaptive random bucket planning in legacy fragment={}, sinkBackendIds={}, "
+                            + "planFragmentNum={}",
+                    sinkParams.get(0).getFragmentId(), sinkBackendIds, planFragmentNum);
+        }
+        Map<Long, Map<Long, OlapTableSink.AdaptiveBucketAssignment>> assignments =
+                OlapTableSink.computeAdaptiveRandomBucketAssignments(sinkBackendIds,
+                        sink.getPartition().getPartitions(), sink.getLocation().getTablets(), planFragmentNum);
+        for (TPipelineFragmentParams sinkParam : sinkParams) {
+            Map<Long, OlapTableSink.AdaptiveBucketAssignment> partitionAssignments =
+                    assignments.get(sinkParam.getBackendId());
+            if (partitionAssignments == null) {
+                continue;
+            }
+            TOlapTableSink copiedSink = deepCopyOlapTableSinkForCurrentBackend(sinkParam);
+            OlapTableSink.applyAdaptiveRandomBucketAssignments(
+                    copiedSink.getPartition().getPartitions(),
+                    partitionAssignments);
+        }
+    }
+
+    private static TOlapTableSink deepCopyOlapTableSinkForCurrentBackend(TPipelineFragmentParams sinkParam) {
+        TDataSink copiedOutputSink = sinkParam.getFragment().getOutputSink().deepCopy();
+        sinkParam.getFragment().setOutputSink(copiedOutputSink);
+        return copiedOutputSink.getOlapTableSink();
+    }
+
     // Initialize
     protected void prepare() throws UserException {
         for (PlanFragment fragment : fragments) {
@@ -887,6 +939,7 @@ public class Coordinator implements CoordInterface {
                     }
                     ++backendIdx;
                 }
+                assignAdaptiveRandomBucketForFragment(tParams.values());
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
                     if (entry.getValue().getFragment().getOutputSink() != null
                             && entry.getValue().getFragment().getOutputSink().getType()

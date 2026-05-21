@@ -73,8 +73,6 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     _partial_update_info = partial_update_info;
     _resource_ctx = thread_context()->resource_ctx();
 
-    _reset_mem_table();
-
     // create flush handler
     // by assigning segment_id to memtable before submiting to flush executor,
     // we can make sure same keys sort in the same order in all replicas.
@@ -87,7 +85,11 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     return Status::OK();
 }
 
-Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& row_idxs) {
+Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+                             bool* memtable_flushed) {
+    if (memtable_flushed != nullptr) {
+        *memtable_flushed = false;
+    }
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }
@@ -105,6 +107,10 @@ Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& ro
                                              _req.tablet_id, _req.load_id.hi(), _req.load_id.lo());
     }
 
+    if (_mem_table == nullptr) {
+        _reset_mem_table();
+    }
+
     // Flush and reset memtable if it is raw rows great than int32_t.
     int64_t raw_rows = _mem_table->raw_rows();
     DBUG_EXECUTE_IF("MemTableWriter.too_many_raws",
@@ -112,6 +118,7 @@ Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& ro
     if (raw_rows + row_idxs.size() > std::numeric_limits<int32_t>::max()) {
         g_flush_cuz_rowscnt_oveflow << 1;
         RETURN_IF_ERROR(_flush_memtable());
+        _reset_mem_table();
     }
 
     _total_received_rows += row_idxs.size();
@@ -130,7 +137,8 @@ Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& ro
         }
     });
     if (!st.ok()) [[unlikely]] {
-        _reset_mem_table();
+        std::lock_guard<std::mutex> lm(_mem_table_ptr_lock);
+        _mem_table.reset();
         return st;
     }
 
@@ -139,6 +147,9 @@ Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& ro
     }
     if (UNLIKELY(_mem_table->need_flush())) {
         RETURN_IF_ERROR(_flush_memtable());
+        if (memtable_flushed != nullptr) {
+            *memtable_flushed = true;
+        }
     }
 
     return Status::OK();
@@ -146,7 +157,6 @@ Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& ro
 
 Status MemTableWriter::_flush_memtable() {
     auto s = _flush_memtable_async();
-    _reset_mem_table();
     if (UNLIKELY(!s.ok())) {
         return s;
     }
@@ -158,6 +168,10 @@ Status MemTableWriter::_flush_memtable_async() {
     std::shared_ptr<MemTable> memtable;
     {
         std::lock_guard<std::mutex> l(_mem_table_ptr_lock);
+        if (_mem_table == nullptr || _mem_table->empty()) {
+            _mem_table.reset();
+            return Status::OK();
+        }
         memtable = _mem_table;
         _mem_table = nullptr;
         memtable->update_mem_type(MemType::WRITE_FINISHED);
@@ -172,7 +186,6 @@ Status MemTableWriter::flush_async() {
     // 1. call by local, from `VTabletWriterV2::_write_memtable`.
     // 2. call by remote, from `LoadChannelMgr::_get_load_channel`.
     // 3. call by daemon thread, from `handle_paused_queries` -> `flush_workload_group_memtables`.
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
     if (!_is_init || _is_closed) {
         // This writer is uninitialized or closed before flushing, do nothing.
         // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
@@ -185,11 +198,21 @@ Status MemTableWriter::flush_async() {
         return _cancel_status;
     }
 
+    DCHECK(_resource_ctx != nullptr);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
+
+    int64_t memtable_size = 0;
+    {
+        std::lock_guard<std::mutex> lm(_mem_table_ptr_lock);
+        if (_mem_table == nullptr || _mem_table->empty()) {
+            return Status::OK();
+        }
+        memtable_size = _mem_table->memory_usage();
+    }
     VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
-                << PrettyPrinter::print_bytes(_mem_table->memory_usage())
-                << ", tablet: " << _req.tablet_id << ", load id: " << print_id(_req.load_id);
+                << PrettyPrinter::print_bytes(memtable_size) << ", tablet: " << _req.tablet_id
+                << ", load id: " << print_id(_req.load_id);
     auto s = _flush_memtable_async();
-    _reset_mem_table();
     return s;
 }
 
