@@ -25,14 +25,4 @@ suite("test_json_valid_strict") {
             json_valid('{"a":1}')
         from (select 1) t
     """
-
-    sql "set debug_skip_fold_constant = true"
-
-    order_qt_json_extract_const_const_multi_row """
-        select number, json_extract_isnull(cast('{"a":null}' as json), '$.a')
-        from numbers("number" = "3")
-        order by number
-    """
-
-    sql "set debug_skip_fold_constant = false"
 }

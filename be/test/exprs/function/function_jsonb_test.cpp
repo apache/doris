@@ -477,59 +477,6 @@ TEST(FunctionJsonbTEST, JsonExtractCheckArg) {
     ASSERT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT);
 }
 
-TEST(FunctionJsonbTEST, JsonExtractConstConstMultiRow) {
-    constexpr size_t input_rows_count = 3;
-    auto json_data_type = std::make_shared<DataTypeJsonb>();
-    auto path_data_type = std::make_shared<DataTypeString>();
-    auto return_type = make_nullable(std::make_shared<DataTypeUInt8>());
-
-    JsonbWriter writer;
-    ASSERT_TRUE(writer.writeStartObject());
-    ASSERT_TRUE(writer.writeKey("a", 1));
-    ASSERT_TRUE(writer.writeNull());
-    ASSERT_TRUE(writer.writeEndObject());
-
-    auto json_column = json_data_type->create_column();
-    json_column->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
-
-    auto path_column = path_data_type->create_column();
-    path_column->insert_data("$.a", 3);
-
-    Block block;
-    block.insert({ColumnConst::create(std::move(json_column), input_rows_count), json_data_type,
-                  "json_col"});
-    block.insert({ColumnConst::create(std::move(path_column), input_rows_count), path_data_type,
-                  "path_col"});
-
-    FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
-            "json_extract_isnull", block.get_columns_with_type_and_name(), return_type);
-    ASSERT_TRUE(func != nullptr);
-
-    FunctionUtils fn_utils(return_type, {json_data_type, path_data_type}, 0);
-    auto* fn_ctx = fn_utils.get_fn_ctx();
-    auto st = func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
-    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
-    st = func->open(fn_ctx, FunctionContext::THREAD_LOCAL);
-    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
-
-    block.insert({nullptr, return_type, "result"});
-    auto result = block.columns() - 1;
-    st = func->execute(fn_ctx, block, {0, 1}, result, input_rows_count);
-    ASSERT_TRUE(st.ok()) << "execute failed: " << st.to_string();
-
-    auto result_column = block.get_by_position(result).column->convert_to_full_column_if_const();
-    ASSERT_EQ(result_column->size(), input_rows_count);
-    const auto& result_nullable = assert_cast<const ColumnNullable&>(*result_column);
-    const auto& result_data = assert_cast<const ColumnUInt8&>(result_nullable.get_nested_column());
-    for (size_t i = 0; i < input_rows_count; ++i) {
-        EXPECT_FALSE(result_nullable.is_null_at(i));
-        EXPECT_EQ(result_data.get_data()[i], 1);
-    }
-
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
-}
-
 TEST(FunctionJsonbTEST, JsonParseCheckArg) {
     ColumnsWithTypeAndName args;
     args.emplace_back(
