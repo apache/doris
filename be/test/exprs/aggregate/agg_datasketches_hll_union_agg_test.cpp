@@ -361,7 +361,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testFactoryCreateAndAliases
         AggregateDataPtr place = arena->aligned_alloc(fn->size_of_data(), fn->align_of_data());
         fn->create(place);
         fn->add(place, columns, 0, *arena);
-        ColumnInt64 result;
+        ColumnFloat64 result;
         fn->insert_result_into(place, result);
         fn->destroy(place);
         return result.get_data()[0];
@@ -401,7 +401,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
         AggregateDataPtr place = arena->aligned_alloc(fn->size_of_data(), fn->align_of_data());
         fn->create(place);
         fn->add(place, columns, 0, *arena);
-        ColumnInt64 result;
+        ColumnFloat64 result;
         fn->insert_result_into(place, result);
         fn->destroy(place);
         return result.get_data()[0];
@@ -444,7 +444,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testLowLgKSketchDoesNotRepo
     const IColumn* columns[1] = {column_string.get()};
     EXPECT_NO_THROW(agg_func->add(place, columns, 0, *arena));
 
-    ColumnInt64 add_result;
+    ColumnFloat64 add_result;
     agg_func->insert_result_into(place, add_result);
 
     EXPECT_GE(add_result.get_data()[0], 50);
@@ -463,7 +463,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testLowLgKSketchDoesNotRepo
     BufferReadable r(buf->get_data_at(0));
     EXPECT_NO_THROW(agg_func->deserialize(place2, r, *arena));
 
-    ColumnInt64 deserialize_result;
+    ColumnFloat64 deserialize_result;
     agg_func->insert_result_into(place2, deserialize_result);
     EXPECT_EQ(deserialize_result.get_data()[0], add_result.get_data()[0]);
 
@@ -506,7 +506,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testResetOnEmptyState) {
 
     EXPECT_NO_THROW(agg_func->reset(place)); // cover reset() branch when union_data is nullptr
 
-    ColumnInt64 result;
+    ColumnFloat64 result;
     agg_func->insert_result_into(place, result);
     EXPECT_DOUBLE_EQ(result.get_data()[0], 0.0);
 
@@ -535,7 +535,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testVarbinaryInput) {
     fn->create(place);
     fn->add(place, columns, 0, *arena);
 
-    ColumnInt64 result;
+    ColumnFloat64 result;
     fn->insert_result_into(place, result);
     EXPECT_DOUBLE_EQ(result.get_data()[0], sketch.get_estimate());
 
@@ -563,7 +563,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testSerializeDeserializeEmp
     BufferReadable r(buffer->get_data_at(0));
     agg_func->deserialize(new_place, r, *arena);
 
-    ColumnInt64 result;
+    ColumnFloat64 result;
     agg_func->insert_result_into(new_place, result);
     EXPECT_DOUBLE_EQ(result.get_data()[0], 0.0);
 
@@ -634,9 +634,9 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testAllocatorAwareSketchInp
 
     agg_func->add(place, columns, 0, *arena);
 
-    ColumnInt64 result;
+    ColumnFloat64 result;
     agg_func->insert_result_into(place, result);
-    EXPECT_EQ(result.get_data()[0], static_cast<int64_t>(sketch.get_estimate()));
+    EXPECT_DOUBLE_EQ(result.get_data()[0], sketch.get_estimate());
 
     agg_func->destroy(place);
 }
