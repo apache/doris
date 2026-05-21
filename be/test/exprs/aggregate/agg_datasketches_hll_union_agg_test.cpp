@@ -133,9 +133,9 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testMergeTwoAggStates) {
     agg_func->merge(place1, place2, *arena);
 
     // Get result
-    ColumnInt64 result;
+    ColumnFloat64 result;
     agg_func->insert_result_into(place1, result);
-    int64_t estimate = result.get_data()[0];
+    double estimate = result.get_data()[0];
 
     EXPECT_GE(estimate, 170.0);
     EXPECT_LE(estimate, 230.0); // 200 unique values expected
@@ -175,9 +175,9 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testMergeEmptyStateDoesNotC
     // Covers the "all NULL" style path: rhs exists but never saw add().
     EXPECT_NO_THROW(agg_func->merge(place_with_data, empty_rhs_place, *arena));
 
-    ColumnInt64 result;
+    ColumnFloat64 result;
     agg_func->insert_result_into(place_with_data, result);
-    EXPECT_EQ(result.get_data()[0], static_cast<int64_t>(sketch.get_estimate()));
+    EXPECT_DOUBLE_EQ(result.get_data()[0], sketch.get_estimate());
 
     // Empty string is invalid serialized sketch and should be rejected by add().
     // Merge-empty-state coverage is handled by the "never saw add()" path above.
@@ -187,9 +187,9 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testMergeEmptyStateDoesNotC
     agg_func->create(empty_lhs_place);
     EXPECT_NO_THROW(agg_func->merge(empty_lhs_place, empty_rhs_place, *arena));
 
-    ColumnInt64 empty_merge_result;
+    ColumnFloat64 empty_merge_result;
     agg_func->insert_result_into(empty_lhs_place, empty_merge_result);
-    EXPECT_EQ(empty_merge_result.get_data()[0], 0);
+    EXPECT_DOUBLE_EQ(empty_merge_result.get_data()[0], 0.0);
 
     agg_func->destroy(place_with_data);
     agg_func->destroy(empty_rhs_place);
@@ -251,7 +251,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testSerializeDeserialize) {
     agg_func->deserialize(new_place, r, *arena);
 
     // Compare results
-    ColumnInt64 result1, result2;
+    ColumnFloat64 result1, result2;
     agg_func->insert_result_into(place, result1);
     agg_func->insert_result_into(new_place, result2);
 
@@ -285,7 +285,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testReset) {
     // Reset
     agg_func->reset(place);
 
-    ColumnInt64 result;
+    ColumnFloat64 result;
     agg_func->insert_result_into(place, result);
     EXPECT_DOUBLE_EQ(result.get_data()[0], 0.0);
 
@@ -324,7 +324,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testResetThenAddReinitializ
     agg_func->reset(place);
     agg_func->add(place, columns, 1, *arena);
 
-    ColumnInt64 result;
+    ColumnFloat64 result;
     agg_func->insert_result_into(place, result);
     EXPECT_DOUBLE_EQ(result.get_data()[0], sketch2.get_estimate());
 
@@ -383,7 +383,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
     auto fn_varchar =
             factory.get("datasketches_hll_union_agg", varchar_types, nullptr, false, be_version);
     auto fn_varchar_alias =
-            factory.get("ds_cardinality", varchar_types, nullptr, false, be_version);
+            factory.get("ds_hll_estimate", varchar_types, nullptr, false, be_version);
     ASSERT_NE(fn_varchar, nullptr);
     ASSERT_NE(fn_varchar_alias, nullptr);
 
