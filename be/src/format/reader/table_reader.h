@@ -181,7 +181,12 @@ public:
                 // TODO: reuse column's memory
                 current_block.insert({field.type->create_column(), field.type, field.name});
             }
-            RETURN_IF_ERROR(_data_reader.reader->get_block(&current_block, &current_eof));
+            size_t current_rows = 0;
+            RETURN_IF_ERROR(
+                    _data_reader.reader->get_block(&current_block, &current_rows, &current_eof));
+            if (current_rows == 0 && !current_eof) {
+                continue;
+            }
 
             size_t idx = 0;
             for (const auto& mapping : _data_reader.column_mapper.mappings()) {
@@ -232,10 +237,11 @@ protected:
     // 打开当前具体 reader。
     // 子类在这里基于当前 split/task 初始化底层 FileReader。
     virtual Status open_reader() {
-        _data_reader.block_schema.clear();
-        RETURN_IF_ERROR(_data_reader.reader->get_schema(&_data_reader.block_schema));
-        RETURN_IF_ERROR(_data_reader.column_mapper.create_mapping(
-                _options.projected_columns, _partition_values, _data_reader.block_schema));
+        std::vector<SchemaField> file_schema;
+        RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
+        RETURN_IF_ERROR(_data_reader.column_mapper.create_mapping(_options.projected_columns,
+                                                                  &_data_reader.block_schema,
+                                                                  _partition_values, file_schema));
 
         FileScanRequest file_request;
         RETURN_IF_ERROR(_data_reader.column_mapper.create_scan_request(

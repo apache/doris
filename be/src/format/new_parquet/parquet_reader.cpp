@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -156,6 +157,8 @@ struct ParquetReaderScanState {
     // group 列表。projected_fields 决定输出 block；required_leaf_columns 决定实际向 Arrow
     // Parquet core 请求哪些 leaf column reader。
     std::vector<int> projected_fields;
+    std::vector<int> predicate_fields;
+    std::vector<int> non_predicate_fields;
     std::vector<int> filter_fields;
     std::vector<int> required_leaf_columns;
     std::vector<reader::FileLocalFilter> local_filters;
@@ -245,21 +248,32 @@ bool has_supported_decoded_filter(const reader::FileLocalFilter& local_filter,
 }
 
 void collect_filter_fields(const std::vector<std::unique_ptr<ParquetColumnSchema>>& fields,
+                           const std::vector<int>& predicate_fields,
                            const std::vector<reader::FileLocalFilter>& local_filters,
                            std::vector<int>* filter_fields) {
     filter_fields->clear();
     std::vector<bool> seen(fields.size(), false);
-    for (const auto& local_filter : local_filters) {
-        const int field_id = local_filter.file_column_id;
+    for (int field_id : predicate_fields) {
         if (field_id < 0 || field_id >= static_cast<int>(fields.size()) || seen[field_id] ||
-            !has_structured_filter(local_filter)) {
+            fields[field_id]->kind != ParquetColumnSchemaKind::PRIMITIVE) {
             continue;
         }
         // 第一版 decoded filtering 只对 primitive file-local 列执行 ColumnPredicate。
         // VExprContext fallback 和 nested predicate 后续应走 reader expression 或
         // nested reader 的专用 selection 路径。
-        if (fields[field_id]->kind != ParquetColumnSchemaKind::PRIMITIVE ||
-            !has_supported_decoded_filter(local_filter, *fields[field_id])) {
+        const auto filter_it =
+                std::find_if(local_filters.begin(), local_filters.end(),
+                             [field_id](const reader::FileLocalFilter& local_filter) {
+                                 return local_filter.file_column_id == field_id &&
+                                        has_structured_filter(local_filter);
+                             });
+        if (filter_it == local_filters.end()) {
+            continue;
+        }
+        if (!has_supported_decoded_filter(*filter_it, *fields[field_id])) {
+            continue;
+        }
+        if (supported_flat_column_type(fields[field_id]->descriptor) == nullptr) {
             continue;
         }
         seen[field_id] = true;
@@ -339,6 +353,17 @@ Status build_selection_from_filters(const ParquetReaderScanState& state, int64_t
     return Status::OK();
 }
 
+Status validate_supported_local_filters(const std::vector<reader::FileLocalFilter>& local_filters) {
+    for (const auto& local_filter : local_filters) {
+        if (local_filter.conjunct != nullptr) {
+            return Status::NotSupported(
+                    "Parquet expression filter fallback is not implemented for field {}",
+                    local_filter.file_column_id);
+        }
+    }
+    return Status::OK();
+}
+
 IColumn::Filter selection_to_filter(const std::vector<uint16_t>& selection, uint16_t selected_rows,
                                     int64_t batch_rows) {
     IColumn::Filter filter(static_cast<size_t>(batch_rows), 0);
@@ -410,18 +435,15 @@ const ParquetColumnSchema* find_leaf_schema(
 
 void collect_required_leaf_columns(const std::vector<std::unique_ptr<ParquetColumnSchema>>& fields,
                                    const std::vector<int>& projected_fields,
-                                   const std::vector<reader::FileLocalFilter>& local_filters,
-                                   int num_leaf_columns, std::vector<int>* required_leaf_columns) {
+                                   const std::vector<int>& predicate_fields, int num_leaf_columns,
+                                   std::vector<int>* required_leaf_columns) {
     required_leaf_columns->clear();
     std::vector<bool> required(static_cast<size_t>(num_leaf_columns), false);
     for (int field_id : projected_fields) {
         mark_required_leaf_columns(*fields[field_id], &required);
     }
-    for (const auto& local_filter : local_filters) {
-        const int field_id = local_filter.file_column_id;
-        if (field_id >= 0 && field_id < static_cast<int>(fields.size())) {
-            mark_required_leaf_columns(*fields[field_id], &required);
-        }
+    for (int field_id : predicate_fields) {
+        mark_required_leaf_columns(*fields[field_id], &required);
     }
     required_leaf_columns->reserve(num_leaf_columns);
     for (int leaf_column_id = 0; leaf_column_id < num_leaf_columns; ++leaf_column_id) {
@@ -592,11 +614,7 @@ Status read_current_row_group_batch(ParquetReaderScanState* state, int64_t batch
             return Status::InternalError("Missing parquet output column for projected field {}",
                                          file_field_id);
         }
-        auto column = output_it->second;
-        if (need_filter_output) {
-            RETURN_IF_ERROR(filter_decoded_column(&column, output_filter, selected_rows));
-        }
-        RETURN_IF_ERROR(append_decoded_column(file_block, file_field_id, std::move(column),
+        RETURN_IF_ERROR(append_decoded_column(file_block, file_field_id, output_it->second,
                                               *state->current_output_columns[reader_it->second]));
     }
 
@@ -663,14 +681,30 @@ Status ParquetReader::init(const reader::FileScanRequest& request) {
     RETURN_IF_ERROR(reader::FileReader::init(request));
 
     _state->projected_fields.clear();
+    _state->predicate_fields.clear();
+    _state->non_predicate_fields.clear();
     _state->filter_fields.clear();
     _state->local_filters = request.local_filters;
     const int num_fields = static_cast<int>(_state->file_schema.size());
-    for (auto column_id : request.projected_columns) {
+    auto validate_field_id = [num_fields](reader::ColumnId column_id,
+                                          std::string_view field_kind) -> Status {
         if (column_id < 0 || column_id >= num_fields) {
-            return Status::InvalidArgument("Invalid parquet top-level field id {}", column_id);
+            return Status::InvalidArgument("Invalid parquet {} top-level field id {}", field_kind,
+                                           column_id);
         }
+        return Status::OK();
+    };
+    for (auto column_id : request.projected_columns) {
+        RETURN_IF_ERROR(validate_field_id(column_id, "projected"));
         _state->projected_fields.push_back(column_id);
+    }
+    for (auto column_id : request.predicate_columns) {
+        RETURN_IF_ERROR(validate_field_id(column_id, "predicate"));
+        _state->predicate_fields.push_back(column_id);
+    }
+    for (auto column_id : request.non_predicate_columns) {
+        RETURN_IF_ERROR(validate_field_id(column_id, "non-predicate"));
+        _state->non_predicate_fields.push_back(column_id);
     }
     for (const auto& local_filter : request.local_filters) {
         if (local_filter.file_column_id < 0 || local_filter.file_column_id >= num_fields) {
@@ -678,9 +712,25 @@ Status ParquetReader::init(const reader::FileScanRequest& request) {
                                            local_filter.file_column_id);
         }
     }
-    collect_filter_fields(_state->file_schema, request.local_filters, &_state->filter_fields);
+    RETURN_IF_ERROR(validate_supported_local_filters(request.local_filters));
+    if (_state->projected_fields.empty()) {
+        _state->projected_fields = _state->non_predicate_fields;
+    }
+    if (_state->non_predicate_fields.empty()) {
+        std::vector<bool> is_predicate(static_cast<size_t>(num_fields), false);
+        for (int field_id : _state->predicate_fields) {
+            is_predicate[field_id] = true;
+        }
+        for (int field_id : _state->projected_fields) {
+            if (!is_predicate[field_id]) {
+                _state->non_predicate_fields.push_back(field_id);
+            }
+        }
+    }
+    collect_filter_fields(_state->file_schema, _state->predicate_fields, request.local_filters,
+                          &_state->filter_fields);
     collect_required_leaf_columns(_state->file_schema, _state->projected_fields,
-                                  request.local_filters, _state->schema->num_columns(),
+                                  _state->predicate_fields, _state->schema->num_columns(),
                                   &_state->required_leaf_columns);
 
     RETURN_IF_ERROR(select_row_groups_by_statistics(*_state->metadata, _state->file_schema, request,
@@ -690,11 +740,14 @@ Status ParquetReader::init(const reader::FileScanRequest& request) {
     return Status::OK();
 }
 
-Status ParquetReader::get_block(Block* file_block, bool* eof) {
+Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
+    if (rows != nullptr) {
+        *rows = 0;
+    }
     if (eof != nullptr) {
         *eof = false;
     }
-    if (file_block == nullptr || eof == nullptr) {
+    if (file_block == nullptr || rows == nullptr || eof == nullptr) {
         return Status::InvalidArgument(
                 "ParquetReader::get_block requires non-null output arguments");
     }
@@ -728,13 +781,12 @@ Status ParquetReader::get_block(Block* file_block, bool* eof) {
         const int64_t batch_rows =
                 std::min<int64_t>(DEFAULT_PARQUET_READ_BATCH_SIZE, remaining_rows);
         const int64_t physical_rows_read = batch_rows;
-        size_t rows = 0;
-        RETURN_IF_ERROR(read_current_row_group_batch(_state.get(), batch_rows, file_block, &rows));
+        RETURN_IF_ERROR(read_current_row_group_batch(_state.get(), batch_rows, file_block, rows));
         _state->current_row_group_rows_read += physical_rows_read;
         if (_state->current_row_group_rows_read >= _state->current_row_group_rows) {
             reset_current_row_group(_state.get());
         }
-        if (rows == 0) {
+        if (*rows == 0) {
             continue;
         }
         *eof = false;

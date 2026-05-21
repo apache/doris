@@ -88,6 +88,7 @@ public:
     // 输出的 ColumnMapping 描述 table column 如何从 file column、常量列或表达式得到；
     // 后续 projection、filter localization 和 table block finalize 都应复用这份映射。
     virtual Status create_mapping(const std::vector<TableColumn>& projected_columns,
+                                  std::vector<SchemaField>* block_schema,
                                   const std::map<std::string, Field>& partition_values,
                                   const std::vector<SchemaField>& file_schema);
 

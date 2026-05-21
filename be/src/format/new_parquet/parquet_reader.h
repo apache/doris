@@ -60,7 +60,7 @@ public:
 
     // 读取下一批 Parquet file-local block。
     // 返回列必须保持 file-local 语义，不能在这里补 default/generated/partition 列。
-    Status get_block(Block* file_block, bool* eof) override;
+    Status get_block(Block* file_block, size_t* rows, bool* eof) override;
 
     Status close() override;
 

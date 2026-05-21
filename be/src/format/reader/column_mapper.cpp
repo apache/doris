@@ -31,9 +31,14 @@ static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
 static constexpr const char* ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER = "_last_updated_sequence_number";
 
 Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& projected_columns,
+                                         std::vector<SchemaField>* block_schema,
                                          const std::map<std::string, Field>& partition_values,
                                          const std::vector<SchemaField>& file_schema) {
+    if (block_schema == nullptr) {
+        return Status::InvalidArgument("block_schema is null");
+    }
     _mappings.clear();
+    block_schema->clear();
     for (const auto& table_column : projected_columns) {
         ColumnMapping mapping;
         mapping.table_column_id = table_column.id;
@@ -46,15 +51,18 @@ Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& project
                 // 1. Data type mismatch (caused by schema evolution) and casting is needed.
                 auto expr = Cast::create_shared(mapping.table_type);
                 expr->add_child(TableSlotRef::create_shared(mapping.file_column_id.value(),
-                                                            mapping.file_column_id.value(), -1,
+                                                            block_schema->size(), -1,
                                                             mapping.file_type, file_field->name));
                 mapping.projection = VExprContext::create_shared(expr);
             } else {
                 // 2. Data type matches, trivial mapping.
                 mapping.projection = VExprContext::create_shared(TableSlotRef::create_shared(
-                        mapping.file_column_id.value(), mapping.file_column_id.value(), -1,
-                        mapping.file_type, file_field->name));
+                        mapping.file_column_id.value(), block_schema->size(), -1, mapping.file_type,
+                        file_field->name));
             }
+            block_schema->push_back(SchemaField {mapping.file_column_id.value(), file_field->name,
+                                                 mapping.file_type, file_field->children,
+                                                 file_field->column_type});
         } else if (table_column.is_partition_key && partition_values.count(table_column.name) > 0) {
             // 3. Partition column, use partition value as a constant mapping. Note that partition column may also have default expression, but partition value should take precedence if it exists.
             mapping.default_expr = VExprContext::create_shared(TableLiteral::create_shared(
@@ -93,11 +101,14 @@ Status TableColumnMapper::create_scan_request(const std::map<int32_t, TableFilte
     file_request->non_predicate_columns.clear();
     file_request->local_filters.clear();
     file_request->reader_expression_map.clear();
+    file_request->projected_columns.clear();
     for (const auto& table_column : projected_columns) {
         const auto* mapping = _find_mapping(table_column.id);
-        if (mapping != nullptr && mapping->file_column_id.has_value() &&
-            table_filters.count(table_column.id) == 0) {
-            file_request->non_predicate_columns.push_back(*mapping->file_column_id);
+        if (mapping != nullptr && mapping->file_column_id.has_value()) {
+            file_request->projected_columns.push_back(*mapping->file_column_id);
+            if (table_filters.count(table_column.id) == 0) {
+                file_request->non_predicate_columns.push_back(*mapping->file_column_id);
+            }
         }
     }
     RETURN_IF_ERROR(localize_filters(table_filters, file_request));
