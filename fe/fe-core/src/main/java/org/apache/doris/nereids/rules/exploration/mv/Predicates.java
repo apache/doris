@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
@@ -304,7 +305,7 @@ public class Predicates {
         Expression combinedQueryBasedViewResidual = buildCombinedPredicate(queryBasedViewResidualPredicates);
         if (BooleanLiteral.TRUE.equals(combinedQueryBasedViewResidual)) {
             // The target residual is TRUE, so implication always holds and DNF expansion is unnecessary.
-            return compensationCandidates;
+            return rejectUnsafeResidualCompensation(compensationCandidates);
         }
 
         try {
@@ -314,13 +315,14 @@ public class Predicates {
                 return null;
             }
 
-            return new PredicateCompensation(
+            PredicateCompensation finalCompensation = new PredicateCompensation(
                     removePredicatesImpliedByViewResidual(
                             compensationCandidates.getEquals(), combinedQueryBasedViewResidual),
                     removePredicatesImpliedByViewResidual(
                             compensationCandidates.getRanges(), combinedQueryBasedViewResidual),
                     removePredicatesImpliedByViewResidual(
                             compensationCandidates.getResiduals(), combinedQueryBasedViewResidual));
+            return rejectUnsafeResidualCompensation(finalCompensation);
         } catch (DnfBranchOverflowException e) {
             // DNF branch expansion may explode exponentially; fail compensation conservatively.
             return null;
@@ -332,13 +334,20 @@ public class Predicates {
                 queryStructInfo.getSplitPredicate().getResidualPredicateMap().keySet());
         Map<Expression, ExpressionInfo> residualCandidates = new LinkedHashMap<>();
         for (Expression expression : expressions) {
-            if (ExpressionUtils.hasNonWindowAggregateFunction(expression)) {
-                // Aggregate functions in residual predicates are not safe for detail-MV compensation.
-                return null;
-            }
             residualCandidates.put(expression, ExpressionInfo.EMPTY);
         }
         return ImmutableMap.copyOf(residualCandidates);
+    }
+
+    private static PredicateCompensation rejectUnsafeResidualCompensation(PredicateCompensation compensation) {
+        for (Expression expression : compensation.getResiduals().keySet()) {
+            if (expression.anyMatch(WindowExpression.class::isInstance)
+                    || expression.anyMatch(AggregateFunction.class::isInstance)) {
+                // Aggregate and window residuals are not safe as detail-MV compensation predicates.
+                return null;
+            }
+        }
+        return compensation;
     }
 
     private static Set<Expression> collectNonInferredExpressions(Collection<Expression> expressions) {

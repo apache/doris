@@ -28,6 +28,7 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanChecker;
 
@@ -244,6 +245,46 @@ public class PredicatesTest extends SqlTestBase {
         Assertions.assertTrue(finalPredicateCompensation.getEquals().isEmpty());
         Assertions.assertTrue(finalPredicateCompensation.getRanges().isEmpty());
         Assertions.assertTrue(finalPredicateCompensation.getResiduals().isEmpty());
+    }
+
+    @Test
+    public void testCoveredWindowResidualIsAllowedAfterFinalization() {
+        String sql = "select id, score from T1 qualify sum(score) over (partition by id) > 10";
+        PredicateRewriteContext rewriteContext = buildRewriteContext(sql, sql);
+
+        PredicateCompensation compensationCandidates = Predicates.collectCompensationCandidates(
+                rewriteContext.queryStructInfo,
+                rewriteContext.viewStructInfo,
+                rewriteContext.viewToQuerySlotMapping,
+                rewriteContext.comparisonResult,
+                rewriteContext.queryContext);
+        Assertions.assertNotNull(compensationCandidates);
+        Assertions.assertTrue(compensationCandidates.getResiduals().keySet().stream()
+                .anyMatch(expression -> expression.anyMatch(WindowExpression.class::isInstance)));
+
+        PredicateCompensation finalPredicateCompensation = compensatePredicates(rewriteContext);
+        Assertions.assertNotNull(finalPredicateCompensation);
+        Assertions.assertTrue(finalPredicateCompensation.getResiduals().isEmpty());
+    }
+
+    @Test
+    public void testQueryOnlyWindowResidualIsRejectedAsCompensation() {
+        PredicateRewriteContext rewriteContext = buildRewriteContext(
+                "select id, score from T1",
+                "select id, score from T1 qualify sum(score) over (partition by id) > 10");
+
+        PredicateCompensation compensationCandidates = Predicates.collectCompensationCandidates(
+                rewriteContext.queryStructInfo,
+                rewriteContext.viewStructInfo,
+                rewriteContext.viewToQuerySlotMapping,
+                rewriteContext.comparisonResult,
+                rewriteContext.queryContext);
+        Assertions.assertNotNull(compensationCandidates);
+        Assertions.assertTrue(compensationCandidates.getResiduals().keySet().stream()
+                .anyMatch(expression -> expression.anyMatch(WindowExpression.class::isInstance)));
+
+        PredicateCompensation finalPredicateCompensation = compensatePredicates(rewriteContext);
+        Assertions.assertNull(finalPredicateCompensation);
     }
 
     @Test
