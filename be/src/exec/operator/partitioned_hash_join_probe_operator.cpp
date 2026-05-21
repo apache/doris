@@ -349,7 +349,7 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_partition(
         RETURN_IF_ERROR(_current_build_reader->open());
     }
     bool eos = false;
-    while (!eos) {
+    while (!eos && !state->is_cancelled()) {
         Block block;
         RETURN_IF_ERROR(_current_build_reader->read(&block, &eos));
         COUNTER_UPDATE(_recovery_build_rows, block.rows());
@@ -373,6 +373,7 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_partition(
             return Status::OK(); // yield — buffer full, more data may remain
         }
     }
+    RETURN_IF_CANCELLED(state);
     // Build file fully consumed.
     RETURN_IF_ERROR(_current_build_reader->close());
     _current_build_reader.reset();
