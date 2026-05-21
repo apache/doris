@@ -17,6 +17,7 @@
 
 #include "storage/index/inverted/inverted_index_writer.h"
 
+#include <algorithm>
 #include <cstring>
 
 #include "common/cast_set.h"
@@ -56,6 +57,21 @@ int64_t ram_directory_memory_size(const std::shared_ptr<DorisFSDirectory>& dir) 
         size += dir->fileLength(file.c_str());
     }
     return size;
+}
+
+bool is_fs_directory(const std::shared_ptr<DorisFSDirectory>& dir) {
+    return dir != nullptr && std::strcmp(dir->getObjectName(), "DorisFSDirectory") == 0;
+}
+
+float index_writer_ram_buffer_size(const std::shared_ptr<DorisFSDirectory>& dir,
+                                   bool should_analyzer) {
+    auto ram_buffer_size = config::inverted_index_ram_buffer_size;
+    if (should_analyzer && is_fs_directory(dir) && ram_buffer_size > 0 &&
+        config::inverted_index_ram_buffer_size_when_ram_dir_disabled > 0) {
+        ram_buffer_size = std::min(ram_buffer_size,
+                                   config::inverted_index_ram_buffer_size_when_ram_dir_disabled);
+    }
+    return static_cast<float>(ram_buffer_size);
 }
 
 } // namespace
@@ -169,7 +185,7 @@ InvertedIndexColumnWriter<field_type>::create_index_writer() {
                     { index_writer->setMaxBufferedDocs(1); })
     DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_index_writer_setMergeFactor_error",
                     { index_writer->setMergeFactor(1); })
-    index_writer->setRAMBufferSizeMB(static_cast<float>(config::inverted_index_ram_buffer_size));
+    index_writer->setRAMBufferSizeMB(index_writer_ram_buffer_size(_dir, _should_analyzer));
     index_writer->setMaxBufferedDocs(config::inverted_index_max_buffered_docs);
     index_writer->setMaxFieldLength(MAX_FIELD_LEN);
     index_writer->setMergeFactor(MERGE_FACTOR);

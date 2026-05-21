@@ -1320,6 +1320,7 @@ DECLARE_Int32(ann_index_result_cache_stale_sweep_time_sec);
 
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
+DECLARE_mDouble(inverted_index_ram_buffer_size_when_ram_dir_disabled);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);

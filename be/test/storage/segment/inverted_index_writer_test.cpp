@@ -782,13 +782,37 @@ namespace {
 TabletIndex create_standard_fulltext_index_meta();
 std::string fulltext_memory_token(size_t token_id);
 std::vector<std::string> fulltext_memory_strings(size_t value_count, size_t tokens_per_value);
+std::vector<std::string> fulltext_large_memory_strings(size_t value_count,
+                                                       size_t min_bytes_per_value);
 std::vector<Slice> slices_from_strings(const std::vector<std::string>& strings);
 int64_t add_fulltext_values_and_get_peak_delta(IndexColumnWriter* column_writer,
-                                               const std::vector<Slice>& values);
+                                               const std::vector<Slice>& values,
+                                               size_t batch_size = 32);
 void check_fulltext_match(const std::shared_ptr<FullTextIndexReader>& fulltext_reader,
                           const IndexQueryContextPtr& context, const std::string& field_name,
                           const std::string& query, uint64_t cardinality,
                           std::optional<uint32_t> doc_id);
+
+class FullTextIndexConfigGuard {
+public:
+    FullTextIndexConfigGuard()
+            : _inverted_index_ram_dir_enable(config::inverted_index_ram_dir_enable),
+              _inverted_index_ram_buffer_size(config::inverted_index_ram_buffer_size),
+              _inverted_index_ram_buffer_size_when_ram_dir_disabled(
+                      config::inverted_index_ram_buffer_size_when_ram_dir_disabled) {}
+
+    ~FullTextIndexConfigGuard() {
+        config::inverted_index_ram_dir_enable = _inverted_index_ram_dir_enable;
+        config::inverted_index_ram_buffer_size = _inverted_index_ram_buffer_size;
+        config::inverted_index_ram_buffer_size_when_ram_dir_disabled =
+                _inverted_index_ram_buffer_size_when_ram_dir_disabled;
+    }
+
+private:
+    bool _inverted_index_ram_dir_enable;
+    double _inverted_index_ram_buffer_size;
+    double _inverted_index_ram_buffer_size_when_ram_dir_disabled;
+};
 
 } // namespace
 
@@ -881,6 +905,70 @@ TEST_F(InvertedIndexWriterTest, FullTextStringMemoryEstimateIncludesBufferedPost
     check_fulltext_match(fulltext_reader, context, field_name,
                          fulltext_memory_token(selected_row * tokens_per_value + 5), 1,
                          selected_row);
+}
+
+TEST_F(InvertedIndexWriterTest, FullTextLargeStringRamDirDisabledCapsBufferedPostings) {
+    FullTextIndexConfigGuard config_guard;
+    config::inverted_index_ram_dir_enable = false;
+    config::inverted_index_ram_buffer_size = 512;
+
+    auto tablet_schema = create_schema();
+    TabletIndex idx_meta = create_standard_fulltext_index_meta();
+    constexpr size_t value_count = 2;
+    constexpr size_t min_bytes_per_value = 1024 * 1024;
+    const auto strings = fulltext_large_memory_strings(value_count, min_bytes_per_value);
+    ASSERT_GE(strings.front().size(), min_bytes_per_value);
+    const auto values = slices_from_strings(strings);
+
+    auto write_and_measure = [&](std::string_view rowset_id, int seg_id, int64_t* peak_delta) {
+        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, seg_id))};
+        std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+
+        io::FileWriterPtr file_writer;
+        io::FileWriterOptions opts;
+        auto fs = io::global_local_filesystem();
+        Status sts = fs->create_file(index_path, &file_writer, &opts);
+        ASSERT_TRUE(sts.ok()) << sts;
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
+                fs, index_path_prefix, std::string {rowset_id}, seg_id,
+                InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+
+        const TabletColumn& column = tablet_schema->column(1);
+        ASSERT_NE(&column, nullptr);
+        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
+        ASSERT_NE(field.get(), nullptr);
+
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
+        ASSERT_TRUE(status.ok()) << status;
+
+        *peak_delta = add_fulltext_values_and_get_peak_delta(column_writer.get(), values, 1);
+
+        status = column_writer->finish();
+        ASSERT_TRUE(status.ok()) << status;
+        status = index_file_writer->begin_close();
+        ASSERT_TRUE(status.ok()) << status;
+        status = index_file_writer->finish_close();
+        ASSERT_TRUE(status.ok()) << status;
+    };
+
+    int64_t uncapped_peak_delta = 0;
+    config::inverted_index_ram_buffer_size_when_ram_dir_disabled = 0;
+    ASSERT_NO_FATAL_FAILURE(
+            write_and_measure("test_rowset_large_string_uncapped", 0, &uncapped_peak_delta));
+
+    int64_t capped_peak_delta = 0;
+    config::inverted_index_ram_buffer_size_when_ram_dir_disabled = 1;
+    ASSERT_NO_FATAL_FAILURE(
+            write_and_measure("test_rowset_large_string_capped", 1, &capped_peak_delta));
+
+    RecordProperty("uncapped_peak_delta_bytes", uncapped_peak_delta);
+    RecordProperty("capped_peak_delta_bytes", capped_peak_delta);
+    EXPECT_GT(uncapped_peak_delta, 4 * 1024 * 1024);
+    EXPECT_LT(capped_peak_delta, 2 * 1024 * 1024);
+    EXPECT_LT(capped_peak_delta * 2, uncapped_peak_delta);
 }
 
 // Test case for Unicode string values with enable_correct_term_write=true
@@ -1677,6 +1765,22 @@ std::vector<std::string> fulltext_memory_strings(size_t value_count, size_t toke
     return strings;
 }
 
+std::vector<std::string> fulltext_large_memory_strings(size_t value_count,
+                                                       size_t min_bytes_per_value) {
+    std::vector<std::string> strings;
+    strings.reserve(value_count);
+    size_t token_id = 0;
+    for (size_t row = 0; row < value_count; ++row) {
+        std::string value = "sharedterm";
+        while (value.size() < min_bytes_per_value) {
+            value.append(" ");
+            value.append(fulltext_memory_token(token_id++));
+        }
+        strings.emplace_back(std::move(value));
+    }
+    return strings;
+}
+
 std::vector<Slice> slices_from_strings(const std::vector<std::string>& strings) {
     std::vector<Slice> values;
     values.reserve(strings.size());
@@ -1687,10 +1791,10 @@ std::vector<Slice> slices_from_strings(const std::vector<std::string>& strings) 
 }
 
 int64_t add_fulltext_values_and_get_peak_delta(IndexColumnWriter* column_writer,
-                                               const std::vector<Slice>& values) {
+                                               const std::vector<Slice>& values,
+                                               size_t batch_size) {
     const int64_t initial_size = column_writer->size();
     int64_t peak_size = initial_size;
-    constexpr size_t batch_size = 32;
     for (size_t offset = 0; offset < values.size(); offset += batch_size) {
         size_t count = std::min(batch_size, values.size() - offset);
         auto status = column_writer->add_values("c2", values.data() + offset, count);
