@@ -40,7 +40,6 @@ enum class TableColumnMappingMode {
     BY_NAME,
 };
 
-
 enum TableVirtualColumnType {
     INVALID = 0, // not a virtual column
     ROW_ID = 1,

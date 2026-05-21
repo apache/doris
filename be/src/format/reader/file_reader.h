@@ -44,8 +44,8 @@ using ColumnId = int32_t;
 
 enum ColumnType {
     DATA_COLUMN = 0, // normal data column
-    ROW_NUMBER = 1, // row number in a file
-    FILE_NAME = 2, // file name
+    ROW_NUMBER = 1,  // row number in a file
+    FILE_NAME = 2,   // file name
 };
 
 // 文件本地 schema 字段。
