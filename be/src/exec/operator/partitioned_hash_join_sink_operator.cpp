@@ -24,6 +24,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "exec/operator/hashjoin_utils.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/spill_utils.h"
 #include "exec/pipeline/pipeline_task.h"
@@ -419,9 +420,7 @@ PartitionedHashJoinSinkOperatorX::PartitionedHashJoinSinkOperatorX(ObjectPool* p
 Status PartitionedHashJoinSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     _partition_count = state->spill_hash_join_partition_count();
     RETURN_IF_ERROR(JoinBuildSinkOperatorX::init(tnode, state));
-    if (_is_mark_join && _join_op == TJoinOp::RIGHT_ANTI_JOIN) {
-        return Status::InternalError("Hash join does not support right anti mark join");
-    }
+    RETURN_IF_ERROR(validate_hash_join_mark_join_plan(_join_op, _is_mark_join, state, node_id()));
     _name = "PARTITIONED_HASH_JOIN_SINK_OPERATOR";
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
     std::vector<TExpr> partition_exprs;

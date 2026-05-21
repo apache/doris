@@ -920,14 +920,16 @@ TEST_F(HashJoinProbeOperatorTest, RightSemiJoinMarkJoin) {
 }
 
 TEST_F(HashJoinProbeOperatorTest, RightAntiMarkJoinRejected) {
-    auto tnode = _helper.create_test_plan_node(TJoinOp::RIGHT_ANTI_JOIN, {TPrimitiveType::INT},
-                                               {false}, {false}, true, 1);
+    auto tnode = _helper.create_test_plan_node(TJoinOp::RIGHT_ANTI_JOIN,
+                                               {TPrimitiveType::INT, TPrimitiveType::STRING},
+                                               {false, false}, {false, false}, true, 1);
     auto probe_operator = std::make_shared<HashJoinProbeOperatorX>(
             _helper.obj_pool.get(), tnode, 0, _helper.runtime_state->desc_tbl());
 
     auto st = probe_operator->init(tnode, _helper.runtime_state.get());
     ASSERT_FALSE(st.ok());
     EXPECT_THAT(st.to_string(), testing::HasSubstr("right anti mark join"));
+    EXPECT_THAT(st.to_string(), testing::HasSubstr("node=0"));
 }
 
 TEST_F(HashJoinProbeOperatorTest, NullAwareLeftAntiJoin) {
