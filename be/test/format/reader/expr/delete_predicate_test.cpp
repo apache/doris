@@ -130,7 +130,8 @@ TEST_F(DeletePredicateTest, ExecuteColumnImplReturnsError) {
     VExprContext context(std::make_shared<DeletePredicate>(deleted_rows));
     ColumnPtr result_column;
 
-    auto status = delete_predicate.execute_column_impl(&context, nullptr, nullptr, 0, result_column);
+    auto status =
+            delete_predicate.execute_column_impl(&context, nullptr, nullptr, 0, result_column);
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("DeletePredicate::execute_column_impl"), std::string::npos);
 }
