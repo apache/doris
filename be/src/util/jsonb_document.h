@@ -319,10 +319,65 @@ public:
     unsigned int get_leg_len() const { return leg_len; }
 
     void remove_escapes() {
-        int new_len = 0;
-        for (int i = 0; i < leg_len; i++) {
-            if (leg_ptr[i] != '\\') {
+        unsigned int new_len = 0;
+        for (unsigned int i = 0; i < leg_len; ++i) {
+            if (leg_ptr[i] != ESCAPE) {
                 leg_ptr[new_len++] = leg_ptr[i];
+                continue;
+            }
+
+            ++i;
+            if (i >= leg_len) {
+                break;
+            }
+
+            switch (leg_ptr[i]) {
+            case 'b':
+                leg_ptr[new_len++] = '\b';
+                break;
+            case 'f':
+                leg_ptr[new_len++] = '\f';
+                break;
+            case 'n':
+                leg_ptr[new_len++] = '\n';
+                break;
+            case 'r':
+                leg_ptr[new_len++] = '\r';
+                break;
+            case 't':
+                leg_ptr[new_len++] = '\t';
+                break;
+            case 'u': {
+                if (i + 4 >= leg_len || leg_ptr[i + 1] != '0' || leg_ptr[i + 2] != '0') {
+                    leg_ptr[new_len++] = leg_ptr[i];
+                    break;
+                }
+
+                auto hex_to_int = [](char c) -> int {
+                    if (c >= '0' && c <= '9') {
+                        return c - '0';
+                    }
+                    if (c >= 'a' && c <= 'f') {
+                        return c - 'a' + 10;
+                    }
+                    if (c >= 'A' && c <= 'F') {
+                        return c - 'A' + 10;
+                    }
+                    return -1;
+                };
+                int high = hex_to_int(leg_ptr[i + 3]);
+                int low = hex_to_int(leg_ptr[i + 4]);
+                if (high < 0 || low < 0) {
+                    leg_ptr[new_len++] = leg_ptr[i];
+                    break;
+                }
+                leg_ptr[new_len++] = static_cast<char>((high << 4) | low);
+                i += 4;
+                break;
+            }
+            default:
+                leg_ptr[new_len++] = leg_ptr[i];
+                break;
             }
         }
         leg_ptr[new_len] = '\0';
@@ -363,19 +418,51 @@ struct leg_info {
     ///type: 0 is member 1 is array
     unsigned int type;
 
+    // NOLINTNEXTLINE(readability-non-const-parameter): str is an output parameter.
     bool to_string(std::string* str) const {
         if (type == MEMBER_CODE) {
             str->push_back(BEGIN_MEMBER);
             bool contains_space = false;
             std::string tmp;
             for (auto* it = leg_ptr; it != (leg_ptr + leg_len); ++it) {
-                if (std::isspace(*it)) {
+                auto c = static_cast<unsigned char>(*it);
+                if (std::isspace(c)) {
                     contains_space = true;
-                } else if (*it == '"' || *it == ESCAPE || *it == '\r' || *it == '\n' ||
-                           *it == '\b' || *it == '\t') {
-                    tmp.push_back(ESCAPE);
                 }
-                tmp.push_back(*it);
+
+                switch (*it) {
+                case '"':
+                    tmp.append("\\\"");
+                    break;
+                case ESCAPE:
+                    tmp.append("\\\\");
+                    break;
+                case '\b':
+                    tmp.append("\\b");
+                    break;
+                case '\f':
+                    tmp.append("\\f");
+                    break;
+                case '\n':
+                    tmp.append("\\n");
+                    break;
+                case '\r':
+                    tmp.append("\\r");
+                    break;
+                case '\t':
+                    tmp.append("\\t");
+                    break;
+                default:
+                    if (c < 0x20) {
+                        constexpr char hex[] = "0123456789abcdef";
+                        tmp.append("\\u00");
+                        tmp.push_back(hex[c >> 4]);
+                        tmp.push_back(hex[c & 0x0F]);
+                    } else {
+                        tmp.push_back(*it);
+                    }
+                    break;
+                }
             }
             if (contains_space) {
                 str->push_back(DOUBLE_QUOTE);
@@ -414,6 +501,7 @@ public:
 
     void pop_leg_from_leg_vector() { leg_vector.pop_back(); }
 
+    // NOLINTNEXTLINE(readability-non-const-parameter): res is an output parameter.
     bool to_string(std::string* res) const {
         res->push_back(SCOPE);
         for (const auto& leg : leg_vector) {

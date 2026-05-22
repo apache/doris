@@ -285,6 +285,30 @@ TEST_F(JsonbDocumentTest, forobject) {
     }
 }
 
+TEST_F(JsonbDocumentTest, jsonb_path_member_to_string_escapes_control_characters) {
+    std::string key = "a\nb\tc\rd\"e\\f";
+    key.push_back('\x01');
+    key.append("g");
+
+    leg_info leg(key.data(), static_cast<unsigned int>(key.size()), 0, MEMBER_CODE);
+
+    std::string out;
+    ASSERT_TRUE(leg.to_string(&out));
+    EXPECT_EQ(out, ".\"a\\nb\\tc\\rd\\\"e\\\\f\\u0001g\"");
+    EXPECT_EQ(out.find('\n'), std::string::npos);
+    EXPECT_EQ(out.find('\t'), std::string::npos);
+    EXPECT_EQ(out.find('\r'), std::string::npos);
+
+    const std::string expected_path = "$" + out;
+    std::string parsed_path = expected_path;
+    JsonbPath path;
+    ASSERT_TRUE(path.seek(parsed_path.data(), parsed_path.size()));
+
+    std::string round_trip;
+    ASSERT_TRUE(path.to_string(&round_trip));
+    EXPECT_EQ(round_trip, expected_path);
+}
+
 TEST_F(JsonbDocumentTest, invaild_jsonb_document) {
     const JsonbDocument* doc = nullptr;
     auto st = JsonbDocument::checkAndCreateDocument(nullptr, 0, &doc);
