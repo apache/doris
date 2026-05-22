@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "format/new_parquet/parquet_type.h"
+#include "format/new_parquet/selection_vector.h"
 
 namespace parquet {
 class ColumnDescriptor;
@@ -55,18 +56,15 @@ public:
     virtual const std::string& name() const = 0;
 
     // 读取一个 file-local column batch。
-    virtual Status read_batch(int64_t batch_rows, MutableColumnPtr* result_column,
-                              int64_t* rows_read) = 0;
+    virtual Status read(int64_t rows, MutableColumnPtr* column, int64_t* rows_read) = 0;
 
     // 跳过指定行数。这里必须使用 row-level skip，不能退回到 value-level Skip。
     virtual Status skip(int64_t rows);
 
     // 按 selection 读取当前 batch 中需要输出的行，并在末尾跳过 batch 内剩余行。
-    // selection 保存的是当前 batch 内的 row offset，必须单调递增。默认实现退化为整批
-    // read_batch + filter；RecordReader-backed primitive reader 会覆盖为真正的
-    // SkipRecords/ReadRecords 交替执行。
-    virtual Status read_selected(const std::vector<uint16_t>& selection, uint16_t selected_rows,
-                                 int64_t batch_rows, MutableColumnPtr* result_column);
+    // 该方法只允许通过 skip + read 推进 reader 游标，不允许退化为整批 read + filter。
+    virtual Status select(const SelectionVector& sel, uint16_t selected_rows, int64_t batch_rows,
+                          MutableColumnPtr* column);
 };
 
 // Parquet column reader 工厂。

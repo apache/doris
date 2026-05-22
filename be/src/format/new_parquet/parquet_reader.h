@@ -47,18 +47,22 @@ public:
     ~ParquetReader() override;
 
     // 打开 Parquet 文件并解析 footer metadata。
+    // open 成功后可以调用 get_schema() 获取 Parquet file-local schema。
     Status open(io::FileReaderSPtr file, io::IOContext* io_ctx = nullptr) override;
 
     // 解析 Parquet footer 并返回 Parquet 文件自身的 schema。
+    // 该方法只能在 open() 成功后调用，不要求 init() 已经执行。
     // 这里不做 Iceberg schema evolution，也不把字段转换成 table/global schema。
     Status get_schema(std::vector<reader::SchemaField>* file_schema) const override;
 
     // 初始化 Parquet 专属 scan。
+    // init 成功后可以调用 get_block() 读取 Parquet file-local block。
     // 后续可以在 ParquetScanRequest 中扩展 row group、page index、bloom filter 等
     // Parquet-only 选项；table-level 语义仍然必须由 TableColumnMapper 提前转换。
     Status init(const ParquetScanRequest& request);
 
     // 读取下一批 Parquet file-local block。
+    // 该方法只能在 init() 成功后调用。
     // 返回列必须保持 file-local 语义，不能在这里补 default/generated/partition 列。
     Status get_block(Block* file_block, size_t* rows, bool* eof) override;
 
