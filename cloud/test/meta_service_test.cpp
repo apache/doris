@@ -6104,7 +6104,7 @@ TEST(MetaServiceTest, UpdateDeleteBitmapSplitPendingKey) {
     brpc::Controller cntl;
 
     int16_t old_version = config::meta_pending_delete_bitmap_value_version;
-    DORIS_CLOUD_DEFER
+    DORIS_CLOUD_DEFER {
         config::meta_pending_delete_bitmap_value_version = old_version;
     };
     config::meta_pending_delete_bitmap_value_version = 2;
