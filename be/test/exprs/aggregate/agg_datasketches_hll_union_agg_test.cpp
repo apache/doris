@@ -20,6 +20,7 @@
 #include <DataSketches/hll.hpp>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/config.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_string.h"
@@ -791,6 +792,36 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
     }
 
     agg_func->destroy(place);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testDataMergeDownsampleMemAllocFailed) {
+    using Data = AggregateFunctionHllSketchData<TYPE_STRING>;
+    using Alloc = Data::Alloc;
+    using Sketch = Data::Sketch;
+
+    Data data;
+
+    Sketch large_k_sketch(12, datasketches::HLL_8, true, Alloc());
+    for (int i = 0; i < 5000; ++i) {
+        large_k_sketch.update(i);
+    }
+    EXPECT_NO_THROW(data.merge(large_k_sketch));
+
+    Sketch small_k_sketch(8, datasketches::HLL_8, true, Alloc());
+    for (int i = 0; i < 5000; ++i) {
+        small_k_sketch.update(i);
+    }
+
+    {
+        ScopedMemAllocFaultInjection inject(1.0);
+        try {
+            data.merge(small_k_sketch);
+            FAIL() << "Expected doris::Exception";
+        } catch (const doris::Exception& e) {
+            EXPECT_EQ(e.code(), doris::ErrorCode::MEM_ALLOC_FAILED);
+            EXPECT_NE(e.to_string().find("update HLL sketch"), std::string::npos);
+        }
+    }
 }
 
 } // namespace doris
