@@ -42,7 +42,7 @@ public:
     }
 
     const std::string& expr_name() const override { return _cname; }
-    const std::string& column_name() const override { return _cname; }
+    const std::string& column_name() const { return _cname; }
 
 private:
     const std::string _cname;
