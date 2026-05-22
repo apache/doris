@@ -81,6 +81,7 @@ void register_aggregate_function_percentile_reservoir(AggregateFunctionSimpleFac
 void register_aggregate_function_ai_agg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bool_union(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_sem(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_ema(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -139,6 +140,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_ai_agg(instance);
         register_aggregate_function_bool_union(instance);
         register_aggregate_function_sem(instance);
+        register_aggregate_function_ema(instance);
         // Register foreach and foreachv2 functions
         register_aggregate_function_combinator_foreach(instance);
         register_aggregate_function_combinator_foreachv2(instance);

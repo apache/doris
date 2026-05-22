@@ -15,25 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/collection_value.h"
-
-#include <string.h>
-
-namespace doris {
-
-void CollectionValue::shallow_copy(const CollectionValue* value) {
-    _length = value->_length;
-    _null_signs = value->_null_signs;
-    _data = value->_data;
-    _has_null = value->_has_null;
+suite("test_json_contains_numeric_equality", "p0") {
+    order_qt_json_contains_numeric_equality """
+        SELECT JSON_CONTAINS('1', '1.0'),
+               JSON_CONTAINS('1.0', '1'),
+               JSON_CONTAINS('[1]', '1.0'),
+               JSON_CONTAINS('[1.0]', '1'),
+               JSON_CONTAINS('{"qty": 1}', '{"qty": 1.0}'),
+               JSON_CONTAINS('{"qty": 1.0}', '{"qty": 1}'),
+               JSON_CONTAINS('{"qty": 1}', '{"qty": 1.5}')
+        ORDER BY 1;
+    """
 }
-
-void CollectionValue::copy_null_signs(const CollectionValue* other) {
-    if (other->_has_null) {
-        memcpy(_null_signs, other->_null_signs, other->size());
-    } else {
-        _null_signs = nullptr;
-    }
-}
-
-} // namespace doris

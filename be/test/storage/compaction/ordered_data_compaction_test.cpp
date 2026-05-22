@@ -49,7 +49,6 @@
 #include "storage/compaction/cumulative_compaction.h"
 #include "storage/data_dir.h"
 #include "storage/delete/delete_handler.h"
-#include "storage/field.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
 #include "storage/rowset/beta_rowset.h"

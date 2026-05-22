@@ -498,7 +498,7 @@ Status RowBinlogSourceDataWriter::fill_normal_columns(
     const auto& including_cids =
             partial_source_cids.empty() ? _normal_column_ids : partial_source_cids;
     for (size_t cid : including_cids) {
-        DCHECK(column_writers[start + cid]->get_field()->type() ==
+        DCHECK(column_writers[start + cid]->get_column()->type() ==
                _opt.source.tablet_schema->columns()[cid]->type())
                 << cid;
         RETURN_IF_ERROR(column_writers[start + cid]->append(_converted_columns[cid]->get_nullmap(),

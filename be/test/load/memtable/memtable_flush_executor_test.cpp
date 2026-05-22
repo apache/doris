@@ -38,7 +38,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
-#include "storage/field.h"
 #include "storage/options.h"
 #include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_writer.h"

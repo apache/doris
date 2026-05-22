@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/vruntimefilter_wrapper.h"
+#include "exprs/runtime_filter_expr.h"
 
 #include <fmt/format.h>
 
@@ -54,9 +54,8 @@ namespace doris {
 
 class VExprContext;
 
-VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, VExprSPtr impl,
-                                             double ignore_thredhold, bool null_aware,
-                                             int filter_id, int sampling_frequency)
+RuntimeFilterExpr::RuntimeFilterExpr(const TExprNode& node, VExprSPtr impl, double ignore_thredhold,
+                                     bool null_aware, int filter_id, int sampling_frequency)
         : VExpr(node),
           _impl(std::move(impl)),
           _ignore_thredhold(ignore_thredhold),
@@ -64,16 +63,16 @@ VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, VExprSPtr im
           _filter_id(filter_id),
           _sampling_frequency(sampling_frequency) {}
 
-Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& desc,
-                                      VExprContext* context) {
+Status RuntimeFilterExpr::prepare(RuntimeState* state, const RowDescriptor& desc,
+                                  VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(_impl->prepare(state, desc, context));
-    _expr_name = fmt::format("VRuntimeFilterWrapper({})", _impl->expr_name());
+    _expr_name = fmt::format("RuntimeFilterExpr({})", _impl->expr_name());
     _prepare_finished = true;
     return Status::OK();
 }
 
-Status VRuntimeFilterWrapper::open(RuntimeState* state, VExprContext* context,
-                                   FunctionContext::FunctionStateScope scope) {
+Status RuntimeFilterExpr::open(RuntimeState* state, VExprContext* context,
+                               FunctionContext::FunctionStateScope scope) {
     DCHECK(_prepare_finished);
     RETURN_IF_ERROR(_impl->open(state, context, scope));
     context->get_runtime_filter_selectivity().set_sampling_frequency(_sampling_frequency);
@@ -81,24 +80,23 @@ Status VRuntimeFilterWrapper::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-void VRuntimeFilterWrapper::close(VExprContext* context,
-                                  FunctionContext::FunctionStateScope scope) {
+void RuntimeFilterExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     _impl->close(context, scope);
 }
 
-Status VRuntimeFilterWrapper::execute_column_impl(VExprContext* context, const Block* block,
-                                                  const Selector* selector, size_t count,
-                                                  ColumnPtr& result_column) const {
-    return Status::InternalError("Not implement VRuntimeFilterWrapper::execute_column_impl");
+Status RuntimeFilterExpr::execute_column_impl(VExprContext* context, const Block* block,
+                                              const Selector* selector, size_t count,
+                                              ColumnPtr& result_column) const {
+    return Status::InternalError("Not implement RuntimeFilterExpr::execute_column_impl");
 }
 
-const std::string& VRuntimeFilterWrapper::expr_name() const {
+const std::string& RuntimeFilterExpr::expr_name() const {
     return _expr_name;
 }
 
-Status VRuntimeFilterWrapper::execute_filter(VExprContext* context, const Block* block,
-                                             uint8_t* __restrict result_filter_data, size_t rows,
-                                             bool accept_null, bool* can_filter_all) const {
+Status RuntimeFilterExpr::execute_filter(VExprContext* context, const Block* block,
+                                         uint8_t* __restrict result_filter_data, size_t rows,
+                                         bool accept_null, bool* can_filter_all) const {
     DCHECK(_open_finished);
     if (accept_null) {
         return Status::InternalError(

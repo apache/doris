@@ -180,6 +180,55 @@ TEST_F(HashJoinBuildSinkTest, Init) {
     run_test_block(test_block);
 }
 
+TEST_F(HashJoinBuildSinkTest, RejectBroadcastJoinThatRequiresBuildSideFinalize) {
+    for (const auto join_op : {TJoinOp::RIGHT_OUTER_JOIN, TJoinOp::FULL_OUTER_JOIN,
+                               TJoinOp::RIGHT_SEMI_JOIN, TJoinOp::RIGHT_ANTI_JOIN}) {
+        auto tnode =
+                _helper.create_test_plan_node(join_op, {TPrimitiveType::INT}, {false}, {false});
+        tnode.hash_join_node.__set_is_broadcast_join(true);
+
+        auto [probe_operator, sink_operator] = _helper.create_operators(tnode);
+        ASSERT_TRUE(probe_operator);
+        ASSERT_TRUE(sink_operator);
+
+        auto runtime_state = std::make_unique<MockRuntimeState>();
+        runtime_state->_query_ctx = _helper.query_ctx.get();
+        runtime_state->_query_id = _helper.query_ctx->query_id();
+        runtime_state->resize_op_id_to_local_state(-100);
+        runtime_state->set_max_operator_id(-100);
+        runtime_state->set_desc_tbl(_helper.desc_tbl);
+
+        auto st = sink_operator->init(tnode, runtime_state.get());
+        ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
+
+        st = sink_operator->prepare(runtime_state.get());
+        ASSERT_TRUE(st.is<ErrorCode::NOT_IMPLEMENTED_ERROR>())
+                << "broadcast " << to_string(join_op)
+                << " should be rejected, got: " << st.to_string();
+    }
+}
+
+TEST_F(HashJoinBuildSinkTest, RightAntiMarkJoinRejected) {
+    auto tnode = _helper.create_test_plan_node(TJoinOp::RIGHT_ANTI_JOIN,
+                                               {TPrimitiveType::INT, TPrimitiveType::STRING},
+                                               {false, false}, {false, false}, true, 1);
+    auto [probe_operator, sink_operator] = _helper.create_operators(tnode);
+    ASSERT_TRUE(probe_operator);
+    ASSERT_TRUE(sink_operator);
+
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    runtime_state->_query_ctx = _helper.query_ctx.get();
+    runtime_state->_query_id = _helper.query_ctx->query_id();
+    runtime_state->resize_op_id_to_local_state(-100);
+    runtime_state->set_max_operator_id(-100);
+    runtime_state->set_desc_tbl(_helper.desc_tbl);
+
+    auto st = sink_operator->init(tnode, runtime_state.get());
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string(), testing::HasSubstr("right anti mark join"));
+    EXPECT_THAT(st.to_string(), testing::HasSubstr("node=0"));
+}
+
 TEST_F(HashJoinBuildSinkTest, Sink) {
     auto test_block = [&](TJoinOp::type op_type, const std::vector<TPrimitiveType::type>& key_types,
                           const std::vector<bool>& left_nullables,

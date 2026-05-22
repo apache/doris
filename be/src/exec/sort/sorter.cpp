@@ -94,6 +94,24 @@ Status MergeSorterState::merge_sort_read(doris::Block* block, int batch_size, bo
 }
 
 void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::Block* block, bool* eos) {
+    if (_queue.is_valid() && batch_size > 0) {
+        auto [current, current_rows] = _queue.current();
+        current_rows = std::min(current_rows, static_cast<size_t>(batch_size));
+        const size_t step = std::min(_offset, current_rows);
+
+        // Fast path when the current top run can contribute its whole remaining block
+        // before any other run. The returned block stays within batch_size because
+        // is_last(current_rows) can only hold after the min(batch_size, queue_batch_size)
+        // clamp above.
+        if (step == 0 && current->impl->is_first() && current->impl->is_last(current_rows) &&
+            (_queue.size() == 1 || (*current).totally_less_or_equals(_queue.next_child()))) {
+            current->impl->block->swap(*block);
+            _queue.remove_top();
+            *eos = false;
+            return;
+        }
+    }
+
     size_t num_columns = unsorted_block()->columns();
 
     MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(block, *unsorted_block());
