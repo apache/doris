@@ -74,7 +74,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -419,9 +418,6 @@ public class BindSink implements AnalysisRuleFactory {
             } else {
                 castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
             }
-            if (requireNonNullableOutput(col) && castExpr.nullable()) {
-                castExpr = new NonNullable(castExpr);
-            }
             if (castExpr instanceof NamedExpression) {
                 castExprs.add(((NamedExpression) castExpr));
             } else {
@@ -633,15 +629,7 @@ public class BindSink implements AnalysisRuleFactory {
     }
 
     private static Expression normalizeOutputExpression(Expression expression, Column column) {
-        expression = TypeCoercionUtils.castIfNotSameType(expression, DataType.fromCatalogType(column.getType()));
-        if (requireNonNullableOutput(column) && expression.nullable()) {
-            return new NonNullable(expression);
-        }
-        return expression;
-    }
-
-    private static boolean requireNonNullableOutput(Column column) {
-        return !column.isAllowNull() || column.isKey();
+        return TypeCoercionUtils.castIfNotSameType(expression, DataType.fromCatalogType(column.getType()));
     }
 
     private Plan bindBlackHoleSink(MatchingContext<UnboundBlackholeSink<Plan>> ctx) {
