@@ -106,6 +106,38 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
             exception "Invalid value for key 'snapshot_parallelism'"
         }
 
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://localhost:3306",
+                "database" = "db1",
+                "table" = "t1",
+                "offset" = "abc")"""
+            exception "Invalid value for key 'offset'"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://localhost:3306",
+                "database" = "db1",
+                "table" = "t1",
+                "offset" = "latest",
+                "ssl_mode" = "bogus")"""
+            exception "Invalid value for key 'ssl_mode'"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://localhost:3306",
+                "database" = "db1",
+                "table" = "t1",
+                "offset" = "latest",
+                "ssl_mode" = "verify-ca")"""
+            exception "ssl_mode 'verify-ca' requires ssl_rootcert to be set"
+        }
+
         // --- Data setup ---
 
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
@@ -210,7 +242,7 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
                 "database" = "${mysqlDb}",
                 "table" = "${table1}",
                 "offset" = 'notjson')"""
-            exception "Unsupported offset: notjson"
+            exception "Invalid value for key 'offset'"
         }
 
         // --- Non-existent table ---

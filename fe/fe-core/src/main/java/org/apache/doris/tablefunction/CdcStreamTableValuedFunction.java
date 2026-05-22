@@ -135,9 +135,24 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
                 if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.SCHEMA))) {
                     throw new AnalysisException("schema is required for PostgreSQL");
                 }
+                validatePgIdentifierIfPresent(properties, DataSourceConfigKeys.SLOT_NAME);
+                validatePgIdentifierIfPresent(properties, DataSourceConfigKeys.PUBLICATION_NAME);
                 break;
             default:
                 throw new AnalysisException("Unsupported type: " + sourceType);
+        }
+        String offset = properties.get(DataSourceConfigKeys.OFFSET);
+        if (!DataSourceConfigValidator.isValidOffset(offset, sourceType.name())) {
+            throw new AnalysisException("Invalid value for key 'offset': " + offset);
+        }
+        String sslMode = properties.get(DataSourceConfigKeys.SSL_MODE);
+        if (sslMode != null && !DataSourceConfigValidator.isValidSslMode(sslMode)) {
+            throw new AnalysisException("Invalid value for key 'ssl_mode': " + sslMode);
+        }
+        try {
+            DataSourceConfigValidator.validateSslVerifyCaPair(properties);
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException(e.getMessage());
         }
         validatePositiveIntIfPresent(properties, DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE);
         validatePositiveIntIfPresent(properties, DataSourceConfigKeys.SNAPSHOT_PARALLELISM);
@@ -150,6 +165,17 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
             return;
         }
         if (!DataSourceConfigValidator.isPositiveInt(value)) {
+            throw new AnalysisException("Invalid value for key '" + key + "': " + value);
+        }
+    }
+
+    private static void validatePgIdentifierIfPresent(Map<String, String> properties, String key)
+            throws AnalysisException {
+        String value = properties.get(key);
+        if (value == null) {
+            return;
+        }
+        if (!DataSourceConfigValidator.isValidPgIdentifier(value)) {
             throw new AnalysisException("Invalid value for key '" + key + "': " + value);
         }
     }

@@ -41,6 +41,28 @@ suite("test_cdc_stream_tvf_postgres", "p0,external,pg,external_docker,external_d
             exception "schema is required for PostgreSQL"
         }
 
+        test {
+            sql """select * from cdc_stream(
+                "type" = "postgres",
+                "jdbc_url" = "jdbc:postgresql://localhost:5432/db",
+                "schema" = "public",
+                "table" = "t1",
+                "offset" = "latest",
+                "slot_name" = "bad-name;drop")"""
+            exception "Invalid value for key 'slot_name'"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "postgres",
+                "jdbc_url" = "jdbc:postgresql://localhost:5432/db",
+                "schema" = "public",
+                "table" = "t1",
+                "offset" = "latest",
+                "publication_name" = "Bad Name")"""
+            exception "Invalid value for key 'publication_name'"
+        }
+
         // create test
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             // sql """CREATE SCHEMA IF NOT EXISTS ${pgSchema}"""
