@@ -179,9 +179,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     fileStatuses.add(new TBrokerFileStatus(
                             e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
                 }
-                if (fileStatuses.isEmpty()) {
-                    throw new AnalysisException("No files found in path: " + path);
-                }
             } catch (IOException e) {
                 throw new UserException("list files failed for path " + path + ": " + e.getMessage(), e);
             }
