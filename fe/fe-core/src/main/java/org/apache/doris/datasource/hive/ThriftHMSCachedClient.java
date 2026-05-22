@@ -90,6 +90,8 @@ import java.util.stream.Collectors;
 public class ThriftHMSCachedClient implements HMSCachedClient {
     private static final Logger LOG = LogManager.getLogger(ThriftHMSCachedClient.class);
 
+    private static final String JD_CONF_KEYS = "BEE_COMPUTE,BEE_BUSINESSID,BEE_SN,BEE_SCRIPT_ID,BEE_SCRIPT_V,"
+            + "BUFFALO_ENV_ACTION_DEF_ID,BUFFALO_ENV_ACTION_INSTANCE_ID,BUFFALO_ENV_TASK_DEF_ID";
     private static final HiveMetaHookLoader DUMMY_HOOK_LOADER = t -> null;
     // -1 means no limit on the partitions returned.
     private static final short MAX_LIST_PARTITION_NUM = Config.max_hive_list_partition_num;
@@ -820,10 +822,14 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                         client.client.setMetaConf("BEE_USER", bdpAuthContext.getErp());
                         return client;
                     }
+                    Preconditions.checkNotNull(bdpAuthContext.getErp(), "erp cannot be null");
+                    Preconditions.checkNotNull(bdpAuthContext.getSource(), "source cannot be null");
                     long start = System.currentTimeMillis();
                     HiveConf conf = new HiveConf(hiveConf);
                     conf.set("BEE_SOURCE", bdpAuthContext.getSource());
                     conf.set("BEE_USER", bdpAuthContext.getErp());
+                    conf.set("hive.jd.conf.keys", JD_CONF_KEYS);
+                    conf.set("BEE_COMPUTE", "Doris");
                     client = new ThriftHMSClient(bdpAuthContext, hiveConf);
                     if (bdpAuthContext.getUserType() != null && bdpAuthContext.getUserType().equalsIgnoreCase(
                             "dev_personal")) {
