@@ -164,6 +164,12 @@ public:
                                      state);
         }
         if (!_needs_finalize && !state->enable_local_exchange_before_agg()) {
+            if (_is_merge && _child && _child->is_serial_operator()) {
+                return _is_colocate && _require_bucket_distribution
+                               ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE,
+                                                  _partition_exprs)
+                               : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+            }
             return DataSinkOperatorX<AggSinkLocalState>::required_data_distribution(state);
         }
         return _is_colocate && _require_bucket_distribution
