@@ -1347,15 +1347,15 @@ int InstanceChecker::get_pending_delete_bitmap_keys(
         return -1;
     }
     std::string pending_key = meta_pending_delete_bitmap_key({instance_id_, tablet_id});
-    std::string pending_val;
-    err = txn->get(pending_key, &pending_val);
+    ValueBuf pending_val_buf;
+    err = cloud::blob_get(txn.get(), pending_key, &pending_val_buf);
     if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         LOG(WARNING) << "failed to get pending delete bitmap kv, err=" << err;
         return -1;
     }
     if (err == TxnErrorCode::TXN_OK) {
         PendingDeleteBitmapPB pending_info;
-        if (!pending_info.ParseFromString(pending_val)) [[unlikely]] {
+        if (!pending_val_buf.to_pb(&pending_info)) [[unlikely]] {
             LOG(WARNING) << "failed to parse PendingDeleteBitmapPB, tablet=" << tablet_id;
             return -1;
         }

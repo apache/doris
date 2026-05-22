@@ -34,6 +34,7 @@
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
+#include "meta-store/blob_message.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/meta_reader.h"
@@ -3965,10 +3966,11 @@ void testSchemaChangeJobWithMoWTest(int lock_version) {
         ASSERT_EQ(res_code, MetaServiceCode::OK);
 
         std::string pending_key = meta_pending_delete_bitmap_key({instance_id, new_tablet_id});
-        std::string pending_val;
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-        ASSERT_EQ(txn->get(pending_key, &pending_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+        ValueBuf pending_val;
+        ASSERT_EQ(cloud::blob_get(txn.get(), pending_key, &pending_val),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
 
         res_code = update_delete_bitmap(meta_service.get(), table_id, partition_id, new_tablet_id,
                                         -2, 12345);
@@ -3976,9 +3978,9 @@ void testSchemaChangeJobWithMoWTest(int lock_version) {
 
         // schema change job should write pending delete bitmap key
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-        ASSERT_EQ(txn->get(pending_key, &pending_val), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(cloud::blob_get(txn.get(), pending_key, &pending_val), TxnErrorCode::TXN_OK);
         PendingDeleteBitmapPB pending_info;
-        ASSERT_TRUE(pending_info.ParseFromString(pending_val));
+        ASSERT_TRUE(pending_val.to_pb(&pending_info));
         ASSERT_EQ(pending_info.delete_bitmap_keys_size(), 3);
         for (int i = 0; i < 3; ++i) {
             std::string_view k1 = pending_info.delete_bitmap_keys(i);
@@ -4003,7 +4005,8 @@ void testSchemaChangeJobWithMoWTest(int lock_version) {
 
         // pending delete bitmap key on new tablet should be removed after schema change job finishes
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-        ASSERT_EQ(txn->get(pending_key, &pending_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+        ASSERT_EQ(cloud::blob_get(txn.get(), pending_key, &pending_val),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
     }
 
     {

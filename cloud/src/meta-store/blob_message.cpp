@@ -140,6 +140,12 @@ TxnErrorCode blob_get(Transaction* txn, std::string_view key, ValueBuf* val, boo
     return val->get(txn, key, snapshot);
 }
 
+void blob_remove(Transaction* txn, std::string_view key) {
+    std::string end_key(key);
+    encode_int64(INT64_MAX, &end_key);
+    txn->remove(std::string(key), end_key);
+}
+
 void blob_put(Transaction* txn, std::string_view key, const google::protobuf::Message& pb,
               uint8_t ver, size_t split_size) {
     std::string value;

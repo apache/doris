@@ -95,6 +95,9 @@ void blob_put(Transaction* txn, std::string_view key, const google::protobuf::Me
 void blob_put(Transaction* txn, std::string_view key, std::string_view value, uint8_t ver,
               size_t split_size = 90 * 1000);
 
+// Remove a blob key and all of its split fragments. Compatible with legacy single-KV values too.
+void blob_remove(Transaction* txn, std::string_view key);
+
 // Iterator for blob key-value pairs.
 //
 // The keys with the same origin key are considered as a blob. The origin key is obtained by

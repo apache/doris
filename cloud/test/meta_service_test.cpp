@@ -6045,12 +6045,12 @@ TEST(MetaServiceTest, UpdateDeleteBitmapScOverrideExistingKey) {
 
         {
             std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
-            std::string pending_val;
+            ValueBuf pending_val;
             std::unique_ptr<Transaction> txn;
             ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-            ASSERT_EQ(txn->get(pending_key, &pending_val), TxnErrorCode::TXN_OK);
+            ASSERT_EQ(cloud::blob_get(txn.get(), pending_key, &pending_val), TxnErrorCode::TXN_OK);
             PendingDeleteBitmapPB pending_info;
-            ASSERT_TRUE(pending_info.ParseFromString(pending_val));
+            ASSERT_TRUE(pending_val.to_pb(&pending_info));
             ASSERT_EQ(pending_info.delete_bitmap_keys_size(), 1);
 
             std::string_view k1 = pending_info.delete_bitmap_keys(0);
@@ -6097,6 +6097,222 @@ TEST(MetaServiceTest, UpdateDeleteBitmapScOverrideExistingKey) {
             ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(0), data2);
         }
     }
+}
+
+TEST(MetaServiceTest, UpdateDeleteBitmapSplitPendingKey) {
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+
+    int16_t old_version = config::meta_pending_delete_bitmap_value_version;
+    DORIS_CLOUD_DEFER
+        config::meta_pending_delete_bitmap_value_version = old_version;
+    };
+    config::meta_pending_delete_bitmap_value_version = 2;
+
+    extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
+                                       const std::string& cloud_unique_id);
+    auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
+
+    int64_t db_id = 99998;
+    int64_t table_id = 1802;
+    int64_t index_id = 4802;
+    int64_t partition_id = 2002;
+    int64_t tablet_id = 3002;
+    int64_t txn_id = 0;
+    ASSERT_NO_FATAL_FAILURE(create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id,
+                                                     partition_id, tablet_id));
+    begin_txn_and_commit_rowset(meta_service.get(), "label12", db_id, table_id, partition_id,
+                                tablet_id, &txn_id);
+
+    constexpr int64_t lock_id = -2;
+    constexpr int64_t initiator = 1010;
+    constexpr int64_t version = 101;
+    get_delete_bitmap_update_lock(meta_service.get(), table_id, partition_id, lock_id, initiator);
+
+    auto write_pending = [&](int rowset_count) {
+        UpdateDeleteBitmapRequest req;
+        UpdateDeleteBitmapResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_table_id(table_id);
+        req.set_partition_id(partition_id);
+        req.set_lock_id(lock_id);
+        req.set_initiator(initiator);
+        req.set_tablet_id(tablet_id);
+        req.set_txn_id(txn_id);
+        req.set_next_visible_version(version);
+        for (int i = 0; i < rowset_count; ++i) {
+            req.add_rowset_ids(fmt::format("rowset_{:04d}_abcdefghijklmnopqrstuvwxyz", i));
+            req.add_segment_ids(0);
+            req.add_versions(version);
+            req.add_segment_delete_bitmaps("1");
+        }
+        meta_service->update_delete_bitmap(
+                reinterpret_cast<google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    };
+
+    write_pending(2200);
+    {
+        std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ValueBuf pending_val;
+        ASSERT_EQ(cloud::blob_get(txn.get(), pending_key, &pending_val), TxnErrorCode::TXN_OK);
+        PendingDeleteBitmapPB pending_info;
+        ASSERT_TRUE(pending_val.to_pb(&pending_info));
+        ASSERT_GT(pending_val.keys().size(), 1);
+        ASSERT_EQ(pending_info.delete_bitmap_keys_size(), 2200);
+    }
+
+    write_pending(5);
+    {
+        std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ValueBuf pending_val;
+        ASSERT_EQ(cloud::blob_get(txn.get(), pending_key, &pending_val), TxnErrorCode::TXN_OK);
+        PendingDeleteBitmapPB pending_info;
+        ASSERT_TRUE(pending_val.to_pb(&pending_info));
+        ASSERT_EQ(pending_val.keys().size(), 1);
+        ASSERT_EQ(pending_info.delete_bitmap_keys_size(), 5);
+    }
+}
+
+TEST(MetaServiceTest, UpdateDeleteBitmapReadsLegacyPlainPendingKey) {
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+
+    extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
+                                       const std::string& cloud_unique_id);
+    auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
+
+    int64_t db_id = 99997;
+    int64_t table_id = 1803;
+    int64_t index_id = 4803;
+    int64_t partition_id = 2003;
+    int64_t tablet_id = 3003;
+    int64_t txn_id = 0;
+    ASSERT_NO_FATAL_FAILURE(create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id,
+                                                     partition_id, tablet_id));
+    begin_txn_and_commit_rowset(meta_service.get(), "label13", db_id, table_id, partition_id,
+                                tablet_id, &txn_id);
+
+    constexpr int64_t lock_id = -2;
+    constexpr int64_t initiator = 1011;
+    constexpr int64_t version = 102;
+    get_delete_bitmap_update_lock(meta_service.get(), table_id, partition_id, lock_id, initiator);
+
+    std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+    std::string legacy_delete_bitmap_key =
+            meta_delete_bitmap_key({instance_id, tablet_id, "legacy_rowset", 1, 0});
+    {
+        PendingDeleteBitmapPB legacy_pending_info;
+        legacy_pending_info.add_delete_bitmap_keys(legacy_delete_bitmap_key);
+        std::string legacy_pending_val;
+        ASSERT_TRUE(legacy_pending_info.SerializeToString(&legacy_pending_val));
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(legacy_delete_bitmap_key, "legacy_bitmap");
+        txn->put(pending_key, legacy_pending_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    UpdateDeleteBitmapRequest update_delete_bitmap_req;
+    UpdateDeleteBitmapResponse update_delete_bitmap_res;
+    update_delete_bitmap(meta_service.get(), update_delete_bitmap_req, update_delete_bitmap_res,
+                         table_id, partition_id, lock_id, initiator, tablet_id, txn_id, version,
+                         "new_bitmap");
+    ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::OK);
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string legacy_delete_bitmap_val;
+        ASSERT_EQ(txn->get(legacy_delete_bitmap_key, &legacy_delete_bitmap_val),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+        ValueBuf pending_val;
+        ASSERT_EQ(cloud::blob_get(txn.get(), pending_key, &pending_val), TxnErrorCode::TXN_OK);
+        PendingDeleteBitmapPB pending_info;
+        ASSERT_TRUE(pending_val.to_pb(&pending_info));
+        ASSERT_EQ(pending_info.delete_bitmap_keys_size(), 1);
+
+        std::string_view key = pending_info.delete_bitmap_keys(0);
+        key.remove_prefix(1);
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+        decode_key(&key, &out);
+        ASSERT_EQ(std::get<std::int64_t>(std::get<0>(out[3])), tablet_id);
+        ASSERT_EQ(std::get<std::string>(std::get<0>(out[4])), "123");
+        ASSERT_EQ(std::get<std::int64_t>(std::get<0>(out[5])), version);
+        ASSERT_EQ(std::get<std::int64_t>(std::get<0>(out[6])), 0);
+    }
+}
+
+TEST(MetaServiceTest, UpdateDeleteBitmapPendingKeyValueVersion) {
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+
+    int16_t old_version = config::meta_pending_delete_bitmap_value_version;
+    DORIS_CLOUD_DEFER {
+        config::meta_pending_delete_bitmap_value_version = old_version;
+    };
+
+    extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
+                                       const std::string& cloud_unique_id);
+    auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
+
+    auto check_case = [&](int16_t value_version, int64_t db_id, int64_t table_id, int64_t index_id,
+                          int64_t partition_id, int64_t tablet_id, const std::string& label) {
+        int64_t txn_id = 0;
+        ASSERT_NO_FATAL_FAILURE(create_tablet_with_db_id(meta_service.get(), db_id, table_id,
+                                                         index_id, partition_id, tablet_id));
+        begin_txn_and_commit_rowset(meta_service.get(), label, db_id, table_id, partition_id,
+                                    tablet_id, &txn_id);
+
+        constexpr int64_t lock_id = -2;
+        constexpr int64_t initiator = 1012;
+        constexpr int64_t version = 103;
+        get_delete_bitmap_update_lock(meta_service.get(), table_id, partition_id, lock_id,
+                                      initiator);
+
+        config::meta_pending_delete_bitmap_value_version = value_version;
+
+        UpdateDeleteBitmapRequest req;
+        UpdateDeleteBitmapResponse res;
+        update_delete_bitmap(meta_service.get(), req, res, table_id, partition_id, lock_id,
+                             initiator, tablet_id, txn_id, version, "pending_value_version");
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string raw_pending_val;
+        ValueBuf pending_val;
+        ASSERT_EQ(cloud::blob_get(txn.get(), pending_key, &pending_val), TxnErrorCode::TXN_OK);
+
+        PendingDeleteBitmapPB pending_info;
+        ASSERT_TRUE(pending_val.to_pb(&pending_info));
+        ASSERT_EQ(pending_info.delete_bitmap_keys_size(), 1);
+
+        if (value_version == 1) {
+            ASSERT_EQ(txn->get(pending_key, &raw_pending_val), TxnErrorCode::TXN_OK);
+            PendingDeleteBitmapPB raw_pending_info;
+            ASSERT_TRUE(raw_pending_info.ParseFromString(raw_pending_val));
+            ASSERT_EQ(raw_pending_info.delete_bitmap_keys_size(), 1);
+            ASSERT_EQ(pending_val.keys().size(), 1);
+            ASSERT_EQ(pending_val.keys().front(), pending_key);
+        } else {
+            ASSERT_EQ(txn->get(pending_key, &raw_pending_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+            ASSERT_EQ(pending_val.keys().size(), 1);
+            ASSERT_NE(pending_val.keys().front(), pending_key);
+        }
+    };
+
+    check_case(1, 99996, 1804, 4804, 2004, 3004, "label14");
+    check_case(2, 99995, 1805, 4805, 2005, 3005, "label15");
 }
 
 void testUpdateDeleteBitmap(int lock_version) {
@@ -6363,12 +6579,12 @@ void testUpdateDeleteBitmap(int lock_version) {
         // check pending delete bitmap key
         {
             std::string pending_key = meta_pending_delete_bitmap_key({instance_id, 333});
-            std::string pending_val;
+            ValueBuf pending_val;
             std::unique_ptr<Transaction> txn;
             ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-            ASSERT_EQ(txn->get(pending_key, &pending_val), TxnErrorCode::TXN_OK);
+            ASSERT_EQ(cloud::blob_get(txn.get(), pending_key, &pending_val), TxnErrorCode::TXN_OK);
             PendingDeleteBitmapPB pending_info;
-            ASSERT_TRUE(pending_info.ParseFromString(pending_val));
+            ASSERT_TRUE(pending_val.to_pb(&pending_info));
             ASSERT_EQ(pending_info.delete_bitmap_keys_size(), delete_bitmap_keys.size());
             for (size_t i = 0; i < delete_bitmap_keys.size(); ++i) {
                 ASSERT_EQ(pending_info.delete_bitmap_keys(i), delete_bitmap_keys[i]);
@@ -7164,11 +7380,11 @@ TEST(MetaServiceTest, DeleteBimapCommitTxnTest) {
             ASSERT_TRUE(lock_info.ParseFromString(lock_val));
 
             std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id_base});
-            std::string pending_val;
-            ret = txn->get(pending_key, &pending_val);
+            ValueBuf pending_val;
+            ret = cloud::blob_get(txn.get(), pending_key, &pending_val);
             ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
             PendingDeleteBitmapPB pending_info;
-            ASSERT_TRUE(pending_info.ParseFromString(pending_val));
+            ASSERT_TRUE(pending_val.to_pb(&pending_info));
         }
 
         // commit txn
@@ -7195,8 +7411,8 @@ TEST(MetaServiceTest, DeleteBimapCommitTxnTest) {
             ASSERT_EQ(ret, TxnErrorCode::TXN_KEY_NOT_FOUND);
 
             std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id_base});
-            std::string pending_val;
-            ret = txn->get(pending_key, &pending_val);
+            ValueBuf pending_val;
+            ret = cloud::blob_get(txn.get(), pending_key, &pending_val);
             ASSERT_EQ(ret, TxnErrorCode::TXN_KEY_NOT_FOUND);
         }
     }

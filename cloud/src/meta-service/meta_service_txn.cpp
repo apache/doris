@@ -1396,7 +1396,7 @@ void process_mow_when_commit_txn(
 
         for (auto tablet_id : table_id_tablet_ids[table_id]) {
             std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
-            txn->remove(pending_key);
+            cloud::blob_remove(txn.get(), pending_key);
             LOG(INFO) << "xxx remove delete bitmap pending key, pending_key=" << hex(pending_key)
                       << " txn_id=" << txn_id;
         }

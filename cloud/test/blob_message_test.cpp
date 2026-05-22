@@ -194,6 +194,55 @@ TEST(BlobMessageTest, GetNonExistentKey) {
     ASSERT_EQ(blob_get(txn.get(), key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
+TEST(BlobMessageTest, BlobRemoveLegacyPlainKey) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    std::string key = "test_blob_remove_legacy_plain_key";
+    std::string value = "legacy plain value";
+    txn->put(key, value);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ValueBuf val;
+    ASSERT_EQ(blob_get(txn.get(), key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(val.value(), value);
+
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    blob_remove(txn.get(), key);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(blob_get(txn.get(), key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+}
+
+TEST(BlobMessageTest, BlobRemoveSplitBlobKey) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    std::string key = "test_blob_remove_split_blob_key";
+    std::string value(256, 'x');
+    blob_put(txn.get(), key, value, 0, 64);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ValueBuf val;
+    ASSERT_EQ(blob_get(txn.get(), key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_GT(val.keys().size(), 1);
+    ASSERT_EQ(val.value(), value);
+
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    blob_remove(txn.get(), key);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(blob_get(txn.get(), key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+}
+
 // Test blob_get_range with TxnKv
 TEST(BlobMessageTest, GetRangeWithTxnKv) {
     auto txn_kv = std::make_shared<MemTxnKv>();

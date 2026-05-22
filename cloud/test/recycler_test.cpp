@@ -4396,7 +4396,6 @@ TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
         }
         if (is_last_tablet) {
             std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
-            std::string pending_val;
             PendingDeleteBitmapPB delete_bitmap_keys;
             for (int j = 0; j < rowset_ids.size(); j++) {
                 MetaDeleteBitmapInfo key_info {instance_id, tablet_id, rowset_ids[j], 10, 0};
@@ -4404,8 +4403,7 @@ TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
                 meta_delete_bitmap_key(key_info, &key);
                 delete_bitmap_keys.add_delete_bitmap_keys(key);
             }
-            delete_bitmap_keys.SerializeToString(&pending_val);
-            txn->put(pending_key, pending_val);
+            cloud::blob_put(txn.get(), pending_key, delete_bitmap_keys, 0, 32);
         }
     }
 
@@ -4991,7 +4989,6 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
         }
         if (tablet.create_pending_delete_bitmap) {
             std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
-            std::string pending_val;
             PendingDeleteBitmapPB delete_bitmap_keys;
             for (int j = 0; j < rowsets.size(); j++) {
                 MetaDeleteBitmapInfo key_info {instance_id, tablet_id, rowsets[j].rowset_id,
@@ -5000,8 +4997,7 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
                 meta_delete_bitmap_key(key_info, &key);
                 delete_bitmap_keys.add_delete_bitmap_keys(key);
             }
-            delete_bitmap_keys.SerializeToString(&pending_val);
-            txn->put(pending_key, pending_val);
+            cloud::blob_put(txn.get(), pending_key, delete_bitmap_keys, 0, 32);
         }
     }
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());

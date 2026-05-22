@@ -211,6 +211,7 @@ CONF_mBool(snapshot_get_tablet_stats, "true");
 
 // Value codec version
 CONF_mInt16(meta_schema_value_version, "1");
+CONF_mInt16(meta_pending_delete_bitmap_value_version, "1");
 
 // Limit kv size of Schema SchemaDictKeyList, default 5MB
 CONF_mInt32(schema_dict_kv_size_limit, "5242880");

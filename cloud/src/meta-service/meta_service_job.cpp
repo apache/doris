@@ -1605,7 +1605,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         }
 
         std::string pending_key = meta_pending_delete_bitmap_key({instance_id, new_tablet_id});
-        txn->remove(pending_key);
+        cloud::blob_remove(txn.get(), pending_key);
         LOG(INFO) << "xxx sc remove delete bitmap pending key, pending_key=" << hex(pending_key)
                   << " tablet_id=" << new_tablet_id << ", job_id=" << schema_change.id();
     }

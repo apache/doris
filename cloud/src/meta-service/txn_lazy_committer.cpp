@@ -486,7 +486,7 @@ void convert_tmp_rowsets(
     if (defer_deleting_pending_delete_bitmaps) {
         for (auto& [tablet_id, _] : tablet_stats) {
             std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
-            txn->remove(pending_key);
+            cloud::blob_remove(txn.get(), pending_key);
             LOG(INFO) << "remove delete bitmap pending key, pending_key=" << hex(pending_key)
                       << " txn_id=" << txn_id;
         }
