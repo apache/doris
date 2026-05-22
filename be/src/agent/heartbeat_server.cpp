@@ -90,6 +90,11 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_be_node_role(config::be_node_role);
         // If be is gracefully stop, then k_doris_exist is set to true
         heartbeat_result.backend_info.__set_is_shutdown(doris::k_doris_exit);
+        if (doris::k_doris_exit) {
+            // FE Master has pulled at least one heartbeat carrying
+            // is_shutdown=true. Unblock Phase A in graceful_shutdown.
+            doris::k_shutdown_fe_known = true;
+        }
         heartbeat_result.backend_info.__set_fragment_executing_count(
                 get_fragment_executing_count());
         heartbeat_result.backend_info.__set_fragment_last_active_time(

@@ -714,6 +714,10 @@ int main(int argc, char** argv) {
     LOG(INFO) << "Flush profile file.";
 #endif
     // For graceful shutdown, need to wait for all running queries to stop
+    // Phase A: wait for FE Master to learn we are shutting down (via heartbeat),
+    // then sleep an extra buffer so the OP_HEARTBEAT EditLog reaches all Followers.
+    exec_env->wait_for_all_fe_known();
+    // Phase B: wait for in-flight queries to finish.
     exec_env->wait_for_all_tasks_done();
 
     if (!doris::config::enable_graceful_exit_check) {

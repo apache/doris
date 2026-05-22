@@ -170,6 +170,34 @@ std::map<TNetworkAddress, FrontendInfo> ExecEnv::get_running_frontends() {
     return res;
 }
 
+void ExecEnv::wait_for_all_fe_known() {
+    // Phase A of graceful shutdown:
+    // Heartbeat callback (HeartbeatServer::heartbeat) sets
+    // k_shutdown_fe_known=true the next time Master pulls a heartbeat
+    // (which carries is_shutdown=true). Block here up to 30s for that to
+    // happen, then sleep an extra 10s so the resulting OP_HEARTBEAT EditLog
+    // can be replicated by BDBJE to all FE Followers before we start
+    // tearing down running tasks. The 30s deadline is a safety net for the
+    // case where Master is itself in drain / election and heartbeats are
+    // delayed.
+    constexpr int32_t kWaitLimitSeconds = 30;
+    constexpr int32_t kBufferSeconds = 10;
+    int32_t passed = 0;
+    while (!k_shutdown_fe_known && passed < kWaitLimitSeconds) {
+        sleep(1);
+        ++passed;
+    }
+    if (k_shutdown_fe_known) {
+        LOG(INFO) << "FE Master has acknowledged shutdown after " << passed
+                  << "s, sleeping additional " << kBufferSeconds
+                  << "s to let OP_HEARTBEAT EditLog replicate to all Followers.";
+    } else {
+        LOG(WARNING) << "FE Master did not acknowledge shutdown within " << kWaitLimitSeconds
+                     << "s, proceeding anyway.";
+    }
+    sleep(kBufferSeconds);
+}
+
 void ExecEnv::wait_for_all_tasks_done() {
     // For graceful shutdown, need to wait for all running queries to stop
     int32_t wait_seconds_passed = 0;
