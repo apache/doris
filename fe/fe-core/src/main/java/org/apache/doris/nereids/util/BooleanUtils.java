@@ -19,6 +19,7 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -38,9 +39,10 @@ public class BooleanUtils {
     /**
      * rewrite in predicate element to be consistent with presto.
      */
-    public static List<Expression> processInPredicateChildren(List<Expression> expressionList) {
+    public static Expression processInPredicate(InPredicate inPredicate) {
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().getSqlDialect().equalsIgnoreCase(
                 "presto")) {
+            List<Expression> expressionList = inPredicate.children();
             Expression compareExpr = expressionList.get(0);
             if (compareExpr instanceof Cast && compareExpr.getDataType() instanceof CharacterType
                     && compareExpr.children().get(0).getDataType() instanceof BooleanType) {
@@ -78,10 +80,10 @@ public class BooleanUtils {
                         rewrittenExpressions.add(expressionList.get(i));
                     }
                 }
-                return rewrittenExpressions;
+                return inPredicate.withChildren(rewrittenExpressions);
             }
         }
-        return expressionList;
+        return inPredicate;
     }
 
     /**

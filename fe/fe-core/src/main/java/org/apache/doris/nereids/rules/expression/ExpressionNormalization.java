@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
+import org.apache.doris.nereids.rules.expression.rules.BooleanLiteralRewrite;
 import org.apache.doris.nereids.rules.expression.rules.CastBitmapToVarcharRewrite;
+import org.apache.doris.nereids.rules.expression.rules.CastDoubleToIntRewrite;
 import org.apache.doris.nereids.rules.expression.rules.ConcatWsMultiArrayToOne;
 import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.DigitalMaskingConvert;
@@ -76,7 +78,9 @@ public class ExpressionNormalization extends ExpressionRewrite {
             MergeDateTrunc.INSTANCE,
             NormalizeStructElement.INSTANCE,
             CheckCast.INSTANCE,
-            CastBitmapToVarcharRewrite.INSTANCE
+            CastBitmapToVarcharRewrite.INSTANCE,
+            BooleanLiteralRewrite.INSTANCE,
+            CastDoubleToIntRewrite.INSTANCE
         )
     );
 

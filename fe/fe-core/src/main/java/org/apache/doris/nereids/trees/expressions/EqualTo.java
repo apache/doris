@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.util.BooleanUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -61,7 +60,7 @@ public class EqualTo extends EqualPredicate implements PropagateNullable {
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitEqualTo((EqualTo) BooleanUtils.processEqualPredicate(this), context);
+        return visitor.visitEqualTo(this, context);
     }
 
     @Override

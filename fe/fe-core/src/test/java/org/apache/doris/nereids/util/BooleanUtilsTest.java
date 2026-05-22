@@ -52,7 +52,7 @@ public class BooleanUtilsTest {
         expressionList1.add(new VarcharLiteral("false"));
         expressionList1.add(new VarcharLiteral("unknown"));
         InPredicate inPredicate1 = new InPredicate(cast1, expressionList1);
-        List<Expression> result1 = BooleanUtils.processInPredicateChildren(inPredicate1.children());
+        List<Expression> result1 = BooleanUtils.processInPredicate(inPredicate1).children();
         Assertions.assertEquals(4, result1.size());
         Assertions.assertEquals(cast1, result1.get(0));
         Assertions.assertEquals(new VarcharLiteral("1"), result1.get(1));
@@ -66,7 +66,7 @@ public class BooleanUtilsTest {
         expressionList2.add(new CharLiteral("false", 5));
         expressionList2.add(new CharLiteral("unknown", 7));
         InPredicate inPredicate2 = new InPredicate(cast2, expressionList2);
-        List<Expression> result2 = BooleanUtils.processInPredicateChildren(inPredicate2.children());
+        List<Expression> result2 = BooleanUtils.processInPredicate(inPredicate2).children();
         Assertions.assertEquals(4, result2.size());
         Assertions.assertEquals(cast2, result2.get(0));
         Assertions.assertEquals(new CharLiteral("1", 1), result2.get(1));
@@ -80,7 +80,7 @@ public class BooleanUtilsTest {
         expressionList3.add(new StringLiteral("false"));
         expressionList3.add(new StringLiteral("unknown"));
         InPredicate inPredicate3 = new InPredicate(cast3, expressionList3);
-        List<Expression> result3 = BooleanUtils.processInPredicateChildren(inPredicate3.children());
+        List<Expression> result3 = BooleanUtils.processInPredicate(inPredicate3).children();
         Assertions.assertEquals(4, result3.size());
         Assertions.assertEquals(cast3, result3.get(0));
         Assertions.assertEquals(new StringLiteral("1"), result3.get(1));
