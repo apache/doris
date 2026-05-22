@@ -38,9 +38,18 @@ suite("test_auth_remote_ip", "arrow_flight_sql") {
         }
 
         jdbc_sql """CREATE USER '${user}'@'0.0.0.0' IDENTIFIED BY '${wrongPassword}'"""
+        String validComputeGroup = null
+        if (isCloudMode()) {
+            def computeGroups = sql """SHOW COMPUTE GROUPS"""
+            assertTrue(!computeGroups.isEmpty())
+            validComputeGroup = computeGroups[0][0]
+        }
         remoteIpHosts.each { host ->
             jdbc_sql """CREATE USER '${user}'@'${host}' IDENTIFIED BY '${password}'"""
             jdbc_sql """GRANT SELECT_PRIV ON *.* TO '${user}'@'${host}'"""
+            if (validComputeGroup != null) {
+                jdbc_sql """GRANT USAGE_PRIV ON COMPUTE GROUP '${validComputeGroup}' TO '${user}'@'${host}'"""
+            }
         }
 
         Class.forName("org.apache.arrow.driver.jdbc.ArrowFlightJdbcDriver")
