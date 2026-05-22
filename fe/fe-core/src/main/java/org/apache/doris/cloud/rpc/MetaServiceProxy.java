@@ -700,6 +700,6 @@ public class MetaServiceProxy {
     }
 
     private static boolean isMetaServiceBusy(Cloud.MetaServiceResponseStatus status) {
-        return status != null && status.hasCode() && status.getCode() == Cloud.MetaServiceCode.MAX_QPS_LIMIT;
+        return status != null && status.hasCode() && status.getCode() == Cloud.MetaServiceCode.MS_TOO_BUSY;
     }
 }
