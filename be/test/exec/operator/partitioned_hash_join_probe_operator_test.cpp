@@ -1139,6 +1139,45 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskEmpty) {
     ASSERT_TRUE(local_state->_recovered_build_block == nullptr);
 }
 
+TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskCancelledBeforeEmptyEos) {
+    auto [probe_operator, sink_operator] = _helper.create_operators();
+
+    std::shared_ptr<MockPartitionedHashJoinSharedState> shared_state;
+    auto local_state = _helper.create_probe_local_state(_helper.runtime_state.get(),
+                                                        probe_operator.get(), shared_state);
+
+    SpillFileSPtr spill_file;
+    auto relative_path = fmt::format(
+            "{}/hash_build-{}-{}", print_id(_helper.runtime_state->query_id()),
+            probe_operator->node_id(), ExecEnv::GetInstance()->spill_file_mgr()->next_id());
+    ASSERT_TRUE(ExecEnv::GetInstance()
+                        ->spill_file_mgr()
+                        ->create_spill_file(relative_path, spill_file)
+                        .ok());
+
+    {
+        SpillFileWriterSPtr writer;
+        ASSERT_TRUE(spill_file
+                            ->create_writer(_helper.runtime_state.get(),
+                                            local_state->operator_profile(), writer)
+                            .ok());
+        ASSERT_TRUE(writer->close().ok());
+    }
+
+    _helper.runtime_state->cancel(Status::Cancelled("test cancel"));
+
+    JoinSpillPartitionInfo partition_info(spill_file, nullptr, 0);
+    auto status = local_state->recover_build_blocks_from_partition(_helper.runtime_state.get(),
+                                                                   partition_info);
+    ASSERT_TRUE(status.is<ErrorCode::CANCELLED>()) << status.to_string();
+    ASSERT_NE(partition_info.build_file, nullptr);
+    ASSERT_TRUE(local_state->_recovered_build_block == nullptr);
+
+    ASSERT_TRUE(local_state->close(_helper.runtime_state.get()).ok());
+    ExecEnv::GetInstance()->spill_file_mgr()->delete_spill_file(partition_info.build_file);
+    partition_info.build_file.reset();
+}
+
 TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskLargeData) {
     // Similar setup as above...
     auto [probe_operator, sink_operator] = _helper.create_operators();
