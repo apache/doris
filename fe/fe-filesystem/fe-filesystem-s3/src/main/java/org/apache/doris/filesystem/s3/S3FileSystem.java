@@ -46,6 +46,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 /* S3-backed FileSystem implementation for the Doris FE filesystem SPI.
@@ -58,8 +59,24 @@ public class S3FileSystem extends ObjFileSystem {
     // S3 does not have real directories; use a zero-byte marker with trailing slash.
     private static final String DIR_MARKER_SUFFIX = "/";
 
+    private final S3FileSystemProperties properties;
+
+    public S3FileSystem(S3FileSystemProperties properties) {
+        this(properties, new S3ObjStorage(properties));
+    }
+
+    S3FileSystem(S3FileSystemProperties properties, S3ObjStorage objStorage) {
+        super("S3", objStorage);
+        this.properties = properties;
+    }
+
     public S3FileSystem(S3ObjStorage objStorage) {
         super("S3", objStorage);
+        this.properties = null;
+    }
+
+    public Optional<S3FileSystemProperties> properties() {
+        return Optional.ofNullable(properties);
     }
 
     @Override

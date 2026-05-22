@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <ranges>
 
+#include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_warm_up_manager.h"
 #include "common/config.h"
@@ -1379,6 +1380,7 @@ public:
         rs_meta->set_rowset_type(BETA_ROWSET);
         rs_meta->set_version(version);
         rs_meta->set_rowset_id(_engine.next_rowset_id());
+        rs_meta->set_tablet_schema(_tablet->tablet_schema());
         RowsetSharedPtr rowset;
         Status st = RowsetFactory::create_rowset(nullptr, "", rs_meta, &rowset);
         if (!st.ok()) {
@@ -1544,6 +1546,54 @@ TEST_F(CloudTabletDeleteRowsetsForSchemaChangeTest, TestMultipleCompactionRowset
         ASSERT_EQ(versions[i + 1], Version(2 + i, 2 + i));
     }
     ASSERT_EQ(versions[10], Version(11, 11));
+}
+
+TEST_F(CloudTabletDeleteRowsetsForSchemaChangeTest, TestFillVersionHolesBeforeSchemaChangeRunning) {
+    static_cast<void>(_tablet->set_tablet_state(TABLET_NOTREADY));
+    _tablet->set_alter_version(10);
+
+    auto rs_placeholder = create_rowset(Version(0, 1));
+    auto rs_historical = create_rowset(Version(2, 10));
+    auto rs_after_first_hole = create_rowset(Version(12, 12));
+    auto rs_after_second_hole = create_rowset(Version(14, 14));
+    ASSERT_NE(rs_placeholder, nullptr);
+    ASSERT_NE(rs_historical, nullptr);
+    ASSERT_NE(rs_after_first_hole, nullptr);
+    ASSERT_NE(rs_after_second_hole, nullptr);
+
+    cloud::CloudMetaMgr meta_mgr;
+    {
+        std::unique_lock wlock(_tablet->get_header_lock());
+        _tablet->add_rowsets(
+                {rs_placeholder, rs_historical, rs_after_first_hole, rs_after_second_hole}, false,
+                wlock, false);
+        ASSERT_FALSE(_tablet->rowset_map().count(Version(11, 11)));
+        ASSERT_FALSE(_tablet->rowset_map().count(Version(13, 13)));
+        ASSERT_FALSE(_tablet->capture_consistent_versions_unlocked(Version(0, 14), {}).has_value());
+
+        auto status =
+                meta_mgr.fill_version_holes(_tablet.get(), _tablet->max_version_unlocked(), wlock);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_TRUE(_tablet->set_tablet_state(TABLET_RUNNING).ok());
+    }
+
+    for (const Version& version : {Version(11, 11), Version(13, 13)}) {
+        ASSERT_TRUE(_tablet->rowset_map().count(version));
+        auto hole_rowset = _tablet->rowset_map().at(version);
+        ASSERT_TRUE(hole_rowset->empty());
+        ASSERT_TRUE(hole_rowset->is_hole_rowset());
+    }
+
+    auto versions_result = _tablet->capture_consistent_versions_unlocked(Version(0, 14), {});
+    ASSERT_TRUE(versions_result.has_value()) << versions_result.error();
+    const auto& versions = versions_result.value();
+    ASSERT_EQ(versions.size(), 6);
+    ASSERT_EQ(versions[0], Version(0, 1));
+    ASSERT_EQ(versions[1], Version(2, 10));
+    ASSERT_EQ(versions[2], Version(11, 11));
+    ASSERT_EQ(versions[3], Version(12, 12));
+    ASSERT_EQ(versions[4], Version(13, 13));
+    ASSERT_EQ(versions[5], Version(14, 14));
 }
 
 // Reproduce the CI crash scenario: SC delete puts rowsets to stale, then

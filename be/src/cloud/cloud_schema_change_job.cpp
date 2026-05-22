@@ -573,6 +573,10 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
             }
         }
         _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock, false);
+        // Ensure the real new tablet has a continuous local version graph before it becomes
+        // visible. Later RUNNING-tablet delete bitmap sync depends on capturing all old versions.
+        RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().fill_version_holes(
+                _new_tablet.get(), _new_tablet->max_version_unlocked(), wlock));
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
         _new_tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                              stats.num_rows(), stats.data_size());
