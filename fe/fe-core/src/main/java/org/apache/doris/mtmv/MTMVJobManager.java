@@ -24,6 +24,8 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
@@ -42,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -64,7 +67,7 @@ public class MTMVJobManager implements MTMVHookService {
         if (!mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
             return;
         }
-        MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM, null, true);
+        MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM, null, true, null);
         try {
             Env.getCurrentEnv().getJobManager().triggerJob(mtmv.getId(), mtmvTaskContext);
         } catch (JobException e) {
@@ -155,8 +158,24 @@ public class MTMVJobManager implements MTMVHookService {
     public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException, JobException {
         MTMVJob job = getJobByTableNameInfo(info.getMvName());
         MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, info.getPartitions(),
-                info.isComplete());
+                info.isComplete(), getCurrentComputeGroup());
         Env.getCurrentEnv().getJobManager().triggerJob(job.getJobId(), mtmvTaskContext);
+    }
+
+    private String getCurrentComputeGroup() {
+        if (!Config.isCloudMode()) {
+            return null;
+        }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            return null;
+        }
+        try {
+            return ctx.getCloudCluster(false);
+        } catch (ComputeGroupException e) {
+            LOG.warn("failed to resolve compute group for refresh mtmv", e);
+            return null;
+        }
     }
 
     @Override
@@ -202,7 +221,7 @@ public class MTMVJobManager implements MTMVHookService {
             return;
         }
         MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.COMMIT, Lists.newArrayList(),
-                false);
+                false, null);
         Env.getCurrentEnv().getJobManager().triggerJob(job.getJobId(), mtmvTaskContext);
     }
 

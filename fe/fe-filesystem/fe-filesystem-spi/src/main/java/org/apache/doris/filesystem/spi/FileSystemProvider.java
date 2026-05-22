@@ -20,6 +20,7 @@ package org.apache.doris.filesystem.spi;
 import org.apache.doris.extension.spi.Plugin;
 import org.apache.doris.extension.spi.PluginFactory;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.properties.FileSystemProperties;
 
 import java.io.IOException;
 import java.util.Map;
@@ -47,6 +48,28 @@ public interface FileSystemProvider extends PluginFactory {
      * @return true if this provider supports the configuration
      */
     boolean supports(Map<String, String> properties);
+
+    /**
+     * Binds raw key-value storage configuration into a provider-owned typed properties model.
+     *
+     * <p>Providers that have been migrated to typed properties should override this method and
+     * return a validated immutable properties object. Legacy providers can continue to implement
+     * {@link #create(Map)} directly during the migration period.
+     */
+    default FileSystemProperties bind(Map<String, String> properties) {
+        throw new UnsupportedOperationException(
+                name() + " does not support typed FileSystemProperties binding yet.");
+    }
+
+    /**
+     * Creates a FileSystem instance from validated typed properties.
+     *
+     * <p>The default implementation preserves compatibility for providers whose typed
+     * properties can still be represented as legacy FileSystem key-value pairs.
+     */
+    default FileSystem create(FileSystemProperties properties) throws IOException {
+        return create(properties.toFileSystemKv());
+    }
 
     /**
      * Creates a FileSystem instance from the given properties.

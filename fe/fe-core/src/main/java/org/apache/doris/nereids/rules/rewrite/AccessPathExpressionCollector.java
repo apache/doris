@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
@@ -579,6 +580,24 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             return continueCollectAccessPath(arg, nullContext);
         }
         return visit(isNull, context);
+    }
+
+    @Override
+    public Void visitIf(If ifExpr, CollectorContext context) {
+        if (isFunctionNullCheckPath(context.accessPathBuilder.accessPath)) {
+            ifExpr.getCondition().accept(this, new CollectorContext(context.statementContext, context.bottomFilter));
+            ifExpr.getTrueValue().accept(this, copyContext(context));
+            ifExpr.getFalseValue().accept(this, copyContext(context));
+            return null;
+        }
+        return visit(ifExpr, context);
+    }
+
+    private static CollectorContext copyContext(CollectorContext context) {
+        CollectorContext copy = new CollectorContext(context.statementContext, context.bottomFilter);
+        copy.accessPathBuilder.addSuffix(context.accessPathBuilder.getPathList());
+        copy.type = context.type;
+        return copy;
     }
 
     @Override

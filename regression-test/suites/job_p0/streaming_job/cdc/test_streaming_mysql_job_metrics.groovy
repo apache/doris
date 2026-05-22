@@ -200,12 +200,21 @@ suite("test_streaming_mysql_job_metrics",
                         metricCount++
                     }
 
+                    def perJobLag = result.find {
+                        it.tags?.metric == "doris_fe_streaming_job_per_job_lag" &&
+                        it.tags?.job_name == "${jobName}"
+                    }
+                    if (perJobLag != null) {
+                        log.info("per-job lag: ${perJobLag}".toString())
+                        metricCount++
+                    }
+
 
                 }
             }
 
-            // 9 streaming_job_* counters + 1 doris_fe_job RUNNING gauge + 5 per-job metrics
-            if (metricCount >= 15) {
+            // 9 streaming_job_* counters + 1 doris_fe_job RUNNING gauge + 6 per-job metrics
+            if (metricCount >= 16) {
                 break
             }
 
