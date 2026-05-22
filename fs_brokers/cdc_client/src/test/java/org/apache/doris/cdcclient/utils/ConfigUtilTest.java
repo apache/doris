@@ -82,6 +82,13 @@ class ConfigUtilTest {
         assertEquals(5408L, range.getEndServerId());
     }
 
+    @Test
+    void resolveRejectsWidthLessThanParallelism() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> ConfigUtil.resolveServerIdRange("anyjob", 4, "5400"));
+        assertTrue(ex.getMessage().contains("snapshot_parallelism"));
+    }
+
     // ─── getTableList ─────────────────────────────────────────────────────────
 
     @Test

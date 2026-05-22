@@ -50,6 +50,11 @@ public class ConfigUtil {
             String jobId, int snapshotParallelism, String userInput) {
         ServerIdRange userRange = userInput == null ? null : ServerIdRange.from(userInput.trim());
         if (userRange != null) {
+            if (userRange.getNumberOfServerIds() < snapshotParallelism) {
+                throw new IllegalArgumentException(
+                        "server_id range size " + userRange.getNumberOfServerIds()
+                                + " must be >= snapshot_parallelism " + snapshotParallelism);
+            }
             return userRange;
         }
         int hash = jobId.hashCode() & Integer.MAX_VALUE;
