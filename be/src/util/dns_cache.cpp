@@ -18,6 +18,7 @@
 #include "util/dns_cache.h"
 
 #include <algorithm>
+#include <atomic>
 #include <unordered_set>
 
 #include "common/config.h"
@@ -85,18 +86,39 @@ std::string DNSCache::_resolve_hostname(const std::string& hostname) {
             uint32_t failures = 0;
             {
                 std::unique_lock<std::shared_mutex> lock(mutex);
-                failures = ++failure_count[hostname];
+                // Re-check that the host is still cached under the unique_lock:
+                // it may have been evicted by the refresh thread between our
+                // earlier shared_lock read of cached_ip and now (hostname_to_ip
+                // can block for seconds on DNS timeout, widening the window).
+                // Skipping the bump here preserves keys(failure_count) ⊆ keys(cache).
+                if (cache.find(hostname) != cache.end()) {
+                    failures = ++failure_count[hostname];
+                }
             }
             // Throttle the log: only every N failures or the first failure.
-            int32_t every_n = std::max(1, config::dns_cache_log_every_n_failures);
-            if (failures == 1 || failures % static_cast<uint32_t>(every_n) == 0) {
-                LOG(WARNING) << "Failed to resolve hostname " << hostname
-                             << " (consecutive failures: " << failures
-                             << "), use cached ip: " << cached_ip;
+            if (failures > 0) {
+                int32_t every_n = std::max(1, config::dns_cache_log_every_n_failures);
+                if (failures == 1 || failures % static_cast<uint32_t>(every_n) == 0) {
+                    LOG(WARNING) << "Failed to resolve hostname " << hostname
+                                 << " (consecutive failures: " << failures
+                                 << "), use cached ip: " << cached_ip;
+                }
             }
             return cached_ip;
         } else {
-            LOG(WARNING) << "Failed to resolve hostname " << hostname << ", no cached ip available";
+            // Throttle to avoid flooding be.WARNING when callers repeatedly
+            // query an evicted or never-resolvable hostname.  This branch
+            // deliberately does not maintain a per-hostname counter (that
+            // would break the keys(failure_count) ⊆ keys(cache) invariant),
+            // so the throttle is a coarse global rate limit shared across
+            // all hostnames hitting this code path.
+            static std::atomic<uint64_t> no_cache_warn_counter {0};
+            uint64_t n = no_cache_warn_counter.fetch_add(1, std::memory_order_relaxed) + 1;
+            int32_t every_n = std::max(1, config::dns_cache_log_every_n_failures);
+            if (n == 1 || n % static_cast<uint64_t>(every_n) == 0) {
+                LOG(WARNING) << "Failed to resolve hostname " << hostname
+                             << ", no cached ip available";
+            }
             return "";
         }
     }
