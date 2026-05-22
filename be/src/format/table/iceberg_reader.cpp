@@ -40,6 +40,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/string_ref.h"
@@ -52,6 +53,7 @@
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg/iceberg_orc_nested_column_utils.h"
 #include "format/table/iceberg/iceberg_parquet_nested_column_utils.h"
+#include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/table/nested_column_access_helper.h"
 #include "format/table/table_schema_change_helper.h"
 #include "runtime/runtime_state.h"
@@ -392,17 +394,26 @@ Status IcebergParquetReader::_read_position_delete_file(const TFileRangeDesc* de
     }
     DataTypePtr data_type_file_path {new DataTypeString};
     DataTypePtr data_type_pos {new DataTypeInt64};
+    DataTypePtr nullable_data_type_file_path = make_nullable(data_type_file_path);
+    DataTypePtr nullable_data_type_pos = make_nullable(data_type_pos);
     bool eof = false;
     while (!eof) {
-        Block block = {dictionary_coded
-                               ? ColumnWithTypeAndName {ColumnDictI32::create(
-                                                                FieldType::OLAP_FIELD_TYPE_VARCHAR),
-                                                        data_type_file_path, ICEBERG_FILE_PATH}
-                               : ColumnWithTypeAndName {data_type_file_path, ICEBERG_FILE_PATH},
+        Block block = {
+                dictionary_coded
+                        ? ColumnWithTypeAndName {ColumnDictI32::create(
+                                                         FieldType::OLAP_FIELD_TYPE_VARCHAR),
+                                                 nullable_data_type_file_path, ICEBERG_FILE_PATH}
+                        : ColumnWithTypeAndName {nullable_data_type_file_path, ICEBERG_FILE_PATH},
 
-                       {data_type_pos, ICEBERG_ROW_POS}};
+                {nullable_data_type_pos, ICEBERG_ROW_POS}};
+        if (dictionary_coded) {
+            block.replace_by_position(
+                    ICEBERG_FILE_PATH_INDEX,
+                    make_nullable(block.get_by_position(ICEBERG_FILE_PATH_INDEX).column));
+        }
         size_t read_rows = 0;
         RETURN_IF_ERROR(parquet_delete_reader.get_next_block(&block, &read_rows, &eof));
+        RETURN_IF_ERROR(unnest_iceberg_position_delete_block(&block));
 
         if (read_rows <= 0) {
             break;

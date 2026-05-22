@@ -31,6 +31,7 @@
 
 namespace doris {
 
+class Block;
 class FileMetaCache;
 class RuntimeProfile;
 class RuntimeState;
@@ -66,6 +67,8 @@ TFileScanRangeParams build_iceberg_delete_scan_range_params(
 TFileRangeDesc build_iceberg_delete_file_range(const std::string& path);
 
 bool is_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file);
+
+Status unnest_iceberg_position_delete_block(Block* block);
 
 Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
                                          const IcebergDeleteFileReaderOptions& options,

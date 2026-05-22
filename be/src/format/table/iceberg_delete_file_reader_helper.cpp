@@ -29,8 +29,10 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_dictionary.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/common/endian.h"
@@ -114,6 +116,26 @@ Status visit_position_delete_block(const Block& block, size_t read_rows,
     return Status::InternalError("Unsupported file_path column type in position delete block");
 }
 
+Status unnest_position_delete_column(Block* block, const std::string& column_name) {
+    int column_pos = block->get_position_by_name(column_name);
+    if (column_pos < 0) {
+        return Status::InternalError("Position delete block is missing required column {}",
+                                     column_name);
+    }
+
+    auto& column = block->get_by_position(static_cast<size_t>(column_pos));
+    auto* nullable_column = check_and_get_column<ColumnNullable>(column.column.get());
+    if (nullable_column == nullptr) {
+        return Status::OK();
+    }
+    if (nullable_column->has_null()) {
+        return Status::Corruption("Iceberg position delete column {} has null values", column_name);
+    }
+    column.column = nullable_column->get_nested_column_ptr();
+    column.type = remove_nullable(column.type);
+    return Status::OK();
+}
+
 Status init_parquet_delete_reader(ParquetReader* reader, bool* dictionary_coded) {
     if (reader == nullptr || dictionary_coded == nullptr) {
         return Status::InvalidArgument("invalid parquet delete reader arguments");
@@ -180,6 +202,12 @@ Status decode_deletion_vector_buffer(const char* buf, size_t buffer_size,
 
 } // namespace
 
+Status unnest_iceberg_position_delete_block(Block* block) {
+    RETURN_IF_ERROR(unnest_position_delete_column(block, ICEBERG_FILE_PATH));
+    RETURN_IF_ERROR(unnest_position_delete_column(block, ICEBERG_ROW_POS));
+    return Status::OK();
+}
+
 IcebergDeleteFileIOContext::IcebergDeleteFileIOContext(RuntimeState* state) {
     io_ctx.file_cache_stats = &file_cache_stats;
     io_ctx.file_reader_stats = &file_reader_stats;
@@ -244,17 +272,17 @@ Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_fi
             Block block;
             if (dictionary_coded) {
                 block.insert(ColumnWithTypeAndName(
-                        ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_VARCHAR),
-                        std::make_shared<DataTypeString>(), ICEBERG_FILE_PATH));
+                        make_nullable(ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_VARCHAR)),
+                        make_nullable(std::make_shared<DataTypeString>()), ICEBERG_FILE_PATH));
             } else {
-                block.insert(ColumnWithTypeAndName(ColumnString::create(),
-                                                   std::make_shared<DataTypeString>(),
-                                                   ICEBERG_FILE_PATH));
+                block.insert(ColumnWithTypeAndName(
+                        make_nullable(std::make_shared<DataTypeString>()), ICEBERG_FILE_PATH));
             }
-            block.insert(ColumnWithTypeAndName(ColumnInt64::create(),
-                                               std::make_shared<DataTypeInt64>(), ICEBERG_ROW_POS));
+            block.insert(ColumnWithTypeAndName(make_nullable(std::make_shared<DataTypeInt64>()),
+                                               ICEBERG_ROW_POS));
             size_t read_rows = 0;
             RETURN_IF_ERROR(reader.get_next_block(&block, &read_rows, &eof));
+            RETURN_IF_ERROR(unnest_iceberg_position_delete_block(&block));
             RETURN_IF_ERROR(visit_position_delete_block(block, read_rows, visitor));
         }
         return Status::OK();
