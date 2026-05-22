@@ -161,4 +161,65 @@ public class DateTimeAcquire {
     public static Expression utcTimestamp() {
         return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(ZoneId.of("UTC+0")), 0);
     }
+
+    @ExecFunction(name = "week_and_year")
+    public static Expression weekAndYear(StringLiteral dateStr) {
+        return weekAndYear(dateStr, new StringLiteral("%s年第%s周"), new IntegerLiteral(2), new IntegerLiteral(4));
+    }
+
+    @ExecFunction(name = "week_and_year")
+    public static Expression weekAndYear(StringLiteral dateStr, StringLiteral formatStr) {
+        return weekAndYear(dateStr, formatStr, new IntegerLiteral(2), new IntegerLiteral(4));
+    }
+
+    @ExecFunction(name = "week_and_year")
+    public static Expression weekAndYear(StringLiteral dateStr, StringLiteral formatStr, IntegerLiteral firstDay) {
+        return weekAndYear(dateStr, formatStr, firstDay, new IntegerLiteral(4));
+    }
+
+    /** week_and_year function with four arguments. */
+    @ExecFunction(name = "week_and_year")
+    public static Expression weekAndYear(StringLiteral dateStr, StringLiteral formatStr,
+                                         IntegerLiteral firstDay, IntegerLiteral minDays) {
+        try {
+            String dateString = dateStr.getStringValue();
+            String format = formatStr.getStringValue();
+            int firstDayOfWeek = firstDay.getValue();
+            int minimalDays = minDays.getValue();
+
+            if (firstDayOfWeek < 1 || firstDayOfWeek > 7) {
+                firstDayOfWeek = 2; // default to Monday (matches BE)
+            }
+            if (minimalDays < 1 || minimalDays > 7) {
+                minimalDays = 4;
+            }
+
+            Calendar calendar = Calendar.getInstance();
+            calendar.setFirstDayOfWeek(firstDayOfWeek);
+            calendar.setMinimalDaysInFirstWeek(minimalDays);
+
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+            Date date = sdf.parse(dateString);
+            calendar.setTime(date);
+
+            int week = calendar.get(Calendar.WEEK_OF_YEAR);
+            int month = calendar.get(Calendar.MONTH);
+            int year = calendar.get(Calendar.YEAR);
+
+            // Year adjustment: if January and week >= 52, subtract 1 from year
+            // If December and week == 1, add 1 to year
+            if (month == Calendar.JANUARY && week >= 52) {
+                year--;
+            } else if (month == Calendar.DECEMBER && week == 1) {
+                year++;
+            }
+
+            String weekStr = week < 10 ? "0" + week : String.valueOf(week);
+            String result = format.replaceFirst("%s", String.valueOf(year))
+                                  .replaceFirst("%s", weekStr);
+            return new StringLiteral(result);
+        } catch (Exception e) {
+            throw new RuntimeException("Error calculating week and year: " + e.getMessage(), e);
+        }
+    }
 }

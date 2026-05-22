@@ -1047,4 +1047,62 @@ public class FEFunctions {
         return first instanceof NullLiteral ? second : first;
     }
 
+    @FEFunction(name = "week_and_year", argTypes = {"VARCHAR"}, returnType = "VARCHAR")
+    public static StringLiteral weekAndYear(LiteralExpr dateStr) {
+        return weekAndYear(dateStr, new StringLiteral("%s年第%s周"), new IntLiteral(2), new IntLiteral(4));
+    }
+
+    @FEFunction(name = "week_and_year", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    public static StringLiteral weekAndYear(LiteralExpr dateStr, LiteralExpr formatStr) {
+        return weekAndYear(dateStr, formatStr, new IntLiteral(2), new IntLiteral(4));
+    }
+
+    @FEFunction(name = "week_and_year", argTypes = {"VARCHAR", "VARCHAR", "INT"}, returnType = "VARCHAR")
+    public static StringLiteral weekAndYear(LiteralExpr dateStr, LiteralExpr formatStr, LiteralExpr firstDay) {
+        return weekAndYear(dateStr, formatStr, firstDay, new IntLiteral(4));
+    }
+
+    @FEFunction(name = "week_and_year", argTypes = {"VARCHAR", "VARCHAR", "INT", "INT"}, returnType = "VARCHAR")
+    public static StringLiteral weekAndYear(LiteralExpr dateStr, LiteralExpr formatStr,
+                                            LiteralExpr firstDay, LiteralExpr minDays) {
+        try {
+            String dateString = dateStr.getStringValue();
+            String format = formatStr.getStringValue();
+            int firstDayOfWeek = (int) firstDay.getLongValue();
+            int minimalDays = (int) minDays.getLongValue();
+
+            if (firstDayOfWeek < 1 || firstDayOfWeek > 7) {
+                firstDayOfWeek = 2; // default to Monday (matches BE)
+            }
+            if (minimalDays < 1 || minimalDays > 7) {
+                minimalDays = 4;
+            }
+
+            Calendar calendar = Calendar.getInstance();
+            calendar.setFirstDayOfWeek(firstDayOfWeek);
+            calendar.setMinimalDaysInFirstWeek(minimalDays);
+
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+            Date date = sdf.parse(dateString);
+            calendar.setTime(date);
+
+            int week = calendar.get(Calendar.WEEK_OF_YEAR);
+            int month = calendar.get(Calendar.MONTH);
+            int year = calendar.get(Calendar.YEAR);
+
+            if (month == Calendar.JANUARY && week >= 52) {
+                year--;
+            } else if (month == Calendar.DECEMBER && week == 1) {
+                year++;
+            }
+
+            String weekStr = week < 10 ? "0" + week : String.valueOf(week);
+            String result = format.replaceFirst("%s", String.valueOf(year))
+                                  .replaceFirst("%s", weekStr);
+            return new StringLiteral(result);
+        } catch (Exception e) {
+            throw new RuntimeException("Error calculating week and year: " + e.getMessage(), e);
+        }
+    }
+
 }

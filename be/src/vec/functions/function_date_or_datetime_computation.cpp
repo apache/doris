@@ -45,12 +45,22 @@ struct SysDateFunctionName {
     static constexpr auto name = "sysdate";
 };
 
+struct WeekAndYearFunctionName {
+    static constexpr auto name = "week_and_year";
+};
+
+struct YearAndWeekFunctionName {
+    static constexpr auto name = "year_and_week";
+};
+
 struct CurTimeFunctionName {
     static constexpr auto name = "curtime";
 };
 
 using FunctionCurTime = FunctionCurrentDateOrDateTime<CurrentTimeImpl<CurTimeFunctionName>>;
 using FunctionSysDate = FunctionCurrentDateOrDateTime<SysDateImpl<SysDateFunctionName>>;
+using FunctionWeekAndYear = FunctionCurrentDateOrDateTime<WeekAndYearImpl<WeekAndYearFunctionName>>;
+using FunctionYearAndWeek = FunctionCurrentDateOrDateTime<WeekAndYearImpl<YearAndWeekFunctionName>>;
 using FunctionUtcTimeStamp = FunctionCurrentDateOrDateTime<UtcImpl<PrimitiveType::TYPE_DATETIMEV2>>;
 using FunctionUtcDate = FunctionCurrentDateOrDateTime<UtcImpl<PrimitiveType::TYPE_DATEV2>>;
 using FunctionUtcTime = FunctionCurrentDateOrDateTime<UtcImpl<PrimitiveType::TYPE_TIMEV2>>;
@@ -220,6 +230,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function(CurDateFunctionName::name, &createCurDateFunctionBuilderFunction);
     factory.register_function<FunctionCurTime>();
     factory.register_function<FunctionSysDate>();
+    factory.register_function<FunctionWeekAndYear>();
+    factory.register_function<FunctionYearAndWeek>();
     factory.register_function<FunctionUtcTimeStamp>();
     factory.register_function<FunctionUtcDate>();
     factory.register_function<FunctionUtcTime>();

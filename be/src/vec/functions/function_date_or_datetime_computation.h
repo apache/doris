@@ -26,6 +26,8 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <ctime>
+#include <unordered_map>
 #include <utility>
 
 #include "common/cast_set.h"
@@ -1217,6 +1219,311 @@ struct SysDateImpl {
         pos += len;
         res_offset[0] = pos - begin;
         block.replace_by_position(result, std::move(res_col));
+        return Status::OK();
+    }
+};
+
+template <typename FunctionName>
+struct WeekAndYearImpl {
+public:
+    static constexpr PrimitiveType ReturnType = TYPE_VARCHAR;
+    static constexpr auto name = FunctionName::name;
+    static constexpr auto is_nullable = true;
+
+    struct YearAndWeek {
+        int year;
+        int week;
+        std::string getWeekStr() const {
+            return (week < 10 ? "0" + std::to_string(week) : std::to_string(week));
+        }
+    };
+
+    static YearAndWeek calculate(const std::string& dateStr, int firstOfWeek, int minimalDaysInFirstWeek) {
+        if (firstOfWeek < 1 || firstOfWeek > 7) {
+            firstOfWeek = 2; // default to MONDAY if out of range
+        }
+
+        YearAndWeek yw;
+
+        int year, month, day;
+        if (sscanf(dateStr.c_str(), "%d-%d-%d", &year, &month, &day) != 3) {
+            return yw;
+        }
+
+        // Thread-local cache to avoid repeated computation
+        struct CacheKey {
+            int year;
+            int firstOfWeek;
+            int minimalDays;
+
+            bool operator==(const CacheKey& other) const {
+                return year == other.year &&
+                    firstOfWeek == other.firstOfWeek &&
+                    minimalDays == other.minimalDays;
+            }
+        };
+
+        struct CacheKeyHash {
+            size_t operator()(const CacheKey& key) const {
+                size_t h = key.year;
+                h = h * 31 + key.firstOfWeek;
+                h = h * 31 + key.minimalDays;
+                return h;
+            }
+        };
+
+        static thread_local std::unordered_map<CacheKey, std::pair<time_t, int>, CacheKeyHash> year_week1_cache;
+
+        // Use local stack variables (NOT static thread_local) to avoid recursive clobber
+        std::tm date_tm = {};
+        date_tm.tm_year = year - 1900;
+        date_tm.tm_mon = month - 1;
+        date_tm.tm_mday = day;
+        date_tm.tm_hour = 12;
+        date_tm.tm_min = 0;
+        date_tm.tm_sec = 0;
+        date_tm.tm_isdst = -1;
+
+        time_t t_date = mktime(&date_tm);
+
+        CacheKey cache_key{year, firstOfWeek, minimalDaysInFirstWeek};
+
+        auto it = year_week1_cache.find(cache_key);
+        time_t t_week1;
+        int total_weeks;
+
+        if (it != year_week1_cache.end()) {
+            t_week1 = it->second.first;
+            total_weeks = it->second.second;
+        } else {
+            // Calculate week 1 start date
+            std::tm jan1 = {};
+            jan1.tm_year = year - 1900;
+            jan1.tm_mon = 0;
+            jan1.tm_mday = 1;
+            jan1.tm_hour = 12;
+            jan1.tm_min = 0;
+            jan1.tm_sec = 0;
+            jan1.tm_isdst = -1;
+
+            time_t t_jan1 = mktime(&jan1);
+
+            int jan1Dow = (jan1.tm_wday == 0 ? 1 : jan1.tm_wday + 1);
+            int diff = (jan1Dow - firstOfWeek + 7) % 7;
+            t_week1 = t_jan1 - diff * 24 * 3600;
+
+            int daysInNewYear = 0;
+            std::tm week_day = {};
+
+            for (int i = 0; i < 7; i++) {
+                time_t day_time = t_week1 + i * 24 * 3600;
+                localtime_r(&day_time, &week_day);
+                if (week_day.tm_year + 1900 == year)
+                    daysInNewYear++;
+            }
+
+            if (daysInNewYear < minimalDaysInFirstWeek) {
+                t_week1 += 7 * 24 * 3600;
+            }
+
+            // Calculate next year's week 1 start
+            std::tm week1Next = {};
+            week1Next.tm_year = (year + 1) - 1900;
+            week1Next.tm_mon = 0;
+            week1Next.tm_mday = 1;
+            week1Next.tm_hour = 12;
+            week1Next.tm_min = 0;
+            week1Next.tm_sec = 0;
+            week1Next.tm_isdst = -1;
+
+            time_t t_jan1_next = mktime(&week1Next);
+            int jan1Next_dow = (week1Next.tm_wday == 0 ? 1 : week1Next.tm_wday + 1);
+            int diff_next = (jan1Next_dow - firstOfWeek + 7) % 7;
+            time_t t_week1_next = t_jan1_next - diff_next * 24 * 3600;
+
+            int daysInNextNewYear = 0;
+            for (int i = 0; i < 7; i++) {
+                time_t day_time = t_week1_next + i * 24 * 3600;
+                localtime_r(&day_time, &week_day);
+                if (week_day.tm_year + 1900 == year + 1)
+                    daysInNextNewYear++;
+            }
+
+            if (daysInNextNewYear < minimalDaysInFirstWeek) {
+                t_week1_next += 7 * 24 * 3600;
+            }
+
+            int diffDays = static_cast<int>((t_week1_next - t_week1) / (24 * 3600));
+            total_weeks = diffDays / 7;
+
+            year_week1_cache[cache_key] = {t_week1, total_weeks};
+        }
+
+        // Calculate week number
+        int diffDays = static_cast<int>((t_date - t_week1) / (24 * 3600));
+        int week;
+
+        if (diffDays < 0) {
+            // Date is before week 1 of the year — belongs to previous year's last week
+            CacheKey prev_key{year - 1, firstOfWeek, minimalDaysInFirstWeek};
+            auto prev_it = year_week1_cache.find(prev_key);
+            if (prev_it != year_week1_cache.end()) {
+                week = prev_it->second.second;
+            } else {
+                // Recursive call for previous year (safe with stack variables)
+                YearAndWeek prev_yw = calculate(std::to_string(year - 1) + "-12-31",
+                                                firstOfWeek, minimalDaysInFirstWeek);
+                week = prev_yw.week;
+            }
+            year -= 1;
+        } else {
+            week = diffDays / 7 + 1;
+            if (week > total_weeks) {
+                week = 1;
+                year += 1;
+            }
+        }
+
+        yw.year = year;
+        yw.week = week;
+        return yw;
+    }
+
+    // Safe format replacement: replace first %s with year, second %s with week
+    static std::string format_week_and_year(const std::string& format, const std::string& year_str,
+                                             const std::string& week_str) {
+        std::string result = format;
+        size_t pos = result.find("%s");
+        if (pos != std::string::npos) {
+            result.replace(pos, 2, year_str);
+        }
+        pos = result.find("%s");
+        if (pos != std::string::npos) {
+            result.replace(pos, 2, week_str);
+        }
+        return result;
+    }
+
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          uint32_t result, size_t input_rows_count) {
+        auto res_col = ColumnString::create();
+        ColumnString::Chars& res_buff = res_col->get_chars();
+        ColumnString::Offsets& res_offsets = res_col->get_offsets();
+        res_offsets.resize(input_rows_count);
+
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& null_map_data = null_map->get_data();
+
+        const auto& arg_col = block.get_by_position(arguments[0]).column;
+        const ColumnString* date_str_col = nullptr;
+        const ColumnNullable* nullable_col = nullptr;
+
+        if ((nullable_col = typeid_cast<const ColumnNullable*>(arg_col.get()))) {
+            date_str_col = assert_cast<const ColumnString*>(nullable_col->get_nested_column_ptr().get());
+            const auto& input_null_map = nullable_col->get_null_map_data();
+            memcpy(null_map_data.data(), input_null_map.data(), input_rows_count);
+        } else {
+            date_str_col = assert_cast<const ColumnString*>(arg_col.get());
+        }
+
+        std::string format = "%s年第%s周";
+        int first_day_of_week = 2; // Monday
+        int minimal_days = 4;
+
+        if (arguments.size() > 1) {
+            const auto& format_col = block.get_by_position(arguments[1]).column;
+            const auto* const_col = typeid_cast<const ColumnConst*>(format_col.get());
+            if (const_col) {
+                StringRef format_ref = const_col->get_data_at(0);
+                format = std::string(format_ref.data, format_ref.size);
+                if (format.empty()) {
+                    format = "%s年第%s周";
+                }
+            } else {
+                const auto& format_str = assert_cast<const ColumnString&>(*format_col);
+                StringRef format_ref = format_str.get_data_at(0);
+                if (format_ref.size > 0) {
+                    format = std::string(format_ref.data, format_ref.size);
+                }
+            }
+        }
+
+        // Validate parameters BEFORE the row loop
+        if (arguments.size() > 2) {
+            const auto& first_day_col = block.get_by_position(arguments[2]).column;
+            const auto* const_col = typeid_cast<const ColumnConst*>(first_day_col.get());
+            if (const_col) {
+                first_day_of_week = const_col->get_int(0);
+            } else {
+                const auto& first_day_data = assert_cast<const ColumnInt32&>(*first_day_col);
+                first_day_of_week = first_day_data.get_element(0);
+            }
+
+            if (first_day_of_week < 1 || first_day_of_week > 7) {
+                return Status::InvalidArgument("Invalid first day of week");
+            }
+        }
+
+        if (arguments.size() > 3) {
+            const auto& min_days_col = block.get_by_position(arguments[3]).column;
+            const auto* const_col = typeid_cast<const ColumnConst*>(min_days_col.get());
+            if (const_col) {
+                minimal_days = const_col->get_int(0);
+            } else {
+                const auto& min_days_data = assert_cast<const ColumnInt32&>(*min_days_col);
+                minimal_days = min_days_data.get_element(0);
+            }
+
+            if (minimal_days < 1 || minimal_days > 7) {
+                return Status::InvalidArgument("Invalid minimal days value");
+            }
+        }
+
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            if (null_map_data[row]) {
+                res_offsets[row] = res_buff.size();
+                continue;
+            }
+
+            StringRef date_ref = date_str_col->get_data_at(row);
+            std::string date_string(date_ref.data, date_ref.size);
+
+            if (date_string.empty()) {
+                // Empty string handling (from commit 6e5215a)
+                std::string formatted = format_week_and_year(format, "0", "00");
+                size_t old_size = res_buff.size();
+                res_buff.resize(old_size + formatted.size());
+                memcpy(res_buff.data() + old_size, formatted.data(), formatted.size());
+                res_offsets[row] = res_buff.size();
+                continue;
+            }
+
+            VecDateTimeValue dt;
+            if (!dt.from_date_str(date_string.c_str(), date_string.size())) {
+                null_map_data[row] = 1;
+                res_offsets[row] = res_buff.size();
+                continue;
+            }
+
+            YearAndWeek yw = calculate(date_string, first_day_of_week, minimal_days);
+
+            std::string year_str = std::to_string(yw.year);
+            std::string week_str = yw.getWeekStr();
+
+            std::string formatted = format_week_and_year(format, year_str, week_str);
+            size_t old_size = res_buff.size();
+            res_buff.resize(old_size + formatted.size());
+            memcpy(res_buff.data() + old_size, formatted.data(), formatted.size());
+            res_offsets[row] = res_buff.size();
+        }
+
+        const auto is_nullable = block.get_by_position(result).type->is_nullable();
+        if (is_nullable) {
+            auto nullable_result = ColumnNullable::create(std::move(res_col), std::move(null_map));
+            block.replace_by_position(result, std::move(nullable_result));
+        } else {
+            block.replace_by_position(result, std::move(res_col));
+        }
         return Status::OK();
     }
 };
