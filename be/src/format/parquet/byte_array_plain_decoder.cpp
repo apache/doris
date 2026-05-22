@@ -34,7 +34,7 @@ Status ByteArrayPlainDecoder::skip_values(size_t num_values) {
         uint32_t length =
                 decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
         _offset += 4;
-        if (UNLIKELY(_offset + length) > _data->size) {
+        if (UNLIKELY(cast_set<uint64_t>(_offset + length) > _data->size)) {
             return Status::IOError("Can't skip enough bytes in plain decoder");
         }
         _offset += length;
@@ -69,7 +69,7 @@ Status ByteArrayPlainDecoder::_decode_values(MutableColumnPtr& doris_column, Dat
                 uint32_t length =
                         decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
                 _offset += 4;
-                if (UNLIKELY(_offset + length) > _data->size) {
+                if (UNLIKELY(cast_set<uint64_t>(_offset + length) > _data->size)) {
                     return Status::IOError("Can't read enough bytes in plain decoder");
                 }
                 string_values.emplace_back(_data->data + _offset, length);
@@ -90,7 +90,7 @@ Status ByteArrayPlainDecoder::_decode_values(MutableColumnPtr& doris_column, Dat
                 uint32_t length =
                         decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
                 _offset += 4;
-                if (UNLIKELY(_offset + length) > _data->size) {
+                if (UNLIKELY(cast_set<uint64_t>(_offset + length) > _data->size)) {
                     return Status::IOError("Can't read enough bytes in plain decoder");
                 }
                 _offset += length;
