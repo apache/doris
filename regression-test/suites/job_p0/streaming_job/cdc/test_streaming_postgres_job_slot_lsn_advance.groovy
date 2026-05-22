@@ -84,6 +84,7 @@ suite("test_streaming_postgres_job_slot_lsn_advance",
         // where confirmed_flush_lsn is meaningful. max_interval=3 keeps each
         // task short so PAUSE settles fast.
         sql """CREATE JOB ${jobName}
+                PROPERTIES ("max_interval" = "3")
                 ON STREAMING
                 FROM POSTGRES (
                     "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
@@ -98,7 +99,6 @@ suite("test_streaming_postgres_job_slot_lsn_advance",
                     "publication_name" = "${userPub}",
                     "offset" = "latest"
                 )
-                PROPERTIES ("max_interval" = "3")
                 TO DATABASE ${currentDb} (
                   "table.create.properties.replication_num" = "1"
                 )

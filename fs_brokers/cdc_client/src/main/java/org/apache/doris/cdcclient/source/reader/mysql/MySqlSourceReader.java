@@ -79,7 +79,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -88,6 +87,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -123,11 +123,11 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                     SnapshotReaderContext<
                             MySqlSnapshotSplit, SnapshotSplitReader, MySqlSnapshotSplitState>>
             snapshotReaderContexts;
-    private Set<String> completedSplitIds = new HashSet<>();
+    private Set<String> completedSplitIds = ConcurrentHashMap.newKeySet();
 
     // Parallel polling support
     private ExecutorService pollExecutor;
-    private List<CompletableFuture<PollResult>> activePollFutures;
+    private volatile List<CompletableFuture<PollResult>> activePollFutures;
 
     // Binlog reader (single reader for binlog split)
     private BinlogSplitReader binlogReader;
@@ -136,7 +136,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
 
     public MySqlSourceReader() {
         this.serializer = new MySqlDebeziumJsonDeserializer();
-        this.snapshotReaderContexts = new ArrayList<>();
+        this.snapshotReaderContexts = new CopyOnWriteArrayList<>();
     }
 
     @Override
@@ -341,7 +341,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     }
 
     /** Prepare snapshot splits (unified handling for single or multiple splits) */
-    private SplitReadResult prepareSnapshotSplits(
+    private synchronized SplitReadResult prepareSnapshotSplits(
             List<MySqlSnapshotSplit> splits, JobBaseRecordRequest baseReq) throws Exception {
 
         LOG.info("Preparing {} snapshot split(s) for reading", splits.size());
@@ -429,7 +429,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     }
 
     /** Prepare binlog split */
-    private SplitReadResult prepareBinlogSplit(
+    private synchronized SplitReadResult prepareBinlogSplit(
             Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) throws Exception {
         // Load tableSchemas from FE if available (avoids re-discover on restart)
         tryLoadTableSchemasFromRequest(baseReq);
@@ -465,7 +465,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     }
 
     @Override
-    public Iterator<SourceRecord> pollRecords() throws Exception {
+    public synchronized Iterator<SourceRecord> pollRecords() throws Exception {
         if (!snapshotReaderContexts.isEmpty()) {
             // Snapshot split mode
             return pollRecordsFromSnapshotReaders();
@@ -527,7 +527,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         LOG.info(
                 "Starting parallel polling for {} snapshot readers", snapshotReaderContexts.size());
 
-        activePollFutures = new ArrayList<>();
+        activePollFutures = new CopyOnWriteArrayList<>();
 
         for (int i = 0; i < snapshotReaderContexts.size(); i++) {
             final int index = i;
@@ -582,12 +582,9 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
             anyOf.join(); // Wait for at least one to complete
 
             // Find and process completed futures
-            Iterator<CompletableFuture<PollResult>> iterator = activePollFutures.iterator();
-            while (iterator.hasNext()) {
-                CompletableFuture<PollResult> future = iterator.next();
-
+            for (CompletableFuture<PollResult> future : activePollFutures) {
                 if (future.isDone()) {
-                    iterator.remove(); // Remove from active list
+                    activePollFutures.remove(future);
                     PollResult result = future.get();
                     if (result != null) {
                         // Found a reader with data, return immediately
@@ -1024,7 +1021,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     }
 
     @Override
-    public void finishSplitRecords() {
+    public synchronized void finishSplitRecords() {
 
         // Cancel any active poll operations
         if (activePollFutures != null) {
@@ -1130,10 +1127,20 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     public void close(JobBaseConfig jobConfig) {
         LOG.info("Close source reader for job {}", jobConfig.getJobId());
 
-        finishSplitRecords();
-        if (tableSchemas != null) {
-            tableSchemas.clear();
-            tableSchemas = null;
+        // Cancel outside the lock so a thread blocked in anyOf.join() releases it.
+        List<CompletableFuture<PollResult>> activePolls = this.activePollFutures;
+        if (activePolls != null) {
+            for (CompletableFuture<PollResult> f : activePolls) {
+                f.cancel(true);
+            }
+        }
+
+        synchronized (this) {
+            finishSplitRecords();
+            if (tableSchemas != null) {
+                tableSchemas.clear();
+                tableSchemas = null;
+            }
         }
     }
 

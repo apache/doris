@@ -63,13 +63,14 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -95,11 +96,11 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                             Fetcher<SourceRecords, SourceSplitBase>,
                             SnapshotSplitState>>
             snapshotReaderContexts;
-    private Set<String> completedSplitIds = new HashSet<>();
+    private Set<String> completedSplitIds = ConcurrentHashMap.newKeySet();
 
     // Parallel polling support
     private ExecutorService pollExecutor;
-    private List<CompletableFuture<PollResult>> activePollFutures;
+    private volatile List<CompletableFuture<PollResult>> activePollFutures;
 
     // Stream/binlog reader (single reader for stream split)
     private Fetcher<SourceRecords, SourceSplitBase> streamReader;
@@ -109,7 +110,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
 
     public JdbcIncrementalSourceReader() {
         this.serializer = new DebeziumJsonDeserializer();
-        this.snapshotReaderContexts = new ArrayList<>();
+        this.snapshotReaderContexts = new CopyOnWriteArrayList<>();
     }
 
     @Override
@@ -285,7 +286,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     }
 
     /** Prepare snapshot splits (unified handling for single or multiple splits) */
-    private SplitReadResult prepareSnapshotSplits(
+    private synchronized SplitReadResult prepareSnapshotSplits(
             List<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit> splits,
             JobBaseRecordRequest baseReq)
             throws Exception {
@@ -387,7 +388,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     }
 
     /** Prepare stream split */
-    private SplitReadResult prepareStreamSplit(
+    private synchronized SplitReadResult prepareStreamSplit(
             Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) throws Exception {
         // Load tableSchemas from FE if available (avoids re-discover on restart)
         tryLoadTableSchemasFromRequest(baseReq);
@@ -443,7 +444,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     }
 
     @Override
-    public Iterator<SourceRecord> pollRecords() throws Exception {
+    public synchronized Iterator<SourceRecord> pollRecords() throws Exception {
         if (!snapshotReaderContexts.isEmpty()) {
             // Snapshot split mode
             return pollRecordsFromSnapshotReaders();
@@ -505,7 +506,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         LOG.info(
                 "Starting parallel polling for {} snapshot readers", snapshotReaderContexts.size());
 
-        activePollFutures = new ArrayList<>();
+        activePollFutures = new CopyOnWriteArrayList<>();
 
         for (int i = 0; i < snapshotReaderContexts.size(); i++) {
             final int index = i;
@@ -563,12 +564,9 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
             anyOf.join(); // Wait for at least one to complete
 
             // Find and process completed futures
-            Iterator<CompletableFuture<PollResult>> iterator = activePollFutures.iterator();
-            while (iterator.hasNext()) {
-                CompletableFuture<PollResult> future = iterator.next();
-
+            for (CompletableFuture<PollResult> future : activePollFutures) {
                 if (future.isDone()) {
-                    iterator.remove(); // Remove from active list
+                    activePollFutures.remove(future);
                     PollResult result = future.get();
                     if (result != null) {
                         // Found a reader with data, return immediately
@@ -867,7 +865,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     }
 
     @Override
-    public void finishSplitRecords() {
+    public synchronized void finishSplitRecords() {
         // Cancel any active poll operations
         if (activePollFutures != null) {
             activePollFutures.forEach(f -> f.cancel(true));
@@ -923,19 +921,20 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     public void close(JobBaseConfig jobConfig) {
         LOG.info("Close source reader for job {}", jobConfig.getJobId());
 
-        // Cancel any active poll operations
-        if (activePollFutures != null) {
-            activePollFutures.forEach(f -> f.cancel(true));
-            activePollFutures.clear();
-            activePollFutures = null;
+        // Cancel outside the lock so a thread blocked in anyOf.join() releases it.
+        List<CompletableFuture<PollResult>> activePolls = this.activePollFutures;
+        if (activePolls != null) {
+            for (CompletableFuture<PollResult> f : activePolls) {
+                f.cancel(true);
+            }
         }
 
-        // Clean up all readers
-        finishSplitRecords();
-
-        if (tableSchemas != null) {
-            tableSchemas.clear();
-            tableSchemas = null;
+        synchronized (this) {
+            finishSplitRecords();
+            if (tableSchemas != null) {
+                tableSchemas.clear();
+                tableSchemas = null;
+            }
         }
     }
 
