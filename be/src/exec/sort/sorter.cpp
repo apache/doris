@@ -28,7 +28,6 @@
 
 #include "common/object_pool.h"
 #include "core/block/block.h"
-#include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
@@ -95,6 +94,24 @@ Status MergeSorterState::merge_sort_read(doris::Block* block, int batch_size, bo
 }
 
 void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::Block* block, bool* eos) {
+    if (_queue.is_valid() && batch_size > 0) {
+        auto [current, current_rows] = _queue.current();
+        current_rows = std::min(current_rows, static_cast<size_t>(batch_size));
+        const size_t step = std::min(_offset, current_rows);
+
+        // Fast path when the current top run can contribute its whole remaining block
+        // before any other run. The returned block stays within batch_size because
+        // is_last(current_rows) can only hold after the min(batch_size, queue_batch_size)
+        // clamp above.
+        if (step == 0 && current->impl->is_first() && current->impl->is_last(current_rows) &&
+            (_queue.size() == 1 || (*current).totally_less_or_equals(_queue.next_child()))) {
+            current->impl->block->swap(*block);
+            _queue.remove_top();
+            *eos = false;
+            return;
+        }
+    }
+
     size_t num_columns = unsorted_block()->columns();
 
     MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(block, *unsorted_block());
@@ -141,8 +158,7 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block, bool reversed) 
     {
         SCOPED_TIMER(_partial_sort_timer);
         uint64_t limit = reversed ? 0 : (_offset + _limit);
-        sort_block(_materialize_sort_exprs ? dest_block : src_block, dest_block, _sort_description,
-                   _hybrid_sorter, limit);
+        sort_block(src_block, dest_block, _sort_description, _hybrid_sorter, limit);
     }
 
     src_block.clear_column_data(num_cols);
@@ -150,22 +166,10 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block, bool reversed) 
 }
 
 Status Sorter::_prepare_sort_columns(Block& src_block, Block& dest_block, bool reversed) {
-    if (_materialize_sort_exprs) {
-        auto output_tuple_expr_ctxs = _vsort_exec_exprs.sort_tuple_slot_expr_ctxs();
-        ColumnsWithTypeAndName columns_data(output_tuple_expr_ctxs.size());
-        for (int i = 0; i < output_tuple_expr_ctxs.size(); ++i) {
-            RETURN_IF_ERROR(output_tuple_expr_ctxs[i]->execute(&src_block, columns_data[i]));
-        }
-
-        Block new_block {columns_data};
-        dest_block.swap(new_block);
-    }
-
-    _sort_description.resize(_vsort_exec_exprs.ordering_expr_ctxs().size());
-    Block* result_block = _materialize_sort_exprs ? &dest_block : &src_block;
+    _sort_description.resize(_ordering_expr_ctxs.size());
     for (int i = 0; i < _sort_description.size(); i++) {
-        const auto& ordering_expr = _vsort_exec_exprs.ordering_expr_ctxs()[i];
-        RETURN_IF_ERROR(ordering_expr->execute(result_block, &_sort_description[i].column_number));
+        const auto& ordering_expr = _ordering_expr_ctxs[i];
+        RETURN_IF_ERROR(ordering_expr->execute(&src_block, &_sort_description[i].column_number));
 
         _sort_description[i].direction = _is_asc_order[i] ? 1 : -1;
         _sort_description[i].nulls_direction =
@@ -177,11 +181,11 @@ Status Sorter::_prepare_sort_columns(Block& src_block, Block& dest_block, bool r
     return Status::OK();
 }
 
-FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
+FullSorter::FullSorter(const VExprContextSPtrs& ordering_expr_ctxs, int64_t limit, int64_t offset,
                        ObjectPool* pool, std::vector<bool>& is_asc_order,
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                        RuntimeState* state, RuntimeProfile* profile)
-        : Sorter(vsort_exec_exprs, state, limit, offset, pool, is_asc_order, nulls_first),
+        : Sorter(ordering_expr_ctxs, state, limit, offset, pool, is_asc_order, nulls_first),
           _state(MergeSorterState::create_unique(row_desc, offset)) {}
 
 // check whether the unsorted block can hold more data from input block and no need to alloc new memory
@@ -219,7 +223,7 @@ size_t FullSorter::get_reserve_mem_size(RuntimeState* state, bool eos) const {
             // helping data structures used during sorting
             size_to_reserve += new_rows * sizeof(IColumn::Permutation::value_type);
 
-            auto sort_columns_count = _vsort_exec_exprs.ordering_expr_ctxs().size();
+            auto sort_columns_count = _ordering_expr_ctxs.size();
             if (1 != sort_columns_count) {
                 size_to_reserve += new_rows * sizeof(EqualRangeIterator);
             }

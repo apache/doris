@@ -21,7 +21,6 @@
 #include "exec/sink/writer/vtablet_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class OlapTableSinkOperatorX;
 
@@ -38,9 +37,9 @@ public:
 class OlapTableSinkOperatorX final : public DataSinkOperatorX<OlapTableSinkLocalState> {
 public:
     using Base = DataSinkOperatorX<OlapTableSinkLocalState>;
-    OlapTableSinkOperatorX(ObjectPool* pool, int operator_id, const RowDescriptor& row_desc,
-                           const std::vector<TExpr>& t_output_expr)
-            : Base(operator_id, 0, 0),
+    OlapTableSinkOperatorX(ObjectPool* pool, int operator_id, int node_id,
+                           const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr)
+            : Base(operator_id, node_id, node_id),
               _row_desc(row_desc),
               _t_output_expr(t_output_expr),
               _pool(pool) {};
@@ -76,5 +75,4 @@ private:
     ObjectPool* _pool = nullptr;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

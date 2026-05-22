@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include "common/consts.h"
 #include "core/field.h"
 #include "io/fs/local_file_system.h"
 #include "storage/segment/segment.h"
@@ -43,6 +44,19 @@ std::string make_test_file_path(const std::string& file_name) {
     static_cast<void>(fs->delete_directory(kTestDir));
     CHECK(fs->create_directory(kTestDir).ok());
     return std::string(kTestDir) + "/" + file_name;
+}
+
+TabletColumnPtr create_row_store_test_column(int32_t id) {
+    auto column = std::make_shared<TabletColumn>();
+    column->_unique_id = id;
+    column->_col_name = BeConsts::ROW_STORE_COL;
+    column->_type = FieldType::OLAP_FIELD_TYPE_STRING;
+    column->_is_key = false;
+    column->_is_nullable = true;
+    column->_aggregation = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE;
+    column->_length = 2147483643;
+    column->_index_length = 4;
+    return column;
 }
 
 // Helper to write segment footer trailer (footer + metadata)
@@ -675,6 +689,63 @@ TEST(ColumnMetaAccessorTest, FooterSizeWithManyColumnsExternalVsInline) {
 
     // External layout should significantly reduce the proto size of the footer.
     EXPECT_LT(external_footer_size, inline_footer_size / 10);
+}
+
+TEST(ColumnMetaAccessorTest, RowStoreColumnDoesNotUseDictEncoding) {
+    constexpr int32_t kRowStoreUid = 1;
+
+    auto fs = io::global_local_filesystem();
+    static_cast<void>(fs->delete_directory(kTestDir));
+    ASSERT_TRUE(fs->create_directory(kTestDir).ok());
+
+    auto key_column = std::make_shared<TabletColumn>();
+    key_column->_unique_id = 0;
+    key_column->_col_name = "k0";
+    key_column->_type = FieldType::OLAP_FIELD_TYPE_INT;
+    key_column->_is_key = true;
+    key_column->_is_nullable = false;
+    key_column->_length = 4;
+    key_column->_index_length = 4;
+
+    std::vector<TabletColumnPtr> columns;
+    columns.emplace_back(std::move(key_column));
+    columns.emplace_back(create_row_store_test_column(kRowStoreUid));
+
+    auto tablet_schema = create_schema(columns, UNIQUE_KEYS);
+    tablet_schema->set_binary_plain_encoding_default_impl(
+            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
+
+    SegmentWriterOptions opts;
+    opts.enable_unique_key_merge_on_write = false;
+
+    auto generator = [](size_t rid, int cid, Field& field) {
+        if (cid == 0) {
+            field = Field::create_field<TYPE_INT>(static_cast<int32_t>(rid));
+            return;
+        }
+        field = Field::create_field<TYPE_STRING>("row-store-" + std::to_string(rid));
+    };
+
+    std::shared_ptr<Segment> segment;
+    std::string segment_path;
+    build_segment(opts, tablet_schema,
+                  /*segment_id=*/0, tablet_schema,
+                  /*nrows=*/8, generator, &segment, std::string(kTestDir), &segment_path);
+    ASSERT_NE(segment, nullptr);
+
+    io::FileReaderSPtr reader;
+    io::FileReaderOptions reader_opts;
+    ASSERT_TRUE(fs->open_file(segment_path, &reader, &reader_opts).ok());
+
+    SegmentFooterPB footer;
+    ASSERT_TRUE(read_footer_from_file(reader, &footer).ok());
+    ASSERT_EQ(2, footer.columns_size());
+
+    const auto& row_store_meta = footer.columns(1);
+    EXPECT_EQ(kRowStoreUid, row_store_meta.unique_id());
+    EXPECT_EQ(static_cast<int>(FieldType::OLAP_FIELD_TYPE_STRING), row_store_meta.type());
+    EXPECT_EQ(PLAIN_ENCODING_V2, row_store_meta.encoding());
+    EXPECT_NE(DICT_ENCODING, row_store_meta.encoding());
 }
 
 // Test concurrent access (thread safety not guaranteed by ColumnMetaAccessor itself,

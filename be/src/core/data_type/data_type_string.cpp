@@ -42,11 +42,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
-
-Field DataTypeString::get_default() const {
-    return Field::create_field<TYPE_STRING>(String());
-}
 
 MutableColumnPtr DataTypeString::create_column() const {
     return ColumnString::create();

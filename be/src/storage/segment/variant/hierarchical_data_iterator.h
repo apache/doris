@@ -41,7 +41,6 @@
 #include "core/types.h"
 #include "exprs/function/function_helpers.h"
 #include "io/io_common.h"
-#include "storage/field.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
@@ -52,8 +51,6 @@
 namespace doris::segment_v2 {
 
 class ColumnReaderCache;
-
-#include "common/compile_check_begin.h"
 
 struct PathWithColumnAndType {
     PathInData path;
@@ -186,7 +183,5 @@ private:
         return Status::OK();
     }
 };
-
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

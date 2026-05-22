@@ -17,15 +17,19 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.SetVar;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.Map;
@@ -46,7 +50,7 @@ public class SessionVariablesTest extends TestWithFeService {
         sessionVariable = new SessionVariable();
         Field[] fields = SessionVariable.class.getDeclaredFields();
         for (Field f : fields) {
-            VariableMgr.VarAttr varAttr = f.getAnnotation(VariableMgr.VarAttr.class);
+            VarAttrDef.VarAttr varAttr = f.getAnnotation(VarAttrDef.VarAttr.class);
             if (varAttr == null || !(varAttr.needForward() || varAttr.affectQueryResultInPlan()
                     || varAttr.affectQueryResultInExecution())) {
                 continue;
@@ -83,6 +87,29 @@ public class SessionVariablesTest extends TestWithFeService {
         String sql = "insert into test_t1 select /*+ set_var(enable_nereids_dml_with_pipeline=false)*/ * from test_t1 where enable_nereids_dml_with_pipeline=true";
         new NereidsParser().parseSQL(sql);
         Assertions.assertEquals(false, connectContext.getSessionVariable().enableNereidsDmlWithPipeline);
+    }
+
+    @Test
+    public void testAiSessionVariableChecker() throws Exception {
+        SessionVariable sv = new SessionVariable();
+
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION, SessionVariable.EMBED_MAX_BATCH_SIZE,
+                new IntLiteral(1)));
+        Assertions.assertEquals(1, sv.embedMaxBatchSize);
+        DdlException embedException = Assertions.assertThrows(DdlException.class,
+                () -> VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
+                        SessionVariable.EMBED_MAX_BATCH_SIZE, new IntLiteral(0))));
+        Assertions.assertTrue(embedException.getMessage().contains(SessionVariable.EMBED_MAX_BATCH_SIZE));
+        Assertions.assertEquals(1, sv.embedMaxBatchSize);
+
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION, SessionVariable.AI_CONTEXT_WINDOW_SIZE,
+                new IntLiteral(1)));
+        Assertions.assertEquals(1, sv.aiContextWindowSize);
+        DdlException contextException = Assertions.assertThrows(DdlException.class,
+                () -> VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
+                        SessionVariable.AI_CONTEXT_WINDOW_SIZE, new IntLiteral(-1))));
+        Assertions.assertTrue(contextException.getMessage().contains(SessionVariable.AI_CONTEXT_WINDOW_SIZE));
+        Assertions.assertEquals(1, sv.aiContextWindowSize);
     }
 
     @Test
@@ -142,34 +169,28 @@ public class SessionVariablesTest extends TestWithFeService {
 
     @Test
     public void testEnableStrictConsistencyDmlDefaultsToFalseInCloudMode() {
-        new MockUp<Config>() {
-            @Mock
-            public boolean isCloudMode() {
-                return true;
-            }
-        };
-        SessionVariable sv = new SessionVariable();
-        // In cloud mode, enable_strict_consistency_dml should always return false
-        // because store-compute separation has no multi-replica consistency concern.
-        Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
-        // Even if the field is set to true, cloud mode overrides it.
-        sv.enableStrictConsistencyDml = true;
-        Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
+            SessionVariable sv = new SessionVariable();
+            // In cloud mode, enable_strict_consistency_dml should always return false
+            // because store-compute separation has no multi-replica consistency concern.
+            Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
+            // Even if the field is set to true, cloud mode overrides it.
+            sv.enableStrictConsistencyDml = true;
+            Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
+        }
     }
 
     @Test
     public void testEnableStrictConsistencyDmlDefaultsTrueInNonCloudMode() {
-        new MockUp<Config>() {
-            @Mock
-            public boolean isCloudMode() {
-                return false;
-            }
-        };
-        SessionVariable sv = new SessionVariable();
-        // In non-cloud mode, default is true (multi-replica consistency is needed).
-        Assertions.assertTrue(sv.isEnableStrictConsistencyDml());
-        // Users can disable it.
-        sv.enableStrictConsistencyDml = false;
-        Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(false);
+            SessionVariable sv = new SessionVariable();
+            // In non-cloud mode, default is true (multi-replica consistency is needed).
+            Assertions.assertTrue(sv.isEnableStrictConsistencyDml());
+            // Users can disable it.
+            sv.enableStrictConsistencyDml = false;
+            Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
+        }
     }
 }

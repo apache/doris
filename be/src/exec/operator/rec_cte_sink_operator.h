@@ -26,7 +26,6 @@
 #include "exec/pipeline/rec_cte_shared_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class DataQueue;
@@ -98,5 +97,4 @@ private:
     VExprContextSPtrs _child_expr;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

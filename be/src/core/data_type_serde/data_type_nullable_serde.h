@@ -29,7 +29,6 @@ class PValues;
 
 class IColumn;
 class Arena;
-#include "common/compile_check_begin.h"
 class DataTypeNullableSerDe : public DataTypeSerDe {
 public:
     DataTypeNullableSerDe(const DataTypeSerDeSPtr& _nested_serde, int nesting_level = 1)
@@ -130,5 +129,7 @@ public:
 private:
     DataTypeSerDeSPtr nested_serde;
 };
-#include "common/compile_check_end.h"
+
+using DataTypeNullableSerDeSPtr = std::shared_ptr<DataTypeNullableSerDe>;
+
 } // namespace doris

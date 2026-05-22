@@ -31,7 +31,6 @@
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 #include "util/var_int.h"
 
 namespace doris {
@@ -650,16 +649,20 @@ std::string Field::get_type_name() const {
 
 template <PrimitiveType T>
 typename PrimitiveTypeTraits<T>::CppType& Field::get() {
-    DCHECK(T == type || (is_string_type(type) && is_string_type(T)) || type == TYPE_NULL)
-            << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
+    if (T != type && !(is_string_type(type) && is_string_type(T)) && type != TYPE_NULL) {
+        throw Exception(Status::FatalError("Field::get type mismatch: requested {}, actual {}",
+                                           type_to_string(T), get_type_name()));
+    }
     auto* MAY_ALIAS ptr = reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&storage);
     return *ptr;
 }
 
 template <PrimitiveType T>
 const typename PrimitiveTypeTraits<T>::CppType& Field::get() const {
-    DCHECK(T == type || (is_string_type(type) && is_string_type(T)) || type == TYPE_NULL)
-            << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
+    if (T != type && !(is_string_type(type) && is_string_type(T)) && type != TYPE_NULL) {
+        throw Exception(Status::FatalError("Field::get type mismatch: requested {}, actual {}",
+                                           type_to_string(T), get_type_name()));
+    }
     const auto* MAY_ALIAS ptr =
             reinterpret_cast<const typename PrimitiveTypeTraits<T>::CppType*>(&storage);
     return *ptr;
@@ -818,7 +821,6 @@ std::string_view Field::as_string_view() const {
     // MATCH_PRIMITIVE_TYPE(TYPE_MAP);
     // MATCH_PRIMITIVE_TYPE(TYPE_HLL);
     MATCH_PRIMITIVE_TYPE(TYPE_DECIMALV2);
-    MATCH_PRIMITIVE_TYPE(TYPE_TIME);
     // MATCH_PRIMITIVE_TYPE(TYPE_BITMAP);
     // MATCH_PRIMITIVE_TYPE(TYPE_STRING);
     // MATCH_PRIMITIVE_TYPE(TYPE_QUANTILE_STATE);
@@ -951,10 +953,6 @@ std::string Field::to_debug_string(int scale) const {
             typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::CppType && rhs);                   \
     template void Field::FUNC_NAME<TYPE_ARRAY>(                                                   \
             typename PrimitiveTypeTraits<TYPE_ARRAY>::CppType && rhs);                            \
-    template void Field::FUNC_NAME<TYPE_TIME>(typename PrimitiveTypeTraits<TYPE_TIME>::CppType && \
-                                              rhs);                                               \
-    template void Field::FUNC_NAME<TYPE_TIME>(                                                    \
-            const typename PrimitiveTypeTraits<TYPE_TIME>::CppType& rhs);                         \
     template void Field::FUNC_NAME<TYPE_NULL>(                                                    \
             const typename PrimitiveTypeTraits<TYPE_NULL>::CppType& rhs);                         \
     template void Field::FUNC_NAME<TYPE_TINYINT>(                                                 \
@@ -1086,7 +1084,6 @@ DECLARE_FUNCTION(TYPE_HLL)
 DECLARE_FUNCTION(TYPE_VARIANT)
 DECLARE_FUNCTION(TYPE_QUANTILE_STATE)
 DECLARE_FUNCTION(TYPE_ARRAY)
-DECLARE_FUNCTION(TYPE_TIME)
 DECLARE_FUNCTION(TYPE_IPV4)
 DECLARE_FUNCTION(TYPE_IPV6)
 DECLARE_FUNCTION(TYPE_BOOLEAN)

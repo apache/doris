@@ -25,7 +25,6 @@
 #include "exprs/aggregate/aggregate_function_reader.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFactory& factory);
@@ -57,7 +56,7 @@ void register_aggregate_function_percentile_old(AggregateFunctionSimpleFactory& 
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_funnel_old(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_funnel_v2(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_regr_union(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_regr(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_retention(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactory& factory);
@@ -80,6 +79,7 @@ void register_aggregate_function_percentile_reservoir(AggregateFunctionSimpleFac
 void register_aggregate_function_ai_agg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bool_union(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_sem(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_ema(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -111,7 +111,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_window_funnel(instance);
         register_aggregate_function_window_funnel_old(instance);
         register_aggregate_function_window_funnel_v2(instance);
-        register_aggregate_function_regr_union(instance);
+        register_aggregate_function_regr(instance);
         register_aggregate_function_retention(instance);
         register_aggregate_function_orthogonal_bitmap(instance);
         register_aggregate_function_collect_list(instance);
@@ -137,6 +137,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_ai_agg(instance);
         register_aggregate_function_bool_union(instance);
         register_aggregate_function_sem(instance);
+        register_aggregate_function_ema(instance);
         // Register foreach and foreachv2 functions
         register_aggregate_function_combinator_foreach(instance);
         register_aggregate_function_combinator_foreachv2(instance);

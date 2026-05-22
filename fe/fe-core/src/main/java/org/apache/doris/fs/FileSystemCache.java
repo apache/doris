@@ -20,16 +20,21 @@ package org.apache.doris.fs;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.filesystem.FileSystem;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.Objects;
 import java.util.OptionalLong;
 
 public class FileSystemCache {
 
-    private final LoadingCache<FileSystemCacheKey, RemoteFileSystem> fileSystemCache;
+    private static final Logger LOG = LogManager.getLogger(FileSystemCache.class);
+
+    private final LoadingCache<FileSystemCacheKey, FileSystem> fileSystemCache;
 
     public FileSystemCache() {
         // no need to set refreshAfterWrite, because the FileSystem is created once and never changed
@@ -39,14 +44,26 @@ public class FileSystemCache {
                 Config.max_remote_file_system_cache_num,
                 false,
                 null);
-        fileSystemCache = fsCacheFactory.buildCache(this::loadFileSystem);
+        fileSystemCache = fsCacheFactory.buildCacheWithSyncRemovalListener(this::loadFileSystem, (key, fs, cause) -> {
+            if (fs != null) {
+                try {
+                    fs.close();
+                } catch (IOException e) {
+                    LOG.warn("Failed to close evicted FileSystem for key: {}", key, e);
+                }
+            }
+        });
     }
 
-    private RemoteFileSystem loadFileSystem(FileSystemCacheKey key) {
-        return FileSystemFactory.get(key.properties);
+    private FileSystem loadFileSystem(FileSystemCacheKey key) {
+        try {
+            return FileSystemFactory.getFileSystem(key.properties);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to create filesystem for key: " + key, e);
+        }
     }
 
-    public RemoteFileSystem getRemoteFileSystem(FileSystemCacheKey key) {
+    public FileSystem getFileSystem(FileSystemCacheKey key) {
         return fileSystemCache.get(key);
     }
 
@@ -58,6 +75,10 @@ public class FileSystemCache {
         public FileSystemCacheKey(String fsIdent, StorageProperties properties) {
             this.fsIdent = fsIdent;
             this.properties = properties;
+        }
+
+        public StorageProperties getProperties() {
+            return properties;
         }
 
         @Override

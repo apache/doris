@@ -26,7 +26,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <typename Data>
 using HistogramWithInputParam = AggregateFunctionHistogram<Data, true>;
@@ -44,7 +43,7 @@ AggregateFunctionPtr create_aggregate_function_histogram(const std::string& name
             creator_with_type_list<TYPE_BOOLEAN, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
                                    TYPE_LARGEINT, TYPE_FLOAT, TYPE_DOUBLE, TYPE_DECIMAL32,
                                    TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256, TYPE_VARCHAR,
-                                   TYPE_DATEV2, TYPE_DATETIMEV2>;
+                                   TYPE_DATEV2, TYPE_DATETIMEV2, TYPE_TIMESTAMPTZ>;
     if (argument_types.size() == 2) {
         return creator::create<HistogramWithInputParam, AggregateFunctionHistogramData>(
                 argument_types, result_is_nullable, attr);

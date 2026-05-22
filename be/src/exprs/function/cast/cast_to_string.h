@@ -24,8 +24,11 @@
 #include "util/mysql_global.h"
 #include "util/to_string.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 struct CastToString {
+    static inline std::string from_int128(int128_t value);
+    static inline std::string from_uint128(uint128_t value);
+    static inline std::string from_uint128(UInt128 value);
+
     template <class SRC>
     static inline std::string from_number(const SRC& from);
 
@@ -263,11 +266,25 @@ inline void CastToString::push_number(const Int64& num, BufferWritable& bw) {
 }
 
 // LARGEINT
+inline std::string CastToString::from_int128(int128_t value) {
+    fmt::memory_buffer buffer;
+    fmt::format_to(buffer, "{}", value);
+    return std::string(buffer.data(), buffer.size());
+}
+
+inline std::string CastToString::from_uint128(uint128_t value) {
+    fmt::memory_buffer buffer;
+    fmt::format_to(buffer, "{}", value);
+    return std::string(buffer.data(), buffer.size());
+}
+
+inline std::string CastToString::from_uint128(UInt128 value) {
+    return value.to_hex_string();
+}
+
 template <>
 inline std::string CastToString::from_number(const Int128& num) {
-    fmt::memory_buffer buffer;
-    fmt::format_to(buffer, "{}", num);
-    return std::string(buffer.data(), buffer.size());
+    return from_int128(num);
 }
 
 template <>
@@ -570,4 +587,3 @@ inline WrapperType create_string_wrapper(const DataTypePtr& from_type) {
 
 }; // namespace CastWrapper
 } // namespace doris
-#include "common/compile_check_end.h"

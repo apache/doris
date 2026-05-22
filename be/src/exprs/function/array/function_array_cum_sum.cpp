@@ -133,8 +133,7 @@ public:
         auto src_nested_type = assert_cast<const DataTypeArray&>(*src_arg.type).get_nested_type();
 
         // get null map
-        const ColumnNullable* src_nested_nullable_col =
-                check_and_get_column<ColumnNullable>(*src_nested_column);
+        const auto* src_nested_nullable_col = assert_cast<const ColumnNullable*>(src_nested_column);
         src_nested_column = src_nested_nullable_col->get_nested_column_ptr().get();
         const NullMapType& src_null_map = src_nested_nullable_col->get_null_map_column().get_data();
 

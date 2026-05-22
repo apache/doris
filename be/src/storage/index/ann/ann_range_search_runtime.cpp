@@ -22,7 +22,6 @@
 #include "storage/index/ann/ann_search_params.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 /**
  * @brief Converts the runtime info to search parameters for execution.
@@ -40,6 +39,7 @@ AnnRangeSearchParams AnnRangeSearchRuntime::to_range_search_params() const {
     params.radius = static_cast<float>(radius);
     params.roaring = nullptr;
     params.is_le_or_lt = is_le_or_lt;
+    params.enable_result_cache = true;
     return params;
 }
 

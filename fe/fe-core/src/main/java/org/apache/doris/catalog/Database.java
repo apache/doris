@@ -38,6 +38,7 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -84,6 +85,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     private static final Logger LOG = LogManager.getLogger(Database.class);
 
     private static final String TRANSACTION_QUOTA_SIZE = "transactionQuotaSize";
+    private static final ThreadLocal<Boolean> SKIP_REGISTER_NEREIDS_FUNCTIONS = new ThreadLocal<>();
 
     @SerializedName(value = "id")
     private long id;
@@ -395,7 +397,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     }
 
     public boolean isTableExist(String tableName) {
-        if (Env.isTableNamesCaseInsensitive()) {
+        if (GlobalVariable.isTableNamesCaseInsensitive()) {
             tableName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (tableName == null) {
                 return false;
@@ -424,7 +426,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         boolean isTableExist = false;
         table.setQualifiedDbName(fullQualifiedName);
         String tableName = table.getName();
-        if (Env.isStoredTableNamesLowerCase()) {
+        if (GlobalVariable.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
         if (isTableExist(tableName)) {
@@ -458,7 +460,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         Table olapTable = (Table) table;
         olapTable.setQualifiedDbName(fullQualifiedName);
         String tableName = olapTable.getName();
-        if (Env.isStoredTableNamesLowerCase()) {
+        if (GlobalVariable.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
         if (isTableExist(tableName)) {
@@ -477,7 +479,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     @Override
     public void unregisterTable(String tableName) {
-        if (Env.isStoredTableNamesLowerCase()) {
+        if (GlobalVariable.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
         Table table = getTableNullable(tableName);
@@ -601,10 +603,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
      */
     @Override
     public Table getTableNullable(String tableName) {
-        if (Env.isStoredTableNamesLowerCase()) {
+        if (GlobalVariable.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
-        if (Env.isTableNamesCaseInsensitive()) {
+        if (GlobalVariable.isTableNamesCaseInsensitive()) {
             tableName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (tableName == null) {
                 return null;
@@ -621,25 +623,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     }
 
     /**
-     * This is a thread-safe method when nameToTable is a concurrent hash map
-     */
-    @Override
-    public Table getNonTempTableNullable(String tableName) {
-        if (Env.isStoredTableNamesLowerCase()) {
-            tableName = tableName.toLowerCase();
-        }
-        if (Env.isTableNamesCaseInsensitive()) {
-            tableName = lowerCaseToTableName.get(tableName.toLowerCase());
-            if (tableName == null) {
-                return null;
-            }
-        }
-
-        Table table = nameToTable.get(tableName);
-        return table;
-    }
-
-    /**
      * This is a thread-safe method when idToTable is a concurrent hash map
      */
     @Override
@@ -647,39 +630,29 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return idToTable.get(tableId);
     }
 
-    public int getMaxReplicationNum() {
-        int ret = 0;
-        readLock();
-        try {
-            for (Table table : idToTable.values()) {
-                if (!table.isManagedTable()) {
-                    continue;
-                }
-                OlapTable olapTable = (OlapTable) table;
-                table.readLock();
-                try {
-                    for (Partition partition : olapTable.getAllPartitions()) {
-                        short replicationNum = olapTable.getPartitionInfo()
-                                .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
-                        if (ret < replicationNum) {
-                            ret = replicationNum;
-                        }
-                    }
-                } finally {
-                    table.readUnlock();
-                }
-            }
-        } finally {
-            readUnlock();
-        }
-        return ret;
+    public static Database read(DataInput in) throws IOException {
+        return read(in, false);
     }
 
-    public static Database read(DataInput in) throws IOException {
+    public static Database readForRecycleBin(DataInput in) throws IOException {
+        return read(in, true);
+    }
+
+    private static Database read(DataInput in, boolean skipRegisterNereidsFunctions) throws IOException {
         LOG.info("read db from journal {}", in);
-        Database db = GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
-        db.readTables(in);
-        return db;
+        Boolean previous = SKIP_REGISTER_NEREIDS_FUNCTIONS.get();
+        SKIP_REGISTER_NEREIDS_FUNCTIONS.set(skipRegisterNereidsFunctions);
+        try {
+            Database db = GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
+            db.readTables(in);
+            return db;
+        } finally {
+            if (previous == null) {
+                SKIP_REGISTER_NEREIDS_FUNCTIONS.remove();
+            } else {
+                SKIP_REGISTER_NEREIDS_FUNCTIONS.set(previous);
+            }
+        }
     }
 
     private void writeTables(DataOutput out) throws IOException {
@@ -711,12 +684,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         transactionQuotaSize = Long.parseLong(txnQuotaStr);
         binlogConfig = dbProperties.getBinlogConfig();
 
-        for (ImmutableList<Function> functions : name2Function.values()) {
-            for (Function function : functions) {
-                try {
-                    FunctionUtil.translateToNereids(this.getFullName(), function);
-                } catch (Exception e) {
-                    LOG.warn("Nereids add function failed", e);
+        if (!Boolean.TRUE.equals(SKIP_REGISTER_NEREIDS_FUNCTIONS.get())) {
+            for (ImmutableList<Function> functions : name2Function.values()) {
+                for (Function function : functions) {
+                    try {
+                        FunctionUtil.translateToNereids(this.getFullName(), function);
+                    } catch (Exception e) {
+                        LOG.warn("Nereids add function failed", e);
+                    }
                 }
             }
         }
@@ -968,7 +943,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             BinlogConfig oldBinlogConfig = getBinlogConfig();
             BinlogConfig newBinlogConfig = BinlogConfig.fromProperties(properties);
 
-            if (newBinlogConfig.isEnable() && !oldBinlogConfig.isEnable()) {
+            if (newBinlogConfig.isEnableForCCR() && !oldBinlogConfig.isEnableForCCR()) {
                 // check all tables binlog enable is true
                 for (Table table : idToTable.values()) {
                     if (!table.isManagedTable()) {
@@ -978,7 +953,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                     OlapTable olapTable = (OlapTable) table;
                     olapTable.readLock();
                     try {
-                        if (!olapTable.getBinlogConfig().isEnable()) {
+                        if (!olapTable.getBinlogConfig().isEnableForCCR()) {
                             String errMsg = String
                                     .format("binlog is not enable in table[%s] in db [%s]",
                                         table.getDisplayName(), getFullName());

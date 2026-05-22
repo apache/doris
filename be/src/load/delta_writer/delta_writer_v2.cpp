@@ -61,7 +61,6 @@
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
@@ -111,6 +110,8 @@ Status DeltaWriterV2::init() {
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
+    context.db_id = _tablet_schema->db_id();
+    context.table_id = _tablet_schema->table_id();
     context.newest_write_timestamp = UnixSeconds();
     context.tablet = nullptr;
     context.write_type = DataWriteType::TYPE_DIRECT;
@@ -248,5 +249,4 @@ Status DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

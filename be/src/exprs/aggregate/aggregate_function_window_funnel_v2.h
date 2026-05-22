@@ -35,7 +35,6 @@
 #include "util/var_int.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -77,6 +76,7 @@ void merge_events_list(T& events_list, size_t prefix_size, bool prefix_sorted, b
 /// The algorithm uses this to ensure each funnel step comes from a different row.
 ///
 /// This approach adds ZERO storage overhead — each event remains 9 bytes (UInt64 + UInt8).
+template <PrimitiveType T>
 struct WindowFunnelStateV2 {
     /// (timestamp_int_val, 1-based event_index with continuation flag in bit 7)
     ///
@@ -136,10 +136,10 @@ struct WindowFunnelStateV2 {
         window = win;
         window_funnel_mode = mode;
 
-        // get_data() returns DateV2Value<DateTimeV2ValueType>; convert to packed UInt64
-        auto timestamp = assert_cast<const ColumnVector<TYPE_DATETIMEV2>&>(*arg_columns[2])
-                                 .get_data()[row_num]
-                                 .to_date_int_val();
+        auto timestamp =
+                assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(*arg_columns[2])
+                        .get_data()[row_num]
+                        .to_date_int_val();
 
         // Iterate from last event to first (reverse order).
         // This ensures that after stable_sort, events with the same timestamp
@@ -174,7 +174,7 @@ struct WindowFunnelStateV2 {
         }
     }
 
-    void merge(const WindowFunnelStateV2& other) {
+    void merge(const WindowFunnelStateV2<T>& other) {
         if (other.events_list.empty()) {
             return;
         }
@@ -393,9 +393,7 @@ private:
                     if (matched) {
                         events_timestamp[event_idx] = {events_timestamp[event_idx - 1].first_ts,
                                                        evt.timestamp, i};
-                        if (event_idx > curr_level) {
-                            curr_level = event_idx;
-                        }
+                        curr_level = std::max(event_idx, curr_level);
                         if (event_idx + 1 == event_count) {
                             return event_count;
                         }
@@ -403,113 +401,201 @@ private:
                 }
             }
 
-            if (curr_level + 1 > max_level) {
-                max_level = curr_level + 1;
-            }
+            max_level = std::max(curr_level + 1, max_level);
         }
         return max_level;
     }
 
-    /// DEDUPLICATION mode: if a previously matched event level appears again,
-    /// the current chain is terminated and max_level is updated.
-    /// This preserves V1 semantics where duplicate events break the chain.
+    /// DEDUPLICATION mode (multi-pass, matching V1 semantics):
+    ///
+    /// V1 tries each E0-matching row as a chain starting point and searches for
+    /// conditions one at a time. Before accepting a match for condition K, V1 checks
+    /// the "gap" (rows between the previous match and the current match) for any
+    /// re-occurrence of already-matched conditions 0..K-1. If found, the chain breaks.
+    ///
+    /// A single-pass approach cannot correctly implement this because V2's greedy
+    /// multi-condition-per-row advancement creates premature higher-level matches
+    /// that then conflict with later events. The multi-pass approach iterates over
+    /// each event-0 occurrence, building chains one level at a time with gap-based
+    /// duplicate detection.
     int _get_deduplication() const {
-        std::vector<TimestampPair> events_timestamp(event_count);
-        int max_level = -1;
-        int curr_level = -1;
+        int max_level = 0;
+        const size_t list_size = events_list.size();
 
-        for (size_t i = 0; i < events_list.size(); ++i) {
-            const auto& evt = events_list[i];
-            int event_idx = get_event_idx(evt.event_idx) - 1;
+        for (size_t start = 0; start < list_size; ++start) {
+            // Remaining-events pruning: if remaining events can't beat max_level, stop.
+            if (static_cast<int>(list_size - start) <= max_level) {
+                break;
+            }
 
-            if (event_idx == 0) {
-                // Duplicate of event 0: terminate current chain first
-                if (events_timestamp[0].has_value()) {
-                    if (curr_level > max_level) {
-                        max_level = curr_level;
+            int start_event = get_event_idx(events_list[start].event_idx) - 1;
+            if (start_event != 0) {
+                continue;
+            }
+
+            // Build a chain from this event-0
+            UInt64 first_ts = events_list[start].timestamp;
+            int curr_level = 0;
+            size_t last_advance_idx = start;
+
+            for (size_t i = start + 1; i < list_size; ++i) {
+                int event_idx = get_event_idx(events_list[i].event_idx) - 1;
+
+                // Only search for the next expected level (matches V1's sequential scan)
+                if (event_idx != curr_level + 1) {
+                    continue;
+                }
+
+                // Must be from a different row than the last chain event
+                if (_is_same_row(last_advance_idx, i)) {
+                    continue;
+                }
+
+                // Window check
+                if (!_within_window(first_ts, events_list[i].timestamp)) {
+                    break;
+                }
+
+                // Gap-based dedup check (V1 semantics):
+                // Check if any event at a level below the target (0..event_idx-1)
+                // fired in the gap between the last chain event's row and the
+                // current event's row.
+                size_t gap_start = _next_row_start(last_advance_idx + 1);
+                size_t gap_end = _row_start(i);
+
+                bool dup = false;
+                if (gap_start < gap_end) {
+                    for (size_t j = gap_start; j < gap_end; ++j) {
+                        int j_level = get_event_idx(events_list[j].event_idx) - 1;
+                        if (j_level < event_idx) {
+                            dup = true;
+                            break;
+                        }
                     }
-                    _eliminate_chain(curr_level, events_timestamp);
                 }
-                // Start a new chain
-                events_timestamp[0] = {evt.timestamp, evt.timestamp, i};
-                curr_level = 0;
-            } else if (events_timestamp[event_idx].has_value()) {
-                // Duplicate event detected: this level was already matched
-                if (curr_level > max_level) {
-                    max_level = curr_level;
+
+                if (dup) {
+                    break;
                 }
-                // Eliminate current chain
-                _eliminate_chain(curr_level, events_timestamp);
-            } else if (events_timestamp[event_idx - 1].has_value() &&
-                       !_is_same_row(events_timestamp[event_idx - 1].last_list_idx, i)) {
-                // Must be from a DIFFERENT row than the predecessor level
-                if (_promote_level(events_timestamp, evt.timestamp, i, event_idx, curr_level,
-                                   false)) {
+
+                // Accept this match and advance the chain
+                curr_level = event_idx;
+                last_advance_idx = i;
+
+                if (curr_level + 1 == event_count) {
                     return event_count;
                 }
             }
-        }
 
-        if (curr_level > max_level) {
-            return curr_level + 1;
+            max_level = std::max(curr_level + 1, max_level);
         }
-        return max_level + 1;
+        return max_level;
     }
 
-    /// FIXED mode (StarRocks-style semantics): if a matched event appears whose
-    /// predecessor level has NOT been matched, the chain is broken (event level jumped).
-    /// Note: V2 semantics differ from V1. V1 checks physical row adjacency;
-    /// V2 checks event level continuity (unmatched rows don't break the chain).
+    /// FIXED mode (multi-pass, row-based).
+    ///
+    /// Row-by-row semantics similar to V1: after matching c_K at a row, the NEXT
+    /// event-producing row must match c_{K+1} or the chain breaks.
+    ///
+    /// Difference from V1: rows matching no condition ("truly irrelevant") are
+    /// absent from events_list and implicitly skipped. V1 treats them as
+    /// non-matching and breaks the chain. This is the documented 4.1 behavior
+    /// change: irrelevant events no longer break the chain.
+    ///
+    /// Like V1, tries every c1 event as a potential chain starting point and
+    /// returns the maximum level reached across all attempts.
+    ///
+    /// Within each row, events are stored in descending condition-index order:
+    /// [c_max(cont=0), ..., c_min(cont=N)]. The first (non-continuation) event
+    /// carries the row's highest matched condition index. c1 (index 1 after add,
+    /// 0 after -1) is always the last event of its row.
     int _get_fixed() const {
-        std::vector<TimestampPair> events_timestamp(event_count);
         int max_level = -1;
-        int curr_level = -1;
-        bool first_event = false;
 
-        for (size_t i = 0; i < events_list.size(); ++i) {
-            const auto& evt = events_list[i];
-            int event_idx = get_event_idx(evt.event_idx) - 1;
+        for (size_t start_i = 0; start_i < events_list.size(); ++start_i) {
+            // Only start from c1 events (condition 0 in 0-based)
+            if (get_event_idx(events_list[start_i].event_idx) != 1) continue;
 
-            if (event_idx == 0) {
-                // Save current chain before starting a new one
-                if (events_timestamp[0].has_value()) {
-                    if (curr_level > max_level) {
-                        max_level = curr_level;
-                    }
-                    _eliminate_chain(curr_level, events_timestamp);
+            UInt64 chain_start_ts = events_list[start_i].timestamp;
+            int curr_level = 0;
+
+            // c1 is always the last event of its row, so start_i+1 is
+            // the first event of the next row (or end of list).
+            size_t i = start_i + 1;
+
+            while (i < events_list.size() && curr_level + 1 < event_count) {
+                // Skip continuation events to reach the first event of the next row.
+                i = _next_row_start(i);
+                if (i >= events_list.size()) break;
+
+                // Window check against the row's timestamp.
+                if (!_within_window(chain_start_ts, events_list[i].timestamp)) break;
+
+                int expected = curr_level + 1;
+                int highest = get_event_idx(events_list[i].event_idx) - 1;
+
+                if (highest < expected) {
+                    // Row's highest matched condition is below expected → break.
+                    break;
                 }
-                events_timestamp[0] = {evt.timestamp, evt.timestamp, i};
-                curr_level = 0;
-                first_event = true;
-            } else if (first_event && !events_timestamp[event_idx - 1].has_value()) {
-                // Event level jumped: predecessor was not matched
-                if (curr_level >= 0) {
-                    if (curr_level > max_level) {
-                        max_level = curr_level;
-                    }
-                    _eliminate_chain(curr_level, events_timestamp);
+
+                if (!_row_contains_level(i, expected)) {
+                    // Row matches higher conditions but not the expected one
+                    // (level jump) → break.
+                    break;
                 }
-            } else if (events_timestamp[event_idx - 1].has_value() &&
-                       !_is_same_row(events_timestamp[event_idx - 1].last_list_idx, i)) {
-                // Must be from a DIFFERENT row than the predecessor level
-                if (_promote_level(events_timestamp, evt.timestamp, i, event_idx, curr_level,
-                                   false)) {
-                    return event_count;
-                }
+
+                curr_level = expected;
+
+                // Advance past this row to the start of the next one.
+                i = _next_row_start(i + 1);
             }
+
+            if (curr_level > max_level) {
+                max_level = curr_level;
+                if (max_level + 1 == event_count) return event_count;
+            }
+
+            // Prune: remaining events cannot beat current best.
+            if (static_cast<int>(events_list.size() - start_i) <= max_level) break;
         }
 
-        if (curr_level > max_level) {
-            return curr_level + 1;
-        }
         return max_level + 1;
     }
 
-    /// Clear the current event chain back to the beginning.
-    static void _eliminate_chain(int& curr_level, std::vector<TimestampPair>& events_timestamp) {
-        for (; curr_level >= 0; --curr_level) {
-            events_timestamp[curr_level].reset();
+    /// Advance past continuation events starting at `i`, returning the index of the
+    /// next non-continuation event (i.e., the first event of the next row), or
+    /// events_list.size() if no more rows remain.
+    size_t _next_row_start(size_t i) const {
+        while (i < events_list.size() && is_continuation(events_list[i].event_idx)) {
+            ++i;
         }
+        return i;
+    }
+
+    /// Walk backward from `i` to find the first event of the row containing `i`.
+    /// The first event of a row has no continuation flag set.
+    size_t _row_start(size_t i) const {
+        while (i > 0 && is_continuation(events_list[i].event_idx)) {
+            --i;
+        }
+        return i;
+    }
+
+    /// Check if the row whose first event is at `row_first` contains an event
+    /// matching the given 0-based `target_level`. The first event of a row has the
+    /// highest matched condition index; subsequent continuation events have lower indices.
+    bool _row_contains_level(size_t row_first, int target_level) const {
+        if (get_event_idx(events_list[row_first].event_idx) - 1 == target_level) {
+            return true;
+        }
+        for (size_t j = row_first + 1;
+             j < events_list.size() && is_continuation(events_list[j].event_idx); ++j) {
+            if (get_event_idx(events_list[j].event_idx) - 1 == target_level) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// Check if the event at `current_idx` in events_list is from the same original row
@@ -529,42 +615,24 @@ private:
         }
         return true;
     }
-
-    /// Try to promote the chain to the next level.
-    /// Returns true if we've matched all events (early termination).
-    bool _promote_level(std::vector<TimestampPair>& events_timestamp, UInt64 ts, size_t list_idx,
-                        int event_idx, int& curr_level, bool increase_mode) const {
-        bool matched = _within_window(events_timestamp[event_idx - 1].first_ts, ts);
-        if (increase_mode) {
-            matched = matched && events_timestamp[event_idx - 1].last_ts < ts;
-        }
-        if (matched) {
-            events_timestamp[event_idx] = {events_timestamp[event_idx - 1].first_ts, ts, list_idx};
-            if (event_idx > curr_level) {
-                curr_level = event_idx;
-            }
-            if (event_idx + 1 == event_count) {
-                return true;
-            }
-        }
-        return false;
-    }
 };
 
-class AggregateFunctionWindowFunnelV2
-        : public IAggregateFunctionDataHelper<WindowFunnelStateV2, AggregateFunctionWindowFunnelV2>,
+template <PrimitiveType T>
+class AggregateFunctionWindowFunnelV2 final
+        : public IAggregateFunctionDataHelper<WindowFunnelStateV2<T>,
+                                              AggregateFunctionWindowFunnelV2<T>>,
           MultiExpression,
           NullableAggregateFunction {
 public:
     AggregateFunctionWindowFunnelV2(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<WindowFunnelStateV2, AggregateFunctionWindowFunnelV2>(
-                      argument_types_) {
-        WindowFunnelStateV2::validate_event_count(
+            : IAggregateFunctionDataHelper<WindowFunnelStateV2<T>,
+                                           AggregateFunctionWindowFunnelV2<T>>(argument_types_) {
+        WindowFunnelStateV2<T>::validate_event_count(
                 cast_set<int>(IAggregateFunction::get_argument_types().size() - 3));
     }
 
     void create(AggregateDataPtr __restrict place) const override {
-        new (place) WindowFunnelStateV2(
+        new (place) WindowFunnelStateV2<T>(
                 cast_set<int>(IAggregateFunction::get_argument_types().size() - 3));
     }
 
@@ -599,8 +667,8 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(const_cast<AggregateDataPtr>(place)).sort();
         assert_cast<ColumnInt32&>(to).get_data().push_back(
-                IAggregateFunctionDataHelper<WindowFunnelStateV2,
-                                             AggregateFunctionWindowFunnelV2>::data(place)
+                IAggregateFunctionDataHelper<WindowFunnelStateV2<T>,
+                                             AggregateFunctionWindowFunnelV2<T>>::data(place)
                         .get());
     }
 
@@ -609,5 +677,3 @@ protected:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

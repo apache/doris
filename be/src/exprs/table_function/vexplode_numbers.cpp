@@ -34,7 +34,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VExplodeNumbersTableFunction::VExplodeNumbersTableFunction() {
     _fn_name = "vexplode_numbers";
@@ -114,5 +113,4 @@ void VExplodeNumbersTableFunction::get_same_many_values(MutableColumnPtr& column
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

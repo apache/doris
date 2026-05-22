@@ -74,14 +74,12 @@ public class MysqlCapability {
 
     private static final int DEFAULT_FLAGS = Flag.CLIENT_PROTOCOL_41.getFlagBit()
             | Flag.CLIENT_CONNECT_WITH_DB.getFlagBit() | Flag.CLIENT_SECURE_CONNECTION.getFlagBit()
-            | Flag.CLIENT_PLUGIN_AUTH.getFlagBit() | Flag.CLIENT_LOCAL_FILES.getFlagBit()
-            | Flag.CLIENT_LONG_FLAG.getFlagBit() | Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
-
-    private static final int SSL_FLAGS = Flag.CLIENT_PROTOCOL_41.getFlagBit()
-            | Flag.CLIENT_CONNECT_WITH_DB.getFlagBit() | Flag.CLIENT_SECURE_CONNECTION.getFlagBit()
-            | Flag.CLIENT_PLUGIN_AUTH.getFlagBit() | Flag.CLIENT_LOCAL_FILES.getFlagBit()
-            | Flag.CLIENT_LONG_FLAG.getFlagBit() | Flag.CLIENT_SSL.getFlagBit()
+            | Flag.CLIENT_PLUGIN_AUTH.getFlagBit() | Flag.CLIENT_CONNECT_ATTRS.getFlagBit()
+            | Flag.CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA.getFlagBit()
+            | Flag.CLIENT_LOCAL_FILES.getFlagBit() | Flag.CLIENT_LONG_FLAG.getFlagBit()
             | Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
+
+    private static final int SSL_FLAGS = DEFAULT_FLAGS | Flag.CLIENT_SSL.getFlagBit();
 
     public static final MysqlCapability DEFAULT_CAPABILITY = new MysqlCapability(DEFAULT_FLAGS);
     public static final MysqlCapability SSL_CAPABILITY = new MysqlCapability(SSL_FLAGS);

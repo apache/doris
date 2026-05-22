@@ -17,21 +17,21 @@
 
 package org.apache.doris.common.plugin;
 
-import org.apache.doris.backup.Status;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
-import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.obj.S3ObjStorage;
+import org.apache.doris.filesystem.DorisInputFile;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Strings;
 
 import java.io.File;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -115,7 +115,7 @@ public class CloudPluginDownloader {
     }
 
     /**
-     * Execute download with S3ObjStorage
+     * Execute download using SPI FileSystem
      */
     private static String doDownload(Cloud.ObjectStoreInfoPB objInfo, String remotePath, String localPath)
             throws Exception {
@@ -131,37 +131,27 @@ public class CloudPluginDownloader {
             throw new RuntimeException("Failed to delete existing file: " + localPath);
         }
 
-        // Create S3ObjStorage and download
-        try (S3ObjStorage s3Storage = createS3Storage(objInfo)) {
-            Status status = s3Storage.getObject(remotePath, localFile);
-            if (!status.ok()) {
-                throw new RuntimeException("Download failed: " + status.getErrMsg());
-            }
-            return localPath;
+        // Download via SPI FileSystem
+        Map<String, String> properties = buildProperties(objInfo);
+        org.apache.doris.filesystem.FileSystem fileSystem =
+                FileSystemFactory.getFileSystem(properties);
+        DorisInputFile inputFile = fileSystem.newInputFile(Location.of(remotePath));
+        try (InputStream in = inputFile.newStream()) {
+            Files.copy(in, localFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
+        return localPath;
     }
 
     /**
-     * Create S3ObjStorage from objInfo
+     * Build storage properties map from objInfo
      */
-    private static S3ObjStorage createS3Storage(Cloud.ObjectStoreInfoPB objInfo) {
+    private static Map<String, String> buildProperties(Cloud.ObjectStoreInfoPB objInfo) {
         Map<String, String> props = new HashMap<>();
         props.put("s3.endpoint", objInfo.getEndpoint());
         props.put("s3.region", objInfo.getRegion());
         props.put("s3.access_key", objInfo.getAk());
         props.put("s3.secret_key", objInfo.getSk());
         props.put("s3.bucket", objInfo.getBucket());
-
-        // Auto-detect storage type (S3, COS, OSS, etc.)
-        StorageProperties storageProps;
-        try {
-            storageProps = StorageProperties.createAll(props).stream()
-                    .findFirst()
-                    .orElseThrow(() -> new RuntimeException("Failed to create storage properties"));
-        } catch (UserException e) {
-            throw new RuntimeException(e);
-        }
-
-        return new S3ObjStorage((AbstractS3CompatibleProperties) storageProps);
+        return props;
     }
 }

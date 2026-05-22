@@ -43,6 +43,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
@@ -82,8 +83,8 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSource;
+import org.apache.doris.datasource.maxcompute.MCTransaction;
 import org.apache.doris.encryption.EncryptionKey;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
@@ -240,6 +241,8 @@ import org.apache.doris.thrift.TMasterAddressResult;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
+import org.apache.doris.thrift.TMaxComputeBlockIdRequest;
+import org.apache.doris.thrift.TMaxComputeBlockIdResult;
 import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TNodeInfo;
@@ -305,6 +308,7 @@ import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.Transaction;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
@@ -1455,6 +1459,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
         TStatus status = checkMaster();
         result.setStatus(status);
+        if (status.getStatusCode() != TStatusCode.OK) {
+            return result;
+        }
 
         try {
             loadTxnPreCommitImpl(request);
@@ -1736,7 +1743,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
-            checkToken(request.getToken());
+            checkTokenOrThrow(request.getToken());
         } else {
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
                 checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
@@ -1873,7 +1880,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
-            checkToken(request.getToken());
+            checkTokenOrThrow(request.getToken());
         } else {
             List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
             checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(), tables,
@@ -1958,7 +1965,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
-            checkToken(request.getToken());
+            checkTokenOrThrow(request.getToken());
         } else {
             // multi table load
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
@@ -2077,7 +2084,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
-            checkToken(request.getToken());
+            checkTokenOrThrow(request.getToken());
         } else {
             List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
             checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(), tables,
@@ -2088,6 +2095,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Env.getCurrentGlobalTransactionMgr().abortTransaction(db.getId(), request.getTxnId(),
                 request.isSetReason() ? request.getReason() : "system cancel",
                 TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()), tableList);
+    }
+
+    private void checkTokenOrThrow(String token) throws AuthenticationException {
+        if (!checkToken(token)) {
+            throw new AuthenticationException("Invalid token");
+        }
     }
 
     @Override
@@ -2581,7 +2594,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             if (request.is_success) {
                 if (request.isSetGroupId()) {
-                    taskGroupSuccessImpl(request.getDb(), request.getTbl(), request.getGroupId());
+                    taskGroupSuccessImpl(request.getDb(), request.getTbl(),
+                            request.getGroupId(), request.isForceDropPartition());
                 } else if (request.isSetTaskId()) {
                     taskSuccessImpl(request.getTaskId());
                 }
@@ -2606,7 +2620,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    private void taskGroupSuccessImpl(String dbName, String tblName, long groupId) throws Exception {
+    private void taskGroupSuccessImpl(String dbName, String tblName,
+            long groupId, boolean forceDropPartition) throws Exception {
         DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
         if (db == null) {
             throw new DdlException("Database not found: " + dbName);
@@ -2618,7 +2633,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (tbl == null) {
             throw new DdlException("Table not found: " + tblName);
         }
-        Env.getCurrentEnv().getInsertOverwriteManager().taskGroupSuccess(groupId, (OlapTable) tbl);
+        Env.getCurrentEnv().getInsertOverwriteManager().taskGroupSuccess(groupId, (OlapTable) tbl, forceDropPartition);
     }
 
     private void taskSuccessImpl(long taskId) throws Exception {
@@ -3485,7 +3500,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     .getCloudWarmUpJob(request.getWarmUpJobId());
             if (job == null || job.isDone()) {
                 LOG.info("warmup job {} is not running, notify caller BE {} to cancel job",
-                        job.getJobId(), clientAddr);
+                        request.getWarmUpJobId(), clientAddr);
                 // notify client to cancel this job
                 result.setStatus(new TStatus(TStatusCode.CANCELLED));
                 return result;
@@ -3586,6 +3601,50 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
             LOG.warn("[auto-inc] catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
+        }
+        return result;
+    }
+
+    @Override
+    public TMaxComputeBlockIdResult getMaxComputeBlockIdRange(TMaxComputeBlockIdRequest request) {
+        String clientAddr = getClientAddrAsString();
+        LOG.info("receive getMaxComputeBlockIdRange request: {}, backend: {}", request, clientAddr);
+
+        TMaxComputeBlockIdResult result = new TMaxComputeBlockIdResult();
+        TStatus status = checkMaster();
+        result.setStatus(status);
+
+        if (status.getStatusCode() != TStatusCode.OK) {
+            result.setMasterAddress(getMasterAddress());
+            return result;
+        }
+
+        try {
+            Transaction transaction = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr()
+                    .getTxnById(request.getTxnId());
+            if (!(transaction instanceof MCTransaction)) {
+                throw new UserException("Transaction " + request.getTxnId()
+                        + " is not a MaxCompute transaction");
+            }
+
+            long start = ((MCTransaction) transaction).allocateBlockIdRange(
+                    request.getWriteSessionId(), request.getLength());
+            result.setStart(start);
+            result.setLength(request.getLength());
+        } catch (UserException e) {
+            LOG.warn("failed to allocate MaxCompute block_id, txnId={}, sessionId={}, errmsg={}",
+                    request.getTxnId(), request.getWriteSessionId(), e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (RuntimeException e) {
+            LOG.warn("failed to allocate MaxCompute block_id, txnId={}, sessionId={}, errmsg={}",
+                    request.getTxnId(), request.getWriteSessionId(), e.getMessage(), e);
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result when allocating MaxCompute block_id.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
         }
@@ -3916,13 +3975,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetTableRefs()) {
             for (TTableRef tTableRef : request.getTableRefs()) {
                 tableRefs.add(new TableRefInfo(new TableNameInfo(tTableRef.getTable()),
-                        null,
-                        null,
-                        null,
-                        new ArrayList<>(),
-                        tTableRef.getAliasName(),
-                        null,
-                        new ArrayList<>()));
+                        tTableRef.getAliasName()));
             }
         }
 

@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.thrift.TPatternType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 
@@ -36,9 +35,9 @@ public class VariantField {
     protected final String comment;
 
     @SerializedName(value = "fpt")
-    protected final TPatternType patternType;
+    protected final PatternType patternType;
 
-    public VariantField(String pattern, Type type, String comment, TPatternType patternType) {
+    public VariantField(String pattern, Type type, String comment, PatternType patternType) {
         this.pattern = pattern;
         this.type = type;
         this.comment = comment;
@@ -47,7 +46,7 @@ public class VariantField {
 
     // default MATCH_GLOB
     public VariantField(String pattern, Type type, String comment) {
-        this(pattern, type, comment, TPatternType.MATCH_NAME_GLOB);
+        this(pattern, type, comment, PatternType.MATCH_NAME_GLOB);
     }
 
     public Type getType() {
@@ -62,13 +61,13 @@ public class VariantField {
         return comment;
     }
 
-    public TPatternType getPatternType() {
+    public PatternType getPatternType() {
         return patternType;
     }
 
     public String toSql(int depth) {
         StringBuilder sb = new StringBuilder();
-        if (patternType == TPatternType.MATCH_NAME) {
+        if (patternType == PatternType.MATCH_NAME) {
             sb.append(patternType.toString()).append(" ");
         }
 

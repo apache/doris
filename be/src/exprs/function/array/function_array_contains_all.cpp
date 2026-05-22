@@ -32,7 +32,6 @@
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class FunctionArrayContainsAll : public IFunction {
 public:
@@ -84,8 +83,8 @@ public:
 
         // execute check of contains all
         auto array_type = remove_nullable(block.get_by_position(arguments[0]).type);
-        auto left_element_type =
-                remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
+        auto left_element_type = remove_nullable(
+                assert_cast<const DataTypeArray*>(array_type.get())->get_nested_type());
 
         Status status = Status::OK();
         auto call = [&](const auto& type) -> bool {
@@ -194,5 +193,4 @@ void register_function_array_contains_all(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayContainsAll>();
     factory.register_alias("array_contains_all", "hasSubstr");
 }
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -18,11 +18,11 @@
 #pragma once
 
 #include <cstdint>
-#include <mutex>
 #include <set>
 #include <string>
 
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 #include "core/field.h"
 #include "exec/common/util.hpp"
 #include "exec/operator/operator.h"
@@ -37,7 +37,6 @@
 #include "storage/predicate/filter_olap_param.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ScannerDelegate;
 class OlapScanner;
 } // namespace doris
@@ -69,6 +68,7 @@ public:
     [[nodiscard]] virtual const TupleDescriptor* output_tuple_desc() const = 0;
 
     virtual int64_t limit_per_scanner() = 0;
+    virtual std::atomic<int64_t>* shared_scan_limit_ptr() = 0;
 
     virtual void set_scan_ranges(RuntimeState* state,
                                  const std::vector<TScanRangeParams>& scan_ranges) = 0;
@@ -126,7 +126,7 @@ protected:
     RuntimeProfile::Counter* _scan_rows = nullptr;
     RuntimeProfile::Counter* _scan_bytes = nullptr;
 
-    std::mutex _conjuncts_lock;
+    AnnotatedMutex _conjuncts_lock;
     RuntimeFilterConsumerHelper _helper;
     // magic number as seed to generate hash value for condition cache
     uint64_t _condition_cache_digest = 0;
@@ -236,6 +236,7 @@ class ScanLocalState : public ScanLocalStateBase {
     [[nodiscard]] const TupleDescriptor* output_tuple_desc() const override;
 
     int64_t limit_per_scanner() override;
+    std::atomic<int64_t>* shared_scan_limit_ptr() override;
 
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override {}
@@ -281,7 +282,7 @@ protected:
 
     Status _init_profile() override;
     virtual Status _process_conjuncts(RuntimeState* state) { return _normalize_conjuncts(state); }
-    virtual bool _should_push_down_common_expr() { return false; }
+    virtual bool _should_push_down_common_expr(const VExprSPtr&) { return false; }
 
     virtual bool _storage_no_merge() { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
@@ -348,11 +349,7 @@ public:
     Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
         Status status = get_block(state, block, eos);
         if (status.ok()) {
-            if (auto rows = block->rows()) {
-                auto* local_state = state->get_local_state(operator_id());
-                COUNTER_UPDATE(local_state->_rows_returned_counter, rows);
-                COUNTER_UPDATE(local_state->_blocks_returned_counter, 1);
-            }
+            state->get_local_state(operator_id())->update_output_block_counters(*block);
         }
         return status;
     }
@@ -443,5 +440,4 @@ protected:
     std::shared_ptr<MemLimiter> _mem_limiter = nullptr;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

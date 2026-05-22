@@ -20,7 +20,6 @@
 #include "exprs/function/function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Helper struct to store information about const+nullable columns
 struct ColumnWithConstAndNullMap {
@@ -137,7 +136,7 @@ private:
 
             if (is_column_nullable(*col_ptr)) {
                 has_nullable = true;
-                const auto* nullable = check_and_get_column<ColumnNullable>(col_ptr.get());
+                const auto* nullable = assert_cast<const ColumnNullable*>(col_ptr.get());
                 columns_info[i].nested_col = &nullable->get_nested_column();
                 columns_info[i].null_map = &nullable->get_null_map_data();
             } else {
@@ -156,5 +155,4 @@ private:
         return has_nullable;
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

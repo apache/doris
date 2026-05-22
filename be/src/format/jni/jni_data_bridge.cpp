@@ -40,7 +40,6 @@
 #include "core/value/decimalv2_value.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 #define FOR_FIXED_LENGTH_TYPES(M)                                  \
     M(PrimitiveType::TYPE_TINYINT, ColumnInt8, Int8)               \
@@ -529,9 +528,9 @@ Status JniDataBridge::_fill_column_meta(const ColumnPtr& doris_column, const Dat
         const auto& element_column = assert_cast<const ColumnArray&>(*data_column).get_data_ptr();
         meta_data.emplace_back(
                 (long)assert_cast<const ColumnArray&>(*data_column).get_offsets().data());
-        const auto& element_type = assert_cast<const DataTypePtr&>(
+        const auto& element_type =
                 (assert_cast<const DataTypeArray*>(remove_nullable(data_type).get()))
-                        ->get_nested_type());
+                        ->get_nested_type();
         RETURN_IF_ERROR(_fill_column_meta(element_column, element_type, meta_data));
         break;
     }
@@ -541,19 +540,17 @@ Status JniDataBridge::_fill_column_meta(const ColumnPtr& doris_column, const Dat
                 assert_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
         for (int i = 0; i < doris_struct.tuple_size(); ++i) {
             const auto& struct_field = doris_struct.get_column_ptr(i);
-            const auto& field_type =
-                    assert_cast<const DataTypePtr&>(doris_struct_type->get_element(i));
+            const auto& field_type = doris_struct_type->get_element(i);
             RETURN_IF_ERROR(_fill_column_meta(struct_field, field_type, meta_data));
         }
         break;
     }
     case PrimitiveType::TYPE_MAP: {
         const auto& map = assert_cast<const ColumnMap&>(*data_column);
-        const auto& key_type = assert_cast<const DataTypePtr&>(
-                assert_cast<const DataTypeMap*>(remove_nullable(data_type).get())->get_key_type());
-        const auto& value_type = assert_cast<const DataTypePtr&>(
-                assert_cast<const DataTypeMap*>(remove_nullable(data_type).get())
-                        ->get_value_type());
+        const auto& key_type =
+                assert_cast<const DataTypeMap*>(remove_nullable(data_type).get())->get_key_type();
+        const auto& value_type =
+                assert_cast<const DataTypeMap*>(remove_nullable(data_type).get())->get_value_type();
         const auto& key_column = map.get_keys_ptr();
         const auto& value_column = map.get_values_ptr();
         meta_data.emplace_back((long)map.get_offsets().data());
@@ -563,8 +560,7 @@ Status JniDataBridge::_fill_column_meta(const ColumnPtr& doris_column, const Dat
     }
     case PrimitiveType::TYPE_VARBINARY: {
         const auto& varbinary_col = assert_cast<const ColumnVarbinary&>(*data_column);
-        meta_data.emplace_back(
-                (long)assert_cast<const ColumnVarbinary&>(varbinary_col).get_data().data());
+        meta_data.emplace_back((long)varbinary_col.get_data().data());
         break;
     }
     default:
@@ -632,5 +628,4 @@ std::pair<std::string, std::string> JniDataBridge::parse_table_schema(Block* blo
     return parse_table_schema(block, arguments, true);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

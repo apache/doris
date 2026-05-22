@@ -35,7 +35,7 @@
 #include "common/status.h"
 #include "core/string_ref.h"
 #include "cpp/aws_common.h"
-#include "cpp/s3_rate_limiter.h"
+#include "cpp/token_bucket_rate_limiter.h"
 #include "io/fs/obj_storage_client.h"
 
 namespace Aws::S3 {
@@ -156,6 +156,9 @@ public:
 
     S3RateLimiterHolder* rate_limiter(S3RateLimitType type);
 
+    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> get_aws_credentials_provider(
+            const S3ClientConf& s3_conf);
+
 #ifdef BE_TEST
     void set_client_creator_for_test(
             std::function<std::shared_ptr<io::ObjStorageClient>(const S3ClientConf&)> creator);
@@ -172,8 +175,6 @@ private:
             const S3ClientConf& s3_conf);
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _create_credentials_provider(
             CredProviderType type);
-    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> get_aws_credentials_provider(
-            const S3ClientConf& s3_conf);
 
     S3ClientFactory();
 

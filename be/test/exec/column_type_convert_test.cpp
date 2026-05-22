@@ -25,6 +25,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_date.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_factory.hpp"
@@ -1282,9 +1283,11 @@ TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
         ASSERT_TRUE(st.ok());
 
         ASSERT_EQ(4, nested_col.size());
-        EXPECT_EQ("123456789012345678901234567890", int128_to_string(nested_col.get_data()[0]));
+        EXPECT_EQ("123456789012345678901234567890",
+                  CastToString::from_uint128(nested_col.get_data()[0]));
 
-        EXPECT_EQ("-123456789012345678901234567890", int128_to_string(nested_col.get_data()[1]));
+        EXPECT_EQ("-123456789012345678901234567890",
+                  CastToString::from_int128(nested_col.get_data()[1]));
 
         // Check zero
         EXPECT_EQ(0, nested_col.get_data()[2]);
@@ -1440,7 +1443,8 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
     auto parse_datetimev2_str = [](const std::string& datetime_str) {
         DateV2Value<DateTimeV2ValueType> x;
         StringRef buf((char*)datetime_str.data(), datetime_str.size());
-        bool ok = read_datetime_v2_text_impl(x, buf, 6);
+        CastParameters params;
+        bool ok = CastToDatetimeV2::from_string_non_strict_mode(buf, x, nullptr, 6, params);
         CHECK(ok) << "parse_datetimev2_str failed for: " << datetime_str;
         return x;
     };
@@ -1584,6 +1588,118 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
         EXPECT_EQ(1651406400000, dst_data[12]);
         EXPECT_EQ(1651410000000, dst_data[13]);
         EXPECT_EQ(1651413600000, dst_data[14]);
+    }
+}
+
+TEST_F(ColumnTypeConverterTest, TestStringToDateLikeConversions) {
+    auto src_type = DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
+
+    {
+        auto dst_type = std::make_shared<DataTypeDate>();
+        auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
+                                                                       converter::COMMON);
+        ASSERT_TRUE(converter->support());
+
+        auto src_col = ColumnString::create();
+        src_col->insert_data("2024-01-02 03:04:05", 19);
+        src_col->insert_data("bad-date", 8);
+
+        auto dst_col = nullable_dst_type->create_column();
+        auto mutable_dst = dst_col->assume_mutable();
+        auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
+        auto& nested_col = static_cast<ColumnDate&>(nullable_col.get_nested_column());
+        auto& null_map = nullable_col.get_null_map_data();
+        null_map.resize_fill(src_col->size(), 0);
+
+        Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(2, nested_col.size());
+        char date_buf[64];
+        nested_col.get_element(0).to_string(date_buf);
+        EXPECT_EQ("2024-01-02", std::string(date_buf));
+        EXPECT_EQ(0, null_map[0]);
+        EXPECT_EQ(1, null_map[1]);
+    }
+
+    {
+        auto dst_type = std::make_shared<DataTypeDateV2>();
+        auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
+                                                                       converter::COMMON);
+        ASSERT_TRUE(converter->support());
+
+        auto src_col = ColumnString::create();
+        src_col->insert_data("2024-05-06", 10);
+        src_col->insert_data("bad-datev2", 10);
+
+        auto dst_col = nullable_dst_type->create_column();
+        auto mutable_dst = dst_col->assume_mutable();
+        auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
+        auto& nested_col = static_cast<ColumnDateV2&>(nullable_col.get_nested_column());
+        auto& null_map = nullable_col.get_null_map_data();
+        null_map.resize_fill(src_col->size(), 0);
+
+        Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(2, nested_col.size());
+        EXPECT_EQ("2024-05-06", nested_col.get_element(0).to_string());
+        EXPECT_EQ(0, null_map[0]);
+        EXPECT_EQ(1, null_map[1]);
+    }
+
+    {
+        auto dst_type = std::make_shared<DataTypeDateTime>();
+        auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
+                                                                       converter::COMMON);
+        ASSERT_TRUE(converter->support());
+
+        auto src_col = ColumnString::create();
+        src_col->insert_data("2024-07-08 09:10:11", 19);
+        src_col->insert_data("bad-datetime", 12);
+
+        auto dst_col = nullable_dst_type->create_column();
+        auto mutable_dst = dst_col->assume_mutable();
+        auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
+        auto& nested_col = static_cast<ColumnDateTime&>(nullable_col.get_nested_column());
+        auto& null_map = nullable_col.get_null_map_data();
+        null_map.resize_fill(src_col->size(), 0);
+
+        Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(2, nested_col.size());
+        char datetime_buf[64];
+        nested_col.get_element(0).to_string(datetime_buf);
+        EXPECT_EQ("2024-07-08 09:10:11", std::string(datetime_buf));
+        EXPECT_EQ(0, null_map[0]);
+        EXPECT_EQ(1, null_map[1]);
+    }
+
+    {
+        auto dst_type = std::make_shared<DataTypeDateTimeV2>(6);
+        auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
+                                                                       converter::COMMON);
+        ASSERT_TRUE(converter->support());
+
+        auto src_col = ColumnString::create();
+        src_col->insert_data("2024-09-10 11:12:13.123456", 26);
+        src_col->insert_data("bad-datetimev2", 14);
+
+        auto dst_col = nullable_dst_type->create_column();
+        auto mutable_dst = dst_col->assume_mutable();
+        auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
+        auto& nested_col = static_cast<ColumnDateTimeV2&>(nullable_col.get_nested_column());
+        auto& null_map = nullable_col.get_null_map_data();
+        null_map.resize_fill(src_col->size(), 0);
+
+        Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(2, nested_col.size());
+        EXPECT_EQ("2024-09-10 11:12:13.123456", nested_col.get_element(0).to_string(6));
+        EXPECT_EQ(0, null_map[0]);
+        EXPECT_EQ(1, null_map[1]);
     }
 }
 

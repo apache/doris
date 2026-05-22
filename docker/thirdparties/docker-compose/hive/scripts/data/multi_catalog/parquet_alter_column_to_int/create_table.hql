@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.parquet_alter_column_to_int`(
+drop table if exists `multi_catalog.parquet_alter_column_to_int`;
+
+create table `multi_catalog.parquet_alter_column_to_int`(
   `col_int` int, 
   `col_smallint` int, 
   `col_tinyint` int, 
@@ -26,5 +28,3 @@ TBLPROPERTIES (
   'last_modified_by'='hadoop', 
   'last_modified_time'='1697216968', 
   'transient_lastDdlTime'='1697216968');
-
-msck repair table parquet_alter_column_to_int;

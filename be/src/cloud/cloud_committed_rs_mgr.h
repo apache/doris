@@ -26,7 +26,6 @@
 #include "util/countdown_latch.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Thread;
 
 // Manages temporary rowset meta for cloud storage transactions in memory.
@@ -83,5 +82,4 @@ private:
     std::shared_ptr<Thread> _clean_thread;
     CountDownLatch _stop_latch;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

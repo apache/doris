@@ -27,6 +27,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/decimal12.h"
+#include "core/field.h"
 #include "core/string_ref.h"
 #include "core/type_limit.h"
 #include "core/types.h"
@@ -55,7 +56,6 @@ struct std::equal_to<doris::uint24_t> {
 };
 
 namespace doris {
-#include "common/compile_check_begin.h"
 /**
  * Use HybridSetType can avoid virtual function call in the loop.
  * @tparam Type
@@ -94,11 +94,9 @@ public:
             while (iter->has_next()) {
                 const auto* value = (const StringRef*)(iter->get_value());
                 if constexpr (Type == TYPE_CHAR) {
-                    _temp_datas.emplace_back("");
-                    _temp_datas.back().resize(std::max(char_length, value->size));
-                    memcpy(_temp_datas.back().data(), value->data, value->size);
-                    const std::string& str = _temp_datas.back();
-                    _values->insert((void*)str.data(), str.length());
+                    std::string padded(std::max(char_length, value->size), '\0');
+                    memcpy(padded.data(), value->data, value->size);
+                    _values->insert((void*)padded.data(), padded.length());
                 } else {
                     _values->insert((void*)value->data, value->size);
                 }
@@ -129,7 +127,6 @@ public:
         _values = other._values;
         _min_value = other._min_value;
         _max_value = other._max_value;
-        _temp_datas = other._temp_datas;
         DCHECK(_segment_id_to_value_in_dict_flags.empty());
     }
     InListPredicateBase(const InListPredicateBase<Type, PT, N>& other) = delete;
@@ -147,13 +144,6 @@ public:
 
     PredicateType type() const override { return PT; }
 
-    bool could_be_erased() const override {
-        if ((PT == PredicateType::NOT_IN_LIST && !_opposite) ||
-            (PT == PredicateType::IN_LIST && _opposite)) {
-            return false;
-        }
-        return true;
-    }
     Status evaluate(const IndexFieldNameAndTypePair& name_with_type, IndexIterator* iterator,
                     uint32_t num_rows, roaring::Roaring* result) const override {
         if (iterator == nullptr) {
@@ -172,23 +162,20 @@ public:
         roaring::Roaring indices;
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
-            std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+            Field field_value;
             if constexpr (is_string_type(Type)) {
-                // get_value() returns StringRef*, not std::string*
+                // HybridSet's iter->get_value() yields StringRef*, not std::string*.
                 const auto* ref = (const StringRef*)(iter->get_value());
-                T str(ref->data, ref->size);
-                RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value<Type>(
-                        &str, query_param));
+                field_value = Field::create_field<Type>(std::string(ref->data, ref->size));
             } else {
                 const T* value = (const T*)(iter->get_value());
-                RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value<Type>(
-                        value, query_param));
+                field_value = Field::create_field<Type>(*value);
             }
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             InvertedIndexParam param;
             param.column_name = name_with_type.first;
             param.column_type = name_with_type.second;
-            param.query_value = query_param->get_value();
+            param.query_value = field_value;
             param.query_type = query_type;
             param.num_rows = num_rows;
             param.roaring = std::make_shared<roaring::Roaring>();
@@ -221,9 +208,8 @@ public:
     void _evaluate_bit(const IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
         if (column.is_nullable()) {
-            const auto* nullable_col = check_and_get_column<ColumnNullable>(column);
-            const auto& null_bitmap =
-                    assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column()).get_data();
+            const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
+            const auto& null_bitmap = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
@@ -475,9 +461,8 @@ private:
         int16_t new_size = 0;
 
         if (column.is_nullable()) {
-            const auto* nullable_col = check_and_get_column<ColumnNullable>(column);
-            const auto& null_map =
-                    assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column()).get_data();
+            const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
+            const auto& null_map = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
@@ -510,7 +495,7 @@ private:
 
         if (column->is_column_dictionary()) {
             if constexpr (is_string_type(Type)) {
-                const auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(column);
+                const auto* nested_col_ptr = assert_cast<const ColumnDictI32*>(column);
                 const auto& data_array = nested_col_ptr->get_data();
                 auto segid = column->get_rowset_segment_id();
                 DCHECK((segid.first.hi | segid.first.mi | segid.first.lo) != 0);
@@ -552,7 +537,7 @@ private:
             }
         } else {
             auto& pred_col =
-                    check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(column)
+                    assert_cast<const PredicateColumnType<PredicateEvaluateType<Type>>*>(column)
                             ->get_data();
             auto pred_col_data = pred_col.data();
 
@@ -574,7 +559,7 @@ private:
                             const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
             if constexpr (is_string_type(Type)) {
-                const auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(column);
+                const auto* nested_col_ptr = assert_cast<const ColumnDictI32*>(column);
                 const auto& data_array = nested_col_ptr->get_data();
                 auto& value_in_dict_flags =
                         _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];
@@ -666,9 +651,5 @@ private:
             _segment_id_to_value_in_dict_flags;
     T _min_value;
     T _max_value;
-
-    // temp string for char type column
-    std::list<std::string> _temp_datas;
 };
-#include "common/compile_check_end.h"
 } //namespace doris

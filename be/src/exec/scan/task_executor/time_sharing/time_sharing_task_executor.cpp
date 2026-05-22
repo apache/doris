@@ -34,7 +34,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Reuse metric prototypes defined in util/threadpool.cpp to avoid duplicate symbol
 // definitions. Declare them as extern here.

@@ -29,7 +29,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // auto spread at nullable condition, null value do not participate aggregate
 void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& factory) {

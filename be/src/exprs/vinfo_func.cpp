@@ -29,7 +29,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class VExprContext;
 
@@ -54,12 +53,12 @@ VInfoFunc::VInfoFunc(const TExprNode& node) : VExpr(node) {
     this->_column_ptr = _data_type->create_column_const(1, field);
 }
 
-Status VInfoFunc::execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                 size_t count, ColumnPtr& result_column) const {
+Status VInfoFunc::execute_column_impl(VExprContext* context, const Block* block,
+                                      const Selector* selector, size_t count,
+                                      ColumnPtr& result_column) const {
     result_column = _column_ptr->clone_resized(count);
     DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

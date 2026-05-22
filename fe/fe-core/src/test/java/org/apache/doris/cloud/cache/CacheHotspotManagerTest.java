@@ -27,10 +27,9 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Triple;
 import org.apache.doris.system.Backend;
 
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -45,70 +44,51 @@ public class CacheHotspotManagerTest {
 
     @Test
     public void testWarmUpNewClusterByTable() {
-        partition = new Partition(0, null, null, null);
-        new MockUp<Partition>() {
-
-            @Mock
-            public long getDataSize(boolean singleReplica) {
-                return 10000000L;
-            }
-
-            @Mock
-            public List<MaterializedIndex> getMaterializedIndices(IndexExtState extState) {
-                List<MaterializedIndex> list = new ArrayList<>();
-                MaterializedIndex ind = new MaterializedIndex();
-                list.add(ind);
-                return list;
-            }
-        };
-
         cloudSystemInfoService = new CloudSystemInfoService();
-        cacheHotspotManager = new CacheHotspotManager(cloudSystemInfoService);
-        new MockUp<CacheHotspotManager>() {
-
-            @Mock
-            Long getFileCacheCapacity(String clusterName) throws RuntimeException {
-                return 100L;
+        // Use mock with CALLS_REAL_METHODS to avoid package-private access issues
+        // (CacheHotspotManager's helper methods are package-private)
+        cacheHotspotManager = Mockito.mock(CacheHotspotManager.class, invocation -> {
+            String methodName = invocation.getMethod().getName();
+            switch (methodName) {
+                case "getFileCacheCapacity":
+                    return 100L;
+                case "getPartitionsFromTriple": {
+                    List<Partition> partitions = new ArrayList<>();
+                    Partition spyPartition = Mockito.spy(new Partition(1, "p1", null, null));
+                    Mockito.doReturn(10000000L).when(spyPartition).getDataSize(Mockito.anyBoolean());
+                    List<MaterializedIndex> list = new ArrayList<>();
+                    list.add(new MaterializedIndex());
+                    Mockito.doReturn(list).when(spyPartition)
+                            .getMaterializedIndices(Mockito.any(IndexExtState.class));
+                    partitions.add(spyPartition);
+                    return partitions;
+                }
+                case "getBackendsFromCluster": {
+                    String dstClusterName = (String) invocation.getArgument(0);
+                    List<Backend> backends = new ArrayList<>();
+                    backends.add(new Backend(11, dstClusterName, 0));
+                    return backends;
+                }
+                case "getTabletsFromIndexs": {
+                    List<Tablet> list = new ArrayList<>();
+                    list.add(new CloudTablet(1001L));
+                    return list;
+                }
+                case "getTabletIdsFromBe": {
+                    Set<Long> tabletIds = new HashSet<>();
+                    tabletIds.add(1001L);
+                    return tabletIds;
+                }
+                default:
+                    return invocation.callRealMethod();
             }
-
-            @Mock
-            List<Partition> getPartitionsFromTriple(Triple<String, String, String> tableTriple) {
-                List<Partition> partitions = new ArrayList<>();
-                partition = new Partition(1, "p1", null, null);
-                partitions.add(partition);
-                return partitions;
-            }
-
-            @Mock
-            List<Backend> getBackendsFromCluster(String dstClusterName) {
-                List<Backend> backends = new ArrayList<>();
-                Backend backend = new Backend(11, dstClusterName, 0);
-                backends.add(backend);
-                return backends;
-            }
-
-            @Mock
-            public List<Tablet> getTabletsFromIndexs(List<MaterializedIndex> indexes) {
-                List<Tablet> list = new ArrayList<>();
-                Tablet tablet = new CloudTablet(1001L);
-                list.add(tablet);
-                return list;
-            }
-
-            @Mock
-            Set<Long> getTabletIdsFromBe(long beId) {
-                Set<Long> tabletIds = new HashSet<Long>();
-                tabletIds.add(1001L);
-                return tabletIds;
-            }
-        };
+        });
 
         // Setup mock data
         long jobId = 1L;
         String dstClusterName = "test_cluster";
         List<Triple<String, String, String>> tables = new ArrayList<>();
         tables.add(Triple.of("test_db", "test_table", ""));
-
 
         // force = true
         Map<Long, List<Tablet>> result = cacheHotspotManager.warmUpNewClusterByTable(

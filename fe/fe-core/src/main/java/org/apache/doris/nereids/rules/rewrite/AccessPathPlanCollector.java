@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.ColumnAccessPathType;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectAccessPathResult;
 import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectorContext;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
@@ -69,7 +71,10 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
     }
 
     private boolean shouldCollectAccessPath(Slot slot) {
-        return slot.getDataType() instanceof NestedColumnPrunable || slot.getDataType().isVariantType();
+        return slot.getDataType() instanceof NestedColumnPrunable
+                || slot.getDataType().isVariantType()
+                || slot.getDataType().isStringLikeType()
+                || slot.nullable();
     }
 
     @Override
@@ -264,6 +269,15 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
     }
 
     @Override
+    public Void visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, StatementContext context) {
+        // Collect access paths from aggregate expressions (e.g. sum(length(str_col))) before
+        // visiting children so that when the bottom project is processed next, str_col's offset
+        // path is already recorded and the direct-DATA suppression guard can fire correctly.
+        collectByExpressions(aggregate, context);
+        return aggregate.child().accept(this, context);
+    }
+
+    @Override
     public Void visitLogicalCTEAnchor(
             LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, StatementContext context) {
         // first, collect access paths in the outer slots, and propagate outer slot's access path to inner slots
@@ -335,7 +349,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
             }
             Collection<CollectAccessPathResult> accessPaths = allSlotToAccessPaths.get(slot.getExprId().asInt());
             if (!accessPaths.isEmpty()) {
-                scanSlotToAccessPaths.put(slot, new ArrayList<>(accessPaths));
+                scanSlotToAccessPaths.put(slot, normalizeDataSkippingOnlyAccessPaths(accessPaths));
             }
         }
         return null;
@@ -349,7 +363,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
             }
             Collection<CollectAccessPathResult> accessPaths = allSlotToAccessPaths.get(slot.getExprId().asInt());
             if (!accessPaths.isEmpty()) {
-                scanSlotToAccessPaths.put(slot, new ArrayList<>(accessPaths));
+                scanSlotToAccessPaths.put(slot, normalizeDataSkippingOnlyAccessPaths(accessPaths));
             }
         }
         return null;
@@ -375,5 +389,34 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         for (Expression expression : plan.getExpressions()) {
             exprCollector.collect(expression);
         }
+    }
+
+    static List<CollectAccessPathResult> normalizeDataSkippingOnlyAccessPaths(
+            Collection<CollectAccessPathResult> accessPaths) {
+        List<CollectAccessPathResult> normalizedAccessPaths = new ArrayList<>();
+        for (CollectAccessPathResult accessPath : accessPaths) {
+            List<String> path = accessPath.getPath();
+            if (isDataSkippingOnlyAccessPath(path) && path.size() > 1) {
+                // NULL/OFFSET suffixes are OLAP segment-reader-only optimizations. External
+                // table and TVF readers use access paths as real nested field paths, so read
+                // the referenced column/sub-column normally instead of sending a pseudo field.
+                normalizedAccessPaths.add(new CollectAccessPathResult(
+                        new ArrayList<>(path.subList(0, path.size() - 1)),
+                        accessPath.isPredicate(),
+                        ColumnAccessPathType.DATA));
+            } else {
+                normalizedAccessPaths.add(accessPath);
+            }
+        }
+        return normalizedAccessPaths;
+    }
+
+    private static boolean isDataSkippingOnlyAccessPath(List<String> path) {
+        if (path.isEmpty()) {
+            return false;
+        }
+        String lastComponent = path.get(path.size() - 1);
+        return AccessPathInfo.ACCESS_NULL.equals(lastComponent)
+                || AccessPathInfo.ACCESS_STRING_OFFSET.equals(lastComponent);
     }
 }

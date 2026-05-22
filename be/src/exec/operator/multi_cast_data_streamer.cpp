@@ -41,17 +41,17 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 MultiCastBlock::MultiCastBlock(Block* block, int un_finish_copy, size_t mem_size)
         : _un_finish_copy(un_finish_copy), _mem_size(mem_size) {
     _block = Block::create_unique(block->get_columns_with_type_and_name());
     block->clear();
 }
 
-Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, Block* block, bool* eos) {
+Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, Block* block,
+                                   bool* eos) NO_THREAD_SAFETY_ANALYSIS {
     MultiCastBlock* multi_cast_block = nullptr;
     {
-        INJECT_MOCK_SLEEP(std::unique_lock l(_mutex));
+        UniqueLock l(_mutex);
         for (auto it = _spill_readers[sender_idx].begin();
              it != _spill_readers[sender_idx].end();) {
             if ((*it)->all_data_read) {
@@ -93,13 +93,15 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, Block* b
             auto spill_func = [this, reader_item, sender_idx]() {
                 Block block;
                 bool spill_eos = false;
+                bool has_cached_blocks = false;
                 size_t read_size = 0;
                 while (!spill_eos) {
                     RETURN_IF_ERROR(reader_item->reader->read(&block, &spill_eos));
                     if (!block.empty()) {
-                        std::lock_guard l(_mutex);
+                        LockGuard l(_mutex);
                         read_size += block.allocated_bytes();
                         _cached_blocks[sender_idx].emplace_back(std::move(block));
+                        has_cached_blocks = true;
                         if (_cached_blocks[sender_idx].size() >= 32 ||
                             read_size > 2 * 1024 * 1024) {
                             break;
@@ -107,7 +109,7 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, Block* b
                     }
                 }
 
-                if (spill_eos || !_cached_blocks[sender_idx].empty()) {
+                if (spill_eos || has_cached_blocks) {
                     reader_item->all_data_read = spill_eos;
                     _set_ready_for_read(sender_idx);
                 }
@@ -159,7 +161,7 @@ Status MultiCastDataStreamer::_copy_block(RuntimeState* state, int32_t sender_id
         block->get_by_position(i).column = block->get_by_position(i).column->clone_resized(rows);
     }
 
-    INJECT_MOCK_SLEEP(std::lock_guard l(_mutex));
+    LockGuard l(_mutex);
     multi_cast_block._un_finish_copy--;
     auto copying_count = _copying_count.fetch_sub(1) - 1;
     if (multi_cast_block._un_finish_copy == 0) {
@@ -293,7 +295,7 @@ Status MultiCastDataStreamer::push(RuntimeState* state, doris::Block* block, boo
     const auto block_mem_size = block->allocated_bytes();
 
     {
-        INJECT_MOCK_SLEEP(std::lock_guard l(_mutex));
+        LockGuard l(_mutex);
         if (_pending_block) {
             DCHECK_GT(_pending_block->rows(), 0);
             const auto pending_size = _pending_block->allocated_bytes();
@@ -346,7 +348,7 @@ Status MultiCastDataStreamer::push(RuntimeState* state, doris::Block* block, boo
         _eos = eos;
     }
 
-    if (_eos) {
+    if (eos) {
         for (auto* read_dep : _dependencies) {
             read_dep->set_always_ready();
         }
@@ -377,7 +379,7 @@ std::string MultiCastDataStreamer::debug_string() {
     size_t pos_at_end_count = 0;
     size_t blocks_count = 0;
     {
-        std::unique_lock l(_mutex);
+        LockGuard l(_mutex);
         blocks_count = _multi_cast_blocks.size();
         for (int32_t i = 0; i != _cast_sender_count; ++i) {
             if (!_dependencies[i]->is_blocked_by()) {

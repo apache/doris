@@ -34,8 +34,6 @@
 #include "util/slice.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
-class TypeInfo;
 
 namespace io {
 class FileWriter;
@@ -122,9 +120,9 @@ public:
         return Status::OK();
     }
 
-    const TypeInfo* type_info() const {
+    FieldType type() const {
         DCHECK(_index_parsed);
-        return _index_reader->type_info();
+        return _index_reader->type();
     }
 
     // verify whether exist in BloomFilter
@@ -158,5 +156,4 @@ private:
     size_t _bf_num = 0;
     uint64_t _bf_bytes = 0;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

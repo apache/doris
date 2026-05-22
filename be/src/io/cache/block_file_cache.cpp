@@ -58,7 +58,6 @@
 #include "util/thread.h"
 #include "util/time.h"
 namespace doris::io {
-#include "common/compile_check_begin.h"
 
 // Insert a block pointer into one shard while swallowing allocation failures.
 bool NeedUpdateLRUBlocks::insert(FileBlockSPtr block) {
@@ -882,9 +881,10 @@ FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& hash, const CacheC
                << " tablet_id=" << context.tablet_id;
 
     if (size > 1024 * 1024 * 1024) {
-        LOG(WARNING) << "File block size is too large for a block. size=" << size
+        LOG(WARNING) << "File block size is too large for a block, reject. size=" << size
                      << " hash=" << hash.to_string() << " offset=" << offset
                      << " stack:" << get_stack_trace();
+        return nullptr;
     }
 
     auto& offsets = _files[hash];
@@ -2462,8 +2462,6 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
 template void BlockFileCache::remove(FileBlockSPtr file_block,
                                      std::lock_guard<std::mutex>& cache_lock,
                                      std::lock_guard<std::mutex>& block_lock, bool sync);
-
-#include "common/compile_check_end.h"
 
 Status BlockFileCache::report_file_cache_inconsistency(std::vector<std::string>& results) {
     InconsistencyContext inconsistency_context;

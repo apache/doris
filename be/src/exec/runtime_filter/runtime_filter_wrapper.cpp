@@ -23,7 +23,6 @@
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
         : RuntimeFilterWrapper(params->column_return_type, params->filter_type, params->filter_id,
                                State::UNINITED, params->max_in_num) {
@@ -123,8 +122,7 @@ Status RuntimeFilterWrapper::insert(const ColumnPtr& column, size_t start) {
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = assert_cast<const ColumnBitmap&>(nullable->get_nested_column());
-            const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
+            const auto& nullmap = nullable->get_null_map_column().get_data();
             for (size_t i = start; i < column->size(); i++) {
                 if (!nullmap[i]) {
                     bitmaps.push_back(&(col.get_data()[i]));

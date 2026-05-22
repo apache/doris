@@ -42,7 +42,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 DataTypeNullable::DataTypeNullable(const DataTypePtr& nested_data_type_)
         : nested_data_type {nested_data_type_} {
     if (!nested_data_type) {
@@ -141,10 +140,6 @@ MutableColumnPtr DataTypeNullable::create_column() const {
 Status DataTypeNullable::check_column(const IColumn& column) const {
     const auto* column_nullable = DORIS_TRY(check_column_nested_type<ColumnNullable>(column));
     return nested_data_type->check_column(column_nullable->get_nested_column());
-}
-
-Field DataTypeNullable::get_default() const {
-    return Field();
 }
 
 bool DataTypeNullable::equals(const IDataType& rhs) const {

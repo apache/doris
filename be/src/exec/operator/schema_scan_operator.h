@@ -26,7 +26,6 @@
 #include "information_schema/schema_scanner.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -37,11 +36,7 @@ class SchemaScanLocalState final : public PipelineXLocalState<> {
 public:
     ENABLE_FACTORY_CREATOR(SchemaScanLocalState);
 
-    SchemaScanLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<>(state, parent) {
-        _data_dependency = std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
-                                                        parent->get_name() + "_DEPENDENCY", true);
-    }
+    SchemaScanLocalState(RuntimeState* state, OperatorXBase* parent);
     ~SchemaScanLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
@@ -92,5 +87,4 @@ private:
     std::unordered_map<int, int> _slot_offsets;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

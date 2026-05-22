@@ -336,7 +336,7 @@ DEFINE_mInt32(thrift_connect_timeout_seconds, "3");
 DEFINE_mInt64(thrift_client_retry_interval_ms, "1000");
 // max message size of thrift request
 // default: 100 * 1024 * 1024
-DEFINE_mInt64(thrift_max_message_size, "104857600");
+DEFINE_mInt32(thrift_max_message_size, "104857600");
 // max bytes number for single scan range, used in segmentv2
 DEFINE_mInt32(doris_scan_range_max_mb, "1024");
 // single read execute fragment row number
@@ -433,6 +433,8 @@ DEFINE_mInt32(pk_index_page_cache_stale_sweep_time_sec, "600");
 
 DEFINE_mBool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
+
+DEFINE_mBool(enable_adaptive_batch_size, "true");
 
 // be policy
 // whether check compaction checksum
@@ -555,6 +557,9 @@ DEFINE_mInt32(compaction_keep_invisible_version_max_count, "500");
 DEFINE_mInt32(base_compaction_trace_threshold, "60");
 DEFINE_mInt32(cumulative_compaction_trace_threshold, "10");
 DEFINE_mBool(disable_compaction_trace_log, "true");
+
+DEFINE_mBool(enable_compaction_task_tracker, "true");
+DEFINE_mInt32(compaction_task_tracker_max_records, "10000");
 
 // Interval to picking rowset to compact, in seconds
 DEFINE_mInt64(pick_rowset_to_compact_interval_sec, "86400");
@@ -1159,6 +1164,7 @@ DEFINE_mBool(variant_use_cloud_schema_dict_cache, "true");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mInt32(variant_max_json_key_length, "255");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
+DEFINE_mBool(variant_enable_duplicate_json_path_check, "false");
 DEFINE_mBool(enable_vertical_compact_variant_subcolumns, "true");
 DEFINE_mBool(enable_variant_doc_sparse_write_subcolumns, "true");
 // Maximum depth of nested arrays to track with NestedGroup
@@ -1263,6 +1269,11 @@ DEFINE_String(inverted_index_query_cache_limit, "10%");
 // condition cache limit
 DEFINE_Int16(condition_cache_limit, "512");
 
+// ANN index topn result cache
+DEFINE_String(ann_index_result_cache_limit, "10%");
+DEFINE_Int32(ann_index_result_cache_shards, "16");
+DEFINE_Int32(ann_index_result_cache_stale_sweep_time_sec, "1800");
+
 // inverted index
 DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.
@@ -1303,8 +1314,6 @@ DEFINE_mInt64(hdfs_write_batch_buffer_size_mb, "1"); // 1MB
 
 //disable shrink memory by default
 DEFINE_mBool(enable_shrink_memory, "false");
-DEFINE_mInt32(schema_cache_capacity, "1024");
-DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // max number of segment cache, default -1 for backward compatibility fd_number*2/5
 DEFINE_Int32(segment_cache_capacity, "-1");
@@ -1579,8 +1588,6 @@ DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
 
 DEFINE_mBool(ignore_schema_change_check, "false");
 
-DEFINE_mInt64(string_overflow_size, "4294967295"); // std::numic_limits<uint32_t>::max()
-
 // The min thread num for BufferedReaderPrefetchThreadPool
 DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread, "16");
 // The max thread num for BufferedReaderPrefetchThreadPool
@@ -1714,6 +1721,10 @@ DEFINE_mBool(enable_fetch_rowsets_from_peer_replicas, "false");
 DEFINE_mInt32(segments_key_bounds_truncation_threshold, "36");
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
+
+// If true, non-MOW rowsets store a single aggregated [rowset_min, rowset_max]
+// key-bounds entry instead of per-segment bounds, to reduce meta size on cloud FDB.
+DEFINE_mBool(enable_aggregate_non_mow_key_bounds, "true");
 // p0, daily, rqg, external
 DEFINE_String(fuzzy_test_type, "");
 
@@ -1723,6 +1734,10 @@ DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
 
 // The maximum csv line reader output buffer size
 DEFINE_mInt64(max_csv_line_reader_output_buffer_size, "4294967296");
+
+// The maximum bytes of a single block returned by load file readers (CsvReader, NewJsonReader,
+// ParquetReader, OrcReader). Default is 64MB. Set to 0 to disable the limit.
+DEFINE_mInt64(load_reader_max_block_bytes, "67108864");
 
 // Maximum number of OpenMP threads allowed for concurrent vector index builds.
 // -1 means auto: use 80% of the available CPU cores.
@@ -1768,6 +1783,7 @@ DEFINE_Validator(concurrency_stats_dump_interval_ms,
 DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
 
 DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "false");
+DEFINE_mInt32(file_handles_deplenish_frequency_times, "3");
 
 // clang-format off
 #ifdef BE_TEST
@@ -2241,8 +2257,6 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_shrink_memory"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
-    fuzzy_field_and_value["string_overflow_size"] =
-            ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
     fuzzy_field_and_value["skip_writing_empty_rowset_metadata"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_packed_file"] =

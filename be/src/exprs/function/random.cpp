@@ -41,7 +41,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 class Random : public IFunction {
 public:
     static constexpr auto name = "random";
@@ -104,7 +103,7 @@ private:
                                      const ColumnNumbers& arguments, uint32_t result,
                                      size_t input_rows_count) {
         auto res_column = ColumnInt64::create(input_rows_count);
-        auto& res_data = static_cast<ColumnInt64&>(*res_column).get_data();
+        auto& res_data = res_column->get_data();
 
         auto* generator = reinterpret_cast<std::mt19937_64*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
@@ -164,5 +163,4 @@ void register_function_random(SimpleFunctionFactory& factory) {
     factory.register_function<Random>();
     factory.register_alias(Random::name, "rand");
 }
-#include "common/compile_check_end.h"
 } // namespace doris

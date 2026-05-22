@@ -27,7 +27,6 @@
 #include "common/global_types.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
-#include "exec/operator/es_scan_operator.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/operator/group_commit_scan_operator.h"
 #include "exec/operator/jdbc_scan_operator.h"
@@ -38,6 +37,7 @@
 #include "exec/runtime_filter/runtime_filter_consumer_helper.h"
 #include "exec/scan/scanner_context.h"
 #include "exprs/function/in.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vcast_expr.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
@@ -45,7 +45,6 @@
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vin_predicate.h"
 #include "exprs/virtual_slot_ref.h"
-#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vslot_ref.h"
 #include "exprs/vtopn_pred.h"
 #include "runtime/descriptors.h"
@@ -55,8 +54,6 @@
 #include "storage/predicate/predicate_creator.h"
 
 namespace doris {
-
-#include "common/compile_check_begin.h"
 
 #define RETURN_IF_PUSH_DOWN(stmt, status)    \
     if (pdt == PushDownType::UNACCEPTABLE) { \
@@ -76,7 +73,7 @@ bool ScanLocalState<Derived>::should_run_serial() const {
 Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* state,
                                                               int& arrived_rf_num) {
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
-    std::unique_lock lock(_conjuncts_lock);
+    LockGuard lock(_conjuncts_lock);
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
                                                                    arrived_rf_num, _conjuncts));
     if (state->enable_adjust_conjunct_order_by_cost()) {
@@ -89,7 +86,7 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
 
 Status ScanLocalStateBase::clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjuncts) {
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
-    std::unique_lock lock(_conjuncts_lock);
+    LockGuard lock(_conjuncts_lock);
     scanner_conjuncts.resize(_conjuncts.size());
     for (size_t i = 0; i != _conjuncts.size(); ++i) {
         RETURN_IF_ERROR(_conjuncts[i]->clone(_state, scanner_conjuncts[i]));
@@ -153,6 +150,23 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     return Status::OK();
 }
 
+static std::string predicates_to_string(
+        const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                slot_id_to_predicates) {
+    fmt::memory_buffer debug_string_buffer;
+    for (const auto& [slot_id, predicates] : slot_id_to_predicates) {
+        if (predicates.empty()) {
+            continue;
+        }
+        fmt::format_to(debug_string_buffer, "Slot ID: {}: [", slot_id);
+        for (const auto& predicate : predicates) {
+            fmt::format_to(debug_string_buffer, "{{{}}}, ", predicate->debug_string());
+        }
+        fmt::format_to(debug_string_buffer, "] ");
+    }
+    return fmt::to_string(debug_string_buffer);
+}
+
 template <typename Derived>
 Status ScanLocalState<Derived>::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
@@ -193,6 +207,11 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
 
     RETURN_IF_ERROR(_process_conjuncts(state));
 
+    if (state->enable_profile()) {
+        custom_profile()->add_info_string("PushDownPredicates",
+                                          predicates_to_string(_slot_id_to_predicates));
+    }
+
     auto status = _eos ? Status::OK() : _prepare_scanners();
     RETURN_IF_ERROR(status);
     if (auto ctx = _scanner_ctx.load()) {
@@ -201,23 +220,6 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     }
     _opened = true;
     return status;
-}
-
-static std::string predicates_to_string(
-        const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                slot_id_to_predicates) {
-    fmt::memory_buffer debug_string_buffer;
-    for (const auto& [slot_id, predicates] : slot_id_to_predicates) {
-        if (predicates.empty()) {
-            continue;
-        }
-        fmt::format_to(debug_string_buffer, "Slot ID: {}: [", slot_id);
-        for (const auto& predicate : predicates) {
-            fmt::format_to(debug_string_buffer, "{{{}}}, ", predicate->debug_string());
-        }
-        fmt::format_to(debug_string_buffer, "] ");
-    }
-    return fmt::to_string(debug_string_buffer);
 }
 
 static void init_slot_value_range(
@@ -308,8 +310,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
             RETURN_IF_ERROR(_normalize_predicate(conjunct.get(), conjunct->root(), new_root));
             if (new_root) {
                 conjunct->set_root(new_root);
-                if (_should_push_down_common_expr() &&
-                    VExpr::is_acting_on_a_slot(*(conjunct->root()))) {
+                if (_should_push_down_common_expr(conjunct->root())) {
                     _common_expr_ctxs_push_down.emplace_back(conjunct);
                     it = _conjuncts.erase(it);
                     continue;
@@ -325,8 +326,6 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     }
 
     if (state->enable_profile()) {
-        custom_profile()->add_info_string("PushDownPredicates",
-                                          predicates_to_string(_slot_id_to_predicates));
         std::string message;
         for (auto& conjunct : _conjuncts) {
             if (conjunct->root()) {
@@ -387,7 +386,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
                     {
                         Defer attach_defer = [&]() {
                             if (pdt != PushDownType::UNACCEPTABLE && root->is_rf_wrapper()) {
-                                auto* rf_expr = assert_cast<VRuntimeFilterWrapper*>(root.get());
+                                auto* rf_expr = assert_cast<RuntimeFilterExpr*>(root.get());
                                 _slot_id_to_predicates[slot->id()].back()->attach_profile_counter(
                                         rf_expr->filter_id(),
                                         rf_expr->predicate_filtered_rows_counter(),
@@ -1042,6 +1041,14 @@ int64_t ScanLocalState<Derived>::limit_per_scanner() {
 }
 
 template <typename Derived>
+std::atomic<int64_t>* ScanLocalState<Derived>::shared_scan_limit_ptr() {
+    auto* p = &_parent->cast<typename Derived::Parent>()._shared_scan_limit;
+    // -1 means "no SQL LIMIT" — return nullptr so callers naturally skip
+    // all limit logic.
+    return p->load(std::memory_order_relaxed) < 0 ? nullptr : p;
+}
+
+template <typename Derived>
 Status ScanLocalState<Derived>::_init_profile() {
     // 1. counters for scan node
     _rows_read_counter = ADD_COUNTER(custom_profile(), profile::ROWS_READ, TUnit::UNIT);
@@ -1364,8 +1371,6 @@ template class ScanOperatorX<JDBCScanLocalState>;
 template class ScanLocalState<JDBCScanLocalState>;
 template class ScanOperatorX<FileScanLocalState>;
 template class ScanLocalState<FileScanLocalState>;
-template class ScanOperatorX<EsScanLocalState>;
-template class ScanLocalState<EsScanLocalState>;
 template class ScanLocalState<MetaScanLocalState>;
 template class ScanOperatorX<MetaScanLocalState>;
 template class ScanOperatorX<GroupCommitLocalState>;

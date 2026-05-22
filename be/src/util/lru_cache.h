@@ -42,7 +42,6 @@
 #include "runtime/memory/lru_cache_value_base.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Cache;
 class LRUCachePolicy;
@@ -500,4 +499,3 @@ public:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

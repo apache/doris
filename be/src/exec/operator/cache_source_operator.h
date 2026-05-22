@@ -25,7 +25,6 @@
 #include "runtime/query_cache/query_cache.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class Block;
@@ -98,5 +97,4 @@ private:
     friend class CacheSourceLocalState;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

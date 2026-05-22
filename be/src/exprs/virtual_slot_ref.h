@@ -20,7 +20,6 @@
 #include "exprs/vexpr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class VirtualSlotRef MOCK_REMOVE(final) : public VExpr {
     ENABLE_FACTORY_CREATOR(VirtualSlotRef);
 
@@ -31,8 +30,8 @@ public:
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
     const std::string& expr_name() const override;
     std::string expr_label() override;
     std::string debug_string() const override;
@@ -41,6 +40,7 @@ public:
     int slot_id() const { return _slot_id; }
     bool equals(const VExpr& other) override;
     size_t estimate_memory(const size_t rows) override { return 0; }
+    void set_column_id(int column_id) { _column_id = column_id; }
     void collect_slot_column_ids(std::set<int>& column_ids) const override {
         column_ids.insert(_column_id);
     }
@@ -107,11 +107,11 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) override;
+            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
+            bool enable_result_cache) override;
 
 #ifdef BE_TEST
     // Test-only setter methods for unit testing
-    void set_column_id(int column_id) { _column_id = column_id; }
     void set_column_name(const std::string* column_name) { _column_name = column_name; }
     void set_column_data_type(DataTypePtr column_data_type) {
         _column_data_type = std::move(column_data_type);
@@ -129,5 +129,4 @@ private:
     std::shared_ptr<VExpr> _virtual_column_expr; ///< Underlying virtual expression
     DataTypePtr _column_data_type;               ///< Data type of the column
 };
-#include "common/compile_check_end.h"
 } // namespace doris

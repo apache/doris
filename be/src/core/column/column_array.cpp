@@ -841,8 +841,6 @@ ColumnArrayDataOffsets filter_return_new_dispatch(const Filter& filt, ssize_t re
         return filter_number_return_new<TYPE_TIMESTAMPTZ>(filt, result_size_hint, data, offsets);
     if (typeid_cast<const ColumnTimeV2*>(data.get()))
         return filter_number_return_new<TYPE_TIMEV2>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnTime*>(data.get()))
-        return filter_number_return_new<TYPE_TIME>(filt, result_size_hint, data, offsets);
     if (typeid_cast<const ColumnIPv4*>(data.get()))
         return filter_number_return_new<TYPE_IPV4>(filt, result_size_hint, data, offsets);
     if (typeid_cast<const ColumnString*>(data.get()))
@@ -909,8 +907,6 @@ size_t filter_inplace_dispatch(const Filter& filter, IColumn& src_data,
         return filter_number_inplace<TYPE_TIMESTAMPTZ>(filter, src_data, src_offsets);
     if (typeid_cast<ColumnTimeV2*>(&src_data))
         return filter_number_inplace<TYPE_TIMEV2>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnTime*>(&src_data))
-        return filter_number_inplace<TYPE_TIME>(filter, src_data, src_offsets);
     if (typeid_cast<ColumnIPv4*>(&src_data))
         return filter_number_inplace<TYPE_IPV4>(filter, src_data, src_offsets);
     return filter_generic_inplace(filter, src_data, src_offsets);

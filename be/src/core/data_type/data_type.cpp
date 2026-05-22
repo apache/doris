@@ -40,7 +40,6 @@ class BufferWritable;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 IDataType::IDataType() = default;
 
@@ -61,7 +60,9 @@ ColumnPtr IDataType::create_column_const(size_t size, const Field& field) const 
 }
 
 ColumnPtr IDataType::create_column_const_with_default_value(size_t size) const {
-    return create_column_const(size, get_default());
+    auto column = create_column();
+    column->insert_default();
+    return ColumnConst::create(std::move(column), size);
 }
 
 size_t IDataType::get_size_of_value_in_memory() const {
@@ -136,8 +137,6 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::JSONB;
     case PrimitiveType::TYPE_MAP:
         return PGenericType::MAP;
-    case PrimitiveType::TYPE_TIME:
-        return PGenericType::TIME;
     case PrimitiveType::TYPE_AGG_STATE:
         return PGenericType::AGG_STATE;
     case PrimitiveType::TYPE_TIMEV2:

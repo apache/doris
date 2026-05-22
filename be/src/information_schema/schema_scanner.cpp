@@ -48,6 +48,7 @@
 #include "information_schema/schema_backend_active_tasks.h"
 #include "information_schema/schema_backend_configuration_scanner.h"
 #include "information_schema/schema_backend_kerberos_ticket_cache.h"
+#include "information_schema/schema_backend_ms_rpc_table_throttlers_scanner.h"
 #include "information_schema/schema_catalog_meta_cache_stats_scanner.h"
 #include "information_schema/schema_charsets_scanner.h"
 #include "information_schema/schema_cluster_snapshot_properties_scanner.h"
@@ -55,6 +56,7 @@
 #include "information_schema/schema_collations_scanner.h"
 #include "information_schema/schema_column_data_sizes_scanner.h"
 #include "information_schema/schema_columns_scanner.h"
+#include "information_schema/schema_compaction_tasks_scanner.h"
 #include "information_schema/schema_database_properties_scanner.h"
 #include "information_schema/schema_dummy_scanner.h"
 #include "information_schema/schema_encryption_keys_scanner.h"
@@ -66,6 +68,7 @@
 #include "information_schema/schema_partitions_scanner.h"
 #include "information_schema/schema_processlist_scanner.h"
 #include "information_schema/schema_profiling_scanner.h"
+#include "information_schema/schema_role_mappings_scanner.h"
 #include "information_schema/schema_routine_load_job_scanner.h"
 #include "information_schema/schema_rowsets_scanner.h"
 #include "information_schema/schema_schema_privileges_scanner.h"
@@ -267,10 +270,16 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaFileCacheInfoScanner::create_unique();
     case TSchemaTableType::SCH_AUTHENTICATION_INTEGRATIONS:
         return SchemaAuthenticationIntegrationsScanner::create_unique();
+    case TSchemaTableType::SCH_ROLE_MAPPINGS:
+        return SchemaRoleMappingsScanner::create_unique();
     case TSchemaTableType::SCH_TABLE_STREAMS:
         return SchemaTableStreamsScanner::create_unique();
     case TSchemaTableType::SCH_TABLE_STREAM_CONSUMPTION:
         return SchemaTableStreamConsumptionScanner::create_unique();
+    case TSchemaTableType::SCH_BE_COMPACTION_TASKS:
+        return SchemaCompactionTasksScanner::create_unique();
+    case TSchemaTableType::SCH_BACKEND_MS_RPC_TABLE_THROTTLERS:
+        return SchemaBackendMsRpcTableThrottlersScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

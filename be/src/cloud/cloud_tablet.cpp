@@ -66,7 +66,6 @@
 #include "util/stack_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bvar::LatencyRecorder g_cu_compaction_get_delete_bitmap_lock_time_ms(
@@ -489,6 +488,34 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
     }
 
     _tablet_meta->modify_rs_metas({}, rs_metas, false);
+}
+
+void CloudTablet::delete_rowsets_for_schema_change(const std::vector<RowsetSharedPtr>& to_delete,
+                                                   std::unique_lock<std::shared_mutex>&) {
+    if (to_delete.empty()) {
+        return;
+    }
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    rs_metas.reserve(to_delete.size());
+    for (auto&& rs : to_delete) {
+        rs_metas.push_back(rs->rowset_meta());
+        _rs_version_map.erase(rs->version());
+        // Remove edge from version graph so that the greedy capture algorithm
+        // won't prefer the wider stale compaction rowset over individual SC
+        // output rowsets (e.g. [818-822] vs [818],[819],...,[822]).
+        _timestamped_version_tracker.delete_version(rs->version());
+    }
+
+    // Use same_version=true to skip adding to _stale_rs_metas. Do NOT use the
+    // stale tracking mechanism (_stale_rs_version_map / _stale_version_path_map)
+    // because SC output will create new rowsets with identical version ranges;
+    // a later compaction could put those into stale as well, causing two stale
+    // paths to reference the same version key -- when one path is cleaned first,
+    // the other hits a DCHECK(false) in delete_expired_stale_rowsets().
+    _tablet_meta->modify_rs_metas({}, rs_metas, true);
+
+    // Schedule for direct cache cleanup. MS has already recycled these rowsets.
+    add_unused_rowsets(to_delete);
 }
 
 uint64_t CloudTablet::delete_expired_stale_rowsets() {
@@ -1134,7 +1161,7 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
             return Status::InternalError<false>("injected update_tmp_rowset error.");
         });
         const auto& rowset_meta = rowset->rowset_meta();
-        RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta));
+        RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta, table_id()));
     }
 
     RETURN_IF_ERROR(save_delete_bitmap_to_ms(cur_version, txn_id, delete_bitmap, lock_id,
@@ -1191,7 +1218,7 @@ Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
             *this, ms_lock_id, LOAD_INITIATOR_ID, new_delete_bitmap.get(), new_delete_bitmap.get(),
             rowset->rowset_id().to_string(), storage_resource,
-            config::delete_bitmap_store_write_version, txn_id, is_explicit_txn,
+            config::delete_bitmap_store_write_version, table_id(), txn_id, is_explicit_txn,
             next_visible_version));
     return Status::OK();
 }
@@ -1344,7 +1371,7 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     }
     auto st = _engine.meta_mgr().update_delete_bitmap(
             *this, -1, initiator, output_rowset_delete_bitmap.get(), delete_bitmap_v2.get(),
-            output_rowset->rowset_id().to_string(), storage_resource, store_version);
+            output_rowset->rowset_id().to_string(), storage_resource, store_version, table_id());
     int64_t t6 = MonotonicMicros();
     LOG(INFO) << "calc_delete_bitmap_for_compaction, tablet_id=" << tablet_id()
               << ", get lock cost " << (t2 - t1) << " us, sync rowsets cost " << (t3 - t2)
@@ -2038,7 +2065,5 @@ void CloudTablet::apply_visible_pending_rowsets() {
                           ","));
     }
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

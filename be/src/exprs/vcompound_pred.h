@@ -31,7 +31,6 @@
 #include "util/simd/bits.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 inline std::string compound_operator_to_string(TExprOpcode::type op) {
     if (op == TExprOpcode::COMPOUND_AND) {
@@ -152,13 +151,14 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override {
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
         if (fast_execute(context, selector, count, result_column)) {
             return Status::OK();
         }
         if (get_num_children() == 1 || _has_const_child()) {
-            return VectorizedFnCall::execute_column(context, block, selector, count, result_column);
+            return VectorizedFnCall::execute_column_impl(context, block, selector, count,
+                                                         result_column);
         }
 
         ColumnPtr lhs_column;
@@ -246,10 +246,8 @@ public:
             auto col_res = ColumnUInt8::create(size);
             auto col_nulls = ColumnUInt8::create(size);
 
-            auto* __restrict res_datas =
-                    assert_cast<ColumnUInt8*>(col_res.get())->get_data().data();
-            auto* __restrict res_nulls =
-                    assert_cast<ColumnUInt8*>(col_nulls.get())->get_data().data();
+            auto* __restrict res_datas = col_res->get_data().data();
+            auto* __restrict res_nulls = col_nulls->get_data().data();
             ColumnPtr temp_null_map = nullptr;
             // maybe both children are nullable / or one of children is nullable
             auto* __restrict lhs_null_map_tmp = create_null_map_column(temp_null_map, lhs_null_map);
@@ -417,5 +415,4 @@ private:
     TExprOpcode::type _op;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -17,75 +17,71 @@
 # under the License.
 
 # Shared JindoFS helper functions used by build packaging.
-
-JINDOFS_PLATFORM_JAR_PATTERNS_X86_64=(
-    'jindo-core-linux-ubuntu22-x86_64-*.jar'
-)
-
-JINDOFS_PLATFORM_JAR_PATTERNS_AARCH64=(
-    'jindo-core-linux-el7-aarch64-*.jar'
-)
+# Written in POSIX sh so it is compatible with both bash and dash.
 
 jindofs_all_platform_jar_patterns() {
     printf '%s\n' \
-        "${JINDOFS_PLATFORM_JAR_PATTERNS_X86_64[@]}" \
-        "${JINDOFS_PLATFORM_JAR_PATTERNS_AARCH64[@]}"
+        'jindo-core-linux-ubuntu22-x86_64-*.jar' \
+        'jindo-core-linux-el7-aarch64-*.jar'
 }
 
 jindofs_platform_jar_patterns() {
     local target_system="$1"
     local target_arch="$2"
 
-    if [[ "${target_system}" != "Linux" ]]; then
-        return 1
-    fi
+    [ "${target_system}" = "Linux" ] || return 1
 
-    if [[ "${target_arch}" == "x86_64" ]]; then
-        printf '%s\n' "${JINDOFS_PLATFORM_JAR_PATTERNS_X86_64[@]}"
-        return 0
-    fi
-
-    if [[ "${target_arch}" == "aarch64" ]]; then
-        printf '%s\n' "${JINDOFS_PLATFORM_JAR_PATTERNS_AARCH64[@]}"
-        return 0
-    fi
-
-    return 1
+    case "${target_arch}" in
+        x86_64)
+            printf '%s\n' 'jindo-core-linux-ubuntu22-x86_64-*.jar'
+            ;;
+        aarch64)
+            printf '%s\n' 'jindo-core-linux-el7-aarch64-*.jar'
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 }
 
+# Prints "match" if jar_name matches any platform jar glob pattern; prints nothing otherwise.
+# Callers use: [ -n "$(jindofs_is_platform_jar NAME)" ]
 jindofs_is_platform_jar() {
     local jar_name="$1"
-    local pattern=""
-    while IFS= read -r pattern; do
-        if [[ -n "${pattern}" && "${jar_name}" == ${pattern} ]]; then
-            return 0
-        fi
-    done < <(jindofs_all_platform_jar_patterns)
-    return 1
+    local pattern
+    jindofs_all_platform_jar_patterns | while IFS= read -r pattern; do
+        case "${jar_name}" in
+            ${pattern})
+                echo "match"
+                return
+                ;;
+        esac
+    done
 }
 
 jindofs_find_common_jars() {
     local jindofs_dir="$1"
-    local jar=""
-    while IFS= read -r jar; do
-        if ! jindofs_is_platform_jar "$(basename "${jar}")"; then
+    local jar
+    for jar in "${jindofs_dir}"/*.jar; do
+        [ -f "${jar}" ] || continue
+        if [ -z "$(jindofs_is_platform_jar "$(basename "${jar}")")" ]; then
             echo "${jar}"
         fi
-    done < <(compgen -G "${jindofs_dir}/*.jar" | sort)
+    done | sort
 }
 
 jindofs_log_source_jars() {
     local jindofs_dir="$1"
     local target_dir="$2"
-    local jar=""
-    local -a jars=()
-
-    while IFS= read -r jar; do
-        jars+=("${jar}")
-    done < <(compgen -G "${jindofs_dir}/*.jar" | sort)
-
-    echo "JindoFS source jar count for ${target_dir}: ${#jars[@]}"
-    for jar in "${jars[@]}"; do
+    local jar
+    local count=0
+    for jar in "${jindofs_dir}"/*.jar; do
+        [ -f "${jar}" ] || continue
+        count=$((count + 1))
+    done
+    echo "JindoFS source jar count for ${target_dir}: ${count}"
+    for jar in "${jindofs_dir}"/*.jar; do
+        [ -f "${jar}" ] || continue
         echo "JindoFS source jar for ${target_dir}: $(basename "${jar}")"
     done
 }
@@ -95,28 +91,28 @@ jindofs_copy_jars() {
     local target_dir="$2"
     local target_system="$3"
     local target_arch="$4"
-    local jar=""
-    local platform_jar_pattern=""
+    local jar
+    local platform_jar_pattern
 
-    if [[ "${target_system}" != "Linux" ]]; then
-        return 0
-    fi
+    [ "${target_system}" = "Linux" ] || return 0
 
-    if [[ "${target_arch}" != "x86_64" && "${target_arch}" != "aarch64" ]]; then
-        return 0
-    fi
+    case "${target_arch}" in
+        x86_64 | aarch64) ;;
+        *) return 0 ;;
+    esac
 
     jindofs_log_source_jars "${jindofs_dir}" "${target_dir}"
 
-    while IFS= read -r jar; do
+    jindofs_find_common_jars "${jindofs_dir}" | while IFS= read -r jar; do
         cp -r -p "${jar}" "${target_dir}/"
         echo "Copy JindoFS jar to ${target_dir}: $(basename "${jar}")"
-    done < <(jindofs_find_common_jars "${jindofs_dir}")
+    done
 
-    while IFS= read -r platform_jar_pattern; do
-        while IFS= read -r jar; do
+    jindofs_platform_jar_patterns "${target_system}" "${target_arch}" | while IFS= read -r platform_jar_pattern; do
+        for jar in "${jindofs_dir}"/${platform_jar_pattern}; do
+            [ -f "${jar}" ] || continue
             cp -r -p "${jar}" "${target_dir}/"
             echo "Copy JindoFS jar to ${target_dir}: $(basename "${jar}")"
-        done < <(compgen -G "${jindofs_dir}/${platform_jar_pattern}" | sort)
-    done < <(jindofs_platform_jar_patterns "${target_system}" "${target_arch}" || true)
+        done
+    done
 }

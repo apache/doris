@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ExponentialMovingAverage;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
@@ -75,7 +76,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileReservoir;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrAvgx;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrAvgy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrIntercept;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrR2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSlope;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSxx;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSxy;
@@ -135,6 +140,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(CollectSet.class, "collect_set", "group_uniq_array"),
                 agg(Corr.class, "corr"),
                 agg(CorrWelford.class, "corr_welford"),
+                agg(ExponentialMovingAverage.class, "exponential_moving_average"),
                 agg(Count.class, "count"),
                 agg(CountByEnum.class, "count_by_enum"),
                 agg(Covar.class, "covar", "covar_pop"),
@@ -175,7 +181,11 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(PercentileApproxWeighted.class, "percentile_approx_weighted"),
                 agg(PercentileArray.class, "percentile_array"),
                 agg(QuantileUnion.class, "quantile_union"),
+                agg(RegrAvgx.class, "regr_avgx"),
+                agg(RegrAvgy.class, "regr_avgy"),
+                agg(RegrCount.class, "regr_count"),
                 agg(RegrIntercept.class, "regr_intercept"),
+                agg(RegrR2.class, "regr_r2"),
                 agg(RegrSlope.class, "regr_slope"),
                 agg(RegrSxx.class, "regr_sxx"),
                 agg(RegrSxy.class, "regr_sxy"),

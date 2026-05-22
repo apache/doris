@@ -40,8 +40,6 @@
 
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
-
 Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_uid,
                                         PathInData path, const SubcolumnColumnMetaInfo::Node* node,
                                         std::unique_ptr<SubstreamIterator>&& binary_column_reader,
@@ -224,7 +222,7 @@ Status HierarchicalDataIterator::_process_nested_columns(
     // will type the type of ColumnVariant::NESTED_TYPE, whih is Nullable<ColumnArray<NULLABLE(ColumnVariant)>>.
     for (const auto& entry : nested_subcolumns) {
         const auto* base_array =
-                check_and_get_column<ColumnArray>(*remove_nullable(entry.second[0].column));
+                assert_cast<const ColumnArray*>(remove_nullable(entry.second[0].column).get());
         MutableColumnPtr nested_object =
                 ColumnVariant::create(0, false, base_array->get_data().size());
         MutableColumnPtr offset = base_array->get_offsets_ptr()->assume_mutable();
@@ -239,7 +237,7 @@ Status HierarchicalDataIterator::_process_nested_columns(
                         subcolumn.path.get_path(), subcolumn.type->get_name());
             }
             const auto* target_array =
-                    check_and_get_column<ColumnArray>(remove_nullable(subcolumn.column).get());
+                    assert_cast<const ColumnArray*>(remove_nullable(subcolumn.column).get());
 #ifndef NDEBUG
             if (!base_array->has_equal_offsets(*target_array)) {
                 return Status::InvalidArgument(
@@ -612,7 +610,5 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnP
     }
     return Status::OK();
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

@@ -65,21 +65,26 @@ public class TabletsProcDir implements ProcDirInterface {
                 .add("VisibleVersionCount").add("VersionCount").add("QueryHits").add("WindowAccessCount")
                 .add("LastAccessTime").add("PathHash").add("Path")
                 .add("MetaUrl").add("CompactionStatus")
-                .add("CooldownReplicaId").add("CooldownMetaId");
-
+                .add("CooldownReplicaId").add("CooldownMetaId")
+                .add("BinlogSize").add("BinlogFileNum");
         if (Config.isCloudMode()) {
             builder.add("PrimaryBackendId");
         }
-
         TITLE_NAMES = builder.build();
     }
 
     private Table table;
     private MaterializedIndex index;
+    private final long partitionVisibleVersion;
 
     public TabletsProcDir(Table table, MaterializedIndex index) {
+        this(table, index, -1L);
+    }
+
+    public TabletsProcDir(Table table, MaterializedIndex index, long partitionVisibleVersion) {
         this.table = table;
         this.index = index;
+        this.partitionVisibleVersion = partitionVisibleVersion;
     }
 
     public List<List<Comparable>> fetchComparableResult(long version, long backendId, Replica.ReplicaState state)
@@ -151,6 +156,8 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(FeConstants.null_string); // compaction status
                     tabletInfo.add(-1); // cooldown replica id
                     tabletInfo.add(""); // cooldown meta id
+                    tabletInfo.add(-1L); // binlog data size
+                    tabletInfo.add(-1L); // binlog file num
                     if (Config.isCloudMode()) {
                         tabletInfo.add(-1L); // primary backend id
                     }
@@ -172,14 +179,18 @@ public class TabletsProcDir implements ProcDirInterface {
                                 || (state != null && replica.getState() != state)) {
                             continue;
                         }
+                        long displayVersion = ProcReplicaVersionDisplay.getDisplayReplicaVersion(
+                                replica, partitionVisibleVersion);
+                        long displayLastSuccessVersion = ProcReplicaVersionDisplay.getDisplayReplicaLastSuccessVersion(
+                                replica, partitionVisibleVersion);
                         List<Comparable> tabletInfo = new ArrayList<Comparable>();
                         // tabletId -- replicaId -- backendId -- version -- dataSize -- rowCount -- state
                         tabletInfo.add(tabletId);
                         tabletInfo.add(replica.getId());
                         tabletInfo.add(beId);
                         tabletInfo.add(replica.getSchemaHash());
-                        tabletInfo.add(replica.getVersion());
-                        tabletInfo.add(replica.getLastSuccessVersion());
+                        tabletInfo.add(displayVersion);
+                        tabletInfo.add(displayLastSuccessVersion);
                         tabletInfo.add(replica.getLastFailedVersion());
                         tabletInfo.add(TimeUtils.longToTimeString(replica.getLastFailedTimestamp()));
                         tabletInfo.add(replica.getDataSize());
@@ -211,6 +222,8 @@ public class TabletsProcDir implements ProcDirInterface {
                         } else {
                             tabletInfo.add(replica.getCooldownMetaId().toString());
                         }
+                        tabletInfo.add(replica.getBinlogSize());
+                        tabletInfo.add(replica.getBinlogFileNum());
                         if (Config.isCloudMode()) {
                             tabletInfo.add(((CloudReplica) replica).getPrimaryBackendId());
                         }

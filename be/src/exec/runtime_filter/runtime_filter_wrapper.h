@@ -26,10 +26,9 @@
 #include "exprs/vexpr_fwd.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class BloomFilterFuncBase;
-class VRuntimeFilterWrapper;
-using VRuntimeFilterPtr = std::shared_ptr<VRuntimeFilterWrapper>;
+class RuntimeFilterExpr;
+using RuntimeFilterExprPtr = std::shared_ptr<RuntimeFilterExpr>;
 
 // This class is a wrapper of runtime predicate function
 class RuntimeFilterWrapper {
@@ -161,5 +160,4 @@ private:
     std::atomic<State> _state;
     AtomicStatus _reason;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

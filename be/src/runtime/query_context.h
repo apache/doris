@@ -48,6 +48,7 @@ namespace doris {
 
 class PipelineFragmentContext;
 class PipelineTask;
+class QueryTaskController;
 class Dependency;
 class RecCTEScanLocalState;
 
@@ -71,7 +72,8 @@ enum class QuerySource {
     STREAM_LOAD,
     GROUP_COMMIT_LOAD,
     ROUTINE_LOAD,
-    EXTERNAL_CONNECTOR
+    EXTERNAL_CONNECTOR,
+    EXTERNAL_FRONTEND
 };
 
 const std::string toString(QuerySource query_source);
@@ -189,12 +191,6 @@ public:
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
     const TQueryOptions& query_options() const { return _query_options; }
-    bool should_be_shuffled_agg(int node_id) const {
-        return _query_options.__isset.shuffled_agg_ids &&
-               std::any_of(_query_options.shuffled_agg_ids.begin(),
-                           _query_options.shuffled_agg_ids.end(),
-                           [&](const int id) -> bool { return id == node_id; });
-    }
 
     // global runtime filter mgr, the runtime filter have remote target or
     // need local merge should regist here. before publish() or push_to_remote()
@@ -202,6 +198,10 @@ public:
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
     TUniqueId query_id() const { return _query_id; }
+
+    // Expose task-level query progress counters for runtime statistics reporting.
+    void add_total_task_num(int delta);
+    void inc_finished_task_num();
 
     ScannerScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
@@ -312,6 +312,7 @@ public:
     Status reset_global_rf(const google::protobuf::RepeatedField<int32_t>& filter_ids);
 
 private:
+    // Task-level progress counters for current query.
     friend class QueryTaskController;
 
     int _timeout_second;

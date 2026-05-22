@@ -37,7 +37,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class IcebergSysTableJniReader : public JniReader {
     ENABLE_FACTORY_CREATOR(IcebergSysTableJniReader);
@@ -53,9 +52,11 @@ public:
 
     Status init_reader();
 
+protected:
+    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
+
 private:
     Status _init_status;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

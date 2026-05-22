@@ -27,10 +27,8 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
-#include "util/io_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 Status DataTypeDateSerDe<T>::serialize_column_to_json(
@@ -77,9 +75,13 @@ Status DataTypeDateSerDe<T>::deserialize_one_cell_from_json(
         slice.trim_quote();
     }
     VecDateTimeValue val;
-    if (StringRef str(slice.data, slice.size); !read_date_text_impl(val, str)) {
+    StringRef str(slice.data, slice.size);
+    CastParameters params;
+    if (!CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE>(
+                str, val, nullptr, params)) {
         return Status::InvalidArgument("parse date fail, string: '{}'", str.to_string());
     }
+    val.cast_to_date();
     column_data.insert_value(val);
     return Status::OK();
 }
@@ -124,9 +126,13 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
         slice.trim_quote();
     }
     VecDateTimeValue val;
-    if (StringRef str(slice.data, slice.size); !read_datetime_text_impl(val, str)) {
+    StringRef str(slice.data, slice.size);
+    CastParameters params;
+    if (!CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                str, val, nullptr, params)) {
         return Status::InvalidArgument("parse datetime fail, string: '{}'", str.to_string());
     }
+    val.to_datetime();
     column_data.insert_value(val);
     return Status::OK();
 }
@@ -225,10 +231,10 @@ Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
     } else if (arrow_array->type()->id() == arrow::Type::STRING) {
         // to be compatible with old version, we use string type for date.
         const auto* concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
+        CastParameters params;
         for (auto value_i = start; value_i < end; ++value_i) {
             auto val_str = concrete_array->GetString(value_i);
             VecDateTimeValue v;
-            CastParameters params;
             CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
                     {val_str.c_str(), val_str.length()}, v, &ctz, params);
             if constexpr (is_date) {
@@ -321,7 +327,7 @@ Status DataTypeDateSerDe<T>::from_string_batch(
         const ColumnString& col_str, ColumnNullable& col_res,
         const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
     auto& col_data = assert_cast<ColumnType&>(col_res.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(col_res.get_null_map_column());
+    auto& col_nullmap = col_res.get_null_map_column();
     size_t row = col_str.size();
     col_res.resize(row);
 
@@ -428,7 +434,16 @@ Status DataTypeDateSerDe<T>::from_olap_string(const std::string& str, Field& fie
                 ? DatelikeTargetType::DATE_TIME
                 : DatelikeTargetType::DATE > (StringRef(str), res, options.timezone, params))
             [[unlikely]] {
-        return Status::InvalidArgument("parse date or datetime fail, string: '{}'", str);
+        // In paths like partial update, we may fill default values into zonemap, while the default values for date-related
+        // types are filled with the default value 0 of the number base, corresponding to the date 0000-00-00, which is not always valid.
+        // so for the parse path of zonemap strings, we swallow the failure and return a default value. the value itself does not matter,
+        // after compaction it will be replaced.
+        res = VecDateTimeValue::FIRST_DAY;
+        if constexpr (IsDatetime) {
+            res.to_datetime();
+        } else {
+            res.cast_to_date();
+        }
     }
     field = Field::create_field<T>(std::move(res));
     return Status::OK();
@@ -461,7 +476,7 @@ template <typename IntDataType>
 Status DataTypeDateSerDe<T>::from_int_batch(const typename IntDataType::ColumnType& int_col,
                                             ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(int_col.size());
     col_nullmap.resize(int_col.size());
 
@@ -513,7 +528,7 @@ template <typename FloatDataType>
 Status DataTypeDateSerDe<T>::from_float_batch(const typename FloatDataType::ColumnType& float_col,
                                               ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(float_col.size());
     col_nullmap.resize(float_col.size());
 
@@ -564,7 +579,7 @@ template <typename DecimalDataType>
 Status DataTypeDateSerDe<T>::from_decimal_batch(
         const typename DecimalDataType::ColumnType& decimal_col, ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(decimal_col.size());
     col_nullmap.resize(decimal_col.size());
 

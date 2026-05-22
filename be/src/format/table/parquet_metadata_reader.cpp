@@ -798,7 +798,7 @@ Status ParquetMetadataReader::_init_from_scan_range(const TMetaScanRange& scan_r
     return Status::OK();
 }
 
-Status ParquetMetadataReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status ParquetMetadataReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_eof) {
         *eof = true;
         *read_rows = 0;

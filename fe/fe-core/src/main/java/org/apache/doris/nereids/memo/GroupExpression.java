@@ -351,23 +351,40 @@ public class GroupExpression {
     @Override
     public String toString() {
         DecimalFormat format = new DecimalFormat("#,###.##");
-        StringBuilder builder = new StringBuilder("id:");
-        builder.append(id.asInt());
+        StringBuilder builder = new StringBuilder();
+        String separator = " | ";
+        // Format ID
+        builder.append("id:").append(id.asInt());
         if (ownerGroup == null) {
             builder.append("OWNER GROUP IS NULL[]");
         } else {
             builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
+        // Format cost information
+        builder.append(separator);
         if (cost != null) {
-            builder.append(" cost=").append(format.format(cost.getValue()) + " " + cost);
+            builder.append("cost=").append(format.format(cost.getValue()));
+            builder.append(" [cpu=").append(format.format(cost.getCpuCost()))
+                    .append(", mem=").append(format.format(cost.getMemoryCost()))
+                    .append(", net=").append(format.format(cost.getNetworkCost())).append("]");
         } else {
-            builder.append(" cost=null");
+            builder.append("cost=null");
         }
-        builder.append(" estRows=").append(format.format(estOutputRowCount));
-        builder.append(" children=[").append(Joiner.on(", ").join(
-                        children.stream().map(Group::getGroupId).collect(Collectors.toList())))
-                .append(" ]");
-        builder.append(" (plan=").append(plan.toString()).append(")");
+        // Format estimated rows
+        builder.append(separator);
+        builder.append("estRows=").append(format.format(estOutputRowCount));
+
+        // Format children
+        builder.append(separator);
+        if (!children.isEmpty()) {
+            builder.append("children=[").append(Joiner.on(", ").join(
+                    children.stream().map(Group::getGroupId).collect(Collectors.toList())))
+                    .append("]");
+        } else {
+            builder.append("children=[]");
+        }
+        // Format plan (simplified)
+        builder.append(separator).append(plan.toString());
         return builder.toString();
     }
 

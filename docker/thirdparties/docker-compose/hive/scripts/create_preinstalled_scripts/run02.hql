@@ -1,4 +1,5 @@
-CREATE TABLE `partition_table`(
+drop table if exists `partition_table`;
+create table `partition_table`(
   `l_orderkey` int,
   `l_partkey` int,
   `l_suppkey` int,

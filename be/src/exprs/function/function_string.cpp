@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/function/function_string.h"
-
 #include <ctype.h>
 #include <math.h>
 #include <re2/stringpiece.h>
@@ -37,15 +35,18 @@
 #include "core/pod_array_fwd.h"
 #include "core/string_ref.h"
 #include "exprs/function/function_reverse.h"
+#include "exprs/function/function_string_concat.h"
+#include "exprs/function/function_string_format.h"
+#include "exprs/function/function_string_replace.h"
 #include "exprs/function/function_string_to_string.h"
 #include "exprs/function/function_totype.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function/string_hex_util.h"
 #include "util/string_search.hpp"
 #include "util/url_coding.h"
+#include "util/utf8_check.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct NameStringASCII {
     static constexpr auto name = "ascii";
 };
@@ -220,6 +221,29 @@ struct StringUtf8LengthImpl {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int str_size = offsets[i] - offsets[i - 1];
             res[i] = simd::VStringFunctions::get_char_len(raw_str, str_size);
+        }
+        return Status::OK();
+    }
+};
+
+struct NameIsValidUTF8 {
+    static constexpr auto name = "is_valid_utf8";
+};
+
+struct IsValidUTF8Impl {
+    using ReturnType = DataTypeUInt8;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
+    using Type = String;
+    using ReturnColumnType = ColumnUInt8;
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         PaddedPODArray<UInt8>& res) {
+        auto size = offsets.size();
+        res.resize(size);
+        for (size_t i = 0; i < size; ++i) {
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            size_t str_size = offsets[i] - offsets[i - 1];
+            res[i] = validate_utf8(raw_str, str_size) ? 1 : 0;
         }
         return Status::OK();
     }
@@ -1316,6 +1340,7 @@ using FunctionStringLength = FunctionUnaryToType<StringLengthImpl, NameStringLen
 using FunctionCrc32 = FunctionUnaryToType<Crc32Impl, NameCrc32>;
 using FunctionStringUTF8Length = FunctionUnaryToType<StringUtf8LengthImpl, NameStringUtf8Length>;
 using FunctionStringSpace = FunctionUnaryToType<StringSpace, NameStringSpace>;
+using FunctionIsValidUTF8 = FunctionUnaryToType<IsValidUTF8Impl, NameIsValidUTF8>;
 using FunctionStringStartsWith =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringStartsWithImpl, NameStartsWith>;
 using FunctionStringEndsWith =
@@ -1346,9 +1371,21 @@ using FunctionStringAppendTrailingCharIfAbsent =
 using FunctionStringLPad = FunctionStringPad<StringLPad>;
 using FunctionStringRPad = FunctionStringPad<StringRPad>;
 
-using FunctionMakeSet = FunctionNeedsToHandleNull<MakeSetImpl, PrimitiveType::TYPE_STRING>;
+extern void register_function_string_basic(SimpleFunctionFactory& factory);
+extern void register_function_string_digest(SimpleFunctionFactory& factory);
+extern void register_function_string_mask(SimpleFunctionFactory& factory);
+extern void register_function_string_misc(SimpleFunctionFactory& factory);
+extern void register_function_string_search(SimpleFunctionFactory& factory);
+extern void register_function_string_url(SimpleFunctionFactory& factory);
 
 void register_function_string(SimpleFunctionFactory& factory) {
+    register_function_string_basic(factory);
+    register_function_string_digest(factory);
+    register_function_string_mask(factory);
+    register_function_string_misc(factory);
+    register_function_string_search(factory);
+    register_function_string_url(factory);
+
     factory.register_function<FunctionStringParseDataSize>();
     factory.register_function<FunctionStringASCII>();
     factory.register_function<FunctionStringLength>();
@@ -1360,9 +1397,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringInstr>();
     factory.register_function<FunctionStringFindInSet>();
     factory.register_function<FunctionStringLocate>();
-    factory.register_function<FunctionStringLocatePos>();
     factory.register_function<FunctionQuote>();
-    factory.register_function<FunctionAutoPartitionName>();
     factory.register_function<FunctionReverseCommon>();
     factory.register_function<FunctionUnHex>();
     factory.register_function<FunctionUnHexNullable>();
@@ -1381,15 +1416,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTrim<Trim2Impl<true, true, NameTrimIn>>>();
     factory.register_function<FunctionTrim<Trim2Impl<true, false, NameLTrimIn>>>();
     factory.register_function<FunctionTrim<Trim2Impl<false, true, NameRTrimIn>>>();
-    factory.register_function<FunctionConvertTo>();
-    factory.register_function<FunctionSubstring<Substr3Impl>>();
-    factory.register_function<FunctionSubstring<Substr2Impl>>();
-    factory.register_function<FunctionLeft>();
-    factory.register_function<FunctionRight>();
-    factory.register_function<FunctionNullOrEmpty>();
-    factory.register_function<FunctionNotNullOrEmpty>();
     factory.register_function<FunctionStringConcat>();
-    factory.register_function<FunctionIntToChar>();
     factory.register_function<FunctionStringElt>();
     factory.register_function<FunctionStringConcatWs>();
     factory.register_function<FunctionStringAppendTrailingCharIfAbsent>();
@@ -1398,17 +1425,6 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringRPad>();
     factory.register_function<FunctionToBase64>();
     factory.register_function<FunctionFromBase64>();
-    factory.register_function<FunctionSplitPart>();
-    factory.register_function<FunctionSplitByString>();
-    factory.register_function<FunctionCountSubString<FunctionCountSubStringType::TWO_ARGUMENTS>>();
-    factory.register_function<
-            FunctionCountSubString<FunctionCountSubStringType::THREE_ARGUMENTS>>();
-    factory.register_function<FunctionSubstringIndex>();
-    factory.register_function<FunctionExtractURLParameter>();
-    factory.register_function<FunctionStringParseUrl>();
-    factory.register_function<FunctionUrlDecode>();
-    factory.register_function<FunctionUrlEncode>();
-    factory.register_function<FunctionRandomBytes>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatDoubleImpl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt64Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt128Impl>>();
@@ -1426,38 +1442,17 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<
             FunctionStringFormatRound<FormatRoundDecimalImpl<TYPE_DECIMAL128I>>>();
     factory.register_function<FunctionStringFormatRound<FormatRoundDecimalImpl<TYPE_DECIMAL256>>>();
-    factory.register_function<FunctionStringDigestMulti<SM3Sum>>();
-    factory.register_function<FunctionStringDigestMulti<MD5Sum>>();
-    factory.register_function<FunctionStringDigestSHA1>();
-    factory.register_function<FunctionStringDigestSHA2>();
     factory.register_function<FunctionReplace<ReplaceImpl, true>>();
     factory.register_function<FunctionReplace<ReplaceEmptyImpl, false>>();
-    factory.register_function<FunctionTranslate>();
-    factory.register_function<FunctionMask>();
-    factory.register_function<FunctionMaskPartial<true>>();
-    factory.register_function<FunctionMaskPartial<false>>();
     factory.register_function<FunctionSubReplace<SubReplaceThreeImpl>>();
     factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
     factory.register_function<FunctionOverlay>();
-    factory.register_function<FunctionStrcmp>();
-    factory.register_function<FunctionNgramSearch>();
-    factory.register_function<FunctionXPathString>();
-    factory.register_function<FunctionCrc32Internal>();
-    factory.register_function<FunctionMakeSet>();
-    factory.register_function<FunctionExportSet>();
-    factory.register_function<FunctionUnicodeNormalize>();
+    factory.register_function<FunctionIsValidUTF8>();
 
-    factory.register_alias(FunctionLeft::name, "strleft");
-    factory.register_alias(FunctionRight::name, "strright");
-    factory.register_alias(SubstringUtil::name, "substr");
-    factory.register_alias(SubstringUtil::name, "mid");
+    factory.register_alias(FunctionIsValidUTF8::name, "isValidUTF8");
     factory.register_alias(FunctionToLower::name, "lcase");
     factory.register_alias(FunctionToUpper::name, "ucase");
-    factory.register_alias(FunctionStringDigestMulti<MD5Sum>::name, "md5");
     factory.register_alias(FunctionStringUTF8Length::name, "character_length");
-    factory.register_alias(FunctionStringDigestMulti<SM3Sum>::name, "sm3");
-    factory.register_alias(FunctionStringDigestSHA1::name, "sha");
-    factory.register_alias(FunctionStringLocatePos::name, "position");
     factory.register_alias(FunctionStringLength::name, "octet_length");
     factory.register_alias(FunctionOverlay::name, "insert");
 }

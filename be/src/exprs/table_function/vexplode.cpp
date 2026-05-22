@@ -36,7 +36,6 @@
 #include "exprs/vexpr_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VExplodeTableFunction::VExplodeTableFunction() {
     _fn_name = "vexplode";
@@ -94,7 +93,7 @@ Status VExplodeTableFunction::process_init(Block* block, RuntimeState* state) {
 }
 
 bool VExplodeTableFunction::support_block_fast_path() const {
-    return !_is_outer;
+    return true;
 }
 
 Status VExplodeTableFunction::prepare_block_fast_path(Block* /*block*/, RuntimeState* /*state*/,
@@ -171,5 +170,4 @@ int VExplodeTableFunction::get_value(MutableColumnPtr& column, int max_step) {
     return max_step;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

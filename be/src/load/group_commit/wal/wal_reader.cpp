@@ -27,7 +27,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 WalReader::WalReader(RuntimeState* state) : _state(state) {
     _wal_id = state->wal_id();
 }
@@ -40,7 +39,22 @@ Status WalReader::init_reader(const TupleDescriptor* tuple_descriptor) {
     return Status::OK();
 }
 
-Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+// ---- Unified init_reader(ReaderInitContext*) overrides ----
+
+Status WalReader::_open_file_reader(ReaderInitContext* ctx) {
+    auto* wal_ctx = checked_context_cast<WalInitContext>(ctx);
+    _tuple_descriptor = wal_ctx->output_tuple_descriptor;
+    RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->get_wal_path(_wal_id, _wal_path));
+    _wal_reader = std::make_shared<doris::WalFileReader>(_wal_path);
+    RETURN_IF_ERROR(_wal_reader->init());
+    return Status::OK();
+}
+
+Status WalReader::_do_init_reader(ReaderInitContext* /*base_ctx*/) {
+    return Status::OK();
+}
+
+Status WalReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     //read src block
     PBlock pblock;
     auto st = _wal_reader->read_block(pblock);
@@ -97,11 +111,11 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     block->swap(dst_block);
     *read_rows = block->rows();
     VLOG_DEBUG << "read block rows:" << *read_rows;
+
     return Status::OK();
 }
 
-Status WalReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                              std::unordered_set<std::string>* missing_cols) {
+Status WalReader::_get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     std::string col_ids;
     RETURN_IF_ERROR(_wal_reader->read_header(_version, col_ids));
     std::vector<std::string> column_id_vector =
@@ -117,8 +131,15 @@ Status WalReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name
     } catch (const std::invalid_argument& e) {
         return Status::InvalidArgument("Invalid format, {}", e.what());
     }
+    // Report WAL columns so on_before_init_reader does not mark them as missing.
+    if (_tuple_descriptor) {
+        for (auto* slot_desc : _tuple_descriptor->slots()) {
+            if (_column_pos_map.contains(slot_desc->col_unique_id())) {
+                name_to_type->emplace(slot_desc->col_name(), slot_desc->get_data_type_ptr());
+            }
+        }
+    }
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

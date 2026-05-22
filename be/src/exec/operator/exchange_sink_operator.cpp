@@ -25,7 +25,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <random>
 #include <string>
 
@@ -46,7 +45,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
     return _parent->cast<ExchangeSinkOperatorX>()._transfer_large_data_by_brpc;
 }
@@ -215,7 +213,7 @@ void ExchangeSinkLocalState::_create_channels() {
 }
 
 void ExchangeSinkLocalState::on_channel_finished(InstanceLoId channel_id) {
-    std::lock_guard<std::mutex> lock(_finished_channels_mutex);
+    LockGuard lock(_finished_channels_mutex);
 
     if (_finished_channels.contains(channel_id)) {
         LOG(WARNING) << "Query: " << print_id(_state->query_id())

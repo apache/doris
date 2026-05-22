@@ -23,6 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.AutoBucketUtils;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendServiceImpl;
@@ -32,14 +33,15 @@ import org.apache.doris.thrift.TNullableStringLiteral;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class PartitionExprUtilTest extends TestWithFeService {
 
@@ -113,49 +115,51 @@ public class PartitionExprUtilTest extends TestWithFeService {
         Partition p1 = table.getPartition(partNames[0]);
         Partition p2 = table.getPartition(partNames[1]);
         Partition p3 = table.getPartition(partNames[2]);
-        new Expectations(p1, p2, p3) {
-            {
-                p1.getDataSizeExcludeEmptyReplica(true);
-                result = 1000 * GB; // ~1 TB uncompressed
-                minTimes = 0;
-                p2.getDataSizeExcludeEmptyReplica(true);
-                result = 1500 * GB; // ~1.5 TB uncompressed
-                minTimes = 0;
-                p3.getDataSizeExcludeEmptyReplica(true);
-                result = 2000 * GB; // ~2 TB uncompressed
-                minTimes = 0;
-            }
-        };
+
+        Partition spyP1 = Mockito.spy(p1);
+        Partition spyP2 = Mockito.spy(p2);
+        Partition spyP3 = Mockito.spy(p3);
+        Mockito.doReturn(1000 * GB).when(spyP1).getDataSizeExcludeEmptyReplica(true); // ~1 TB uncompressed
+        Mockito.doReturn(1500 * GB).when(spyP2).getDataSizeExcludeEmptyReplica(true); // ~1.5 TB uncompressed
+        Mockito.doReturn(2000 * GB).when(spyP3).getDataSizeExcludeEmptyReplica(true); // ~2 TB uncompressed
+
+        // Replace partition objects with spied versions in the table's internal maps
+        Map<String, Partition> nameToPartition = Deencapsulation.getField(table, "nameToPartition");
+        @SuppressWarnings("unchecked")
+        ConcurrentHashMap<Long, Partition> idToPartition = Deencapsulation.getField(table, "idToPartition");
+        nameToPartition.put(partNames[0], spyP1);
+        nameToPartition.put(partNames[1], spyP2);
+        nameToPartition.put(partNames[2], spyP3);
+        idToPartition.put(p1.getId(), spyP1);
+        idToPartition.put(p2.getId(), spyP2);
+        idToPartition.put(p3.getId(), spyP3);
 
         // Directly mock BE disk cap to a very large value so AutoBucketUtils doesn't limit by disks
-        new MockUp<AutoBucketUtils>() {
-            @Mock
-            public int getBucketsNumByBEDisks() { // private static in target, allowed to mock by name
-                return Integer.MAX_VALUE;
-            }
-        };
+        try (MockedStatic<AutoBucketUtils> mockedAutoBucket = Mockito.mockStatic(AutoBucketUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedAutoBucket.when(AutoBucketUtils::getBucketsNumByBEDisks).thenReturn(Integer.MAX_VALUE);
 
-        // Compute expected bucket by reusing scheduler helpers before creating the new partition (2023-08-04)
-        String newPartName = "p20230804000000";
+            // Compute expected bucket by reusing scheduler helpers before creating the new partition (2023-08-04)
+            String newPartName = "p20230804000000";
 
-        // Create the new partition (2023-08-04) and verify bucket num
-        List<List<TNullableStringLiteral>> partitionValues4 = new ArrayList<>();
-        List<TNullableStringLiteral> values4 = new ArrayList<>();
-        TNullableStringLiteral start4 = new TNullableStringLiteral();
-        start4.setValue("2023-08-04 00:00:00");
-        values4.add(start4);
-        partitionValues4.add(values4);
+            // Create the new partition (2023-08-04) and verify bucket num
+            List<List<TNullableStringLiteral>> partitionValues4 = new ArrayList<>();
+            List<TNullableStringLiteral> values4 = new ArrayList<>();
+            TNullableStringLiteral start4 = new TNullableStringLiteral();
+            start4.setValue("2023-08-04 00:00:00");
+            values4.add(start4);
+            partitionValues4.add(values4);
 
-        TCreatePartitionRequest request4 = new TCreatePartitionRequest();
-        request4.setDbId(db.getId());
-        request4.setTableId(table.getId());
-        request4.setPartitionValues(partitionValues4);
-        TCreatePartitionResult result4 = impl.createPartition(request4);
-        Assertions.assertEquals(TStatusCode.OK, result4.getStatus().getStatusCode());
+            TCreatePartitionRequest request4 = new TCreatePartitionRequest();
+            request4.setDbId(db.getId());
+            request4.setTableId(table.getId());
+            request4.setPartitionValues(partitionValues4);
+            TCreatePartitionResult result4 = impl.createPartition(request4);
+            Assertions.assertEquals(TStatusCode.OK, result4.getStatus().getStatusCode());
 
-        Partition p4 = table.getPartition(newPartName);
-        Assertions.assertNotNull(p4);
-        Assertions.assertEquals(p4.getDistributionInfo().getBucketNum(), 500);
+            Partition p4 = table.getPartition(newPartName);
+            Assertions.assertNotNull(p4);
+            Assertions.assertEquals(p4.getDistributionInfo().getBucketNum(), 500);
+        }
     }
 
     @Test

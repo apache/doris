@@ -66,7 +66,6 @@ class ColumnIterator;
 struct AnnRangeSearchRuntime;
 }; // namespace segment_v2
 
-#include "common/compile_check_begin.h"
 #define RETURN_IF_ERROR_OR_PREPARED(stmt) \
     if (_prepared) {                      \
         return Status::OK();              \
@@ -91,8 +90,6 @@ public:
         // just inserted. so no need to check underflow.
         return block->columns() - 1;
     }
-
-    static bool is_acting_on_a_slot(const VExpr& expr);
 
     VExpr(const TExprNode& node);
     VExpr(const VExpr& vexpr);
@@ -146,8 +143,13 @@ public:
     // In the future this interface will add an additional parameter, Selector, which specifies
     // which rows in the block should be evaluated.
     // If expr is executing constant expressions, then block should be nullptr.
-    virtual Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                  size_t count, ColumnPtr& result_column) const = 0;
+
+    Status execute_column(VExprContext* context, const Block* block, const Selector* selector,
+                          size_t count, ColumnPtr& result_column) const;
+
+    virtual Status execute_column_impl(VExprContext* context, const Block* block,
+                                       const Selector* selector, size_t count,
+                                       ColumnPtr& result_column) const = 0;
 
     // Currently, due to fe planning issues, for slot-ref expressions the type of the returned Column may not match data_type.
     // Therefore we need a function like this to return the actual type produced by execution.
@@ -321,7 +323,7 @@ public:
     }
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
-    bool fast_execute(VExprContext* context, Selector* selector, size_t count,
+    bool fast_execute(VExprContext* context, const Selector* selector, size_t count,
                       ColumnPtr& result_column) const;
 
     virtual bool can_push_down_to_index() const { return false; }
@@ -343,7 +345,8 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats);
+            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
+            bool enable_result_cache);
 
     // Prepare the runtime for ANN range search.
     // AnnRangeSearchRuntime is used to store the runtime information of ann range search.
@@ -640,5 +643,4 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
 TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type, int precision,
                                  int scale);
 
-#include "common/compile_check_end.h"
 } // namespace doris

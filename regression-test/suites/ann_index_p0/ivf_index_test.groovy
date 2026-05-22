@@ -19,9 +19,9 @@ suite ("ivf_index_test") {
     sql "set enable_common_expr_pushdown=true;"
 
     // IVF index
-    sql "drop table if exists tbl_ann_l2"
+    sql "drop table if exists ivf_tbl_ann_l2"
     sql """
-    CREATE TABLE tbl_ann_l2 (
+    CREATE TABLE ivf_tbl_ann_l2 (
         id INT NOT NULL,
         embedding ARRAY<FLOAT> NOT NULL,
         INDEX idx_emb (`embedding`) USING ANN PROPERTIES(
@@ -37,7 +37,7 @@ suite ("ivf_index_test") {
     """
 
     sql """
-    INSERT INTO tbl_ann_l2 VALUES
+    INSERT INTO ivf_tbl_ann_l2 VALUES
     (1, [1.0, 2.0, 3.0]),
     (2, [0.5, 2.1, 2.9]),
     (3, [10.0, 10.0, 10.0]),
@@ -45,15 +45,14 @@ suite ("ivf_index_test") {
     (5, [50.0, 20.0, 20.0]),
     (6, [60.0, 20.0, 20.0]);
     """
-    qt_sql "select * from tbl_ann_l2;"
-    // just approximate search
-    sql "select id, l2_distance_approximate(embedding, [1.0,2.0,3.0]) as dist from tbl_ann_l2 order by dist limit 2;"
+    qt_sql "select * from ivf_tbl_ann_l2 order by id;"
+    qt_sql_l2_topn "select id from ivf_tbl_ann_l2 order by l2_distance_approximate(embedding, [1.0,2.0,3.0]) limit 2;"
 
-    sql """drop table if exists tbl_ann_l2"""
+    sql """drop table if exists ivf_tbl_ann_l2"""
     test {
         // missing nlist
         sql """
-        CREATE TABLE tbl_ann_l2 (
+        CREATE TABLE ivf_tbl_ann_l2 (
             id INT NOT NULL,
             embedding ARRAY<FLOAT> NOT NULL,
             INDEX idx_emb (`embedding`) USING ANN PROPERTIES(
@@ -70,7 +69,7 @@ suite ("ivf_index_test") {
     }
 
     sql """
-    CREATE TABLE tbl_ann_l2 (
+    CREATE TABLE ivf_tbl_ann_l2 (
         id INT NOT NULL,
         embedding ARRAY<FLOAT> NOT NULL,
         INDEX idx_emb (`embedding`) USING ANN PROPERTIES(
@@ -86,14 +85,15 @@ suite ("ivf_index_test") {
     """
     // Not enough training points: should not throw exception anymore, just skip index building.
     sql """
-    INSERT INTO tbl_ann_l2 VALUES
+    INSERT INTO ivf_tbl_ann_l2 VALUES
     (1, [1.0, 2.0, 3.0]),
     (2, [0.5, 2.1, 2.9]);
     """
+    qt_sql_l2_insufficient_train_rows "select id from ivf_tbl_ann_l2 order by l2_distance_approximate(embedding, [1.0,2.0,3.0]) limit 2;"
 
-    sql "drop table if exists tbl_ann_ip"
+    sql "drop table if exists ivf_tbl_ann_ip"
     sql """
-    CREATE TABLE tbl_ann_ip (
+    CREATE TABLE ivf_tbl_ann_ip (
         id INT NOT NULL,
         embedding ARRAY<FLOAT> NOT NULL,
         INDEX idx_emb (`embedding`) USING ANN PROPERTIES(
@@ -109,7 +109,7 @@ suite ("ivf_index_test") {
     """
 
     sql """
-    INSERT INTO tbl_ann_ip VALUES
+    INSERT INTO ivf_tbl_ann_ip VALUES
     (1, [1.0, 2.0, 3.0]),
     (2, [0.5, 2.1, 2.9]),
     (3, [10.0, 10.0, 10.0]),
@@ -117,7 +117,6 @@ suite ("ivf_index_test") {
     (5, [50.0, 20.0, 20.0]),
     (6, [60.0, 20.0, 20.0]);
     """
-    qt_sql "select * from tbl_ann_ip;"
-    // just approximate search
-    sql "select id, inner_product_approximate(embedding, [1.0,2.0,3.0]) as dist from tbl_ann_ip order by dist desc limit 2;"
+    qt_sql "select * from ivf_tbl_ann_ip order by id;"
+    qt_sql_ip_topn "select id from ivf_tbl_ann_ip order by inner_product_approximate(embedding, [1.0,2.0,3.0]) desc limit 2;"
 }

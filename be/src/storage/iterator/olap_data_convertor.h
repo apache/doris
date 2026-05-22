@@ -46,15 +46,12 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "core/uint24.h"
-#include "runtime/collection_value.h"
 #include "util/slice.h"
 
 namespace doris {
 
 class TabletSchema;
 class TabletColumn;
-
-#include "common/compile_check_begin.h"
 
 class Block;
 class ColumnArray;
@@ -545,7 +542,5 @@ private:
 private:
     std::vector<OlapColumnDataConvertorBaseUPtr> _convertors;
 };
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

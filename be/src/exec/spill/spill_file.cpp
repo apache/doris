@@ -34,7 +34,6 @@
 #include "util/debug_points.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 SpillFile::SpillFile(SpillDataDir* data_dir, std::string relative_path)
         : _data_dir(data_dir),
           _spill_dir(data_dir->get_spill_data_path() + "/" + std::move(relative_path)) {}

@@ -61,8 +61,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 class PointQueryResultBlockBuffer final : public MySQLResultBlockBuffer {
 public:
     PointQueryResultBlockBuffer(RuntimeState* state) : MySQLResultBlockBuffer(state) {}
@@ -287,6 +285,25 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
         _reusable = cache_handle;
         _profile_metrics.hit_lookup_cache = true;
     } else {
+        // Lightweight request: FE may omit reusable query context and rely on uuid cache.
+        // If cache miss and required parameters are absent, ask FE to resend a full request.
+        if (uuid != 0 && (!request->has_desc_tbl() || request->desc_tbl().empty() ||
+                          !request->has_output_expr() || request->output_expr().empty() ||
+                          !request->has_query_options() || request->query_options().empty())) {
+            if (VLOG_DEBUG_IS_ON) {
+                VLOG_DEBUG << "lookup connection cache miss, ask FE to resend query context"
+                           << ", tablet_id=" << request->tablet_id()
+                           << ", uuid_high=" << request->uuid().uuid_high()
+                           << ", uuid_low=" << request->uuid().uuid_low();
+            }
+            response->set_need_resend_query_context(true);
+            return Status::OK();
+        }
+        if (uuid == 0 && (!request->has_desc_tbl() || request->desc_tbl().empty() ||
+                          !request->has_output_expr() || request->output_expr().empty())) {
+            return Status::InvalidArgument(
+                    "tablet_fetch_data requires desc_tbl/output_expr when uuid is not set");
+        }
         // init handle
         auto reusable_ptr = std::make_shared<Reusable>();
         TDescriptorTable t_desc_tbl;
@@ -539,7 +556,8 @@ Status PointQueryExecutor::_lookup_row_data() {
             const auto& segment = *it;
             for (int cid : _reusable->missing_col_uids()) {
                 int pos = _reusable->get_col_uid_to_idx().at(cid);
-                auto row_id = static_cast<segment_v2::rowid_t>(row_loc.row_id);
+                std::vector<segment_v2::rowid_t> row_ids {
+                        static_cast<segment_v2::rowid_t>(row_loc.row_id)};
                 MutableColumnPtr column =
                         _result_block->get_by_position(pos).column->assume_mutable();
                 std::unique_ptr<ColumnIterator> iter;
@@ -548,7 +566,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                 storage_read_options.stats = &_read_stats;
                 storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
                 RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
-                                                                row_id, column,
+                                                                row_ids, column,
                                                                 storage_read_options, iter));
                 if (_tablet->tablet_schema()
                             ->column_by_uid(slot->col_unique_id())
@@ -627,7 +645,5 @@ Status PointQueryExecutor::_output_data() {
     _reusable->return_block(_result_block);
     return Status::OK();
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

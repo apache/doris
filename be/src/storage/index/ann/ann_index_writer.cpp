@@ -26,7 +26,6 @@
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 static std::string get_or_default(const std::map<std::string, std::string>& properties,
                                   const std::string& key, const std::string& default_value) {
     auto it = properties.find(key);
@@ -134,11 +133,6 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
     return Status::OK();
 }
 
-Status AnnIndexColumnWriter::add_array_values(size_t field_size, const CollectionValue* values,
-                                              size_t count) {
-    return Status::InternalError("Ann index should not be used on nullable column");
-}
-
 Status AnnIndexColumnWriter::add_nulls(uint32_t count) {
     return Status::InternalError("Ann index should not be used on nullable column");
 }
@@ -202,5 +196,4 @@ Status AnnIndexColumnWriter::finish() {
         }
     }
 }
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

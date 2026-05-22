@@ -25,7 +25,6 @@
 #include "exprs/function/function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 /** Higher-order functions for arrays.
   * These functions optionally apply a map (transform) to array (or multiple arrays of identical size) by lambda function,
   *  and return some result based on that transformation.
@@ -52,10 +51,10 @@ public:
         auto ptr = typed_column.column->convert_to_full_column_if_const();
         const typename Impl::column_type* column_array;
         if (ptr->is_nullable()) {
-            column_array = check_and_get_column<const typename Impl::column_type>(
+            column_array = assert_cast<const typename Impl::column_type*>(
                     assert_cast<const ColumnNullable*>(ptr.get())->get_nested_column_ptr().get());
         } else {
-            column_array = check_and_get_column<const typename Impl::column_type>(ptr.get());
+            column_array = assert_cast<const typename Impl::column_type*>(ptr.get());
         }
         const auto* data_type_array =
                 assert_cast<const DataTypeArray*>(remove_nullable(typed_column.type).get());
@@ -71,5 +70,4 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

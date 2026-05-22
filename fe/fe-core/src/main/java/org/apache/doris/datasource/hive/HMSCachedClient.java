@@ -17,11 +17,11 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
-import org.apache.doris.info.TableNameInfo;
 
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;

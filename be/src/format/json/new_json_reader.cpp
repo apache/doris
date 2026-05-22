@@ -73,13 +73,13 @@ enum class FileCachePolicy : uint8_t;
 } // namespace doris::io
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                              const TFileScanRangeParams& params, const TFileRangeDesc& range,
                              const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof,
-                             io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder)
+                             size_t batch_size, io::IOContext* io_ctx,
+                             std::shared_ptr<io::IOContext> io_ctx_holder)
         : _vhandle_json_callback(nullptr),
           _state(state),
           _profile(profile),
@@ -100,7 +100,8 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _scanner_eof(scanner_eof),
           _current_offset(0),
           _io_ctx(io_ctx),
-          _io_ctx_holder(std::move(io_ctx_holder)) {
+          _io_ctx_holder(std::move(io_ctx_holder)),
+          _batch_size(std::max(batch_size, 1UL)) {
     if (_io_ctx == nullptr && _io_ctx_holder) {
         _io_ctx = _io_ctx_holder.get();
     }
@@ -117,7 +118,7 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
 
 NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range,
-                             const std::vector<SlotDescriptor*>& file_slot_descs,
+                             const std::vector<SlotDescriptor*>& file_slot_descs, size_t batch_size,
                              io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder)
         : _vhandle_json_callback(nullptr),
           _state(nullptr),
@@ -135,7 +136,8 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
           _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
           _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
           _io_ctx(io_ctx),
-          _io_ctx_holder(std::move(io_ctx_holder)) {
+          _io_ctx_holder(std::move(io_ctx_holder)),
+          _batch_size(std::max(batch_size, 1UL)) {
     if (_io_ctx == nullptr && _io_ctx_holder) {
         _io_ctx = _io_ctx_holder.get();
     }
@@ -197,15 +199,71 @@ Status NewJsonReader::init_reader(
     return Status::OK();
 }
 
-Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+// ---- Unified init_reader(ReaderInitContext*) overrides ----
+
+Status NewJsonReader::_open_file_reader(ReaderInitContext* /*ctx*/) {
+    RETURN_IF_ERROR(_get_range_params());
+    RETURN_IF_ERROR(_open_file_reader(false));
+    return Status::OK();
+}
+
+Status NewJsonReader::_do_init_reader(ReaderInitContext* base_ctx) {
+    auto* ctx = checked_context_cast<JsonInitContext>(base_ctx);
+    _is_load = ctx->is_load;
+
+    RETURN_IF_ERROR(_get_column_default_value(_file_slot_descs, *ctx->col_default_value_ctx));
+    for (auto* slot_desc : _file_slot_descs) {
+        _serdes.emplace_back(slot_desc->get_data_type_ptr()->get_serde());
+    }
+
+    // Create decompressor (needed by line reader below)
+    RETURN_IF_ERROR(Decompressor::create_decompressor(_file_compress_type, &_decompressor));
+
+    if (LIKELY(_read_json_by_line)) {
+        RETURN_IF_ERROR(_open_line_reader());
+    }
+    RETURN_IF_ERROR(_parse_jsonpath_and_json_root());
+
+    if (_parsed_jsonpaths.empty()) {
+        _vhandle_json_callback = &NewJsonReader::_simdjson_handle_simple_json;
+    } else {
+        if (_strip_outer_array) {
+            _vhandle_json_callback = &NewJsonReader::_simdjson_handle_flat_array_complex_json;
+        } else {
+            _vhandle_json_callback = &NewJsonReader::_simdjson_handle_nested_complex_json;
+        }
+    }
+    _ondemand_json_parser = std::make_unique<simdjson::ondemand::parser>();
+    for (int i = 0; i < _file_slot_descs.size(); ++i) {
+        _slot_desc_index[StringRef {_file_slot_descs[i]->col_name()}] = i;
+        if (_file_slot_descs[i]->is_skip_bitmap_col()) {
+            skip_bitmap_col_idx = i;
+        }
+    }
+    _simdjson_ondemand_padding_buffer.resize(_padded_size);
+    _simdjson_ondemand_unscape_padding_buffer.resize(_padded_size);
+    return Status::OK();
+}
+
+void NewJsonReader::set_batch_size(size_t batch_size) {
+    // 0 means "not set" / "use default" for the row-based readers; we must
+    // never let _batch_size be 0 because _do_get_next_block uses it as the
+    // upper bound of a `while (block->rows() < batch_size)` loop and a 0
+    // would make the reader return without setting eof, causing the scanner
+    // to spin on empty blocks.
+    _batch_size = std::max(batch_size, 1UL);
+}
+
+Status NewJsonReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_reader_eof) {
         *eof = true;
         return Status::OK();
     }
 
-    const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
+    const auto batch_size = _batch_size;
+    const auto max_block_bytes = _state->preferred_block_size_bytes();
 
-    while (block->rows() < batch_size && !_reader_eof) {
+    while (block->rows() < batch_size && !_reader_eof && (block->bytes() < max_block_bytes)) {
         if (UNLIKELY(_read_json_by_line && _skip_first_line)) {
             size_t size = 0;
             const uint8_t* line_ptr = nullptr;
@@ -228,8 +286,8 @@ Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     return Status::OK();
 }
 
-Status NewJsonReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                                  std::unordered_set<std::string>* missing_cols) {
+Status NewJsonReader::_get_columns_impl(
+        std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
     }
@@ -1586,5 +1644,4 @@ void NewJsonReader::_collect_profile_before_close() {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

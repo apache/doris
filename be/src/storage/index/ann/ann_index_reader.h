@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <cstdint>
+#include <string>
+
 #include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_search_params.h"
@@ -26,7 +29,6 @@
 #include "storage/tablet/tablet_schema.h"
 #include "util/once.h"
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 struct AnnTopNParam;
 struct AnnRangeSearchParams;
@@ -39,11 +41,9 @@ class IndexIterator;
 class AnnIndexReader : public IndexReader {
 public:
     AnnIndexReader(const TabletIndex* index_meta,
-                   std::shared_ptr<IndexFileReader> index_file_reader);
+                   std::shared_ptr<IndexFileReader> index_file_reader, std::string rowset_id = "",
+                   uint32_t segment_id = 0, size_t rows_of_segment = 0);
     ~AnnIndexReader() override = default;
-
-    static void update_result(const IndexSearchResult&, std::vector<float>& distance,
-                              roaring::Roaring& row_id);
 
     Status load_index(io::IOContext* io_ctx);
 
@@ -81,9 +81,11 @@ private:
     AnnIndexType _index_type;
     AnnIndexMetric _metric_type;
     size_t _dim;
+    std::string _rowset_id;
+    uint32_t _segment_id;
+    size_t _rows_of_segment = 0;
     DorisCallOnce<Status> _load_index_once;
 };
 
 using AnnIndexReaderPtr = std::shared_ptr<AnnIndexReader>;
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

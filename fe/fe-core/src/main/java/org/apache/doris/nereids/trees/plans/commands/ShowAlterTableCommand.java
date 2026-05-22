@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -133,6 +134,7 @@ public class ShowAlterTableCommand extends ShowCommand {
                 throw new AnalysisException("Where clause : TableName = \"table1\" or "
                     + "State = \"FINISHED|CANCELLED|RUNNING|PENDING|WAITING_TXN\"");
             }
+            filterMap.put(leftKey, isNotExpr ? new Not(subExpr) : subExpr);
         } else if (leftKey.equals(CREATE_TIME) || leftKey.equals(FINISH_TIME)) {
             if (!(subExpr.child(1) instanceof StringLikeLiteral)) {
                 throw new AnalysisException("Where clause : CreateTime/FinishTime =|>=|<=|>|<|!= "
@@ -142,12 +144,18 @@ public class ShowAlterTableCommand extends ShowCommand {
             Expression right = subExpr.child(1).castTo(Config.enable_date_conversion
                     ? DateTimeV2Type.MAX : DateTimeType.INSTANCE);
             subExpr = subExpr.withChildren(left, right);
+            Expression filterExpr = isNotExpr ? new Not(subExpr) : subExpr;
+            Expression existingExpr = filterMap.get(leftKey);
+            if (existingExpr == null) {
+                filterMap.put(leftKey, filterExpr);
+            } else {
+                filterMap.put(leftKey, ExpressionUtils.and(existingExpr, filterExpr));
+            }
         } else {
             throw new AnalysisException(
                 "The columns of TableName/IndexName/CreateTime/FinishTime/State/BaseIndexName/RollupIndexName "
                         + "are supported.");
         }
-        filterMap.put(leftKey.toLowerCase(), isNotExpr ? new Not(subExpr) : subExpr);
     }
 
     private void analyzeSubPredicate(Expression subExpr) throws AnalysisException {

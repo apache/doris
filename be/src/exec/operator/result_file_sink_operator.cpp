@@ -28,7 +28,6 @@
 #include "runtime/result_buffer_mgr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent,
                                                    RuntimeState* state)
@@ -158,5 +157,4 @@ Status ResultFileSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool 
     return local_state.sink(state, in_block, eos);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -39,7 +39,6 @@
 #include "util/brpc_closure.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class PTransmitDataParams;
 class TUniqueId;
 
@@ -340,5 +339,4 @@ private:
     int _send_multi_blocks_byte_size = 256 * 1024;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

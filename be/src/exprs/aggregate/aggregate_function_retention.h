@@ -40,7 +40,6 @@
 #include "util/var_int.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -106,7 +105,7 @@ struct RetentionState {
     }
 };
 
-class AggregateFunctionRetention
+class AggregateFunctionRetention final
         : public IAggregateFunctionDataHelper<RetentionState, AggregateFunctionRetention>,
           VarargsExpression,
           NullableAggregateFunction {
@@ -164,4 +163,3 @@ public:
     }
 };
 } // namespace doris
-#include "common/compile_check_end.h"

@@ -18,7 +18,6 @@
 #include "storage/index/inverted/analyzer/ik/core/AnalyzeContext.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 AnalyzeContext::AnalyzeContext(Arena& arena, std::shared_ptr<Configuration> config)
         : segment_buff_(),
@@ -295,5 +294,4 @@ void AnalyzeContext::outputSingleCJK(size_t index) {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

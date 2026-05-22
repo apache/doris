@@ -22,10 +22,11 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -41,8 +42,7 @@ public class MaterializedIndexTest {
     private long indexId;
 
     private List<Column> columns;
-    @Mocked
-    private Env env;
+    private Env env = Mockito.mock(Env.class);
 
     private FakeEnv fakeEnv;
 
@@ -59,6 +59,13 @@ public class MaterializedIndexTest {
         fakeEnv = new FakeEnv();
         FakeEnv.setEnv(env);
         FakeEnv.setMetaVersion(FeConstants.meta_version);
+    }
+
+    @After
+    public void tearDown() {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
     }
 
     @Test

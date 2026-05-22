@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.io.FileUtils;
@@ -190,5 +191,50 @@ public class VariableMgrTest {
                 new StringLiteral(""));
         VariableMgr.setVar(var, setVar);
         Assert.assertEquals(new String[] {""}, var.getSqlConvertorFeatures());
+    }
+
+    @Test
+    public void testAdaptiveBatchSizeDefaultsToThrift() {
+        SessionVariable var = new SessionVariable();
+        TQueryOptions options = var.toThrift();
+
+        Assert.assertEquals(8160, var.batchSize);
+        Assert.assertEquals(8160, options.getBatchSize());
+        Assert.assertEquals(8388608L, options.getPreferredBlockSizeBytes());
+    }
+
+    @Test
+    public void testAdaptiveBatchSizeSessionVariables() throws Exception {
+        SessionVariable var = new SessionVariable();
+
+        VariableMgr.setVar(var, new SetVar(SetType.SESSION, SessionVariable.BATCH_SIZE,
+                new StringLiteral("12345")));
+        VariableMgr.setVar(var, new SetVar(SetType.SESSION, SessionVariable.PREFERRED_BLOCK_SIZE_BYTES,
+                new StringLiteral("1048576")));
+
+        TQueryOptions options = var.toThrift();
+        Assert.assertEquals(12345, var.batchSize);
+        Assert.assertEquals(1048576L, var.preferredBlockSizeBytes);
+        Assert.assertEquals(12345, options.getBatchSize());
+        Assert.assertEquals(1048576L, options.getPreferredBlockSizeBytes());
+    }
+
+    @Test
+    public void testAdaptiveBatchSizeRejectsTinyNonZeroBytes() {
+        SessionVariable var = new SessionVariable();
+        DdlException exception = Assert.assertThrows(DdlException.class, () -> VariableMgr.setVar(var,
+                new SetVar(SetType.SESSION, SessionVariable.PREFERRED_BLOCK_SIZE_BYTES,
+                        new StringLiteral("1"))));
+        Assert.assertTrue(exception.getMessage().contains("preferred_block_size_bytes"));
+    }
+
+    @Test
+    public void testAdaptiveBatchSizeRejectsZeroByteValues() {
+        SessionVariable var = new SessionVariable();
+
+        DdlException blockSizeException = Assert.assertThrows(DdlException.class, () -> VariableMgr.setVar(var,
+                new SetVar(SetType.SESSION, SessionVariable.PREFERRED_BLOCK_SIZE_BYTES,
+                        new StringLiteral("0"))));
+        Assert.assertTrue(blockSizeException.getMessage().contains("preferred_block_size_bytes"));
     }
 }

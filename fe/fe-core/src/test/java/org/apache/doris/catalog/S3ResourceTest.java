@@ -31,15 +31,14 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -90,72 +89,71 @@ public class S3ResourceTest {
     }
 
     @Test
-    public void testFromStmt(@Mocked Env env, @Injectable AccessControllerManager accessManager)
-            throws UserException {
-        new Expectations() {
-            {
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                result = true;
-            }
-        };
+    public void testFromStmt() throws UserException {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
+                    .thenReturn(true);
 
-        // resource with default settings
-        CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(s3Properties)));
-        createResourceCommand.getInfo().validate();
+            // resource with default settings
+            CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(s3Properties)));
+            createResourceCommand.getInfo().validate();
 
-        S3Resource s3Resource = (S3Resource) Resource.fromCommand(createResourceCommand);
-        Assert.assertEquals(name, s3Resource.getName());
-        Assert.assertEquals(type, s3Resource.getType().name().toLowerCase());
-        Assert.assertEquals(s3Endpoint, s3Resource.getProperty(S3Properties.ENDPOINT));
-        Assert.assertEquals(s3Region, s3Resource.getProperty(S3Properties.REGION));
-        Assert.assertEquals(s3RootPath, s3Resource.getProperty(S3Properties.ROOT_PATH));
-        Assert.assertEquals(s3AccessKey, s3Resource.getProperty(S3Properties.ACCESS_KEY));
-        Assert.assertEquals(s3SecretKey, s3Resource.getProperty(S3Properties.SECRET_KEY));
-        Assert.assertEquals(s3MaxConnections, s3Resource.getProperty(S3Properties.MAX_CONNECTIONS));
-        Assert.assertEquals(s3ReqTimeoutMs, s3Resource.getProperty(S3Properties.REQUEST_TIMEOUT_MS));
-        Assert.assertEquals(s3ConnTimeoutMs, s3Resource.getProperty(S3Properties.CONNECTION_TIMEOUT_MS));
+            S3Resource s3Resource = (S3Resource) Resource.fromCommand(createResourceCommand);
+            Assert.assertEquals(name, s3Resource.getName());
+            Assert.assertEquals(type, s3Resource.getType().name().toLowerCase());
+            Assert.assertEquals(s3Endpoint, s3Resource.getProperty(S3Properties.ENDPOINT));
+            Assert.assertEquals(s3Region, s3Resource.getProperty(S3Properties.REGION));
+            Assert.assertEquals(s3RootPath, s3Resource.getProperty(S3Properties.ROOT_PATH));
+            Assert.assertEquals(s3AccessKey, s3Resource.getProperty(S3Properties.ACCESS_KEY));
+            Assert.assertEquals(s3SecretKey, s3Resource.getProperty(S3Properties.SECRET_KEY));
+            Assert.assertEquals(s3MaxConnections, s3Resource.getProperty(S3Properties.MAX_CONNECTIONS));
+            Assert.assertEquals(s3ReqTimeoutMs, s3Resource.getProperty(S3Properties.REQUEST_TIMEOUT_MS));
+            Assert.assertEquals(s3ConnTimeoutMs, s3Resource.getProperty(S3Properties.CONNECTION_TIMEOUT_MS));
 
-        // with no default settings
-        s3Properties.put(S3Properties.MAX_CONNECTIONS, "100");
-        s3Properties.put(S3Properties.REQUEST_TIMEOUT_MS, "2000");
-        s3Properties.put(S3Properties.CONNECTION_TIMEOUT_MS, "2000");
-        s3Properties.put(S3Properties.VALIDITY_CHECK, "false");
+            // with no default settings
+            s3Properties.put(S3Properties.MAX_CONNECTIONS, "100");
+            s3Properties.put(S3Properties.REQUEST_TIMEOUT_MS, "2000");
+            s3Properties.put(S3Properties.CONNECTION_TIMEOUT_MS, "2000");
+            s3Properties.put(S3Properties.VALIDITY_CHECK, "false");
 
-        createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(s3Properties)));
-        createResourceCommand.getInfo().validate();
+            createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(s3Properties)));
+            createResourceCommand.getInfo().validate();
 
-        s3Resource = (S3Resource) Resource.fromCommand(createResourceCommand);
-        Assert.assertEquals(name, s3Resource.getName());
-        Assert.assertEquals(type, s3Resource.getType().name().toLowerCase());
-        Assert.assertEquals(s3Endpoint, s3Resource.getProperty(S3Properties.ENDPOINT));
-        Assert.assertEquals(s3Region, s3Resource.getProperty(S3Properties.REGION));
-        Assert.assertEquals(s3RootPath, s3Resource.getProperty(S3Properties.ROOT_PATH));
-        Assert.assertEquals(s3AccessKey, s3Resource.getProperty(S3Properties.ACCESS_KEY));
-        Assert.assertEquals(s3SecretKey, s3Resource.getProperty(S3Properties.SECRET_KEY));
-        Assert.assertEquals("100", s3Resource.getProperty(S3Properties.MAX_CONNECTIONS));
-        Assert.assertEquals("2000", s3Resource.getProperty(S3Properties.REQUEST_TIMEOUT_MS));
-        Assert.assertEquals("2000", s3Resource.getProperty(S3Properties.CONNECTION_TIMEOUT_MS));
+            s3Resource = (S3Resource) Resource.fromCommand(createResourceCommand);
+            Assert.assertEquals(name, s3Resource.getName());
+            Assert.assertEquals(type, s3Resource.getType().name().toLowerCase());
+            Assert.assertEquals(s3Endpoint, s3Resource.getProperty(S3Properties.ENDPOINT));
+            Assert.assertEquals(s3Region, s3Resource.getProperty(S3Properties.REGION));
+            Assert.assertEquals(s3RootPath, s3Resource.getProperty(S3Properties.ROOT_PATH));
+            Assert.assertEquals(s3AccessKey, s3Resource.getProperty(S3Properties.ACCESS_KEY));
+            Assert.assertEquals(s3SecretKey, s3Resource.getProperty(S3Properties.SECRET_KEY));
+            Assert.assertEquals("100", s3Resource.getProperty(S3Properties.MAX_CONNECTIONS));
+            Assert.assertEquals("2000", s3Resource.getProperty(S3Properties.REQUEST_TIMEOUT_MS));
+            Assert.assertEquals("2000", s3Resource.getProperty(S3Properties.CONNECTION_TIMEOUT_MS));
+        }
     }
 
     @Test(expected = DdlException.class)
-    public void testAbnormalResource(@Mocked Env env, @Injectable AccessControllerManager accessManager)
-            throws UserException {
-        new Expectations() {
-            {
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                result = true;
-            }
-        };
-        s3Properties.remove("AWS_ENDPOINT");
+    public void testAbnormalResource() throws UserException {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
+                    .thenReturn(true);
 
-        CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(s3Properties)));
-        createResourceCommand.getInfo().validate();
+            s3Properties.remove("AWS_ENDPOINT");
 
-        Resource.fromCommand(createResourceCommand);
+            CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(s3Properties)));
+            createResourceCommand.getInfo().validate();
+
+            Resource.fromCommand(createResourceCommand);
+        }
     }
 
     @Test

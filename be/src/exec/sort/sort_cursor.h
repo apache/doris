@@ -31,7 +31,6 @@
 #include "exprs/vexpr_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 /** Cursor allows to compare rows in different blocks (and parts).
   * Cursor moves inside single block.
   * It is used in priority queue.
@@ -203,6 +202,11 @@ struct MergeSortCursor {
 
     bool greater(const MergeSortCursor& rhs) const {
         return !impl->empty() && greater_at(rhs, impl->pos, rhs.impl->pos) > 0;
+    }
+
+    bool totally_less_or_equals(const MergeSortCursor& rhs) const {
+        return !impl->empty() && !rhs.impl->empty() &&
+               greater_at(rhs, impl->rows - 1, rhs.impl->pos) <= 0;
     }
 
     /// Inverted so that the priority queue elements are removed in ascending order.
@@ -437,5 +441,4 @@ private:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

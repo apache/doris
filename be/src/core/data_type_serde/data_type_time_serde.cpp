@@ -25,7 +25,6 @@
 #include "exprs/function/cast/cast_to_time_impl.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status DataTypeTimeV2SerDe::write_column_to_mysql_binary(const IColumn& column,
                                                          MysqlRowBinaryBuffer& result,
@@ -44,7 +43,7 @@ Status DataTypeTimeV2SerDe::write_column_to_mysql_binary(const IColumn& column,
 Status DataTypeTimeV2SerDe::from_string_batch(const ColumnString& col_str, ColumnNullable& col_res,
                                               const FormatOptions& options) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(col_res.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(col_res.get_null_map_column());
+    auto& col_nullmap = col_res.get_null_map_column();
     size_t row = col_str.size();
     col_res.resize(row);
 
@@ -150,7 +149,7 @@ template <typename IntDataType>
 Status DataTypeTimeV2SerDe::from_int_batch(const typename IntDataType::ColumnType& int_col,
                                            ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(int_col.size());
     col_nullmap.resize(int_col.size());
 
@@ -193,7 +192,7 @@ template <typename FloatDataType>
 Status DataTypeTimeV2SerDe::from_float_batch(const typename FloatDataType::ColumnType& float_col,
                                              ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(float_col.size());
     col_nullmap.resize(float_col.size());
 
@@ -238,7 +237,7 @@ template <typename DecimalDataType>
 Status DataTypeTimeV2SerDe::from_decimal_batch(
         const typename DecimalDataType::ColumnType& decimal_col, ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(decimal_col.size());
     col_nullmap.resize(decimal_col.size());
 

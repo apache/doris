@@ -32,6 +32,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -328,7 +329,11 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (StatisticsUtil.enablePartitionAnalyze() && tbl.isPartitionedTable()) {
             doPartitionTable();
         } else {
-            StringSubstitutor stringSubstitutor = new StringSubstitutor(buildSqlParams());
+            Map<String, String> params = buildSqlParams();
+            params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
+            params.put("subStringColName", getStringTypeColName(col));
+            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
+            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             runQuery(stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE));
         }
     }
@@ -398,6 +403,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("tblName", String.valueOf(tbl.getName()));
         params.put("index", getIndex());
         params.put("preAggHint", "");
+        addLengthAssertParam(params);
         return params;
     }
 
@@ -524,6 +530,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      * @return True for single unique key column and single distribution column.
      */
     protected boolean useLinearAnalyzeTemplate() {
+        if (DebugPointUtil.isEnable("OlapAnalysisTask.useDUJ1Template")) {
+            return false;
+        }
         if (partitionColumnSampleTooManyRows || scanFullTable) {
             return true;
         }

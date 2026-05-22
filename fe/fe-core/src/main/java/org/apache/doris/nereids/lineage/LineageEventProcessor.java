@@ -148,8 +148,10 @@ public class LineageEventProcessor {
                     LineagePluginFactory.class, policy);
 
             for (LoadFailure failure : report.getFailures()) {
-                LOG.warn("Skip lineage plugin directory due to load failure: pluginDir={}, stage={}, message={}",
-                        failure.getPluginDir(), failure.getStage(), failure.getMessage(), failure.getCause());
+                LOG.warn("Skip lineage plugin directory due to load failure:"
+                                + " pluginDir={}, stage={}, message={}, cause={}",
+                        failure.getPluginDir(), failure.getStage(),
+                        failure.getMessage(), failure.getCause());
             }
 
             for (PluginHandle<LineagePluginFactory> handle : report.getSuccesses()) {

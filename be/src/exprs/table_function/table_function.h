@@ -27,7 +27,6 @@
 #include "exprs/vexpr_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 constexpr auto COMBINATOR_SUFFIX_OUTER = "_outer";
 
@@ -40,6 +39,7 @@ public:
         const IColumn::Offsets64* offsets_ptr = nullptr;
         ColumnPtr nested_col = nullptr;
         const UInt8* nested_nullmap_data = nullptr;
+        bool generate_row_index = false;
     };
 
     virtual Status prepare() { return Status::OK(); }
@@ -118,5 +118,4 @@ protected:
     bool _is_const = false;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

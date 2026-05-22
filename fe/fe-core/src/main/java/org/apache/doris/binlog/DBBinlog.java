@@ -335,7 +335,7 @@ public class DBBinlog {
         if (dbBinlogConfig == null) {
             LOG.error("db not found. dbId: {}", dbId);
             return null;
-        } else if (!dbBinlogConfig.isEnable()) {
+        } else if (!dbBinlogConfig.isEnableForCCR()) {
             return dbBinlogDisableGc();
         } else {
             return dbBinlogEnableGc(dbBinlogConfig);

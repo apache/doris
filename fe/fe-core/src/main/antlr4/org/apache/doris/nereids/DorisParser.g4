@@ -83,9 +83,9 @@ materializedViewStatement
         propertyClause?
         AS? query                                                                               #createMTMV
     | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE | AUTO)    #refreshMTMV
-    | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME newName=identifier)
+    | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME renameNewName=multipartIdentifier)
         | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
-        | REPLACE WITH MATERIALIZED VIEW newName=identifier propertyClause?
+        | REPLACE WITH MATERIALIZED VIEW replaceNewName=identifier propertyClause?
         | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))                        #alterMTMV
     | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier
         (ON tableName=multipartIdentifier)?                                                     #dropMV
@@ -216,6 +216,10 @@ supportedCreateStatement
     | CREATE ROLE (IF NOT EXISTS)? name=identifierOrText (COMMENT STRING_LITERAL)?    #createRole
     | CREATE AUTHENTICATION INTEGRATION (IF NOT EXISTS)? integrationName=identifier
         properties=propertyClause commentSpec?                                  #createAuthenticationIntegration
+    | CREATE ROLE MAPPING (IF NOT EXISTS)? mappingName=identifier
+        ON AUTHENTICATION INTEGRATION integrationName=identifier
+        rules+=roleMappingRuleClause (COMMA rules+=roleMappingRuleClause)*
+        commentSpec?                                                            #createRoleMapping
     | CREATE WORKLOAD GROUP (IF NOT EXISTS)?
         name=identifierOrText (FOR computeGroup=identifierOrText)? properties=propertyClause? #createWorkloadGroup
     | CREATE CATALOG (IF NOT EXISTS)? catalogName=identifier
@@ -350,6 +354,7 @@ supportedDropStatement
     | DROP WORKLOAD GROUP (IF EXISTS)? name=identifierOrText (FOR computeGroup=identifierOrText)?                    #dropWorkloadGroup
     | DROP CATALOG (IF EXISTS)? name=identifier                                 #dropCatalog
     | DROP AUTHENTICATION INTEGRATION (IF EXISTS)? name=identifier              #dropAuthenticationIntegration
+    | DROP ROLE MAPPING (IF EXISTS)? name=identifier                            #dropRoleMapping
     | DROP FILE name=STRING_LITERAL
         ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
     | DROP WORKLOAD POLICY (IF EXISTS)? name=identifierOrText                   #dropWorkloadPolicy
@@ -358,7 +363,8 @@ supportedDropStatement
     | DROP (DATABASE | SCHEMA) (IF EXISTS)? name=multipartIdentifier FORCE?     #dropDatabase
     | DROP statementScope? FUNCTION (IF EXISTS)?
         functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN            #dropFunction
-    | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex
+    | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier
+        partitionSpec?                                                            #dropIndex
     | DROP RESOURCE (IF EXISTS)? name=identifierOrText                          #dropResource
     | DROP ROW POLICY (IF EXISTS)? policyName=identifier
         ON tableName=multipartIdentifier
@@ -665,6 +671,13 @@ supportedAdminStatement
     | ADMIN ROTATE TDE ROOT KEY properties=propertyClause?                          #adminRotateTdeRootKey
     ;
 
+roleMappingRuleClause
+    : RULE LEFT_PAREN
+        USING CEL condition=STRING_LITERAL
+        GRANT ROLE grantedRoles+=identifierOrText (COMMA grantedRoles+=identifierOrText)*
+      RIGHT_PAREN
+    ;
+
 supportedRecoverStatement
     : RECOVER DATABASE name=identifier id=INTEGER_VALUE? (AS alias=identifier)?     #recoverDatabase
     | RECOVER TABLE name=multipartIdentifier
@@ -773,7 +786,7 @@ alterTableClause
     | RENAME PARTITION name=identifier newName=identifier                           #renamePartitionClause
     | RENAME COLUMN name=identifier newName=identifier                              #renameColumnClause
     | ADD indexDef                                                                  #addIndexClause
-    | DROP INDEX (IF EXISTS)? name=identifier                                       #dropIndexClause
+    | DROP INDEX (IF EXISTS)? name=identifier partitionSpec?                          #dropIndexClause
     | ENABLE FEATURE name=STRING_LITERAL (WITH properties=propertyClause)?          #enableFeatureClause
     | MODIFY DISTRIBUTION (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM)
         (BUCKETS (INTEGER_VALUE | autoBucket=AUTO))?)?                              #modifyDistributionClause
@@ -1055,7 +1068,7 @@ identityOrFunction
     ;
 
 dataDesc
-    : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePath+=STRING_LITERAL)* RIGHT_PAREN
+    : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePaths+=STRING_LITERAL)* RIGHT_PAREN
         (negative=NEGATIVE)?
         INTO TABLE targetTableName=identifier
         (partitionSpec)?
@@ -1135,7 +1148,7 @@ userIdentify
     ;
 
 grantUserIdentify
-    : userIdentify (IDENTIFIED BY PASSWORD? STRING_LITERAL)?
+    : userIdentify (IDENTIFIED BY PASSWORD? pwd=STRING_LITERAL)?
     ;
 
 explain
@@ -1990,6 +2003,7 @@ nonReserved
     | BEGIN
     | BELONG
     | BIN
+    | BINLOG
     | BITAND
     | BITMAP
     | BITMAP_EMPTY

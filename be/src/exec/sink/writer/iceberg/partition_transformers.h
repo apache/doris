@@ -21,7 +21,6 @@
 #include "exec/common/stringop_substring.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
-#include "exprs/function/function_string.h"
 #include "util/bit_util.h"
 
 namespace doris {
@@ -30,8 +29,6 @@ namespace iceberg {
 class Type;
 class PartitionField;
 }; // namespace iceberg
-
-#include "common/compile_check_begin.h"
 
 class IColumn;
 class PartitionColumnTransform;
@@ -341,7 +338,7 @@ public:
             is_nullable = false;
         }
 
-        const auto* const decimal_col = check_and_get_column<ColumnDecimal<PT>>(column_ptr.get());
+        const auto* const decimal_col = assert_cast<const ColumnDecimal<PT>*>(column_ptr.get());
         const auto& vec_src = decimal_col->get_data();
 
         auto col_res = ColumnDecimal<PT>::create(vec_src.size(), decimal_col->get_scale());
@@ -1302,4 +1299,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

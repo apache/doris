@@ -41,7 +41,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VDataStreamRecvr::SenderQueue::SenderQueue(VDataStreamRecvr* parent_recvr, int num_senders,
                                            std::shared_ptr<Dependency> local_channel_dependency)
@@ -54,24 +53,22 @@ VDataStreamRecvr::SenderQueue::SenderQueue(VDataStreamRecvr* parent_recvr, int n
 }
 
 VDataStreamRecvr::SenderQueue::~SenderQueue() {
-    for (auto& block_item : _block_queue) {
-        block_item.call_done(_recvr);
-    }
+    run_block_queue_done_callbacks(_block_queue);
     _block_queue.clear();
 }
 
 Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
-#ifndef NDEBUG
-    if (!_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "_is_cancelled: {}, _block_queue_empty: {}, "
-                               "_num_remaining_senders: {}",
-                               _is_cancelled, _block_queue.empty(), _num_remaining_senders);
-    }
-#endif
     BlockItem block_item;
     {
         INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(_lock));
+#ifndef NDEBUG
+        if (!_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "_is_cancelled: {}, _block_queue_empty: {}, "
+                                   "_num_remaining_senders: {}",
+                                   _is_cancelled, _block_queue.empty(), _num_remaining_senders);
+        }
+#endif
         //check and get block_item from data_queue
         if (_is_cancelled) {
             RETURN_IF_ERROR(_cancel_status);
@@ -128,14 +125,21 @@ void VDataStreamRecvr::SenderQueue::set_source_ready(std::lock_guard<std::mutex>
     }
 }
 
+void VDataStreamRecvr::SenderQueue::run_block_queue_done_callbacks(
+        std::list<BlockItem>& block_queue) {
+    for (auto& block_item : block_queue) {
+        block_item.call_done(_recvr);
+    }
+}
+
 std::string VDataStreamRecvr::SenderQueue::debug_string() {
+    std::lock_guard<std::mutex> l(_lock);
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
                    "_num_remaining_senders = {}, block_queue size = {}, _is_cancelled: {}, "
                    "_cancel_status: {}, _sender_eos_set: (",
                    _num_remaining_senders, _block_queue.size(), _is_cancelled,
                    _cancel_status.to_string());
-    std::lock_guard<std::mutex> l(_lock);
     for (auto& i : _sender_eos_set) {
         fmt::format_to(debug_string_buffer, "{}, ", i);
     }
@@ -330,6 +334,7 @@ void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
 }
 
 void VDataStreamRecvr::SenderQueue::cancel(Status cancel_status) {
+    std::list<BlockItem> block_queue;
     {
         INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(_lock));
         if (_is_cancelled) {
@@ -341,29 +346,24 @@ void VDataStreamRecvr::SenderQueue::cancel(Status cancel_status) {
         VLOG_QUERY << "cancelled stream: _fragment_instance_id="
                    << print_id(_recvr->fragment_instance_id())
                    << " node_id=" << _recvr->dest_node_id();
+        block_queue.splice(block_queue.end(), _block_queue);
     }
-    {
-        INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(_lock));
-        for (auto& block_item : _block_queue) {
-            block_item.call_done(_recvr);
-        }
-        _block_queue.clear();
-    }
+    run_block_queue_done_callbacks(block_queue);
 }
 
 void VDataStreamRecvr::SenderQueue::close() {
     // If _is_cancelled is not set to true, there may be concurrent send
     // which add batch to _block_queue. The batch added after _block_queue
     // is clear will be memory leak
-    INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(_lock));
-    _is_cancelled = true;
-    set_source_ready(l);
-
-    for (auto& block_item : _block_queue) {
-        block_item.call_done(_recvr);
+    std::list<BlockItem> block_queue;
+    {
+        INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(_lock));
+        _is_cancelled = true;
+        set_source_ready(l);
+        block_queue.splice(block_queue.end(), _block_queue);
     }
-    // Delete any batches queued in _block_queue
-    _block_queue.clear();
+    // Release delayed RPC callbacks after the queue state is fully closed.
+    run_block_queue_done_callbacks(block_queue);
 }
 
 VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr,

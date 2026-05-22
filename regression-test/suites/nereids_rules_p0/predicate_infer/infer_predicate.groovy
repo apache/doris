@@ -307,4 +307,40 @@ suite("infer_predicate") {
     qt_infer11 """
         explain shape plan select * from (select * from t1 where t1.id = 12345) t1 join t2 on cast(t1.id as largeint) = cast(t2.id as largeint);
     """
+
+    sql "DROP TABLE IF EXISTS infer_predicate_cast_common_expr_agg"
+    sql """
+        CREATE TABLE infer_predicate_cast_common_expr_agg (
+            pk int,
+            col_int int,
+            col_bigint bigint,
+            col_bitmap bitmap bitmap_union
+        )
+        AGGREGATE KEY(pk, col_int, col_bigint)
+        DISTRIBUTED BY HASH(pk) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+    sql """
+        INSERT INTO infer_predicate_cast_common_expr_agg VALUES
+            (1, 10, 1, to_bitmap(1)),
+            (2, 20, 3, to_bitmap(2)),
+            (3, 30, 3, to_bitmap(3))
+    """
+    test {
+        sql """
+            SELECT pk, col_bigint, bitmap_union_count(col_bitmap)
+            FROM infer_predicate_cast_common_expr_agg
+            WHERE col_bigint = CAST(pk AS BIGINT)
+            GROUP BY pk, col_bigint
+            ORDER BY pk, col_bigint
+        """
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            assertEquals("[[1, 1, 1], [3, 3, 1]]", result.toString())
+        }
+    }
 }

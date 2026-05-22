@@ -19,10 +19,10 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.InternalDatabaseUtil;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -78,7 +78,7 @@ public class DropTableCommand extends Command implements ForwardWithSync {
         if (Strings.isNullOrEmpty(tableName.getDb())) {
             tableName.setDb(ctx.getDatabase());
         }
-        tableName.analyze(ctx);
+        tableName.analyze(ctx.getNameSpaceContext());
         InternalDatabaseUtil.checkDatabase(tableName.getDb(), ctx);
         // check access
         if (!Env.getCurrentEnv().getAccessManager()

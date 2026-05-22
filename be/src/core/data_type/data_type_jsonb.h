@@ -37,7 +37,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class BufferWritable;
 class IColumn;
@@ -64,8 +63,6 @@ public:
     MutableColumnPtr create_column() const override;
     Status check_column(const IColumn& column) const override;
 
-    Field get_default() const override;
-
     Field get_field(const TExprNode& node) const override;
 
     FieldWithDataType get_field_with_data_type(const IColumn& column,
@@ -81,5 +78,4 @@ private:
     DataTypeString data_type_string;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

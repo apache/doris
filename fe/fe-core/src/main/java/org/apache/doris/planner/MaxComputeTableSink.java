@@ -74,7 +74,6 @@ public class MaxComputeTableSink extends BaseExternalTableDataSink {
         tSink.setConnectTimeout(catalog.getConnectTimeout());
         tSink.setReadTimeout(catalog.getReadTimeout());
         tSink.setRetryCount(catalog.getRetryTimes());
-        tSink.setMaxWriteBatchRows(catalog.getMaxWriteBatchRows());
 
         // Partition columns
         List<String> partitionColumnNames = targetTable.getPartitionColumns().stream()
@@ -101,12 +100,13 @@ public class MaxComputeTableSink extends BaseExternalTableDataSink {
     }
 
     /**
-     * Called by MCInsertExecutor.beforeExec() to inject the writeSessionId
+     * Called by MCInsertExecutor.beforeExec() to inject runtime write context
      * after MCTransaction.beginInsert() creates the Storage API session.
      * This must be called before fragments are sent to BE (i.e., before execImpl).
      */
-    public void setWriteSessionId(String writeSessionId) {
+    public void setWriteContext(long txnId, String writeSessionId) {
         if (tDataSink != null && tDataSink.isSetMaxComputeTableSink()) {
+            tDataSink.getMaxComputeTableSink().setTxnId(txnId);
             tDataSink.getMaxComputeTableSink().setWriteSessionId(writeSessionId);
         }
     }

@@ -32,12 +32,16 @@
 #include "core/data_type/primitive_type.h"
 #include "core/memcmp_small.h"
 #include "exec/sort/sort_block.h"
+#include "util/debug_points.h"
 #include "util/memcpy_inlined.h"
 #include "util/simd/bits.h"
 #include "util/simd/vstring_function.h"
 #include "util/unaligned.h"
+#include "util/utf8_check.h"
 namespace doris {
-#include "common/compile_check_begin.h"
+
+static constexpr auto CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT =
+        "ColumnStr.convert_column_if_overflow.max_string_size";
 
 template <typename T>
 void ColumnStr<T>::sanity_check() const {
@@ -655,7 +659,15 @@ void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
 
 template <typename T>
 ColumnPtr ColumnStr<T>::convert_column_if_overflow() {
-    if (std::is_same_v<T, UInt32> && chars.size() > config::string_overflow_size) {
+    if constexpr (std::is_same_v<T, UInt32>) {
+        size_t max_string_size = MAX_STRING_SIZE;
+        DBUG_EXECUTE_IF(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT, {
+            max_string_size = dp->param<size_t>("max_string_size", max_string_size);
+        });
+        if (chars.size() <= max_string_size) {
+            return this->get_ptr();
+        }
+
         auto new_col = ColumnStr<uint64_t>::create();
 
         const auto length = offsets.size();
@@ -758,6 +770,20 @@ void ColumnStr<T>::insert(const Field& x) {
 template <typename T>
 bool ColumnStr<T>::is_ascii() const {
     return simd::VStringFunctions::is_ascii(StringRef(chars.data(), chars.size()));
+}
+
+template <typename T>
+bool ColumnStr<T>::is_valid_utf8() const {
+    const auto num_rows = offsets.size();
+    const char* data = reinterpret_cast<const char*>(chars.data());
+    for (size_t i = 0; i < num_rows; ++i) {
+        auto str_offset = offset_at(i);
+        auto str_size = size_at(i);
+        if (!validate_utf8(data + str_offset, str_size)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 template class ColumnStr<uint32_t>;

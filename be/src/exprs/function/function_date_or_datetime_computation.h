@@ -573,7 +573,8 @@ struct TimeDiffImpl {
     using ValueType = typename PrimitiveTypeTraits<DateType>::CppType;
     using ArgType = typename PrimitiveTypeTraits<DateType>::DataType::FieldType;
     //TODO: remove V1 since FE already removed it.
-    static constexpr bool UsingTimev2 = is_date_v2_or_datetime_v2(DateType);
+    static constexpr bool UsingTimev2 =
+            is_date_v2_or_datetime_v2(DateType) || DateType == TYPE_TIMESTAMPTZ;
     static constexpr PrimitiveType ReturnType = TYPE_TIMEV2;
 
     static constexpr auto name = "timediff";
@@ -601,8 +602,19 @@ struct TimeDiffImpl {
         return std::make_shared<DataTypeTimeV2>(arguments[0].type->get_scale());
     }
 };
+
+template <TimeUnit UNIT, typename T0, typename T1>
+int64_t diff_on_utc_datetime(const T0& ts1, const T1& ts0) {
+    return datetime_diff<UNIT>(ts1, ts0);
+}
+
+template <TimeUnit UNIT>
+int64_t diff_on_utc_datetime(const TimestampTzValue& ts1, const TimestampTzValue& ts0) {
+    return datetime_diff<UNIT>(ts1.utc_dt(), ts0.utc_dt());
+}
+
 #define TIME_DIFF_FUNCTION_IMPL(CLASS, NAME, UNIT) \
-    DECLARE_DATE_FUNCTIONS(CLASS, NAME, TYPE_BIGINT, datetime_diff<TimeUnit::UNIT>(ts1, ts0))
+    DECLARE_DATE_FUNCTIONS(CLASS, NAME, TYPE_BIGINT, diff_on_utc_datetime<TimeUnit::UNIT>(ts1, ts0))
 
 // all these functions implemented by datediff
 TIME_DIFF_FUNCTION_IMPL(YearsDiffImpl, years_diff, YEAR);
@@ -778,7 +790,7 @@ public:
             // update result nullmap with inputs
             if (result_nullable) {
                 auto null_map = ColumnBool::create(input_rows_count, 0);
-                NullMap& result_null_map = assert_cast<ColumnBool&>(*null_map).get_data();
+                NullMap& result_null_map = null_map->get_data();
                 if (nullmap0) {
                     VectorizedUtils::update_null_map(result_null_map, *nullmap0);
                 }
@@ -805,7 +817,7 @@ public:
             // update result nullmap with inputs
             if (result_nullable) {
                 auto null_map = ColumnBool::create(input_rows_count, 0);
-                NullMap& result_null_map = assert_cast<ColumnBool&>(*null_map).get_data();
+                NullMap& result_null_map = null_map->get_data();
                 if (nullmap0) {
                     VectorizedUtils::update_null_map(result_null_map, *nullmap0, true);
                 }
@@ -902,7 +914,7 @@ public:
             // update result nullmap with inputs
             if (result_nullable) {
                 auto null_map = ColumnBool::create(input_rows_count, 0);
-                NullMap& result_null_map = assert_cast<ColumnBool&>(*null_map).get_data();
+                NullMap& result_null_map = null_map->get_data();
                 if (nullmap0) {
                     VectorizedUtils::update_null_map(result_null_map, *nullmap0);
                 }
@@ -928,7 +940,7 @@ public:
             // update result nullmap with inputs
             if (result_nullable) {
                 auto null_map = ColumnBool::create(input_rows_count, 0);
-                NullMap& result_null_map = assert_cast<ColumnBool&>(*null_map).get_data();
+                NullMap& result_null_map = null_map->get_data();
                 if (nullmap0) {
                     VectorizedUtils::update_null_map(result_null_map, *nullmap0, true);
                 }
@@ -1243,7 +1255,7 @@ struct TimestampToDateTime : IFunction {
                         uint32_t result, size_t input_rows_count) const override {
         // Handle null map manually
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
         const NullMap* null_map = VectorizedUtils::get_null_map(argument_column);

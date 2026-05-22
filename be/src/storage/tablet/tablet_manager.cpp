@@ -76,7 +76,6 @@ using std::string;
 using std::vector;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_columns_count");
@@ -481,6 +480,9 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
                 _gen_tablet_dir(data_dir->path(), tablet_meta->shard_id(), request.tablet_id);
         string schema_hash_dir = path_util::join_path_segments(
                 tablet_dir, std::to_string(request.tablet_schema.schema_hash));
+        bool has_row_binlog = tablet_meta->binlog_config().is_enable() &&
+                              tablet_meta->binlog_config().is_row_binlog_format();
+        string row_binlog_dir = path_util::join_path_segments(schema_hash_dir, "_row_binlog");
 
         // Because the tablet is removed asynchronously, so that the dir may still exist when BE
         // receive create-tablet request again, For example retried schema-change request
@@ -495,6 +497,15 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
         } else {
             Status st = io::global_local_filesystem()->create_directory(schema_hash_dir);
             if (!st.ok()) {
+                continue;
+            }
+        }
+
+        if (has_row_binlog) {
+            Status st = io::global_local_filesystem()->create_directory(row_binlog_dir);
+            if (!st.ok()) {
+                WARN_IF_ERROR(io::global_local_filesystem()->delete_directory(schema_hash_dir),
+                              "failed to cleanup tablet dir after create sub directory failed");
                 continue;
             }
         }
@@ -1115,6 +1126,10 @@ void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* 
         t_tablet_stat.__set_local_segment_size(tablet_info.local_segment_size);
         t_tablet_stat.__set_remote_index_size(tablet_info.remote_index_size);
         t_tablet_stat.__set_remote_segment_size(tablet_info.remote_segment_size);
+        if (tablet_info.__isset.binlog_size) {
+            t_tablet_stat.__set_binlog_size(tablet_info.binlog_size);
+            t_tablet_stat.__set_binlog_file_num(tablet_info.binlog_file_num);
+        }
     };
     for_each_tablet(handler, filter_all_tablets);
 
@@ -1842,5 +1857,4 @@ void TabletManager::get_topn_tablet_delete_bitmap_score(
               << max_base_rowset_delete_bitmap_score_tablet_id << ", tablets=[" << ss.str() << "]";
 }
 
-#include "common/compile_check_end.h"
 } // end namespace doris

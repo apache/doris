@@ -113,7 +113,9 @@ suite("refactor_storage_backup_restore_object_storage", "p0,external") {
         SHOW SNAPSHOT ON ${repoName} WHERE SNAPSHOT =  '${backupLabel}';
         """
         println querySnapshotResult
-        def snapshotTimes = querySnapshotResult.get(0).get(1).split('\n')
+        def rawTimestamp = querySnapshotResult.get(0).get(1)
+        assertNotNull(rawTimestamp, "SHOW SNAPSHOT returned null timestamp for snapshot '${backupLabel}'")
+        def snapshotTimes = rawTimestamp.split('\n')
         def snapshotTime = snapshotTimes[0]
 
         sql """

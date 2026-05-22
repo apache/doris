@@ -25,6 +25,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -38,7 +39,6 @@ import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.datasource.systable.SysTableResolver;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -94,7 +94,7 @@ public class ShowCreateTableCommand extends ShowCommand {
     }
 
     private void validate(ConnectContext ctx) throws AnalysisException {
-        tblNameInfo.analyze(ctx);
+        tblNameInfo.analyze(ctx.getNameSpaceContext());
 
         DatabaseIf db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(tblNameInfo.getCtl())

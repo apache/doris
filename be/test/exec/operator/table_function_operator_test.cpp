@@ -28,6 +28,7 @@
 #include "core/block/block.h"
 #include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_struct.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "exec/operator/operator_helper.h"
@@ -40,6 +41,11 @@
 #include "testutil/mock/mock_slot_ref.h"
 
 namespace doris {
+
+static MutableColumnPtr create_nullable_nested_array_column(MutableColumnPtr nested,
+                                                            MutableColumnPtr offsets) {
+    return ColumnArray::create(make_nullable(std::move(nested)), std::move(offsets));
+}
 
 class MockTableFunctionChildOperator : public OperatorXBase {
 public:
@@ -371,7 +377,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode) {
         offsets->insert_value(3);
         offsets->insert_value(3);
         offsets->insert_value(4);
-        auto arr_col = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_col = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
 
         push_child_block(
                 Block({ColumnWithTypeAndName(id_col, int_type, "id"),
@@ -397,8 +403,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode) {
         expected_offsets->insert_value(3);
         expected_offsets->insert_value(5);
         expected_offsets->insert_value(6);
-        auto expected_arr =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                std::move(expected_offsets));
 
         auto expected_out = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4});
 
@@ -412,7 +418,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode) {
 }
 
 TEST_F(TableFunctionOperatorTest, block_fast_path_explode_batch_truncate) {
-    state->batsh_size = 2;
+    state->_batch_size = 2;
     bool get_value_called = false;
     auto int_type = std::make_shared<DataTypeInt32>();
     auto arr_type = std::make_shared<DataTypeArray>(int_type);
@@ -430,7 +436,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_batch_truncate) {
         offsets->insert_value(3);
         offsets->insert_value(3);
         offsets->insert_value(4);
-        auto arr_col = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_col = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
 
         push_child_block(
                 Block({ColumnWithTypeAndName(id_col, int_type, "id"),
@@ -450,8 +456,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_batch_truncate) {
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(1);
         expected_offsets->insert_value(3);
-        auto expected_arr =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                std::move(expected_offsets));
         auto expected_out = ColumnHelper::create_column<DataTypeInt32>({1, 2});
 
         auto int_type = std::make_shared<DataTypeInt32>();
@@ -474,8 +480,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_batch_truncate) {
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(2);
         expected_offsets->insert_value(3);
-        auto expected_arr =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                std::move(expected_offsets));
         auto expected_out = ColumnHelper::create_column<DataTypeInt32>({3, 4});
 
         auto int_type = std::make_shared<DataTypeInt32>();
@@ -502,7 +508,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_skip) {
         offsets->insert_value(1);
         offsets->insert_value(1);
         offsets->insert_value(2);
-        auto arr_col = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_col = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
 
         push_child_block(
                 Block({ColumnWithTypeAndName(id_col, int_type, "id"),
@@ -522,8 +528,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_skip) {
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(1);
         expected_offsets->insert_value(2);
-        auto expected_arr =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                std::move(expected_offsets));
 
         auto expected_out = ColumnHelper::create_column<DataTypeInt32>({1, 2});
 
@@ -551,7 +557,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_null_ro
         offsets->insert_value(1);
         offsets->insert_value(1);
         offsets->insert_value(2);
-        auto arr_data = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_data = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
         auto null_map = ColumnUInt8::create();
         null_map->insert_value(0);
         null_map->insert_value(1);
@@ -575,8 +581,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_null_ro
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(1);
         expected_offsets->insert_value(2);
-        auto expected_arr_data =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr_data = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                     std::move(expected_offsets));
         auto expected_arr_null = ColumnUInt8::create();
         expected_arr_null->insert_value(0);
         expected_arr_null->insert_value(0);
@@ -610,7 +616,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_misalig
         offsets->insert_value(1);
         offsets->insert_value(2);
         offsets->insert_value(3);
-        auto arr_data = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_data = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
         auto null_map = ColumnUInt8::create();
         null_map->insert_value(0);
         null_map->insert_value(1);
@@ -634,8 +640,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_misalig
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(1);
         expected_offsets->insert_value(2);
-        auto expected_arr_data =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr_data = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                     std::move(expected_offsets));
         auto expected_arr_null = ColumnUInt8::create();
         expected_arr_null->insert_value(0);
         expected_arr_null->insert_value(0);
@@ -655,7 +661,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_misalig
 
 TEST_F(TableFunctionOperatorTest,
        block_fast_path_explode_nullable_array_partial_gap_uses_slow_path) {
-    state->batsh_size = 2;
+    state->_batch_size = 2;
     bool get_value_called = false;
     auto int_type = std::make_shared<DataTypeInt32>();
     auto arr_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeArray>(int_type));
@@ -673,7 +679,7 @@ TEST_F(TableFunctionOperatorTest,
         offsets->insert_value(3);
         offsets->insert_value(4);
         offsets->insert_value(5);
-        auto arr_data = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_data = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
         auto null_map = ColumnUInt8::create();
         null_map->insert_value(0);
         null_map->insert_value(1);
@@ -701,8 +707,8 @@ TEST_F(TableFunctionOperatorTest,
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(3);
         expected_offsets->insert_value(6);
-        auto expected_arr_data =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr_data = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                     std::move(expected_offsets));
         auto expected_arr_null = ColumnUInt8::create();
         expected_arr_null->insert_value(0);
         expected_arr_null->insert_value(0);
@@ -729,8 +735,8 @@ TEST_F(TableFunctionOperatorTest,
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(3);
         expected_offsets->insert_value(4);
-        auto expected_arr_data =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr_data = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                     std::move(expected_offsets));
         auto expected_arr_null = ColumnUInt8::create();
         expected_arr_null->insert_value(0);
         expected_arr_null->insert_value(0);
@@ -767,7 +773,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_elements) {
 
         auto offsets = ColumnArray::ColumnOffsets::create();
         offsets->insert_value(3);
-        auto arr_col = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_col = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
 
         push_child_block(
                 Block({ColumnWithTypeAndName(id_col, int_type, "id"),
@@ -807,8 +813,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_elements) {
         expected_offsets->insert_value(3);
         expected_offsets->insert_value(6);
         expected_offsets->insert_value(9);
-        auto expected_arr =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                std::move(expected_offsets));
 
         auto expected_out_data = ColumnInt32::create();
         expected_out_data->insert_value(1);
@@ -1081,7 +1087,7 @@ struct UnnestTest : public ::testing::Test {
         obj_pool = std::make_unique<ObjectPool>();
         query_ctx = generate_one_query();
         runtime_profile = std::make_shared<RuntimeProfile>("test");
-        runtime_state->batsh_size = 5;
+        runtime_state->_batch_size = 5;
         runtime_state->_query_ctx = query_ctx.get();
         runtime_state->_query_id = query_ctx->query_id();
         runtime_state->resize_op_id_to_local_state(-100);
@@ -1206,6 +1212,98 @@ struct UnnestTest : public ::testing::Test {
         }
         tplan_node_table_function_node.table_function_node.expand_conjuncts.push_back(expand_expr);
         // end of TTableFunctionNode setup
+
+        // Set projections
+        TExpr texpr_proj0;
+        texpr_proj0.nodes.emplace_back();
+        texpr_proj0.nodes[0].node_type = TExprNodeType::SLOT_REF;
+        texpr_proj0.nodes[0].type = type_desc_int;
+        texpr_proj0.nodes[0].num_children = 0;
+        texpr_proj0.nodes[0].__set_slot_ref(TSlotRef());
+        texpr_proj0.nodes[0].slot_ref = slot_ref_id;
+        texpr_proj0.nodes[0].output_scale = -1;
+        texpr_proj0.nodes[0].is_nullable = true;
+        texpr_proj0.nodes[0].label = "id";
+
+        TExpr texpr_proj1;
+        texpr_proj1.nodes.emplace_back();
+        texpr_proj1.nodes[0].node_type = TExprNodeType::SLOT_REF;
+        texpr_proj1.nodes[0].type = type_desc_int;
+        texpr_proj1.nodes[0].num_children = 0;
+        texpr_proj1.nodes[0].__set_slot_ref(TSlotRef());
+        texpr_proj1.nodes[0].slot_ref = slot_ref_unnest_tag;
+        texpr_proj1.nodes[0].output_scale = -1;
+        texpr_proj1.nodes[0].is_nullable = true;
+        texpr_proj1.nodes[0].label = "tag";
+
+        tplan_node_table_function_node.projections.push_back(texpr_proj0);
+        tplan_node_table_function_node.projections.push_back(texpr_proj1);
+        tplan_node_table_function_node.output_tuple_id = tuple2.id;
+        tplan_node_table_function_node.nereids_id = 144;
+        // end of tplan_node_table_function_node
+    }
+
+    void setup_explode_plan_node(TPlanNode& tplan_node_table_function_node, bool outer) {
+        // Set main TPlanNode properties
+        tplan_node_table_function_node.node_id = 0;
+        tplan_node_table_function_node.node_type = TPlanNodeType::TABLE_FUNCTION_NODE;
+        tplan_node_table_function_node.num_children = 1;
+        tplan_node_table_function_node.limit = -1;
+
+        tplan_node_table_function_node.row_tuples.push_back(tuple0.id);
+        tplan_node_table_function_node.row_tuples.push_back(tuple1.id);
+        tplan_node_table_function_node.nullable_tuples.push_back(false);
+        tplan_node_table_function_node.nullable_tuples.push_back(false);
+        tplan_node_table_function_node.compact_data = false;
+        tplan_node_table_function_node.is_serial_operator = false;
+
+        // setup table function node
+        tplan_node_table_function_node.__set_table_function_node(TTableFunctionNode());
+
+        // setup fnCallExprList of table function node
+        TExpr fn_expr;
+
+        fn_expr.nodes.emplace_back();
+        fn_expr.nodes[0].node_type = TExprNodeType::FUNCTION_CALL;
+        fn_expr.nodes[0].type.types.emplace_back(type_node_int);
+        fn_expr.nodes[0].num_children = 1;
+
+        // setup TFunction of table function node
+        fn_expr.nodes[0].__set_fn(TFunction());
+        fn_expr.nodes[0].fn.__set_name(TFunctionName());
+        fn_expr.nodes[0].fn.name.function_name = outer ? "explode_outer" : "explode";
+
+        fn_expr.nodes[0].fn.arg_types.emplace_back(type_desc_array_int);
+        fn_expr.nodes[0].fn.ret_type.types.emplace_back(type_node_int);
+
+        fn_expr.nodes[0].fn.has_var_args = false;
+        fn_expr.nodes[0].fn.signature = outer ? "explode_outer(array<int>)" : "explode(array<int>)";
+        fn_expr.nodes[0].fn.__set_scalar_fn(TScalarFunction());
+        fn_expr.nodes[0].fn.scalar_fn.symbol = "";
+        fn_expr.nodes[0].fn.id = 0;
+        fn_expr.nodes[0].fn.vectorized = true;
+        fn_expr.nodes[0].fn.is_udtf_function = false;
+        fn_expr.nodes[0].fn.is_static_load = false;
+        fn_expr.nodes[0].fn.expiration_time = 360;
+        fn_expr.nodes[0].is_nullable = true;
+
+        // explode input slot ref: array<int>
+        fn_expr.nodes.emplace_back();
+        fn_expr.nodes[1].node_type = TExprNodeType::SLOT_REF;
+        fn_expr.nodes[1].type = type_desc_array_int;
+        fn_expr.nodes[1].num_children = 0;
+        fn_expr.nodes[1].__set_slot_ref(TSlotRef());
+        fn_expr.nodes[1].slot_ref = slot_ref_tags;
+        fn_expr.nodes[1].output_scale = -1;
+        fn_expr.nodes[1].is_nullable = true;
+        fn_expr.nodes[1].label = "tags";
+
+        tplan_node_table_function_node.table_function_node.fnCallExprList.push_back(fn_expr);
+
+        // Set output slot IDs
+        tplan_node_table_function_node.table_function_node.outputSlotIds.push_back(slot_desc_id.id);
+        tplan_node_table_function_node.table_function_node.outputSlotIds.push_back(
+                slot_desc_unnest_tag.id);
 
         // Set projections
         TExpr texpr_proj0;
@@ -1527,6 +1625,546 @@ TEST_F(UnnestTest, outer) {
         // std::cout << "expected output block: \n" << expected_output_block.dump_data() << std::endl;
         EXPECT_TRUE(eos);
         EXPECT_TRUE(ColumnHelper::block_equal(output_block, expected_output_block));
+    }
+}
+
+// Test inner mode fast path with NULL and empty arrays (they should be skipped)
+TEST_F(UnnestTest, inner_with_nulls_fast_path) {
+    TDescriptorTable desc_table;
+    desc_table.tupleDescriptors.push_back(tuple0);
+    desc_table.tupleDescriptors.push_back(tuple1);
+    desc_table.tupleDescriptors.push_back(tuple2);
+    desc_table.slotDescriptors.push_back(slot_desc_id);
+    desc_table.slotDescriptors.push_back(slot_desc_tags);
+    desc_table.slotDescriptors.push_back(slot_desc_unnest_tag);
+    desc_table.slotDescriptors.push_back(slot_desc_id_2);
+    desc_table.slotDescriptors.push_back(slot_desc_unnest_tag2);
+
+    setup_exec_env();
+    runtime_state->_batch_size = 4096;
+
+    TPlanNode tplan_node;
+    setup_explode_plan_node(tplan_node, false); // inner, no conjuncts → fast path
+
+    DescriptorTbl* desc_tbl;
+    auto st = DescriptorTbl::create(obj_pool.get(), desc_table, &desc_tbl);
+    EXPECT_TRUE(st.ok());
+
+    DataTypePtr data_type_int(std::make_shared<DataTypeInt32>());
+    auto data_type_int_nullable = make_nullable(data_type_int);
+    DataTypePtr data_type_array_type(std::make_shared<DataTypeArray>(data_type_int_nullable));
+    auto data_type_array_type_nullable = make_nullable(data_type_array_type);
+
+    // Build input: ids=[1,2,3,4,5], arrays=[[10,20,30], NULL, [40,50], [], [60]]
+    auto build_input = [&]() {
+        auto result_block = std::make_unique<Block>();
+
+        auto id_column = ColumnInt32::create();
+        for (int32_t id : {1, 2, 3, 4, 5}) {
+            id_column->insert_data((const char*)(&id), 0);
+        }
+        result_block->insert(ColumnWithTypeAndName(make_nullable(std::move(id_column)),
+                                                   data_type_int_nullable, "id"));
+
+        auto arr_data = ColumnInt32::create();
+        auto arr_offsets = ColumnOffset64::create();
+        auto arr_nullmap = ColumnUInt8::create();
+
+        // Row 0: [10, 20, 30]
+        for (int32_t v : {10, 20, 30}) {
+            arr_data->insert_data((const char*)(&v), 0);
+        }
+        ColumnArray::Offset64 off = 3;
+        arr_offsets->insert_data((const char*)(&off), 0);
+        arr_nullmap->get_data().push_back(0);
+
+        // Row 1: NULL
+        arr_offsets->insert_data((const char*)(&off), 0); // same offset
+        arr_nullmap->get_data().push_back(1);
+
+        // Row 2: [40, 50]
+        for (int32_t v : {40, 50}) {
+            arr_data->insert_data((const char*)(&v), 0);
+        }
+        off = 5;
+        arr_offsets->insert_data((const char*)(&off), 0);
+        arr_nullmap->get_data().push_back(0);
+
+        // Row 3: []
+        arr_offsets->insert_data((const char*)(&off), 0); // same offset
+        arr_nullmap->get_data().push_back(0);
+
+        // Row 4: [60]
+        int32_t v60 = 60;
+        arr_data->insert_data((const char*)(&v60), 0);
+        off = 6;
+        arr_offsets->insert_data((const char*)(&off), 0);
+        arr_nullmap->get_data().push_back(0);
+
+        auto array_column =
+                ColumnArray::create(make_nullable(std::move(arr_data)), std::move(arr_offsets));
+        auto nullable_array =
+                ColumnNullable::create(std::move(array_column), std::move(arr_nullmap));
+        result_block->insert(ColumnWithTypeAndName(std::move(nullable_array),
+                                                   data_type_array_type_nullable, "tags"));
+        return result_block;
+    };
+
+    {
+        auto table_func_op = create_test_operators(desc_tbl, tplan_node);
+        auto* local_state = runtime_state->get_local_state(table_func_op->operator_id());
+        auto* tfl = dynamic_cast<TableFunctionLocalState*>(local_state);
+
+        tfl->_child_block = build_input();
+        tfl->_child_eos = true;
+
+        st = table_func_op->push(runtime_state.get(), tfl->_child_block.get(), tfl->_child_eos);
+        ASSERT_TRUE(st.ok()) << "push failed: " << st.to_string();
+
+        bool eos = false;
+        Block output_block;
+        st = table_func_op->pull(runtime_state.get(), &output_block, &eos);
+        ASSERT_TRUE(st.ok()) << "pull failed: " << st.to_string();
+
+        // Expected: 6 rows — NULL row (id=2) and empty row (id=4) are skipped
+        EXPECT_EQ(output_block.rows(), 6);
+
+        // Verify ids: [1,1,1,3,3,5]
+        auto id_col = output_block.get_by_position(0).column;
+        auto check_id = [&](size_t row, int32_t expected) {
+            auto field = (*id_col)[row];
+            EXPECT_EQ(field.get<TYPE_INT>(), expected) << "row " << row;
+        };
+        check_id(0, 1);
+        check_id(1, 1);
+        check_id(2, 1);
+        check_id(3, 3);
+        check_id(4, 3);
+        check_id(5, 5);
+
+        // Verify tags: [10,20,30,40,50,60]
+        auto tag_col = output_block.get_by_position(2).column;
+        auto check_tag = [&](size_t row, int32_t expected) {
+            auto field = (*tag_col)[row];
+            EXPECT_EQ(field.get<TYPE_INT>(), expected) << "row " << row;
+        };
+        check_tag(0, 10);
+        check_tag(1, 20);
+        check_tag(2, 30);
+        check_tag(3, 40);
+        check_tag(4, 50);
+        check_tag(5, 60);
+    }
+}
+
+// Test outer mode fast path with NULL and empty arrays (should emit NULL rows)
+TEST_F(UnnestTest, outer_with_nulls_fast_path) {
+    TDescriptorTable desc_table;
+    desc_table.tupleDescriptors.push_back(tuple0);
+    desc_table.tupleDescriptors.push_back(tuple1);
+    desc_table.tupleDescriptors.push_back(tuple2);
+    desc_table.slotDescriptors.push_back(slot_desc_id);
+    desc_table.slotDescriptors.push_back(slot_desc_tags);
+    desc_table.slotDescriptors.push_back(slot_desc_unnest_tag);
+    desc_table.slotDescriptors.push_back(slot_desc_id_2);
+    desc_table.slotDescriptors.push_back(slot_desc_unnest_tag2);
+
+    setup_exec_env();
+    runtime_state->_batch_size = 4096;
+
+    TPlanNode tplan_node;
+    setup_explode_plan_node(tplan_node, true); // outer, no conjuncts → fast path
+
+    DescriptorTbl* desc_tbl;
+    auto st = DescriptorTbl::create(obj_pool.get(), desc_table, &desc_tbl);
+    EXPECT_TRUE(st.ok());
+
+    DataTypePtr data_type_int(std::make_shared<DataTypeInt32>());
+    auto data_type_int_nullable = make_nullable(data_type_int);
+    DataTypePtr data_type_array_type(std::make_shared<DataTypeArray>(data_type_int_nullable));
+    auto data_type_array_type_nullable = make_nullable(data_type_array_type);
+
+    // Build input: ids=[1,2,3,4,5], arrays=[[10,20], NULL, [30], [], [40,50]]
+    auto build_input = [&]() {
+        auto result_block = std::make_unique<Block>();
+
+        auto id_column = ColumnInt32::create();
+        for (int32_t id : {1, 2, 3, 4, 5}) {
+            id_column->insert_data((const char*)(&id), 0);
+        }
+        result_block->insert(ColumnWithTypeAndName(make_nullable(std::move(id_column)),
+                                                   data_type_int_nullable, "id"));
+
+        auto arr_data = ColumnInt32::create();
+        auto arr_offsets = ColumnOffset64::create();
+        auto arr_nullmap = ColumnUInt8::create();
+
+        // Row 0: [10, 20]
+        for (int32_t v : {10, 20}) {
+            arr_data->insert_data((const char*)(&v), 0);
+        }
+        ColumnArray::Offset64 off = 2;
+        arr_offsets->insert_data((const char*)(&off), 0);
+        arr_nullmap->get_data().push_back(0);
+
+        // Row 1: NULL
+        arr_offsets->insert_data((const char*)(&off), 0);
+        arr_nullmap->get_data().push_back(1);
+
+        // Row 2: [30]
+        int32_t v30 = 30;
+        arr_data->insert_data((const char*)(&v30), 0);
+        off = 3;
+        arr_offsets->insert_data((const char*)(&off), 0);
+        arr_nullmap->get_data().push_back(0);
+
+        // Row 3: []
+        arr_offsets->insert_data((const char*)(&off), 0);
+        arr_nullmap->get_data().push_back(0);
+
+        // Row 4: [40, 50]
+        for (int32_t v : {40, 50}) {
+            arr_data->insert_data((const char*)(&v), 0);
+        }
+        off = 5;
+        arr_offsets->insert_data((const char*)(&off), 0);
+        arr_nullmap->get_data().push_back(0);
+
+        auto array_column =
+                ColumnArray::create(make_nullable(std::move(arr_data)), std::move(arr_offsets));
+        auto nullable_array =
+                ColumnNullable::create(std::move(array_column), std::move(arr_nullmap));
+        result_block->insert(ColumnWithTypeAndName(std::move(nullable_array),
+                                                   data_type_array_type_nullable, "tags"));
+        return result_block;
+    };
+
+    {
+        auto table_func_op = create_test_operators(desc_tbl, tplan_node);
+        auto* local_state = runtime_state->get_local_state(table_func_op->operator_id());
+        auto* tfl = dynamic_cast<TableFunctionLocalState*>(local_state);
+
+        tfl->_child_block = build_input();
+        tfl->_child_eos = true;
+
+        st = table_func_op->push(runtime_state.get(), tfl->_child_block.get(), tfl->_child_eos);
+        ASSERT_TRUE(st.ok()) << "push failed: " << st.to_string();
+
+        bool eos = false;
+        Block output_block;
+        st = table_func_op->pull(runtime_state.get(), &output_block, &eos);
+        ASSERT_TRUE(st.ok()) << "pull failed: " << st.to_string();
+
+        // Expected: 7 rows
+        // (1,10), (1,20), (2,NULL), (3,30), (4,NULL), (5,40), (5,50)
+        EXPECT_EQ(output_block.rows(), 7);
+
+        // Verify ids: [1,1,2,3,4,5,5]
+        auto id_col = output_block.get_by_position(0).column;
+        auto check_id = [&](size_t row, int32_t expected) {
+            auto field = (*id_col)[row];
+            EXPECT_EQ(field.get<TYPE_INT>(), expected) << "row " << row;
+        };
+        check_id(0, 1);
+        check_id(1, 1);
+        check_id(2, 2);
+        check_id(3, 3);
+        check_id(4, 4);
+        check_id(5, 5);
+        check_id(6, 5);
+
+        // Verify tags: [10, 20, NULL, 30, NULL, 40, 50]
+        auto tag_col = output_block.get_by_position(2).column;
+        auto check_tag = [&](size_t row, int32_t expected) {
+            auto field = (*tag_col)[row];
+            EXPECT_EQ(field.get<TYPE_INT>(), expected) << "row " << row;
+        };
+        auto check_null = [&](size_t row) {
+            EXPECT_TRUE(tag_col->is_null_at(row)) << "row " << row << " should be null";
+        };
+        check_tag(0, 10);
+        check_tag(1, 20);
+        check_null(2);
+        check_tag(3, 30);
+        check_null(4);
+        check_tag(5, 40);
+        check_tag(6, 50);
+    }
+}
+// Test posexplode inner mode fast path with NULL and empty arrays
+TEST_F(UnnestTest, posexplode_with_nulls_fast_path) {
+    // Build struct type descriptor for posexplode output:
+    // STRUCT(pos: INT NOT NULL, val: NULLABLE<INT>)
+    TTypeNode type_node_struct;
+    type_node_struct.type = TTypeNodeType::STRUCT;
+    {
+        TStructField sf_pos;
+        sf_pos.__set_name("pos");
+        sf_pos.__set_contains_null(false);
+        TStructField sf_val;
+        sf_val.__set_name("val");
+        sf_val.__set_contains_null(true);
+        type_node_struct.__set_struct_fields({sf_pos, sf_val});
+    }
+
+    TTypeDesc type_desc_struct;
+    type_desc_struct.types.emplace_back(type_node_struct);
+    type_desc_struct.types.emplace_back(type_node_int); // pos sub-type
+    type_desc_struct.types.emplace_back(type_node_int); // val sub-type
+    type_desc_struct.byte_size = -1;
+
+    // Create new tuple/slot descriptors for posexplode using continuing IDs
+    // After constructor: slot_id=5, tuple_id=3, col_unique_id=3
+    TTupleDescriptor pe_tuple_tf;
+    pe_tuple_tf.id = tuple_id++;
+    pe_tuple_tf.byteSize = 0;
+    pe_tuple_tf.numNullBytes = 0;
+
+    TTupleDescriptor pe_tuple_proj;
+    pe_tuple_proj.id = tuple_id++;
+    pe_tuple_proj.byteSize = 0;
+    pe_tuple_proj.numNullBytes = 0;
+
+    // TF output slot: struct type
+    TSlotRef pe_slot_ref_out;
+    pe_slot_ref_out.slot_id = slot_id++;
+    pe_slot_ref_out.tuple_id = pe_tuple_tf.id;
+    pe_slot_ref_out.col_unique_id = -1;
+    pe_slot_ref_out.is_virtual_slot = false;
+
+    TSlotDescriptor pe_slot_desc_out;
+    pe_slot_desc_out.id = pe_slot_ref_out.slot_id;
+    pe_slot_desc_out.parent = pe_tuple_tf.id;
+    pe_slot_desc_out.slotType = type_desc_struct;
+    pe_slot_desc_out.columnPos = -1;
+    pe_slot_desc_out.byteOffset = 0;
+    pe_slot_desc_out.nullIndicatorByte = 0;
+    pe_slot_desc_out.nullIndicatorBit = 0;
+    pe_slot_desc_out.colName = "posexplode#3";
+    pe_slot_desc_out.slotIdx = -1;
+    pe_slot_desc_out.isMaterialized = true;
+    pe_slot_desc_out.col_unique_id = -1;
+    pe_slot_desc_out.is_key = false;
+    pe_slot_desc_out.need_materialize = true;
+    pe_slot_desc_out.is_auto_increment = false;
+    pe_slot_desc_out.primitive_type = TPrimitiveType::STRUCT;
+
+    // Projection slots
+    TSlotDescriptor pe_slot_desc_id_proj = slot_desc_id;
+    pe_slot_desc_id_proj.id = slot_id++;
+    pe_slot_desc_id_proj.parent = pe_tuple_proj.id;
+
+    TSlotDescriptor pe_slot_desc_out_proj = pe_slot_desc_out;
+    pe_slot_desc_out_proj.id = slot_id++;
+    pe_slot_desc_out_proj.parent = pe_tuple_proj.id;
+
+    TDescriptorTable desc_table;
+    desc_table.tupleDescriptors.push_back(tuple0);
+    desc_table.tupleDescriptors.push_back(pe_tuple_tf);
+    desc_table.tupleDescriptors.push_back(pe_tuple_proj);
+    desc_table.slotDescriptors.push_back(slot_desc_id);
+    desc_table.slotDescriptors.push_back(slot_desc_tags);
+    desc_table.slotDescriptors.push_back(pe_slot_desc_out);
+    desc_table.slotDescriptors.push_back(pe_slot_desc_id_proj);
+    desc_table.slotDescriptors.push_back(pe_slot_desc_out_proj);
+
+    setup_exec_env();
+    runtime_state->_batch_size = 4096;
+
+    // Build plan node for posexplode (inner mode, no conjuncts → fast path)
+    TPlanNode tplan_node;
+    {
+        tplan_node.node_id = 0;
+        tplan_node.node_type = TPlanNodeType::TABLE_FUNCTION_NODE;
+        tplan_node.num_children = 1;
+        tplan_node.limit = -1;
+
+        tplan_node.row_tuples.push_back(tuple0.id);
+        tplan_node.row_tuples.push_back(pe_tuple_tf.id);
+        tplan_node.nullable_tuples.push_back(false);
+        tplan_node.nullable_tuples.push_back(false);
+        tplan_node.compact_data = false;
+        tplan_node.is_serial_operator = false;
+
+        tplan_node.__set_table_function_node(TTableFunctionNode());
+
+        TExpr fn_expr;
+        fn_expr.nodes.emplace_back();
+        fn_expr.nodes[0].node_type = TExprNodeType::FUNCTION_CALL;
+        fn_expr.nodes[0].type.types.emplace_back(type_node_struct);
+        fn_expr.nodes[0].type.types.emplace_back(type_node_int);
+        fn_expr.nodes[0].type.types.emplace_back(type_node_int);
+        fn_expr.nodes[0].num_children = 1;
+
+        fn_expr.nodes[0].__set_fn(TFunction());
+        fn_expr.nodes[0].fn.__set_name(TFunctionName());
+        fn_expr.nodes[0].fn.name.function_name = "posexplode";
+        fn_expr.nodes[0].fn.arg_types.emplace_back(type_desc_array_int);
+        fn_expr.nodes[0].fn.ret_type = type_desc_struct;
+        fn_expr.nodes[0].fn.has_var_args = false;
+        fn_expr.nodes[0].fn.signature = "posexplode(array<int>)";
+        fn_expr.nodes[0].fn.__set_scalar_fn(TScalarFunction());
+        fn_expr.nodes[0].fn.scalar_fn.symbol = "";
+        fn_expr.nodes[0].fn.id = 0;
+        fn_expr.nodes[0].fn.vectorized = true;
+        fn_expr.nodes[0].fn.is_udtf_function = false;
+        fn_expr.nodes[0].fn.is_static_load = false;
+        fn_expr.nodes[0].fn.expiration_time = 360;
+        fn_expr.nodes[0].is_nullable = true;
+
+        fn_expr.nodes.emplace_back();
+        fn_expr.nodes[1].node_type = TExprNodeType::SLOT_REF;
+        fn_expr.nodes[1].type = type_desc_array_int;
+        fn_expr.nodes[1].num_children = 0;
+        fn_expr.nodes[1].__set_slot_ref(TSlotRef());
+        fn_expr.nodes[1].slot_ref = slot_ref_tags;
+        fn_expr.nodes[1].output_scale = -1;
+        fn_expr.nodes[1].is_nullable = true;
+        fn_expr.nodes[1].label = "tags";
+
+        tplan_node.table_function_node.fnCallExprList.push_back(fn_expr);
+
+        tplan_node.table_function_node.outputSlotIds.push_back(slot_desc_id.id);
+        tplan_node.table_function_node.outputSlotIds.push_back(pe_slot_desc_out.id);
+
+        // Projections
+        TExpr texpr_proj0;
+        texpr_proj0.nodes.emplace_back();
+        texpr_proj0.nodes[0].node_type = TExprNodeType::SLOT_REF;
+        texpr_proj0.nodes[0].type = type_desc_int;
+        texpr_proj0.nodes[0].num_children = 0;
+        texpr_proj0.nodes[0].__set_slot_ref(TSlotRef());
+        texpr_proj0.nodes[0].slot_ref = slot_ref_id;
+        texpr_proj0.nodes[0].output_scale = -1;
+        texpr_proj0.nodes[0].is_nullable = true;
+        texpr_proj0.nodes[0].label = "id";
+
+        TExpr texpr_proj1;
+        texpr_proj1.nodes.emplace_back();
+        texpr_proj1.nodes[0].node_type = TExprNodeType::SLOT_REF;
+        texpr_proj1.nodes[0].type = type_desc_struct;
+        texpr_proj1.nodes[0].num_children = 0;
+        texpr_proj1.nodes[0].__set_slot_ref(TSlotRef());
+        texpr_proj1.nodes[0].slot_ref = pe_slot_ref_out;
+        texpr_proj1.nodes[0].output_scale = -1;
+        texpr_proj1.nodes[0].is_nullable = true;
+        texpr_proj1.nodes[0].label = "posexplode";
+
+        tplan_node.projections.push_back(texpr_proj0);
+        tplan_node.projections.push_back(texpr_proj1);
+        tplan_node.output_tuple_id = pe_tuple_proj.id;
+        tplan_node.nereids_id = 144;
+    }
+
+    DescriptorTbl* desc_tbl;
+    auto st = DescriptorTbl::create(obj_pool.get(), desc_table, &desc_tbl);
+    EXPECT_TRUE(st.ok());
+
+    DataTypePtr data_type_int(std::make_shared<DataTypeInt32>());
+    auto data_type_int_nullable = make_nullable(data_type_int);
+    DataTypePtr data_type_array_type(std::make_shared<DataTypeArray>(data_type_int_nullable));
+    auto data_type_array_type_nullable = make_nullable(data_type_array_type);
+
+    // Build input: ids=[1,2,3,4], arrays=[[10,20], NULL, [30], []]
+    auto build_input = [&]() {
+        auto result_block = std::make_unique<Block>();
+
+        auto id_column = ColumnInt32::create();
+        for (int32_t id : {1, 2, 3, 4}) {
+            id_column->insert_data((const char*)(&id), 0);
+        }
+        result_block->insert(ColumnWithTypeAndName(make_nullable(std::move(id_column)),
+                                                   data_type_int_nullable, "id"));
+
+        auto arr_data = ColumnInt32::create();
+        auto arr_offsets = ColumnOffset64::create();
+        auto arr_nullmap = ColumnUInt8::create();
+
+        // Row 0: [10, 20]
+        for (int32_t v : {10, 20}) {
+            arr_data->insert_data((const char*)(&v), 0);
+        }
+        ColumnArray::Offset64 off = 2;
+        arr_offsets->insert_data((const char*)(&off), 0);
+        arr_nullmap->get_data().push_back(0);
+
+        // Row 1: NULL
+        arr_offsets->insert_data((const char*)(&off), 0);
+        arr_nullmap->get_data().push_back(1);
+
+        // Row 2: [30]
+        int32_t v30 = 30;
+        arr_data->insert_data((const char*)(&v30), 0);
+        off = 3;
+        arr_offsets->insert_data((const char*)(&off), 0);
+        arr_nullmap->get_data().push_back(0);
+
+        // Row 3: []
+        arr_offsets->insert_data((const char*)(&off), 0);
+        arr_nullmap->get_data().push_back(0);
+
+        auto array_column =
+                ColumnArray::create(make_nullable(std::move(arr_data)), std::move(arr_offsets));
+        auto nullable_array =
+                ColumnNullable::create(std::move(array_column), std::move(arr_nullmap));
+        result_block->insert(ColumnWithTypeAndName(std::move(nullable_array),
+                                                   data_type_array_type_nullable, "tags"));
+        return result_block;
+    };
+
+    {
+        auto table_func_op = create_test_operators(desc_tbl, tplan_node);
+        auto* local_state = runtime_state->get_local_state(table_func_op->operator_id());
+        auto* tfl = dynamic_cast<TableFunctionLocalState*>(local_state);
+
+        tfl->_child_block = build_input();
+        tfl->_child_eos = true;
+
+        st = table_func_op->push(runtime_state.get(), tfl->_child_block.get(), tfl->_child_eos);
+        ASSERT_TRUE(st.ok()) << "push failed: " << st.to_string();
+
+        bool eos = false;
+        Block output_block;
+        st = table_func_op->pull(runtime_state.get(), &output_block, &eos);
+        ASSERT_TRUE(st.ok()) << "pull failed: " << st.to_string();
+
+        // Expected: 3 rows (NULL and empty arrays are skipped in inner mode)
+        // Row 0: id=1, struct=(pos=0, val=10)
+        // Row 1: id=1, struct=(pos=1, val=20)
+        // Row 2: id=3, struct=(pos=0, val=30)
+        EXPECT_EQ(output_block.rows(), 3);
+
+        // Verify ids: [1, 1, 3]
+        auto id_col = output_block.get_by_position(0).column;
+        auto check_id = [&](size_t row, int32_t expected) {
+            auto field = (*id_col)[row];
+            EXPECT_EQ(field.get<TYPE_INT>(), expected) << "row " << row;
+        };
+        check_id(0, 1);
+        check_id(1, 1);
+        check_id(2, 3);
+
+        // Verify struct output column at position 2
+        auto out_col = output_block.get_by_position(2).column;
+        auto* nullable_out = assert_cast<const ColumnNullable*>(out_col.get());
+        for (size_t i = 0; i < 3; ++i) {
+            EXPECT_FALSE(nullable_out->is_null_at(i))
+                    << "struct row " << i << " should not be null";
+        }
+        auto* struct_col = assert_cast<const ColumnStruct*>(&nullable_out->get_nested_column());
+        auto* pos_col = assert_cast<const ColumnInt32*>(&struct_col->get_column(0));
+        auto* val_nullable = assert_cast<const ColumnNullable*>(&struct_col->get_column(1));
+        auto* val_col = assert_cast<const ColumnInt32*>(&val_nullable->get_nested_column());
+
+        // Verify positions: [0, 1, 0]
+        EXPECT_EQ(pos_col->get_element(0), 0);
+        EXPECT_EQ(pos_col->get_element(1), 1);
+        EXPECT_EQ(pos_col->get_element(2), 0);
+
+        // Verify values: [10, 20, 30]
+        EXPECT_EQ(val_col->get_element(0), 10);
+        EXPECT_EQ(val_col->get_element(1), 20);
+        EXPECT_EQ(val_col->get_element(2), 30);
     }
 }
 } // namespace doris

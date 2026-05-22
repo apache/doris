@@ -60,7 +60,6 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class FunctionArrayElement : public IFunction {
 public:
@@ -111,7 +110,7 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const());
         auto col_left = block.get_by_position(arguments[0]);
         if (col_left.column->is_nullable()) {
-            auto null_col = check_and_get_column<ColumnNullable>(*col_left.column);
+            const auto* null_col = assert_cast<const ColumnNullable*>(col_left.column.get());
             src_null_map = null_col->get_null_map_column().get_data().data();
             args = {{null_col->get_nested_column_ptr(), remove_nullable(col_left.type),
                      col_left.name},
@@ -386,5 +385,4 @@ private:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -59,7 +59,6 @@
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class FunctionContext;
 } // namespace doris
 
@@ -161,7 +160,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         // Handle null map manually - update result null map from input null maps upfront
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnPtr argument_columns[3];
         bool col_const[3];
@@ -229,8 +228,7 @@ public:
                     Core::vector_vector_anchor(sources->get_data(), delta_vec_column0->get_data(),
                                                col_to->get_data(), result_null_map, context);
                 } else {
-                    const auto* delta_vec_column1 = check_and_get_column<ColumnInt32>(delta_column);
-                    DCHECK(delta_vec_column1 != nullptr);
+                    const auto* delta_vec_column1 = assert_cast<const ColumnInt32*>(&delta_column);
                     // time_round(datetime, period)
                     Core::vector_vector_period(sources->get_data(), delta_vec_column1->get_data(),
                                                col_to->get_data(), result_null_map, context);
@@ -249,8 +247,8 @@ public:
                 Core::vector_const_const(sources->get_data(), period, origin, col_to->get_data(),
                                          result_null_map, context);
             } else if (col_const[1] && !col_const[2]) {
-                const auto arg2_column =
-                        check_and_get_column<ColumnVector<PType>>(*argument_columns[2]);
+                const auto* arg2_column =
+                        assert_cast<const ColumnVector<PType>*>(argument_columns[2].get());
                 // time_round(datetime, const(period), origin)
                 Int32 period = (*argument_columns[1])[0].get<TYPE_INT>();
                 bool period_is_null = block.get_by_position(arguments[1]).type->is_nullable() &&
@@ -261,17 +259,17 @@ public:
                 Core::vector_const_vector(sources->get_data(), period, arg2_column->get_data(),
                                           col_to->get_data(), result_null_map, context);
             } else if (!col_const[1] && col_const[2]) {
-                const auto* arg1_column = check_and_get_column<ColumnInt32>(*argument_columns[1]);
+                const auto* arg1_column =
+                        assert_cast<const ColumnInt32*>(argument_columns[1].get());
                 // time_round(datetime, period, const(origin))
                 Core::vector_vector_const(sources->get_data(), arg1_column->get_data(),
                                           (*argument_columns[2])[0].get<PType>(),
                                           col_to->get_data(), result_null_map, context);
             } else {
-                const auto* arg1_column = check_and_get_column<ColumnInt32>(*argument_columns[1]);
-                const auto arg2_column =
-                        check_and_get_column<ColumnVector<PType>>(*argument_columns[2]);
-                DCHECK(arg1_column != nullptr);
-                DCHECK(arg2_column != nullptr);
+                const auto* arg1_column =
+                        assert_cast<const ColumnInt32*>(argument_columns[1].get());
+                const auto* arg2_column =
+                        assert_cast<const ColumnVector<PType>*>(argument_columns[2].get());
                 // time_round(datetime, period, origin)
                 Core::vector_vector_vector(sources->get_data(), arg1_column->get_data(),
                                            arg2_column->get_data(), col_to->get_data(),
@@ -772,18 +770,13 @@ struct DateTimeFloorCeilCore {
         // For TimestampTzValue on date-based units, convert result from local time back to UTC
         if constexpr (need_tz_conversion) {
             if (result) {
-                cctz::civil_second local_result_cs(ts_res.year(), ts_res.month(), ts_res.day(),
-                                                   ts_res.hour(), ts_res.minute(), ts_res.second());
-                cctz::time_point<cctz::sys_seconds> local_tp = cctz::convert(local_result_cs, tz);
-                auto utc_result_cs = cctz::convert(local_tp, cctz::utc_time_zone());
-
-                ts_origin.unchecked_set_time(static_cast<uint16_t>(utc_result_cs.year()),
-                                             static_cast<uint8_t>(utc_result_cs.month()),
-                                             static_cast<uint8_t>(utc_result_cs.day()),
-                                             static_cast<uint8_t>(utc_result_cs.hour()),
-                                             static_cast<uint8_t>(utc_result_cs.minute()),
-                                             static_cast<uint8_t>(utc_result_cs.second()),
-                                             ts_res.microsecond());
+                DateV2Value<DateTimeV2ValueType> local_result(ts_res.to_date_int_val());
+                if constexpr (Flag::Unit == HOUR || Flag::Unit == MINUTE) {
+                    const int preferred_offset = ts_arg.utc_offset(tz);
+                    ts_origin.convert_local_to_utc(tz, local_result, preferred_offset);
+                } else {
+                    ts_origin.convert_local_to_utc(tz, local_result);
+                }
             }
         }
 

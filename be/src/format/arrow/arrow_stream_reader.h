@@ -38,8 +38,6 @@ class FileSystem;
 struct IOContext;
 } // namespace io
 
-#include "common/compile_check_begin.h"
-
 struct ScannerCounter;
 class Block;
 
@@ -55,10 +53,12 @@ public:
 
     Status init_reader();
 
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
-    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override;
+    Status _get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) override;
+
+protected:
+    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
 
 private:
     RuntimeState* _state;
@@ -69,5 +69,4 @@ private:
     std::unique_ptr<doris::ArrowPipInputStream> _pip_stream;
     cctz::time_zone _ctzz;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

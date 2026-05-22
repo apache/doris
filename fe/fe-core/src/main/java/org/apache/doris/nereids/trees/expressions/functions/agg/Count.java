@@ -77,7 +77,7 @@ public class Count extends NotNullableAggregateFunction
     public boolean isCountStar() {
         return isStar
                 || children.isEmpty()
-                || (children.size() == 1 && child(0) instanceof Literal);
+                || (children.size() == 1 && child(0) instanceof Literal && !child(0).isNullLiteral());
     }
 
     @Override

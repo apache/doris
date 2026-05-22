@@ -139,6 +139,11 @@ public:
     IntCounter* routine_load_get_msg_count = nullptr;
     IntCounter* routine_load_consume_bytes = nullptr;
     IntCounter* routine_load_consume_rows = nullptr;
+    IntCounter* routine_load_kinesis_get_records_latency = nullptr;
+    IntCounter* routine_load_kinesis_get_records_count = nullptr;
+    IntCounter* routine_load_kinesis_throttle_count = nullptr;
+    IntCounter* routine_load_kinesis_retriable_error_count = nullptr;
+    IntCounter* routine_load_kinesis_closed_shard_count = nullptr;
 
     IntCounter* memtable_flush_total = nullptr;
     IntCounter* memtable_flush_duration_us = nullptr;

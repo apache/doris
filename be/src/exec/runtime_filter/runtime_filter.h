@@ -19,6 +19,8 @@
 
 #include <gen_cpp/PaloInternalService_types.h>
 
+#include <vector>
+
 #include "common/exception.h"
 #include "common/status.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
@@ -27,9 +29,11 @@
 #include "runtime/query_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
+class PMergeFilterResponse;
 class RuntimeFilterWrapper;
 class RuntimeProfile;
+template <typename Response>
+class HandleErrorBrpcCallback;
 
 /// The runtimefilter is built in the join node.
 /// The main purpose is to reduce the scanning amount of the
@@ -133,11 +137,12 @@ protected:
     // runtime filter type
     RuntimeFilterType _runtime_filter_type = RuntimeFilterType::UNKNOWN_FILTER;
 
+    std::shared_ptr<HandleErrorBrpcCallback<PMergeFilterResponse>> _merge_filter_callback;
+
     friend class RuntimeFilterProducer;
     friend class RuntimeFilterConsumer;
     friend class RuntimeFilterMerger;
 
     std::recursive_mutex _rmtx; // lock all member function of runtime filter producer/consumer
 };
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -31,14 +31,12 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "io/io_common.h"
 #include "runtime/thread_context.h"
-#include "storage/field.h"
+#include "storage/binlog.h"
 #include "storage/olap_common.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
 
 namespace doris {
-
-#include "common/compile_check_begin.h"
 
 // The class is used to represent row's format in memory.  Each row contains
 // multiple columns, some of which are key-columns (the rest are value-columns).
@@ -77,6 +75,12 @@ public:
             if (column.name() == VERSION_COL) {
                 _version_col_idx = cid;
             }
+            if (column.name() == std::string(kRowBinlogLsnColName)) {
+                _lsn_col_idx = cid;
+            }
+            if (column.name() == std::string(kRowBinlogTimestampColName)) {
+                _tso_col_idx = cid;
+            }
             columns.push_back(std::make_shared<TabletColumn>(column));
         }
         _delete_sign_idx = tablet_schema->delete_sign_idx();
@@ -104,6 +108,12 @@ public:
             if (columns[i]->name() == VERSION_COL) {
                 _version_col_idx = i;
             }
+            if (columns[i]->name() == std::string(kRowBinlogLsnColName)) {
+                _lsn_col_idx = i;
+            }
+            if (columns[i]->name() == std::string(kRowBinlogTimestampColName)) {
+                _tso_col_idx = i;
+            }
             _unique_ids[i] = columns[i]->unique_id();
         }
         _init(columns, col_ids, num_key_columns);
@@ -126,16 +136,14 @@ public:
 
     ~Schema();
 
-    static DataTypePtr get_data_type_ptr(const doris::StorageField& field);
-
-    static IColumn::MutablePtr get_column_by_field(const doris::StorageField& field);
+    static DataTypePtr get_data_type_ptr(const TabletColumn& column);
 
     static IColumn::MutablePtr get_predicate_column_ptr(const FieldType& type, bool is_nullable,
                                                         const ReaderType reader_type);
 
-    const std::vector<doris::StorageField*>& columns() const { return _cols; }
+    const std::vector<TabletColumnPtr>& columns() const { return _cols; }
 
-    const doris::StorageField* column(ColumnId cid) const { return _cols[cid]; }
+    const TabletColumn* column(ColumnId cid) const { return _cols[cid].get(); }
 
     size_t num_key_columns() const { return _num_key_columns; }
 
@@ -148,6 +156,8 @@ public:
     bool has_sequence_col() const { return _has_sequence_col; }
     int32_t rowid_col_idx() const { return _rowid_col_idx; }
     int32_t version_col_idx() const { return _version_col_idx; }
+    int32_t lsn_col_idx() const { return _lsn_col_idx; }
+    int32_t tso_col_idx() const { return _tso_col_idx; }
     // Don't use.
     // TODO: memory size of Schema cannot be accurately tracked.
     // In some places, temporarily use num_columns() as Schema size.
@@ -165,16 +175,16 @@ private:
     std::vector<int32_t> _unique_ids;
     // NOTE: _cols[cid] can only be accessed when the cid is
     // contained in _col_ids
-    std::vector<doris::StorageField*> _cols;
+    std::vector<TabletColumnPtr> _cols;
 
     size_t _num_key_columns;
     int32_t _delete_sign_idx = -1;
     bool _has_sequence_col = false;
     int32_t _rowid_col_idx = -1;
     int32_t _version_col_idx = -1;
+    int32_t _lsn_col_idx = -1;
+    int32_t _tso_col_idx = -1;
     int64_t _mem_size = 0;
 };
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -35,7 +35,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 /**
  * The demo usage of JniReader, showing how to read data from java scanner.
  * The java side is also a mock reader that provide values for each type.
@@ -54,13 +53,15 @@ public:
 
     ~PaimonJniReader() override = default;
 
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     Status init_reader();
+
+protected:
+    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
 
 private:
     int64_t _remaining_table_level_row_count;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

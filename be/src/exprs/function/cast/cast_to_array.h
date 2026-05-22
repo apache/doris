@@ -21,7 +21,6 @@
 #include "exprs/function/cast/cast_base.h"
 
 namespace doris::CastWrapper {
-#include "common/compile_check_begin.h"
 WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
                                  const DataTypeArray& to_type) {
     /// Conversion from String through parsing.
@@ -52,7 +51,7 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
                 "CAST AS Array can only be performed between same-dimensional array types");
     }
 
-    const DataTypePtr& to_nested_type = to_type.get_nested_type();
+    DataTypePtr to_nested_type = to_type.get_nested_type();
 
     /// Prepare nested type conversion
     const auto nested_function =
@@ -91,5 +90,4 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
         return Status::OK();
     };
 }
-#include "common/compile_check_end.h"
 } // namespace doris::CastWrapper

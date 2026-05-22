@@ -43,8 +43,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 class RowsetMeta : public MetadataAdder<RowsetMeta> {
 public:
     RowsetMeta() = default;
@@ -96,6 +94,14 @@ public:
 
     void set_tablet_id(int64_t tablet_id) { _rowset_meta_pb.set_tablet_id(tablet_id); }
 
+    int64_t db_id() const { return _rowset_meta_pb.db_id(); }
+
+    void set_db_id(int64_t db_id) { _rowset_meta_pb.set_db_id(db_id); }
+
+    int64_t table_id() const { return _rowset_meta_pb.table_id(); }
+
+    void set_table_id(int64_t table_id) { _rowset_meta_pb.set_table_id(table_id); }
+
     int64_t index_id() const { return _rowset_meta_pb.index_id(); }
 
     void set_index_id(int64_t index_id) { _rowset_meta_pb.set_index_id(index_id); }
@@ -114,6 +120,12 @@ public:
 
     void set_tablet_schema_hash(int32_t tablet_schema_hash) {
         _rowset_meta_pb.set_tablet_schema_hash(tablet_schema_hash);
+    }
+
+    void mark_row_binlog() { _rowset_meta_pb.set_is_row_binlog(true); }
+
+    bool is_row_binlog() const {
+        return _rowset_meta_pb.has_is_row_binlog() && _rowset_meta_pb.is_row_binlog();
     }
 
     RowsetTypePB rowset_type() const { return _rowset_meta_pb.rowset_type(); }
@@ -355,6 +367,17 @@ public:
         _rowset_meta_pb.set_segments_key_bounds_truncated(truncated);
     }
 
+    // When true, `segments_key_bounds` holds a single aggregated
+    // [rowset_min, rowset_max] entry instead of per-segment bounds.
+    bool is_segments_key_bounds_aggregated() const {
+        return _rowset_meta_pb.has_segments_key_bounds_aggregated() &&
+               _rowset_meta_pb.segments_key_bounds_aggregated();
+    }
+
+    void set_segments_key_bounds_aggregated(bool aggregated) {
+        _rowset_meta_pb.set_segments_key_bounds_aggregated(aggregated);
+    }
+
     bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
         // for compatibility, old version has not segment key bounds
         if (_rowset_meta_pb.segments_key_bounds_size() == 0) {
@@ -372,7 +395,10 @@ public:
         return true;
     }
 
-    void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds);
+    // If `aggregate_into_single` is true, collapse per-segment bounds into a single
+    // [rowset_min, rowset_max] entry and mark this rowset as aggregated.
+    void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds,
+                                 bool aggregate_into_single = false);
 
     void add_segment_key_bounds(KeyBoundsPB segments_key_bounds) {
         *_rowset_meta_pb.add_segments_key_bounds() = std::move(segments_key_bounds);
@@ -460,6 +486,19 @@ public:
                 [algorithm]() -> Result<EncryptionAlgorithmPB> { return algorithm; });
     }
 
+    TsoRange commit_tso() const {
+        const auto& commit_tso_pb = _rowset_meta_pb.commit_tso();
+        return {commit_tso_pb.start_tso(), commit_tso_pb.end_tso()};
+    }
+
+    void set_commit_tso(const TsoRange& commit_tso) {
+        auto* commit_tso_pb = _rowset_meta_pb.mutable_commit_tso();
+        commit_tso_pb->set_start_tso(commit_tso.start_tso());
+        commit_tso_pb->set_end_tso(commit_tso.end_tso());
+    }
+
+    void set_commit_tso(int64_t commit_tso) { set_commit_tso({commit_tso, commit_tso}); }
+
     void set_cloud_fields_after_visible(int64_t visible_version, int64_t version_update_time_ms) {
         // Update rowset meta with correct version and visible_ts
         // !!ATTENTION!!: this code should be updated if there are more fields
@@ -494,7 +533,6 @@ private:
 
 using RowsetMetaMapContainer = std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion>;
 
-#include "common/compile_check_end.h"
 } // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H

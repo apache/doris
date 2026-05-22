@@ -28,6 +28,7 @@
 #include "recycler/hdfs_accessor.h"
 #include "recycler/s3_accessor.h"
 #include "recycler/util.h"
+#include "snapshot/snapshot_manager_factory.h"
 
 namespace doris::cloud {
 
@@ -303,8 +304,8 @@ int InstanceDataMigrator::do_migrate() {
                 .tag("cost(sec)", stop_watch.elapsed_seconds());
     };
 
-    SnapshotManager snapshot_mgr(txn_kv_);
-    int res = snapshot_mgr.migrate_to_versioned_keys(this);
+    auto snapshot_mgr = create_snapshot_manager(txn_kv_);
+    int res = snapshot_mgr->migrate_to_versioned_keys(this);
     if (res != 0) {
         LOG_WARNING("failed to migrate snapshot keys").tag("instance_id", instance_id_);
         return res;

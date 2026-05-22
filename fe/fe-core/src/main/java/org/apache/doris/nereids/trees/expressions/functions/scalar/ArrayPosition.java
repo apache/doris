@@ -77,7 +77,7 @@ public class ArrayPosition extends ScalarFunction
      */
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child(0).getDataType();
+        DataType argType = getArgument(0).getDataType();
         if (argType.isArrayType() && ((ArrayType) argType).getItemType().isComplexType()) {
             throw new AnalysisException("array_position does not support complex types: " + toSql());
         }

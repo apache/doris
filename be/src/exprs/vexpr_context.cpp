@@ -42,7 +42,6 @@ class RowDescriptor;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VExprContext::~VExprContext() {
     // In runtime filter, only create expr context to get expr root, will not call
@@ -440,14 +439,15 @@ Status VExprContext::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         const std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>&
                 common_expr_to_slotref_map,
-        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) {
+        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
+        bool enable_result_cache) {
     if (_root == nullptr) {
         return Status::OK();
     }
 
     RETURN_IF_ERROR(_root->evaluate_ann_range_search(
             _ann_range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators,
-            row_bitmap, ann_index_stats));
+            row_bitmap, ann_index_stats, enable_result_cache));
 
     if (!_root->ann_range_search_executedd()) {
         return Status::OK();
@@ -491,5 +491,4 @@ double VExprContext::execute_cost() const {
     return _root->execute_cost();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

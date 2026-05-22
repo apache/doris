@@ -36,7 +36,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -52,8 +51,8 @@ template <PrimitiveType T, bool stable>
 struct AggregateFunctionDistinctSingleNumericData {
     /// When creating, the hash table must be small.
     using Container = std::conditional_t<
-            stable, phmap::flat_hash_map<typename PrimitiveTypeTraits<T>::CppType, uint32_t>,
-            phmap::flat_hash_set<typename PrimitiveTypeTraits<T>::CppType>>;
+            stable, doris::flat_hash_map<typename PrimitiveTypeTraits<T>::CppType, uint32_t>,
+            doris::flat_hash_set<typename PrimitiveTypeTraits<T>::CppType>>;
     using Self = AggregateFunctionDistinctSingleNumericData<T, stable>;
     Container data;
 
@@ -126,8 +125,8 @@ struct AggregateFunctionDistinctSingleNumericData {
 template <bool stable>
 struct AggregateFunctionDistinctGenericData {
     /// When creating, the hash table must be small.
-    using Container = std::conditional_t<stable, phmap::flat_hash_map<StringRef, uint32_t>,
-                                         phmap::flat_hash_set<StringRef, StringRefHash>>;
+    using Container = std::conditional_t<stable, doris::flat_hash_map<StringRef, uint32_t>,
+                                         doris::flat_hash_set<StringRef, StringRefHash>>;
     using Self = AggregateFunctionDistinctGenericData;
     Container data;
 
@@ -261,7 +260,7 @@ struct AggregateFunctionDistinctMultipleGenericData
   * Adding -Distinct suffix to aggregate function
 **/
 template <template <bool stable> typename Data, bool stable = false>
-class AggregateFunctionDistinct
+class AggregateFunctionDistinct final
         : public IAggregateFunctionDataHelper<Data<stable>,
                                               AggregateFunctionDistinct<Data, stable>>,
           VarargsExpression,
@@ -370,5 +369,3 @@ struct FunctionStableTransfer<AggregateFunctionDistinct<Data, false>> {
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

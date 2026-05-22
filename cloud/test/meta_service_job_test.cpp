@@ -5213,6 +5213,7 @@ TEST(MetaServiceJobTest, GetStreamingTaskCommitAttachTest) {
         streaming_attach->set_job_id(1002);
         streaming_attach->set_offset("test_offset_3");
         streaming_attach->set_scanned_rows(2000);
+        streaming_attach->set_filtered_rows(150);
         streaming_attach->set_load_bytes(10000);
         streaming_attach->set_num_files(20);
         streaming_attach->set_file_bytes(15000);
@@ -5241,6 +5242,7 @@ TEST(MetaServiceJobTest, GetStreamingTaskCommitAttachTest) {
         EXPECT_TRUE(response.has_commit_attach());
         EXPECT_EQ(response.commit_attach().job_id(), 1002);
         EXPECT_EQ(response.commit_attach().scanned_rows(), 2000);
+        EXPECT_EQ(response.commit_attach().filtered_rows(), 150);
         EXPECT_EQ(response.commit_attach().load_bytes(), 10000);
         EXPECT_EQ(response.commit_attach().num_files(), 20);
         EXPECT_EQ(response.commit_attach().file_bytes(), 15000);
@@ -5363,6 +5365,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         streaming_attach->set_job_id(job_id);
         streaming_attach->set_offset("original_offset");
         streaming_attach->set_scanned_rows(1000);
+        streaming_attach->set_filtered_rows(50);
         streaming_attach->set_load_bytes(5000);
         streaming_attach->set_num_files(10);
         streaming_attach->set_file_bytes(8000);
@@ -5391,6 +5394,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         EXPECT_TRUE(response.has_commit_attach());
         EXPECT_EQ(response.commit_attach().offset(), "original_offset");
         EXPECT_EQ(response.commit_attach().scanned_rows(), 1000);
+        EXPECT_EQ(response.commit_attach().filtered_rows(), 50);
         EXPECT_EQ(response.commit_attach().load_bytes(), 5000);
     }
 
@@ -5427,6 +5431,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         EXPECT_EQ(response.commit_attach().offset(), "reset_offset");
         // Other fields should remain unchanged
         EXPECT_EQ(response.commit_attach().scanned_rows(), 1000);
+        EXPECT_EQ(response.commit_attach().filtered_rows(), 50);
         EXPECT_EQ(response.commit_attach().load_bytes(), 5000);
         EXPECT_EQ(response.commit_attach().num_files(), 10);
         EXPECT_EQ(response.commit_attach().file_bytes(), 8000);

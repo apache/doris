@@ -59,11 +59,13 @@
 #include "exprs/vliteral.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     pindex->set_id(index_id);
     pindex->set_schema_hash(schema_hash);
+    if (row_binlog_id > 0) {
+        pindex->set_row_binlog_id(row_binlog_id);
+    }
     for (auto* slot : slots) {
         pindex->add_columns(slot->col_name());
     }
@@ -183,6 +185,9 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         auto* index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = p_index.id();
         index->schema_hash = p_index.schema_hash();
+        if (p_index.has_row_binlog_id()) {
+            index->row_binlog_id = p_index.row_binlog_id();
+        }
         for (const auto& pcolumn_desc : p_index.columns_desc()) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
                 _partial_update_input_columns.contains(pcolumn_desc.name())) {
@@ -218,6 +223,27 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
             index->indexes.emplace_back(ti);
         }
         _indexes.emplace_back(index);
+    }
+
+    if (pschema.has_row_binlog_index_schema()) {
+        const auto& p_index = pschema.row_binlog_index_schema();
+        auto* index = _obj_pool.add(new OlapTableIndexSchema());
+        index->index_id = p_index.id();
+        index->schema_hash = p_index.schema_hash();
+        if (p_index.has_row_binlog_id()) {
+            index->row_binlog_id = p_index.row_binlog_id();
+        }
+        for (const auto& pcolumn_desc : p_index.columns_desc()) {
+            TabletColumn* tc = _obj_pool.add(new TabletColumn());
+            tc->init_from_pb(pcolumn_desc);
+            index->columns.emplace_back(tc);
+        }
+        for (const auto& pindex_desc : p_index.indexes_desc()) {
+            TabletIndex* ti = _obj_pool.add(new TabletIndex());
+            ti->init_from_pb(pindex_desc);
+            index->indexes.emplace_back(ti);
+        }
+        _row_binlog_index_schema = index;
     }
 
     std::sort(_indexes.begin(), _indexes.end(),
@@ -321,6 +347,9 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         auto* index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
+        if (t_index.__isset.row_binlog_id) {
+            index->row_binlog_id = t_index.row_binlog_id;
+        }
         for (const auto& tcolumn_desc : t_index.columns_desc) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
                 _partial_update_input_columns.contains(tcolumn_desc.column_name)) {
@@ -373,6 +402,22 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         _indexes.emplace_back(index);
     }
 
+    if (tschema.__isset.row_binlog_index_schema) {
+        const auto& t_index = tschema.row_binlog_index_schema;
+        auto* index = _obj_pool.add(new OlapTableIndexSchema());
+        index->index_id = t_index.id;
+        index->schema_hash = t_index.schema_hash;
+        if (t_index.__isset.row_binlog_id) {
+            index->row_binlog_id = t_index.row_binlog_id;
+        }
+        for (const auto& tcolumn_desc : t_index.columns_desc) {
+            TabletColumn* tc = _obj_pool.add(new TabletColumn());
+            tc->init_from_thrift(tcolumn_desc);
+            index->columns.emplace_back(tc);
+        }
+        _row_binlog_index_schema = index;
+    }
+
     std::sort(_indexes.begin(), _indexes.end(),
               [](const OlapTableIndexSchema* lhs, const OlapTableIndexSchema* rhs) {
                   return lhs->index_id < rhs->index_id;
@@ -406,6 +451,9 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     }
     for (auto* index : _indexes) {
         index->to_protobuf(pschema->add_indexes());
+    }
+    if (_row_binlog_index_schema != nullptr) {
+        _row_binlog_index_schema->to_protobuf(pschema->mutable_row_binlog_index_schema());
     }
 }
 
@@ -911,6 +959,5 @@ Status VOlapTablePartitionParam::replace_partitions(
 
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

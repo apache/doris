@@ -333,14 +333,10 @@ protected:
 TEST_F(DataTypeArrayTest, MetaInfoTest) {
     for (auto& type : array_types) {
         const auto* array_type = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
-        auto nested_type =
-                assert_cast<const DataTypeArray*>(remove_nullable(type).get())->get_nested_type();
 
         auto arr_type_descriptor = type;
         auto col_meta = std::make_shared<PColumnMeta>();
         array_type->to_pb_column_meta(col_meta.get());
-        Array a;
-        a.push_back(nested_type->get_default());
 
         DataTypeMetaInfo arr_meta_info_to_assert = {
                 .type_id = PrimitiveType::TYPE_ARRAY,
@@ -354,7 +350,7 @@ TEST_F(DataTypeArrayTest, MetaInfoTest) {
                 .scale = size_t(-1),
                 .is_null_literal = false,
                 .pColumnMeta = col_meta.get(),
-                .default_field = Field::create_field<TYPE_ARRAY>(a),
+                .default_field = Field::create_field<TYPE_ARRAY>(Array()),
         };
         DataTypePtr arr = remove_nullable(type);
         meta_info_assert(arr, arr_meta_info_to_assert);

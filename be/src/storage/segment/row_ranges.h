@@ -27,7 +27,6 @@
 #include "storage/segment/common.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 // RowRange stands for range[From, To), From is inclusive,
@@ -352,5 +351,4 @@ private:
 };
 
 } // namespace segment_v2
-#include "common/compile_check_end.h"
 } // namespace doris

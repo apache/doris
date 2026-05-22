@@ -41,7 +41,6 @@
 #include "core/types.h"
 #include "exprs/function/function_helpers.h"
 #include "io/io_common.h"
-#include "storage/field.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
@@ -51,8 +50,6 @@
 #include "util/json/path_in_data.h"
 
 namespace doris::segment_v2 {
-
-#include "common/compile_check_begin.h"
 
 // Base class for sparse column processors with common functionality
 class BaseBinaryColumnProcessor : public ColumnIterator {
@@ -165,7 +162,5 @@ private:
         dst->insert_many_defaults(num_rows);
     }
 };
-
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

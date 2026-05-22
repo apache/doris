@@ -46,11 +46,9 @@
 #include "core/value/decimalv2_value.h"
 #include "exec/common/int_exp.h"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
     auto transform = [&](DataTypePtr t) -> DataTypePtr {
@@ -199,18 +197,13 @@ template <PrimitiveType T>
 void DataTypeDecimal<T>::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
     if constexpr (T == TYPE_DECIMALV2) {
-        const auto* real_type_t = assert_cast<const DataTypeDecimalV2*>(this);
+        const auto* real_type_t = this;
         col_meta->mutable_decimal_param()->set_precision(real_type_t->get_original_precision());
         col_meta->mutable_decimal_param()->set_scale(real_type_t->get_original_scale());
     } else {
         col_meta->mutable_decimal_param()->set_precision(precision);
         col_meta->mutable_decimal_param()->set_scale(scale);
     }
-}
-
-template <PrimitiveType T>
-Field DataTypeDecimal<T>::get_default() const {
-    return Field::create_field<T>(typename PrimitiveTypeTraits<T>::CppType());
 }
 
 template <PrimitiveType T>

@@ -21,7 +21,6 @@
 #include "exec/sink/writer/maxcompute/vmc_table_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class MCTableSinkOperatorX;
 
@@ -81,5 +80,4 @@ private:
     ObjectPool* _pool = nullptr;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

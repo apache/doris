@@ -24,7 +24,6 @@
 #include "storage/storage_policy.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 CloudRowsetBuilder::CloudRowsetBuilder(CloudStorageEngine& engine, const WriteRequest& req,
@@ -89,7 +88,8 @@ Status CloudRowsetBuilder::init() {
     _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
 
     if (!_skip_writing_rowset_metadata) {
-        RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta(), ""));
+        RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta(), "",
+                                                          _tablet->table_id()));
     }
 
     _is_init = true;
@@ -172,5 +172,4 @@ Status CloudRowsetBuilder::set_txn_related_info() {
     }
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

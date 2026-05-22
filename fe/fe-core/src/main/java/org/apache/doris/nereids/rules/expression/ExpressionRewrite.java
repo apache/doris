@@ -112,10 +112,9 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 new LogicalIcebergTableSinkRewrite().build(),
                 new LogicalMaxComputeTableSinkRewrite().build(),
                 new LogicalIcebergMergeSinkRewrite().build(),
-                new LogicalJdbcTableSinkRewrite().build(),
+                new LogicalConnectorTableSinkRewrite().build(),
                 new LogicalOlapTableSinkRewrite().build(),
                 new LogicalDictionarySinkRewrite().build(),
-                new LogicalDeferMaterializeResultSinkRewrite().build(),
                 new LogicalOlapTableSinkExpressionRewrite().build());
     }
 
@@ -536,10 +535,10 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         }
     }
 
-    private class LogicalJdbcTableSinkRewrite extends OneRewriteRuleFactory {
+    private class LogicalConnectorTableSinkRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
-            return logicalJdbcTableSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
+            return logicalConnectorTableSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
                     .toRule(RuleType.REWRITE_SINK_EXPRESSION);
         }
     }
@@ -556,14 +555,6 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalDictionarySink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
-                    .toRule(RuleType.REWRITE_SINK_EXPRESSION);
-        }
-    }
-
-    private class LogicalDeferMaterializeResultSinkRewrite extends OneRewriteRuleFactory {
-        @Override
-        public Rule build() {
-            return logicalDeferMaterializeResultSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
                     .toRule(RuleType.REWRITE_SINK_EXPRESSION);
         }
     }

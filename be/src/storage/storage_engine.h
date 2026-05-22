@@ -355,7 +355,7 @@ public:
     void get_compaction_status_json(std::string* result);
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                  bool force, bool eager = true);
+                                  bool force, bool eager = true, int trigger_method = 0);
     Status submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                       SegCompactionCandidatesSharedPtr segments);
 
@@ -367,7 +367,7 @@ public:
     void gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos);
 
     void add_async_publish_task(int64_t partition_id, int64_t tablet_id, int64_t publish_version,
-                                int64_t transaction_id, bool is_recover);
+                                int64_t transaction_id, bool is_recover, int64_t commit_tso);
     int64_t get_pending_publish_min_version(int64_t tablet_id);
 
     bool add_broken_path(std::string path);
@@ -451,10 +451,11 @@ private:
                                                CompactionType compaction_type);
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                   bool force);
+                                   bool force, int trigger_method = 0);
 
     void _handle_compaction(TabletSharedPtr tablet, std::shared_ptr<CompactionMixin> compaction,
-                            CompactionType compaction_type, int64_t permits, bool force);
+                            CompactionType compaction_type, int64_t permits, bool force,
+                            int64_t compaction_id = 0);
 
     Status _submit_single_replica_compaction_task(TabletSharedPtr tablet,
                                                   CompactionType compaction_type);
@@ -589,8 +590,9 @@ private:
 
     std::mutex _cumu_compaction_delay_mtx;
 
-    // tablet_id, publish_version, transaction_id, partition_id
-    std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;
+    // tablet_id, publish_version, transaction_id, partition_id, commit_tso
+    std::map<int64_t, std::map<int64_t, std::tuple<int64_t, int64_t, int64_t>>>
+            _async_publish_tasks;
     // aync publish for discontinuous versions of merge_on_write table
     std::shared_ptr<Thread> _async_publish_thread;
     std::shared_mutex _async_publish_lock;

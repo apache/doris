@@ -426,6 +426,7 @@ public class SchemaTable extends Table {
                             .column("CREATION_TIME", ScalarType.createType(PrimitiveType.DATETIME))
                             .column("NEWEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.DATETIME))
                             .column("SCHEMA_VERSION", ScalarType.createType(PrimitiveType.INT))
+                            .column("COMMIT_TSO", ScalarType.createVarchar(64))
                             .build()))
             .put("parameters", new SchemaTable(SystemIdGenerator.getNextId(), "parameters", TableType.SCHEMA,
                     builder().column("SPECIFIC_CATALOG", ScalarType.createVarchar(64))
@@ -804,6 +805,8 @@ public class SchemaTable extends Table {
                                     .column("CARDINALITY", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("GLOBAL", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("ENABLE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("REQUIRE_PARTITION_FILTER",
+                                            ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("BLOCKS", ScalarType.createType(PrimitiveType.BIGINT),
                                             SchemaTableAggregateType.SUM, false)
                                     .column("AVERAGE_DURATION", ScalarType.createType(PrimitiveType.BIGINT),
@@ -827,6 +830,7 @@ public class SchemaTable extends Table {
                             .column("LABEL", ScalarType.createStringType())
                             .column("MSG", ScalarType.createStringType())
                             .column("COUNT", ScalarType.createType(PrimitiveType.INT))
+                            .column("VAULT_ID", ScalarType.createStringType())
                             .build()))
             .put("cluster_snapshot_properties",
                     new SchemaTable(SystemIdGenerator.getNextId(), "cluster_snapshot_properties", TableType.SCHEMA,
@@ -840,6 +844,17 @@ public class SchemaTable extends Table {
                         builder().column("NAME", ScalarType.createVarchar(256))
                             .column("TYPE", ScalarType.createVarchar(64))
                             .column("PROPERTIES", ScalarType.createStringType())
+                            .column("COMMENT", ScalarType.createStringType())
+                            .column("CREATE_USER", ScalarType.createStringType())
+                            .column("CREATE_TIME", ScalarType.createStringType())
+                            .column("ALTER_USER", ScalarType.createStringType())
+                            .column("MODIFY_TIME", ScalarType.createStringType())
+                            .build()))
+            .put("role_mappings",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "role_mappings", TableType.SCHEMA,
+                        builder().column("NAME", ScalarType.createVarchar(256))
+                            .column("INTEGRATION_NAME", ScalarType.createVarchar(256))
+                            .column("RULES", ScalarType.createStringType())
                             .column("COMMENT", ScalarType.createStringType())
                             .column("CREATE_USER", ScalarType.createStringType())
                             .column("CREATE_TIME", ScalarType.createStringType())
@@ -872,6 +887,55 @@ public class SchemaTable extends Table {
                             .column("LAG", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .column("LAST_CONSUMPTION_TIME", ScalarType.createType(PrimitiveType.BIGINT))
                             .build()))
+            .put("be_compaction_tasks",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "be_compaction_tasks", TableType.SCHEMA,
+                            builder().column("BACKEND_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("COMPACTION_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TABLE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("PARTITION_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("COMPACTION_TYPE", ScalarType.createVarchar(64))
+                                    .column("STATUS", ScalarType.createVarchar(16))
+                                    .column("TRIGGER_METHOD", ScalarType.createVarchar(16))
+                                    .column("COMPACTION_SCORE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SCHEDULED_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("START_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("END_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("ELAPSED_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("INPUT_ROWSETS_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("INPUT_ROW_NUM", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("INPUT_DATA_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("INPUT_INDEX_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("INPUT_TOTAL_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("INPUT_SEGMENTS_NUM", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("INPUT_VERSION_RANGE", ScalarType.createVarchar(64))
+                                    .column("MERGED_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("FILTERED_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("OUTPUT_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("OUTPUT_ROW_NUM", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("OUTPUT_DATA_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("OUTPUT_INDEX_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("OUTPUT_TOTAL_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("OUTPUT_SEGMENTS_NUM", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("OUTPUT_VERSION", ScalarType.createVarchar(64))
+                                    .column("MERGE_LATENCY_MS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("BYTES_READ_FROM_LOCAL", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("BYTES_READ_FROM_REMOTE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("PEAK_MEMORY_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("IS_VERTICAL", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("PERMITS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("VERTICAL_TOTAL_GROUPS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("VERTICAL_COMPLETED_GROUPS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("STATUS_MSG", ScalarType.createVarchar(1024))
+                                    .build()))
+            .put("backend_ms_rpc_table_throttlers",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "backend_ms_rpc_table_throttlers", TableType.SCHEMA,
+                            builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TABLE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("RPC_TYPE", ScalarType.createVarchar(64))
+                                    .column("QPS_LIMIT", ScalarType.createType(PrimitiveType.DOUBLE))
+                                    .column("CURRENT_QPS", ScalarType.createType(PrimitiveType.DOUBLE))
+                                    .build()))
             .build();
 
     private boolean fetchAllFe = false;

@@ -20,7 +20,6 @@
 
 #pragma once
 
-#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -36,7 +35,6 @@
 class SipHash;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class ColumnSorter;
 
@@ -92,14 +90,8 @@ public:
 
     std::string get_name() const override { return "Nullable(" + _nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
-    size_t size() const override {
-        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(get_null_map_column())
-                .size();
-    }
-    PURE bool is_null_at(size_t n) const override {
-        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(get_null_map_column())
-                       .get_data()[n] != 0;
-    }
+    size_t size() const override { return get_null_map_column().size(); }
+    bool is_null_at(size_t n) const override { return get_null_map_column().get_data()[n] != 0; }
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     bool get_bool(size_t n) const override {
@@ -183,6 +175,14 @@ public:
         }
         push_false_to_nullmap(num);
         get_nested_column().insert_many_continuous_binary_data(data, offsets, num);
+    }
+
+    void insert_offsets_from_lengths(const uint32_t* lengths, size_t num) override {
+        if (UNLIKELY(num == 0)) {
+            return;
+        }
+        push_false_to_nullmap(num);
+        get_nested_column().insert_offsets_from_lengths(lengths, num);
     }
 
     // Default value in `ColumnNullable` is null
@@ -407,4 +407,3 @@ private:
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
 } // namespace doris
-#include "common/compile_check_end.h"

@@ -91,6 +91,8 @@ public abstract class Replica {
     private int schemaHash = -1;
     @SerializedName(value = "ds", alternate = {"dataSize"})
     private volatile long dataSize = 0;
+    @SerializedName(value = "bs", alternate = {"binlogSize"})
+    private volatile long binlogSize = 0;
     @SerializedName(value = "rc", alternate = {"rowCount"})
     private volatile long rowCount = 0;
     @SerializedName(value = "st", alternate = {"state"})
@@ -104,6 +106,10 @@ public abstract class Replica {
     @Getter
     @SerializedName(value = "lss", alternate = {"localSegmentSize"})
     private long localSegmentSize = 0L;
+
+    // Number of binlog files retained on this replica.
+    @SerializedName(value = "bfn", alternate = {"binlogFileNum"})
+    private volatile long binlogFileNum = -1;
 
     public Replica() {
     }
@@ -187,6 +193,22 @@ public abstract class Replica {
         this.dataSize = dataSize;
     }
 
+    public long getBinlogSize() {
+        return binlogSize;
+    }
+
+    public void setBinlogSize(long binlogSize) {
+        this.binlogSize = binlogSize;
+    }
+
+    public long getBinlogFileNum() {
+        return binlogFileNum;
+    }
+
+    public void setBinlogFileNum(long binlogFileNum) {
+        this.binlogFileNum = binlogFileNum;
+    }
+
     public long getRemoteDataSize() {
         return 0;
     }
@@ -225,25 +247,6 @@ public abstract class Replica {
         this.rowCount = rowCount;
     }
 
-    public long getSegmentCount() {
-        return 0;
-    }
-
-    public void setSegmentCount(long segmentCount) {
-        if (segmentCount > 0) {
-            throw new UnsupportedOperationException("setSegmentCount is not supported in Replica");
-        }
-    }
-
-    public long getRowsetCount() {
-        return 0;
-    }
-
-    public void setRowsetCount(long rowsetCount) {
-        if (rowsetCount > 0) {
-            throw new UnsupportedOperationException("setRowsetCount is not supported in Replica");
-        }
-    }
 
     public long getLastFailedVersion() {
         return -1;

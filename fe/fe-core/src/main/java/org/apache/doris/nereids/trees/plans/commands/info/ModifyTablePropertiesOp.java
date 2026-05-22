@@ -26,6 +26,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -66,6 +67,22 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
 
     public boolean isBeingSynced() {
         return isBeingSynced;
+    }
+
+    @Override
+    public boolean allowOpRowBinlog() {
+        // Only allow table property changes that are not related to bloom filter
+        // when row binlog is enabled.
+        if (properties == null || properties.isEmpty()) {
+            return true;
+        }
+        // BF related properties are forbidden on row binlog tables.
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_COLUMNS)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_FPP)) {
+            return false;
+        }
+        // Other properties are allowed.
+        return true;
     }
 
     @Override
@@ -144,11 +161,10 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)) {
             setIsBeingSynced(Boolean.parseBoolean(properties.getOrDefault(
                     PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "false")));
-        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)) {
-            // do nothing, will be alter in SchemaChangeHandler.updateBinlogConfig
+        } else if (TableProperty.isSamePrefixProperties(properties, PropertyAnalyzer.PROPERTIES_BINLOG_PREFIX)) {
+            // validate binlog.* properties
+            PropertyAnalyzer.analyzeBinlogConfig(new java.util.HashMap<>(properties));
+            // will be altered in SchemaChangeHandler.updateBinlogConfig
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)) {
             String compactionPolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, "");
             if (compactionPolicy != null
@@ -241,9 +257,9 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                     .get(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
             try {
                 numColumnsPerGroup = Integer.parseInt(numColumnsPerGroupStr);
-                if (numColumnsPerGroup < 1 || numColumnsPerGroup > 50) {
+                if (numColumnsPerGroup < 1) {
                     throw new AnalysisException(
-                            "vertical_compaction_num_columns_per_group must be between 1 and 50: "
+                            "vertical_compaction_num_columns_per_group must be >= 1: "
                                     + numColumnsPerGroupStr);
                 }
             } catch (NumberFormatException e) {
@@ -278,6 +294,21 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                         "Property "
                                 + PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
                                 + " should be set to true or false");
+            }
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_TSO)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_TSO).equalsIgnoreCase("true")
+                    && !properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_TSO).equalsIgnoreCase("false")) {
+                throw new AnalysisException(
+                        "Property "
+                                + PropertyAnalyzer.PROPERTIES_ENABLE_TSO
+                                + " should be set to true or false");
+            }
+            if (properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_TSO).equalsIgnoreCase("true")
+                    && !Config.enable_tso_feature) {
+                throw new AnalysisException(
+                        "Property " + PropertyAnalyzer.PROPERTIES_ENABLE_TSO
+                                + " can not be enabled when experimental_enable_tso_feature is disabled");
             }
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)) {

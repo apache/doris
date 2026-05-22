@@ -19,6 +19,8 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -38,7 +40,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.es.EsProperties;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
@@ -169,6 +170,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
 
+    public static final String PROPERTIES_ENABLE_TSO = "enable_tso";
+
     public static final String PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP =
             "vertical_compaction_num_columns_per_group";
 
@@ -199,13 +202,14 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_IS_BEING_SYNCED = "is_being_synced";
 
-    // binlog.enable, binlog.ttl_seconds, binlog.max_bytes, binlog.max_history_nums
+    // binlog.*
     public static final String PROPERTIES_BINLOG_PREFIX = "binlog.";
     public static final String PROPERTIES_BINLOG_ENABLE = "binlog.enable";
     public static final String PROPERTIES_BINLOG_TTL_SECONDS = "binlog.ttl_seconds";
     public static final String PROPERTIES_BINLOG_MAX_BYTES = "binlog.max_bytes";
     public static final String PROPERTIES_BINLOG_MAX_HISTORY_NUMS = "binlog.max_history_nums";
-
+    public static final String PROPERTIES_BINLOG_FORMAT = "binlog.format";
+    public static final String PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE = "binlog.need_historical_value";
     public static final String PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT =
             "enable_duplicate_without_keys_by_default";
     public static final String PROPERTIES_GRACE_PERIOD = "grace_period";
@@ -267,7 +271,7 @@ public class PropertyAnalyzer {
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
     public static final String TIME_SERIES_COMPACTION_POLICY = "time_series";
     public static final long TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE = 1024;
-    public static final long TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE = 2000;
+    public static final long TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE = 1000;
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
     public static final long TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE = 1;
@@ -408,7 +412,8 @@ public class PropertyAnalyzer {
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
                 try {
-                    DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
+                    DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(value,
+                            ScalarType.getDefaultDateType(Type.DATETIME));
                     cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
                 } catch (AnalysisException e) {
                     LOG.warn("dateLiteral failed, use max cool down time", e);
@@ -866,6 +871,27 @@ public class PropertyAnalyzer {
         }
         throw new AnalysisException(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
                 + " must be `true` or `false`");
+    }
+
+    public static Boolean analyzeEnableTso(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_ENABLE_TSO);
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_ENABLE_TSO);
+        if (value.equalsIgnoreCase("true")) {
+            if (!Config.enable_tso_feature) {
+                throw new AnalysisException(PROPERTIES_ENABLE_TSO
+                        + " can not be enabled when experimental_enable_tso_feature is disabled");
+            }
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_ENABLE_TSO + " must be `true` or `false`");
     }
 
     public static Boolean analyzeEnableDuplicateWithoutKeysByDefault(Map<String, String> properties)
@@ -1516,6 +1542,30 @@ public class PropertyAnalyzer {
             }
         }
 
+        // check PROPERTIES_BINLOG_FORMAT = "binlog.format";
+        if (properties.containsKey(PROPERTIES_BINLOG_FORMAT)) {
+            String format = properties.get(PROPERTIES_BINLOG_FORMAT);
+            try {
+                BinlogConfig.BinlogFormat.valueOf(format);
+                binlogConfigMap.put(PROPERTIES_BINLOG_FORMAT, format);
+                properties.remove(PROPERTIES_BINLOG_FORMAT);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid binlog format value: " + format);
+            }
+        }
+
+        // check PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE = "binlog.need_historical_value"
+        if (properties.containsKey(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)) {
+            String needHistoricalValue = properties.get(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE);
+            if (!StringUtils.equalsAnyIgnoreCase(needHistoricalValue, "true", "false")) {
+                throw new AnalysisException("Invalid binlog need_historical_value value: " + needHistoricalValue);
+            }
+            binlogConfigMap.put(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE,
+                    String.valueOf(Boolean.parseBoolean(needHistoricalValue)));
+            properties.remove(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE);
+        }
+
+
         return binlogConfigMap;
     }
 
@@ -1932,14 +1982,6 @@ public class PropertyAnalyzer {
      */
     public static void checkCatalogProperties(Map<String, String> properties, boolean isAlter)
             throws AnalysisException {
-        // validate the properties of es catalog
-        if ("es".equalsIgnoreCase(properties.get("type"))) {
-            try {
-                EsProperties.valid(properties, true);
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage());
-            }
-        }
         // validate access controller properties
         // eg:
         // (
@@ -2140,8 +2182,8 @@ public class PropertyAnalyzer {
             String bucketNumStr = properties.get(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
             try {
                 bucketNum = Integer.parseInt(bucketNumStr);
-                if (bucketNum < 1 || bucketNum > 1024) {
-                    throw new AnalysisException("variant_sparse_hash_shard_count must between 1 and 1024 ");
+                if (bucketNum < 0 || bucketNum > 1024) {
+                    throw new AnalysisException("variant_sparse_hash_shard_count must between 0 and 1024 ");
                 }
             } catch (Exception e) {
                 throw new AnalysisException("variant_sparse_hash_shard_count format error:" + e.getMessage());
@@ -2286,9 +2328,9 @@ public class PropertyAnalyzer {
         properties.remove(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
         try {
             int num = Integer.parseInt(value);
-            if (num < 1 || num > 50) {
+            if (num < 1) {
                 throw new AnalysisException(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP
-                        + " must be between 1 and 50");
+                        + " must be >= 1");
             }
             return num;
         } catch (NumberFormatException e) {
