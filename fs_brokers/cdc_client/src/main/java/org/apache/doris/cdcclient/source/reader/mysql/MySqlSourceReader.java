@@ -465,7 +465,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     }
 
     @Override
-    public synchronized Iterator<SourceRecord> pollRecords() throws Exception {
+    public Iterator<SourceRecord> pollRecords() throws Exception {
         if (!snapshotReaderContexts.isEmpty()) {
             // Snapshot split mode
             return pollRecordsFromSnapshotReaders();
@@ -1124,23 +1124,12 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     }
 
     @Override
-    public void close(JobBaseConfig jobConfig) {
+    public synchronized void close(JobBaseConfig jobConfig) {
         LOG.info("Close source reader for job {}", jobConfig.getJobId());
-
-        // Cancel outside the lock so a thread blocked in anyOf.join() releases it.
-        List<CompletableFuture<PollResult>> activePolls = this.activePollFutures;
-        if (activePolls != null) {
-            for (CompletableFuture<PollResult> f : activePolls) {
-                f.cancel(true);
-            }
-        }
-
-        synchronized (this) {
-            finishSplitRecords();
-            if (tableSchemas != null) {
-                tableSchemas.clear();
-                tableSchemas = null;
-            }
+        finishSplitRecords();
+        if (tableSchemas != null) {
+            tableSchemas.clear();
+            tableSchemas = null;
         }
     }
 

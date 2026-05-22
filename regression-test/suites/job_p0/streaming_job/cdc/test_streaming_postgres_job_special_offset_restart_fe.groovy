@@ -79,9 +79,8 @@ suite("test_streaming_postgres_job_special_offset_restart_fe",
                 def lsnRows = sql """SELECT pg_current_wal_lsn()::text"""
                 def lsnStr = lsnRows[0][0].toString()
                 def parts = lsnStr.split("/")
-                def high = Long.parseLong(parts[0], 16)
-                def low = Long.parseLong(parts[1], 16)
-                lsnAtCreate = String.valueOf((high << 32) + low)
+                lsnAtCreate = new BigInteger(parts[0], 16).shiftLeft(32)
+                        .add(new BigInteger(parts[1], 16)).toString()
                 log.info("CREATE LSN mark: ${lsnStr} -> numeric: ${lsnAtCreate}")
 
                 // Inserts after the mark: these are what the job should stream.
