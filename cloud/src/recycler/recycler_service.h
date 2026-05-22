@@ -43,11 +43,9 @@ public:
         return txn_lazy_committer_;
     }
 
-    void statistics_recycle(StatisticsRecycleRequest& req, MetaServiceCode& code,
-                            std::string& msg);
+    void statistics_recycle(StatisticsRecycleRequest& req, MetaServiceCode& code, std::string& msg);
 
-    void check_instance(const std::string& instance_id, MetaServiceCode& code,
-                        std::string& msg);
+    void check_instance(const std::string& instance_id, MetaServiceCode& code, std::string& msg);
 
     void recycle_instance(::google::protobuf::RpcController* controller,
                           const ::doris::cloud::RecycleInstanceRequest* request,
