@@ -38,9 +38,9 @@ be/src/exprs/vsearch.cpp @airborne12
 AGENTS.md @zclllyybb
 
 be/src/cloud                                                 @liaoxin01 @luwei16 @gavinchou
-be/src/io                                                    @liaoxin01 @gavinchou
-be/src/io/cache                                              @liaoxin01 @gavinchou
-be/src/io/fs                                                 @liaoxin01 @gavinchou
+be/src/io                                                    @liaoxin01 @gavinchou @morningman @Gabriel39
+be/src/io/cache                                              @liaoxin01 @gavinchou @morningman @Gabriel39
+be/src/io/fs                                                 @liaoxin01 @gavinchou @morningman @Gabriel39
 be/src/io/tools                                              @liaoxin01 @gavinchou
 be/src/load                                                  @liaoxin01 @gavinchou
 be/src/load/channel                                          @liaoxin01 @gavinchou
@@ -64,10 +64,10 @@ be/src/storage/tablet                                        @gavinchou
 be/src/storage/task                                          @deardeng @gavinchou
 be/src/storage/txn                                           @liaoxin01 @gavinchou
 be/test/cloud                                                @luwei16 @liaoxin01 @gavinchou
-be/test/io                                                   @liaoxin01 @gavinchou
-be/test/io/cache                                             @liaoxin01 @gavinchou
+be/test/io                                                   @liaoxin01 @gavinchou @morningman @Gabriel39
+be/test/io/cache                                             @liaoxin01 @gavinchou @morningman @Gabriel39
 be/test/io/client                                            @gavinchou
-be/test/io/fs                                                @luwei16 @liaoxin01 @gavinchou
+be/test/io/fs                                                @luwei16 @liaoxin01 @gavinchou @morningman @Gabriel39
 be/test/load                                                 @liaoxin01 @gavinchou
 be/test/load/channel                                         @liaoxin01 @gavinchou
 be/test/load/delta_writer                                    @liaoxin01 @gavinchou
@@ -132,14 +132,14 @@ fe/fe-core/src/test/java/org/apache/doris/cloud/stage        @liaoxin01 @gavinch
 fe/fe-core/src/test/java/org/apache/doris/cloud/storage      @liaoxin01 @gavinchou
 fe/fe-core/src/test/java/org/apache/doris/cloud/system       @deardeng @gavinchou
 fe/fe-core/src/test/java/org/apache/doris/cloud/transaction  @liaoxin01 @gavinchou
-fe/fe-core/src/test/java/org/apache/doris/fs                 @calvinkirs @morningman @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/fs                 @calvinkirs @morningman @gavinchou @Gabriel39
 fe/fe-core/src/test/java/org/apache/doris/journal            @mymeiyi @gavinchou
 fe/fe-core/src/test/java/org/apache/doris/load               @liaoxin01 @gavinchou
 fe/fe-filesystem                                             @calvinkirs @morningman @gavinchou
 cloud                                                        @gavinchou
 cloud/cmake                                                  @liaoxin01 @luwei16 @gavinchou
 cloud/conf                                                   @liaoxin01 @luwei16 @gavinchou
-cloud/script                                                 @gavinchou
+cloud/script                                                 @gavinchou @luwei16
 cloud/src                                                    @gavinchou
 cloud/src/common                                             @liaoxin01 @luwei16 @gavinchou
 cloud/src/gen-cpp                                            @liaoxin01 @luwei16 @gavinchou
