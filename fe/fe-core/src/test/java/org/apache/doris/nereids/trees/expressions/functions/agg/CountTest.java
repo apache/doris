@@ -31,7 +31,6 @@ import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
