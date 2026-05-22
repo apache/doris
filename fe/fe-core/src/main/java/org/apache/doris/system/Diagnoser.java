@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.common.Config;
 
 import com.google.common.collect.Lists;
 import org.json.simple.JSONObject;
@@ -114,6 +115,7 @@ public class Diagnoser {
         StringBuilder versionErr = new StringBuilder();
         StringBuilder statusErr = new StringBuilder();
         StringBuilder compactionErr = new StringBuilder();
+        boolean isCloudMode = Config.isCloudMode();
         // for local mode, getCachedVisibleVersion return visibleVersion.
         // for cloud mode, the replica version is not updated.
         long visibleVersion = partition.getCachedVisibleVersion();
@@ -143,20 +145,22 @@ public class Diagnoser {
                             + replica.getBackendIdWithoutException() + " is not query available. ");
                     break;
                 }
-                if (be.diskExceedLimit()) {
+                if (!isCloudMode && be.diskExceedLimit()) {
                     backendErr.append("Backend " + replica.getBackendIdWithoutException() + " has no space left. ");
                     break;
                 }
             } while (false);
             // version
-            if (replica.getVersion() != visibleVersion) {
-                versionErr.append("Replica on backend " + replica.getBackendIdWithoutException() + "'s version ("
-                        + replica.getVersion() + ") does not equal"
-                        + " to partition visible version (" + visibleVersion + ")");
-            } else if (replica.getLastFailedVersion() != -1) {
-                versionErr.append("Replica on backend "
-                        + replica.getBackendIdWithoutException() + "'s last failed version is "
-                        + replica.getLastFailedVersion());
+            if (!isCloudMode) {
+                if (replica.getVersion() != visibleVersion) {
+                    versionErr.append("Replica on backend " + replica.getBackendIdWithoutException() + "'s version ("
+                            + replica.getVersion() + ") does not equal"
+                            + " to partition visible version (" + visibleVersion + ")");
+                } else if (replica.getLastFailedVersion() != -1) {
+                    versionErr.append("Replica on backend "
+                            + replica.getBackendIdWithoutException() + "'s last failed version is "
+                            + replica.getLastFailedVersion());
+                }
             }
             // status
             if (!replica.isAlive() || replica.isUserDrop()) {
