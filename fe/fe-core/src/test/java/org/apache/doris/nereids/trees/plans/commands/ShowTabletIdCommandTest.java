@@ -78,9 +78,9 @@ public class ShowTabletIdCommandTest {
     }
 
     @Test
-    void dbIsEmpty() {
+    void noDatabaseSelected() {
         runBefore("", true);
         ShowTabletIdCommand command = new ShowTabletIdCommand(CatalogMocker.TEST_TBL_ID);
-        Assertions.assertThrows(AnalysisException.class, () -> command.validate(ctx));
+        Assertions.assertDoesNotThrow(() -> command.validate(ctx));
     }
 }
