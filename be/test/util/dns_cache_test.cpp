@@ -218,8 +218,7 @@ TEST_F(DNSCacheTest, failure_count_not_reintroduced_on_eviction_race) {
     config::dns_cache_max_consecutive_failures = 1000; // disable auto-eviction
 
     DNSCache* cache_ptr = nullptr;
-    auto racing_resolver = [&cache_ptr](const std::string& host, std::string&,
-                                        bool) -> Status {
+    auto racing_resolver = [&cache_ptr](const std::string& host, std::string&, bool) -> Status {
         // Simulate the refresh thread's _erase() landing during the
         // small window when _resolve_hostname holds no lock.
         if (cache_ptr != nullptr) {
