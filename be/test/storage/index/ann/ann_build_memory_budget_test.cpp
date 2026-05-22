@@ -139,6 +139,54 @@ TEST_F(AnnBuildMemoryBudgetTest, ReservationFailureYieldsInactiveHandle) {
     budget.release(100);
 }
 
+TEST_F(AnnBuildMemoryBudgetTest, GrowAllowedForSoleBuildEvenPastBudget) {
+    // A build that already holds bytes may keep growing past the budget as long
+    // as it is the only build in flight; otherwise it would deadlock on itself.
+    config::ann_index_build_memory_budget_bytes = 100;
+    auto& budget = AnnBuildMemoryBudget::instance();
+    auto handle = AnnBuildMemoryReservation::try_acquire(60, /*timeout_ms=*/0);
+    ASSERT_TRUE(handle.active());
+    EXPECT_EQ(budget.reserved_bytes(), 60);
+    // 60 + 100 = 160 > budget, but sole build => allowed without waiting.
+    EXPECT_TRUE(handle.grow(100, /*timeout_ms=*/0));
+    EXPECT_EQ(handle.bytes(), 160);
+    EXPECT_EQ(budget.reserved_bytes(), 160);
+}
+
+TEST_F(AnnBuildMemoryBudgetTest, GrowBlocksWhenOtherBuildInFlight) {
+    config::ann_index_build_memory_budget_bytes = 100;
+    auto& budget = AnnBuildMemoryBudget::instance();
+    auto handle = AnnBuildMemoryReservation::try_acquire(60, /*timeout_ms=*/0);
+    ASSERT_TRUE(handle.active());
+    // A second, independent build takes 30 (reserved now 90, another build present).
+    ASSERT_TRUE(budget.try_reserve(30, /*timeout_ms=*/0));
+    // handle grow by 50 -> 90 + 50 = 140 > budget and not sole build => timeout.
+    EXPECT_FALSE(handle.grow(50, /*timeout_ms=*/10));
+    EXPECT_EQ(handle.bytes(), 60); // unchanged on failure
+    EXPECT_EQ(budget.reserved_bytes(), 90);
+    budget.release(30);
+}
+
+TEST_F(AnnBuildMemoryBudgetTest, GrowWakesWhenOtherBuildReleases) {
+    config::ann_index_build_memory_budget_bytes = 100;
+    auto& budget = AnnBuildMemoryBudget::instance();
+    auto handle = AnnBuildMemoryReservation::try_acquire(40, /*timeout_ms=*/0);
+    ASSERT_TRUE(handle.active());
+    ASSERT_TRUE(budget.try_reserve(50, /*timeout_ms=*/0)); // other build, reserved=90
+
+    std::atomic<bool> grew {false};
+    std::thread waiter([&]() {
+        // 90 + 30 = 120 > budget; must wait for the other build to release.
+        grew = handle.grow(30, /*timeout_ms=*/5000);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EXPECT_FALSE(grew.load());
+    budget.release(50);
+    waiter.join();
+    EXPECT_TRUE(grew.load());
+    EXPECT_EQ(handle.bytes(), 70);
+}
+
 TEST_F(AnnBuildMemoryBudgetTest, EstimateGrowsWithRowsAndDim) {
     FaissBuildParameter p;
     p.index_type = FaissBuildParameter::IndexType::HNSW;
@@ -294,6 +342,73 @@ TEST_F(WriterAdmissionTest, FailModeReturnsErrorFromInit) {
     Status status = writer->init();
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(status.is<ErrorCode::RUNTIME_ERROR>()) << status.to_string();
+}
+
+TEST_F(WriterAdmissionTest, FailModeDoesNotWaitDespiteLargeTimeout) {
+    // Regression: "fail" must return immediately, never blocking for the
+    // configured wait timeout. We set a large timeout and assert init() fails
+    // in well under it.
+    config::ann_index_build_memory_budget_bytes = 1;
+    config::ann_index_build_memory_wait_timeout_ms = 10000;
+    config::ann_index_build_on_oom_action = "fail";
+    // Occupy the budget so the writer's reservation cannot fit.
+    ASSERT_TRUE(AnnBuildMemoryBudget::instance().try_reserve(1, /*timeout_ms=*/0));
+
+    auto writer = std::make_unique<AnnIndexColumnWriter>(_index_file_writer.get(),
+                                                         _tablet_index.get());
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    const auto start = std::chrono::steady_clock::now();
+    Status status = writer->init();
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - start)
+                                 .count();
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::RUNTIME_ERROR>()) << status.to_string();
+    EXPECT_LT(elapsed, 2000) << "fail action waited " << elapsed << " ms";
+    AnnBuildMemoryBudget::instance().release(1);
+}
+
+TEST_F(WriterAdmissionTest, ReservationGrowsWithAccumulatedRows) {
+    // With a generous budget the writer must enlarge its reservation as chunks
+    // are added, so the global counter tracks real memory rather than just the
+    // initial per-chunk floor.
+    config::ann_index_build_memory_budget_bytes = 1LL << 30;
+    config::ann_index_build_memory_wait_timeout_ms = 1000;
+    config::ann_index_build_on_oom_action = "wait";
+
+    auto writer = std::make_unique<AnnIndexColumnWriter>(_index_file_writer.get(),
+                                                         _tablet_index.get());
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    const int64_t after_init = AnnBuildMemoryBudget::instance().reserved_bytes();
+    EXPECT_GT(after_init, 0);
+
+    // BE_TEST chunk_size() is 10, so 30 rows flush three full chunks.
+    const size_t dim = 16;
+    const size_t num_rows = 30;
+    std::vector<float> vectors(num_rows * dim, 0.5f);
+    std::vector<size_t> offsets(num_rows + 1);
+    for (size_t i = 0; i <= num_rows; ++i) {
+        offsets[i] = i * dim;
+    }
+    ASSERT_TRUE(writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                         reinterpret_cast<const uint8_t*>(offsets.data()), num_rows)
+                        .ok());
+
+    const int64_t after_adds = AnnBuildMemoryBudget::instance().reserved_bytes();
+    EXPECT_GT(after_adds, after_init)
+            << "reservation did not grow: after_init=" << after_init
+            << " after_adds=" << after_adds;
+
+    ASSERT_TRUE(writer->finish().ok());
+    writer.reset(); // RAII release
+    EXPECT_EQ(AnnBuildMemoryBudget::instance().reserved_bytes(), 0);
 }
 
 TEST_F(WriterAdmissionTest, DisabledBudgetIsTransparent) {

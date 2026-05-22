@@ -40,7 +40,12 @@ public:
     // for other builds to release memory. Returns true on success or when the
     // budget is disabled (`ann_index_build_memory_budget_bytes` <= 0). Returns
     // false on timeout. `bytes <= 0` always succeeds without altering counters.
-    bool try_reserve(int64_t bytes, int64_t timeout_ms);
+    //
+    // `caller_held` is what this same build already holds; it is excluded from
+    // the "single build in flight" exemption so a build can keep growing its own
+    // reservation without deadlocking against itself (a grow is always allowed
+    // when the caller is the only build in flight, i.e. `_reserved == caller_held`).
+    bool try_reserve(int64_t bytes, int64_t timeout_ms, int64_t caller_held = 0);
 
     // Releases previously reserved bytes and notifies any waiters.
     void release(int64_t bytes);
@@ -82,6 +87,15 @@ public:
     void release() noexcept;
     int64_t bytes() const { return _bytes; }
     bool active() const { return _bytes > 0; }
+
+    // Grow this reservation by `additional_bytes` against the global budget.
+    // Used to track real memory as a build accumulates rows past its initial
+    // (chunk-sized) admission reservation. Because the build already holds
+    // bytes() it is exempt from blocking against itself; it only waits for
+    // *other* concurrent builds. Returns true on success (handle grows),
+    // false on timeout (handle unchanged). `additional_bytes <= 0` is a no-op
+    // that returns true.
+    bool grow(int64_t additional_bytes, int64_t timeout_ms);
 
     // Acquire `bytes` against the global budget. On success the returned
     // reservation owns the bytes; on failure the returned reservation is

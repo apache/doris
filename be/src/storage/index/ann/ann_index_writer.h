@@ -89,6 +89,17 @@ protected:
     // failure, applies ann_index_build_on_oom_action ("wait"/"skip"/"fail").
     Status _acquire_memory_budget(const FaissBuildParameter& params);
     Status _apply_oom_action(int64_t estimated_bytes, int64_t waited_ms);
+    // Grow _reservation so it covers `total_rows` of accumulated, resident
+    // vectors. Called before each streaming add() so the global budget tracks
+    // real memory instead of just the initial per-chunk floor. On failure routes
+    // through _apply_oom_action (may set _skip_due_to_oom or return an error).
+    Status _ensure_reservation_for_rows(int64_t total_rows);
+    // Best-effort, non-blocking variant for finish(): accounts the last partial
+    // chunk without aborting a near-complete build on contention.
+    void _grow_reservation_best_effort(int64_t total_rows);
+    // Wait timeout for budget acquisition: 0 for action "fail" (never wait),
+    // otherwise ann_index_build_memory_wait_timeout_ms.
+    static int64_t _oom_wait_timeout_ms();
 
     // VectorIndex shoule be managed by some cache.
     // VectorIndex should be weak shared by AnnIndexWriter and VectorIndexReader
@@ -109,5 +120,11 @@ protected:
     bool _skip_due_to_oom = false;
     size_t _dimension = 0;
     size_t _chunk_rows = 0;
+    // Rows already added to the index via full chunks. Used to size incremental
+    // budget reservations against the real (accumulated) footprint.
+    size_t _added_rows = 0;
+    // Build parameters captured at init() so reservation growth can re-estimate
+    // the footprint as the segment's row count becomes known.
+    FaissBuildParameter _build_params;
 };
 } // namespace doris::segment_v2

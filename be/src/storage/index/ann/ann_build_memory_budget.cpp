@@ -60,7 +60,7 @@ AnnBuildMemoryBudget& AnnBuildMemoryBudget::instance() {
     return s_instance;
 }
 
-bool AnnBuildMemoryBudget::try_reserve(int64_t bytes, int64_t timeout_ms) {
+bool AnnBuildMemoryBudget::try_reserve(int64_t bytes, int64_t timeout_ms, int64_t caller_held) {
     if (bytes <= 0) {
         return true;
     }
@@ -68,6 +68,9 @@ bool AnnBuildMemoryBudget::try_reserve(int64_t bytes, int64_t timeout_ms) {
     if (budget <= 0) {
         // Admission control disabled.
         return true;
+    }
+    if (caller_held < 0) {
+        caller_held = 0;
     }
 
     std::unique_lock<std::mutex> lock(_mu);
@@ -79,8 +82,10 @@ bool AnnBuildMemoryBudget::try_reserve(int64_t bytes, int64_t timeout_ms) {
             return true;
         }
         // Allow a single oversized build to proceed if it is the only one in
-        // flight; otherwise it would deadlock forever against itself.
-        if (_reserved == 0) {
+        // flight; otherwise it would deadlock forever against itself. `caller_held`
+        // is what this same build already reserved, so a grow only blocks on
+        // *other* builds (when _reserved == caller_held nobody else is in flight).
+        if (_reserved <= caller_held) {
             return true;
         }
         return _reserved + bytes <= current_budget;
@@ -133,6 +138,18 @@ void AnnBuildMemoryReservation::release() noexcept {
         AnnBuildMemoryBudget::instance().release(_bytes);
         _bytes = 0;
     }
+}
+
+bool AnnBuildMemoryReservation::grow(int64_t additional_bytes, int64_t timeout_ms) {
+    if (additional_bytes <= 0) {
+        return true;
+    }
+    if (!AnnBuildMemoryBudget::instance().try_reserve(additional_bytes, timeout_ms,
+                                                      /*caller_held=*/_bytes)) {
+        return false;
+    }
+    _bytes += additional_bytes;
+    return true;
 }
 
 AnnBuildMemoryReservation AnnBuildMemoryReservation::try_acquire(int64_t bytes,

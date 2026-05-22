@@ -83,6 +83,7 @@ Status AnnIndexColumnWriter::init() {
     faiss_index->build(build_parameter);
 
     _vector_index = faiss_index;
+    _build_params = build_parameter;
     _dimension = cast_set<size_t>(build_parameter.dim);
     _chunk_rows = compute_chunk_rows(_dimension);
 
@@ -98,22 +99,62 @@ Status AnnIndexColumnWriter::init() {
     return Status::OK();
 }
 
+int64_t AnnIndexColumnWriter::_oom_wait_timeout_ms() {
+    // "fail" must not wait at all; "wait" and "skip" honor the configured timeout.
+    if (config::ann_index_build_on_oom_action == "fail") {
+        return 0;
+    }
+    return config::ann_index_build_memory_wait_timeout_ms;
+}
+
 Status AnnIndexColumnWriter::_acquire_memory_budget(const FaissBuildParameter& params) {
     if (config::ann_index_build_memory_budget_bytes <= 0) {
         // Admission control disabled.
         return Status::OK();
     }
-    // expected_rows is unknown at init() time. Estimator falls back to chunk_rows
-    // so the reservation still covers the input buffer plus structure overhead
-    // for at least one chunk, which is enough to prevent unbounded concurrent
-    // builds from stacking.
+    // Initial admission reservation. expected_rows is unknown at init() time, so
+    // estimate one chunk's worth as a floor. _ensure_reservation_for_rows() then
+    // grows the reservation toward the real footprint as rows accumulate, so the
+    // global budget reflects actual memory rather than just a per-chunk floor.
     const int64_t estimated = estimate_ann_build_memory(params, /*expected_rows=*/0, _chunk_rows);
-    const int64_t timeout_ms = config::ann_index_build_memory_wait_timeout_ms;
+    const int64_t timeout_ms = _oom_wait_timeout_ms();
     _reservation = AnnBuildMemoryReservation::try_acquire(estimated, timeout_ms);
     if (_reservation.active() || estimated <= 0) {
         return Status::OK();
     }
     return _apply_oom_action(estimated, timeout_ms);
+}
+
+Status AnnIndexColumnWriter::_ensure_reservation_for_rows(int64_t total_rows) {
+    if (config::ann_index_build_memory_budget_bytes <= 0) {
+        return Status::OK();
+    }
+    const int64_t target = estimate_ann_build_memory(_build_params, total_rows, _chunk_rows);
+    const int64_t held = _reservation.bytes();
+    if (target <= held) {
+        return Status::OK();
+    }
+    const int64_t timeout_ms = _oom_wait_timeout_ms();
+    if (_reservation.grow(target - held, timeout_ms)) {
+        return Status::OK();
+    }
+    // Backpressure: the build cannot grow within the budget. "skip" discards the
+    // partially built index at finish() (segment write still succeeds); "wait"/
+    // "fail" abort the build with a diagnostic error.
+    return _apply_oom_action(target, timeout_ms);
+}
+
+void AnnIndexColumnWriter::_grow_reservation_best_effort(int64_t total_rows) {
+    if (config::ann_index_build_memory_budget_bytes <= 0) {
+        return;
+    }
+    const int64_t target = estimate_ann_build_memory(_build_params, total_rows, _chunk_rows);
+    const int64_t held = _reservation.bytes();
+    if (target > held) {
+        // finish() only adds the last partial chunk; aborting a near-complete
+        // build is never worth it, so account best-effort without blocking.
+        (void)_reservation.grow(target - held, /*timeout_ms=*/0);
+    }
 }
 
 Status AnnIndexColumnWriter::_apply_oom_action(int64_t estimated_bytes, int64_t waited_ms) {
@@ -193,9 +234,20 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
         remaining_elements -= elements_to_add;
 
         if (_float_array.size() == full_elements) {
+            // Grow the budget reservation to cover the rows this add() will make
+            // resident before consuming more memory.
+            RETURN_IF_ERROR(_ensure_reservation_for_rows(static_cast<int64_t>(_added_rows) +
+                                                         static_cast<int64_t>(_chunk_rows)));
+            if (_skip_due_to_oom) {
+                // Backpressure chose to skip: drop the buffered chunk and stop
+                // adding. finish() deletes the index entry.
+                _reset_chunk_buffer(true);
+                return Status::OK();
+            }
             RETURN_IF_ERROR(_train_once_if_needed(_chunk_rows, _float_array.data()));
             RETURN_IF_ERROR(_vector_index->add(_chunk_rows, _float_array.data()));
             _reset_chunk_buffer(false);
+            _added_rows += _chunk_rows;
             _need_save_index = true;
         }
     }
@@ -269,6 +321,7 @@ Status AnnIndexColumnWriter::finish() {
         Int64 num_rows = _float_array.size() / _dimension;
 
         if (num_rows >= min_train_rows) {
+            _grow_reservation_best_effort(static_cast<int64_t>(_added_rows) + num_rows);
             RETURN_IF_ERROR(_train_once_if_needed(num_rows, _float_array.data()));
             RETURN_IF_ERROR(_vector_index->add(num_rows, _float_array.data()));
             _reset_chunk_buffer(true);
@@ -280,6 +333,7 @@ Status AnnIndexColumnWriter::finish() {
                 // For IVF indexes, adding remaining vectors without training is acceptable
                 // because the quantizer was already trained on previous batches. These vectors
                 // are simply added to the nearest clusters without retraining.
+                _grow_reservation_best_effort(static_cast<int64_t>(_added_rows) + num_rows);
                 RETURN_IF_ERROR(_vector_index->add(num_rows, _float_array.data()));
                 _reset_chunk_buffer(true);
                 return _vector_index->save(_dir.get());
