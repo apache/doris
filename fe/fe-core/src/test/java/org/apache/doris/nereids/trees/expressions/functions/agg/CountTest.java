@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VariantType;
 
 import org.junit.jupiter.api.Assertions;
@@ -41,5 +43,11 @@ class CountTest {
                 () -> new MultiDistinctCount(SlotReference.of("v", VariantType.INSTANCE)));
         Assertions.assertTrue(exception.getMessage().contains("COUNT DISTINCT does not support VARIANT argument"));
         Assertions.assertTrue(exception.getMessage().contains("Cast the VARIANT expression"));
+    }
+
+    @Test
+    void testMultiDistinctCountAllowsArray() {
+        Assertions.assertDoesNotThrow(
+                () -> new MultiDistinctCount(SlotReference.of("arr", ArrayType.of(IntegerType.INSTANCE))));
     }
 }

@@ -58,7 +58,7 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
             throw new AnalysisException("MultiDistinctCount's children size must be 1");
         }
         for (Expression argument : super.children()) {
-            Count.checkDistinctArgument(argument, "COUNT DISTINCT " + argument.toSql());
+            Count.checkVariantArgument(argument, "COUNT DISTINCT " + argument.toSql());
         }
     }
 
@@ -71,7 +71,7 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
     public MultiDistinctCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1, "MultiDistinctCount's children size must be 1");
         for (Expression argument : children) {
-            Count.checkDistinctArgument(argument, "COUNT DISTINCT " + argument.toSql());
+            Count.checkVariantArgument(argument, "COUNT DISTINCT " + argument.toSql());
         }
         return new MultiDistinctCount(getFunctionParams(false, children));
     }

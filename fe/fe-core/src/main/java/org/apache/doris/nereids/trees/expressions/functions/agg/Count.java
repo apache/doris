@@ -99,14 +99,19 @@ public class Count extends NotNullableAggregateFunction
     }
 
     static void checkDistinctArgument(Expression argument, String functionSql) {
+        checkVariantArgument(argument, functionSql);
+        DataType argumentType = argument.getDataType();
+        if (argumentType.isComplexType() || argumentType.isObjectType() || argumentType.isJsonType()) {
+            throw new AnalysisException("COUNT DISTINCT could not process type " + functionSql);
+        }
+    }
+
+    static void checkVariantArgument(Expression argument, String functionSql) {
         DataType argumentType = argument.getDataType();
         if (argumentType.isVariantType()) {
             throw new AnalysisException("COUNT DISTINCT does not support VARIANT argument in " + functionSql
                     + ". Cast the VARIANT expression to STRING or another supported scalar type before using "
                     + "COUNT DISTINCT.");
-        }
-        if (argumentType.isComplexType() || argumentType.isObjectType() || argumentType.isJsonType()) {
-            throw new AnalysisException("COUNT DISTINCT could not process type " + functionSql);
         }
     }
 
