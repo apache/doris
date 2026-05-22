@@ -943,6 +943,16 @@ DECLARE_Int64(brpc_max_body_size);
 DECLARE_Int64(brpc_socket_max_unwritten_bytes);
 // Whether to set FLAGS_usercode_in_pthread to true in brpc
 DECLARE_mBool(brpc_usercode_in_pthread);
+
+// Whether BrpcClientCache::get_client() should handshake-validate a freshly
+// rebuilt stub before caching/returning it, and retry on failure. Costs 1 RTT
+// per cache-miss / rebuild (the warm-cache fast path is untouched). Default
+// false to preserve current behavior; flip on (or wire a session variable into
+// get_client) to harden rolling-restart scenarios.
+DECLARE_mBool(enable_brpc_get_client_handshake);
+// Max attempts in get_client when handshake validation is enabled. Each
+// failed attempt evicts the stub and marks DNSCache dirty for re-resolution.
+DECLARE_mInt32(brpc_get_client_handshake_max_retries);
 // TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
 // Controller Attachment and send it through http brpc when the length of the Tuple/Block data

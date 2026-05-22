@@ -885,6 +885,9 @@ DEFINE_Int64(brpc_max_body_size, "3147483648");
 DEFINE_Int64(brpc_socket_max_unwritten_bytes, "-1");
 DEFINE_mBool(brpc_usercode_in_pthread, "false");
 
+DEFINE_mBool(enable_brpc_get_client_handshake, "true"); // test it
+DEFINE_mInt32(brpc_get_client_handshake_max_retries, "3");
+
 // TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
 // Controller Attachment and send it through http brpc when the length of the Tuple/Block data

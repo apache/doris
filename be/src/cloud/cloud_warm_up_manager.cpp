@@ -815,7 +815,7 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table
         Status st = Status::OK();
         std::shared_ptr<PBackendService_Stub> brpc_stub =
                 ExecEnv::GetInstance()->brpc_internal_client_cache()->get_new_client_no_cache(
-                        brpc_addr);
+                        brpc_addr, "", "", "", info.replica.host);
         if (!brpc_stub) {
             st = Status::RpcError("Address {} is wrong", brpc_addr);
             add_failure(info, target, st);
@@ -975,7 +975,7 @@ void CloudWarmUpManager::_recycle_cache(int64_t tablet_id,
         Status st = Status::OK();
         std::shared_ptr<PBackendService_Stub> brpc_stub =
                 ExecEnv::GetInstance()->brpc_internal_client_cache()->get_new_client_no_cache(
-                        brpc_addr);
+                        brpc_addr, "", "", "", replica.replica.host);
         if (!brpc_stub) {
             st = Status::RpcError("Address {} is wrong", brpc_addr);
             continue;
