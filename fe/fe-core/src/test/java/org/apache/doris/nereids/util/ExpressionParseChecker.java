@@ -31,6 +31,10 @@ public class ExpressionParseChecker extends ParseChecker {
         this.parsedSupplier = Suppliers.memoize(() -> PARSER.parseExpression(sql));
     }
 
+    public Expression getExpression() {
+        return parsedSupplier.get();
+    }
+
     public ExpressionParseChecker assertEquals(Expression expected) {
         Assertions.assertEquals(expected, parsedSupplier.get());
         return this;

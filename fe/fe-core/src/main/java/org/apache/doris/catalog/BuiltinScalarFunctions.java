@@ -448,6 +448,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondTimesta
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sequence;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha2;
@@ -648,7 +649,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayProduct.class, "array_product"),
             scalar(ArrayPushBack.class, "Array_pushback", "array_append"),
             scalar(ArrayPushFront.class, "Array_pushfront"),
-            scalar(ArrayRange.class, "array_range", "sequence"),
+            scalar(ArrayRange.class, "array_range"),
             scalar(ArrayRemove.class, "array_remove"),
             scalar(ArrayRepeat.class, "array_repeat"),
             scalar(ArrayReverseSort.class, "array_reverse_sort"),
@@ -1035,6 +1036,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MilliSecondTimestamp.class, "millisecond_timestamp"),
             scalar(MicroSecondTimestamp.class, "microsecond_timestamp"),
             scalar(RandomBytes.class, "random_bytes"),
+            scalar(Sequence.class, "sequence"),
             scalar(SessionUser.class, "session_user"),
             scalar(Sha1.class, "sha1", "sha"),
             scalar(Sha2.class, "sha2"),

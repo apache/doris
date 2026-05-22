@@ -30,6 +30,7 @@ import org.apache.doris.nereids.rules.expression.rules.MedianConvert;
 import org.apache.doris.nereids.rules.expression.rules.MergeDateTrunc;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeStructElement;
+import org.apache.doris.nereids.rules.expression.rules.SequenceFunctionRewrite;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticComparisonRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
@@ -52,28 +53,29 @@ public class ExpressionNormalization extends ExpressionRewrite {
     // otherwise log will core when input single argument like log(100), and concat_ws will return a wrong result
     // when input multi array
     public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> NORMALIZE_REWRITE_RULES
-                = ImmutableList.of(
+            = ImmutableList.of(
             bottomUp(
-                SupportJavaDateFormatter.INSTANCE,
-                NormalizeBinaryPredicatesRule.INSTANCE,
-                InPredicateDedup.INSTANCE,
-                InPredicateExtractNonConstant.INSTANCE,
-                InPredicateToEqualToRule.INSTANCE,
-                SimplifyNotExprRule.INSTANCE,
-                SimplifyArithmeticRule.INSTANCE,
-                LogToLn.INSTANCE,
-                ConcatWsMultiArrayToOne.INSTANCE,
-                TimestampToAddTime.INSTANCE,
-                FoldConstantRule.INSTANCE,
-                SimplifyCastRule.INSTANCE,
-                DigitalMaskingConvert.INSTANCE,
-                MedianConvert.INSTANCE,
-                SimplifyArithmeticComparisonRule.INSTANCE,
-                ConvertAggStateCast.INSTANCE,
-                MergeDateTrunc.INSTANCE,
-                NormalizeStructElement.INSTANCE,
-                CheckCast.INSTANCE
-            )
+            SupportJavaDateFormatter.INSTANCE,
+            NormalizeBinaryPredicatesRule.INSTANCE,
+            InPredicateDedup.INSTANCE,
+            InPredicateExtractNonConstant.INSTANCE,
+            InPredicateToEqualToRule.INSTANCE,
+            SimplifyNotExprRule.INSTANCE,
+            SimplifyArithmeticRule.INSTANCE,
+            LogToLn.INSTANCE,
+            ConcatWsMultiArrayToOne.INSTANCE,
+            TimestampToAddTime.INSTANCE,
+            FoldConstantRule.INSTANCE,
+            SimplifyCastRule.INSTANCE,
+            DigitalMaskingConvert.INSTANCE,
+            SequenceFunctionRewrite.INSTANCE,
+            MedianConvert.INSTANCE,
+            SimplifyArithmeticComparisonRule.INSTANCE,
+            ConvertAggStateCast.INSTANCE,
+            MergeDateTrunc.INSTANCE,
+            NormalizeStructElement.INSTANCE,
+            CheckCast.INSTANCE
+        )
     );
 
     public ExpressionNormalization() {

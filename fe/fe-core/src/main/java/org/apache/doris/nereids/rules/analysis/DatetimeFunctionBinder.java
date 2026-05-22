@@ -81,6 +81,15 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondMicrose
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sequence;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SequenceDayUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SequenceHourUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SequenceMinuteUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SequenceMonthUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SequenceQuarterUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SequenceSecondUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SequenceWeekUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SequenceYearUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
@@ -148,7 +157,10 @@ public class DatetimeFunctionBinder {
             .build();
 
     private static final ImmutableSet<String> ARRAY_RANGE_FUNCTION_NAMES
-            = ImmutableSet.of("ARRAY_RANGE", "SEQUENCE");
+            = ImmutableSet.of("ARRAY_RANGE");
+
+    private static final ImmutableSet<String> SEQUENCE_FUNCTION_NAMES
+            = ImmutableSet.of("SEQUENCE");
 
     static final ImmutableSet<String> SUPPORT_DATETIME_ARITHMETIC_FUNCTION_NAMES
             = ImmutableSet.<String>builder()
@@ -161,6 +173,7 @@ public class DatetimeFunctionBinder {
             = ImmutableSet.<String>builder()
             .addAll(SUPPORT_DATETIME_ARITHMETIC_FUNCTION_NAMES)
             .addAll(ARRAY_RANGE_FUNCTION_NAMES)
+            .addAll(SEQUENCE_FUNCTION_NAMES)
             .build();
 
     public static boolean isDatetimeFunction(String functionName) {
@@ -272,9 +285,29 @@ public class DatetimeFunctionBinder {
                         Interval interval = (Interval) unboundFunction.child(2);
                         TimeUnit unit = interval.timeUnit();
                         Expression step = interval.value();
-                        return processArrayRange(unit, unboundFunction.child(0), unboundFunction.child(1), step);
+                        return processArrayRange(unit, unboundFunction.child(0),
+                                unboundFunction.child(1), step);
                     }
                     return new ArrayRange(unboundFunction.child(0),
+                            unboundFunction.child(1), unboundFunction.child(2));
+                default:
+                    throw new AnalysisException("Can not found function '" + functionName + "'");
+            }
+        } else if (SEQUENCE_FUNCTION_NAMES.contains(functionName)) {
+            switch (unboundFunction.arity()) {
+                case 1:
+                    return new Sequence(unboundFunction.child(0));
+                case 2:
+                    return new Sequence(unboundFunction.child(0), unboundFunction.child(1));
+                case 3:
+                    if (unboundFunction.child(2) instanceof Interval) {
+                        Interval interval = (Interval) unboundFunction.child(2);
+                        TimeUnit unit = interval.timeUnit();
+                        Expression step = interval.value();
+                        return processSequence(unit, unboundFunction.child(0),
+                                unboundFunction.child(1), step);
+                    }
+                    return new Sequence(unboundFunction.child(0),
                             unboundFunction.child(1), unboundFunction.child(2));
                 default:
                     throw new AnalysisException("Can not found function '" + functionName + "'");
@@ -483,6 +516,30 @@ public class DatetimeFunctionBinder {
                 return new ArrayRangeSecondUnit(start, end, step);
             default:
                 throw new AnalysisException("Unsupported array range time unit: " + unit
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+        }
+    }
+
+    private Expression processSequence(TimeUnit unit, Expression start, Expression end, Expression step) {
+        switch (unit) {
+            case YEAR:
+                return new SequenceYearUnit(start, end, step);
+            case QUARTER:
+                return new SequenceQuarterUnit(start, end, step);
+            case MONTH:
+                return new SequenceMonthUnit(start, end, step);
+            case WEEK:
+                return new SequenceWeekUnit(start, end, step);
+            case DAY:
+                return new SequenceDayUnit(start, end, step);
+            case HOUR:
+                return new SequenceHourUnit(start, end, step);
+            case MINUTE:
+                return new SequenceMinuteUnit(start, end, step);
+            case SECOND:
+                return new SequenceSecondUnit(start, end, step);
+            default:
+                throw new AnalysisException("Unsupported sequence time unit: " + unit
                         + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
         }
     }

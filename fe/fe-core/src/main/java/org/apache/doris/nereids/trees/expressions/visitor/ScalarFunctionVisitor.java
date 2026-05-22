@@ -468,6 +468,15 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondMicrose
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sequence;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SequenceDayUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SequenceHourUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SequenceMinuteUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SequenceMonthUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SequenceQuarterUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SequenceSecondUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SequenceWeekUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SequenceYearUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha2;
@@ -1076,7 +1085,7 @@ public interface ScalarFunctionVisitor<R, C> {
     }
 
     default R visitCutToFirstSignificantSubdomain(CutToFirstSignificantSubdomain cutToFirstSignificantSubdomain,
-            C context) {
+                                                  C context) {
         return visitScalarFunction(cutToFirstSignificantSubdomain, context);
     }
 
@@ -2688,6 +2697,42 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(user, context);
     }
 
+    default R visitSequence(Sequence sequence, C context) {
+        return visitScalarFunction(sequence, context);
+    }
+
+    default R visitSequenceDayUnit(SequenceDayUnit sequenceDayUnit, C context) {
+        return visitScalarFunction(sequenceDayUnit, context);
+    }
+
+    default R visitSequenceHourUnit(SequenceHourUnit sequenceHourUnit, C context) {
+        return visitScalarFunction(sequenceHourUnit, context);
+    }
+
+    default R visitSequenceMinuteUnit(SequenceMinuteUnit sequenceMinuteUnit, C context) {
+        return visitScalarFunction(sequenceMinuteUnit, context);
+    }
+
+    default R visitSequenceMonthUnit(SequenceMonthUnit sequenceMonthUnit, C context) {
+        return visitScalarFunction(sequenceMonthUnit, context);
+    }
+
+    default R visitSequenceQuarterUnit(SequenceQuarterUnit sequenceQuarterUnit, C context) {
+        return visitScalarFunction(sequenceQuarterUnit, context);
+    }
+
+    default R visitSequenceSecondUnit(SequenceSecondUnit sequenceSecondUnit, C context) {
+        return visitScalarFunction(sequenceSecondUnit, context);
+    }
+
+    default R visitSequenceWeekUnit(SequenceWeekUnit sequenceWeekUnit, C context) {
+        return visitScalarFunction(sequenceWeekUnit, context);
+    }
+
+    default R visitSequenceYearUnit(SequenceYearUnit sequenceYearUnit, C context) {
+        return visitScalarFunction(sequenceYearUnit, context);
+    }
+
     default R visitSessionUser(SessionUser user, C context) {
         return visitScalarFunction(user, context);
     }
@@ -2881,7 +2926,7 @@ public interface ScalarFunctionVisitor<R, C> {
     }
 
     default R visitSearch(org.apache.doris.nereids.trees.expressions.functions.scalar.Search search,
-            C context) {
+                          C context) {
         return visitScalarFunction(search, context);
     }
 
