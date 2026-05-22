@@ -160,6 +160,17 @@ suite("test_streaming_postgres_job_special_offset_restart_fe",
             sql """drop table if exists ${currentDb}.${table1} force"""
 
             // User-provided slot/pub must survive DROP JOB; clean up manually.
+            // After DROP JOB the cdc_client may still be winding down its replication
+            // connection — PG rejects pg_drop_replication_slot on an active slot, so
+            // poll active=false before issuing the drop.
+            Awaitility.await().atMost(60, SECONDS).pollInterval(1, SECONDS).until({
+                boolean inactive = false
+                connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+                    def r = sql """SELECT active FROM pg_replication_slots WHERE slot_name = '${userSlot}'"""
+                    inactive = r.size() == 1 && r.get(0).get(0) == false
+                }
+                inactive
+            })
             connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
                 def slotStillThere = sql """SELECT COUNT(1) FROM pg_replication_slots WHERE slot_name = '${userSlot}'"""
                 assert slotStillThere[0][0] == 1 :
