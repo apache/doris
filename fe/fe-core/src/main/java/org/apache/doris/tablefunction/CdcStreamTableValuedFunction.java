@@ -25,6 +25,7 @@ import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.common.DataSourceType;
+import org.apache.doris.job.extensions.insert.streaming.DataSourceConfigValidator;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
@@ -137,6 +138,19 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
                 break;
             default:
                 throw new AnalysisException("Unsupported type: " + sourceType);
+        }
+        validatePositiveIntIfPresent(properties, DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE);
+        validatePositiveIntIfPresent(properties, DataSourceConfigKeys.SNAPSHOT_PARALLELISM);
+    }
+
+    private static void validatePositiveIntIfPresent(Map<String, String> properties, String key)
+            throws AnalysisException {
+        String value = properties.get(key);
+        if (value == null) {
+            return;
+        }
+        if (!DataSourceConfigValidator.isPositiveInt(value)) {
+            throw new AnalysisException("Invalid value for key '" + key + "': " + value);
         }
     }
 

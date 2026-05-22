@@ -165,13 +165,20 @@ public class DataSourceConfigValidator {
         }
         if (key.equals(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)
                 || key.equals(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
-            try {
-                return Integer.parseInt(value) > 0;
-            } catch (NumberFormatException e) {
-                return false;
-            }
+            return isPositiveInt(value);
         }
         return true;
+    }
+
+    public static boolean isPositiveInt(String value) {
+        if (value == null) {
+            return false;
+        }
+        try {
+            return Integer.parseInt(value) > 0;
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     /**

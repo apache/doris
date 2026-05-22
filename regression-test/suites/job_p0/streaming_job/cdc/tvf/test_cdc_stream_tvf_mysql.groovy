@@ -84,6 +84,28 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
             exception "type is required"
         }
 
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://localhost:3306",
+                "database" = "db1",
+                "table" = "t1",
+                "offset" = "latest",
+                "snapshot_split_size" = "abc")"""
+            exception "Invalid value for key 'snapshot_split_size'"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://localhost:3306",
+                "database" = "db1",
+                "table" = "t1",
+                "offset" = "latest",
+                "snapshot_parallelism" = "0")"""
+            exception "Invalid value for key 'snapshot_parallelism'"
+        }
+
         // --- Data setup ---
 
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
