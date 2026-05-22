@@ -511,6 +511,7 @@ public final class MetricRepo {
             List<MetricLabel> labels = Collections.singletonList(new MetricLabel("user", name));
             return new HistogramMetric(MetricRegistry.name("query", "latency", "ms"), labels);
         });
+        DORIS_METRIC_REGISTER.addHistogramMetrics("user_query_latency", USER_HISTO_QUERY_LATENCY);
         USER_COUNTER_QUERY_INSTANCE_BEGIN = addLabeledMetrics("user", () ->
                 new LongCounterMetric("query_instance_begin", MetricUnit.NOUNIT,
                         "number of query instance begin"));
@@ -1546,22 +1547,7 @@ public final class MetricRepo {
             visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
         }
 
-        visitHistogramMetrics(visitor, USER_HISTO_QUERY_LATENCY);
-        if (Config.isCloudMode()) {
-            visitHistogramMetrics(visitor, CloudMetrics.CLUSTER_QUERY_LATENCY_HISTO);
-            visitHistogramMetrics(visitor, CloudMetrics.META_SERVICE_RPC_LATENCY);
-        }
-    }
-
-    private static void visitHistogramMetrics(MetricVisitor visitor,
-            AutoMappedMetric<HistogramMetric> histogramMetrics) {
-        if (histogramMetrics == null) {
-            return;
-        }
-        for (HistogramMetric metric : histogramMetrics.getMetrics().values()) {
-            visitor.visitHistogram(MetricVisitor.FE_PREFIX, metric.getName(),
-                    metric.getHistogram(), metric.getLabels());
-        }
+        DORIS_METRIC_REGISTER.acceptHistograms(visitor);
     }
 
     // update some metrics to make a ready to be visited

@@ -119,40 +119,46 @@ public class MetricsTest {
     }
 
     @Test
-    public void testCloudLabeledHistogramsWithSpecialCharacters() {
-        String originCloudUniqueId = Config.cloud_unique_id;
-        AutoMappedMetric<HistogramMetric> originClusterHisto = CloudMetrics.CLUSTER_QUERY_LATENCY_HISTO;
-        AutoMappedMetric<HistogramMetric> originMetaHisto = CloudMetrics.META_SERVICE_RPC_LATENCY;
-        try {
-            Config.cloud_unique_id = "test_cloud_unique_id";
-            CloudMetrics.CLUSTER_QUERY_LATENCY_HISTO = new AutoMappedMetric<>(key -> {
-                String[] values = key.split(CloudMetrics.CLOUD_CLUSTER_DELIMITER, 2);
-                return new HistogramMetric("query.latency.ms", Lists.newArrayList(
-                        new MetricLabel("cluster_id", values[0]), new MetricLabel("cluster_name", values[1])));
-            });
-            CloudMetrics.META_SERVICE_RPC_LATENCY = new AutoMappedMetric<>(methodName ->
-                    new HistogramMetric("meta_service.rpc.latency.ms",
-                            Lists.newArrayList(new MetricLabel("method", methodName))));
+    public void testHistogramMetricRegistryWithSpecialCharacters() {
+        DorisMetricRegistry registry = new DorisMetricRegistry();
+        AutoMappedMetric<HistogramMetric> clusterHisto = new AutoMappedMetric<>(key -> {
+            String[] values = key.split(CloudMetrics.CLOUD_CLUSTER_DELIMITER, 2);
+            return new HistogramMetric("query.latency.ms", Lists.newArrayList(
+                    new MetricLabel("cluster_id", values[0]), new MetricLabel("cluster_name", values[1])));
+        });
+        AutoMappedMetric<HistogramMetric> metaHisto = new AutoMappedMetric<>(methodName ->
+                new HistogramMetric("meta_service.rpc.latency.ms",
+                        Lists.newArrayList(new MetricLabel("method", methodName))));
+        AutoMappedMetric<HistogramMetric> disabledHisto = new AutoMappedMetric<>(name ->
+                new HistogramMetric("disabled.latency.ms",
+                        Lists.newArrayList(new MetricLabel("name", name))));
+        AutoMappedMetric<HistogramMetric> staleHisto = new AutoMappedMetric<>(name ->
+                new HistogramMetric("stale.latency.ms",
+                        Lists.newArrayList(new MetricLabel("name", name))));
 
-            String clusterKey = "cluster.id-1" + CloudMetrics.CLOUD_CLUSTER_DELIMITER + "cluster.name@prod";
-            CloudMetrics.CLUSTER_QUERY_LATENCY_HISTO.getOrAdd(clusterKey).update(40L);
-            CloudMetrics.META_SERVICE_RPC_LATENCY.getOrAdd("get.Instance").update(50L);
+        registry.addHistogramMetrics("cluster_query_latency", staleHisto);
+        registry.addHistogramMetrics("cluster_query_latency", clusterHisto);
+        registry.addHistogramMetrics("meta_service_rpc_latency", metaHisto);
+        registry.addHistogramMetrics("disabled_latency", disabledHisto, () -> false);
 
-            MetricVisitor prometheusVisitor = new PrometheusMetricVisitor();
-            MetricRepo.visitHistograms(prometheusVisitor);
-            String prometheusResult = prometheusVisitor.finish();
-            Assert.assertTrue(prometheusResult.contains(
-                    "doris_fe_query_latency_ms{quantile=\"0.999\",cluster_id=\"cluster.id-1\","
-                            + "cluster_name=\"cluster.name@prod\"} 40.0"));
-            Assert.assertTrue(prometheusResult.contains(
-                    "doris_fe_meta_service_rpc_latency_ms{quantile=\"0.999\",method=\"get.Instance\"} 50.0"));
-            Assert.assertFalse(prometheusResult.contains("doris_fe_query_latency_ms_id-1_cluster"));
-            Assert.assertFalse(prometheusResult.contains("doris_fe_meta_service_rpc_latency_ms_Instance"));
-        } finally {
-            Config.cloud_unique_id = originCloudUniqueId;
-            CloudMetrics.CLUSTER_QUERY_LATENCY_HISTO = originClusterHisto;
-            CloudMetrics.META_SERVICE_RPC_LATENCY = originMetaHisto;
-        }
+        String clusterKey = "cluster.id-1" + CloudMetrics.CLOUD_CLUSTER_DELIMITER + "cluster.name@prod";
+        staleHisto.getOrAdd("stale.name").update(30L);
+        clusterHisto.getOrAdd(clusterKey).update(40L);
+        metaHisto.getOrAdd("get.Instance").update(50L);
+        disabledHisto.getOrAdd("disabled.name").update(60L);
+
+        MetricVisitor prometheusVisitor = new PrometheusMetricVisitor();
+        registry.acceptHistograms(prometheusVisitor);
+        String prometheusResult = prometheusVisitor.finish();
+        Assert.assertTrue(prometheusResult.contains(
+                "doris_fe_query_latency_ms{quantile=\"0.999\",cluster_id=\"cluster.id-1\","
+                        + "cluster_name=\"cluster.name@prod\"} 40.0"));
+        Assert.assertTrue(prometheusResult.contains(
+                "doris_fe_meta_service_rpc_latency_ms{quantile=\"0.999\",method=\"get.Instance\"} 50.0"));
+        Assert.assertFalse(prometheusResult.contains("doris_fe_query_latency_ms_id-1_cluster"));
+        Assert.assertFalse(prometheusResult.contains("doris_fe_meta_service_rpc_latency_ms_Instance"));
+        Assert.assertFalse(prometheusResult.contains("doris_fe_stale_latency_ms"));
+        Assert.assertFalse(prometheusResult.contains("doris_fe_disabled_latency_ms"));
     }
 
     @Test

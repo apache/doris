@@ -104,6 +104,8 @@ public class CloudMetrics {
                     new MetricLabel("cluster_name", clusterName));
             return new HistogramMetric(MetricRegistry.name("query", "latency", "ms"), labels);
         });
+        MetricRepo.DORIS_METRIC_REGISTER.addHistogramMetrics(
+                "cloud_cluster_query_latency", CLUSTER_QUERY_LATENCY_HISTO, Config::isCloudMode);
 
         CLUSTER_WARM_UP_JOB_EXEC_COUNT = new AutoMappedMetric<>(name -> new LongCounterMetric(
                 "file_cache_warm_up_job_exec_count", MetricUnit.NOUNIT, "warm up job execution count"));
@@ -166,6 +168,8 @@ public class CloudMetrics {
             List<MetricLabel> labels = Collections.singletonList(new MetricLabel("method", methodName));
             return new HistogramMetric(MetricRegistry.name("meta_service", "rpc", "latency", "ms"), labels);
         });
+        MetricRepo.DORIS_METRIC_REGISTER.addHistogramMetrics(
+                "meta_service_rpc_latency", META_SERVICE_RPC_LATENCY, Config::isCloudMode);
 
         // Aggregate meta-service metrics
         META_SERVICE_RPC_ALL_TOTAL = new LongCounterMetric("meta_service_rpc_all_total",
