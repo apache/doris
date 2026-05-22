@@ -673,7 +673,8 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testMetaInfoCoversInlineMet
                                                      AggregateFunctionHllSketchData<TYPE_STRING>>;
     auto agg_func = std::make_shared<AggFunc>(argument_types);
 
-    EXPECT_EQ(AggregateFunctionHllSketchData<TYPE_STRING>::get_name(), "datasketches_hll_union_agg");
+    EXPECT_EQ(AggregateFunctionHllSketchData<TYPE_STRING>::get_name(),
+              "datasketches_hll_union_agg");
     EXPECT_EQ(agg_func->get_name(), "datasketches_hll_union_agg");
 
     auto return_type = agg_func->get_return_type();
@@ -714,7 +715,8 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testAddMemAllocFailedThrows
     agg_func->destroy(place);
 }
 
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testDeserializeMemAllocFailedThrowsCorruption) {
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
+       testDeserializeMemAllocFailedThrowsCorruption) {
     DataTypes argument_types = {std::make_shared<DataTypeString>()};
     using AggFunc =
             AggregateFunctionDataSketchesHllUnionAgg<TYPE_STRING,
