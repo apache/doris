@@ -26,15 +26,29 @@ suite("test_paimon_gcs", "p0,external") {
 
         String table_name = "hive_test_table"
         for (String propertyPrefix : ["gs", "s3"]) {
+            def catalogProperties = { boolean withRegion ->
+                def properties = [
+                        "'type' = 'paimon'",
+                        "'warehouse' = '${gcs_warehouse}'",
+                        "'fs.gcs.support' = 'true'",
+                ]
+                def optionalProperties = [
+                        [gcs_endpoint, "'${propertyPrefix}.endpoint' = '${gcs_endpoint}'"],
+                        [gcs_ak, "'${propertyPrefix}.access_key' = '${gcs_ak}'"],
+                        [gcs_sk, "'${propertyPrefix}.secret_key' = '${gcs_sk}'"],
+                ]
+                if (withRegion) {
+                    optionalProperties.add([gcs_region, "'${propertyPrefix}.region' = '${gcs_region}'"])
+                }
+                properties.addAll(optionalProperties.findAll { it[0] != null && !it[0].trim().isEmpty() }
+                        .collect { it[1] })
+                properties.join(",\n")
+            }
             def catalog_name = "test_paimon_gcs_${propertyPrefix}"
             sql """drop catalog if exists ${catalog_name}"""
             sql """
                     CREATE CATALOG ${catalog_name} PROPERTIES (
-                            'type' = 'paimon',
-                            'warehouse' = '${gcs_warehouse}',
-                            '${propertyPrefix}.endpoint' = '${gcs_endpoint}',
-                            '${propertyPrefix}.access_key' = '${gcs_ak}',
-                            '${propertyPrefix}.secret_key' = '${gcs_sk}'
+                            ${catalogProperties(false)}
                     );
                 """
             sql """switch `${catalog_name}`"""
@@ -55,12 +69,7 @@ suite("test_paimon_gcs", "p0,external") {
             sql """drop catalog if exists ${catalog_name}_with_region"""
             sql """
                     CREATE CATALOG ${catalog_name}_with_region PROPERTIES (
-                            'type' = 'paimon',
-                            'warehouse' = '${gcs_warehouse}',
-                            '${propertyPrefix}.endpoint' = '${gcs_endpoint}',
-                            '${propertyPrefix}.access_key' = '${gcs_ak}',
-                            '${propertyPrefix}.secret_key' = '${gcs_sk}',
-                            '${propertyPrefix}.region' = '${gcs_region}'
+                            ${catalogProperties(true)}
                     );
                 """
             sql """switch `${catalog_name}_with_region`"""
@@ -80,5 +89,3 @@ suite("test_paimon_gcs", "p0,external") {
         }
     }
 }
-
-
