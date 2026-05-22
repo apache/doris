@@ -101,7 +101,7 @@ void DataTypeVariantSerDe::read_one_cell_from_jsonb(IColumn& column, const Jsonb
 Status DataTypeVariantSerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                         BufferWritable& bw,
                                                         FormatOptions& options) const {
-    const auto* var = check_and_get_column<ColumnVariant>(column);
+    const auto* var = assert_cast<const ColumnVariant*>(&column);
     var->serialize_one_row_to_string(row_num, bw, options);
     return Status::OK();
 }
@@ -127,7 +127,7 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
                                                    arrow::ArrayBuilder* array_builder,
                                                    int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
-    const auto* var = check_and_get_column<ColumnVariant>(column);
+    const auto* var = assert_cast<const ColumnVariant*>(&column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     FormatOptions options;
     options.timezone = &ctz;
@@ -158,7 +158,7 @@ Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, co
                                                  orc::ColumnVectorBatch* orc_col_batch,
                                                  int64_t start, int64_t end, Arena& arena,
                                                  const FormatOptions& options) const {
-    const auto* var = check_and_get_column<ColumnVariant>(column);
+    const auto* var = assert_cast<const ColumnVariant*>(&column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     // First pass: calculate total memory needed and collect serialized values
     std::vector<std::string> serialized_values;

@@ -32,6 +32,15 @@
 #include "util/uid_util.h"
 
 namespace doris {
+namespace {
+bool hash_table_built(const HashJoinSharedState* shared_state) {
+    DORIS_CHECK(shared_state != nullptr);
+    DORIS_CHECK(!shared_state->hash_table_variant_vector.empty());
+    return !std::holds_alternative<std::monostate>(
+            shared_state->hash_table_variant_vector.front()->method_variant);
+}
+} // namespace
+
 HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                          RuntimeState* state)
         : JoinBuildSinkLocalState(parent, state) {
@@ -243,16 +252,9 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
 
         if (p._use_shared_hash_table) {
             LockGuard lock(p._mutex);
-            // Only signal non-builder tasks when the builder actually built the hash table.
-            // When the builder is terminated (woken up early because the probe side finished
-            // first), it never called process_build_block() so the hash table variant is still
-            // monostate. Setting _signaled=true in that case would cause non-builder tasks to
-            // enter std::visit on monostate and crash with "Hash table type mismatch".
-            //
-            // _terminated is reliably true here when the task was woken up early, because
-            // operator terminate() is called from the execute() Defer in PipelineTask
-            // before close() is invoked.
-            if (!_terminated) {
+            // Do not wake non-builders into a monostate hash table after early termination/errors.
+            const auto should_signal = !_terminated && hash_table_built(_shared_state);
+            if (should_signal) {
                 p._signaled = true;
             }
             for (auto& dep : _shared_state->sink_deps) {
@@ -698,6 +700,11 @@ HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int ope
 Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX::init(tnode, state));
     DCHECK(tnode.__isset.hash_join_node);
+    if (_is_mark_join && _join_op == TJoinOp::RIGHT_ANTI_JOIN) {
+        return Status::InternalError(
+                "Hash join does not support right anti mark join, query={}, node={}, join_op={}",
+                print_id(state->query_id()), node_id(), to_string(_join_op));
+    }
 
     if (tnode.hash_join_node.__isset.hash_output_slot_ids) {
         _hash_output_slot_ids = tnode.hash_join_node.hash_output_slot_ids;
@@ -772,6 +779,12 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
 
 Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::prepare(state));
+    if (_is_broadcast_join && (_match_all_build || _is_right_semi_anti)) {
+        return Status::NotSupported(
+                "Broadcast hash join does not support {} because build-side rows must be "
+                "finalized exactly once",
+                to_string(_join_op));
+    }
     _use_shared_hash_table =
             _is_broadcast_join && state->enable_share_hash_table_for_broadcast_join();
     auto init_keep_column_flags = [&](auto& tuple_descs, auto& output_slot_flags) {

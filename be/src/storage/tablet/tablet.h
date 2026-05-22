@@ -182,7 +182,9 @@ public:
                           std::vector<RowsetSharedPtr>& to_delete, bool check_delete = false);
     bool rowset_exists_unlocked(const RowsetSharedPtr& rowset);
 
-    Status add_inc_rowset(const RowsetSharedPtr& rowset);
+    // Add a committed data rowset and its row binlog rowset
+    Status add_inc_rowset(const RowsetSharedPtr& rowset,
+                          const RowsetSharedPtr& row_binlog_rowset = nullptr);
     /// Delete stale rowset by timing. This delete policy uses now() minutes
     /// config::tablet_rowset_expired_stale_sweep_time_sec to compute the deadline of expired rowset
     /// to delete.  When rowset is deleted, it will be added to StorageEngine unused map and record
@@ -483,11 +485,11 @@ public:
         return config::enable_feature_binlog && _tablet_meta->binlog_config().is_enable();
     }
     bool enable_ccr_binlog() const {
-        return enable_binlog() && _tablet_meta->binlog_config().isCCRBinlogFormat();
+        return enable_binlog() && _tablet_meta->binlog_config().is_ccr_binlog_format();
     }
     bool enable_row_binlog() const {
         return _tablet_meta->binlog_config().is_enable() &&
-               _tablet_meta->binlog_config().isRowBinlogFormat();
+               _tablet_meta->binlog_config().is_row_binlog_format();
     }
 
     int64_t binlog_ttl_ms() const { return _tablet_meta->binlog_config().ttl_seconds(); }
@@ -497,10 +499,6 @@ public:
 
     // row_binlog
     int32_t row_binlog_schema_hash() const { return _tablet_meta->row_binlog_schema_hash(); }
-    TabletSchemaSPtr row_binlog_tablet_schema() {
-        std::shared_lock rdlock(_meta_lock);
-        return _tablet_meta->row_binlog_schema();
-    }
 
     void set_is_full_compaction_running(bool is_full_compaction_running) {
         _is_full_compaction_running = is_full_compaction_running;
@@ -534,6 +532,8 @@ private:
     Status _init_once_action();
     bool _contains_rowset(const RowsetId rowset_id);
     Status _contains_version(const Version& version);
+    Status _add_row_binlog_rowset_unlocked(const RowsetSharedPtr& rowset,
+                                           const RowsetSharedPtr& row_binlog_rowset);
 
     // Returns:
     // version: the max continuous version from beginning

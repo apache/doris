@@ -31,14 +31,22 @@ import java.util.Map;
 
 public class SimplifyInPredicateTest extends ExpressionRewriteTestHelper {
 
+    private ExpressionRuleExecutor newRewriteExecutor() {
+        return new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(
+                        FoldConstantRule.INSTANCE,
+                        SimplifyInPredicate.INSTANCE)));
+    }
+
+    private ExpressionRuleExecutor newFoldExecutor() {
+        return new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(
+                        FoldConstantRule.INSTANCE)));
+    }
+
     @Test
     public void test() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(
-                    FoldConstantRule.INSTANCE,
-                    SimplifyInPredicate.INSTANCE
-                )
-        ));
+        executor = newRewriteExecutor();
         Map<String, Slot> mem = Maps.newHashMap();
         Expression rewrittenExpression = PARSER.parseExpression("cast(CA as DATETIME) in ('1992-01-31 00:00:00', '1992-02-01 00:00:00')");
         // after parse and type coercion: CAST(CAST(CA AS DATETIMEV2(0)) AS DATETIMEV2(6)) IN ('1992-01-31 00:00:00.000000', '1992-02-01 00:00:00.000000')
@@ -49,12 +57,44 @@ public class SimplifyInPredicateTest extends ExpressionRewriteTestHelper {
         rewrittenExpression = executor.rewrite(rewrittenExpression, context);
         Expression expectedExpression = PARSER.parseExpression("CA in (cast('1992-01-31' as date), cast('1992-02-01' as date))");
         expectedExpression = replaceUnboundSlot(expectedExpression, mem);
-        executor = new ExpressionRuleExecutor(ImmutableList.of(
-            bottomUp(
-                FoldConstantRule.INSTANCE
-            )
-        ));
+        executor = newFoldExecutor();
         expectedExpression = executor.rewrite(expectedExpression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
+    }
+
+    @Test
+    public void testDoNotEliminateNarrowingDateTimeV2Cast() {
+        ExpressionRuleExecutor rewriteExecutor = newRewriteExecutor();
+        ExpressionRuleExecutor foldExecutor = newFoldExecutor();
+        Map<String, Slot> mem = Maps.newHashMap();
+        Expression rewrittenExpression = PARSER.parseExpression("cast(AA as DATETIMEV2(3)) in "
+                + "('2024-01-01 12:34:56.123000', '2024-01-01 09:30:01.000000', '2024-01-01 22:00:00.000000')");
+        rewrittenExpression = typeCoercion(replaceUnboundSlot(rewrittenExpression, mem));
+        rewrittenExpression = rewriteExecutor.rewrite(rewrittenExpression, context);
+        Expression rewrittenAgain = rewriteExecutor.rewrite(rewrittenExpression, context);
+
+        Expression expectedExpression = PARSER.parseExpression("cast(AA as DATETIMEV2(3)) in "
+                + "(cast('2024-01-01 12:34:56.123' as DATETIMEV2(3)), "
+                + "cast('2024-01-01 09:30:01.000' as DATETIMEV2(3)), "
+                + "cast('2024-01-01 22:00:00.000' as DATETIMEV2(3)))");
+        expectedExpression = replaceUnboundSlot(expectedExpression, mem);
+        expectedExpression = foldExecutor.rewrite(expectedExpression, context);
+
+        Assertions.assertEquals(expectedExpression, rewrittenExpression);
+        Assertions.assertEquals(rewrittenExpression, rewrittenAgain);
+    }
+
+    @Test
+    public void testDateTimeV2LiteralMustAlignWithTargetScale() {
+        ExpressionRuleExecutor rewriteExecutor = newRewriteExecutor();
+        Map<String, Slot> mem = Maps.newHashMap();
+        Expression rewrittenExpression = PARSER.parseExpression("cast(cast(AA as DATETIMEV2(3)) as DATETIMEV2(6)) "
+                + "in ('2024-01-01 12:34:56.123128')");
+        rewrittenExpression = typeCoercion(replaceUnboundSlot(rewrittenExpression, mem));
+        Expression originalExpression = rewrittenExpression;
+
+        rewrittenExpression = rewriteExecutor.rewrite(rewrittenExpression, context);
+
+        Assertions.assertEquals(originalExpression, rewrittenExpression);
     }
 }

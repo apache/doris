@@ -124,7 +124,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
+        const auto* col_from = assert_cast<const DataTypeString::ColumnType*>(
                 block.get_by_position(arguments[0]).column.get());
         auto to_type = block.get_by_position(result).type;
         auto serde = remove_nullable(to_type)->get_serde();
@@ -156,7 +156,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = check_and_get_column<typename NumberType::ColumnType>(
+        const auto* col_from = assert_cast<const typename NumberType::ColumnType*>(
                 block.get_by_position(arguments[0]).column.get());
         DataTypeBool::ColumnType::MutablePtr col_to =
                 DataTypeBool::ColumnType::create(input_rows_count);
@@ -179,7 +179,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = check_and_get_column<typename DecimalType::ColumnType>(
+        const auto* col_from = assert_cast<const typename DecimalType::ColumnType*>(
                 block.get_by_position(arguments[0]).column.get());
         const auto type_from = block.get_by_position(arguments[0]).type;
         DataTypeBool::ColumnType::MutablePtr col_to =

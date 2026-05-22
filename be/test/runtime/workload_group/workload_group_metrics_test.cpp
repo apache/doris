@@ -67,12 +67,10 @@ TEST_F(WorkloadGroupMetricsTest, refresh_uses_real_elapsed_time) {
     // With a 2 second interval and 2B nanos of CPU time added,
     // the rate should be approximately 1B nanos/sec.
     // Allow 50% tolerance due to scheduling variance.
-    EXPECT_GT(cpu_per_sec, 500000000ULL)
-            << "CPU per-second rate too low: " << cpu_per_sec
-            << " (expected ~1,000,000,000 with 2s interval)";
-    EXPECT_LT(cpu_per_sec, 2500000000ULL)
-            << "CPU per-second rate too high: " << cpu_per_sec
-            << " (expected ~1,000,000,000 with 2s interval)";
+    EXPECT_GT(cpu_per_sec, 500000000ULL) << "CPU per-second rate too low: " << cpu_per_sec
+                                         << " (expected ~1,000,000,000 with 2s interval)";
+    EXPECT_LT(cpu_per_sec, 2500000000ULL) << "CPU per-second rate too high: " << cpu_per_sec
+                                          << " (expected ~1,000,000,000 with 2s interval)";
 }
 
 // Test that when interval is less than 1 second, refresh_metrics does not
@@ -91,8 +89,7 @@ TEST_F(WorkloadGroupMetricsTest, refresh_skips_when_interval_less_than_one_secon
     // Per-second rate should still be 0 (from the initial state)
     // because the sub-second refresh skips the rate calculation
     uint64_t cpu_per_sec = _metrics->get_cpu_time_nanos_per_second();
-    EXPECT_EQ(cpu_per_sec, 0)
-            << "CPU per-second rate should remain unchanged when interval < 1s";
+    EXPECT_EQ(cpu_per_sec, 0) << "CPU per-second rate should remain unchanged when interval < 1s";
 }
 
 // Test that different real intervals produce proportionally different rates.
@@ -120,9 +117,8 @@ TEST_F(WorkloadGroupMetricsTest, shorter_interval_yields_higher_rate) {
     // rate_1s ~ 1B/1s = 1B
     // rate_2s ~ 1B/2s = 500M
     // Allow generous tolerance for timing jitter
-    EXPECT_GT(rate_1s, rate_2s)
-            << "1s interval rate (" << rate_1s << ") should be higher than 2s interval rate ("
-            << rate_2s << ")";
+    EXPECT_GT(rate_1s, rate_2s) << "1s interval rate (" << rate_1s
+                                << ") should be higher than 2s interval rate (" << rate_2s << ")";
 }
 
 // Test that memory metrics are correctly reported

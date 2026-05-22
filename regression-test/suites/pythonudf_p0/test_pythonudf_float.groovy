@@ -53,7 +53,8 @@ suite("test_pythonudf_float") {
             "symbol"="float_test.evaluate",
             "type"="PYTHON_UDF",
             "runtime_version" = "${runtime_version}",
-            "always_nullable" = "true"
+            "always_nullable" = "true",
+            "volatility" = "immutable"
         ); """
 
         qt_select """ SELECT python_udf_float_test(cast(2.83645 as float),cast(111.1111111 as float)) as result; """

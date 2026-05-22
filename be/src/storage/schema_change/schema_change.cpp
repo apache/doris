@@ -56,7 +56,6 @@
 #include "runtime/runtime_state.h"
 #include "storage/data_dir.h"
 #include "storage/delete/delete_handler.h"
-#include "storage/field.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_writer.h"
 #include "storage/iterator/olap_data_convertor.h"
@@ -87,8 +86,6 @@
 #include "util/trace.h"
 
 namespace doris {
-
-class CollectionValue;
 
 using namespace ErrorCode;
 
@@ -435,8 +432,8 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column, ColumnPtr output_
 
     if (input_column->is_nullable() != output_column->is_nullable()) {
         if (input_column->is_nullable()) {
-            const auto* ref_null_map = check_and_get_column<ColumnNullable>(input_column.get())
-                                               ->get_null_map_column()
+            const auto* ref_null_map = assert_cast<const ColumnNullable&>(*input_column)
+                                               .get_null_map_column()
                                                .get_data()
                                                .data();
 
@@ -450,10 +447,9 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column, ColumnPtr output_
                         input_column->get_name());
             }
         } else {
-            const auto& null_map_column = check_and_get_column<ColumnNullable>(output_column.get())
-                                                  ->get_null_map_column();
-            const auto& nested_column =
-                    check_and_get_column<ColumnNullable>(output_column.get())->get_nested_column();
+            const auto& output_nullable = assert_cast<const ColumnNullable&>(*output_column);
+            const auto& null_map_column = output_nullable.get_null_map_column();
+            const auto& nested_column = output_nullable.get_nested_column();
             const auto* new_null_map = null_map_column.get_data().data();
 
             if (null_map_column.size() != output_column->size()) {
@@ -483,12 +479,12 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column, ColumnPtr output_
     }
 
     if (input_column->is_nullable() && output_column->is_nullable()) {
-        const auto* ref_null_map = check_and_get_column<ColumnNullable>(input_column.get())
-                                           ->get_null_map_column()
+        const auto* ref_null_map = assert_cast<const ColumnNullable&>(*input_column)
+                                           .get_null_map_column()
                                            .get_data()
                                            .data();
-        const auto* new_null_map = check_and_get_column<ColumnNullable>(output_column.get())
-                                           ->get_null_map_column()
+        const auto* new_null_map = assert_cast<const ColumnNullable&>(*output_column)
+                                           .get_null_map_column()
                                            .get_data()
                                            .data();
 
@@ -1534,12 +1530,6 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
 Status SchemaChangeJob::_init_column_mapping(ColumnMapping* column_mapping,
                                              const TabletColumn& column_schema,
                                              const std::string& value) {
-    auto t = StorageFieldFactory::create(column_schema);
-    Defer defer([t]() { delete t; });
-    if (t == nullptr) {
-        return Status::Uninitialized("Unsupport field creation of {}", column_schema.name());
-    }
-
     if (!column_schema.is_nullable() || value.length() != 0) {
         RETURN_IF_ERROR(column_schema.get_vec_type()->get_serde()->from_fe_string(
                 value, column_mapping->default_value));

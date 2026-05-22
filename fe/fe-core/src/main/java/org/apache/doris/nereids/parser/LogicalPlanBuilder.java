@@ -1918,7 +1918,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         TableNameInfo mvName = new TableNameInfo(nameParts);
         AlterMTMVInfo alterMTMVInfo = null;
         if (ctx.RENAME() != null) {
-            alterMTMVInfo = new AlterMTMVRenameInfo(mvName, ctx.newName.getText());
+            alterMTMVInfo = new AlterMTMVRenameInfo(mvName,
+                    new TableNameInfo(visitMultipartIdentifier(ctx.renameNewName)));
         } else if (ctx.REFRESH() != null) {
             MTMVRefreshInfo refreshInfo = new MTMVRefreshInfo();
             if (ctx.refreshMethod() != null) {
@@ -1932,7 +1933,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             alterMTMVInfo = new AlterMTMVPropertyInfo(mvName,
                     Maps.newHashMap(visitPropertyItemList(ctx.fileProperties)));
         } else if (ctx.REPLACE() != null) {
-            String newName = ctx.newName.getText();
+            String newName = ctx.replaceNewName.getText();
             Map<String, String> properties = ctx.propertyClause() != null
                     ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
             alterMTMVInfo = new AlterMTMVReplaceInfo(mvName, newName, properties);
@@ -5259,7 +5260,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             switch (ctx.complex.getType()) {
                 case DorisParser.ARRAY:
-                    return ArrayType.of(typedVisit(ctx.dataType(0)), true);
+                    return ArrayType.of(typedVisit(ctx.dataType(0)));
                 case DorisParser.MAP:
                     return MapType.of(typedVisit(ctx.dataType(0)), typedVisit(ctx.dataType(1)));
                 case DorisParser.STRUCT:

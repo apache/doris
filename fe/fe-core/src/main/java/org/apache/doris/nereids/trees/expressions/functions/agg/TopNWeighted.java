@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -71,6 +73,8 @@ public class TopNWeighted extends NullableAggregateFunction
                                     .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
                             FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE))
                     .args(DateV2Type.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(TimeStampTzType.WILDCARD))
+                    .args(TimeStampTzType.WILDCARD, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DateTimeV2Type.WILDCARD))
                     .args(DateTimeV2Type.WILDCARD, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(StringType.INSTANCE))
@@ -105,6 +109,11 @@ public class TopNWeighted extends NullableAggregateFunction
                                                     IntegerType.INSTANCE),
                             FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE))
                     .args(DateV2Type.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(TimeStampTzType.WILDCARD))
+                    .args(TimeStampTzType.WILDCARD,
+                            BigIntType.INSTANCE,
+                            IntegerType.INSTANCE,
+                            IntegerType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .args(DateTimeV2Type.WILDCARD,
                             BigIntType.INSTANCE,
@@ -194,6 +203,19 @@ public class TopNWeighted extends NullableAggregateFunction
         if (arity() == 4 && !getArgument(3).isConstant()) {
             throw new AnalysisException(
                     "topn_weighted requires fourth parameter must be a constant: "
+                            + this.toSql());
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        Expression topNCount = getArgument(2);
+        if (topNCount.isNullLiteral()) {
+            return;
+        }
+        if (!(topNCount instanceof Literal) || ((Literal) topNCount).getDouble() <= 0) {
+            throw new AnalysisException(
+                    "topn_weighted requires third parameter must be a constant positive integer: "
                             + this.toSql());
         }
     }

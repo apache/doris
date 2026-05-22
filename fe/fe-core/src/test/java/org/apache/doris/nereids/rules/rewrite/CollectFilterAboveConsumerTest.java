@@ -81,7 +81,7 @@ class CollectFilterAboveConsumerTest {
                 "exactly one conjunct (the deterministic one) should be collected, "
                         + "unique-function conjunct must NOT be collected");
         Expression onlyCollected = filters.iterator().next();
-        Assertions.assertFalse(onlyCollected.containsUniqueFunction(),
+        Assertions.assertFalse(onlyCollected.containsVolatileExpression(),
                 "collected conjunct must not contain a unique function");
     }
 }

@@ -438,9 +438,14 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         List<T> tables = Lists.newArrayList();
         Set<String> tblNames = getTableNamesWithLock();
         for (String tblName : tblNames) {
-            T tbl = getTableNullable(tblName);
-            if (tbl != null) {
-                tables.add(tbl);
+            try {
+                T tbl = getTableNullable(tblName);
+                if (tbl != null) {
+                    tables.add(tbl);
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to get external table {}.{}.{} in SHOW TABLES path, skip it.",
+                        extCatalog.getName(), name, tblName, e);
             }
         }
         return tables;

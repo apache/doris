@@ -21,6 +21,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.qe.SessionVariable;
 
 import org.apache.commons.text.StringSubstitutor;
 
@@ -59,9 +60,10 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
     protected void doFull() throws Exception {
         StringBuilder sb = new StringBuilder();
         Map<String, String> params = buildSqlParams();
-        params.put("min", getMinFunction());
-        params.put("max", getMaxFunction());
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
+        params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
+        params.put("subStringColName", getStringTypeColName(col));
+        params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
         if (LOG.isDebugEnabled()) {
             LOG.debug("Will do full collection for column {}", col.getName());
         }

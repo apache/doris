@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
@@ -386,10 +385,6 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     public boolean isKeyColumnFromTable() {
         return (this instanceof SlotReference) && ((SlotReference) this).getOriginalColumn().isPresent()
                 && ((SlotReference) this).getOriginalColumn().get().isKey();
-    }
-
-    public boolean containsUniqueFunction() {
-        return containsType(UniqueFunction.class);
     }
 
     /** containsNullLiteralChildren */

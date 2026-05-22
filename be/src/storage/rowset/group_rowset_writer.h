@@ -20,6 +20,7 @@
 #include "storage/rowset/rowset_writer.h"
 
 namespace doris {
+class Block;
 class GroupRowsetWriter : public RowsetWriter {
 public:
     GroupRowsetWriter() = default;
@@ -64,6 +65,10 @@ public:
     // note that `add_row` could also trigger flush when certain conditions are met
     Status flush() override { return flush_rowsets(); }
 
+    Status flush_memtable(Block* block, int32_t segment_id, int64_t* flush_size) override;
+
+    Status flush_single_block(const Block* block) override;
+
     // GroupRowsetWriter does not support build a single rowset; its build is
     // delegated to underlying writers.
     Status build(RowsetSharedPtr& rowset) override {
@@ -104,6 +109,14 @@ public:
     int32_t allocate_segment_id() override {
         LOG(FATAL) << "GroupRowsetWriter::allocate_segment_id is not supported";
         return -1;
+    }
+
+    int32_t get_allocated_segment_id() override {
+        DCHECK(_txn_rowset_writer != nullptr);
+        DCHECK(_row_binlog_rowset_writer != nullptr);
+        auto seg_id = _txn_rowset_writer->get_allocated_segment_id();
+        DCHECK_EQ(seg_id, _row_binlog_rowset_writer->get_allocated_segment_id());
+        return seg_id;
     }
 
     void set_segment_start_id(int num_segment) override {

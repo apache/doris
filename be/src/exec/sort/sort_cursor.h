@@ -204,6 +204,11 @@ struct MergeSortCursor {
         return !impl->empty() && greater_at(rhs, impl->pos, rhs.impl->pos) > 0;
     }
 
+    bool totally_less_or_equals(const MergeSortCursor& rhs) const {
+        return !impl->empty() && !rhs.impl->empty() &&
+               greater_at(rhs, impl->rows - 1, rhs.impl->pos) <= 0;
+    }
+
     /// Inverted so that the priority queue elements are removed in ascending order.
     bool operator<(const MergeSortCursor& rhs) const { return greater(rhs); }
 

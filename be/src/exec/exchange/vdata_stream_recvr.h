@@ -201,6 +201,8 @@ public:
     void set_dependency(std::shared_ptr<Dependency> dependency) { _source_dependency = dependency; }
 
 protected:
+    struct BlockItem;
+
     void add_blocks_memory_usage(int64_t size);
 
     void sub_blocks_memory_usage(int64_t size);
@@ -209,6 +211,7 @@ protected:
     friend class ExchangeLocalState;
 
     void set_source_ready(std::lock_guard<std::mutex>&);
+    void run_block_queue_done_callbacks(std::list<BlockItem>& block_queue);
 
     // Not managed by this class
     VDataStreamRecvr* _recvr = nullptr;
