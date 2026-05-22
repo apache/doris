@@ -47,11 +47,14 @@ suite("test_length_dict_encoded") {
 
     sql """
         INSERT INTO test_length_dict_varchar VALUES
-          (6,     5,        '2023-12-13', '2023-12-11', 'o', 'i', 30),
-          (6,     6,        NULL,         '2023-12-18', 'w', 'l', 24),
-          (8,     -8278102, '2023-12-13', '2023-12-11', 'x', 'c', 28),
-          (15971, 8,        NULL,         '2015-06-11', 'h', 'r', 41),
-          (6,     5,        '2023-12-11', '2023-12-17', 'd', 'q',  5)
+          (6,     5,        '2023-12-13', '2023-12-11', 'o',  'i', 30),
+          (6,     6,        NULL,         '2023-12-18', 'w',  'l', 24),
+          (8,     -8278102, '2023-12-13', '2023-12-11', 'x',  'c', 28),
+          (15971, 8,        NULL,         '2015-06-11', 'h',  'r', 41),
+          (6,     5,        '2023-12-11', '2023-12-17', 'd',  'q',  5),
+          (7,     100,      '2023-12-14', '2023-12-15', NULL, 'a', 50),
+          (7,     101,      '2023-12-15', '2023-12-16', NULL, 'b', 51),
+          (9,     200,      NULL,         '2023-12-17', 'ab', 'd', 60)
     """
 
     // length() on nullable dict-encoded varchar filtered by IS NOT NULL predicate
@@ -79,5 +82,26 @@ suite("test_length_dict_encoded") {
         SELECT char_length(col_varchar_5__undef_signed)
         FROM   test_length_dict_varchar
         WHERE  col_varchar_5__undef_signed IS NOT NULL
+    """
+
+    // length() returns NULL for NULL values — verify NULL passthrough
+    order_qt_length_nullable_is_null """
+        SELECT length(col_varchar_5__undef_signed)
+        FROM   test_length_dict_varchar
+        WHERE  col_varchar_5__undef_signed IS NULL
+    """
+
+    // char_length() on all rows including NULLs — verify dict code path with mixed null/non-null
+    order_qt_char_length_all_rows """
+        SELECT char_length(col_varchar_5__undef_signed), pk
+        FROM   test_length_dict_varchar
+        ORDER  BY pk
+    """
+
+    // char_length() on NULL-only rows
+    order_qt_char_length_nullable_is_null """
+        SELECT char_length(col_varchar_5__undef_signed)
+        FROM   test_length_dict_varchar
+        WHERE  col_varchar_5__undef_signed IS NULL
     """
 }
