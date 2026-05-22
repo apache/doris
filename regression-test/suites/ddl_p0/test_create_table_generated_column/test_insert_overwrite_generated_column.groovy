@@ -40,6 +40,7 @@ suite("test_insert_overwrite_generated_column") {
         INSERT into gen_col_insert_overwrite values(1,2,DEFAULT,default),(3,4,DEFAULT,default);
     """
 
+    // Keep basic overwrite cases grouped together for regression coverage.
     qt_overwrite_value_partial_column "INSERT overwrite TABLE gen_col_insert_overwrite(a,b) values(3,4)"
     qt_overwrite_value "INSERT overwrite TABLE gen_col_insert_overwrite values(1,2,DEFAULT,default),(3,4,DEFAULT,default);"
     qt_overwrite_value_select "select * from gen_col_insert_overwrite order by 1,2,3,4;"
