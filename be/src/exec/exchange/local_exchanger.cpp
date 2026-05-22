@@ -167,6 +167,9 @@ Status ShuffleExchanger::get_block(RuntimeState* state, Block* block, bool* eos,
         mutable_block = VectorizedUtils::build_mutable_mem_reuse_block(
                 block, partitioned_block.first->_data_block);
         RETURN_IF_ERROR(get_data());
+        if (mutable_block.rows() > 0) {
+            *block = mutable_block.to_block();
+        }
     }
     return Status::OK();
 }
@@ -425,6 +428,9 @@ Status BroadcastExchanger::get_block(RuntimeState* state, Block* block, bool* eo
         RETURN_IF_ERROR(mutable_block.add_rows(&block_wrapper->_data_block,
                                                partitioned_block.second.offset_start,
                                                partitioned_block.second.length));
+        if (mutable_block.rows() > 0) {
+            *block = mutable_block.to_block();
+        }
     }
 
     return Status::OK();
@@ -573,6 +579,9 @@ Status AdaptivePassthroughExchanger::get_block(RuntimeState* state, Block* block
         mutable_block = VectorizedUtils::build_mutable_mem_reuse_block(
                 block, partitioned_block.first->_data_block);
         RETURN_IF_ERROR(get_data());
+        if (mutable_block.rows() > 0) {
+            *block = mutable_block.to_block();
+        }
     }
     return Status::OK();
 }
