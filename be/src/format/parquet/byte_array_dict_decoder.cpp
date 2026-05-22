@@ -42,7 +42,14 @@ Status ByteArrayDictDecoder::set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32
 
     size_t total_length = 0;
     for (int i = 0; i < num_values; ++i) {
+        if (UNLIKELY(offset_cursor > cast_set<uint32_t>(length))) {
+            return Status::Corruption("Wrong data length in dictionary");
+        }
         uint32_t l = decode_fixed32_le(_dict.get() + offset_cursor);
+        if (UNLIKELY(offset_cursor + l > cast_set<uint32_t>(length) ||
+                     l > cast_set<uint32_t>(length))) {
+            return Status::Corruption("Wrong data length in dictionary");
+        }
         offset_cursor += 4;
         offset_cursor += l;
         total_length += l;
