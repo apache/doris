@@ -144,10 +144,10 @@ TEST_F(VConditionExprCoalesceTest, Float64_NaN_NotPolluteResult) {
     auto coalesce_node = make_coalesce_node(TPrimitiveType::DOUBLE, /*is_nullable=*/true);
     auto coalesce_expr = VectorizedCoalesceExpr::create_shared(coalesce_node);
 
-    // _data_type is already set to Nullable(Float64) by the base ctor; reassert it explicitly.
-    coalesce_expr->_data_type =
+    // _data_type is already set to Nullable(Float64) by the base ctor; reassert it explicitly
+    // through the public data_type() accessor (the underlying field is protected).
+    coalesce_expr->data_type() =
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>());
-    coalesce_expr->_open_finished = true;
 
     const double kNaN = std::numeric_limits<double>::quiet_NaN();
     auto col0 = make_nullable_float64_column({{1.0, false}, {0.0, true}});
@@ -185,9 +185,8 @@ TEST_F(VConditionExprCoalesceTest, Float64_NaN_NotPolluteResult) {
 TEST_F(VConditionExprCoalesceTest, Float64_Inf_NotPolluteResult) {
     auto coalesce_node = make_coalesce_node(TPrimitiveType::DOUBLE, /*is_nullable=*/true);
     auto coalesce_expr = VectorizedCoalesceExpr::create_shared(coalesce_node);
-    coalesce_expr->_data_type =
+    coalesce_expr->data_type() =
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>());
-    coalesce_expr->_open_finished = true;
 
     const double kInf = std::numeric_limits<double>::infinity();
     auto col0 = make_nullable_float64_column({{2.0, false}, {0.0, true}});
@@ -225,9 +224,8 @@ TEST_F(VConditionExprCoalesceTest, Float64_Inf_NotPolluteResult) {
 TEST_F(VConditionExprCoalesceTest, Float64_NaN_PreservedWhenSelected) {
     auto coalesce_node = make_coalesce_node(TPrimitiveType::DOUBLE, /*is_nullable=*/true);
     auto coalesce_expr = VectorizedCoalesceExpr::create_shared(coalesce_node);
-    coalesce_expr->_data_type =
+    coalesce_expr->data_type() =
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>());
-    coalesce_expr->_open_finished = true;
 
     const double kNaN = std::numeric_limits<double>::quiet_NaN();
     auto col0 = make_nullable_float64_column({{kNaN, false}, {0.0, true}});
@@ -259,9 +257,8 @@ TEST_F(VConditionExprCoalesceTest, Float64_NaN_PreservedWhenSelected) {
 TEST_F(VConditionExprCoalesceTest, Float32_NaN_NotPolluteResult) {
     auto coalesce_node = make_coalesce_node(TPrimitiveType::FLOAT, /*is_nullable=*/true);
     auto coalesce_expr = VectorizedCoalesceExpr::create_shared(coalesce_node);
-    coalesce_expr->_data_type =
+    coalesce_expr->data_type() =
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat32>());
-    coalesce_expr->_open_finished = true;
 
     const float kNaN = std::numeric_limits<float>::quiet_NaN();
 
@@ -314,9 +311,8 @@ TEST_F(VConditionExprCoalesceTest, Float32_NaN_NotPolluteResult) {
 TEST_F(VConditionExprCoalesceTest, Int32_NormalPathStillWorks) {
     auto coalesce_node = make_coalesce_node(TPrimitiveType::INT, /*is_nullable=*/true);
     auto coalesce_expr = VectorizedCoalesceExpr::create_shared(coalesce_node);
-    coalesce_expr->_data_type =
+    coalesce_expr->data_type() =
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
-    coalesce_expr->_open_finished = true;
 
     auto nested0 = ColumnInt32::create();
     nested0->insert_value(11);
