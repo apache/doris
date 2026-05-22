@@ -386,6 +386,10 @@ Status PartitionedAggLocalState::_recover_blocks_from_partition(RuntimeState* st
         }
     }
 
+    if (state->is_cancelled()) {
+        return Status::Cancelled("Cancelled during partitioned aggregation recover blocks");
+    }
+
     if (eos) {
         _current_reader.reset();
         partition.spill_file.reset();
@@ -439,6 +443,9 @@ Status PartitionedAggLocalState::_flush_hash_table_to_sub_spill_files(RuntimeSta
         if (!block.empty()) {
             RETURN_IF_ERROR(_repartitioner.route_block(state, block));
         }
+    }
+    if (state->is_cancelled()) {
+        return Status::Cancelled("Cancelled during partitioned aggregation flush hash table");
     }
 
     RETURN_IF_ERROR(p._agg_source_operator->reset_hash_table(runtime_state));
@@ -514,6 +521,9 @@ Status PartitionedAggLocalState::_flush_and_repartition(RuntimeState* state) {
         while (!done && !state->is_cancelled()) {
             RETURN_IF_ERROR(_repartitioner.repartition(state, _current_reader, &done));
         }
+        if (state->is_cancelled()) {
+            return Status::Cancelled("Cancelled during partitioned aggregation repartitioning");
+        }
         // reader is reset by repartitioner on completion
     } else if (_current_partition.spill_file) {
         // No partial read — repartition the entire file from scratch.
@@ -521,6 +531,9 @@ Status PartitionedAggLocalState::_flush_and_repartition(RuntimeState* state) {
         while (!done && !state->is_cancelled()) {
             RETURN_IF_ERROR(
                     _repartitioner.repartition(state, _current_partition.spill_file, &done));
+        }
+        if (state->is_cancelled()) {
+            return Status::Cancelled("Cancelled during partitioned aggregation repartitioning");
         }
     }
     _current_reader.reset();
