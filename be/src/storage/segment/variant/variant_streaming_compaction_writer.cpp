@@ -55,8 +55,7 @@ Status VariantStreamingCompactionWriter::init() {
 
 Status VariantStreamingCompactionWriter::_init_root_writer() {
     _root_writer = std::make_unique<ScalarColumnWriter>(
-            _opts, std::unique_ptr<StorageField>(StorageFieldFactory::create(*_tablet_column)),
-            _opts.file_writer);
+            _opts, std::make_shared<TabletColumn>(*_tablet_column), _opts.file_writer);
     RETURN_IF_ERROR(_root_writer->init());
     _opts.meta->set_num_rows(0);
     return Status::OK();

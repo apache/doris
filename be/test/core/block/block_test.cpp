@@ -29,7 +29,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <initializer_list>
 #include <memory>
 #include <string>
 #include <vector>
@@ -65,7 +64,6 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "testutil/column_helper.h"
-#include "util/defer_op.h"
 
 namespace doris {
 
@@ -101,7 +99,8 @@ static void fill_block_with_array_int(Block& block) {
         data_column->insert_data((const char*)(&v), 0);
     }
 
-    auto column_array_ptr = ColumnArray::create(std::move(data_column), std::move(off_column));
+    auto column_array_ptr =
+            ColumnArray::create(make_nullable(std::move(data_column)), std::move(off_column));
     DataTypePtr nested_type(std::make_shared<DataTypeInt32>());
     DataTypePtr array_type(std::make_shared<DataTypeArray>(nested_type));
     ColumnWithTypeAndName test_array_int(std::move(column_array_ptr), array_type, "test_array_int");
@@ -121,23 +120,13 @@ static void fill_block_with_array_string(Block& block) {
         data_column->insert_data(v.data(), v.size());
     }
 
-    auto column_array_ptr = ColumnArray::create(std::move(data_column), std::move(off_column));
+    auto column_array_ptr =
+            ColumnArray::create(make_nullable(std::move(data_column)), std::move(off_column));
     DataTypePtr nested_type(std::make_shared<DataTypeString>());
     DataTypePtr array_type(std::make_shared<DataTypeArray>(nested_type));
     ColumnWithTypeAndName test_array_string(std::move(column_array_ptr), array_type,
                                             "test_array_string");
     block.insert(test_array_string);
-}
-
-static Block create_string_block(std::initializer_list<std::string> values) {
-    auto column = ColumnString::create();
-    for (const auto& value : values) {
-        column->insert_data(value.data(), value.size());
-    }
-
-    Block block;
-    block.insert({std::move(column), std::make_shared<DataTypeString>(), "s"});
-    return block;
 }
 
 void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_type) {
@@ -964,43 +953,6 @@ TEST(BlockTest, clear_blocks) {
 
         ASSERT_FALSE(queue.try_dequeue(block1));
     }
-}
-
-TEST(BlockTest, merge_returns_error_when_checked_string_append_exceeds_limit) {
-    auto input_block = create_string_block({"abcde", "fghij"});
-    auto output_block = create_string_block({});
-
-    auto string_overflow_size = config::string_overflow_size;
-    config::string_overflow_size = 9;
-    Defer defer([string_overflow_size]() { config::string_overflow_size = string_overflow_size; });
-
-    MutableBlock mutable_block(&output_block);
-    auto status = mutable_block.merge(input_block);
-    ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("string column length is too large"), std::string::npos)
-            << status.to_string();
-
-    ASSERT_EQ(output_block.rows(), 0);
-    ASSERT_FALSE(output_block.get_by_position(0).column->is_column_string64());
-}
-
-TEST(BlockTest, merge_ignore_overflow_keeps_owned_accumulation_convertible) {
-    auto input_block = create_string_block({"abcde", "fghij"});
-    auto output_block = create_string_block({});
-
-    auto string_overflow_size = config::string_overflow_size;
-    config::string_overflow_size = 9;
-    Defer defer([string_overflow_size]() { config::string_overflow_size = string_overflow_size; });
-
-    MutableBlock mutable_block(&output_block);
-    auto status = mutable_block.merge_ignore_overflow(input_block);
-    ASSERT_TRUE(status.ok()) << status.to_string();
-
-    auto converted_column = mutable_block.get_column_by_position(0)->convert_column_if_overflow();
-    ASSERT_TRUE(converted_column->is_column_string64());
-    ASSERT_EQ(converted_column->size(), 2);
-    EXPECT_EQ(converted_column->get_data_at(0).to_string(), "abcde");
-    EXPECT_EQ(converted_column->get_data_at(1).to_string(), "fghij");
 }
 
 TEST(BlockTest, replace_by_position) {

@@ -114,6 +114,20 @@ public class CreateFunctionTest {
         Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
                 "concat(left(CAST(CAST(k1 as BIGINT) AS VARCHAR(65533)), 3), '****',"
                         + " right(CAST(CAST(k1 AS BIGINT) AS VARCHAR(65533)), 4))"));
+
+        String pythonUdfSql = "create function db1.py_stable(int) returns int "
+                + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', "
+                + "'runtime_version'='3.10.2', 'volatility'='stable');";
+        createFunction(pythonUdfSql, ctx);
+        Assert.assertEquals(2, db.getFunctions().size());
+        Function pythonFn = findFunction(db, "py_stable");
+        Assert.assertEquals(FunctionVolatility.STABLE, pythonFn.getVolatility());
+        Assert.assertTrue(FunctionToSqlConverter.toSql(pythonFn, false).contains("\"VOLATILITY\"=\"stable\""));
+
+        String defaultVolatileSql = "create function db1.py_default(int) returns int "
+                + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2');";
+        createFunction(defaultVolatileSql, ctx);
+        Assert.assertEquals(FunctionVolatility.VOLATILE, findFunction(db, "py_default").getVolatility());
     }
 
     @Test
@@ -203,5 +217,14 @@ public class CreateFunctionTest {
 
     private boolean containsIgnoreCase(String str, String sub) {
         return str.toLowerCase().contains(sub.toLowerCase());
+    }
+
+    private Function findFunction(Database db, String functionName) {
+        for (Function function : db.getFunctions()) {
+            if (functionName.equals(function.functionName())) {
+                return function;
+            }
+        }
+        throw new AssertionError("function not found: " + functionName);
     }
 }

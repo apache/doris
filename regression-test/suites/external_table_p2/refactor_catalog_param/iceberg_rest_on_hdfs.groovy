@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_rest_on_hdfs", "p0,external") {
+suite("iceberg_rest_on_hdfs", "p2,external") {
 
     def testQueryAndInsert = { String catalogProperties, String prefix ->
 

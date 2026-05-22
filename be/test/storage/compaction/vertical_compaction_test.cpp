@@ -48,7 +48,6 @@
 #include "json2pb/json_to_pb.h"
 #include "runtime/exec_env.h"
 #include "storage/delete/delete_handler.h"
-#include "storage/field.h"
 #include "storage/iterator/vertical_merge_iterator.h"
 #include "storage/merger.h"
 #include "storage/olap_common.h"

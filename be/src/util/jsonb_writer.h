@@ -100,8 +100,6 @@ public:
         }
     }
 
-    bool writeKey(const char* key) { return writeKey(key, strlen(key)); }
-
     // write a key string (or key id if an external dict is provided)
     bool writeKey(const char* key, uint8_t len) {
         if (!stack_.empty() && verifyKeyState()) {

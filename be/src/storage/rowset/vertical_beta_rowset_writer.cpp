@@ -44,6 +44,7 @@ using namespace ErrorCode;
 
 template class VerticalBetaRowsetWriter<BetaRowsetWriter>;
 template class VerticalBetaRowsetWriter<CloudRowsetWriter>;
+template class VerticalBetaRowsetWriter<RowBinlogRowsetWriter>;
 
 template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>

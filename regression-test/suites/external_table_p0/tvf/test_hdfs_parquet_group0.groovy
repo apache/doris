@@ -171,7 +171,7 @@ suite("test_hdfs_parquet_group0", "p0,external") {
                 sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet"); """
                 exception "[IO_ERROR]Out-of-bounds Access"
             }
 
@@ -328,7 +328,7 @@ suite("test_hdfs_parquet_group0", "p0,external") {
                 sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet"); """
                 exception "Out-of-bounds access in parquet data decoder"
             }
 
