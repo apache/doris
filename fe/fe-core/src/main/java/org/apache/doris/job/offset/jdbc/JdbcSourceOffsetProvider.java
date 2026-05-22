@@ -213,10 +213,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public void updateOffset(Offset offset) {
-        this.currentOffset = (JdbcOffset) offset;
-        if (currentOffset.snapshotSplit()) {
+        JdbcOffset newOffset = (JdbcOffset) offset;
+        if (newOffset.snapshotSplit()) {
             synchronized (splitsLock) {
-                List<? extends AbstractSourceSplit> splits = currentOffset.getSplits();
+                List<? extends AbstractSourceSplit> splits = newOffset.getSplits();
                 for (AbstractSourceSplit split : splits) {
                     SnapshotSplit snapshotSplit = (SnapshotSplit) split;
                     String splitId = split.getSplitId();
@@ -247,10 +247,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 }
             }
         } else {
-            BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
+            BinlogSplit binlogSplit = (BinlogSplit) newOffset.getSplits().get(0);
             binlogOffsetPersist = new HashMap<>(binlogSplit.getStartingOffset());
             binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
         }
+        this.currentOffset = newOffset;
     }
 
     @Override
