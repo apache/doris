@@ -87,7 +87,8 @@ Status transmit_block_httpv2(ExecEnv* exec_env, std::unique_ptr<Closure> closure
     std::string brpc_url = get_brpc_http_url(brpc_dest_addr.hostname, brpc_dest_addr.port);
 
     std::shared_ptr<PBackendService_Stub> brpc_http_stub =
-            exec_env->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url, "http");
+            exec_env->brpc_internal_client_cache()->get_new_client_no_cache(
+                    brpc_url, "http", "", "", brpc_dest_addr.hostname);
     if (brpc_http_stub == nullptr) {
         return Status::InternalError("failed to open brpc http client to {}", brpc_url);
     }

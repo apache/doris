@@ -37,7 +37,7 @@ Status DNSCache::get(const std::string& hostname, std::string* ip) {
     {
         std::shared_lock<std::shared_mutex> lock(mutex);
         auto it = cache.find(hostname);
-        if (it != cache.end()) {
+        if (it != cache.end() && dirty.find(hostname) == dirty.end()) {
             *ip = it->second;
             return Status::OK();
         }
@@ -46,8 +46,23 @@ Status DNSCache::get(const std::string& hostname, std::string* ip) {
     RETURN_IF_ERROR(_update(hostname));
     {
         std::shared_lock<std::shared_mutex> lock(mutex);
-        *ip = cache[hostname];
+        auto it = cache.find(hostname);
+        if (it == cache.end()) {
+            return Status::InternalError("DNSCache update succeeded but hostname {} is missing",
+                                         hostname);
+        }
+        *ip = it->second;
         return Status::OK();
+    }
+}
+
+void DNSCache::invalidate(const std::string& hostname) {
+    if (hostname.empty()) {
+        return;
+    }
+    std::unique_lock<std::shared_mutex> lock(mutex);
+    if (dirty.insert(hostname).second) {
+        LOG(INFO) << "DNSCache: mark hostname dirty, will re-resolve on next get: " << hostname;
     }
 }
 
@@ -97,6 +112,7 @@ Status DNSCache::_update(const std::string& hostname) {
         cache[hostname] = real_ip;
         LOG(INFO) << "update hostname " << hostname << "'s ip to " << real_ip;
     }
+    dirty.erase(hostname);
     return Status::OK();
 }
 
