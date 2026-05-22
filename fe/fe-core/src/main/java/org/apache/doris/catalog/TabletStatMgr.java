@@ -41,7 +41,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /*
@@ -58,14 +57,6 @@ public class TabletStatMgr extends MasterDaemon {
             1024, "tablet-stat-mgr", true);
 
     private MarkedCountDownLatch<Long, Backend> updateTabletStatsLatch = null;
-
-    // Counts TOCTOU skips (getTabletMeta != null but getReplica throws IllegalStateException).
-    // Exposed for testing: a value > 0 after a concurrent-DDL workload proves the race window was hit.
-    static final AtomicLong staleTabletStatSkipped = new AtomicLong(0);
-
-    public static long getStaleTabletStatSkippedCount() {
-        return staleTabletStatSkipped.get();
-    }
 
     public TabletStatMgr() {
         super("tablet stat mgr", Config.tablet_stat_update_interval_second * 1000);
@@ -395,7 +386,6 @@ public class TabletStatMgr extends MasterDaemon {
                     try {
                         replica = invertedIndex.getReplica(stat.getTabletId(), beId);
                     } catch (IllegalStateException e) {
-                        staleTabletStatSkipped.incrementAndGet();
                         LOG.debug("skip stale tablet stat update for tablet {} on backend {}: {}",
                                 stat.getTabletId(), beId, e.getMessage());
                         continue;
@@ -432,7 +422,6 @@ public class TabletStatMgr extends MasterDaemon {
                 try {
                     replica = invertedIndex.getReplica(entry.getKey(), beId);
                 } catch (IllegalStateException e) {
-                    staleTabletStatSkipped.incrementAndGet();
                     LOG.debug("skip stale tablet stat update for tablet {} on backend {}: {}",
                             entry.getKey(), beId, e.getMessage());
                     continue;
