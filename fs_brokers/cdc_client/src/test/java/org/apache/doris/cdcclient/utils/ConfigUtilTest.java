@@ -35,6 +35,9 @@ class ConfigUtilTest {
 
     // ─── resolveServerIdRange ─────────────────────────────────────────────────
 
+    // Value/format validation lives in FE DataSourceConfigValidator; here we only verify the
+    // derivation algorithm and that valid input is passed through to flink-cdc's ServerIdRange.
+
     @Test
     void resolveDefaultDeriveSingle() {
         ServerIdRange range = ConfigUtil.resolveServerIdRange("12345", 1, null);
@@ -47,14 +50,6 @@ class ConfigUtilTest {
         ServerIdRange range = ConfigUtil.resolveServerIdRange("12345", 4, null);
         assertEquals(4, range.getNumberOfServerIds());
         assertEquals(range.getStartServerId() + 3, range.getEndServerId());
-    }
-
-    @Test
-    void resolveRejectsBlankInput() {
-        assertThrows(Exception.class,
-                () -> ConfigUtil.resolveServerIdRange("anyjob", 1, ""));
-        assertThrows(Exception.class,
-                () -> ConfigUtil.resolveServerIdRange("anyjob", 1, "   "));
     }
 
     @Test
@@ -85,38 +80,6 @@ class ConfigUtilTest {
         ServerIdRange range = ConfigUtil.resolveServerIdRange("anyjob", 4, "5400-5408");
         assertEquals(5400L, range.getStartServerId());
         assertEquals(5408L, range.getEndServerId());
-    }
-
-    @Test
-    void resolveRejectsWidthLessThanParallelism() {
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> ConfigUtil.resolveServerIdRange("anyjob", 8, "5400-5402"));
-        assertTrue(ex.getMessage().contains("range size"));
-        assertTrue(ex.getMessage().contains("snapshot_parallelism"));
-    }
-
-    @Test
-    void resolveRejectsZeroServerId() {
-        assertThrows(IllegalArgumentException.class,
-                () -> ConfigUtil.resolveServerIdRange("anyjob", 1, "0"));
-    }
-
-    @Test
-    void resolveRejectsMalformedInput() {
-        assertThrows(Exception.class,
-                () -> ConfigUtil.resolveServerIdRange("anyjob", 1, "abc"));
-        assertThrows(Exception.class,
-                () -> ConfigUtil.resolveServerIdRange("anyjob", 1, "5400-"));
-        assertThrows(Exception.class,
-                () -> ConfigUtil.resolveServerIdRange("anyjob", 1, "5408-5400"));
-    }
-
-    @Test
-    void resolveRejectsNonPositiveParallelism() {
-        assertThrows(IllegalArgumentException.class,
-                () -> ConfigUtil.resolveServerIdRange("anyjob", 0, null));
-        assertThrows(IllegalArgumentException.class,
-                () -> ConfigUtil.resolveServerIdRange("anyjob", -1, null));
     }
 
     // ─── getTableList ─────────────────────────────────────────────────────────

@@ -45,30 +45,11 @@ public class ConfigUtil {
     private static final Logger LOG = LoggerFactory.getLogger(ConfigUtil.class);
 
     // Resolve user-configured range, or derive from jobId hash with width = parallelism.
-    // Defensive duplicate of FE-side validation; serves as last-line check inside cdc_client.
+    // Value validation lives in FE DataSourceConfigValidator; here we trust the input.
     public static ServerIdRange resolveServerIdRange(
             String jobId, int snapshotParallelism, String userInput) {
-        if (snapshotParallelism < 1) {
-            throw new IllegalArgumentException(
-                    "snapshot_parallelism must be >= 1, got " + snapshotParallelism);
-        }
         ServerIdRange userRange = userInput == null ? null : ServerIdRange.from(userInput.trim());
         if (userRange != null) {
-            // flink-cdc's ServerIdRange skips value validation; enforce MySQL constraints here.
-            if (userRange.getStartServerId() < 1) {
-                throw new IllegalArgumentException(
-                        "server_id must be >= 1 (0 disables MySQL replication), got " + userRange);
-            }
-            if (userRange.getStartServerId() > userRange.getEndServerId()) {
-                throw new IllegalArgumentException(
-                        "server_id range start " + userRange.getStartServerId()
-                                + " must not exceed end " + userRange.getEndServerId());
-            }
-            if (userRange.getNumberOfServerIds() < snapshotParallelism) {
-                throw new IllegalArgumentException(
-                        "server_id range size " + userRange.getNumberOfServerIds()
-                                + " must be >= snapshot_parallelism " + snapshotParallelism);
-            }
             return userRange;
         }
         int hash = jobId.hashCode() & Integer.MAX_VALUE;
