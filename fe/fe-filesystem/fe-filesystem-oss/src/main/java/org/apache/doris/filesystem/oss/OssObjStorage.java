@@ -409,11 +409,6 @@ public class OssObjStorage implements ObjStorage<OSS> {
     }
 
     @Override
-    public Map<String, String> getProperties() {
-        return new HashMap<>(ossProperties);
-    }
-
-    @Override
     public void close() throws IOException {
         if (closed.compareAndSet(false, true) && ossClient != null) {
             ossClient.shutdown();

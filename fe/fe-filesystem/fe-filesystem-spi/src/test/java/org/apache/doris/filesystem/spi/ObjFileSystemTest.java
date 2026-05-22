@@ -28,7 +28,6 @@ import org.junit.jupiter.api.Test;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -338,11 +337,6 @@ class ObjFileSystemTest {
 
         @Override
         public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Map<String, String> getProperties() {
             throw new UnsupportedOperationException();
         }
 

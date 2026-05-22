@@ -122,7 +122,6 @@ class CosObjStorageTest {
 
         Assertions.assertSame(mockCos, storage.getClient());
         Assertions.assertEquals("ap-guangzhou", storage.getBuiltRegion());
-        Assertions.assertEquals("ap-guangzhou", storage.getProperties().get("COS_REGION"));
     }
 
     @Test
@@ -132,12 +131,6 @@ class CosObjStorageTest {
 
         Assertions.assertSame(mockCos, storage.getClient());
         Assertions.assertEquals("ap-guangzhou", storage.getBuiltRegion());
-        Assertions.assertEquals("https://cos.ap-guangzhou.myqcloud.com",
-                storage.getProperties().get("COS_ENDPOINT"));
-        Assertions.assertEquals("legacy-ak", storage.getProperties().get("COS_ACCESS_KEY"));
-        Assertions.assertEquals("legacy-bucket", storage.getProperties().get("COS_BUCKET"));
-        Assertions.assertFalse(storage.getProperties().containsKey("AWS_ACCESS_KEY"));
-        Assertions.assertFalse(storage.getProperties().containsKey("AWS_ENDPOINT"));
     }
 
     @Test

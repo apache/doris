@@ -409,24 +409,6 @@ public class CosObjStorage implements ObjStorage<COSClient> {
     }
 
     @Override
-    public Map<String, String> getProperties() {
-        Map<String, String> snapshot = new HashMap<>();
-        putIfNotBlank(snapshot, "COS_ENDPOINT", properties.getEndpoint());
-        putIfNotBlank(snapshot, "COS_REGION", properties.getRegion());
-        putIfNotBlank(snapshot, "COS_ACCESS_KEY", properties.getAccessKey());
-        putIfNotBlank(snapshot, "COS_SECRET_KEY", properties.getSecretKey());
-        putIfNotBlank(snapshot, "COS_SESSION_TOKEN", properties.getSessionToken());
-        putIfNotBlank(snapshot, "COS_TOKEN", properties.getSessionToken());
-        putIfNotBlank(snapshot, "COS_BUCKET", properties.getBucket());
-        putIfNotBlank(snapshot, "COS_ROLE_ARN", properties.getRoleArn());
-        snapshot.put("COS_MAX_CONNECTIONS", properties.getMaxConnections());
-        snapshot.put("COS_REQUEST_TIMEOUT_MS", properties.getRequestTimeoutMs());
-        snapshot.put("COS_CONNECTION_TIMEOUT_MS", properties.getConnectionTimeoutMs());
-        snapshot.put("use_path_style", properties.getUsePathStyle());
-        return snapshot;
-    }
-
-    @Override
     public void close() throws IOException {
         if (closed.compareAndSet(false, true) && cosClient != null) {
             cosClient.shutdown();
@@ -490,12 +472,6 @@ public class CosObjStorage implements ObjStorage<COSClient> {
 
     private static boolean hasText(String value) {
         return value != null && !value.isEmpty();
-    }
-
-    private static void putIfNotBlank(Map<String, String> map, String key, String value) {
-        if (hasText(value)) {
-            map.put(key, value);
-        }
     }
 
     private static int parseIntProperty(String value, String description) throws IOException {

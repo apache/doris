@@ -650,11 +650,6 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     }
 
     @Override
-    public Map<String, String> getProperties() {
-        return s3Properties.toFileSystemKv();
-    }
-
-    @Override
     public void close() throws IOException {
         if (closed.compareAndSet(false, true)) {
             if (client != null) {

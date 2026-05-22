@@ -23,7 +23,6 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.lang.reflect.Field;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -305,11 +304,6 @@ class ObjectStorageOutputStreamTest {
         @Override
         public void abortMultipartUpload(String remotePath, String uploadId) {
             throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Map<String, String> getProperties() {
-            return Map.of();
         }
 
         @Override

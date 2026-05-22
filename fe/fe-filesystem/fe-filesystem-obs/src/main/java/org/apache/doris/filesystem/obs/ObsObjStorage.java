@@ -417,26 +417,6 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
     }
 
     @Override
-    public Map<String, String> getProperties() {
-        Map<String, String> snapshot = new HashMap<>();
-        putIfNotBlank(snapshot, "OBS_ENDPOINT", properties.getEndpoint());
-        putIfNotBlank(snapshot, "OBS_REGION", properties.getRegion());
-        putIfNotBlank(snapshot, "OBS_ACCESS_KEY", properties.getAccessKey());
-        putIfNotBlank(snapshot, "OBS_SECRET_KEY", properties.getSecretKey());
-        putIfNotBlank(snapshot, "OBS_SESSION_TOKEN", properties.getSessionToken());
-        putIfNotBlank(snapshot, "OBS_TOKEN", properties.getSessionToken());
-        putIfNotBlank(snapshot, "OBS_BUCKET", properties.getBucket());
-        putIfNotBlank(snapshot, "OBS_AGENCY_NAME", properties.getAgencyName());
-        putIfNotBlank(snapshot, "OBS_DOMAIN_NAME", properties.getDomainName());
-        putIfNotBlank(snapshot, "OBS_ROLE_ARN", properties.getRoleArn());
-        snapshot.put("OBS_MAX_CONNECTIONS", properties.getMaxConnections());
-        snapshot.put("OBS_REQUEST_TIMEOUT_MS", properties.getRequestTimeoutMs());
-        snapshot.put("OBS_CONNECTION_TIMEOUT_MS", properties.getConnectionTimeoutMs());
-        snapshot.put("use_path_style", properties.getUsePathStyle());
-        return snapshot;
-    }
-
-    @Override
     public void close() throws IOException {
         if (closed.compareAndSet(false, true) && client != null) {
             client.close();
@@ -495,12 +475,6 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
 
     private static boolean hasText(String value) {
         return value != null && !value.isEmpty();
-    }
-
-    private static void putIfNotBlank(Map<String, String> map, String key, String value) {
-        if (hasText(value)) {
-            map.put(key, value);
-        }
     }
 
     private ObsConfiguration buildObsConfiguration(String endpoint) {

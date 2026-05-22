@@ -164,29 +164,6 @@ class OssObjStorageTest {
     }
 
     @Test
-    void constructor_extractsRegionFromStandardOssEndpoint() {
-        OSS mockOss = Mockito.mock(OSS.class);
-        Map<String, String> props = buildBasicProps();
-        props.remove("OSS_REGION");
-
-        OssObjStorage storage = new TestableOssObjStorage(props, mockOss);
-
-        Assertions.assertEquals("cn-hangzhou", storage.getProperties().get("OSS_REGION"));
-    }
-
-    @Test
-    void constructor_buildsEndpointFromRegionWhenEndpointMissing() {
-        OSS mockOss = Mockito.mock(OSS.class);
-        Map<String, String> props = buildBasicProps();
-        props.remove("OSS_ENDPOINT");
-
-        OssObjStorage storage = new TestableOssObjStorage(props, mockOss);
-
-        Assertions.assertEquals("oss-cn-hangzhou-internal.aliyuncs.com",
-                storage.getProperties().get("OSS_ENDPOINT"));
-    }
-
-    @Test
     void getPresignedUrl_expiryInFuture() throws Exception {
         long beforeMs = System.currentTimeMillis();
         OSS mockOss = Mockito.mock(OSS.class);

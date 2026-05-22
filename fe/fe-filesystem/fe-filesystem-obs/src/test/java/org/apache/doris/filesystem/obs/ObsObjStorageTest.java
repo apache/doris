@@ -145,12 +145,6 @@ class ObsObjStorageTest {
                 storage.getBuiltEndpoint());
         Assertions.assertEquals("legacy-ak", storage.getBuiltAccessKey());
         Assertions.assertEquals("legacy-sk", storage.getBuiltSecretKey());
-        Assertions.assertEquals("https://obs.cn-north-4.myhuaweicloud.com",
-                storage.getProperties().get("OBS_ENDPOINT"));
-        Assertions.assertEquals("legacy-ak", storage.getProperties().get("OBS_ACCESS_KEY"));
-        Assertions.assertEquals("legacy-bucket", storage.getProperties().get("OBS_BUCKET"));
-        Assertions.assertFalse(storage.getProperties().containsKey("AWS_ACCESS_KEY"));
-        Assertions.assertFalse(storage.getProperties().containsKey("AWS_ENDPOINT"));
     }
 
     @Test

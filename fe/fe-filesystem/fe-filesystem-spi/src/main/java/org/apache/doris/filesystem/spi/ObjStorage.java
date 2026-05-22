@@ -20,7 +20,6 @@ package org.apache.doris.filesystem.spi;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Low-level object storage abstraction (S3-style API).
@@ -258,16 +257,6 @@ public interface ObjStorage<C> extends AutoCloseable {
     default long headObjectLastModified(String remotePath) throws IOException {
         return headObject(remotePath).getModificationTime();
     }
-
-    /**
-     * Returns a provider-specific diagnostic snapshot of the bound properties.
-     *
-     * <p>The returned map is not the typed API contract for constructing clients.
-     * Implementations should prefer provider-native keys in this snapshot.
-     *
-     * @return storage properties useful for diagnostics and compatibility callers
-     */
-    Map<String, String> getProperties();
 
     /**
      * Releases any native SDK client and provider resources held by this storage instance.

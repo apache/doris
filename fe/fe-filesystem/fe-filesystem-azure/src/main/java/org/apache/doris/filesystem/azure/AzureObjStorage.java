@@ -419,11 +419,6 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         }
     }
 
-    @Override
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
     // -------------------------------------------------------------------------
     // Cloud-specific extension methods
     // -------------------------------------------------------------------------
