@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "format/new_parquet/parquet_type.h"
 
 namespace parquet {
 class ColumnDescriptor;
@@ -39,19 +40,6 @@ class IColumn;
 
 namespace parquet {
 struct ParquetColumnSchema;
-
-// 返回 Parquet leaf column 的 file-local 展示名。
-std::string column_name(const ::parquet::ColumnDescriptor* column);
-
-// 将 Parquet file-local column descriptor 映射成 Doris file-local 类型。
-// 这里不做 table schema evolution；类型提升和 default/generated/partition 列由 table
-// 层处理。
-DataTypePtr parquet_column_to_doris_type(const ::parquet::ColumnDescriptor* column);
-
-// 判断当前阶段是否可以通过 Arrow Parquet RecordReader 读取该列。
-// 当前支持 flat primitive/string/decimal/timestamp。复杂 nested column 仍通过 children
-// 递归组合，list/map assembler 后续补齐。
-DataTypePtr supported_flat_column_type(const ::parquet::ColumnDescriptor* column);
 
 // Doris 的 Parquet column reader 抽象。
 // 该类包装 Arrow Parquet RecordReader，负责将 file-local Parquet leaf column 读取成
@@ -107,7 +95,7 @@ private:
                              const std::string& name,
                              std::shared_ptr<::parquet::internal::RecordReader>* reader) const;
 
-    Status create_primitive_reader(int file_column_id,
+    Status create_primitive_reader(int file_column_id, const ParquetTypeDescriptor& type_descriptor,
                                    const ::parquet::ColumnDescriptor* descriptor, DataTypePtr type,
                                    std::string name,
                                    std::shared_ptr<::parquet::internal::RecordReader> record_reader,

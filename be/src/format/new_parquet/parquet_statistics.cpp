@@ -59,7 +59,7 @@ bool statistics_supported(const ParquetColumnSchema& column_schema) {
     if (column_schema.descriptor == nullptr) {
         return false;
     }
-    switch (column_schema.descriptor->physical_type()) {
+    switch (column_schema.type_descriptor.physical_type) {
     case ::parquet::Type::BOOLEAN:
         return physical_filter_type(column_schema) == TYPE_BOOLEAN;
     case ::parquet::Type::INT32:

@@ -34,221 +34,23 @@
 #include "core/column/column.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_struct.h"
-#include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_factory.hpp"
-#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
-#include "core/data_type/data_type_string.h"
-#include "core/data_type/data_type_struct.h"
 #include "core/value/vdatetime_value.h"
 #include "format/new_parquet/parquet_column_schema.h"
 
 namespace doris::parquet {
 namespace {
 
-DataTypePtr make_nullable_if_needed(DataTypePtr type, const ::parquet::ColumnDescriptor* column) {
-    if (type != nullptr && column != nullptr && column->max_definition_level() > 0) {
-        return make_nullable(type);
-    }
-    return type;
-}
-
-DataTypePtr create_type(PrimitiveType type, bool nullable, int precision = 0, int scale = 0) {
-    return DataTypeFactory::instance().create_data_type(type, nullable, precision, scale);
-}
-
-bool has_non_physical_annotation(const ::parquet::ColumnDescriptor* column) {
-    if (column == nullptr) {
-        return false;
-    }
-    const auto& logical_type = column->logical_type();
-    return column->converted_type() != ::parquet::ConvertedType::NONE ||
-           (logical_type != nullptr && logical_type->is_valid() && !logical_type->is_none());
-}
-
-bool is_decimal_column(const ::parquet::ColumnDescriptor* column) {
-    if (column == nullptr) {
-        return false;
-    }
-    const auto& logical_type = column->logical_type();
-    return column->converted_type() == ::parquet::ConvertedType::DECIMAL ||
-           (logical_type != nullptr && logical_type->is_valid() && logical_type->is_decimal());
-}
-
-bool is_timestamp_column(const ::parquet::ColumnDescriptor* column) {
-    if (column == nullptr) {
-        return false;
-    }
-    const auto& logical_type = column->logical_type();
-    return column->converted_type() == ::parquet::ConvertedType::TIMESTAMP_MILLIS ||
-           column->converted_type() == ::parquet::ConvertedType::TIMESTAMP_MICROS ||
-           (logical_type != nullptr && logical_type->is_valid() && logical_type->is_timestamp());
-}
-
-bool is_string_like_column(const ::parquet::ColumnDescriptor* column) {
-    if (column == nullptr || is_decimal_column(column)) {
-        return false;
-    }
-    return column->physical_type() == ::parquet::Type::BYTE_ARRAY ||
-           column->physical_type() == ::parquet::Type::FIXED_LEN_BYTE_ARRAY;
-}
-
-PrimitiveType decimal_primitive_type(int precision) {
-    return precision > 38 ? TYPE_DECIMAL256 : TYPE_DECIMAL128I;
-}
-
-DataTypePtr converted_type_to_doris_type(const ::parquet::ColumnDescriptor* column) {
-    switch (column->converted_type()) {
-    case ::parquet::ConvertedType::UTF8:
-    case ::parquet::ConvertedType::ENUM:
-    case ::parquet::ConvertedType::JSON:
-    case ::parquet::ConvertedType::BSON:
-        return create_type(TYPE_STRING, column->max_definition_level() > 0);
-    case ::parquet::ConvertedType::DECIMAL:
-        return create_type(decimal_primitive_type(column->type_precision()),
-                           column->max_definition_level() > 0, column->type_precision(),
-                           column->type_scale());
-    case ::parquet::ConvertedType::DATE:
-        return create_type(TYPE_DATEV2, column->max_definition_level() > 0);
-    case ::parquet::ConvertedType::TIME_MILLIS:
-        return create_type(TYPE_TIMEV2, column->max_definition_level() > 0, 0, 3);
-    case ::parquet::ConvertedType::TIME_MICROS:
-        return create_type(TYPE_TIMEV2, column->max_definition_level() > 0, 0, 6);
-    case ::parquet::ConvertedType::TIMESTAMP_MILLIS:
-        return create_type(TYPE_DATETIMEV2, column->max_definition_level() > 0, 0, 3);
-    case ::parquet::ConvertedType::TIMESTAMP_MICROS:
-        return create_type(TYPE_DATETIMEV2, column->max_definition_level() > 0, 0, 6);
-    case ::parquet::ConvertedType::INT_8:
-        return create_type(TYPE_TINYINT, column->max_definition_level() > 0);
-    case ::parquet::ConvertedType::UINT_8:
-    case ::parquet::ConvertedType::INT_16:
-        return create_type(TYPE_SMALLINT, column->max_definition_level() > 0);
-    case ::parquet::ConvertedType::UINT_16:
-    case ::parquet::ConvertedType::INT_32:
-        return create_type(TYPE_INT, column->max_definition_level() > 0);
-    case ::parquet::ConvertedType::UINT_32:
-    case ::parquet::ConvertedType::INT_64:
-        return create_type(TYPE_BIGINT, column->max_definition_level() > 0);
-    case ::parquet::ConvertedType::UINT_64:
-        return create_type(TYPE_LARGEINT, column->max_definition_level() > 0);
-    case ::parquet::ConvertedType::NONE:
-    default:
-        return nullptr;
-    }
-}
-
-DataTypePtr logical_type_to_doris_type(const ::parquet::ColumnDescriptor* column) {
-    const auto& logical_type = column->logical_type();
-    if (logical_type == nullptr || !logical_type->is_valid() || logical_type->is_none()) {
-        return nullptr;
-    }
-    const bool nullable = column->max_definition_level() > 0;
-    if (logical_type->is_string() || logical_type->is_enum() || logical_type->is_JSON() ||
-        logical_type->is_BSON() || logical_type->is_UUID()) {
-        return create_type(TYPE_STRING, nullable);
-    }
-    if (logical_type->is_decimal()) {
-        const auto& decimal_type = static_cast<const ::parquet::DecimalLogicalType&>(*logical_type);
-        return create_type(decimal_primitive_type(decimal_type.precision()), nullable,
-                           decimal_type.precision(), decimal_type.scale());
-    }
-    if (logical_type->is_date()) {
-        return create_type(TYPE_DATEV2, nullable);
-    }
-    if (logical_type->is_time()) {
-        const auto& time_type = static_cast<const ::parquet::TimeLogicalType&>(*logical_type);
-        int scale = 0;
-        if (time_type.time_unit() == ::parquet::LogicalType::TimeUnit::MILLIS) {
-            scale = 3;
-        } else if (time_type.time_unit() == ::parquet::LogicalType::TimeUnit::MICROS) {
-            scale = 6;
-        } else {
-            return nullptr;
-        }
-        return create_type(TYPE_TIMEV2, nullable, 0, scale);
-    }
-    if (logical_type->is_timestamp()) {
-        const auto& timestamp_type =
-                static_cast<const ::parquet::TimestampLogicalType&>(*logical_type);
-        int scale = 0;
-        if (timestamp_type.time_unit() == ::parquet::LogicalType::TimeUnit::MILLIS) {
-            scale = 3;
-        } else if (timestamp_type.time_unit() == ::parquet::LogicalType::TimeUnit::MICROS) {
-            scale = 6;
-        } else {
-            return nullptr;
-        }
-        return create_type(TYPE_DATETIMEV2, nullable, 0, scale);
-    }
-    if (logical_type->is_int()) {
-        const auto& int_type = static_cast<const ::parquet::IntLogicalType&>(*logical_type);
-        switch (int_type.bit_width()) {
-        case 8:
-            return create_type(int_type.is_signed() ? TYPE_TINYINT : TYPE_SMALLINT, nullable);
-        case 16:
-            return create_type(int_type.is_signed() ? TYPE_SMALLINT : TYPE_INT, nullable);
-        case 32:
-            return create_type(int_type.is_signed() ? TYPE_INT : TYPE_BIGINT, nullable);
-        case 64:
-            return create_type(int_type.is_signed() ? TYPE_BIGINT : TYPE_LARGEINT, nullable);
-        default:
-            return nullptr;
-        }
-    }
-    return nullptr;
-}
-
-DataTypePtr direct_flat_primitive_doris_type(const ::parquet::ColumnDescriptor* column) {
-    if (column == nullptr || column->max_repetition_level() != 0 ||
-        column->max_definition_level() > 1 || has_non_physical_annotation(column)) {
-        return nullptr;
-    }
-
-    const bool nullable = column->max_definition_level() > 0;
-    switch (column->physical_type()) {
-    case ::parquet::Type::BOOLEAN:
-        return create_type(TYPE_BOOLEAN, nullable);
-    case ::parquet::Type::INT32:
-        return create_type(TYPE_INT, nullable);
-    case ::parquet::Type::INT64:
-        return create_type(TYPE_BIGINT, nullable);
-    case ::parquet::Type::FLOAT:
-        return create_type(TYPE_FLOAT, nullable);
-    case ::parquet::Type::DOUBLE:
-        return create_type(TYPE_DOUBLE, nullable);
-    default:
-        return nullptr;
-    }
-}
-
-bool supports_record_reader(const ::parquet::ColumnDescriptor* descriptor) {
-    if (descriptor == nullptr || descriptor->max_repetition_level() != 0 ||
-        descriptor->max_definition_level() > 1) {
-        return false;
-    }
-    switch (descriptor->physical_type()) {
-    case ::parquet::Type::BOOLEAN:
-    case ::parquet::Type::INT32:
-    case ::parquet::Type::INT64:
-    case ::parquet::Type::FLOAT:
-    case ::parquet::Type::DOUBLE:
-    case ::parquet::Type::BYTE_ARRAY:
-    case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
-        return true;
-    default:
-        return false;
-    }
-}
-
 class PrimitiveColumnReader final : public ParquetColumnReader {
 public:
     PrimitiveColumnReader(int file_column_id, const ::parquet::ColumnDescriptor* descriptor,
-                          DataTypePtr type, std::string name,
+                          ParquetTypeDescriptor type_descriptor, DataTypePtr type, std::string name,
                           std::shared_ptr<::parquet::internal::RecordReader> record_reader)
             : _file_column_id(file_column_id),
               _parquet_column_ordinal(file_column_id),
               _descriptor(descriptor),
+              _type_descriptor(std::move(type_descriptor)),
               _type(std::move(type)),
               _name(std::move(name)),
               _record_reader(std::move(record_reader)) {}
@@ -273,6 +75,7 @@ private:
     int _file_column_id = -1;
     int _parquet_column_ordinal = -1;
     const ::parquet::ColumnDescriptor* _descriptor = nullptr;
+    ParquetTypeDescriptor _type_descriptor;
     DataTypePtr _type;
     std::string _name;
     std::shared_ptr<::parquet::internal::RecordReader> _record_reader;
@@ -605,28 +408,17 @@ Status insert_int64_decimal(IColumn& column, int64_t value) {
     return insert_decimal_value<TYPE_DECIMAL128I>(column, static_cast<Int128>(value));
 }
 
-int64_t timestamp_second_mask(const ::parquet::ColumnDescriptor* descriptor) {
-    const auto& logical_type = descriptor->logical_type();
-    if (logical_type != nullptr && logical_type->is_valid() && logical_type->is_timestamp()) {
-        const auto& timestamp_type =
-                static_cast<const ::parquet::TimestampLogicalType&>(*logical_type);
-        if (timestamp_type.time_unit() == ::parquet::LogicalType::TimeUnit::MILLIS) {
-            return 1000;
-        }
-        if (timestamp_type.time_unit() == ::parquet::LogicalType::TimeUnit::MICROS) {
-            return 1000000;
-        }
-    }
-    if (descriptor->converted_type() == ::parquet::ConvertedType::TIMESTAMP_MILLIS) {
+int64_t timestamp_second_mask(const ParquetTypeDescriptor& type_descriptor) {
+    if (type_descriptor.time_unit == ParquetTimeUnit::MILLIS) {
         return 1000;
     }
     return 1000000;
 }
 
 Status insert_int64_timestamp(IColumn& column, int64_t value,
-                              const ::parquet::ColumnDescriptor* descriptor) {
+                              const ParquetTypeDescriptor& type_descriptor) {
     static const cctz::time_zone utc_time_zone = cctz::utc_time_zone();
-    const int64_t second_mask = timestamp_second_mask(descriptor);
+    const int64_t second_mask = timestamp_second_mask(type_descriptor);
     int64_t epoch_seconds = value / second_mask;
     int64_t sub_second = value % second_mask;
     if (sub_second < 0) {
@@ -697,91 +489,14 @@ Status insert_decimal_from_fixed_size_binary_array(IColumn& column, const ::arro
 
 } // namespace
 
-std::string column_name(const ::parquet::ColumnDescriptor* column) {
-    if (column == nullptr) {
-        return {};
-    }
-    auto path = column->path();
-    if (path) {
-        return path->ToDotString();
-    }
-    return column->name();
-}
-
-DataTypePtr parquet_column_to_doris_type(const ::parquet::ColumnDescriptor* column) {
-    if (column == nullptr) {
-        return nullptr;
-    }
-
-    if (auto logical_type = logical_type_to_doris_type(column); logical_type != nullptr) {
-        return logical_type;
-    }
-    if (auto converted_type = converted_type_to_doris_type(column); converted_type != nullptr) {
-        return converted_type;
-    }
-
-    DataTypePtr type;
-    switch (column->physical_type()) {
-    case ::parquet::Type::BOOLEAN:
-        type = std::make_shared<DataTypeBool>();
-        break;
-    case ::parquet::Type::INT32:
-        type = std::make_shared<DataTypeInt32>();
-        break;
-    case ::parquet::Type::INT64:
-        type = std::make_shared<DataTypeInt64>();
-        break;
-    case ::parquet::Type::FLOAT:
-        type = std::make_shared<DataTypeFloat32>();
-        break;
-    case ::parquet::Type::DOUBLE:
-        type = std::make_shared<DataTypeFloat64>();
-        break;
-    case ::parquet::Type::BYTE_ARRAY:
-    case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
-        type = std::make_shared<DataTypeString>();
-        break;
-    case ::parquet::Type::INT96:
-        type = std::make_shared<DataTypeString>();
-        break;
-    default:
-        return nullptr;
-    }
-    return make_nullable_if_needed(type, column);
-}
-
-DataTypePtr supported_flat_column_type(const ::parquet::ColumnDescriptor* column) {
-    if (column == nullptr || column->max_repetition_level() != 0 ||
-        column->max_definition_level() > 1) {
-        return nullptr;
-    }
-    if (auto type = direct_flat_primitive_doris_type(column); type != nullptr) {
-        return type;
-    }
-    if (is_string_like_column(column)) {
-        return create_type(TYPE_STRING, column->max_definition_level() > 0);
-    }
-    if (is_decimal_column(column) && column->type_precision() <= 38) {
-        return create_type(TYPE_DECIMAL128I, column->max_definition_level() > 0,
-                           column->type_precision(), column->type_scale());
-    }
-    if (is_timestamp_column(column) && column->physical_type() == ::parquet::Type::INT64) {
-        if (auto type = logical_type_to_doris_type(column); type != nullptr) {
-            return type;
-        }
-        return converted_type_to_doris_type(column);
-    }
-    return nullptr;
-}
-
 Status PrimitiveColumnReader::read_batch(int64_t batch_rows, MutableColumnPtr* result_column,
                                          int64_t* rows_read) {
     if (_record_reader == nullptr) {
         return Status::InternalError("Parquet record reader is not initialized for column {}",
                                      _name);
     }
-    if (is_decimal_column(_descriptor)) {
-        switch (_descriptor->physical_type()) {
+    if (_type_descriptor.is_decimal) {
+        switch (_type_descriptor.physical_type) {
         case ::parquet::Type::INT32:
             return read_record_value_column<int32_t>(*this, batch_rows, result_column, rows_read,
                                                      [](IColumn& column, int32_t value) {
@@ -803,23 +518,22 @@ Status PrimitiveColumnReader::read_batch(int64_t batch_rows, MutableColumnPtr* r
                     *this, batch_rows, result_column, rows_read,
                     [this](IColumn& column, const ::arrow::Array& array, int64_t row_idx) {
                         return insert_decimal_from_fixed_size_binary_array(
-                                column, array, row_idx, _descriptor->type_length());
+                                column, array, row_idx, _type_descriptor.fixed_length);
                     });
         default:
             return Status::NotSupported("Unsupported parquet decimal physical type for column {}",
                                         _name);
         }
     }
-    if (is_timestamp_column(_descriptor) &&
-        _descriptor->physical_type() == ::parquet::Type::INT64) {
+    if (_type_descriptor.is_timestamp && _type_descriptor.physical_type == ::parquet::Type::INT64) {
         return read_record_value_column<int64_t>(*this, batch_rows, result_column, rows_read,
                                                  [this](IColumn& column, int64_t value) {
-                                                     return insert_int64_timestamp(column, value,
-                                                                                   _descriptor);
+                                                     return insert_int64_timestamp(
+                                                             column, value, _type_descriptor);
                                                  });
     }
-    if (is_string_like_column(_descriptor)) {
-        if (_descriptor->physical_type() == ::parquet::Type::BYTE_ARRAY) {
+    if (_type_descriptor.is_string_like) {
+        if (_type_descriptor.physical_type == ::parquet::Type::BYTE_ARRAY) {
             return read_record_binary_column(
                     *this, batch_rows, result_column, rows_read,
                     [](IColumn& column, const ::arrow::Array& array, int64_t row_idx) {
@@ -830,11 +544,11 @@ Status PrimitiveColumnReader::read_batch(int64_t batch_rows, MutableColumnPtr* r
                 *this, batch_rows, result_column, rows_read,
                 [this](IColumn& column, const ::arrow::Array& array, int64_t row_idx) {
                     return insert_fixed_size_binary_array_value(column, array, row_idx,
-                                                                _descriptor->type_length());
+                                                                _type_descriptor.fixed_length);
                 });
     }
 
-    switch (_descriptor->physical_type()) {
+    switch (_type_descriptor.physical_type) {
     case ::parquet::Type::BOOLEAN:
         return read_record_physical_column<TYPE_BOOLEAN, bool>(*this, batch_rows, result_column,
                                                                rows_read);
@@ -892,8 +606,8 @@ Status PrimitiveColumnReader::read_selected(const std::vector<uint16_t>& selecti
         return Status::InternalError("Parquet record reader is not initialized for column {}",
                                      _name);
     }
-    if (is_decimal_column(_descriptor)) {
-        switch (_descriptor->physical_type()) {
+    if (_type_descriptor.is_decimal) {
+        switch (_type_descriptor.physical_type) {
         case ::parquet::Type::INT32:
             return read_selected_record_column(
                     *this, selection, selected_rows, batch_rows, result_column,
@@ -930,7 +644,7 @@ Status PrimitiveColumnReader::read_selected(const std::vector<uint16_t>& selecti
                                 *this, rows, column, rows_read,
                                 [this](IColumn& dst, const ::arrow::Array& array, int64_t row_idx) {
                                     return insert_decimal_from_fixed_size_binary_array(
-                                            dst, array, row_idx, _descriptor->type_length());
+                                            dst, array, row_idx, _type_descriptor.fixed_length);
                                 });
                     });
         default:
@@ -938,19 +652,18 @@ Status PrimitiveColumnReader::read_selected(const std::vector<uint16_t>& selecti
                                         _name);
         }
     }
-    if (is_timestamp_column(_descriptor) &&
-        _descriptor->physical_type() == ::parquet::Type::INT64) {
+    if (_type_descriptor.is_timestamp && _type_descriptor.physical_type == ::parquet::Type::INT64) {
         return read_selected_record_column(
                 *this, selection, selected_rows, batch_rows, result_column,
                 [this](int64_t rows, MutableColumnPtr* column, int64_t* rows_read) {
                     return read_record_value_column<int64_t>(
                             *this, rows, column, rows_read, [this](IColumn& dst, int64_t value) {
-                                return insert_int64_timestamp(dst, value, _descriptor);
+                                return insert_int64_timestamp(dst, value, _type_descriptor);
                             });
                 });
     }
-    if (is_string_like_column(_descriptor)) {
-        if (_descriptor->physical_type() == ::parquet::Type::BYTE_ARRAY) {
+    if (_type_descriptor.is_string_like) {
+        if (_type_descriptor.physical_type == ::parquet::Type::BYTE_ARRAY) {
             return read_selected_record_column(
                     *this, selection, selected_rows, batch_rows, result_column,
                     [this](int64_t rows, MutableColumnPtr* column, int64_t* rows_read) {
@@ -968,11 +681,11 @@ Status PrimitiveColumnReader::read_selected(const std::vector<uint16_t>& selecti
                             *this, rows, column, rows_read,
                             [this](IColumn& dst, const ::arrow::Array& array, int64_t row_idx) {
                                 return insert_fixed_size_binary_array_value(
-                                        dst, array, row_idx, _descriptor->type_length());
+                                        dst, array, row_idx, _type_descriptor.fixed_length);
                             });
                 });
     }
-    switch (_descriptor->physical_type()) {
+    switch (_type_descriptor.physical_type) {
     case ::parquet::Type::BOOLEAN:
         return read_selected_record_physical_column<TYPE_BOOLEAN, bool>(
                 *this, selection, selected_rows, batch_rows, result_column);
@@ -1066,8 +779,9 @@ ParquetColumnReaderFactory::ParquetColumnReaderFactory(
           _record_readers(static_cast<size_t>(num_leaf_columns)) {}
 
 Status ParquetColumnReaderFactory::create_primitive_reader(
-        int file_column_id, const ::parquet::ColumnDescriptor* descriptor, DataTypePtr type,
-        std::string name, std::shared_ptr<::parquet::internal::RecordReader> record_reader,
+        int file_column_id, const ParquetTypeDescriptor& type_descriptor,
+        const ::parquet::ColumnDescriptor* descriptor, DataTypePtr type, std::string name,
+        std::shared_ptr<::parquet::internal::RecordReader> record_reader,
         std::unique_ptr<ParquetColumnReader>* reader) const {
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
@@ -1076,8 +790,9 @@ Status ParquetColumnReaderFactory::create_primitive_reader(
         return Status::InvalidArgument("Invalid parquet column reader arguments for column {}",
                                        name);
     }
-    *reader = std::make_unique<PrimitiveColumnReader>(file_column_id, descriptor, std::move(type),
-                                                      std::move(name), std::move(record_reader));
+    *reader = std::make_unique<PrimitiveColumnReader>(file_column_id, descriptor, type_descriptor,
+                                                      std::move(type), std::move(name),
+                                                      std::move(record_reader));
     return Status::OK();
 }
 
@@ -1092,7 +807,7 @@ Status ParquetColumnReaderFactory::create_primitive(
         return Status::InvalidArgument("Invalid parquet leaf column id {} for column {}",
                                        column_schema.leaf_column_id, column_schema.name);
     }
-    if (supported_flat_column_type(column_schema.descriptor) == nullptr) {
+    if (!supports_record_reader(column_schema.type_descriptor)) {
         return Status::NotSupported(
                 "Current parquet reader only supports primitive columns without repetition; "
                 "column {} is not supported",
@@ -1101,9 +816,9 @@ Status ParquetColumnReaderFactory::create_primitive(
     std::shared_ptr<::parquet::internal::RecordReader> record_reader;
     RETURN_IF_ERROR(get_record_reader(column_schema.leaf_column_id, column_schema.descriptor,
                                       column_schema.name, &record_reader));
-    return create_primitive_reader(column_schema.leaf_column_id, column_schema.descriptor,
-                                   column_schema.type, column_schema.name, std::move(record_reader),
-                                   reader);
+    return create_primitive_reader(column_schema.leaf_column_id, column_schema.type_descriptor,
+                                   column_schema.descriptor, column_schema.type, column_schema.name,
+                                   std::move(record_reader), reader);
 }
 
 Status ParquetColumnReaderFactory::get_record_reader(
@@ -1120,7 +835,10 @@ Status ParquetColumnReaderFactory::get_record_reader(
         return Status::InvalidArgument("Invalid parquet leaf column id {} for column {}",
                                        leaf_column_id, name);
     }
-    if (!supports_record_reader(descriptor)) {
+    if (descriptor == nullptr) {
+        return Status::InvalidArgument("Parquet column descriptor is null for column {}", name);
+    }
+    if (descriptor->max_repetition_level() != 0 || descriptor->max_definition_level() > 1) {
         return Status::NotSupported(
                 "Current parquet reader only supports RecordReader-backed columns; column {} is "
                 "not supported",

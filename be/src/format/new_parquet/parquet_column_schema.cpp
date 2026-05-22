@@ -27,7 +27,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
-#include "format/new_parquet/column_reader.h"
+#include "format/new_parquet/parquet_type.h"
 
 namespace doris::parquet {
 namespace {
@@ -69,7 +69,8 @@ Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
         column_schema->kind = ParquetColumnSchemaKind::PRIMITIVE;
         column_schema->leaf_column_id = leaf_column_id;
         column_schema->descriptor = schema.Column(leaf_column_id);
-        column_schema->type = parquet_column_to_doris_type(column_schema->descriptor);
+        column_schema->type_descriptor = resolve_parquet_type(column_schema->descriptor);
+        column_schema->type = column_schema->type_descriptor.doris_type;
         if (column_schema->type == nullptr) {
             return Status::NotSupported("Unsupported parquet column type for column {}",
                                         node.name());

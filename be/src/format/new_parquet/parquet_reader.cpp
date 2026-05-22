@@ -271,7 +271,7 @@ void collect_filter_fields(const std::vector<std::unique_ptr<ParquetColumnSchema
         if (!has_supported_decoded_filter(*filter_it, *fields[field_id])) {
             continue;
         }
-        if (supported_flat_column_type(fields[field_id]->descriptor) == nullptr) {
+        if (!supports_record_reader(fields[field_id]->type_descriptor)) {
             continue;
         }
         seen[field_id] = true;

@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "format/new_parquet/parquet_type.h"
 
 namespace parquet {
 class ColumnDescriptor;
@@ -49,6 +50,7 @@ struct ParquetColumnSchema {
     int leaf_column_id = -1;
     std::string name;
     DataTypePtr type;
+    ParquetTypeDescriptor type_descriptor;
     ParquetColumnSchemaKind kind = ParquetColumnSchemaKind::PRIMITIVE;
     const ::parquet::schema::Node* node = nullptr;
     const ::parquet::ColumnDescriptor* descriptor = nullptr;
