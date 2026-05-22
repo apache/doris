@@ -35,10 +35,12 @@ import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.Partition
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.PartitionPrunablePredicate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -46,6 +48,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -89,12 +92,29 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                         }
                         if (rewrittenLogicalRelation instanceof LogicalEmptyRelation) {
                             return rewrittenLogicalRelation;
-                        } else {
-                            return PartitionPruner.prunePredicate(
-                                    ctx.connectContext.getSessionVariable().skipPrunePredicate
-                                            || ctx.statementContext.isSkipPrunePredicate(),
-                                    prunedRes.second, filter, rewrittenLogicalRelation);
                         }
+                        boolean skipPrunePredicate = ctx.connectContext.getSessionVariable().skipPrunePredicate
+                                || ctx.statementContext.isSkipPrunePredicate();
+                        if (!skipPrunePredicate && prunedRes.second.isPresent()) {
+                            // Defer the predicate removal to PlanPostProcessor so that materialized-view
+                            // rewrite still sees the original predicates. Otherwise, partition predicates
+                            // that are equivalent to the surviving partition list would be silently
+                            // dropped, leading to wrong results when an MV definition predicate matches
+                            // the remaining conjuncts.
+                            LogicalOlapScan prunedScan = (LogicalOlapScan) rewrittenLogicalRelation;
+                            Set<Expression> prunableConjuncts = ExpressionUtils.extractConjunctionToSet(
+                                    prunedRes.second.get());
+                            List<Slot> partitionSlots = getPartitionSlots(prunedScan, prunedScan.getTable());
+                            if (partitionSlots != null) {
+                                PartitionPrunablePredicate entry = new PartitionPrunablePredicate(
+                                        new HashSet<>(prunedScan.getSelectedPartitionIds()),
+                                        partitionSlots,
+                                        prunableConjuncts);
+                                rewrittenLogicalRelation = prunedScan.withPartitionPrunablePredicates(
+                                        Optional.of(entry));
+                            }
+                        }
+                        return filter.withChildren(ImmutableList.of(rewrittenLogicalRelation));
                     }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE)
         );
     }
@@ -172,6 +192,28 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
         } else {
             return Pair.of(null, Optional.empty());
         }
+    }
+
+    private List<Slot> getPartitionSlots(LogicalOlapScan scan, OlapTable table) {
+        List<Slot> output = scan.getOutput();
+        PartitionInfo partitionInfo = table.getPartitionInfo();
+        List<Column> partitionColumns = partitionInfo.getPartitionColumns();
+        List<Slot> partitionSlots = new ArrayList<>(partitionColumns.size());
+        for (Column column : partitionColumns) {
+            Slot partitionSlot = null;
+            // loop search is faster than build a map
+            for (Slot slot : output) {
+                if (slot.getName().equalsIgnoreCase(column.getName())) {
+                    partitionSlot = slot;
+                    break;
+                }
+            }
+            if (partitionSlot == null) {
+                return null;
+            }
+            partitionSlots.add(partitionSlot);
+        }
+        return partitionSlots;
     }
 
     private List<Long> prunePartitionByTabletIds(LogicalOlapScan scan,
