@@ -529,4 +529,44 @@ suite("null_column_pruning") {
     }
 
     order_qt_34 "select 1 from ncp_tbl where length(str_col) = 0 or str_col is null";
+
+    sql """ DROP TABLE IF EXISTS ncp_outer_left """
+    sql """ DROP TABLE IF EXISTS ncp_outer_right """
+    sql """
+        CREATE TABLE ncp_outer_left (
+            id      INT NOT NULL,
+            str_col STRING NOT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql """
+        CREATE TABLE ncp_outer_right (
+            id INT NOT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql """ INSERT INTO ncp_outer_left VALUES (1, 'a'), (2, 'b') """
+    sql """ INSERT INTO ncp_outer_right VALUES (1), (3) """
+
+    explain {
+        sql """
+            SELECT l.id
+            FROM ncp_outer_left l RIGHT JOIN ncp_outer_right r ON l.id = r.id
+            WHERE r.id < 0 OR l.str_col >= l.str_col
+            ORDER BY 1
+        """
+        contains "str_col.NULL"
+        notContains "predicate access paths:"
+    }
+
+    order_qt_35 """
+        SELECT l.id
+        FROM ncp_outer_left l RIGHT JOIN ncp_outer_right r ON l.id = r.id
+        WHERE r.id < 0 OR l.str_col >= l.str_col
+        ORDER BY 1
+    """
 }

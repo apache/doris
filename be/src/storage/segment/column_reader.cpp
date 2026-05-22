@@ -2120,7 +2120,29 @@ Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* ha
     if (read_null_map_only()) {
         DLOG(INFO) << "File column iterator column " << _column_name
                    << " in NULL_MAP_ONLY mode, reading only null map.";
-        DORIS_CHECK(dst->is_nullable());
+        if (!dst->is_nullable()) {
+            DORIS_CHECK(!is_nullable());
+            size_t remaining = *n;
+            *has_null = false;
+            while (remaining > 0) {
+                if (!_page.has_remaining()) {
+                    bool eos = false;
+                    RETURN_IF_ERROR(_load_next_page(&eos));
+                    if (eos) {
+                        break;
+                    }
+                }
+                DORIS_CHECK(!_page.has_null);
+                size_t nrows_to_read = std::min(remaining, _page.remaining());
+                _page.offset_in_page += nrows_to_read;
+                _current_ordinal += nrows_to_read;
+                remaining -= nrows_to_read;
+            }
+            *n -= remaining;
+            dst->insert_many_defaults(*n);
+            return Status::OK();
+        }
+
         auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
         auto& null_map_data = nullable_col.get_null_map_data();
 
@@ -2234,7 +2256,12 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
         DLOG(INFO) << "File column iterator column " << _column_name
                    << " in NULL_MAP_ONLY mode, reading only null map by rowids.";
 
-        DORIS_CHECK(dst->is_nullable());
+        if (!dst->is_nullable()) {
+            DORIS_CHECK(!is_nullable());
+            dst->insert_many_defaults(count);
+            return Status::OK();
+        }
+
         auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
         auto& null_map_data = nullable_col.get_null_map_data();
         const size_t base_size = null_map_data.size();
