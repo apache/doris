@@ -109,13 +109,14 @@ public class LocalTablet extends Tablet {
         if (cooldownReplicaId <= 0) {
             return 0;
         }
-        for (Replica r : replicas) {
+        List<Replica> snapshot = replicas; // single volatile read; reuse below
+        for (Replica r : snapshot) {
             if (r.getId() == cooldownReplicaId) {
                 return r.getRemoteDataSize();
             }
         }
         // return replica with max remoteDataSize
-        return replicas.stream().max(Comparator.comparing(Replica::getRemoteDataSize)).get().getRemoteDataSize();
+        return snapshot.stream().max(Comparator.comparing(Replica::getRemoteDataSize)).get().getRemoteDataSize();
     }
 
     @Override
@@ -263,7 +264,7 @@ public class LocalTablet extends Tablet {
 
     @Override
     public Replica getReplicaByBackendId(long backendId) {
-        for (Replica replica : replicas) {
+        for (Replica replica : replicas) { // single volatile read
             if (replica.getBackendIdWithoutException() == backendId) {
                 return replica;
             }
@@ -315,13 +316,17 @@ public class LocalTablet extends Tablet {
 
         LocalTablet tablet = (LocalTablet) obj;
 
-        if (replicas != tablet.replicas) {
-            if (replicas.size() != tablet.replicas.size()) {
+        // Capture one snapshot per side so a concurrent writer cannot publish
+        // a different list between size/contains/get calls below.
+        List<Replica> thisReplicas = replicas;
+        List<Replica> otherReplicas = tablet.replicas;
+        if (thisReplicas != otherReplicas) {
+            if (thisReplicas.size() != otherReplicas.size()) {
                 return false;
             }
-            int size = replicas.size();
+            int size = thisReplicas.size();
             for (int i = 0; i < size; i++) {
-                if (!tablet.replicas.contains(replicas.get(i))) {
+                if (!otherReplicas.contains(thisReplicas.get(i))) {
                     return false;
                 }
             }
@@ -347,7 +352,7 @@ public class LocalTablet extends Tablet {
         }
 
         boolean allBeAliveOrDecommissioned = true;
-        for (Replica replica : replicas) {
+        for (Replica replica : replicas) { // single volatile read; iteration on the snapshot
             Backend backend = infoService.getBackend(replica.getBackendIdWithoutException());
             if (backend == null || (!backend.isAlive() && !backend.isDecommissioned())) {
                 allBeAliveOrDecommissioned = false;

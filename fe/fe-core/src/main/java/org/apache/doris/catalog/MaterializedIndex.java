@@ -58,7 +58,13 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     @SerializedName(value = "rowCount")
     private long rowCount;
 
-    private Map<Long, Tablet> idToTablets;
+    // Published as a volatile immutable snapshot in lockstep with `tablets`.
+    // Writers (synchronized) build a fresh HashMap and assign the field; readers
+    // capture the reference once and call get/containsKey on the snapshot.
+    // Invariant: `tablets ⊆ idToTablets` — any tablet visible in the list is also
+    // present in the map. This is preserved by publishing the map BEFORE the list
+    // on add and the list BEFORE the map on clear.
+    private volatile Map<Long, Tablet> idToTablets;
     @SerializedName(value = "tablets")
     // this is for keeping tablet order
     private volatile List<Tablet> tablets;
@@ -109,12 +115,15 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     }
 
     public Tablet getTablet(long tabletId) {
+        // Single volatile read of the immutable map snapshot.
         return idToTablets.get(tabletId);
     }
 
     public synchronized void clearTabletsForRestore() {
-        idToTablets.clear();
-        tablets = new ArrayList<>(); // volatile write
+        // Drop the list first so iteration stops seeing tablets before
+        // lookup-by-id drops them. Maintains tablets ⊆ idToTablets.
+        tablets = new ArrayList<>();
+        idToTablets = new HashMap<>();
     }
 
     public synchronized void addTablet(Tablet tablet, TabletMeta tabletMeta) {
@@ -151,13 +160,17 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         if (newTablets.isEmpty()) {
             return;
         }
-        List<Tablet> next = new ArrayList<>(tablets.size() + newTablets.size());
-        next.addAll(tablets);
+        Map<Long, Tablet> nextMap = new HashMap<>(idToTablets);
+        List<Tablet> nextList = new ArrayList<>(tablets.size() + newTablets.size());
+        nextList.addAll(tablets);
         for (Tablet tablet : newTablets) {
-            idToTablets.put(tablet.getId(), tablet);
-            next.add(tablet);
+            nextMap.put(tablet.getId(), tablet);
+            nextList.add(tablet);
         }
-        tablets = next; // single volatile write publishes the whole batch
+        // Publish the map first, then the list — so any id that appears in the
+        // visible `tablets` snapshot is already present in `idToTablets`.
+        idToTablets = nextMap;
+        tablets = nextList;
     }
 
     public void setIdForRestore(long idxId) {
@@ -336,9 +349,13 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
 
     @Override
     public void gsonPostProcess() {
-        // build "idToTablets" from "tablets"
+        // Build a fresh "idToTablets" snapshot from the deserialized "tablets" list.
+        // Runs single-threaded during gson deserialization, before any concurrent
+        // reader can observe this object.
+        Map<Long, Tablet> map = new HashMap<>(tablets.size());
         for (Tablet tablet : tablets) {
-            idToTablets.put(tablet.getId(), tablet);
+            map.put(tablet.getId(), tablet);
         }
+        idToTablets = map;
     }
 }
