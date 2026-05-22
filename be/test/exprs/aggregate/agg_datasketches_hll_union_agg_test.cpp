@@ -20,7 +20,6 @@
 #include <DataSketches/hll.hpp>
 
 #include "agent/be_exec_version_manager.h"
-#include "common/exception.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_string.h"
@@ -33,8 +32,6 @@
 #include "exec/common/hash_table/hash.h"
 #include "exprs/aggregate/aggregate_function_datasketches_hll_union_agg.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
-#include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -550,690 +547,6 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testSerializeDeserializeEmp
     auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
             TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>>(argument_types);
 
-    DataTypes argument_types = {std::make_shared<DataTypeString>()};
-    using AggFunc =
-            AggregateFunctionDataSketchesHllUnionAgg<TYPE_STRING,
-                                                     AggregateFunctionHllSketchData<TYPE_STRING>>;
-    auto agg_func = std::make_shared<AggFunc>(argument_types);
-
-    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
-    for (int i = 0; i < 100; ++i) {
-        sketch.update(i);
-    }
-    const auto ser = sketch.serialize_compact();
-
-    auto column_string = ColumnString::create();
-    column_string->insert_data((const char*)ser.data(), ser.size());
-    const IColumn* columns[1] = {column_string.get()};
-
-    AggregateDataPtr place =
-            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
-    agg_func->create(place);
-    agg_func->add(place, columns, 0, *arena);
-
-    auto out = ColumnString::create();
-    BufferWritable out_w(*out);
-
-    {
-        ScopedEnableThreadCatchBadAlloc enable_catch;
-        auto low_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
-                                                            "hll_union_add_low_mem", 1);
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(low_tracker);
-
-        try {
-            agg_func->add(place, columns, 0, *arena);
-            FAIL() << "Expected doris::Exception";
-        } catch (const doris::Exception& e) {
-            EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
-        }
-    }
-
-    agg_func->destroy(place);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
-       testDeserializeMemAllocFailedCoversReadCatch) {
-    DataTypes argument_types = {std::make_shared<DataTypeString>()};
-    using AggFunc =
-            AggregateFunctionDataSketchesHllUnionAgg<TYPE_STRING,
-                                                     AggregateFunctionHllSketchData<TYPE_STRING>>;
-    auto agg_func = std::make_shared<AggFunc>(argument_types);
-
-    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
-    for (int i = 0; i < 10; ++i) {
-        sketch.update(i);
-    }
-    const auto ser = sketch.serialize_compact();
-
-    auto buffer = ColumnString::create();
-    BufferWritable w(*buffer);
-    StringRef d((const char*)ser.data(), ser.size());
-    w.write_binary(d);
-    w.commit();
-
-    AggregateDataPtr place =
-            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
-    agg_func->create(place);
-
-    {
-        ScopedEnableThreadCatchBadAlloc enable_catch;
-        auto low_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
-                                                            "hll_union_read_low_mem", 1);
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(low_tracker);
-
-        BufferReadable r(buffer->get_data_at(0));
-        try {
-            agg_func->deserialize(place, r, *arena);
-            FAIL() << "Expected doris::Exception";
-        } catch (const doris::Exception& e) {
-            EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
-        }
-    }
-
-    agg_func->destroy(place);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testSerializeMemAllocFailedCoversWriteCatch) {
-    DataTypes argument_types = {std::make_shared<DataTypeString>()};
-    using AggFunc =
-            AggregateFunctionDataSketchesHllUnionAgg<TYPE_STRING,
-                                                     AggregateFunctionHllSketchData<TYPE_STRING>>;
-    auto agg_func = std::make_shared<AggFunc>(argument_types);
-
-    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
-    for (int i = 0; i < 200; ++i) {
-        sketch.update(i);
-    }
-    const auto ser = sketch.serialize_compact();
-
-    auto column_string = ColumnString::create();
-    column_string->insert_data((const char*)ser.data(), ser.size());
-    const IColumn* columns[1] = {column_string.get()};
-
-    AggregateDataPtr place =
-            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
-    agg_func->create(place);
-    agg_func->add(place, columns, 0, *arena);
-
-    auto out = ColumnString::create();
-    BufferWritable out_w(*out);
-
-    {
-        ScopedEnableThreadCatchBadAlloc enable_catch;
-        auto low_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
-                                                            "hll_union_write_low_mem", 1);
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(low_tracker);
-
-        try {
-            agg_func->serialize(place, out_w);
-            FAIL() << "Expected doris::Exception";
-        } catch (const doris::Exception& e) {
-            EXPECT_EQ(e.code(), doris::ErrorCode::MEM_ALLOC_FAILED);
-        }
-    }
-
-    agg_func->destroy(place);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testMergeMemAllocFailedCoversMergeCatch) {
-    using Data = AggregateFunctionHllSketchData<TYPE_STRING>;
-    using Alloc = typename Data::Alloc;
-    using Sketch = typename Data::Sketch;
-
-    datasketches::hll_sketch input_sketch(8, datasketches::HLL_8);
-    for (int i = 0; i < 1024; ++i) {
-        input_sketch.update(i);
-    }
-    const auto ser = input_sketch.serialize_compact();
-
-    Sketch sketch = Sketch::deserialize(ser.data(), ser.size(), Alloc());
-
-    Data data;
-    data.hll_union_data.emplace(12, Alloc());
-    data.hll_union_data->reset();
-
-    {
-        ScopedEnableThreadCatchBadAlloc enable_catch;
-        auto low_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
-                                                            "hll_union_merge_low_mem", 1);
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(low_tracker);
-
-        try {
-            data.merge(sketch);
-            FAIL() << "Expected doris::Exception";
-        } catch (const doris::Exception& e) {
-            EXPECT_EQ(e.code(), doris::ErrorCode::MEM_ALLOC_FAILED);
-        }
-    }
-}
-
-class ScopedEnableThreadCatchBadAlloc {
-public:
-    ScopedEnableThreadCatchBadAlloc() { ++enable_thread_catch_bad_alloc; }
-    ~ScopedEnableThreadCatchBadAlloc() { --enable_thread_catch_bad_alloc; }
-};
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testAddMemAllocFailedCoversAddCatch) {
-    DataTypes argument_types = {std::make_shared<DataTypeString>()};
-    using AggFunc =
-            AggregateFunctionDataSketchesHllUnionAgg<TYPE_STRING,
-                                                     AggregateFunctionHllSketchData<TYPE_STRING>>;
-    auto agg_func = std::make_shared<AggFunc>(argument_types);
-
-    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
-    for (int i = 0; i < 100; ++i) {
-        sketch.update(i);
-    }
-    const auto ser = sketch.serialize_compact();
-
-    auto column_string = ColumnString::create();
-    column_string->insert_data((const char*)ser.data(), ser.size());
-    const IColumn* columns[1] = {column_string.get()};
-
-    AggregateDataPtr place =
-            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
-    agg_func->create(place);
-
-    {
-        ScopedEnableThreadCatchBadAlloc enable_catch;
-        auto low_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
-                                                            "hll_union_add_low_mem", 1);
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(low_tracker);
-
-        try {
-            agg_func->add(place, columns, 0, *arena);
-            FAIL() << "Expected doris::Exception";
-        } catch (const doris::Exception& e) {
-            EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
-        }
-    }
-
-    agg_func->destroy(place);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
-       testDeserializeMemAllocFailedCoversReadCatch) {
-    DataTypes argument_types = {std::make_shared<DataTypeString>()};
-    using AggFunc =
-            AggregateFunctionDataSketchesHllUnionAgg<TYPE_STRING,
-                                                     AggregateFunctionHllSketchData<TYPE_STRING>>;
-    auto agg_func = std::make_shared<AggFunc>(argument_types);
-
-    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
-    for (int i = 0; i < 10; ++i) {
-        sketch.update(i);
-    }
-    const auto ser = sketch.serialize_compact();
-
-    auto buffer = ColumnString::create();
-    BufferWritable w(*buffer);
-    StringRef d((const char*)ser.data(), ser.size());
-    w.write_binary(d);
-    w.commit();
-
-    AggregateDataPtr place =
-            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
-    agg_func->create(place);
-
-    {
-        ScopedEnableThreadCatchBadAlloc enable_catch;
-        auto low_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
-                                                            "hll_union_read_low_mem", 1);
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(low_tracker);
-
-        BufferReadable r(buffer->get_data_at(0));
-        try {
-            agg_func->deserialize(place, r, *arena);
-            FAIL() << "Expected doris::Exception";
-        } catch (const doris::Exception& e) {
-            EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
-        }
-    }
-
-    agg_func->destroy(place);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testSerializeMemAllocFailedCoversWriteCatch) {
-    DataTypes argument_types = {std::make_shared<DataTypeString>()};
-    using AggFunc =
-            AggregateFunctionDataSketchesHllUnionAgg<TYPE_STRING,
-                                                     AggregateFunctionHllSketchData<TYPE_STRING>>;
-    auto agg_func = std::make_shared<AggFunc>(argument_types);
-
-    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
-    for (int i = 0; i < 200; ++i) {
-        sketch.update(i);
-    }
-    const auto ser = sketch.serialize_compact();
-
-    auto column_string = ColumnString::create();
-    column_string->insert_data((const char*)ser.data(), ser.size());
-    const IColumn* columns[1] = {column_string.get()};
-
-    AggregateDataPtr place =
-            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
-    agg_func->create(place);
-    agg_func->add(place, columns, 0, *arena);
-
-    auto out = ColumnString::create();
-    BufferWritable out_w(*out);
-
-    {
-        ScopedEnableThreadCatchBadAlloc enable_catch;
-        auto low_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
-                                                            "hll_union_write_low_mem", 1);
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(low_tracker);
-
-        try {
-            agg_func->serialize(place, out_w);
-            FAIL() << "Expected doris::Exception";
-        } catch (const doris::Exception& e) {
-            EXPECT_EQ(e.code(), doris::ErrorCode::MEM_ALLOC_FAILED);
-        }
-    }
-
-    agg_func->destroy(place);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testMergeMemAllocFailedCoversMergeCatch) {
-    using Data = AggregateFunctionHllSketchData<TYPE_STRING>;
-    using Alloc = typename Data::Alloc;
-    using Sketch = typename Data::Sketch;
-
-    datasketches::hll_sketch input_sketch(8, datasketches::HLL_8);
-    for (int i = 0; i < 1024; ++i) {
-        input_sketch.update(i);
-    }
-    const auto ser = input_sketch.serialize_compact();
-
-    Sketch sketch = Sketch::deserialize(ser.data(), ser.size(), Alloc());
-
-    Data data;
-    data.hll_union_data.emplace(12, Alloc());
-    data.hll_union_data->reset();
-
-    {
-        ScopedEnableThreadCatchBadAlloc enable_catch;
-        auto low_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
-                                                            "hll_union_merge_low_mem", 1);
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(low_tracker);
-
-        try {
-            data.merge(sketch);
-            FAIL() << "Expected doris::Exception";
-        } catch (const doris::Exception& e) {
-            EXPECT_EQ(e.code(), doris::ErrorCode::MEM_ALLOC_FAILED);
-        }
-    }
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testAddAllocatorAwareSketchInput) {
-    DataTypes argument_types = {std::make_shared<DataTypeString>()};
-    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
-            TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>>(argument_types);
-
-    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
-    for (int i = 0; i < 100; ++i) {
-        sketch.update(i);
-    }
-    const auto ser = sketch.serialize_compact();
-
-    auto column_string = ColumnString::create();
-    column_string->insert_data((const char*)ser.data(), ser.size());
-    const IColumn* columns[1] = {column_string.get()};
-
-    AggregateDataPtr place =
-            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
-    agg_func->create(place);
-
-    {
-        ScopedEnableThreadCatchBadAlloc enable_catch;
-        auto low_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
-                                                            "hll_union_add_low_mem", 1);
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(low_tracker);
-
-        try {
-            agg_func->add(place, columns, 0, *arena);
-            FAIL() << "Expected doris::Exception";
-        } catch (const doris::Exception& e) {
-            EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
-        }
-    }
-
-    agg_func->destroy(place);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
-       testDeserializeMemAllocFailedCoversReadCatch) {
-    DataTypes argument_types = {std::make_shared<DataTypeString>()};
-    using AggFunc =
-            AggregateFunctionDataSketchesHllUnionAgg<TYPE_STRING,
-                                                     AggregateFunctionHllSketchData<TYPE_STRING>>;
-    auto agg_func = std::make_shared<AggFunc>(argument_types);
-
-    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
-    for (int i = 0; i < 10; ++i) {
-        sketch.update(i);
-    }
-    const auto ser = sketch.serialize_compact();
-
-    auto buffer = ColumnString::create();
-    BufferWritable w(*buffer);
-    StringRef d((const char*)ser.data(), ser.size());
-    w.write_binary(d);
-    w.commit();
-
-    AggregateDataPtr place =
-            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
-    agg_func->create(place);
-
-    {
-        ScopedEnableThreadCatchBadAlloc enable_catch;
-        auto low_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
-                                                            "hll_union_read_low_mem", 1);
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(low_tracker);
-
-        BufferReadable r(buffer->get_data_at(0));
-        try {
-            agg_func->deserialize(place, r, *arena);
-            FAIL() << "Expected doris::Exception";
-        } catch (const doris::Exception& e) {
-            EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
-        }
-    }
-
-    agg_func->destroy(place);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testSerializeMemAllocFailedCoversWriteCatch) {
-    DataTypes argument_types = {std::make_shared<DataTypeString>()};
-    using AggFunc =
-            AggregateFunctionDataSketchesHllUnionAgg<TYPE_STRING,
-                                                     AggregateFunctionHllSketchData<TYPE_STRING>>;
-    auto agg_func = std::make_shared<AggFunc>(argument_types);
-
-    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
-    for (int i = 0; i < 200; ++i) {
-        sketch.update(i);
-    }
-    const auto ser = sketch.serialize_compact();
-
-    auto column_string = ColumnString::create();
-    column_string->insert_data((const char*)ser.data(), ser.size());
-    const IColumn* columns[1] = {column_string.get()};
-
-    AggregateDataPtr place =
-            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
-    agg_func->create(place);
-    agg_func->add(place, columns, 0, *arena);
-
-    auto out = ColumnString::create();
-    BufferWritable out_w(*out);
-
-    {
-        ScopedEnableThreadCatchBadAlloc enable_catch;
-        auto low_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
-                                                            "hll_union_write_low_mem", 1);
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(low_tracker);
-
-        try {
-            agg_func->serialize(place, out_w);
-            FAIL() << "Expected doris::Exception";
-        } catch (const doris::Exception& e) {
-            EXPECT_EQ(e.code(), doris::ErrorCode::MEM_ALLOC_FAILED);
-        }
-    }
-
-    agg_func->destroy(place);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testMergeMemAllocFailedCoversMergeCatch) {
-    using Data = AggregateFunctionHllSketchData<TYPE_STRING>;
-    using Alloc = typename Data::Alloc;
-    using Sketch = typename Data::Sketch;
-
-    datasketches::hll_sketch input_sketch(8, datasketches::HLL_8);
-    for (int i = 0; i < 1024; ++i) {
-        input_sketch.update(i);
-    }
-    const auto ser = input_sketch.serialize_compact();
-
-    Sketch sketch = Sketch::deserialize(ser.data(), ser.size(), Alloc());
-
-    Data data;
-    data.hll_union_data.emplace(12, Alloc());
-    data.hll_union_data->reset();
-
-    {
-        ScopedEnableThreadCatchBadAlloc enable_catch;
-        auto low_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
-                                                            "hll_union_merge_low_mem", 1);
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(low_tracker);
-
-        try {
-            data.merge(sketch);
-            FAIL() << "Expected doris::Exception";
-        } catch (const doris::Exception& e) {
-            EXPECT_EQ(e.code(), doris::ErrorCode::MEM_ALLOC_FAILED);
-        }
-    }
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testFactoryCreateAndAliases) {
-    AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_datasketches_HLL_union_agg(factory);
-    int be_version = BeExecVersionManager::get_newest_version();
-
-    DataTypes argument_types = {std::make_shared<DataTypeString>()};
-
-    auto fn_main =
-            factory.get("datasketches_hll_union_agg", argument_types, nullptr, false, be_version);
-    auto fn_alias_sr_estimate =
-            factory.get("ds_hll_estimate", argument_types, nullptr, false, be_version);
-    auto fn_alias_datasketches_estimate =
-            factory.get("datasketches_hll_estimate", argument_types, nullptr, false, be_version);
-
-    ASSERT_NE(fn_main, nullptr);
-    ASSERT_NE(fn_alias_sr_estimate, nullptr);
-    ASSERT_NE(fn_alias_datasketches_estimate, nullptr);
-
-    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
-    for (int i = 0; i < 7; ++i) sketch.update(i);
-    const auto ser = sketch.serialize_compact();
-
-    auto column_string = ColumnString::create();
-    column_string->insert_data((const char*)ser.data(), ser.size());
-    const IColumn* columns[1] = {column_string.get()};
-
-    auto run_and_get_result = [&](const AggregateFunctionPtr& fn) {
-        AggregateDataPtr place = arena->aligned_alloc(fn->size_of_data(), fn->align_of_data());
-        fn->create(place);
-        fn->add(place, columns, 0, *arena);
-        ColumnFloat64 result;
-        fn->insert_result_into(place, result);
-        fn->destroy(place);
-        return result.get_data()[0];
-    };
-
-    double expected = sketch.get_estimate();
-    EXPECT_DOUBLE_EQ(run_and_get_result(fn_main), expected);
-    EXPECT_DOUBLE_EQ(run_and_get_result(fn_alias_sr_estimate), expected);
-    EXPECT_DOUBLE_EQ(run_and_get_result(fn_alias_datasketches_estimate), expected);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
-       testFactoryCreateForVarcharAndNullableAndUnsupportedType) {
-    AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_datasketches_HLL_union_agg(factory);
-    int be_version = BeExecVersionManager::get_newest_version();
-
-    DataTypes varchar_types = {std::make_shared<DataTypeString>(-1, TYPE_VARCHAR)};
-    auto fn_varchar =
-            factory.get("datasketches_hll_union_agg", varchar_types, nullptr, false, be_version);
-    auto fn_varchar_alias =
-            factory.get("ds_hll_estimate", varchar_types, nullptr, false, be_version);
-    ASSERT_NE(fn_varchar, nullptr);
-    ASSERT_NE(fn_varchar_alias, nullptr);
-
-    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
-    for (int i = 0; i < 7; ++i) {
-        sketch.update(i);
-    }
-    const auto ser = sketch.serialize_compact();
-
-    auto column_string = ColumnString::create();
-    column_string->insert_data((const char*)ser.data(), ser.size());
-    const IColumn* columns[1] = {column_string.get()};
-
-    auto run_and_get_result = [&](const AggregateFunctionPtr& fn) {
-        AggregateDataPtr place = arena->aligned_alloc(fn->size_of_data(), fn->align_of_data());
-        fn->create(place);
-        fn->add(place, columns, 0, *arena);
-        ColumnFloat64 result;
-        fn->insert_result_into(place, result);
-        fn->destroy(place);
-        return result.get_data()[0];
-    };
-
-    double expected = sketch.get_estimate();
-    EXPECT_DOUBLE_EQ(run_and_get_result(fn_varchar), expected);
-    EXPECT_DOUBLE_EQ(run_and_get_result(fn_varchar_alias), expected);
-
-    DataTypes nullable_varchar_types = {
-            make_nullable(std::make_shared<DataTypeString>(-1, TYPE_VARCHAR))};
-    auto fn_nullable_varchar = factory.get("datasketches_hll_union_agg", nullable_varchar_types,
-                                           nullptr, false, be_version);
-    ASSERT_NE(fn_nullable_varchar, nullptr);
-
-    DataTypes unsupported_types = {std::make_shared<DataTypeInt32>()};
-    auto fn_unsupported = factory.get("datasketches_hll_union_agg", unsupported_types, nullptr,
-                                      false, be_version);
-    EXPECT_EQ(fn_unsupported, nullptr);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testLowLgKSketchDoesNotReportCorruption) {
-    DataTypes argument_types = {std::make_shared<DataTypeString>()};
-    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
-            TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>>(argument_types);
-
-    datasketches::hll_sketch sketch(4, datasketches::HLL_8);
-    for (int i = 0; i < 100; ++i) {
-        sketch.update(i);
-    }
-    const auto ser = sketch.serialize_compact();
-
-    auto column_string = ColumnString::create();
-    column_string->insert_data((const char*)ser.data(), ser.size());
-
-    AggregateDataPtr place =
-            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
-    agg_func->create(place);
-
-    const IColumn* columns[1] = {column_string.get()};
-    EXPECT_NO_THROW(agg_func->add(place, columns, 0, *arena));
-
-    ColumnFloat64 add_result;
-    agg_func->insert_result_into(place, add_result);
-
-    EXPECT_GE(add_result.get_data()[0], 50);
-    EXPECT_LE(add_result.get_data()[0], 150);
-
-    auto buf = ColumnString::create();
-    BufferWritable w(*buf);
-    StringRef d((const char*)ser.data(), ser.size());
-    w.write_binary(d);
-    w.commit();
-
-    AggregateDataPtr place2 =
-            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
-    agg_func->create(place2);
-
-    BufferReadable r(buf->get_data_at(0));
-    EXPECT_NO_THROW(agg_func->deserialize(place2, r, *arena));
-
-    ColumnFloat64 deserialize_result;
-    agg_func->insert_result_into(place2, deserialize_result);
-    EXPECT_EQ(deserialize_result.get_data()[0], add_result.get_data()[0]);
-
-    agg_func->destroy(place);
-    agg_func->destroy(place2);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testAddEmptyStringThrows) {
-    DataTypes argument_types = {std::make_shared<DataTypeString>()};
-    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
-            TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>>(argument_types);
-
-    auto column_string = ColumnString::create();
-    column_string->insert_data("", 0);
-
-    AggregateDataPtr place =
-            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
-    agg_func->create(place);
-
-    const IColumn* columns[1] = {column_string.get()};
-
-    try {
-        agg_func->add(place, columns, 0, *arena);
-        FAIL() << "Expected doris::Exception";
-    } catch (const doris::Exception& e) {
-        EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
-    }
-
-    agg_func->destroy(place);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testResetOnEmptyState) {
-    DataTypes argument_types = {std::make_shared<DataTypeString>()};
-    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
-            TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>>(argument_types);
-
-    AggregateDataPtr place =
-            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
-    agg_func->create(place);
-
-    EXPECT_NO_THROW(agg_func->reset(place)); // cover reset() branch when union_data is nullptr
-
-    ColumnFloat64 result;
-    agg_func->insert_result_into(place, result);
-    EXPECT_DOUBLE_EQ(result.get_data()[0], 0.0);
-
-    agg_func->destroy(place);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testVarbinaryInput) {
-    AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_datasketches_HLL_union_agg(factory);
-    int be_version = BeExecVersionManager::get_newest_version();
-
-    DataTypes argument_types = {std::make_shared<DataTypeVarbinary>()};
-    auto fn = factory.get("datasketches_hll_union_agg", argument_types, nullptr, false, be_version);
-    ASSERT_NE(fn, nullptr);
-
-    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
-    for (int i = 20; i < 30; ++i) sketch.update(i);
-    const auto ser = sketch.serialize_compact();
-
-    auto column_varbinary = ColumnVarbinary::create();
-    column_varbinary->insert_data((const char*)ser.data(), ser.size());
-
-    const IColumn* columns[1] = {column_varbinary.get()};
-
-    AggregateDataPtr place = arena->aligned_alloc(fn->size_of_data(), fn->align_of_data());
-    fn->create(place);
-    fn->add(place, columns, 0, *arena);
-
-    ColumnFloat64 result;
-    fn->insert_result_into(place, result);
-    EXPECT_DOUBLE_EQ(result.get_data()[0], sketch.get_estimate());
-
-    fn->destroy(place);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testSerializeDeserializeEmptyState) {
-    DataTypes argument_types = {std::make_shared<DataTypeString>()};
-    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
-            TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>>(argument_types);
     AggregateDataPtr place =
             arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
     agg_func->create(place);
@@ -1324,6 +637,156 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testAllocatorAwareSketchInp
     ColumnFloat64 result;
     agg_func->insert_result_into(place, result);
     EXPECT_DOUBLE_EQ(result.get_data()[0], sketch.get_estimate());
+
+    agg_func->destroy(place);
+}
+
+namespace {
+
+class ScopedMemAllocFaultInjection {
+public:
+    explicit ScopedMemAllocFaultInjection(double probability)
+            : _old_probability(doris::config::mem_alloc_fault_probability) {
+        doris::config::mem_alloc_fault_probability = probability;
+        doris::enable_thread_catch_bad_alloc++;
+    }
+
+    ~ScopedMemAllocFaultInjection() {
+        doris::enable_thread_catch_bad_alloc--;
+        doris::config::mem_alloc_fault_probability = _old_probability;
+    }
+
+    ScopedMemAllocFaultInjection(const ScopedMemAllocFaultInjection&) = delete;
+    ScopedMemAllocFaultInjection& operator=(const ScopedMemAllocFaultInjection&) = delete;
+
+private:
+    double _old_probability;
+};
+
+} // namespace
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testMetaInfoCoversInlineMethods) {
+    DataTypes argument_types = {std::make_shared<DataTypeString>()};
+
+    using AggFunc =
+            AggregateFunctionDataSketchesHllUnionAgg<TYPE_STRING,
+                                                     AggregateFunctionHllSketchData<TYPE_STRING>>;
+    auto agg_func = std::make_shared<AggFunc>(argument_types);
+
+    EXPECT_EQ(AggregateFunctionHllSketchData<TYPE_STRING>::get_name(), "datasketches_hll_union_agg");
+    EXPECT_EQ(agg_func->get_name(), "datasketches_hll_union_agg");
+
+    auto return_type = agg_func->get_return_type();
+    EXPECT_TRUE(return_type->equals(*std::make_shared<DataTypeFloat64>()));
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testAddMemAllocFailedThrowsCorruption) {
+    DataTypes argument_types = {std::make_shared<DataTypeString>()};
+    using AggFunc =
+            AggregateFunctionDataSketchesHllUnionAgg<TYPE_STRING,
+                                                     AggregateFunctionHllSketchData<TYPE_STRING>>;
+    auto agg_func = std::make_shared<AggFunc>(argument_types);
+
+    datasketches::hll_sketch sketch(12, datasketches::HLL_8);
+    for (int i = 0; i < 1000; ++i) {
+        sketch.update(i);
+    }
+    const auto ser = sketch.serialize_compact();
+
+    auto column_string = ColumnString::create();
+    column_string->insert_data((const char*)ser.data(), ser.size());
+    const IColumn* columns[1] = {column_string.get()};
+
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+
+    {
+        ScopedMemAllocFaultInjection inject(1.0);
+        try {
+            agg_func->add(place, columns, 0, *arena);
+            FAIL() << "Expected doris::Exception";
+        } catch (const doris::Exception& e) {
+            EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
+        }
+    }
+
+    agg_func->destroy(place);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testDeserializeMemAllocFailedThrowsCorruption) {
+    DataTypes argument_types = {std::make_shared<DataTypeString>()};
+    using AggFunc =
+            AggregateFunctionDataSketchesHllUnionAgg<TYPE_STRING,
+                                                     AggregateFunctionHllSketchData<TYPE_STRING>>;
+    auto agg_func = std::make_shared<AggFunc>(argument_types);
+
+    datasketches::hll_sketch sketch(12, datasketches::HLL_8);
+    for (int i = 0; i < 1000; ++i) {
+        sketch.update(i);
+    }
+    const auto ser = sketch.serialize_compact();
+
+    auto buffer = ColumnString::create();
+    BufferWritable w(*buffer);
+    StringRef d((const char*)ser.data(), ser.size());
+    w.write_binary(d);
+    w.commit();
+
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+
+    BufferReadable r(buffer->get_data_at(0));
+    {
+        ScopedMemAllocFaultInjection inject(1.0);
+        try {
+            agg_func->deserialize(place, r, *arena);
+            FAIL() << "Expected doris::Exception";
+        } catch (const doris::Exception& e) {
+            EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
+        }
+    }
+
+    agg_func->destroy(place);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
+       testSerializeMemAllocFailedThrowsMemAllocFailed) {
+    DataTypes argument_types = {std::make_shared<DataTypeString>()};
+    using AggFunc =
+            AggregateFunctionDataSketchesHllUnionAgg<TYPE_STRING,
+                                                     AggregateFunctionHllSketchData<TYPE_STRING>>;
+    auto agg_func = std::make_shared<AggFunc>(argument_types);
+
+    datasketches::hll_sketch sketch(12, datasketches::HLL_8);
+    for (int i = 0; i < 2000; ++i) {
+        sketch.update(i);
+    }
+    const auto ser = sketch.serialize_compact();
+
+    auto column_string = ColumnString::create();
+    column_string->insert_data((const char*)ser.data(), ser.size());
+    const IColumn* columns[1] = {column_string.get()};
+
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+    agg_func->add(place, columns, 0, *arena);
+
+    auto buffer = ColumnString::create();
+    BufferWritable w(*buffer);
+
+    {
+        ScopedMemAllocFaultInjection inject(1.0);
+        try {
+            agg_func->serialize(place, w);
+            FAIL() << "Expected doris::Exception";
+        } catch (const doris::Exception& e) {
+            EXPECT_EQ(e.code(), doris::ErrorCode::MEM_ALLOC_FAILED);
+            EXPECT_NE(e.to_string().find("serialize HLL sketch"), std::string::npos);
+        }
+    }
 
     agg_func->destroy(place);
 }
