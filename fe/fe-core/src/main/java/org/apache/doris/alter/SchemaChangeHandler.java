@@ -54,6 +54,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
@@ -2050,14 +2051,23 @@ public class SchemaChangeHandler extends AlterHandler {
                 MaterializedIndex originIndex = partition.getIndex(originIndexId);
                 ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partitionId);
                 Short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
+                // All shadow tablets of the same (partition, shadow index) share the same TabletMeta;
+                // build it once and bulk-publish to MaterializedIndex.tablets after the per-tablet
+                // loop to keep copy-on-write O(n). TabletInvertedIndex registration stays
+                // per-iteration because Tablet.addReplica(...) below needs the tablet present
+                // in the inverted index.
+                TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
+                        newSchemaHash, medium);
+                List<Tablet> shadowTabletsForPartition = Lists.newArrayListWithCapacity(
+                        originIndex.getTablets().size());
+                TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
                 for (Tablet originTablet : originIndex.getTablets()) {
-                    TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                            newSchemaHash, medium);
                     long originTabletId = originTablet.getId();
                     long shadowTabletId = idGeneratorBuffer.getNextId();
 
                     Tablet shadowTablet = EnvFactory.getInstance().createTablet(shadowTabletId);
-                    shadowIndex.addTablet(shadowTablet, shadowTabletMeta);
+                    invertedIndex.addTablet(shadowTabletId, shadowTabletMeta);
+                    shadowTabletsForPartition.add(shadowTablet);
                     addedTablets.add(shadowTablet);
 
                     schemaChangeJob.addTabletIdMap(partitionId, shadowIndexId, shadowTabletId, originTabletId);
@@ -2114,6 +2124,9 @@ public class SchemaChangeHandler extends AlterHandler {
                                 "tablet " + originTabletId + " has few healthy replica: " + healthyReplicaNum);
                     }
                 }
+
+                // Bulk-publish all shadow tablets for this partition in one copy-on-write.
+                shadowIndex.appendTablets(shadowTabletsForPartition);
 
                 schemaChangeJob.addPartitionShadowIndex(partitionId, shadowIndexId, shadowIndex);
             } // end for partition

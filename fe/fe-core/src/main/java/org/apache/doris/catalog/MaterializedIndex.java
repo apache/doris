@@ -22,6 +22,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -123,17 +124,40 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     // Writers are synchronized on this index to prevent concurrent lost-update:
     // some callers (e.g. InternalCatalog.createTablets) do NOT hold the OlapTable
     // write lock when adding tablets.
-    // Copy-on-write makes incremental add O(n); bulk creation is thus O(n^2), but n
-    // (bucket count) is small and creation cost is dominated by replica/RPC work — the
-    // copy is negligible, and CME-safe reads on the hot query path are worth it.
+    // Copy-on-write keeps readers CME-safe without locking; for bulk creation use
+    // appendTablets(...) so the per-index tablets list is copied once per batch
+    // instead of once per tablet.
     public synchronized void addTablet(Tablet tablet, TabletMeta tabletMeta, boolean isRestore) {
-        idToTablets.put(tablet.getId(), tablet);
-        List<Tablet> next = new ArrayList<>(tablets);
-        next.add(tablet);
-        tablets = next; // volatile write; readers see the new immutable snapshot
+        appendTabletsInternal(Collections.singletonList(tablet));
         if (!isRestore) {
             Env.getCurrentInvertedIndex().addTablet(tablet.getId(), tabletMeta);
         }
+    }
+
+    // Bulk-publish: append the given tablets to this index's tablets list in a
+    // single copy-on-write (O(existing + batch) instead of O(n^2) over n
+    // single-tablet adds inside a synchronized block).
+    //
+    // Does NOT touch TabletInvertedIndex. Bulk-creation callers register tablets
+    // in TabletInvertedIndex eagerly inside their per-tablet loop because
+    // Tablet.addReplica(...) (non-restore) requires the tablet to already be
+    // present in the inverted index; only the per-index list copy is expensive
+    // enough to be worth batching.
+    public synchronized void appendTablets(Collection<Tablet> newTablets) {
+        appendTabletsInternal(newTablets);
+    }
+
+    private void appendTabletsInternal(Collection<Tablet> newTablets) {
+        if (newTablets.isEmpty()) {
+            return;
+        }
+        List<Tablet> next = new ArrayList<>(tablets.size() + newTablets.size());
+        next.addAll(tablets);
+        for (Tablet tablet : newTablets) {
+            idToTablets.put(tablet.getId(), tablet);
+            next.add(tablet);
+        }
+        tablets = next; // single volatile write publishes the whole batch
     }
 
     public void setIdForRestore(long idxId) {
