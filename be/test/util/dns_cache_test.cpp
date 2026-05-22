@@ -209,4 +209,47 @@ TEST_F(DNSCacheTest, failure_count_does_not_grow_after_eviction) {
             << "failure_count must not grow for an evicted host";
 }
 
+// Race defense: simulate concurrent eviction happening between _resolve_hostname's
+// shared_lock read of cached_ip and the unique_lock used to ++failure_count.
+// The injected resolver erases the host while DNS resolution is "in flight",
+// mimicking what the refresh thread would do.  Under the cache.find() re-check
+// added to the unique_lock section, failure_count must NOT be re-introduced.
+TEST_F(DNSCacheTest, failure_count_not_reintroduced_on_eviction_race) {
+    config::dns_cache_max_consecutive_failures = 1000; // disable auto-eviction
+
+    DNSCache* cache_ptr = nullptr;
+    auto racing_resolver = [&cache_ptr](const std::string& host, std::string&,
+                                        bool) -> Status {
+        // Simulate the refresh thread's _erase() landing during the
+        // small window when _resolve_hostname holds no lock.
+        if (cache_ptr != nullptr) {
+            cache_ptr->_erase(host);
+        }
+        return Status::InternalError("mock DNS failure during eviction race");
+    };
+
+    DNSCache cache(racing_resolver);
+    cache_ptr = &cache;
+
+    // Pre-populate so cached_ip is non-empty at the shared_lock read,
+    // bypassing _update (which would re-insert after the racing erase).
+    {
+        std::unique_lock<std::shared_mutex> lock(cache.mutex);
+        cache.cache["racing.test"] = "1.2.3.4";
+    }
+    ASSERT_EQ(1u, cache.size_for_test());
+
+    // Call _resolve_hostname directly (via friend access) so the caller-side
+    // re-insert in _update does not mask the behavior we want to verify.
+    std::string returned = cache._resolve_hostname("racing.test");
+
+    // _resolve_hostname returns the cached_ip captured before the race.
+    EXPECT_EQ("1.2.3.4", returned);
+    // The racing erase removed the host from cache.
+    EXPECT_EQ(0u, cache.size_for_test());
+    // The re-check under unique_lock prevented re-creating a failure_count entry.
+    EXPECT_EQ(0u, cache.failure_count_for_test("racing.test"))
+            << "failure_count must not be re-introduced for a host evicted mid-resolution";
+}
+
 } // end of namespace doris
