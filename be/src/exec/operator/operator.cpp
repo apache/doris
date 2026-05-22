@@ -413,11 +413,14 @@ Status OperatorXBase::get_block_after_projects(RuntimeState* state, Block* block
             return status;
         }
         status = do_projections(state, &local_state->_origin_block, block);
-        return status;
+        RETURN_IF_ERROR(status);
+        RETURN_IF_ERROR(block->check_type_and_column());
+        return Status::OK();
     }
     status = get_block(state, block, eos);
+    RETURN_IF_ERROR(status);
     RETURN_IF_ERROR(block->check_type_and_column());
-    return status;
+    return Status::OK();
 }
 
 void PipelineXLocalStateBase::reached_limit(Block* block, bool* eos) {

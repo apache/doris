@@ -267,7 +267,6 @@ void Block::check_number_of_rows(bool allow_null_columns) const {
 }
 
 Status Block::check_type_and_column() const {
-#ifndef NDEBUG
     for (const auto& elem : data) {
         if (!elem.column) {
             continue;
@@ -282,9 +281,11 @@ Status Block::check_type_and_column() const {
             continue;
         }
 
-        const auto& type = elem.type;
         const auto& column = elem.column;
 
+        RETURN_IF_CATCH_EXCEPTION({ column->sanity_check(); });
+#ifndef NDEBUG
+        const auto& type = elem.type;
         RETURN_IF_ERROR(column->column_self_check());
         auto st = type->check_column(*column);
         if (!st.ok()) {
@@ -293,8 +294,8 @@ Status Block::check_type_and_column() const {
                     "error: {}",
                     elem.name, column->get_name(), type->get_name(), st.msg());
         }
-    }
 #endif
+    }
     return Status::OK();
 }
 

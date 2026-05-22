@@ -39,6 +39,7 @@ constexpr int8_t MARK_TRUE = 1;
 constexpr int8_t MARK_NULL = -1;
 
 ColumnPtr make_const_column_from_row(const ColumnWithTypeAndName& source, size_t row, size_t rows) {
+    source.column->sanity_check();
     return ColumnConst::create(source.column->cut(row, 1), rows);
 }
 
@@ -51,6 +52,7 @@ ColumnPtr align_eval_column_nullable(const ColumnWithTypeAndName& target, const 
 
 void append_many_from_source(MutableColumnPtr& dst_column, const ColumnWithTypeAndName& src_column,
                              size_t row, size_t rows) {
+    src_column.column->sanity_check();
     if (!src_column.column->is_nullable() && dst_column->is_nullable()) {
         const auto origin_size = dst_column->size();
         auto* nullable_column = assert_cast<ColumnNullable*>(dst_column.get());
@@ -67,7 +69,9 @@ void append_filtered_from_source(MutableColumnPtr& dst_column,
     if (selected_rows == 0) {
         return;
     }
+    src_column.column->sanity_check();
     auto filtered_column = src_column.column->filter(filter, selected_rows);
+    filtered_column->sanity_check();
     if (!src_column.column->is_nullable() && dst_column->is_nullable()) {
         const auto origin_size = dst_column->size();
         auto* nullable_column = assert_cast<ColumnNullable*>(dst_column.get());
