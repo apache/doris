@@ -38,8 +38,10 @@
 #endif
 
 #include <chrono> // IWYU pragma: keep
+#include <condition_variable>
 #include <mutex>
 #include <ranges>
+#include <string_view>
 
 #include "common/cast_set.h"
 #include "common/config.h"
@@ -653,22 +655,56 @@ void BlockFileCache::add_need_update_lru_block(FileBlockSPtr block) {
     }
 }
 
+std::string BlockFileCache::ClearFileCacheResult::to_string(const std::string& path,
+                                                            std::string_view action) const {
+    std::stringstream ss;
+    ss << "finish " << action << ", path=" << path << " num_files_all=" << num_files_all
+       << " num_cells_all=" << num_cells_all << " num_cells_to_delete=" << num_cells_to_delete
+       << " num_cells_wait_recycle=" << num_cells_wait_recycle
+       << " num_recycle_drained=" << num_recycle_drained
+       << " wait_deleting_rounds=" << wait_deleting_rounds << " cancelled=" << cancelled
+       << " time_elapsed_ms=" << elapsed_ms;
+    if (!status.ok()) {
+        ss << " status=" << status.to_string();
+    }
+    return ss.str();
+}
+
+void BlockFileCache::append_clear_result(ClearFileCacheResult& result,
+                                         const ClearFileCacheResult& other) {
+    result.num_files_all += other.num_files_all;
+    result.num_cells_all += other.num_cells_all;
+    result.num_cells_to_delete += other.num_cells_to_delete;
+    result.num_cells_wait_recycle += other.num_cells_wait_recycle;
+    result.num_recycle_drained += other.num_recycle_drained;
+    result.wait_deleting_rounds += other.wait_deleting_rounds;
+    result.cancelled = result.cancelled || other.cancelled;
+    if (result.status.ok() && !other.status.ok()) {
+        result.status = other.status;
+    }
+}
+
 std::string BlockFileCache::clear_file_cache_async() {
+    std::lock_guard clear_lock(_clear_mutex);
+    auto result = clear_file_cache_async_impl();
+    auto msg = result.to_string(_cache_base_path, "clear_file_cache_async");
+    LOG(INFO) << msg;
+    return msg;
+}
+
+BlockFileCache::ClearFileCacheResult BlockFileCache::clear_file_cache_async_impl() {
     LOG(INFO) << "start clear_file_cache_async, path=" << _cache_base_path;
     _lru_dumper->remove_lru_dump_files();
-    int64_t num_cells_all = 0;
-    int64_t num_cells_to_delete = 0;
-    int64_t num_cells_wait_recycle = 0;
-    int64_t num_files_all = 0;
+    ClearFileCacheResult result;
     TEST_SYNC_POINT_CALLBACK("BlockFileCache::clear_file_cache_async");
     {
         SCOPED_CACHE_LOCK(_mutex, this);
 
         std::vector<FileBlockCell*> deleting_cells;
         for (auto& [_, offset_to_cell] : _files) {
-            ++num_files_all;
+            ++result.num_files_all;
             for (auto& [_1, cell] : offset_to_cell) {
-                ++num_cells_all;
+                ++result.num_cells_all;
                 deleting_cells.push_back(&cell);
             }
         }
@@ -679,27 +715,201 @@ std::string BlockFileCache::clear_file_cache_async() {
                 LOG(INFO) << "cell is not releasable, hash="
                           << " offset=" << cell->file_block->offset();
                 cell->file_block->set_deleting();
-                ++num_cells_wait_recycle;
+                ++result.num_cells_wait_recycle;
                 continue;
             }
             FileBlockSPtr file_block = cell->file_block;
             if (file_block) {
                 std::lock_guard block_lock(file_block->_mutex);
                 remove(file_block, cache_lock, block_lock, false);
-                ++num_cells_to_delete;
+                ++result.num_cells_to_delete;
             }
         }
         clear_need_update_lru_blocks();
     }
 
-    std::stringstream ss;
-    ss << "finish clear_file_cache_async, path=" << _cache_base_path
-       << " num_files_all=" << num_files_all << " num_cells_all=" << num_cells_all
-       << " num_cells_to_delete=" << num_cells_to_delete
-       << " num_cells_wait_recycle=" << num_cells_wait_recycle;
-    auto msg = ss.str();
-    LOG(INFO) << msg;
     _lru_dumper->remove_lru_dump_files();
+    return result;
+}
+
+size_t BlockFileCache::count_deleting_blocks_unlocked(
+        std::lock_guard<std::mutex>& /* cache_lock */) const {
+    size_t deleting_blocks = 0;
+    for (const auto& [_, offset_to_cell] : _files) {
+        for (const auto& [_1, cell] : offset_to_cell) {
+            if (cell.file_block->is_deleting()) {
+                ++deleting_blocks;
+            }
+        }
+    }
+    return deleting_blocks;
+}
+
+bool BlockFileCache::try_dequeue_recycle_key(FileCacheKey* key) {
+    std::lock_guard lock(_recycle_keys_mutex);
+    if (!_recycle_keys.try_dequeue(*key)) {
+        return false;
+    }
+    ++_recycle_remove_inflight;
+    return true;
+}
+
+Status BlockFileCache::remove_dequeued_recycle_key(const FileCacheKey& key) {
+    FileCacheStorageRemoveContextPtr context;
+    Status st;
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        st = _storage->remove(key, &context);
+    }
+    *_storage_async_remove_latency_us << (duration_ns / 1000);
+    if (context) {
+        Status fence_st = context->wait();
+        if (st.ok() && !fence_st.ok()) {
+            st = fence_st;
+        }
+    }
+    {
+        std::lock_guard lock(_recycle_keys_mutex);
+        DCHECK_GT(_recycle_remove_inflight, 0);
+        --_recycle_remove_inflight;
+    }
+    _recycle_keys_cv.notify_all();
+    return st;
+}
+
+BlockFileCache::ClearFileCacheResult BlockFileCache::drain_recycle_keys(
+        const std::shared_ptr<ClearFileCacheCancelToken>& cancel_token) {
+    ClearFileCacheResult result;
+    auto is_cancelled = [&]() {
+        return cancel_token != nullptr && cancel_token->cancelled.load(std::memory_order_acquire);
+    };
+    FileCacheKey key;
+    while (!is_cancelled() && try_dequeue_recycle_key(&key)) {
+        Status st = remove_dequeued_recycle_key(key);
+        ++result.num_recycle_drained;
+        if (!st.ok()) {
+            LOG_WARNING("").error(st);
+            if (result.status.ok()) {
+                result.status = st;
+            }
+        }
+        if (is_cancelled()) {
+            result.cancelled = true;
+            break;
+        }
+    }
+    if (is_cancelled()) {
+        result.cancelled = true;
+    }
+    *_recycle_keys_length_recorder << _recycle_keys.size_approx();
+    return result;
+}
+
+bool BlockFileCache::recycle_keys_idle() {
+    std::unique_lock lock(_recycle_keys_mutex);
+    return _recycle_keys.size_approx() == 0 && _recycle_remove_inflight == 0;
+}
+
+void BlockFileCache::refresh_metrics_unlocked(std::lock_guard<std::mutex>& cache_lock) {
+    _cur_cache_size_metrics->set_value(_cur_cache_size);
+    _cur_ttl_cache_size_metrics->set_value(_cur_ttl_size);
+    _cur_ttl_cache_lru_queue_cache_size_metrics->set_value(_ttl_queue.get_capacity(cache_lock));
+    _cur_ttl_cache_lru_queue_element_count_metrics->set_value(
+            _ttl_queue.get_elements_num(cache_lock));
+    _cur_normal_queue_cache_size_metrics->set_value(_normal_queue.get_capacity(cache_lock));
+    _cur_normal_queue_element_count_metrics->set_value(_normal_queue.get_elements_num(cache_lock));
+    _cur_index_queue_cache_size_metrics->set_value(_index_queue.get_capacity(cache_lock));
+    _cur_index_queue_element_count_metrics->set_value(_index_queue.get_elements_num(cache_lock));
+    _cur_disposable_queue_cache_size_metrics->set_value(_disposable_queue.get_capacity(cache_lock));
+    _cur_disposable_queue_element_count_metrics->set_value(
+            _disposable_queue.get_elements_num(cache_lock));
+}
+
+std::string BlockFileCache::clear_file_cache_sync(
+        std::shared_ptr<ClearFileCacheCancelToken> cancel_token) {
+    LOG(INFO) << "start clear_file_cache_sync, path=" << _cache_base_path;
+    std::lock_guard clear_lock(_clear_mutex);
+    using namespace std::chrono;
+    auto start = steady_clock::now();
+    ClearFileCacheResult result;
+
+    class TtlManagerPauseGuard {
+    public:
+        explicit TtlManagerPauseGuard(BlockFileCache* cache) : _cache(cache) {
+            _cache->pause_ttl_manager();
+        }
+        ~TtlManagerPauseGuard() { _cache->resume_ttl_manager(); }
+
+    private:
+        BlockFileCache* _cache;
+    } ttl_pause_guard(this);
+
+    append_clear_result(result, clear_file_cache_async_impl());
+
+    while (true) {
+        size_t deleting_blocks = 0;
+        {
+            SCOPED_CACHE_LOCK(_mutex, this);
+            deleting_blocks = count_deleting_blocks_unlocked(cache_lock);
+        }
+
+        auto drain_result = drain_recycle_keys(cancel_token);
+        append_clear_result(result, drain_result);
+        if (result.cancelled) {
+            break;
+        }
+
+        if (deleting_blocks == 0 && recycle_keys_idle()) {
+            auto final_drain_result = drain_recycle_keys(cancel_token);
+            append_clear_result(result, final_drain_result);
+            if (result.cancelled) {
+                break;
+            }
+            if (!recycle_keys_idle()) {
+                ++result.wait_deleting_rounds;
+                std::unique_lock lock(_recycle_keys_mutex);
+                _recycle_keys_cv.wait_for(lock, milliseconds(10));
+                continue;
+            }
+            break;
+        }
+
+        ++result.wait_deleting_rounds;
+        if (cancel_token != nullptr && cancel_token->cancelled.load(std::memory_order_acquire)) {
+            result.cancelled = true;
+            break;
+        }
+
+        {
+            std::unique_lock lock(_recycle_keys_mutex);
+            _recycle_keys_cv.wait_for(lock, milliseconds(10));
+        }
+    }
+
+    if (!result.cancelled) {
+        while (!recycle_keys_idle()) {
+            append_clear_result(result, drain_recycle_keys(cancel_token));
+            if (result.cancelled) {
+                break;
+            }
+            std::unique_lock lock(_recycle_keys_mutex);
+            _recycle_keys_cv.wait_for(lock, milliseconds(10));
+        }
+    }
+
+    if (!result.cancelled) {
+        clear_need_update_lru_blocks();
+        _lru_dumper->remove_lru_dump_files();
+        {
+            SCOPED_CACHE_LOCK(_mutex, this);
+            refresh_metrics_unlocked(cache_lock);
+        }
+    }
+
+    result.elapsed_ms = duration_cast<milliseconds>(steady_clock::now() - start).count();
+    auto msg = result.to_string(_cache_base_path, "clear_file_cache_sync");
+    LOG(INFO) << msg;
     return msg;
 }
 
@@ -2086,15 +2296,8 @@ void BlockFileCache::run_background_gc() {
             }
         }
 
-        while (batch_count < batch_limit && _recycle_keys.try_dequeue(key)) {
-            int64_t duration_ns = 0;
-            Status st;
-            {
-                SCOPED_RAW_TIMER(&duration_ns);
-                st = _storage->remove(key);
-            }
-            *_storage_async_remove_latency_us << (duration_ns / 1000);
-
+        while (batch_count < batch_limit && try_dequeue_recycle_key(&key)) {
+            Status st = remove_dequeued_recycle_key(key);
             if (!st.ok()) {
                 LOG_WARNING("").error(st);
             }
@@ -2263,6 +2466,7 @@ void BlockFileCache::resume_ttl_manager() {
     }
 }
 
+#ifdef BE_TEST
 std::string BlockFileCache::clear_file_cache_directly() {
     pause_ttl_manager();
     _lru_dumper->remove_lru_dump_files();
@@ -2340,6 +2544,7 @@ std::string BlockFileCache::clear_file_cache_directly() {
     resume_ttl_manager();
     return result;
 }
+#endif
 
 std::map<size_t, FileBlockSPtr> BlockFileCache::get_blocks_by_key(const UInt128Wrapper& hash) {
     std::map<size_t, FileBlockSPtr> offset_to_block;

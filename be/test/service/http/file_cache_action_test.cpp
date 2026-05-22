@@ -21,8 +21,10 @@
 #include <event2/http.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <future>
 #include <memory>
 #include <thread>
 
@@ -158,6 +160,39 @@ TEST_F(FileCacheActionTest, check_consistency_ok) {
 
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(json_metrics, "null");
+}
+
+TEST(HttpRequestAsyncReplyTest, wait_finish_send_reply_invokes_cancel_callback) {
+    auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
+    HttpRequest req(evhttp_req);
+    std::atomic_bool cancelled {false};
+
+    req.mark_send_reply();
+    req.set_cancel_callback([&] { cancelled.store(true, std::memory_order_release); });
+
+    auto wait_future = std::async(std::launch::async, [&] { req.wait_finish_send_reply(); });
+    for (int i = 0; i < 100 && !cancelled.load(std::memory_order_acquire); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    EXPECT_TRUE(cancelled.load(std::memory_order_acquire));
+    req.finish_send_reply();
+    wait_future.get();
+    evhttp_request_free(evhttp_req);
+}
+
+TEST(HttpRequestAsyncReplyTest, wait_finish_send_reply_does_not_cancel_finished_reply) {
+    auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
+    HttpRequest req(evhttp_req);
+    std::atomic_bool cancelled {false};
+
+    req.mark_send_reply();
+    req.set_cancel_callback([&] { cancelled.store(true, std::memory_order_release); });
+    req.finish_send_reply();
+    req.wait_finish_send_reply();
+
+    EXPECT_FALSE(cancelled.load(std::memory_order_acquire));
+    evhttp_request_free(evhttp_req);
 }
 
 } // namespace doris

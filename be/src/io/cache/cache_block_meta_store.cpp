@@ -367,6 +367,34 @@ void CacheBlockMetaStore::delete_key(const BlockMetaKey& key) {
     _write_queue.enqueue(op);
 }
 
+CacheBlockMetaStore::DeleteFence CacheBlockMetaStore::delete_key_with_fence(
+        const BlockMetaKey& key) {
+    std::string key_str = serialize_key(key);
+
+    WriteOperation op;
+    op.type = OperationType::DELETE;
+    op.key = key_str;
+    op.status = std::make_shared<Status>(Status::OK());
+    op.done = std::make_shared<std::atomic_bool>(false);
+
+    DeleteFence fence {.status = op.status, .done = op.done};
+    if (!_write_queue.enqueue(std::move(op))) {
+        *fence.status = Status::InternalError("failed to enqueue file cache meta delete operation");
+        fence.done->store(true, std::memory_order_release);
+    }
+    return fence;
+}
+
+Status CacheBlockMetaStore::wait_for_fence(const DeleteFence& fence) {
+    if (!fence.done) {
+        return Status::OK();
+    }
+    std::unique_lock lock(_fence_mutex);
+    _fence_cv.wait(lock,
+                   [&] { return fence.done->load(std::memory_order_acquire); });
+    return fence.status ? *fence.status : Status::OK();
+}
+
 void CacheBlockMetaStore::clear() {
     // First, stop the async worker thread
     _stop_worker.store(true, std::memory_order_release);
@@ -377,6 +405,7 @@ void CacheBlockMetaStore::clear() {
     // Clear the write queue to remove any pending operations
     WriteOperation op;
     while (_write_queue.try_dequeue(op)) {
+        finish_write_operation(op, rocksdb::Status::OK());
         // Just discard all pending operations
     }
 
@@ -398,6 +427,29 @@ void CacheBlockMetaStore::clear() {
     _write_thread = std::thread(&CacheBlockMetaStore::async_write_worker, this);
 }
 
+void CacheBlockMetaStore::finish_write_operation(WriteOperation& op,
+                                                 const rocksdb::Status& status) {
+    if (!op.status && !op.done) {
+        return;
+    }
+    if (op.status) {
+        if (status.ok()) {
+            *op.status = Status::OK();
+        } else {
+            *op.status = Status::InternalError("Failed to {} file cache meta: {}",
+                                               op.type == OperationType::PUT ? "write" : "delete",
+                                               status.ToString());
+        }
+    }
+    if (op.done) {
+        {
+            std::lock_guard lock(_fence_mutex);
+            op.done->store(true, std::memory_order_release);
+        }
+        _fence_cv.notify_all();
+    }
+}
+
 void CacheBlockMetaStore::async_write_worker() {
     Thread::set_self_name("cache_block_meta_store_async_write_worker");
     while (!_stop_worker.load(std::memory_order_acquire)) {
@@ -408,6 +460,8 @@ void CacheBlockMetaStore::async_write_worker() {
 
             if (!_db) {
                 LOG(WARNING) << "Database not initialized, skipping operation";
+                finish_write_operation(
+                        op, rocksdb::Status::IOError("Database not initialized"));
                 continue;
             }
 
@@ -428,6 +482,7 @@ void CacheBlockMetaStore::async_write_worker() {
                     g_rocksdb_delete_failed_num << 1;
                 }
             }
+            finish_write_operation(op, status);
         } else {
             // Queue is empty, sleep briefly
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -441,6 +496,7 @@ void CacheBlockMetaStore::async_write_worker() {
 
         if (!_db) {
             LOG(WARNING) << "Database not initialized, skipping operation";
+            finish_write_operation(op, rocksdb::Status::IOError("Database not initialized"));
             continue;
         }
 
@@ -455,6 +511,7 @@ void CacheBlockMetaStore::async_write_worker() {
             LOG(WARNING) << "Failed to " << (op.type == OperationType::PUT ? "write" : "delete")
                          << " to rocksdb: " << status.ToString();
         }
+        finish_write_operation(op, status);
     }
 }
 

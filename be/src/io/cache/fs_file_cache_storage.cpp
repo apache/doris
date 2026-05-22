@@ -281,6 +281,14 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
 }
 
 Status FSFileCacheStorage::remove(const FileCacheKey& key) {
+    return remove(key, nullptr);
+}
+
+Status FSFileCacheStorage::remove(const FileCacheKey& key,
+                                  FileCacheStorageRemoveContextPtr* context) {
+    if (context != nullptr) {
+        context->reset();
+    }
     const std::string v3_dir = get_path_in_local_cache_v3(key.hash);
     const std::string v3_file = get_path_in_local_cache_v3(v3_dir, key.offset);
     FDCache::instance()->remove_file_reader(std::make_pair(key.hash, key.offset));
@@ -295,7 +303,22 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     }
 
     BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
-    _meta_store->delete_key(mkey);
+    if (context == nullptr) {
+        _meta_store->delete_key(mkey);
+    } else {
+        struct MetaDeleteContext final : public FileCacheStorageRemoveContext {
+            MetaDeleteContext(CacheBlockMetaStore* meta_store,
+                              CacheBlockMetaStore::DeleteFence delete_fence)
+                    : meta_store(meta_store), delete_fence(std::move(delete_fence)) {}
+
+            Status wait() override { return meta_store->wait_for_fence(delete_fence); }
+
+            CacheBlockMetaStore* meta_store;
+            CacheBlockMetaStore::DeleteFence delete_fence;
+        };
+        *context = std::make_shared<MetaDeleteContext>(_meta_store.get(),
+                                                       _meta_store->delete_key_with_fence(mkey));
+    }
     std::vector<FileInfo> files;
     bool exists {false};
     RETURN_IF_ERROR(fs->list(v2_dir, true, &files, &exists));

@@ -247,20 +247,21 @@ FileCacheFactory::get_query_context_holders(const TUniqueId& query_id,
     return holders;
 }
 
-std::string FileCacheFactory::clear_file_caches(bool sync) {
+std::string FileCacheFactory::clear_file_caches(
+        bool sync, std::shared_ptr<BlockFileCache::ClearFileCacheCancelToken> cancel_token) {
     std::vector<std::string> results(_caches.size());
 #ifndef USE_LIBCPP
     std::for_each(std::execution::par, _caches.begin(), _caches.end(), [&](const auto& cache) {
         size_t index = &cache - &_caches[0];
         results[index] =
-                sync ? cache->clear_file_cache_directly() : cache->clear_file_cache_async();
+                sync ? cache->clear_file_cache_sync(cancel_token) : cache->clear_file_cache_async();
     });
 #else
     // libcpp do not support std::execution::par
     std::for_each(_caches.begin(), _caches.end(), [&](const auto& cache) {
         size_t index = &cache - &_caches[0];
         results[index] =
-                sync ? cache->clear_file_cache_directly() : cache->clear_file_cache_async();
+                sync ? cache->clear_file_cache_sync(cancel_token) : cache->clear_file_cache_async();
     });
 #endif
     std::stringstream ss;

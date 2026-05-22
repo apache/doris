@@ -78,6 +78,7 @@ public:
     Status finalize(const FileCacheKey& key, const size_t size) override;
     Status read(const FileCacheKey& key, size_t value_offset, Slice buffer) override;
     Status remove(const FileCacheKey& key) override;
+    Status remove(const FileCacheKey& key, FileCacheStorageRemoveContextPtr* context) override;
     Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
                                 const size_t size) override;
     void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,

@@ -19,9 +19,11 @@
 
 #include <glog/logging.h>
 
+#include <functional>
 #include <future>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "common/config.h"
@@ -86,11 +88,14 @@ public:
     const char* remote_host() const;
 
     void mark_send_reply(SendReplyType type = REPLY_ASYNC) { _send_reply_type = type; }
+    void set_cancel_callback(std::function<void()> callback);
 
     void finish_send_reply();
     void wait_finish_send_reply();
 
 private:
+    void cancel_async_reply();
+
     SendReplyType _send_reply_type = REPLY_SYNC;
     HttpMethod _method;
     std::string _uri;
@@ -109,6 +114,8 @@ private:
     // ensure send_reply finished
     std::promise<bool> _http_reply_promise;
     std::future<bool> _http_reply_future = _http_reply_promise.get_future();
+    std::mutex _cancel_callback_mutex;
+    std::function<void()> _cancel_callback;
 };
 
 } // namespace doris

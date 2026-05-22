@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <memory>
 #include <mutex>
 
 #include "common/status.h"
@@ -26,6 +27,13 @@
 namespace doris::io {
 
 class BlockFileCache;
+
+struct FileCacheStorageRemoveContext {
+    virtual ~FileCacheStorageRemoveContext() = default;
+    virtual Status wait() { return Status::OK(); }
+};
+
+using FileCacheStorageRemoveContextPtr = std::shared_ptr<FileCacheStorageRemoveContext>;
 
 using FileWriterMapKey = std::pair<UInt128Wrapper, size_t>;
 
@@ -58,6 +66,13 @@ public:
     virtual Status read(const FileCacheKey& key, size_t value_offset, Slice result) = 0;
     // remove the block
     virtual Status remove(const FileCacheKey& key) = 0;
+    // remove the block and optionally return a context that waits for durable metadata cleanup
+    virtual Status remove(const FileCacheKey& key, FileCacheStorageRemoveContextPtr* context) {
+        if (context != nullptr) {
+            context->reset();
+        }
+        return remove(key);
+    }
     // change the block meta
     virtual Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
                                         const size_t size) = 0;

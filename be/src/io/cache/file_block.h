@@ -137,9 +137,9 @@ public:
     FileBlock& operator=(const FileBlock&) = delete;
     FileBlock(const FileBlock&) = delete;
 
-    // block is being using by other thread when deleting, so tag it is_deleting and delete later on¬
-    void set_deleting() { _is_deleting = true; }
-    bool is_deleting() const { return _is_deleting; };
+    // Block is still held by another thread when clear/evict wants to delete it.
+    void set_deleting() { _is_deleting.store(true, std::memory_order_release); }
+    bool is_deleting() const { return _is_deleting.load(std::memory_order_acquire); };
 
 public:
     std::atomic<bool> _owned_by_cached_reader {
@@ -170,7 +170,7 @@ private:
     std::condition_variable _cv;
     FileCacheKey _key;
     size_t _downloaded_size {0};
-    bool _is_deleting {false};
+    std::atomic_bool _is_deleting {false};
 
     FileBlockCell* cell {nullptr};
 };

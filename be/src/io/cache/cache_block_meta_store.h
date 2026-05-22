@@ -25,6 +25,7 @@
 #include <rocksdb/status.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -105,6 +106,16 @@ public:
     // Asynchronously delete specified BlockMeta
     void delete_key(const BlockMetaKey& key);
 
+    struct DeleteFence {
+        std::shared_ptr<Status> status;
+        std::shared_ptr<std::atomic_bool> done;
+    };
+
+    // Asynchronously delete specified BlockMeta and return a fence for this delete operation.
+    DeleteFence delete_key_with_fence(const BlockMetaKey& key);
+
+    Status wait_for_fence(const DeleteFence& fence);
+
     // Clear all records from rocksdb and the async queue
     void clear();
 
@@ -128,11 +139,17 @@ private:
         OperationType type;
         std::string key;
         std::string value; // Only used for PUT operations
+        std::shared_ptr<Status> status;
+        std::shared_ptr<std::atomic_bool> done;
     };
+    void finish_write_operation(WriteOperation& op, const rocksdb::Status& status);
+
     moodycamel::ConcurrentQueue<WriteOperation> _write_queue;
     std::atomic<bool> _stop_worker {false};
     std::thread _write_thread;
     std::mutex _queue_mutex;
+    std::mutex _fence_mutex;
+    std::condition_variable _fence_cv;
 
     std::unique_ptr<ThreadPool> _thread_pool;
 };

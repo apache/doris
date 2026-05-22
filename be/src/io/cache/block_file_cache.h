@@ -28,6 +28,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -246,7 +247,16 @@ public:
      * @returns summary message
      */
     std::string clear_file_cache_async();
+    struct ClearFileCacheCancelToken {
+        std::atomic_bool cancelled {false};
+    };
+    std::string clear_file_cache_sync(
+            std::shared_ptr<ClearFileCacheCancelToken> cancel_token = nullptr);
+#ifdef BE_TEST
+    // Test-only helper. It bypasses FileBlock holder lifecycle and must not be used
+    // by production clear paths.
     std::string clear_file_cache_directly();
+#endif
 
     /**
      * Reset the cache capacity. If the new_capacity is smaller than _capacity, the redundant data will be remove async.
@@ -396,6 +406,30 @@ public:
     Status check_file_cache_consistency(InconsistencyContext& inconsistency_context);
 
 private:
+    struct ClearFileCacheResult {
+        int64_t num_files_all = 0;
+        int64_t num_cells_all = 0;
+        int64_t num_cells_to_delete = 0;
+        int64_t num_cells_wait_recycle = 0;
+        int64_t num_recycle_drained = 0;
+        int64_t wait_deleting_rounds = 0;
+        int64_t elapsed_ms = 0;
+        bool cancelled = false;
+        Status status = Status::OK();
+
+        std::string to_string(const std::string& path, std::string_view action) const;
+    };
+
+    ClearFileCacheResult clear_file_cache_async_impl();
+    void append_clear_result(ClearFileCacheResult& result, const ClearFileCacheResult& other);
+    size_t count_deleting_blocks_unlocked(std::lock_guard<std::mutex>& cache_lock) const;
+    ClearFileCacheResult drain_recycle_keys(
+            const std::shared_ptr<ClearFileCacheCancelToken>& cancel_token = nullptr);
+    bool recycle_keys_idle();
+    bool try_dequeue_recycle_key(FileCacheKey* key);
+    Status remove_dequeued_recycle_key(const FileCacheKey& key);
+    void refresh_metrics_unlocked(std::lock_guard<std::mutex>& cache_lock);
+
     LRUQueue& get_queue(FileCacheType type);
     const LRUQueue& get_queue(FileCacheType type) const;
 
@@ -552,6 +586,10 @@ private:
 
     // keys for async remove
     RecycleFileCacheKeys _recycle_keys;
+    std::mutex _clear_mutex;
+    std::mutex _recycle_keys_mutex;
+    std::condition_variable _recycle_keys_cv;
+    size_t _recycle_remove_inflight = 0;
 
     std::unique_ptr<LRUQueueRecorder> _lru_recorder;
     std::unique_ptr<CacheLRUDumper> _lru_dumper;

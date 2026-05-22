@@ -21,6 +21,8 @@
 #include "io/cache/block_file_cache_test_common.h"
 #include "storage/olap_define.h"
 
+#include <future>
+
 namespace doris::io {
 
 class FileBlockTestAccessor {
@@ -8447,6 +8449,215 @@ TEST_F(BlockFileCacheTest, lru_restore_size_mismatch_does_not_underflow_on_clear
     if (fs::exists(my_cache_path)) {
         fs::remove_all(my_cache_path);
     }
+}
+
+TEST_F(BlockFileCacheTest, clear_file_cache_sync_waits_deleting_block) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.capacity = 90;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; ++i) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    auto key = io::BlockFileCache::hash("sync_clear_waits_deleting_block");
+
+    std::optional<io::FileBlocksHolder> holder;
+    holder.emplace(cache.get_or_set(key, 0, 5, context));
+    ASSERT_EQ(holder->file_blocks.size(), 1);
+    auto& block = holder->file_blocks.front();
+    ASSERT_TRUE(block->get_or_set_downloader() == io::FileBlock::get_caller_id());
+    download(block);
+
+    auto future = std::async(std::launch::async, [&cache] { return cache.clear_file_cache_sync(); });
+    ASSERT_EQ(future.wait_for(std::chrono::milliseconds(100)), std::future_status::timeout);
+    EXPECT_EQ(cache.get_used_cache_size(io::FileCacheType::NORMAL), 5);
+
+    holder.reset();
+    auto msg = future.get();
+    EXPECT_NE(msg.find("cancelled=0"), std::string::npos);
+    EXPECT_EQ(cache.get_used_cache_size(io::FileCacheType::NORMAL), 0);
+    EXPECT_TRUE(cache.get_blocks_by_key(key).empty());
+}
+
+TEST_F(BlockFileCacheTest, clear_file_cache_sync_cancel_waiting_keeps_async_cleanup_safe) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.capacity = 90;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; ++i) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    auto key = io::BlockFileCache::hash("sync_clear_cancel");
+
+    std::optional<io::FileBlocksHolder> holder;
+    holder.emplace(cache.get_or_set(key, 0, 5, context));
+    ASSERT_EQ(holder->file_blocks.size(), 1);
+    auto& block = holder->file_blocks.front();
+    ASSERT_TRUE(block->get_or_set_downloader() == io::FileBlock::get_caller_id());
+    download(block);
+
+    auto token = std::make_shared<io::BlockFileCache::ClearFileCacheCancelToken>();
+    auto future =
+            std::async(std::launch::async, [&cache, token] { return cache.clear_file_cache_sync(token); });
+    ASSERT_EQ(future.wait_for(std::chrono::milliseconds(100)), std::future_status::timeout);
+
+    token->cancelled.store(true, std::memory_order_release);
+    auto msg = future.get();
+    EXPECT_NE(msg.find("cancelled=1"), std::string::npos);
+    EXPECT_EQ(cache.get_used_cache_size(io::FileCacheType::NORMAL), 5);
+    EXPECT_FALSE(cache.get_blocks_by_key(key).empty());
+
+    holder.reset();
+    for (int i = 0; i < 100; ++i) {
+        if (cache.get_used_cache_size(io::FileCacheType::NORMAL) == 0) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_EQ(cache.get_used_cache_size(io::FileCacheType::NORMAL), 0);
+    EXPECT_TRUE(cache.get_blocks_by_key(key).empty());
+}
+
+TEST_F(BlockFileCacheTest, clear_file_cache_sync_waits_meta_store_fence) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.capacity = 90;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; ++i) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    context.tablet_id = 101;
+    auto key = io::BlockFileCache::hash("sync_clear_meta_fence");
+    {
+        auto holder = cache.get_or_set(key, 0, 5, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+    }
+
+    auto* storage = dynamic_cast<io::FSFileCacheStorage*>(cache.get_storage());
+    ASSERT_NE(storage, nullptr);
+    io::BlockMetaKey meta_key(context.tablet_id, key, 0);
+    for (int i = 0; i < 100; ++i) {
+        if (storage->get_meta_store()->get(meta_key).has_value()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(storage->get_meta_store()->get(meta_key).has_value());
+
+    auto msg = cache.clear_file_cache_sync();
+    EXPECT_NE(msg.find("cancelled=0"), std::string::npos);
+    EXPECT_FALSE(storage->get_meta_store()->get(meta_key).has_value());
+}
+
+TEST_F(BlockFileCacheTest, clear_file_cache_sync_drains_recycle_queue) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.capacity = 90;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; ++i) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    auto key = io::BlockFileCache::hash("sync_clear_recycle_queue");
+    {
+        auto holder = cache.get_or_set(key, 0, 5, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+    }
+
+    auto* storage = dynamic_cast<io::FSFileCacheStorage*>(cache.get_storage());
+    ASSERT_NE(storage, nullptr);
+    io::FileCacheKey file_key {};
+    file_key.hash = key;
+    file_key.offset = 0;
+    file_key.meta.type = io::FileCacheType::NORMAL;
+    auto file = storage->get_local_file(file_key);
+    ASSERT_TRUE(fs::exists(file));
+
+    auto msg = cache.clear_file_cache_sync();
+    EXPECT_NE(msg.find("cancelled=0"), std::string::npos);
+    EXPECT_EQ(cache._recycle_keys.size_approx(), 0);
+    EXPECT_FALSE(fs::exists(file));
 }
 
 } // namespace doris::io

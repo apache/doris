@@ -161,6 +161,22 @@ const char* HttpRequest::remote_host() const {
     return _ev_req->remote_host;
 }
 
+void HttpRequest::set_cancel_callback(std::function<void()> callback) {
+    std::lock_guard lock(_cancel_callback_mutex);
+    _cancel_callback = std::move(callback);
+}
+
+void HttpRequest::cancel_async_reply() {
+    std::function<void()> cancel_callback;
+    {
+        std::lock_guard lock(_cancel_callback_mutex);
+        cancel_callback = _cancel_callback;
+    }
+    if (cancel_callback) {
+        cancel_callback();
+    }
+}
+
 void HttpRequest::finish_send_reply() {
     if (_send_reply_type == REPLY_SYNC) {
         return;
@@ -187,6 +203,15 @@ void HttpRequest::wait_finish_send_reply() {
     }
 
     VLOG_NOTICE << "start to wait send reply, infos=" << infos;
+    if (_http_reply_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        cancel_async_reply();
+    }
+    if (ctx == nullptr) {
+        _http_reply_future.wait();
+        VLOG_NOTICE << "wait send reply finished";
+        return;
+    }
+
     auto status = _http_reply_future.wait_for(std::chrono::seconds(config::async_reply_timeout_s));
     // if request is timeout and can't cancel fragment in time, it will cause some new request block
     // so we will free cancelled request in time.

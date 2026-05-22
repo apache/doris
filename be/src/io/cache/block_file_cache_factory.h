@@ -84,7 +84,9 @@ public:
      * @param sync wait until all data cleared
      * @return summary message
      */
-    std::string clear_file_caches(bool sync);
+    std::string clear_file_caches(
+            bool sync,
+            std::shared_ptr<BlockFileCache::ClearFileCacheCancelToken> cancel_token = nullptr);
 
     /**
      * dump lru queue info for all file cache instances

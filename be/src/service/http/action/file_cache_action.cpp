@@ -19,12 +19,14 @@
 
 #include <glog/logging.h>
 
+#include <atomic>
 #include <algorithm>
 #include <memory>
 #include <shared_mutex>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include "common/status.h"
@@ -60,9 +62,20 @@ constexpr static std::string_view DUMP = "dump";
 constexpr static std::string_view VALUE = "value";
 constexpr static std::string_view RELOAD = "reload";
 
-Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metrics) {
+bool FileCacheAction::_is_sync_clear_request(HttpRequest* req) const {
+    return req->param(std::string(OP)) == CLEAR &&
+           to_lower(req->param(std::string(SYNC))) == "true" &&
+           req->param(std::string(VALUE)).empty();
+}
+
+Status FileCacheAction::_handle_header(
+        HttpRequest* req, std::string* json_metrics,
+        std::shared_ptr<io::BlockFileCache::ClearFileCacheCancelToken> cancel_token,
+        bool add_header) {
     const std::string header_json(HEADER_JSON);
-    req->add_output_header(HttpHeaders::CONTENT_TYPE, header_json.c_str());
+    if (add_header) {
+        req->add_output_header(HttpHeaders::CONTENT_TYPE, header_json.c_str());
+    }
     std::string operation = req->param(std::string(OP));
     Status st = Status::OK();
     if (operation == RELEASE) {
@@ -85,7 +98,9 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
         const std::string& sync = req->param(std::string(SYNC));
         const std::string& segment_path = req->param(std::string(VALUE));
         if (segment_path.empty()) {
-            io::FileCacheFactory::instance()->clear_file_caches(to_lower(sync) == "true");
+            *json_metrics =
+                    io::FileCacheFactory::instance()->clear_file_caches(to_lower(sync) == "true",
+                                                                        cancel_token);
         } else {
             io::UInt128Wrapper hash = io::BlockFileCache::hash(segment_path);
             io::BlockFileCache* cache = io::FileCacheFactory::instance()->get_by_path(hash);
@@ -205,6 +220,29 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
 }
 
 void FileCacheAction::handle(HttpRequest* req) {
+    if (_is_sync_clear_request(req)) {
+        const std::string header_json(HEADER_JSON);
+        req->add_output_header(HttpHeaders::CONTENT_TYPE, header_json.c_str());
+        req->mark_send_reply();
+        auto cancel_token =
+                std::make_shared<io::BlockFileCache::ClearFileCacheCancelToken>();
+        req->set_cancel_callback([cancel_token] {
+            cancel_token->cancelled.store(true, std::memory_order_release);
+        });
+        std::thread([this, req, cancel_token] {
+            std::string json_metrics;
+            Status status = _handle_header(req, &json_metrics, cancel_token, false);
+            std::string status_result = status.to_json();
+            if (status.ok()) {
+                HttpChannel::send_reply(req, HttpStatus::OK,
+                                        json_metrics.empty() ? status.to_json() : json_metrics);
+            } else {
+                HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
+            }
+        }).detach();
+        return;
+    }
+
     std::string json_metrics;
     Status status = _handle_header(req, &json_metrics);
     std::string status_result = status.to_json();

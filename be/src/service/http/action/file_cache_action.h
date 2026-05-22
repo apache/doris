@@ -17,9 +17,11 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 
 #include "common/status.h"
+#include "io/cache/block_file_cache.h"
 #include "service/http/http_handler.h"
 #include "service/http/http_handler_with_auth.h"
 
@@ -37,6 +39,10 @@ public:
     void handle(HttpRequest* req) override;
 
 private:
-    Status _handle_header(HttpRequest* req, std::string* json_metrics);
+    bool _is_sync_clear_request(HttpRequest* req) const;
+    Status _handle_header(
+            HttpRequest* req, std::string* json_metrics,
+            std::shared_ptr<io::BlockFileCache::ClearFileCacheCancelToken> cancel_token = nullptr,
+            bool add_header = true);
 };
 } // namespace doris
