@@ -140,15 +140,15 @@ public abstract class AbstractStreamingTask {
     }
 
     public void cancel(boolean needWaitCancelComplete) {
+        // Flip isCanceled even on terminal states so late BE callbacks short-circuit.
+        if (getIsCanceled().getAndSet(true)) {
+            return;
+        }
         if (TaskStatus.SUCCESS.equals(status) || TaskStatus.FAILED.equals(status)
                 || TaskStatus.CANCELED.equals(status)) {
             return;
         }
         status = TaskStatus.CANCELED;
-        if (getIsCanceled().get()) {
-            return;
-        }
-        getIsCanceled().getAndSet(true);
         this.errMsg = "task cancelled";
     }
 

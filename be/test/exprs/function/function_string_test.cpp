@@ -27,9 +27,55 @@
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
 #include "util/encryption_util.h"
+#include "util/md5.h"
 
 namespace doris {
 using namespace ut_type;
+
+namespace {
+
+std::string md5_hex_for_test(const std::string& input) {
+    Md5Digest digest;
+    digest.update(input.data(), input.size());
+    digest.digest();
+    return digest.hex();
+}
+
+std::string make_md5_test_input(size_t length, size_t seed) {
+    std::string input(length, '\0');
+    for (size_t i = 0; i < length; ++i) {
+        input[i] = static_cast<char>('!' + ((i * 17 + seed * 31) % 94));
+    }
+    return input;
+}
+
+std::string make_md5_binary_input(size_t length, size_t seed) {
+    std::string input(length, '\0');
+    for (size_t i = 0; i < length; ++i) {
+        input[i] = static_cast<char>((i * 37 + seed * 13) & 0xff);
+    }
+    return input;
+}
+
+DataSet make_md5_string_dataset(const std::vector<std::string>& inputs) {
+    DataSet data_set;
+    data_set.reserve(inputs.size());
+    for (const auto& input : inputs) {
+        data_set.push_back({{input}, {md5_hex_for_test(input)}});
+    }
+    return data_set;
+}
+
+DataSet make_md5_varbinary_dataset(const std::vector<std::string>& inputs) {
+    DataSet data_set;
+    data_set.reserve(inputs.size());
+    for (const auto& input : inputs) {
+        data_set.push_back({{VARBINARY(input)}, {md5_hex_for_test(input)}});
+    }
+    return data_set;
+}
+
+} // namespace
 
 TEST(function_string_test, function_string_substr_test) {
     std::string func_name = "substr";
@@ -1971,6 +2017,22 @@ TEST(function_string_test, function_md5sum_test) {
     }
 
     {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+        std::vector<std::string> inputs;
+        const std::vector<size_t> lengths = {0,  1,   15,  16,  31,  32,  55,  56,  57,  63,  64,
+                                             65, 119, 120, 121, 127, 128, 129, 255, 256, 1024};
+        inputs.reserve(lengths.size());
+        for (size_t i = 0; i < lengths.size(); ++i) {
+            inputs.push_back(make_md5_test_input(lengths[i], i));
+        }
+
+        DataSet data_set = make_md5_string_dataset(inputs);
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_function_all_arg_comb<DataTypeString, true>(std::string("md5"), input_types,
+                                                          data_set);
+    }
+
+    {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {{{std::string("asd"), std::string("你好")},
                              {std::string("a38c15675555017e6b8ea042f2eb24f5")}},
@@ -1988,6 +2050,10 @@ TEST(function_string_test, function_md5sum_test) {
                                     PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {{{std::string("a"), std::string("sd"), std::string("你好")},
                              {std::string("a38c15675555017e6b8ea042f2eb24f5")}},
+                            {{std::string("a"), std::string(""), std::string("b")},
+                             {std::string("187ef4436122d1cc2f40dc2b92f0eba0")}},
+                            {{std::string(""), std::string("abc"), std::string("")},
+                             {std::string("900150983cd24fb0d6963f7d28e17f72")}},
                             {{std::string(""), std::string(""), std::string("")},
                              {std::string("d41d8cd98f00b204e9800998ecf8427e")}},
                             {{std::string("HEL"), std::string("LO,!"), std::string("^%")},
@@ -2013,6 +2079,28 @@ TEST(function_string_test, function_md5sum_test) {
     }
 
     {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY};
+        std::string all_bytes;
+        all_bytes.reserve(256);
+        for (int i = 0; i < 256; ++i) {
+            all_bytes.push_back(static_cast<char>(i));
+        }
+
+        std::vector<std::string> inputs = {
+                std::string(1, '\0'),          std::string("a\0b", 3),
+                std::string("\0\0\0\0", 4),    all_bytes,
+                all_bytes + all_bytes,         make_md5_binary_input(55, 1),
+                make_md5_binary_input(56, 2),  make_md5_binary_input(57, 3),
+                make_md5_binary_input(64, 4),  make_md5_binary_input(65, 5),
+                make_md5_binary_input(128, 6), make_md5_binary_input(129, 7)};
+
+        DataSet data_set = make_md5_varbinary_dataset(inputs);
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_function_all_arg_comb<DataTypeString, true>(std::string("md5"), input_types,
+                                                          data_set);
+    }
+
+    {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY};
         DataSet data_set = {{{VARBINARY("asd"), VARBINARY("你好")},
                              {std::string("a38c15675555017e6b8ea042f2eb24f5")}},
@@ -2026,10 +2114,26 @@ TEST(function_string_test, function_md5sum_test) {
     }
 
     {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY};
+        std::string left = std::string("a\0b", 3);
+        std::string right = std::string("\0c", 2);
+        std::string empty;
+        std::string bytes = make_md5_binary_input(64, 8);
+        DataSet data_set = {{{VARBINARY(left), VARBINARY(right)}, {md5_hex_for_test(left + right)}},
+                            {{VARBINARY(empty), VARBINARY(bytes)}, {md5_hex_for_test(bytes)}}};
+
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY,
                                     PrimitiveType::TYPE_VARBINARY};
         DataSet data_set = {{{VARBINARY("a"), VARBINARY("sd"), VARBINARY("你好")},
                              {std::string("a38c15675555017e6b8ea042f2eb24f5")}},
+                            {{VARBINARY("a"), VARBINARY(""), VARBINARY("b")},
+                             {std::string("187ef4436122d1cc2f40dc2b92f0eba0")}},
+                            {{VARBINARY(""), VARBINARY("abc"), VARBINARY("")},
+                             {std::string("900150983cd24fb0d6963f7d28e17f72")}},
                             {{VARBINARY(""), VARBINARY(""), VARBINARY("")},
                              {std::string("d41d8cd98f00b204e9800998ecf8427e")}},
                             {{VARBINARY("HEL"), VARBINARY("LO,!"), VARBINARY("^%")},

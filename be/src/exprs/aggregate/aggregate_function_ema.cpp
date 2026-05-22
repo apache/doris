@@ -15,32 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "exprs/aggregate/aggregate_function_ema.h"
 
-#include <openssl/md5.h>
-#include <stddef.h>
-
-#include <string>
+#include "exprs/aggregate/aggregate_function_simple_factory.h"
+#include "exprs/aggregate/helpers.h"
 
 namespace doris {
 
-static constexpr size_t MD5_HEX_LENGTH = 2 * MD5_DIGEST_LENGTH;
-
-class Md5Digest {
-public:
-    Md5Digest();
-
-    void update(const void* data, size_t length);
-    void digest();
-
-    const std::string& hex() const { return _hex; }
-
-private:
-    MD5_CTX _md5_ctx;
-    std::string _hex;
-};
-
-void md5_hex_batch(const unsigned char* const inputs[], const size_t lengths[], char* outputs,
-                   size_t count);
+void register_aggregate_function_ema(AggregateFunctionSimpleFactory& factory) {
+    factory.register_function_both(
+            "exponential_moving_average",
+            creator_without_type::creator<AggregateFunctionExponentialMovingAverage>);
+}
 
 } // namespace doris
