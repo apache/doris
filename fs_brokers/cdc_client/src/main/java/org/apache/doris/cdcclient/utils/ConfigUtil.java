@@ -81,7 +81,8 @@ public class ConfigUtil {
         }
         int hash = jobId.hashCode() & Integer.MAX_VALUE;
         int safeMax = Integer.MAX_VALUE - snapshotParallelism + 1;
-        int base = hash >= safeMax ? hash % safeMax : hash;
+        // > not >=: preserve hash == Integer.MAX_VALUE for parallelism=1 (single-value back-compat).
+        int base = hash > safeMax ? hash % safeMax : hash;
         if (base == 0) {
             base = 1;
         }

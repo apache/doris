@@ -69,14 +69,16 @@ suite("test_streaming_mysql_job_server_id", "p0,external,mysql,external_docker,e
 
     def assertCreateFails = { String jobName, String extraProps, String expectFragment ->
         sql "DROP JOB IF EXISTS where jobname = '${jobName}'"
+        Exception thrown = null
         try {
             sql buildCreateJob(jobName, extraProps)
-            assert false, "CREATE JOB ${jobName} should have failed"
         } catch (Exception ex) {
-            assert ex.message.toLowerCase().contains(expectFragment.toLowerCase()),
-                    "${jobName}: expected error containing '${expectFragment}', got: ${ex.message}"
+            thrown = ex
         }
-        sql "DROP JOB IF EXISTS where jobname = '${jobName}'"
+        assert thrown != null, "CREATE JOB ${jobName} should have failed"
+        def msg = String.valueOf(thrown.message).toLowerCase()
+        assert msg.contains(expectFragment.toLowerCase()),
+                "${jobName}: expected error containing '${expectFragment}', got: ${thrown.message}"
     }
 
     def runHappyPath = { String jobName, String extraProps ->

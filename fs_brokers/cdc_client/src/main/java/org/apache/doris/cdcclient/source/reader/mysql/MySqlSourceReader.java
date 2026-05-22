@@ -150,6 +150,9 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                         config.getOrDefault(
                                 DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
                                 DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
+        // Fail fast on bad server_id so latest-mode CREATE JOB rejects synchronously via initReader.
+        ConfigUtil.resolveServerIdRange(
+                jobId, parallelism, config.get(DataSourceConfigKeys.SERVER_ID));
         this.pollExecutor =
                 Executors.newFixedThreadPool(
                         parallelism,
