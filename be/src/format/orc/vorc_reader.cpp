@@ -29,9 +29,9 @@
 #include <limits>
 #include <list>
 
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vexpr.h"
-#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vslot_ref.h"
 #include "exprs/vtopn_pred.h"
 
@@ -75,13 +75,13 @@
 #include "exec/scan/file_scanner.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vbloom_predicate.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vin_predicate.h"
-#include "exprs/vruntimefilter_wrapper.h"
 #include "format/orc/orc_file_reader.h"
 #include "format/table/iceberg_reader.h"
 #include "format/table/transactional_hive_common.h"
@@ -1228,7 +1228,7 @@ void OrcReader::_collect_predicate_columns_from_conjuncts(
         auto expr = conjunct->root();
 
         if (expr->is_rf_wrapper()) {
-            auto* runtime_filter = static_cast<VRuntimeFilterWrapper*>(expr.get());
+            auto* runtime_filter = static_cast<RuntimeFilterExpr*>(expr.get());
             auto filter_impl = runtime_filter->get_impl();
             visit_slot(filter_impl.get());
 
