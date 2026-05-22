@@ -82,21 +82,21 @@ public class AlterWorkloadGroupCommand extends AlterCommand {
             throw new AnalysisException(WorkloadGroup.COMPUTE_GROUP + " can not be set in property.");
         }
 
-        ComputeGroup cg = null;
+        ComputeGroup cg;
         if (Config.isCloudMode()) {
             if (StringUtils.isEmpty(computeGroup)) {
-                computeGroup = Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME;
-            }
-            String cgName = computeGroup;
-            cg = Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(cgName);
-            if (cg == null) {
-                throw new UserException("Can not find compute group:" + cgName);
-            }
-        } else {
-            if (StringUtils.isEmpty(computeGroup)) {
-                computeGroup = Tag.DEFAULT_BACKEND_TAG.value;
+                throw new UserException("Must specify compute group via 'FOR <compute_group>' "
+                        + "in cloud mode.");
             }
             cg = Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(computeGroup);
+            if (cg == null) {
+                throw new UserException("Can not find compute group:" + computeGroup);
+            }
+        } else {
+            if (!StringUtils.isEmpty(computeGroup)) {
+                throw new UserException("'FOR <compute_group>' is not supported in non-cloud mode.");
+            }
+            cg = Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(Tag.VALUE_DEFAULT_TAG);
         }
 
         Env.getCurrentEnv().getWorkloadGroupMgr().alterWorkloadGroup(cg, workloadGroupName, properties);

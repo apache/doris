@@ -60,10 +60,11 @@ public class DropWorkloadGroupCommand extends DropCommand {
         }
 
         if (Config.isCloudMode()) {
-            String originCgStr = computeGroup;
             if (StringUtils.isEmpty(computeGroup)) {
-                computeGroup = Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME;
+                throw new UserException("Must specify compute group via 'FROM <compute_group>' "
+                        + "in cloud mode.");
             }
+            String originCgStr = computeGroup;
             String clusterId = ((CloudSystemInfoService) Env.getCurrentEnv().getClusterInfo()).getCloudClusterIdByName(
                     computeGroup);
             // there are two cases can not find a cluster_id:
@@ -79,13 +80,13 @@ public class DropWorkloadGroupCommand extends DropCommand {
             } else {
                 computeGroup = clusterId;
             }
-            Env.getCurrentEnv().getWorkloadGroupMgr().dropWorkloadGroup(computeGroup, workloadGroupName, ifExists);
         } else {
-            if (StringUtils.isEmpty(computeGroup)) {
-                computeGroup = Tag.VALUE_DEFAULT_TAG;
+            if (!StringUtils.isEmpty(computeGroup)) {
+                throw new UserException("'FROM <compute_group>' is not supported in non-cloud mode.");
             }
-            Env.getCurrentEnv().getWorkloadGroupMgr().dropWorkloadGroup(computeGroup, workloadGroupName, ifExists);
+            computeGroup = Tag.VALUE_DEFAULT_TAG;
         }
+        Env.getCurrentEnv().getWorkloadGroupMgr().dropWorkloadGroup(computeGroup, workloadGroupName, ifExists);
     }
 
     @Override

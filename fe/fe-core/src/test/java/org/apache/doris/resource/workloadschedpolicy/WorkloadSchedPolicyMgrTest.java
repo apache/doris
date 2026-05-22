@@ -1,0 +1,128 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.resource.workloadschedpolicy;
+
+import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
+
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Unit tests for the strict workload_group property format enforced by
+ * {@link WorkloadSchedPolicyMgr#checkProperties(Map, List)}.
+ *
+ * Regression coverage for CIR-20210 / CIR-20211. The new contract:
+ *
+ *   - Cloud mode    : workload_group must be '<compute_group>.<workload_group>'.
+ *   - Non-cloud mode: workload_group must be '<workload_group>' (no prefix).
+ *
+ * Both invalid forms must be rejected BEFORE any compute-group lookup, so the
+ * rejection is exercisable here without bootstrapping the full Env.
+ */
+public class WorkloadSchedPolicyMgrTest {
+
+    private String originDeployMode;
+    private String originCloudUniqueId;
+    private WorkloadSchedPolicyMgr mgr;
+
+    @Before
+    public void setUp() {
+        originDeployMode = Config.deploy_mode;
+        originCloudUniqueId = Config.cloud_unique_id;
+        mgr = new WorkloadSchedPolicyMgr();
+    }
+
+    @After
+    public void tearDown() {
+        Config.deploy_mode = originDeployMode;
+        Config.cloud_unique_id = originCloudUniqueId;
+    }
+
+    private Map<String, String> propsWith(String workloadGroupValue) {
+        Map<String, String> p = new HashMap<>();
+        p.put(WorkloadSchedPolicy.WORKLOAD_GROUP, workloadGroupValue);
+        return p;
+    }
+
+    @Test
+    public void testCloudModeRejectsUnqualifiedWorkloadGroup() {
+        Config.cloud_unique_id = "ut_cloud";
+        Assert.assertTrue(Config.isCloudMode());
+
+        try {
+            mgr.checkProperties(propsWith("superset"), new ArrayList<>());
+            Assert.fail("expected UserException for unqualified workload_group in cloud mode");
+        } catch (UserException e) {
+            Assert.assertTrue("message should mention <compute_group>.<workload_group>; got: " + e.getMessage(),
+                    e.getMessage().contains("<compute_group>.<workload_group>"));
+            Assert.assertTrue("message should mention cloud mode; got: " + e.getMessage(),
+                    e.getMessage().contains("cloud mode"));
+        }
+    }
+
+    @Test
+    public void testCloudModeRejectsTooManyDotsInWorkloadGroup() {
+        Config.cloud_unique_id = "ut_cloud";
+        Assert.assertTrue(Config.isCloudMode());
+
+        try {
+            mgr.checkProperties(propsWith("etl.superset.extra"), new ArrayList<>());
+            Assert.fail("expected UserException for over-qualified workload_group in cloud mode");
+        } catch (UserException e) {
+            Assert.assertTrue("message should mention <compute_group>.<workload_group>; got: " + e.getMessage(),
+                    e.getMessage().contains("<compute_group>.<workload_group>"));
+        }
+    }
+
+    @Test
+    public void testNonCloudModeRejectsQualifiedWorkloadGroup() {
+        Config.deploy_mode = "share_nothing";
+        Config.cloud_unique_id = "";
+        Assert.assertFalse(Config.isCloudMode());
+
+        try {
+            mgr.checkProperties(propsWith("etl.superset"), new ArrayList<>());
+            Assert.fail("expected UserException for qualified workload_group in non-cloud mode");
+        } catch (UserException e) {
+            Assert.assertTrue("message should mention single-name form; got: " + e.getMessage(),
+                    e.getMessage().contains("<workload_group>"));
+            Assert.assertTrue("message should mention non-cloud mode; got: " + e.getMessage(),
+                    e.getMessage().contains("non-cloud mode"));
+        }
+    }
+
+    @Test
+    public void testEmptyOrMissingWorkloadGroupPropertyIsAccepted() throws Exception {
+        Config.cloud_unique_id = "ut_cloud";
+        Assert.assertTrue(Config.isCloudMode());
+
+        // Absent property is OK: the workload_group binding is simply not set.
+        mgr.checkProperties(new HashMap<>(), new ArrayList<>());
+
+        // Explicit empty string is OK too: ignored like absent.
+        mgr.checkProperties(propsWith(""), new ArrayList<>());
+    }
+}
