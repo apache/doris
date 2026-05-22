@@ -152,7 +152,7 @@ template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValues& result,
                                                    int64_t start, int64_t end) const {
     auto row_count = cast_set<int>(end - start);
-    const auto* col = check_and_get_column<ColumnDecimal<T>>(column);
+    const auto* col = assert_cast<const ColumnDecimal<T>*>(&column);
     auto* ptype = result.mutable_type();
     if constexpr (T == TYPE_DECIMALV2) {
         ptype->set_id(PGenericType::DECIMAL128);

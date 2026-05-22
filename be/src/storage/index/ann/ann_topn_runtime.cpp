@@ -181,6 +181,7 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
 
 Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::AnnIndexIterator* ann_index_iterator,
                                                   roaring::Roaring* roaring, size_t rows_of_segment,
+                                                  bool enable_result_cache,
                                                   IColumn::MutablePtr& result_column,
                                                   std::shared_ptr<std::vector<uint64_t>>& row_ids,
                                                   segment_v2::AnnIndexStats& ann_index_stats) {
@@ -210,6 +211,7 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::AnnIndexIterator* 
             ._user_params = _user_params,
             .roaring = roaring,
             .rows_of_segment = rows_of_segment,
+            .enable_result_cache = enable_result_cache,
             .distance = nullptr,
             .row_ids = nullptr,
             .stats = std::make_unique<segment_v2::AnnIndexStats>()};

@@ -106,8 +106,7 @@ public:
         ColumnPtr res_column =
                 ColumnArray::create(std::move(nested_column), array->get_offsets_ptr());
         if (block.get_by_position(arguments[0]).column->is_nullable()) {
-            const ColumnNullable* nullable =
-                    check_and_get_column<ColumnNullable>(left_column.get());
+            const auto* nullable = assert_cast<const ColumnNullable*>(left_column.get());
             res_column = ColumnNullable::create(
                     res_column, nullable->get_null_map_column().clone_resized(nullable->size()));
         }

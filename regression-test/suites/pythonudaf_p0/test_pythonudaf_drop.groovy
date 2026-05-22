@@ -124,10 +124,73 @@ suite('test_pythonudaf_drop', "nonConcurrent") {
 
         qt_py_udaf_drop_5 '''SELECT py_drop_sum_reconnect(v) FROM py_udaf_drop_tbl;'''
         try_sql('DROP FUNCTION IF EXISTS py_drop_sum_reconnect(INT);')
+
+        // Case 4: inline UDAF drop/recreate must not reuse the old Python class.
+        // The Python server caches UDAF state managers, so this verifies the cache key
+        // and drop cleanup both use the FE function id, not just name + argument types.
+        sql '''DROP FUNCTION IF EXISTS py_drop_inline_recreate(INT)'''
+        sql """
+            CREATE AGGREGATE FUNCTION py_drop_inline_recreate(INT)
+            RETURNS BIGINT
+            PROPERTIES (
+                "type" = "PYTHON_UDF",
+                "symbol" = "InlineDropRecreateUdaf",
+                "runtime_version" = "${runtime_version}",
+                "always_nullable" = "true"
+            )
+            AS \$\$
+class InlineDropRecreateUdaf:
+    def __init__(self):
+        self.total = 0
+    @property
+    def aggregate_state(self):
+        return self.total
+    def accumulate(self, val):
+        if val is not None:
+            self.total += val
+    def merge(self, other):
+        self.total += other
+    def finish(self):
+        return self.total * 10
+\$\$
+        """
+        def inlineOldResult = sql '''SELECT py_drop_inline_recreate(v) FROM py_udaf_drop_tbl;'''
+        assert inlineOldResult[0][0].toString() == '60'
+
+        sql '''DROP FUNCTION IF EXISTS py_drop_inline_recreate(INT)'''
+        sql """
+            CREATE AGGREGATE FUNCTION py_drop_inline_recreate(INT)
+            RETURNS BIGINT
+            PROPERTIES (
+                "type" = "PYTHON_UDF",
+                "symbol" = "InlineDropRecreateUdaf",
+                "runtime_version" = "${runtime_version}",
+                "always_nullable" = "true"
+            )
+            AS \$\$
+class InlineDropRecreateUdaf:
+    def __init__(self):
+        self.total = 0
+    @property
+    def aggregate_state(self):
+        return self.total
+    def accumulate(self, val):
+        if val is not None:
+            self.total += val
+    def merge(self, other):
+        self.total += other
+    def finish(self):
+        return self.total * 100
+\$\$
+        """
+        def inlineNewResult = sql '''SELECT py_drop_inline_recreate(v) FROM py_udaf_drop_tbl;'''
+        assert inlineNewResult[0][0].toString() == '600'
+        sql '''DROP FUNCTION IF EXISTS py_drop_inline_recreate(INT)'''
     } finally {
         try_sql('DROP FUNCTION IF EXISTS py_drop_sum_once(INT);')
         try_sql('DROP FUNCTION IF EXISTS py_drop_sum_a(INT);')
         try_sql('DROP FUNCTION IF EXISTS py_drop_sum_b(INT);')
         try_sql('DROP FUNCTION IF EXISTS py_drop_sum_reconnect(INT);')
+        try_sql('DROP FUNCTION IF EXISTS py_drop_inline_recreate(INT);')
     }
 }

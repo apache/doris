@@ -103,6 +103,11 @@ public:
         return _max_version_schema;
     }
 
+    TabletSchemaSPtr row_binlog_tablet_schema() const {
+        std::shared_lock rlock(_meta_lock);
+        return _tablet_meta->row_binlog_schema();
+    }
+
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
     bool is_alter_failed() { return _alter_failed; }
 
@@ -138,7 +143,8 @@ public:
 
     // Get the missed versions until the spec_version.
     Versions get_missed_versions(int64_t spec_version) const;
-    Versions get_missed_versions_unlocked(int64_t spec_version) const;
+    Versions get_missed_versions_unlocked(int64_t spec_version,
+                                          bool capture_row_binlog = false) const;
 
     void generate_tablet_meta_copy(TabletMeta& new_tablet_meta, bool cloud_get_rowset_meta) const;
     void generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta,
@@ -451,6 +457,7 @@ struct CaptureRowsetOps {
     bool quiet = false;
     bool include_stale_rowsets = true;
     bool enable_fetch_rowsets_from_peers = false;
+    bool capture_row_binlog = false;
 
     // ======== only take effect in cloud mode ========
 

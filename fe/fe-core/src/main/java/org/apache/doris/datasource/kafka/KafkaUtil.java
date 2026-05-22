@@ -252,8 +252,16 @@ public class KafkaUtil {
                 // 2. If that sole backend is decommissioned, the aliveBackends list becomes empty.
                 // Hence, in such cases, it's essential to rely on the blacklist to obtain meta information.
                 if (backendIds.isEmpty()) {
-                    for (Long beId : Env.getCurrentEnv().getRoutineLoadManager().getBlacklist().keySet()) {
-                        backendIds.add(beId);
+                    Map<Long, Long> blacklist = Env.getCurrentEnv().getRoutineLoadManager().getBlacklist();
+                    for (Long beId : blacklist.keySet()) {
+                        Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+                        if (backend != null) {
+                            backendIds.add(beId);
+                        } else {
+                            blacklist.remove(beId);
+                            LOG.warn("remove stale backend {} from routine load blacklist when getting kafka meta",
+                                    beId);
+                        }
                     }
                 }
                 if (backendIds.isEmpty()) {
@@ -264,7 +272,16 @@ public class KafkaUtil {
                     throw new LoadException("failed to get info: " + errorMsg + ",");
                 }
                 Collections.shuffle(backendIds);
-                Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+                long selectedBeId = backendIds.get(0);
+                Backend be = Env.getCurrentSystemInfo().getBackend(selectedBeId);
+                if (be == null) {
+                    if (errorMsg == null) {
+                        errorMsg = "backend " + selectedBeId + " does not exist";
+                    }
+                    LOG.warn("skip stale backend {} when getting kafka meta", selectedBeId);
+                    retryTimes++;
+                    continue;
+                }
                 address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
                 long beId = be.getId();
 

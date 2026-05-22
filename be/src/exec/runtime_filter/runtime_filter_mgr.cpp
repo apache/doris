@@ -189,7 +189,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     auto filter_id = runtime_filter_desc->filter_id;
     GlobalMergeContext* cnt_val;
     {
-        std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
+        LockGuard guard(_filter_map_mutex);
         cnt_val = &_filter_map[filter_id]; // may inplace construct default object
     }
 
@@ -239,7 +239,7 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
     auto filter_id = request->filter_id();
     std::map<int, GlobalMergeContext>::iterator iter;
     {
-        std::shared_lock<std::shared_mutex> guard(_filter_map_mutex);
+        SharedLockGuard guard(_filter_map_mutex);
         iter = _filter_map.find(filter_id);
         if (iter == _filter_map.end()) {
             return Status::InvalidArgument("unknown filter id {}",
@@ -247,12 +247,12 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
         }
     }
     auto& cnt_val = iter->second;
-    std::unique_lock<std::mutex> l(iter->second.mtx);
+    std::unique_lock<std::mutex> l(cnt_val.mtx);
     // Discard stale-stage runtime filter size requests from old recursive CTE rounds.
     // Each round increments the stage counter; only messages matching the current stage
     // should be processed. This prevents old PFC's runtime filters from corrupting
     // the merge state of the new round's filters.
-    if (request->stage() != iter->second.stage) {
+    if (request->stage() != cnt_val.stage) {
         return Status::OK();
     }
     cnt_val.source_addrs.push_back(request->source_addr());
@@ -273,7 +273,7 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
             }
 
             auto sync_request = std::make_shared<PSyncFilterSizeRequest>();
-            sync_request->set_stage(iter->second.stage);
+            sync_request->set_stage(cnt_val.stage);
 
             auto callback = HandleErrorBrpcCallback<PSyncFilterSizeResponse>::create_shared(
                     query_ctx->ignore_runtime_filter_error() ? std::weak_ptr<QueryContext> {}
@@ -343,7 +343,7 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
     auto filter_id = request->filter_id();
     std::map<int, GlobalMergeContext>::iterator iter;
     {
-        std::shared_lock<std::shared_mutex> guard(_filter_map_mutex);
+        SharedLockGuard guard(_filter_map_mutex);
         iter = _filter_map.find(filter_id);
         VLOG_ROW << "recv filter id:" << request->filter_id() << " " << request->ShortDebugString();
         if (iter == _filter_map.end()) {
@@ -354,9 +354,9 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
     auto& cnt_val = iter->second;
     bool is_ready = false;
     {
-        std::lock_guard<std::mutex> l(iter->second.mtx);
+        std::lock_guard<std::mutex> l(cnt_val.mtx);
         // Discard stale-stage merge requests from old recursive CTE rounds.
-        if (request->stage() != iter->second.stage) {
+        if (request->stage() != cnt_val.stage) {
             return Status::OK();
         }
         if (cnt_val.merger == nullptr) {
@@ -508,7 +508,7 @@ Status RuntimeFilterMergeControllerEntity::reset_global_rf(
     for (const auto& filter_id : filter_ids) {
         GlobalMergeContext* cnt_val;
         {
-            std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
+            LockGuard guard(_filter_map_mutex);
             cnt_val = &_filter_map[filter_id]; // may inplace construct default object
         }
         RETURN_IF_ERROR(cnt_val->reset(query_ctx));
@@ -518,7 +518,7 @@ Status RuntimeFilterMergeControllerEntity::reset_global_rf(
 
 std::string RuntimeFilterMergeControllerEntity::debug_string() {
     std::string result = "RuntimeFilterMergeControllerEntity Info:\n";
-    std::shared_lock<std::shared_mutex> guard(_filter_map_mutex);
+    SharedLockGuard guard(_filter_map_mutex);
     for (const auto& [filter_id, ctx] : _filter_map) {
         result += fmt::format("filter_id: {}, stage: {}, {}\n", filter_id, ctx.stage,
                               ctx.merger->debug_string());

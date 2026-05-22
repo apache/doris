@@ -274,7 +274,7 @@ private:
             auto type = std::make_shared<DataTypeString>();
             MutableColumnPtr result_column = type->create_column();
             const ColumnString& docs =
-                    *check_and_get_column<ColumnString>(remove_nullable(src.get_root()).get());
+                    *assert_cast<const ColumnString*>(remove_nullable(src.get_root()).get());
             simdjson::ondemand::parser parser;
             std::vector<JsonPath> parsed_paths;
             if (field_name.empty() || field_name[0] != '$') {

@@ -842,6 +842,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX = "enable_fallback_on_missing_inverted_index";
     public static final String ENABLE_INVERTED_INDEX_SEARCHER_CACHE = "enable_inverted_index_searcher_cache";
     public static final String ENABLE_INVERTED_INDEX_QUERY_CACHE = "enable_inverted_index_query_cache";
+    public static final String ENABLE_ANN_INDEX_RESULT_CACHE = "enable_ann_index_result_cache";
 
     public static final String IN_LIST_VALUE_COUNT_THRESHOLD = "in_list_value_count_threshold";
 
@@ -2576,7 +2577,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_ORDERED_SCAN_RANGE_LOCATIONS)
     public boolean enableOrderedScanRangeLocations = false;
 
-    @VarAttrDef.VarAttr(name = CTE_INLINE_MODE, alias = "cbo_cte_inline_mode", description = {
+    @VarAttrDef.VarAttr(name = CTE_INLINE_MODE, description = {
             "CTE内联模式。<0:禁用; =0:仅当CTE体含UNION ALL且filter可消除部分分支时内联; >=1:CBO比较物化与内联",
             "CTE inline mode. <0: disable; =0: only inline when CTE body contains UNION ALL "
                     + "and consumer filters can eliminate some union branches; "
@@ -3407,6 +3408,12 @@ public class SessionVariable implements Serializable, Writable {
         "Enabling this will cache the results of inverted index queries."
     })
     public boolean enableInvertedIndexQueryCache = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_ANN_INDEX_RESULT_CACHE, needForward = true, description = {
+        "开启后会缓存 ANN 索引查询结果",
+        "Enabling this will cache the results of ANN index queries."
+    })
+    public boolean enableAnnIndexResultCache = true;
 
     @VarAttrDef.VarAttr(name = IN_LIST_VALUE_COUNT_THRESHOLD, description = {
         "in 条件 value 数量大于这个 threshold 后将不会走 fast_execute",
@@ -5600,6 +5607,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
         tResult.setEnableInvertedIndexSearcherCache(enableInvertedIndexSearcherCache);
         tResult.setEnableInvertedIndexQueryCache(enableInvertedIndexQueryCache);
+        tResult.setEnableAnnIndexResultCache(enableAnnIndexResultCache);
         tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
         tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
         tResult.setQuerySlotCount(wgQuerySlotCount);

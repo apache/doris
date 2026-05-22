@@ -208,7 +208,7 @@ public:
     void _evaluate_bit(const IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
         if (column.is_nullable()) {
-            const auto* nullable_col = check_and_get_column<ColumnNullable>(column);
+            const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
             const auto& null_bitmap = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
@@ -461,7 +461,7 @@ private:
         int16_t new_size = 0;
 
         if (column.is_nullable()) {
-            const auto* nullable_col = check_and_get_column<ColumnNullable>(column);
+            const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
             const auto& null_map = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
@@ -495,7 +495,7 @@ private:
 
         if (column->is_column_dictionary()) {
             if constexpr (is_string_type(Type)) {
-                const auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(column);
+                const auto* nested_col_ptr = assert_cast<const ColumnDictI32*>(column);
                 const auto& data_array = nested_col_ptr->get_data();
                 auto segid = column->get_rowset_segment_id();
                 DCHECK((segid.first.hi | segid.first.mi | segid.first.lo) != 0);
@@ -537,7 +537,7 @@ private:
             }
         } else {
             auto& pred_col =
-                    check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(column)
+                    assert_cast<const PredicateColumnType<PredicateEvaluateType<Type>>*>(column)
                             ->get_data();
             auto pred_col_data = pred_col.data();
 
@@ -559,7 +559,7 @@ private:
                             const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
             if constexpr (is_string_type(Type)) {
-                const auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(column);
+                const auto* nested_col_ptr = assert_cast<const ColumnDictI32*>(column);
                 const auto& data_array = nested_col_ptr->get_data();
                 auto& value_in_dict_flags =
                         _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];

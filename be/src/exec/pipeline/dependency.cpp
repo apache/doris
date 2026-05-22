@@ -313,6 +313,11 @@ Status AggSharedState::reset_hash_table() {
 }
 
 void PartitionedAggSharedState::close() {
+    bool false_close = false;
+    if (!is_closed.compare_exchange_strong(false_close, true)) {
+        return;
+    }
+
     for (auto& partition : _spill_partitions) {
         if (partition) {
             ExecEnv::GetInstance()->spill_file_mgr()->delete_spill_file(partition);

@@ -426,7 +426,7 @@ public class SchemaTable extends Table {
                             .column("CREATION_TIME", ScalarType.createType(PrimitiveType.DATETIME))
                             .column("NEWEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.DATETIME))
                             .column("SCHEMA_VERSION", ScalarType.createType(PrimitiveType.INT))
-                            .column("COMMIT_TSO", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("COMMIT_TSO", ScalarType.createVarchar(64))
                             .build()))
             .put("parameters", new SchemaTable(SystemIdGenerator.getNextId(), "parameters", TableType.SCHEMA,
                     builder().column("SPECIFIC_CATALOG", ScalarType.createVarchar(64))
@@ -830,6 +830,7 @@ public class SchemaTable extends Table {
                             .column("LABEL", ScalarType.createStringType())
                             .column("MSG", ScalarType.createStringType())
                             .column("COUNT", ScalarType.createType(PrimitiveType.INT))
+                            .column("VAULT_ID", ScalarType.createStringType())
                             .build()))
             .put("cluster_snapshot_properties",
                     new SchemaTable(SystemIdGenerator.getNextId(), "cluster_snapshot_properties", TableType.SCHEMA,

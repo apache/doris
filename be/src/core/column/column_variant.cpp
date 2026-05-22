@@ -839,7 +839,7 @@ void ColumnVariant::for_each_subcolumn(ColumnCallback callback) {
 }
 
 void ColumnVariant::insert_from(const IColumn& src, size_t n) {
-    const auto* src_v = check_and_get_column<ColumnVariant>(src);
+    const auto* src_v = assert_cast<const ColumnVariant*>(&src);
     ENABLE_CHECK_CONSISTENCY(src_v);
     ENABLE_CHECK_CONSISTENCY(this);
     // Preserve the original root-only copy path for ordinary variant columns.
