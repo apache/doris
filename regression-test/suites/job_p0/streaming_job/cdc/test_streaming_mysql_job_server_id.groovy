@@ -100,15 +100,15 @@ suite("test_streaming_mysql_job_server_id", "p0,external,mysql,external_docker,e
         }
     }
 
-    // ─── Section 1: latest mode rejects bad server_id synchronously at CREATE ───
+    // ─── Section 1: FE validator rejects bad server_id at CREATE ─────────────
     assertCreateFails("test_serverid_reject_format",
-            '"offset" = "latest", "server_id" = "abc"', "server_id")
+            '"offset" = "initial", "server_id" = "abc"', "server_id")
     assertCreateFails("test_serverid_reject_zero",
-            '"offset" = "latest", "server_id" = "0"', "server_id")
+            '"offset" = "initial", "server_id" = "0"', "server_id")
     assertCreateFails("test_serverid_reject_backward",
-            '"offset" = "latest", "server_id" = "5408-5400"', "server_id")
+            '"offset" = "initial", "server_id" = "5408-5400"', "server_id")
     assertCreateFails("test_serverid_reject_width",
-            '"offset" = "latest", "server_id" = "99500", "snapshot_parallelism" = "2"',
+            '"offset" = "initial", "server_id" = "99500", "snapshot_parallelism" = "2"',
             "snapshot_parallelism")
 
     // ─── Section 2: happy path — job runs, data syncs ────────────────────────

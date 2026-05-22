@@ -123,6 +123,45 @@ public class DataSourceConfigValidator {
                     "ssl_mode '" + DataSourceConfigKeys.SSL_MODE_VERIFY_CA
                             + "' requires ssl_rootcert to be set");
         }
+
+        validateServerIdConfig(input);
+    }
+
+    // Shared by validateSource and the cdc_stream TVF entrypoint so both reject malformed
+    // server_id at SQL-analysis time, not as a cdc_client runtime error.
+    public static void validateServerIdConfig(Map<String, String> input)
+            throws IllegalArgumentException {
+        String serverIdValue = input.get(DataSourceConfigKeys.SERVER_ID);
+        if (serverIdValue == null) {
+            return;
+        }
+        int[] range = parseServerIdRange(serverIdValue);
+        if (range == null) {
+            throw new IllegalArgumentException(
+                    "Invalid value for key '" + DataSourceConfigKeys.SERVER_ID + "': "
+                            + serverIdValue
+                            + ". Expected a single value (e.g. '5400') or range (e.g. '5400-5408')"
+                            + " with start >= 1 and start <= end.");
+        }
+        String parallelismValue = input.getOrDefault(
+                DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
+                DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT);
+        Integer parallelism = parsePositiveInt(parallelismValue);
+        if (parallelism == null) {
+            throw new IllegalArgumentException(
+                    "Invalid value for key '" + DataSourceConfigKeys.SNAPSHOT_PARALLELISM
+                            + "': " + parallelismValue + ". Expected a positive integer.");
+        }
+        int width = range[1] - range[0] + 1;
+        // Range must cover every parallel SnapshotSplitReader; cdc_client throws otherwise.
+        if (width < parallelism) {
+            throw new IllegalArgumentException(
+                    "server_id range size " + width
+                            + " must be >= snapshot_parallelism " + parallelism
+                            + ". Widen the range (e.g. '" + range[0] + "-"
+                            + (range[0] + parallelism - 1)
+                            + "') or reduce parallelism.");
+        }
     }
 
     public static void validateTarget(Map<String, String> input) throws IllegalArgumentException {
@@ -169,6 +208,9 @@ public class DataSourceConfigValidator {
                 || key.equals(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
             return isPositiveInt(value);
         }
+        if (key.equals(DataSourceConfigKeys.SERVER_ID)) {
+            return parseServerIdRange(value) != null;
+        }
         return true;
     }
 
@@ -194,6 +236,49 @@ public class DataSourceConfigValidator {
 
     public static boolean isValidSslMode(String value) {
         return ALLOW_SSL_MODES.contains(value);
+    }
+
+    // Parse "5400" or "5400-5408" into {start, end} inclusive; null on any malformed input.
+    // Lower bound is 1 because MySQL server_id=0 disables replication.
+    static int[] parseServerIdRange(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        try {
+            int start;
+            int end;
+            int dash = trimmed.indexOf('-');
+            if (dash < 0) {
+                start = end = Integer.parseInt(trimmed);
+            } else {
+                String left = trimmed.substring(0, dash).trim();
+                String right = trimmed.substring(dash + 1).trim();
+                if (left.isEmpty() || right.isEmpty()) {
+                    return null;
+                }
+                start = Integer.parseInt(left);
+                end = Integer.parseInt(right);
+            }
+            if (start < 1 || start > end) {
+                return null;
+            }
+            return new int[] {start, end};
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static Integer parsePositiveInt(String value) {
+        try {
+            int n = Integer.parseInt(value.trim());
+            return n >= 1 ? n : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /**

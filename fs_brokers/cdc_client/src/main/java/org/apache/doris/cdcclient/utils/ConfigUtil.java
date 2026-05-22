@@ -44,7 +44,8 @@ public class ConfigUtil {
     private static ObjectMapper objectMapper = new ObjectMapper();
     private static final Logger LOG = LoggerFactory.getLogger(ConfigUtil.class);
 
-    // Resolve user-configured server_id range, or derive from jobId hash with width = parallelism.
+    // Resolve user-configured range, or derive from jobId hash with width = parallelism.
+    // Defensive duplicate of FE-side validation; serves as last-line check inside cdc_client.
     public static ServerIdRange resolveServerIdRange(
             String jobId, int snapshotParallelism, String userInput) {
         if (snapshotParallelism < 1) {
@@ -60,28 +61,19 @@ public class ConfigUtil {
             }
             if (userRange.getStartServerId() > userRange.getEndServerId()) {
                 throw new IllegalArgumentException(
-                        "server_id range start "
-                                + userRange.getStartServerId()
-                                + " must not exceed end "
-                                + userRange.getEndServerId());
+                        "server_id range start " + userRange.getStartServerId()
+                                + " must not exceed end " + userRange.getEndServerId());
             }
             if (userRange.getNumberOfServerIds() < snapshotParallelism) {
                 throw new IllegalArgumentException(
-                        "server_id range size "
-                                + userRange.getNumberOfServerIds()
-                                + " must be >= snapshot_parallelism "
-                                + snapshotParallelism
-                                + ". Widen the range (e.g. '"
-                                + userRange.getStartServerId()
-                                + "-"
-                                + (userRange.getStartServerId() + snapshotParallelism - 1)
-                                + "') or reduce parallelism.");
+                        "server_id range size " + userRange.getNumberOfServerIds()
+                                + " must be >= snapshot_parallelism " + snapshotParallelism);
             }
             return userRange;
         }
         int hash = jobId.hashCode() & Integer.MAX_VALUE;
         int safeMax = Integer.MAX_VALUE - snapshotParallelism + 1;
-        // > not >=: preserve hash == Integer.MAX_VALUE for parallelism=1 (single-value back-compat).
+        // Use `>` (not `>=`) so parallelism=1 preserves hash==MAX_VALUE for back-compat.
         int base = hash > safeMax ? hash % safeMax : hash;
         if (base == 0) {
             base = 1;
