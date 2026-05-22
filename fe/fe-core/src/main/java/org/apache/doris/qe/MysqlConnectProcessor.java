@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.DorisFE;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
@@ -256,6 +257,17 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         ctx.setStartTime();
         resolveWorkloadGroupName();
 
+        // Graceful shutdown: if FE is draining and rejecting new data-plane requests,
+        // silently close the connection (no MySQL error packet) so JDBC drivers fail
+        // over to another FE via multi-host config instead of surfacing an error.
+        if (DorisFE.shouldRejectNewQueries() && isDataPlaneCommand(command)) {
+            LOG.info("reject new query during graceful shutdown, connId={}, command={}, remote={}",
+                    ctx.getConnectionId(), command, ctx.getMysqlChannel().getRemoteHostPortString());
+            ctx.getState().setNoop();
+            ctx.setKilled();
+            return;
+        }
+
         switch (command) {
             case COM_INIT_DB:
                 handleInitDb();
@@ -306,6 +318,19 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                     LOG.warn("COM_SLEEP packet: [{}]", getPacket());
                 }
                 break;
+        }
+    }
+
+    private static boolean isDataPlaneCommand(MysqlCommand command) {
+        switch (command) {
+            case COM_QUERY:
+            case COM_STMT_PREPARE:
+            case COM_STMT_EXECUTE:
+            case COM_FIELD_LIST:
+            case COM_INIT_DB:
+                return true;
+            default:
+                return false;
         }
     }
 

@@ -483,6 +483,20 @@ public class Config extends ConfigBase {
     @ConfField(description = {"The maximum number of task threads in the MySQL service"})
     public static int max_mysql_service_task_threads_num = 4096;
 
+    @ConfField(mutable = true, description = {
+            "FE graceful shutdown A 阶段（假死 drain）的持续秒数。此阶段 /api/health 已返回 503，"
+                    + "但 listener 不关、新 query 仍正常应答，用于吸收 K8s LB/DNS 收敛延迟。",
+            "Duration in seconds of FE graceful shutdown phase A (drain). During this phase /api/health "
+                    + "returns 503, but listeners stay open and new queries are still served, to absorb "
+                    + "K8s LB/DNS convergence delay."})
+    public static int graceful_shutdown_drain_seconds = 15;
+
+    @ConfField(mutable = true, description = {
+            "FE graceful shutdown C 阶段等待 in-flight Coordinator 完成的最大秒数。超过则强制退出 JVM。",
+            "Maximum seconds to wait for in-flight Coordinators to finish during FE graceful shutdown "
+                    + "phase C. JVM will be forced to exit when exceeded."})
+    public static int grace_shutdown_wait_seconds = 300;
+
     @ConfField(description = {"BackendServiceProxy pool size for pooling GRPC channels."})
     public static int backend_proxy_num = 48;
 
