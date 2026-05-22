@@ -17,16 +17,12 @@
 
 package org.apache.doris.nereids.rules.exploration.mv.mapping;
 
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
 
@@ -34,8 +30,6 @@ import javax.annotation.Nullable;
  * SlotMapping, this is open generated from relationMapping
  */
 public class SlotMapping extends Mapping {
-
-    public static final Logger LOG = LogManager.getLogger(SlotMapping.class);
 
     private final BiMap<MappedSlot, MappedSlot> relationSlotMap;
     private Map<SlotReference, SlotReference> slotReferenceMap;
@@ -69,33 +63,24 @@ public class SlotMapping extends Mapping {
         BiMap<MappedRelation, MappedRelation> mappedRelationMap = relationMapping.getMappedRelationMap();
         for (Map.Entry<MappedRelation, MappedRelation> mappedRelationEntry : mappedRelationMap.entrySet()) {
             MappedRelation sourceRelation = mappedRelationEntry.getKey();
-            Map<List<String>, Slot> sourceSlotNameToSlotMap = sourceRelation.getSlotNameToSlotMap();
-
             MappedRelation targetRelation = mappedRelationEntry.getValue();
-            Map<List<String>, Slot> targetSlotNameSlotMap = targetRelation.getSlotNameToSlotMap();
-
-            for (List<String> sourceSlotName : sourceSlotNameToSlotMap.keySet()) {
-                Slot sourceSlot = sourceSlotNameToSlotMap.get(sourceSlotName);
-                Slot targetSlot = targetSlotNameSlotMap.get(sourceSlotName);
+            Map<RelationSemanticSlotKey, SlotReference> targetSlotBySemanticKey =
+                    targetRelation.getSlotBySemanticKey();
+            for (Map.Entry<RelationSemanticSlotKey, SlotReference> entry
+                    : sourceRelation.getSlotBySemanticKey().entrySet()) {
+                SlotReference sourceSlot = entry.getValue();
+                SlotReference targetSlot = targetSlotBySemanticKey.get(entry.getKey());
                 if (targetSlot == null) {
-                    // there are two scenes in which targetSlot maybe null
-                    // 1
-                    // if variant, though can not map slot from query to view, but we maybe derive slot from query
-                    // variant self, such as query slot to view slot mapping is payload#4 -> payload#10
-                    // and query has a variant which is payload['issue']['number']#20, this can not get from view.
-                    // in this scene, we can derive
-                    // payload['issue']['number']#20 -> element_at(element_at(payload#10, 'issue'), 'number') mapping
-                    // in expression rewrite
-                    // 2
-                    // Maybe table added column after last refresh
-                    LOG.warn(String.format("SlotMapping generate is null, source relation is %s, "
-                            + "target relation is %s", sourceRelation, targetRelation));
                     continue;
                 }
-                relationSlotMap.put(MappedSlot.of(sourceSlot,
-                                sourceRelation.getBelongedRelation()),
-                        MappedSlot.of(targetSlot, targetRelation.getBelongedRelation()));
-                slotReferenceMap.put((SlotReference) sourceSlot, (SlotReference) targetSlot);
+                MappedSlot sourceMappedSlot = MappedSlot.of(sourceSlot, sourceRelation.getBelongedRelation());
+                MappedSlot targetMappedSlot = MappedSlot.of(targetSlot, targetRelation.getBelongedRelation());
+                if (relationSlotMap.containsKey(sourceMappedSlot)
+                        || relationSlotMap.containsValue(targetMappedSlot)) {
+                    return null;
+                }
+                relationSlotMap.put(sourceMappedSlot, targetMappedSlot);
+                slotReferenceMap.put(sourceSlot, targetSlot);
             }
         }
         return SlotMapping.of(relationSlotMap, slotReferenceMap);

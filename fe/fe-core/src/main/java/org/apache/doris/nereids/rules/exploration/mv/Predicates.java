@@ -43,6 +43,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -73,20 +74,32 @@ public class Predicates {
 
     // Predicates that can be pulled up
     private final Set<Expression> pulledUpPredicates;
+    // Predicates guaranteed by relation scan semantics, but not shown as explicit filters in this plan.
+    private final Set<Expression> relationImpliedPredicates;
     // Predicates that can not be pulled up, should be equals between query and view
     private final Set<Expression> couldNotPulledUpPredicates;
 
-    public Predicates(Set<Expression> pulledUpPredicates, Set<Expression> couldNotPulledUpPredicates) {
+    public Predicates(Set<Expression> pulledUpPredicates, Set<Expression> couldNotPulledUpPredicates,
+            Set<Expression> relationImpliedPredicates) {
         this.pulledUpPredicates = pulledUpPredicates;
         this.couldNotPulledUpPredicates = couldNotPulledUpPredicates;
+        this.relationImpliedPredicates = relationImpliedPredicates;
     }
 
-    public static Predicates of(Set<Expression> pulledUpPredicates, Set<Expression> predicatesUnderBreaker) {
-        return new Predicates(pulledUpPredicates, predicatesUnderBreaker);
+    public static Predicates of(Set<Expression> pulledUpPredicates, Set<Expression> predicatesUnderBreaker,
+            Set<Expression> relationImpliedPredicates) {
+        return new Predicates(pulledUpPredicates, predicatesUnderBreaker, relationImpliedPredicates);
     }
 
     public Set<Expression> getPulledUpPredicates() {
         return pulledUpPredicates;
+    }
+
+    public Set<Expression> getSemanticPredicates() {
+        return ImmutableSet.<Expression>builder()
+                .addAll(pulledUpPredicates)
+                .addAll(relationImpliedPredicates)
+                .build();
     }
 
     public Set<Expression> getCouldNotPulledUpPredicates() {
@@ -96,7 +109,7 @@ public class Predicates {
     public Predicates mergePulledUpPredicates(Collection<Expression> predicates) {
         Set<Expression> mergedPredicates = new HashSet<>(predicates);
         mergedPredicates.addAll(this.pulledUpPredicates);
-        return new Predicates(mergedPredicates, this.couldNotPulledUpPredicates);
+        return new Predicates(mergedPredicates, this.couldNotPulledUpPredicates, this.relationImpliedPredicates);
     }
 
     /**
@@ -636,6 +649,7 @@ public class Predicates {
     @Override
     public String toString() {
         return Utils.toSqlString("Predicates", "pulledUpPredicates", pulledUpPredicates,
+                "relationImpliedPredicates", relationImpliedPredicates,
                 "predicatesUnderBreaker", couldNotPulledUpPredicates);
     }
 

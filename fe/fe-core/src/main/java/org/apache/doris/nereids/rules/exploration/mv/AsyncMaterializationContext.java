@@ -47,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Async context for query rewrite by materialized view
@@ -71,8 +72,8 @@ public class AsyncMaterializationContext extends MaterializationContext {
     }
 
     @Override
-    Plan doGenerateScanPlan(CascadesContext cascadesContext) {
-        return MaterializedViewUtils.generateMvScanPlan(this.mtmv, this.mtmv.getBaseIndexId(),
+    LogicalOlapScan doGenerateOlapScanPlan(CascadesContext cascadesContext) {
+        return MaterializedViewUtils.generateMvOlapScanPlan(this.mtmv, this.mtmv.getBaseIndexId(),
                 this.mtmv.getPartitionIds(), PreAggStatus.on(), cascadesContext);
     }
 
@@ -113,8 +114,11 @@ public class AsyncMaterializationContext extends MaterializationContext {
             return Optional.empty();
         }
         RelationId relationId = null;
-        Optional<LogicalOlapScan> logicalOlapScan = this.getScanPlan(null, cascadesContext)
-                .collectFirst(LogicalOlapScan.class::isInstance);
+        Plan scanPlan = this.scanPlan;
+        if (scanPlan == null) {
+            return Optional.empty();
+        }
+        Optional<LogicalOlapScan> logicalOlapScan = scanPlan.collectFirst(LogicalOlapScan.class::isInstance);
         if (logicalOlapScan.isPresent()) {
             relationId = logicalOlapScan.get().getRelationId();
         }
@@ -135,8 +139,8 @@ public class AsyncMaterializationContext extends MaterializationContext {
     }
 
     @Override
-    public Plan getScanPlan(StructInfo queryInfo, CascadesContext cascadesContext) {
-        super.getScanPlan(queryInfo, cascadesContext);
+    public @Nullable Plan getScanPlan(StructInfo queryStructInfo, CascadesContext cascadesContext) {
+        super.getScanPlan(queryStructInfo, cascadesContext);
         return scanPlan;
     }
 

@@ -26,7 +26,6 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionIncrementMaintainer.PartitionIncrementCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionIncrementMaintainer.PartitionIncrementChecker;
 import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.RelatedTableColumnInfo;
@@ -315,11 +314,11 @@ public class MaterializedViewUtils {
      * when query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
      * should be different
      */
-    public static Plan generateMvScanPlan(OlapTable table, long indexId,
+    public static LogicalOlapScan generateMvOlapScanPlan(OlapTable table, long indexId,
             List<Long> partitionIds,
             PreAggStatus preAggStatus,
             CascadesContext cascadesContext) {
-        LogicalOlapScan olapScan = new LogicalOlapScan(
+        return new LogicalOlapScan(
                 cascadesContext.getStatementContext().getNextRelationId(),
                 table,
                 ImmutableList.of(table.getQualifiedDbName()),
@@ -332,8 +331,6 @@ public class MaterializedViewUtils {
                 ImmutableList.of(),
                 Optional.empty(),
                 ImmutableList.of());
-        return BindRelation.checkAndAddDeleteSignFilter(olapScan, cascadesContext.getConnectContext(),
-                olapScan.getTable());
     }
 
     /**

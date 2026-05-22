@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -27,31 +28,39 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
+import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -60,8 +69,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Abstract context for query rewrite by materialized view, this context is different by statement context
@@ -164,25 +175,153 @@ public abstract class MaterializationContext {
      * query rewrite, because one plan may hit the materialized view repeatedly and the materialization scan output
      * should be different.
      */
-    public void tryGenerateScanPlan(CascadesContext cascadesContext) {
+    private void tryGenerateScanPlan(StructInfo queryStructInfo, CascadesContext cascadesContext) {
         if (!this.isAvailable()) {
             return;
         }
-        this.scanPlan = doGenerateScanPlan(cascadesContext);
-        // Materialization output expression shuttle, this will be used to expression rewrite
-        List<Slot> scanPlanOutput = this.scanPlan.getOutput();
-        // generate expression depend on the order of output
-        this.shuttledExprToScanExprMapping = ExpressionMapping.generate(this.planOutputShuttledExpressions,
-                scanPlanOutput);
-        // This is used by normalize statistics column expression
-        Map<Expression, Expression> regeneratedMapping = new HashMap<>();
+        LogicalOlapScan olapScan = doGenerateOlapScanPlan(cascadesContext);
+        List<Slot> scanPlanOutput = olapScan.getOutput();
+        ExpressionMapping newShuttledExprToScanExprMapping = ExpressionMapping.generate(
+                this.planOutputShuttledExpressions, scanPlanOutput);
+        Map<Expression, Expression> newExprToScanExprMapping = new HashMap<>();
         List<Slot> originalPlanOutput = originalPlan.getOutput();
         if (originalPlanOutput.size() == scanPlanOutput.size()) {
             for (int slotIndex = 0; slotIndex < originalPlanOutput.size(); slotIndex++) {
-                regeneratedMapping.put(originalPlanOutput.get(slotIndex), scanPlanOutput.get(slotIndex));
+                newExprToScanExprMapping.put(originalPlanOutput.get(slotIndex), scanPlanOutput.get(slotIndex));
             }
         }
-        this.exprToScanExprMapping = regeneratedMapping;
+
+        List<Map<Expression, Expression>> flattenExpressionMap = newShuttledExprToScanExprMapping.flattenMap();
+        Map<Expression, Expression> lineageExpressionToScanExpressionMap = flattenExpressionMap.isEmpty()
+                ? ImmutableMap.of()
+                : flattenExpressionMap.get(0);
+        Set<Expression> relationImpliedPredicates = tryCollectRelationImpliedPredicates(
+                structInfo, lineageExpressionToScanExpressionMap);
+        if (relationImpliedPredicates == null) {
+            if (queryStructInfo != null) {
+                recordFailReason(queryStructInfo, "Rewrite relation implied predicate to mv scan fail",
+                        () -> String.format("lineageExpressionToScanExpressionMap = %s",
+                                lineageExpressionToScanExpressionMap));
+            }
+            return;
+        }
+        olapScan = olapScan.withRelationImpliedPredicates(relationImpliedPredicates);
+        Plan newScanPlan = BindRelation.checkAndAddDeleteSignFilter(olapScan, cascadesContext.getConnectContext(),
+                olapScan.getTable());
+
+        this.shuttledExprToScanExprMapping = newShuttledExprToScanExprMapping;
+        this.exprToScanExprMapping = newExprToScanExprMapping;
+        this.scanPlan = newScanPlan;
+    }
+
+    public static @Nullable Set<Expression> tryCollectRelationImpliedPredicates(
+            StructInfo structInfo, List<? extends Expression> planOutputShuttledExpressions, List<Slot> scanOutput) {
+        ExpressionMapping shuttledExprToScanExprMapping =
+                ExpressionMapping.generate(planOutputShuttledExpressions, scanOutput);
+        List<Map<Expression, Expression>> flattenExpressionMap = shuttledExprToScanExprMapping.flattenMap();
+        Map<Expression, Expression> lineageExpressionToScanExpressionMap = flattenExpressionMap.isEmpty()
+                ? ImmutableMap.of()
+                : flattenExpressionMap.get(0);
+        return tryCollectRelationImpliedPredicates(structInfo, lineageExpressionToScanExpressionMap);
+    }
+
+    private static @Nullable Set<Expression> tryCollectRelationImpliedPredicates(StructInfo structInfo,
+            Map<Expression, Expression> lineageExpressionToScanExpressionMap) {
+        Predicates viewPredicates = Objects.requireNonNull(structInfo.getPredicates(),
+                "view predicates can not be null");
+        Set<Expression> viewSemanticPredicates = viewPredicates.getSemanticPredicates();
+        Set<Expression> relationImpliedPredicates = new HashSet<>();
+        if (viewSemanticPredicates.isEmpty()) {
+            return relationImpliedPredicates;
+        }
+
+        List<? extends Expression> viewLineagePredicates = ExpressionUtils.shuttleExpressionWithLineage(
+                new ArrayList<>(viewSemanticPredicates), structInfo.getTopPlan());
+
+        Map<RelationImpliedSlotKey, SlotReference> hiddenSlots = new HashMap<>();
+        for (Expression viewPredicate : viewLineagePredicates) {
+            if (ExpressionUtils.isInferred(viewPredicate) || BooleanLiteral.TRUE.equals(viewPredicate)) {
+                continue;
+            }
+            Expression rewrittenPredicate = toRelationImpliedPredicate(viewPredicate,
+                    lineageExpressionToScanExpressionMap, hiddenSlots);
+            if (rewrittenPredicate == null) {
+                return null;
+            }
+            relationImpliedPredicates.add(rewrittenPredicate);
+        }
+        return relationImpliedPredicates;
+    }
+
+    // Rewrite a semantic predicate from the MV definition side into a relation implied predicate
+    // that can be carried by the MV scan. For example, if the MV outputs `a + 1 AS x`,
+    // lineageExpressionToScanExpressionMap contains `a + 1 -> mv.x`, so `a + 1 > 10`
+    // is rewritten to `mv.x > 10`. If the predicate references a non-output column like `c > 10`,
+    // create a hidden slot for `c`, and reuse the same hidden slot through hiddenSlots.
+    private static Expression toRelationImpliedPredicate(Expression predicate,
+            Map<Expression, Expression> lineageExpressionToScanExpressionMap,
+            Map<RelationImpliedSlotKey, SlotReference> hiddenSlots) {
+        AtomicBoolean invalid = new AtomicBoolean(false);
+        Expression rewrittenPredicate = predicate.rewriteDownShortCircuit(expression -> {
+            if (invalid.get()) {
+                return expression;
+            }
+            Expression scanExpression = lineageExpressionToScanExpressionMap.get(expression);
+            if (scanExpression != null) {
+                // When an MV output expression is matched, replace it with the MV scan output slot,
+                // for example `a + 1` -> `mv.x`.
+                return scanExpression;
+            }
+            if (expression instanceof SlotReference) {
+                SlotReference slot = (SlotReference) expression;
+                if (!slot.getOriginalTable().isPresent() || !slot.getOriginalColumn().isPresent()) {
+                    invalid.set(true);
+                    return expression;
+                }
+                RelationImpliedSlotKey key = RelationImpliedSlotKey.of(slot);
+                // When a non-output base-table column is still identifiable, create a hidden slot for it.
+                return hiddenSlots.computeIfAbsent(key,
+                        ignored -> slot.withExprId(StatementScopeIdGenerator.newExprId()));
+            }
+            return expression;
+        });
+        return invalid.get() ? null : rewrittenPredicate;
+    }
+
+    private static class RelationImpliedSlotKey {
+        private final TableIdentifier tableIdentifier;
+        private final String columnName;
+        private final List<String> subPath;
+
+        private RelationImpliedSlotKey(TableIdentifier tableIdentifier, String columnName, List<String> subPath) {
+            this.tableIdentifier = tableIdentifier;
+            this.columnName = columnName;
+            this.subPath = subPath;
+        }
+
+        private static RelationImpliedSlotKey of(SlotReference slot) {
+            return new RelationImpliedSlotKey(new TableIdentifier(slot.getOriginalTable().get()),
+                    slot.getOriginalColumn().get().getName(), slot.getSubPath());
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof RelationImpliedSlotKey)) {
+                return false;
+            }
+            RelationImpliedSlotKey that = (RelationImpliedSlotKey) o;
+            return Objects.equals(tableIdentifier, that.tableIdentifier)
+                    && Objects.equals(columnName, that.columnName)
+                    && Objects.equals(subPath, that.subPath);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(tableIdentifier, columnName, subPath);
+        }
     }
 
     /**
@@ -210,7 +349,7 @@ public abstract class MaterializationContext {
      * query rewrite, because one plan may hit the materialized view repeatedly and the materialization scan output
      * should be different
      */
-    abstract Plan doGenerateScanPlan(CascadesContext cascadesContext);
+    abstract LogicalOlapScan doGenerateOlapScanPlan(CascadesContext cascadesContext);
 
     /**
      * Get materialization unique identifier which identify it
@@ -289,10 +428,10 @@ public abstract class MaterializationContext {
         return originalPlan;
     }
 
-    public Plan getScanPlan(StructInfo queryStructInfo, CascadesContext cascadesContext) {
+    public @Nullable Plan getScanPlan(StructInfo queryStructInfo, CascadesContext cascadesContext) {
         if (this.scanPlan == null || this.shuttledExprToScanExprMapping == null
                 || this.exprToScanExprMapping == null) {
-            tryGenerateScanPlan(cascadesContext);
+            tryGenerateScanPlan(queryStructInfo, cascadesContext);
         }
         return scanPlan;
     }

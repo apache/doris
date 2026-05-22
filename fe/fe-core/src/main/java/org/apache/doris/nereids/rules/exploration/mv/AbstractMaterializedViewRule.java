@@ -242,7 +242,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     materializationContext.getSlotMappingFromCache(queryToViewTableMapping);
             if (queryToViewSlotMapping == null) {
                 queryToViewSlotMapping = SlotMapping.generate(queryToViewTableMapping);
-                materializationContext.addSlotMappingToCache(queryToViewTableMapping, queryToViewSlotMapping);
+                if (queryToViewSlotMapping != null) {
+                    materializationContext.addSlotMappingToCache(queryToViewTableMapping, queryToViewSlotMapping);
+                }
             }
             if (queryToViewSlotMapping == null) {
                 materializationContext.recordFailReason(queryStructInfo,
@@ -277,6 +279,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             }
             Plan rewrittenPlan;
             Plan mvScan = materializationContext.getScanPlan(queryStructInfo, cascadesContext);
+            if (mvScan == null) {
+                continue;
+            }
             Plan queryPlan = queryStructInfo.getTopPlan();
             if (compensatePredicates.isAlwaysTrue()) {
                 rewrittenPlan = mvScan;
@@ -828,16 +833,17 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             // Required null-reject slots are recorded on the view side. Map query slots to view slots
             // before checking whether query predicates or INNER JoinEdges can reject those null rows.
             SlotMapping queryToViewMapping = viewToQuerySlotMapping.inverse();
+            Set<Expression> querySemanticPredicates = queryStructInfo.getPredicates().getSemanticPredicates();
             Optional<Set<Expression>> queryBasedNullRejectCompensationPredicates =
                     getQueryBasedNullRejectCompensationPredicates(
                             requireNoNullableViewSlot,
-                            queryStructInfo.getPredicates().getPulledUpPredicates(), queryToViewMapping,
+                            querySemanticPredicates, queryToViewMapping,
                             queryStructInfo, viewStructInfo, viewToQuerySlotMapping, cascadesContext);
             if (!queryBasedNullRejectCompensationPredicates.isPresent()) {
                 queryStructInfo = queryStructInfo.withPredicates(queryStructInfo.getPredicates()
                         .mergePulledUpPredicates(comparisonResult.getQueryAllPulledUpExpressions()));
                 queryBasedNullRejectCompensationPredicates = getQueryBasedNullRejectCompensationPredicates(
-                        requireNoNullableViewSlot, queryStructInfo.getPredicates().getPulledUpPredicates(),
+                        requireNoNullableViewSlot, queryStructInfo.getPredicates().getSemanticPredicates(),
                         queryToViewMapping, queryStructInfo, viewStructInfo, viewToQuerySlotMapping, cascadesContext);
             }
             if (!queryBasedNullRejectCompensationPredicates.isPresent()) {

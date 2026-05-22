@@ -37,6 +37,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /**
  * Async context for query rewrite by materialized view
@@ -64,8 +65,8 @@ public class SyncMaterializationContext extends MaterializationContext {
     }
 
     @Override
-    Plan doGenerateScanPlan(CascadesContext cascadesContext) {
-        return MaterializedViewUtils.generateMvScanPlan(olapTable, indexId, olapTable.getPartitionIds(),
+    LogicalOlapScan doGenerateOlapScanPlan(CascadesContext cascadesContext) {
+        return MaterializedViewUtils.generateMvOlapScanPlan(olapTable, indexId, olapTable.getPartitionIds(),
                 PreAggStatus.unset(), cascadesContext);
     }
 
@@ -99,8 +100,11 @@ public class SyncMaterializationContext extends MaterializationContext {
     @Override
     Optional<Pair<Id, Statistics>> getPlanStatistics(CascadesContext cascadesContext) {
         RelationId relationId = null;
-        Optional<LogicalOlapScan> scanObj = this.getScanPlan(null, cascadesContext)
-                .collectFirst(LogicalOlapScan.class::isInstance);
+        Plan scanPlan = this.scanPlan;
+        if (scanPlan == null) {
+            return Optional.empty();
+        }
+        Optional<LogicalOlapScan> scanObj = scanPlan.collectFirst(LogicalOlapScan.class::isInstance);
         if (scanObj.isPresent()) {
             relationId = scanObj.get().getRelationId();
         }
@@ -108,9 +112,12 @@ public class SyncMaterializationContext extends MaterializationContext {
     }
 
     @Override
-    public Plan getScanPlan(StructInfo queryStructInfo, CascadesContext cascadesContext) {
+    public @Nullable Plan getScanPlan(StructInfo queryStructInfo, CascadesContext cascadesContext) {
         //  Already get lock if sync mv, doesn't need to get lock
         super.getScanPlan(queryStructInfo, cascadesContext);
+        if (scanPlan == null) {
+            return null;
+        }
         if (queryStructInfo == null) {
             return scanPlan;
         }

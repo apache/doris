@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -32,9 +33,11 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -48,8 +51,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The cache for materialized view cache
@@ -179,9 +184,42 @@ public class MTMVCache {
                     Rewriter.bottomUp(new MergeProjectable()))).execute();
             return childContext.getRewritePlan();
         }, mvPlan, plan, false);
+        mvPlan = addNestedMtmvRelationImpliedPredicates(mvPlan, cascadesContext);
         // Construct structInfo once for use later
         Optional<StructInfo> structInfoOptional = MaterializationContext.constructStructInfo(mvPlan, plan,
                 cascadesContext);
         return Pair.of(mvPlan, structInfoOptional.orElse(null));
+    }
+
+    private static Plan addNestedMtmvRelationImpliedPredicates(Plan plan, CascadesContext cascadesContext) {
+        return plan.accept(new DefaultPlanRewriter<Void>() {
+            @Override
+            public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, Void context) {
+                if (!(olapScan.getTable() instanceof MTMV)) {
+                    return olapScan;
+                }
+                MTMVCache nestedCache;
+                try {
+                    nestedCache = ((MTMV) olapScan.getTable()).getOrGenerateCache(cascadesContext.getConnectContext());
+                } catch (Exception e) {
+                    LOG.warn("Generate nested MTMV cache fail, mtmv is {}", olapScan.getTable().getName(), e);
+                    return olapScan;
+                }
+                StructInfo nestedStructInfo = nestedCache.getAllRulesRewrittenPlanAndStructInfo().value();
+                if (nestedStructInfo == null) {
+                    return olapScan;
+                }
+                Set<Expression> nestedRelationImpliedPredicates =
+                        MaterializationContext.tryCollectRelationImpliedPredicates(
+                                nestedStructInfo, nestedStructInfo.getPlanOutputShuttledExpressions(),
+                                olapScan.getOutput());
+                if (nestedRelationImpliedPredicates == null) {
+                    return olapScan;
+                }
+                Set<Expression> relationImpliedPredicates = new HashSet<>(olapScan.getRelationImpliedPredicates());
+                relationImpliedPredicates.addAll(nestedRelationImpliedPredicates);
+                return olapScan.withRelationImpliedPredicates(relationImpliedPredicates);
+            }
+        }, null);
     }
 }
