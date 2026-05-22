@@ -64,11 +64,13 @@ public interface FileSystemProvider<P extends FileSystemProperties> extends Plug
     /**
      * Creates a FileSystem instance from validated typed properties.
      *
-     * <p>The default implementation preserves compatibility for providers whose typed
-     * properties can still be represented as legacy FileSystem key-value pairs.
+     * <p>Typed providers should override this method and construct the runtime client
+     * directly from typed accessors. The migration-compatible map entry remains
+     * {@link #create(Map)}.
      */
     default FileSystem create(P properties) throws IOException {
-        return create(properties.toFileSystemKv());
+        throw new UnsupportedOperationException(
+                name() + " does not support typed FileSystem creation yet.");
     }
 
     /**

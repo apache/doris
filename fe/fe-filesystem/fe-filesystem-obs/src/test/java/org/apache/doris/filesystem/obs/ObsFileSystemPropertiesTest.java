@@ -45,7 +45,6 @@ class ObsFileSystemPropertiesTest {
         Assertions.assertEquals("cn-north-4", properties.getRegion());
         Assertions.assertEquals("obs-ak", properties.getAccessKey());
         Assertions.assertEquals("obs-sk", properties.getSecretKey());
-        Assertions.assertEquals("obs-ak", properties.toFileSystemKv().get("OBS_ACCESS_KEY"));
     }
 
     @Test
@@ -71,8 +70,6 @@ class ObsFileSystemPropertiesTest {
         Assertions.assertEquals("aws-ak", properties.getAccessKey());
         Assertions.assertEquals("aws-sk", properties.getSecretKey());
         Assertions.assertEquals("legacy-bucket", properties.getBucket());
-        Assertions.assertEquals("aws-ak", properties.toFileSystemKv().get("OBS_ACCESS_KEY"));
-        Assertions.assertEquals("aws-ak", properties.toFileSystemKv().get("AWS_ACCESS_KEY"));
     }
 
     @Test

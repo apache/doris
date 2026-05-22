@@ -200,36 +200,6 @@ public final class CosFileSystemProperties
     }
 
     @Override
-    public Map<String, String> toFileSystemKv() {
-        Map<String, String> kv = new HashMap<>();
-        putIfNotBlank(kv, "COS_ENDPOINT", endpoint);
-        putIfNotBlank(kv, "COS_REGION", region);
-        putIfNotBlank(kv, "COS_ACCESS_KEY", accessKey);
-        putIfNotBlank(kv, "COS_SECRET_KEY", secretKey);
-        putIfNotBlank(kv, "COS_SESSION_TOKEN", sessionToken);
-        putIfNotBlank(kv, "COS_TOKEN", sessionToken);
-        putIfNotBlank(kv, "COS_BUCKET", bucket);
-        putIfNotBlank(kv, "COS_ROLE_ARN", roleArn);
-        putIfNotBlank(kv, "AWS_ENDPOINT", endpoint);
-        putIfNotBlank(kv, "AWS_REGION", region);
-        putIfNotBlank(kv, "AWS_ACCESS_KEY", accessKey);
-        putIfNotBlank(kv, "AWS_SECRET_KEY", secretKey);
-        putIfNotBlank(kv, "AWS_TOKEN", sessionToken);
-        putIfNotBlank(kv, "AWS_BUCKET", bucket);
-        putIfNotBlank(kv, "AWS_ROLE_ARN", roleArn);
-        putIfNotBlank(kv, "AWS_EXTERNAL_ID", externalId);
-        putIfNotBlank(kv, "AWS_ROOT_PATH", rootPath);
-        kv.put("COS_MAX_CONNECTIONS", maxConnections);
-        kv.put("COS_REQUEST_TIMEOUT_MS", requestTimeoutMs);
-        kv.put("COS_CONNECTION_TIMEOUT_MS", connectionTimeoutMs);
-        kv.put("AWS_MAX_CONNECTIONS", maxConnections);
-        kv.put("AWS_REQUEST_TIMEOUT_MS", requestTimeoutMs);
-        kv.put("AWS_CONNECTION_TIMEOUT_MS", connectionTimeoutMs);
-        kv.put("use_path_style", usePathStyle);
-        return Collections.unmodifiableMap(kv);
-    }
-
-    @Override
     public Optional<BackendStorageProperties> toBackendProperties() {
         return Optional.of(this);
     }

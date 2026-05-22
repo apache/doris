@@ -27,7 +27,7 @@ import java.util.Optional;
  *
  * <p>This API is the common contract for all storage providers. Implementations
  * own raw parameter binding, validation, redaction metadata, and conversion to
- * runtime-specific configuration maps.</p>
+ * runtime-specific configuration maps such as BE or Hadoop properties.</p>
  */
 public interface StorageProperties {
 
@@ -61,18 +61,6 @@ public interface StorageProperties {
      * Returns raw key-value pairs that matched provider-declared property aliases during binding.
      */
     Map<String, String> matchedProperties();
-
-    /**
-     * Converts to the legacy key-value format used by existing FileSystem implementations.
-     */
-    Map<String, String> toFileSystemKv();
-
-    /**
-     * Compatibility name for existing map-based filesystem creation paths.
-     */
-    default Map<String, String> toLegacyFileSystemKv() {
-        return toFileSystemKv();
-    }
 
     /**
      * Converts to backend storage properties if this provider supports BE access.

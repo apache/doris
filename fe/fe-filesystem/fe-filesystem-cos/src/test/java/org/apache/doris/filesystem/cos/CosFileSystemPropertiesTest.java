@@ -45,7 +45,6 @@ class CosFileSystemPropertiesTest {
         Assertions.assertEquals("ap-guangzhou", properties.getRegion());
         Assertions.assertEquals("cos-ak", properties.getAccessKey());
         Assertions.assertEquals("cos-sk", properties.getSecretKey());
-        Assertions.assertEquals("cos-ak", properties.toFileSystemKv().get("COS_ACCESS_KEY"));
     }
 
     @Test
@@ -71,8 +70,6 @@ class CosFileSystemPropertiesTest {
         Assertions.assertEquals("aws-ak", properties.getAccessKey());
         Assertions.assertEquals("aws-sk", properties.getSecretKey());
         Assertions.assertEquals("legacy-bucket", properties.getBucket());
-        Assertions.assertEquals("aws-ak", properties.toFileSystemKv().get("COS_ACCESS_KEY"));
-        Assertions.assertEquals("aws-ak", properties.toFileSystemKv().get("AWS_ACCESS_KEY"));
     }
 
     @Test

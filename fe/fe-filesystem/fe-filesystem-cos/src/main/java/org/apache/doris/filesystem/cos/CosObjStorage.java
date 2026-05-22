@@ -17,9 +17,9 @@
 
 package org.apache.doris.filesystem.cos;
 
-import org.apache.doris.filesystem.spi.ObjectStorageUri;
 import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.ObjectListOptions;
+import org.apache.doris.filesystem.spi.ObjectStorageUri;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
@@ -74,6 +74,10 @@ import java.util.stream.Collectors;
 
 /**
  * Tencent Cloud COS implementation backed by the native COS SDK.
+ *
+ * <p>This class consumes typed COS properties. Raw key aliases are resolved by
+ * {@link CosFileSystemProperties}; client construction and authentication do not
+ * translate through AWS-compatible keys.
  */
 public class CosObjStorage implements ObjStorage<COSClient> {
 
@@ -83,7 +87,6 @@ public class CosObjStorage implements ObjStorage<COSClient> {
     private static final int DELETE_BATCH_SIZE = 1000;
 
     private final CosFileSystemProperties properties;
-    private final Map<String, String> cosProperties;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private volatile COSClient cosClient;
 
@@ -93,35 +96,6 @@ public class CosObjStorage implements ObjStorage<COSClient> {
 
     public CosObjStorage(CosFileSystemProperties properties) {
         this.properties = properties;
-        this.cosProperties = new HashMap<>(properties.toFileSystemKv());
-    }
-
-    /**
-     * Translates COS-specific property keys to AWS-compatible keys for legacy callers.
-     * If both forms are present, the AWS_* key takes precedence.
-     */
-    static Map<String, String> toS3Props(Map<String, String> cosProps) {
-        Map<String, String> s3Props = new HashMap<>(cosProps);
-        if (cosProps.containsKey("COS_ENDPOINT") && !cosProps.containsKey("AWS_ENDPOINT")) {
-            s3Props.put("AWS_ENDPOINT", cosProps.get("COS_ENDPOINT"));
-        }
-        if (cosProps.containsKey("COS_ACCESS_KEY") && !cosProps.containsKey("AWS_ACCESS_KEY")) {
-            s3Props.put("AWS_ACCESS_KEY", cosProps.get("COS_ACCESS_KEY"));
-        }
-        if (cosProps.containsKey("COS_SECRET_KEY") && !cosProps.containsKey("AWS_SECRET_KEY")) {
-            s3Props.put("AWS_SECRET_KEY", cosProps.get("COS_SECRET_KEY"));
-        }
-        if (cosProps.containsKey("COS_BUCKET") && !cosProps.containsKey("AWS_BUCKET")) {
-            s3Props.put("AWS_BUCKET", cosProps.get("COS_BUCKET"));
-        }
-        if (cosProps.containsKey("COS_REGION") && !cosProps.containsKey("AWS_REGION")) {
-            s3Props.put("AWS_REGION", cosProps.get("COS_REGION"));
-        }
-        if (cosProps.containsKey("COS_ROLE_ARN") && !cosProps.containsKey("AWS_ROLE_ARN")) {
-            s3Props.put("AWS_ROLE_ARN", cosProps.get("COS_ROLE_ARN"));
-        }
-        s3Props.put("use_path_style", "false");
-        return s3Props;
     }
 
     @Override
@@ -350,10 +324,10 @@ public class CosObjStorage implements ObjStorage<COSClient> {
 
     @Override
     public StsCredentials getStsToken() throws IOException {
-        String region = resolveRequired("COS_REGION", "AWS_REGION", "COS region for STS");
-        String accessKey = resolveRequired("COS_ACCESS_KEY", "AWS_ACCESS_KEY", "COS access key");
-        String secretKey = resolveRequired("COS_SECRET_KEY", "AWS_SECRET_KEY", "COS secret key");
-        String roleArn = resolveRequired("COS_ROLE_ARN", "AWS_ROLE_ARN", "COS role ARN");
+        String region = requireProperty(properties.getRegion(), "COS_REGION", "COS region for STS");
+        String accessKey = requireProperty(properties.getAccessKey(), "COS_ACCESS_KEY", "COS access key");
+        String secretKey = requireProperty(properties.getSecretKey(), "COS_SECRET_KEY", "COS secret key");
+        String roleArn = requireProperty(properties.getRoleArn(), "COS_ROLE_ARN", "COS role ARN");
         try {
             Credential credential = new Credential(accessKey, secretKey);
             StsClient stsClient = new StsClient(credential, region);
@@ -368,7 +342,7 @@ public class CosObjStorage implements ObjStorage<COSClient> {
                     credentials.getTmpSecretKey(),
                     credentials.getToken());
         } catch (Exception e) {
-            LOG.warn("Failed to get COS STS token, roleArn={}", resolveOpt("COS_ROLE_ARN", "AWS_ROLE_ARN"), e);
+            LOG.warn("Failed to get COS STS token, roleArn={}", properties.getRoleArn(), e);
             throw new IOException("Failed to get COS STS token: " + e.getMessage(), e);
         }
     }
@@ -376,14 +350,14 @@ public class CosObjStorage implements ObjStorage<COSClient> {
     @Override
     public RemoteObjects listObjectsWithPrefix(String prefix, String subPrefix,
             String continuationToken) throws IOException {
-        String bucket = resolveRequired("COS_BUCKET", "AWS_BUCKET", "COS bucket");
+        String bucket = requireProperty(properties.getBucket(), "COS_BUCKET", "COS bucket");
         String fullPrefix = normalizeAndCombinePrefix(prefix, subPrefix);
         return listObjects("cos://" + bucket + "/" + fullPrefix, continuationToken);
     }
 
     @Override
     public RemoteObjects headObjectWithMeta(String prefix, String subKey) throws IOException {
-        String bucket = resolveRequired("COS_BUCKET", "AWS_BUCKET", "COS bucket");
+        String bucket = requireProperty(properties.getBucket(), "COS_BUCKET", "COS bucket");
         String fullKey = normalizeAndCombinePrefix(prefix, subKey);
         try {
             RemoteObject object = headObject("cos://" + bucket + "/" + fullKey);
@@ -397,8 +371,8 @@ public class CosObjStorage implements ObjStorage<COSClient> {
 
     @Override
     public String getPresignedUrl(String objectKey) throws IOException {
-        String bucket = resolveRequired("COS_BUCKET", "AWS_BUCKET", "COS bucket for presigned URL");
-        String region = resolveRequired("COS_REGION", "AWS_REGION", "COS region for presigned URL");
+        String bucket = requireProperty(properties.getBucket(), "COS_BUCKET", "COS bucket for presigned URL");
+        String region = requireProperty(properties.getRegion(), "COS_REGION", "COS region for presigned URL");
         try {
             COSClient cos = getClient();
             Date expiration = new Date(System.currentTimeMillis() + (long) SESSION_EXPIRE_SECONDS * 1000);
@@ -436,7 +410,20 @@ public class CosObjStorage implements ObjStorage<COSClient> {
 
     @Override
     public Map<String, String> getProperties() {
-        return new HashMap<>(cosProperties);
+        Map<String, String> snapshot = new HashMap<>();
+        putIfNotBlank(snapshot, "COS_ENDPOINT", properties.getEndpoint());
+        putIfNotBlank(snapshot, "COS_REGION", properties.getRegion());
+        putIfNotBlank(snapshot, "COS_ACCESS_KEY", properties.getAccessKey());
+        putIfNotBlank(snapshot, "COS_SECRET_KEY", properties.getSecretKey());
+        putIfNotBlank(snapshot, "COS_SESSION_TOKEN", properties.getSessionToken());
+        putIfNotBlank(snapshot, "COS_TOKEN", properties.getSessionToken());
+        putIfNotBlank(snapshot, "COS_BUCKET", properties.getBucket());
+        putIfNotBlank(snapshot, "COS_ROLE_ARN", properties.getRoleArn());
+        snapshot.put("COS_MAX_CONNECTIONS", properties.getMaxConnections());
+        snapshot.put("COS_REQUEST_TIMEOUT_MS", properties.getRequestTimeoutMs());
+        snapshot.put("COS_CONNECTION_TIMEOUT_MS", properties.getConnectionTimeoutMs());
+        snapshot.put("use_path_style", properties.getUsePathStyle());
+        return snapshot;
     }
 
     @Override
@@ -456,19 +443,9 @@ public class CosObjStorage implements ObjStorage<COSClient> {
                 lastModifiedMs(object.getLastModified()));
     }
 
-    private String resolveOpt(String primaryKey, String fallbackKey) {
-        String value = cosProperties.get(primaryKey);
-        if (hasText(value)) {
-            return value;
-        }
-        return fallbackKey == null ? null : cosProperties.get(fallbackKey);
-    }
-
-    private String resolveRequired(String primaryKey, String fallbackKey, String description)
-            throws IOException {
-        String value = resolveOpt(primaryKey, fallbackKey);
+    private static String requireProperty(String value, String key, String description) throws IOException {
         if (!hasText(value)) {
-            throw new IOException(description + " is required; set " + primaryKey + " in properties");
+            throw new IOException(description + " is required; set " + key + " in properties");
         }
         return value;
     }
@@ -513,6 +490,12 @@ public class CosObjStorage implements ObjStorage<COSClient> {
 
     private static boolean hasText(String value) {
         return value != null && !value.isEmpty();
+    }
+
+    private static void putIfNotBlank(Map<String, String> map, String key, String value) {
+        if (hasText(value)) {
+            map.put(key, value);
+        }
     }
 
     private static int parseIntProperty(String value, String description) throws IOException {

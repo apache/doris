@@ -213,38 +213,6 @@ public final class ObsFileSystemProperties
     }
 
     @Override
-    public Map<String, String> toFileSystemKv() {
-        Map<String, String> kv = new HashMap<>();
-        putIfNotBlank(kv, "OBS_ENDPOINT", endpoint);
-        putIfNotBlank(kv, "OBS_REGION", region);
-        putIfNotBlank(kv, "OBS_ACCESS_KEY", accessKey);
-        putIfNotBlank(kv, "OBS_SECRET_KEY", secretKey);
-        putIfNotBlank(kv, "OBS_SESSION_TOKEN", sessionToken);
-        putIfNotBlank(kv, "OBS_TOKEN", sessionToken);
-        putIfNotBlank(kv, "OBS_BUCKET", bucket);
-        putIfNotBlank(kv, "OBS_AGENCY_NAME", agencyName);
-        putIfNotBlank(kv, "OBS_DOMAIN_NAME", domainName);
-        putIfNotBlank(kv, "OBS_ROLE_ARN", roleArn);
-        putIfNotBlank(kv, "AWS_ENDPOINT", endpoint);
-        putIfNotBlank(kv, "AWS_REGION", region);
-        putIfNotBlank(kv, "AWS_ACCESS_KEY", accessKey);
-        putIfNotBlank(kv, "AWS_SECRET_KEY", secretKey);
-        putIfNotBlank(kv, "AWS_TOKEN", sessionToken);
-        putIfNotBlank(kv, "AWS_BUCKET", bucket);
-        putIfNotBlank(kv, "AWS_ROLE_ARN", roleArn);
-        putIfNotBlank(kv, "AWS_EXTERNAL_ID", externalId);
-        putIfNotBlank(kv, "AWS_ROOT_PATH", rootPath);
-        kv.put("OBS_MAX_CONNECTIONS", maxConnections);
-        kv.put("OBS_REQUEST_TIMEOUT_MS", requestTimeoutMs);
-        kv.put("OBS_CONNECTION_TIMEOUT_MS", connectionTimeoutMs);
-        kv.put("AWS_MAX_CONNECTIONS", maxConnections);
-        kv.put("AWS_REQUEST_TIMEOUT_MS", requestTimeoutMs);
-        kv.put("AWS_CONNECTION_TIMEOUT_MS", connectionTimeoutMs);
-        kv.put("use_path_style", usePathStyle);
-        return Collections.unmodifiableMap(kv);
-    }
-
-    @Override
     public Optional<BackendStorageProperties> toBackendProperties() {
         return Optional.of(this);
     }

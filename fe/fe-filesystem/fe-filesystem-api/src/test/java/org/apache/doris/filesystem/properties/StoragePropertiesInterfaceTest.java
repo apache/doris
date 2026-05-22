@@ -32,7 +32,6 @@ class StoragePropertiesInterfaceTest {
         FileSystemProperties properties = new TestProperties();
 
         Assertions.assertTrue(properties instanceof StorageProperties);
-        Assertions.assertEquals(Map.of("k", "v"), ((StorageProperties) properties).toLegacyFileSystemKv());
     }
 
     private static class TestProperties implements FileSystemProperties {
@@ -61,9 +60,5 @@ class StoragePropertiesInterfaceTest {
             return Collections.emptyMap();
         }
 
-        @Override
-        public Map<String, String> toFileSystemKv() {
-            return Map.of("k", "v");
-        }
     }
 }

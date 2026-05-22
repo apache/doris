@@ -17,9 +17,9 @@
 
 package org.apache.doris.filesystem.obs;
 
-import org.apache.doris.filesystem.spi.ObjectStorageUri;
 import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.ObjectListOptions;
+import org.apache.doris.filesystem.spi.ObjectStorageUri;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
@@ -73,6 +73,10 @@ import java.util.stream.Collectors;
 
 /**
  * Huawei Cloud OBS implementation backed by the native OBS SDK.
+ *
+ * <p>This class consumes typed OBS properties. Raw key aliases are resolved by
+ * {@link ObsFileSystemProperties}; client construction and authentication do not
+ * translate through AWS-compatible keys.
  */
 public class ObsObjStorage implements ObjStorage<ObsClient> {
 
@@ -82,7 +86,6 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
     private static final int DELETE_BATCH_SIZE = 1000;
 
     private final ObsFileSystemProperties properties;
-    private final Map<String, String> obsProperties;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private volatile ObsClient client;
 
@@ -92,32 +95,6 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
 
     public ObsObjStorage(ObsFileSystemProperties properties) {
         this.properties = properties;
-        this.obsProperties = new HashMap<>(properties.toFileSystemKv());
-    }
-
-    /**
-     * Translates OBS-specific property keys to AWS-compatible keys for legacy callers.
-     * If both forms are present, the AWS_* key takes precedence.
-     */
-    static Map<String, String> toS3Props(Map<String, String> obsProps) {
-        Map<String, String> s3Props = new HashMap<>(obsProps);
-        if (obsProps.containsKey("OBS_ENDPOINT") && !obsProps.containsKey("AWS_ENDPOINT")) {
-            s3Props.put("AWS_ENDPOINT", obsProps.get("OBS_ENDPOINT"));
-        }
-        if (obsProps.containsKey("OBS_ACCESS_KEY") && !obsProps.containsKey("AWS_ACCESS_KEY")) {
-            s3Props.put("AWS_ACCESS_KEY", obsProps.get("OBS_ACCESS_KEY"));
-        }
-        if (obsProps.containsKey("OBS_SECRET_KEY") && !obsProps.containsKey("AWS_SECRET_KEY")) {
-            s3Props.put("AWS_SECRET_KEY", obsProps.get("OBS_SECRET_KEY"));
-        }
-        if (obsProps.containsKey("OBS_BUCKET") && !obsProps.containsKey("AWS_BUCKET")) {
-            s3Props.put("AWS_BUCKET", obsProps.get("OBS_BUCKET"));
-        }
-        if (obsProps.containsKey("OBS_REGION") && !obsProps.containsKey("AWS_REGION")) {
-            s3Props.put("AWS_REGION", obsProps.get("OBS_REGION"));
-        }
-        s3Props.put("use_path_style", "false");
-        return s3Props;
     }
 
     @Override
@@ -329,11 +306,11 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
 
     @Override
     public StsCredentials getStsToken() throws IOException {
-        String region = resolveRequired("OBS_REGION", "AWS_REGION", "OBS region for STS");
-        String accessKey = resolveRequired("OBS_ACCESS_KEY", "AWS_ACCESS_KEY", "OBS access key");
-        String secretKey = resolveRequired("OBS_SECRET_KEY", "AWS_SECRET_KEY", "OBS secret key");
-        String agencyName = resolveRequired("OBS_AGENCY_NAME", null, "OBS agency name for STS");
-        String domainName = resolveRequired("OBS_DOMAIN_NAME", null, "OBS domain name for STS");
+        String region = requireProperty(properties.getRegion(), "OBS_REGION", "OBS region for STS");
+        String accessKey = requireProperty(properties.getAccessKey(), "OBS_ACCESS_KEY", "OBS access key");
+        String secretKey = requireProperty(properties.getSecretKey(), "OBS_SECRET_KEY", "OBS secret key");
+        String agencyName = requireProperty(properties.getAgencyName(), "OBS_AGENCY_NAME", "OBS agency name for STS");
+        String domainName = requireProperty(properties.getDomainName(), "OBS_DOMAIN_NAME", "OBS domain name for STS");
         try {
             ICredential auth = new GlobalCredentials().withAk(accessKey).withSk(secretKey);
             IamClient client = IamClient.newBuilder()
@@ -370,14 +347,14 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
     @Override
     public RemoteObjects listObjectsWithPrefix(String prefix, String subPrefix,
             String continuationToken) throws IOException {
-        String bucket = resolveRequired("OBS_BUCKET", "AWS_BUCKET", "OBS bucket");
+        String bucket = requireProperty(properties.getBucket(), "OBS_BUCKET", "OBS bucket");
         String fullPrefix = normalizeAndCombinePrefix(prefix, subPrefix);
         return listObjects("obs://" + bucket + "/" + fullPrefix, continuationToken);
     }
 
     @Override
     public RemoteObjects headObjectWithMeta(String prefix, String subKey) throws IOException {
-        String bucket = resolveRequired("OBS_BUCKET", "AWS_BUCKET", "OBS bucket");
+        String bucket = requireProperty(properties.getBucket(), "OBS_BUCKET", "OBS bucket");
         String fullKey = normalizeAndCombinePrefix(prefix, subKey);
         try {
             RemoteObject object = headObject("obs://" + bucket + "/" + fullKey);
@@ -391,7 +368,7 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
 
     @Override
     public String getPresignedUrl(String objectKey) throws IOException {
-        String bucket = resolveRequired("OBS_BUCKET", "AWS_BUCKET", "OBS bucket for presigned URL");
+        String bucket = requireProperty(properties.getBucket(), "OBS_BUCKET", "OBS bucket for presigned URL");
         try {
             TemporarySignatureRequest request = new TemporarySignatureRequest(
                     HttpMethodEnum.PUT, SESSION_EXPIRE_SECONDS);
@@ -441,7 +418,22 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
 
     @Override
     public Map<String, String> getProperties() {
-        return new HashMap<>(obsProperties);
+        Map<String, String> snapshot = new HashMap<>();
+        putIfNotBlank(snapshot, "OBS_ENDPOINT", properties.getEndpoint());
+        putIfNotBlank(snapshot, "OBS_REGION", properties.getRegion());
+        putIfNotBlank(snapshot, "OBS_ACCESS_KEY", properties.getAccessKey());
+        putIfNotBlank(snapshot, "OBS_SECRET_KEY", properties.getSecretKey());
+        putIfNotBlank(snapshot, "OBS_SESSION_TOKEN", properties.getSessionToken());
+        putIfNotBlank(snapshot, "OBS_TOKEN", properties.getSessionToken());
+        putIfNotBlank(snapshot, "OBS_BUCKET", properties.getBucket());
+        putIfNotBlank(snapshot, "OBS_AGENCY_NAME", properties.getAgencyName());
+        putIfNotBlank(snapshot, "OBS_DOMAIN_NAME", properties.getDomainName());
+        putIfNotBlank(snapshot, "OBS_ROLE_ARN", properties.getRoleArn());
+        snapshot.put("OBS_MAX_CONNECTIONS", properties.getMaxConnections());
+        snapshot.put("OBS_REQUEST_TIMEOUT_MS", properties.getRequestTimeoutMs());
+        snapshot.put("OBS_CONNECTION_TIMEOUT_MS", properties.getConnectionTimeoutMs());
+        snapshot.put("use_path_style", properties.getUsePathStyle());
+        return snapshot;
     }
 
     @Override
@@ -462,22 +454,9 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
                 lastModifiedMs(metadata.getLastModified()));
     }
 
-    private String resolveOpt(String primaryKey, String fallbackKey) {
-        String value = obsProperties.get(primaryKey);
-        if (hasText(value)) {
-            return value;
-        }
-        if (fallbackKey != null) {
-            return obsProperties.get(fallbackKey);
-        }
-        return null;
-    }
-
-    private String resolveRequired(String primaryKey, String fallbackKey, String description)
-            throws IOException {
-        String value = resolveOpt(primaryKey, fallbackKey);
+    private static String requireProperty(String value, String key, String description) throws IOException {
         if (!hasText(value)) {
-            throw new IOException(description + " is required; set " + primaryKey + " in properties");
+            throw new IOException(description + " is required; set " + key + " in properties");
         }
         return value;
     }
@@ -516,6 +495,12 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
 
     private static boolean hasText(String value) {
         return value != null && !value.isEmpty();
+    }
+
+    private static void putIfNotBlank(Map<String, String> map, String key, String value) {
+        if (hasText(value)) {
+            map.put(key, value);
+        }
     }
 
     private ObsConfiguration buildObsConfiguration(String endpoint) {

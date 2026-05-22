@@ -107,10 +107,41 @@ public interface ObjStorage<C> extends AutoCloseable {
                 "deleteObjectsByKeys not supported by " + getClass().getSimpleName());
     }
 
+    /**
+     * Returns the underlying native SDK client, creating it lazily when needed.
+     *
+     * @return native object storage client owned by this storage instance
+     * @throws IOException if the client cannot be initialized
+     */
     C getClient() throws IOException;
 
+    /**
+     * Lists objects under the path represented by {@code remotePath}.
+     *
+     * <p>The path must include the provider scheme and bucket, for example
+     * {@code s3://bucket/stage/}, {@code cos://bucket/stage/}, or
+     * {@code obs://bucket/stage/}.
+     *
+     * @param remotePath         object storage path containing scheme, bucket, and prefix
+     * @param continuationToken  opaque pagination token from a previous call; {@code null}
+     *                           for the first page
+     * @return listed objects and pagination metadata
+     * @throws IOException if the list request fails
+     */
     RemoteObjects listObjects(String remotePath, String continuationToken) throws IOException;
 
+    /**
+     * Lists objects under the path represented by {@code remotePath} with optional
+     * provider-neutral list controls.
+     *
+     * @param remotePath object storage path containing scheme, bucket, and prefix
+     * @param options    list options such as continuation token, start-after key,
+     *                   delimiter, or maximum key count
+     * @return listed objects and pagination metadata
+     * @throws IOException                   if the list request fails
+     * @throws UnsupportedOperationException if the implementation does not support
+     *                                       the requested options
+     */
     default RemoteObjects listObjectsWithOptions(String remotePath, ObjectListOptions options) throws IOException {
         if (options == null) {
             return listObjects(remotePath, (String) null);
@@ -126,35 +157,123 @@ public interface ObjStorage<C> extends AutoCloseable {
         return value != null && !value.isEmpty();
     }
 
+    /**
+     * Returns metadata for a single object.
+     *
+     * @param remotePath object storage path containing scheme, bucket, and object key
+     * @return object metadata
+     * @throws IOException if the object does not exist or the HEAD request fails
+     */
     RemoteObject headObject(String remotePath) throws IOException;
 
+    /**
+     * Uploads one complete object.
+     *
+     * @param remotePath   destination object storage path
+     * @param requestBody  upload body and content metadata
+     * @throws IOException if the upload fails
+     */
     void putObject(String remotePath, RequestBody requestBody) throws IOException;
 
+    /**
+     * Deletes one object.
+     *
+     * @param remotePath object storage path to delete
+     * @throws IOException if the delete request fails
+     */
     void deleteObject(String remotePath) throws IOException;
 
+    /**
+     * Copies one object inside the same provider.
+     *
+     * @param srcPath source object storage path
+     * @param dstPath destination object storage path
+     * @throws IOException if the copy request fails
+     */
     void copyObject(String srcPath, String dstPath) throws IOException;
 
+    /**
+     * Starts a multipart upload session.
+     *
+     * @param remotePath destination object storage path
+     * @return provider upload ID used by subsequent multipart calls
+     * @throws IOException if the multipart upload cannot be initiated
+     */
     String initiateMultipartUpload(String remotePath) throws IOException;
 
+    /**
+     * Uploads one multipart part.
+     *
+     * @param remotePath destination object storage path
+     * @param uploadId   upload ID returned by {@link #initiateMultipartUpload(String)}
+     * @param partNum    one-based part number
+     * @param body       part body and content metadata
+     * @return provider part result, including the ETag or equivalent checksum token
+     * @throws IOException if the part upload fails
+     */
     UploadPartResult uploadPart(String remotePath, String uploadId, int partNum,
             RequestBody body) throws IOException;
 
+    /**
+     * Completes a multipart upload session.
+     *
+     * @param remotePath destination object storage path
+     * @param uploadId   upload ID returned by {@link #initiateMultipartUpload(String)}
+     * @param parts      uploaded parts in completion order
+     * @throws IOException if completion fails
+     */
     void completeMultipartUpload(String remotePath, String uploadId,
             List<UploadPartResult> parts) throws IOException;
 
+    /**
+     * Aborts a multipart upload session and releases provider-side temporary data.
+     *
+     * @param remotePath destination object storage path
+     * @param uploadId   upload ID returned by {@link #initiateMultipartUpload(String)}
+     * @throws IOException if aborting the upload fails
+     */
     void abortMultipartUpload(String remotePath, String uploadId) throws IOException;
 
+    /**
+     * Opens an object input stream starting at {@code fromByte}.
+     *
+     * @param remotePath object storage path to read
+     * @param fromByte   zero-based byte offset
+     * @return input stream positioned at the requested offset
+     * @throws IOException                   if the read request fails
+     * @throws UnsupportedOperationException if range reads are not implemented
+     */
     default InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
         throw new UnsupportedOperationException(
                 "openInputStreamAt not supported by " + getClass().getSimpleName());
     }
 
+    /**
+     * Returns the last modified timestamp for a single object.
+     *
+     * @param remotePath object storage path to inspect
+     * @return last modified time in epoch milliseconds
+     * @throws IOException if metadata lookup fails
+     */
     default long headObjectLastModified(String remotePath) throws IOException {
         return headObject(remotePath).getModificationTime();
     }
 
+    /**
+     * Returns a provider-specific diagnostic snapshot of the bound properties.
+     *
+     * <p>The returned map is not the typed API contract for constructing clients.
+     * Implementations should prefer provider-native keys in this snapshot.
+     *
+     * @return storage properties useful for diagnostics and compatibility callers
+     */
     Map<String, String> getProperties();
 
+    /**
+     * Releases any native SDK client and provider resources held by this storage instance.
+     *
+     * @throws IOException if closing the client fails
+     */
     @Override
     void close() throws IOException;
 }

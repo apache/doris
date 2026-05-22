@@ -54,64 +54,6 @@ import java.util.Map;
  */
 class ObsObjStorageTest {
 
-    // ------------------------------------------------------------------
-    // toS3Props() key-translation tests
-    // ------------------------------------------------------------------
-
-    @Test
-    void toS3Props_obsKeysTranslatedToAwsKeys() {
-        Map<String, String> obsProps = new HashMap<>();
-        obsProps.put("OBS_ENDPOINT", "https://obs.cn-north-4.myhuaweicloud.com");
-        obsProps.put("OBS_ACCESS_KEY", "myAK");
-        obsProps.put("OBS_SECRET_KEY", "mySK");
-        obsProps.put("OBS_BUCKET", "my-obs-bucket");
-        obsProps.put("OBS_REGION", "cn-north-4");
-
-        Map<String, String> s3Props = ObsObjStorage.toS3Props(obsProps);
-
-        Assertions.assertEquals("https://obs.cn-north-4.myhuaweicloud.com", s3Props.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("myAK", s3Props.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("mySK", s3Props.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("my-obs-bucket", s3Props.get("AWS_BUCKET"));
-        Assertions.assertEquals("cn-north-4", s3Props.get("AWS_REGION"));
-        Assertions.assertEquals("false", s3Props.get("use_path_style"));
-    }
-
-    @Test
-    void toS3Props_awsKeysPreservedWhenBothPresent() {
-        Map<String, String> obsProps = new HashMap<>();
-        obsProps.put("OBS_ENDPOINT", "https://obs.myhuaweicloud.com");
-        obsProps.put("AWS_ENDPOINT", "https://custom.endpoint");
-        obsProps.put("OBS_ACCESS_KEY", "obsAK");
-        obsProps.put("AWS_ACCESS_KEY", "awsAK");
-
-        Map<String, String> s3Props = ObsObjStorage.toS3Props(obsProps);
-
-        // AWS_* takes precedence when both exist
-        Assertions.assertEquals("https://custom.endpoint", s3Props.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("awsAK", s3Props.get("AWS_ACCESS_KEY"));
-    }
-
-    @Test
-    void toS3Props_awsOnlyKeysPassedThrough() {
-        Map<String, String> obsProps = new HashMap<>();
-        obsProps.put("AWS_ENDPOINT", "https://obs.myhuaweicloud.com");
-        obsProps.put("AWS_ACCESS_KEY", "akid");
-        obsProps.put("AWS_SECRET_KEY", "sk");
-        obsProps.put("AWS_BUCKET", "bucket");
-
-        Map<String, String> s3Props = ObsObjStorage.toS3Props(obsProps);
-
-        Assertions.assertEquals("https://obs.myhuaweicloud.com", s3Props.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("akid", s3Props.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("sk", s3Props.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("bucket", s3Props.get("AWS_BUCKET"));
-    }
-
-    // ------------------------------------------------------------------
-    // getPresignedUrl() with mocked OBS client
-    // ------------------------------------------------------------------
-
     @Test
     void getPresignedUrl_returnsSignedUrlFromObsClient() throws Exception {
         String expectedUrl = "https://my-obs-bucket.obs.cn-north-4.myhuaweicloud.com/stage/f1?sig=abc";
@@ -207,7 +149,8 @@ class ObsObjStorageTest {
                 storage.getProperties().get("OBS_ENDPOINT"));
         Assertions.assertEquals("legacy-ak", storage.getProperties().get("OBS_ACCESS_KEY"));
         Assertions.assertEquals("legacy-bucket", storage.getProperties().get("OBS_BUCKET"));
-        Assertions.assertEquals("legacy-ak", storage.getProperties().get("AWS_ACCESS_KEY"));
+        Assertions.assertFalse(storage.getProperties().containsKey("AWS_ACCESS_KEY"));
+        Assertions.assertFalse(storage.getProperties().containsKey("AWS_ENDPOINT"));
     }
 
     @Test

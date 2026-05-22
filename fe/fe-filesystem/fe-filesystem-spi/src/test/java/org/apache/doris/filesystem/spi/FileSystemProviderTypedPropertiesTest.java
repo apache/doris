@@ -100,10 +100,6 @@ class FileSystemProviderTypedPropertiesTest {
             return Collections.emptyMap();
         }
 
-        @Override
-        public Map<String, String> toFileSystemKv() {
-            return Map.of("test.key", value);
-        }
     }
 
     private static class TestFileSystem implements FileSystem {

@@ -240,7 +240,6 @@ public final class S3FileSystemProperties
      * Returns canonical {@code AWS_*} keys consumed by {@link S3ObjStorage}.
      * This preserves compatibility with the existing map-based path.
      */
-    @Override
     public Map<String, String> toFileSystemKv() {
         Map<String, String> kv = new HashMap<>();
         putIfNotBlank(kv, "AWS_ENDPOINT", endpoint);
