@@ -60,8 +60,8 @@ public class ArraySort extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (children.get(0).getDataType() instanceof ArrayType) {
-            DataType argType = child(0).getDataType();
+        DataType argType = getArgument(0).getDataType();
+        if (argType instanceof ArrayType) {
             // Find the innermost element type for nested arrays
             DataType itemType = ((ArrayType) argType).getItemType();
             while (itemType.isArrayType()) {

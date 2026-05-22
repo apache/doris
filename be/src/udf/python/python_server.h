@@ -52,6 +52,9 @@ public:
     // Clear Python module cache for a specific UDF location across all processes
     Status clear_module_cache(const std::string& location);
 
+    // Clear Python UDAF runtime state after DROP FUNCTION
+    void clear_udaf_state_cache(int64_t function_id);
+
     void shutdown();
 
 #ifdef BE_TEST
@@ -62,6 +65,12 @@ public:
                                    bool initialized = true);
 
     std::vector<ProcessPtr>& process_pool_for_test(const PythonVersion& version);
+
+    Status broadcast_action_to_processes_for_test(const std::string& action_type,
+                                                  const std::string& body,
+                                                  const std::string& log_name) {
+        return _broadcast_action_to_processes(action_type, body, log_name);
+    }
 #endif
 
 private:
@@ -108,6 +117,8 @@ private:
     std::shared_ptr<VersionedProcessPool> _get_or_create_process_pool(const PythonVersion& version);
     std::vector<std::pair<PythonVersion, std::shared_ptr<VersionedProcessPool>>>
     _snapshot_process_pools();
+    Status _broadcast_action_to_processes(const std::string& action_type, const std::string& body,
+                                          const std::string& log_name);
 
     std::unordered_map<PythonVersion, std::shared_ptr<VersionedProcessPool>> _process_pools;
     // Protects the version -> pool handle map only. Per-version process operations are guarded

@@ -577,7 +577,7 @@ TEST_F(DataStreamRecvrTest, TestRemoteLocalMultiSender) {
 struct MockVDataStreamMgr : public VDataStreamMgr {
     ~MockVDataStreamMgr() override = default;
     Status find_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id,
-                      std::shared_ptr<VDataStreamRecvr>* res, bool acquire_lock = true) override {
+                      std::shared_ptr<VDataStreamRecvr>* res) override {
         *res = recvr;
         return Status::OK();
     }

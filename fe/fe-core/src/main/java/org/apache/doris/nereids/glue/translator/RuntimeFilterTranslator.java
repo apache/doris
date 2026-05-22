@@ -195,12 +195,7 @@ public class RuntimeFilterTranslator {
                             new RuntimeFilterExpressionTranslator(targetSlotRef);
                     targetExpr = curTargetExpression.accept(translator, ctx);
                 }
-                if (!src.getType().equals(targetExpr.getType()) && head.getType() != TRuntimeFilterType.BITMAP) {
-                    targetExpr = new CastExpr(src.getType(), targetExpr,
-                            Cast.castNullable(src.isNullable(),
-                                    DataType.fromCatalogType(src.getType()),
-                                    DataType.fromCatalogType(targetExpr.getType())));
-                }
+                targetExpr = castTargetToSourceTypeIfNeeded(src, targetExpr, head.getType());
                 TupleId targetTupleId = targetSlotRef.getDesc().getParentId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();
                 scanNodeList.add(scanNode);
@@ -290,10 +285,7 @@ public class RuntimeFilterTranslator {
                 }
 
                 // adjust data type
-                if (!src.getType().equals(targetExpr.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
-                    targetExpr = new CastExpr(src.getType(), targetExpr, Cast.castNullable(src.isNullable(),
-                            DataType.fromCatalogType(src.getType()), DataType.fromCatalogType(targetExpr.getType())));
-                }
+                targetExpr = castTargetToSourceTypeIfNeeded(src, targetExpr, filter.getType());
                 TupleId targetTupleId = targetSlotRef.getDesc().getParentId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();
                 scanNodeList.add(scanNode);
@@ -349,5 +341,16 @@ public class RuntimeFilterTranslator {
         origFilter.assignToPlanNodes();
         origFilter.extractTargetsPosition();
         return origFilter;
+    }
+
+    private Expr castTargetToSourceTypeIfNeeded(Expr src, Expr targetExpr, TRuntimeFilterType filterType) {
+        // The cast is: CAST(targetExpr AS src.getType()), so the child of the cast
+        // is targetExpr and the destination type is src.getType().
+        // castNullable(srcNullable, srcType, targetType) expects: child nullable, child type, dest type.
+        if (!src.getType().equals(targetExpr.getType()) && filterType != TRuntimeFilterType.BITMAP) {
+            return new CastExpr(src.getType(), targetExpr, Cast.castNullable(targetExpr.isNullable(),
+                    DataType.fromCatalogType(targetExpr.getType()), DataType.fromCatalogType(src.getType())));
+        }
+        return targetExpr;
     }
 }

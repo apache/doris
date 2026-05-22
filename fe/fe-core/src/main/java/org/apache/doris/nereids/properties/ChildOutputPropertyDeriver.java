@@ -36,7 +36,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggrega
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -163,12 +162,6 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             return PhysicalProperties.GATHER;
         }
         return new PhysicalProperties(olapScan.getDistributionSpec());
-    }
-
-    @Override
-    public PhysicalProperties visitPhysicalDeferMaterializeOlapScan(
-            PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan, PlanContext context) {
-        return visitPhysicalOlapScan(deferMaterializeOlapScan.getPhysicalOlapScan(), context);
     }
 
     @Override

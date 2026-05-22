@@ -66,7 +66,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
         _dependency->block();
         _finish_dependency->block();
         {
-            std::lock_guard<std::mutex> guard(p._mutex);
+            LockGuard guard(p._mutex);
             p._finish_dependencies.push_back(_finish_dependency);
         }
     } else {
@@ -242,7 +242,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
 
         if (p._use_shared_hash_table) {
-            std::unique_lock lock(p._mutex);
+            LockGuard lock(p._mutex);
             // Only signal non-builder tasks when the builder actually built the hash table.
             // When the builder is terminated (woken up early because the probe side finished
             // first), it never called process_build_block() so the hash table variant is still

@@ -62,7 +62,6 @@ import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.DecomposeRepeatWithPreAggregation;
 import org.apache.doris.nereids.rules.rewrite.DecoupleEncodeDecode;
-import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggStrategySelector;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggregateRewriter;
 import org.apache.doris.nereids.rules.rewrite.DistinctWindowExpression;
@@ -801,9 +800,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("score optimize",
                         topDown(new PushDownScoreTopNIntoOlapScan(),
                                 new CheckScoreUsage())
-                ),
-                topic("topn optimize",
-                        topDown(new DeferMaterializeTopNResult())
                 ),
                 topic("add projection for join",
                         custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),

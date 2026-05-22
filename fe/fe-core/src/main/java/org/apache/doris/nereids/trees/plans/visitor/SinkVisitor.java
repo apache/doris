@@ -29,7 +29,6 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalConnectorTableSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
@@ -44,7 +43,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
@@ -160,11 +158,6 @@ public interface SinkVisitor<R, C> {
         return visitLogicalTableSink(logicalDictionarySink, context);
     }
 
-    default R visitLogicalDeferMaterializeResultSink(
-            LogicalDeferMaterializeResultSink<? extends Plan> logicalDeferMaterializeResultSink, C context) {
-        return visitLogicalSink(logicalDeferMaterializeResultSink, context);
-    }
-
     default R visitLogicalBlackholeSink(
             LogicalBlackholeSink<? extends Plan> logicalBlackholeSink, C context) {
         return visitLogicalSink(logicalBlackholeSink, context);
@@ -227,11 +220,6 @@ public interface SinkVisitor<R, C> {
 
     default R visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink, C context) {
         return visitPhysicalSink(physicalResultSink, context);
-    }
-
-    default R visitPhysicalDeferMaterializeResultSink(
-            PhysicalDeferMaterializeResultSink<? extends Plan> sink, C context) {
-        return visitPhysicalSink(sink, context);
     }
 
     default R visitPhysicalTVFTableSink(

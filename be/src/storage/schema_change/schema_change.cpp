@@ -435,8 +435,8 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column, ColumnPtr output_
 
     if (input_column->is_nullable() != output_column->is_nullable()) {
         if (input_column->is_nullable()) {
-            const auto* ref_null_map = check_and_get_column<ColumnNullable>(input_column.get())
-                                               ->get_null_map_column()
+            const auto* ref_null_map = assert_cast<const ColumnNullable&>(*input_column)
+                                               .get_null_map_column()
                                                .get_data()
                                                .data();
 
@@ -450,10 +450,9 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column, ColumnPtr output_
                         input_column->get_name());
             }
         } else {
-            const auto& null_map_column = check_and_get_column<ColumnNullable>(output_column.get())
-                                                  ->get_null_map_column();
-            const auto& nested_column =
-                    check_and_get_column<ColumnNullable>(output_column.get())->get_nested_column();
+            const auto& output_nullable = assert_cast<const ColumnNullable&>(*output_column);
+            const auto& null_map_column = output_nullable.get_null_map_column();
+            const auto& nested_column = output_nullable.get_nested_column();
             const auto* new_null_map = null_map_column.get_data().data();
 
             if (null_map_column.size() != output_column->size()) {
@@ -483,12 +482,12 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column, ColumnPtr output_
     }
 
     if (input_column->is_nullable() && output_column->is_nullable()) {
-        const auto* ref_null_map = check_and_get_column<ColumnNullable>(input_column.get())
-                                           ->get_null_map_column()
+        const auto* ref_null_map = assert_cast<const ColumnNullable&>(*input_column)
+                                           .get_null_map_column()
                                            .get_data()
                                            .data();
-        const auto* new_null_map = check_and_get_column<ColumnNullable>(output_column.get())
-                                           ->get_null_map_column()
+        const auto* new_null_map = assert_cast<const ColumnNullable&>(*output_column)
+                                           .get_null_map_column()
                                            .get_data()
                                            .data();
 

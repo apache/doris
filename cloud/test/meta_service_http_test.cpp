@@ -867,7 +867,7 @@ TEST(MetaServiceHttpTest, AlterClusterTest) {
         auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
         ASSERT_EQ(status_code, 200);
         ASSERT_EQ(resp.code(), MetaServiceCode::OK);
-        ASSERT_EQ(resp.msg(), "");
+        ASSERT_EQ(resp.msg(), "OK");
     }
 
     // case: request has invalid argument
@@ -2848,7 +2848,7 @@ TEST(MetaServiceHttpTest, VirtualClusterTest) {
         node->set_edit_log_port(9990);
         node->set_node_type(NodeInfoPB::FE_MASTER);
         ret = ctx.forward<MetaServiceResponseStatus>("add_cluster", req_before_fe);
-        ASSERT_EQ(std::get<1>(ret).msg(), "");
+        ASSERT_EQ(std::get<1>(ret).msg(), "OK");
         ASSERT_EQ(std::get<0>(ret), 200);
         ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
 
@@ -2859,7 +2859,7 @@ TEST(MetaServiceHttpTest, VirtualClusterTest) {
         policy.add_standby_cluster_names(mock_exist_cluster_name1);
         ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
                           {mock_exist_cluster_name1, mock_exist_cluster_name2}, &policy);
-        ASSERT_EQ(std::get<1>(ret).msg(), "");
+        ASSERT_EQ(std::get<1>(ret).msg(), "OK");
         ASSERT_EQ(std::get<0>(ret), 200);
         ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
 

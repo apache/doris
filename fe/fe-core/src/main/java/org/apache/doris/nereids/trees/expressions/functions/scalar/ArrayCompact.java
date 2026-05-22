@@ -61,7 +61,7 @@ public class ArrayCompact extends ScalarFunction
      */
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = ((ArrayType) child(0).getDataType()).getItemType();
+        DataType argType = ((ArrayType) getArgument(0).getDataType()).getItemType();
         if (argType.isMapType() || argType.isStructType()) {
             throw new AnalysisException("array_compact does not support type "
             + argType.toString() + ", expression is " + toSql());

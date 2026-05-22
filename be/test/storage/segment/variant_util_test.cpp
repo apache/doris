@@ -23,11 +23,13 @@
 #include <string_view>
 #include <vector>
 
+#include "common/config.h"
 #include "core/block/block.h"
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/field.h"
+#include "core/value/jsonb_value.h"
 #include "exec/common/variant_util.h"
 #include "gtest/gtest.h"
 #include "storage/tablet/tablet_schema.h"
@@ -41,6 +43,20 @@ static ColumnString::MutablePtr _make_json_column(const std::vector<std::string_
     }
     return col;
 }
+
+class ScopedDuplicateJsonPathCheck {
+public:
+    explicit ScopedDuplicateJsonPathCheck(bool value)
+            : _old_value(config::variant_enable_duplicate_json_path_check) {
+        config::variant_enable_duplicate_json_path_check = value;
+    }
+    ~ScopedDuplicateJsonPathCheck() {
+        config::variant_enable_duplicate_json_path_check = _old_value;
+    }
+
+private:
+    bool _old_value;
+};
 
 TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
     const std::vector<std::string_view> jsons = {
@@ -223,6 +239,196 @@ TEST(VariantUtilTest, ParseOnlyDocValueColumn_SerializesMixedTypes) {
     s.get(1, f);
     EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_STRING);
     EXPECT_EQ(f.field.get<TYPE_STRING>(), "y");
+}
+
+TEST(VariantUtilTest, ParseDuplicateJsonPathsKeepsFirstValue) {
+    ScopedDuplicateJsonPathCheck check_guard(true);
+    const std::vector<std::string_view> jsons = {
+            R"({"a":42,"a":{"b":42}})", R"({"a":123,"a":"123"})",       R"({"a.b":1,"a":{"b":2}})",
+            R"({"a":{"b":3},"a.b":4})", R"({"a":{"b":5},"a":{"c":6}})",
+    };
+
+    auto variant = ColumnVariant::create(0, false);
+    auto json_col = _make_json_column(jsons);
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    cfg.check_duplicate_json_path = true;
+    cfg.parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+    parse_json_to_variant(*variant, *json_col, cfg);
+    ASSERT_TRUE(variant->sanitize().ok());
+
+    const auto* sub_a = variant->get_subcolumn(PathInData("a"));
+    const auto* sub_ab = variant->get_subcolumn(PathInData("a.b"));
+    const auto* sub_ac = variant->get_subcolumn(PathInData("a.c"));
+    ASSERT_NE(sub_a, nullptr);
+    ASSERT_NE(sub_ab, nullptr);
+    ASSERT_NE(sub_ac, nullptr);
+
+    FieldWithDataType f;
+    sub_a->get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 42);
+    sub_a->get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 123);
+
+    sub_ab->get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 42);
+    sub_ab->get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_NULL);
+    sub_ab->get(2, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 1);
+    sub_ab->get(3, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 3);
+    sub_ab->get(4, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 5);
+
+    sub_ac->get(4, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 6);
+}
+
+TEST(VariantUtilTest, ParseDuplicateJsonPathsKeepsFirstArrayOrScalarValue) {
+    ScopedDuplicateJsonPathCheck check_guard(true);
+    const std::vector<std::string_view> jsons = {
+            R"({"a":[1],"a":2})",
+            R"({"a":2,"a":[1]})",
+    };
+
+    auto variant = ColumnVariant::create(0, false);
+    auto json_col = _make_json_column(jsons);
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    cfg.check_duplicate_json_path = true;
+    cfg.parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+    parse_json_to_variant(*variant, *json_col, cfg);
+    ASSERT_TRUE(variant->sanitize().ok());
+
+    const auto* sub_a = variant->get_subcolumn(PathInData("a"));
+    ASSERT_NE(sub_a, nullptr);
+
+    FieldWithDataType f;
+    sub_a->get(0, f);
+    ASSERT_EQ(f.field.get_type(), PrimitiveType::TYPE_JSONB);
+    const auto& first = f.field.get<TYPE_JSONB>();
+    EXPECT_EQ(JsonbToJson::jsonb_to_json_string(first.get_value(), first.get_size()), "[1]");
+
+    sub_a->get(1, f);
+    ASSERT_EQ(f.field.get_type(), PrimitiveType::TYPE_JSONB);
+    const auto& second = f.field.get<TYPE_JSONB>();
+    EXPECT_EQ(JsonbToJson::jsonb_to_json_string(second.get_value(), second.get_size()), "2");
+}
+
+TEST(VariantUtilTest, ParseDuplicateJsonPathsInDocModeKeepsFirstValue) {
+    ScopedDuplicateJsonPathCheck check_guard(true);
+    const std::vector<std::string_view> jsons = {
+            R"({"a":42,"a":{"b":42}})", R"({"a":123,"a":"123"})",       R"({"a.b":1,"a":{"b":2}})",
+            R"({"a":{"b":3},"a.b":4})", R"({"a":{"b":5},"a":{"c":6}})",
+    };
+
+    auto variant = ColumnVariant::create(0, true);
+    auto json_col = _make_json_column(jsons);
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    cfg.check_duplicate_json_path = true;
+    cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+    parse_json_to_variant(*variant, *json_col, cfg);
+    ASSERT_TRUE(variant->sanitize().ok());
+
+    auto subcolumns = materialize_docs_to_subcolumns_map(*variant);
+    ASSERT_TRUE(subcolumns.contains("a"));
+    ASSERT_TRUE(subcolumns.contains("a.b"));
+    ASSERT_TRUE(subcolumns.contains("a.c"));
+
+    auto& sub_a = subcolumns.at("a");
+    auto& sub_ab = subcolumns.at("a.b");
+    auto& sub_ac = subcolumns.at("a.c");
+    sub_a.finalize();
+    sub_ab.finalize();
+    sub_ac.finalize();
+
+    FieldWithDataType f;
+    sub_a.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 42);
+    sub_a.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 123);
+
+    sub_ab.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 42);
+    sub_ab.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_NULL);
+    sub_ab.get(2, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 1);
+    sub_ab.get(3, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 3);
+    sub_ab.get(4, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 5);
+
+    sub_ac.get(4, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 6);
+}
+
+TEST(VariantUtilTest, ParseDuplicateJsonPathsInDocModeKeepsFirstArrayOrScalarValue) {
+    ScopedDuplicateJsonPathCheck check_guard(true);
+    const std::vector<std::string_view> jsons = {
+            R"({"a":[1],"a":2})",
+            R"({"a":2,"a":[1]})",
+    };
+
+    auto variant = ColumnVariant::create(0, true);
+    auto json_col = _make_json_column(jsons);
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    cfg.check_duplicate_json_path = true;
+    cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+    parse_json_to_variant(*variant, *json_col, cfg);
+    ASSERT_TRUE(variant->sanitize().ok());
+
+    auto subcolumns = materialize_docs_to_subcolumns_map(*variant);
+    ASSERT_TRUE(subcolumns.contains("a"));
+
+    auto& sub_a = subcolumns.at("a");
+    sub_a.finalize();
+
+    FieldWithDataType f;
+    sub_a.get(0, f);
+    ASSERT_EQ(f.field.get_type(), PrimitiveType::TYPE_JSONB);
+    const auto& first = f.field.get<TYPE_JSONB>();
+    EXPECT_EQ(JsonbToJson::jsonb_to_json_string(first.get_value(), first.get_size()), "[1]");
+
+    sub_a.get(1, f);
+    ASSERT_EQ(f.field.get_type(), PrimitiveType::TYPE_JSONB);
+    const auto& second = f.field.get<TYPE_JSONB>();
+    EXPECT_EQ(JsonbToJson::jsonb_to_json_string(second.get_value(), second.get_size()), "2");
+}
+
+TEST(VariantUtilTest, ParseDuplicateJsonPathsCheckDisabledByDefault) {
+    ScopedDuplicateJsonPathCheck check_guard(false);
+    const std::vector<std::string_view> jsons = {
+            R"({"a":123,"a":"123"})",
+    };
+
+    auto variant = ColumnVariant::create(0, false);
+    auto json_col = _make_json_column(jsons);
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    EXPECT_THROW(parse_json_to_variant(*variant, *json_col, cfg), Exception);
 }
 
 TEST(VariantUtilTest, ParseVariantColumns_ScalarJsonStringToSubcolumns) {

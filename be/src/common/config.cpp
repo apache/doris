@@ -1164,6 +1164,7 @@ DEFINE_mBool(variant_use_cloud_schema_dict_cache, "true");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mInt32(variant_max_json_key_length, "255");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
+DEFINE_mBool(variant_enable_duplicate_json_path_check, "false");
 DEFINE_mBool(enable_vertical_compact_variant_subcolumns, "true");
 DEFINE_mBool(enable_variant_doc_sparse_write_subcolumns, "true");
 // Maximum depth of nested arrays to track with NestedGroup
@@ -1267,6 +1268,11 @@ DEFINE_String(inverted_index_query_cache_limit, "10%");
 
 // condition cache limit
 DEFINE_Int16(condition_cache_limit, "512");
+
+// ANN index topn result cache
+DEFINE_String(ann_index_result_cache_limit, "10%");
+DEFINE_Int32(ann_index_result_cache_shards, "16");
+DEFINE_Int32(ann_index_result_cache_stale_sweep_time_sec, "1800");
 
 // inverted index
 DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
@@ -2253,8 +2259,6 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_shrink_memory"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
-    fuzzy_field_and_value["string_overflow_size"] =
-            ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
     fuzzy_field_and_value["skip_writing_empty_rowset_metadata"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_packed_file"] =
