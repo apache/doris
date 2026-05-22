@@ -373,6 +373,13 @@ struct THudiFileDesc {
     10: optional list<string> nested_fields;
     11: optional string hudi_jni_scanner; // deprecated
     12: optional i64 schema_id; // for schema change. (native reader)
+    13: optional list<string> primary_keys;
+    14: optional string serialized_input_split; // Base64 encoded SerializableInputSplit for new reader
+    15: optional string database_name; // Database name for new reader
+    16: optional string table_name; // Table name for new reader
+    17: optional string start_instant; // Start instant for new reader
+    18: optional string end_instant; // End instant for new reader
+    19: optional string serialized_hoodie_table; // Serialized HoodieHadoopTable for new reader
 }
 
 struct TLakeSoulFileDesc {

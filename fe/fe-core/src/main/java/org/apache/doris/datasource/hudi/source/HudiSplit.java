@@ -40,6 +40,15 @@ public class HudiSplit extends FileSplit {
     private List<String> hudiDeltaLogs;
     private List<String> hudiColumnNames;
     private List<String> hudiColumnTypes;
+    private List<String> primaryKeys;
     private List<String> nestedFields;
     private Map<String, String> hudiPartitionValues;
+
+    // Fields for new hudi LSM reader path.
+    private String serializedInputSplit;
+    private String databaseName;
+    private String tableName;
+    private String startInstant;
+    private String endInstant;
+    private String serializedHoodieTable;
 }

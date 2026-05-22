@@ -21,6 +21,8 @@ import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
 
 import org.apache.hadoop.hive.common.type.HiveDecimal;
+import org.apache.hadoop.hive.serde2.io.DateWritable;
+import org.apache.hadoop.hive.serde2.io.TimestampWritable;
 import org.apache.hadoop.hive.serde2.io.TimestampWritableV2;
 import org.apache.hadoop.hive.serde2.objectinspector.ListObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.MapObjectInspector;
@@ -63,6 +65,10 @@ public class HadoopHudiColumnValue implements ColumnValue {
 
     private Object inspectObject() {
         return ((PrimitiveObjectInspector) fieldInspector).getPrimitiveJavaObject(fieldData);
+    }
+
+    public ZoneId getZoneId() {
+        return zoneId;
     }
 
     @Override
@@ -123,17 +129,24 @@ public class HadoopHudiColumnValue implements ColumnValue {
 
     @Override
     public LocalDate getDate() {
-        return LocalDate.ofEpochDay((((DateObjectInspector) fieldInspector).getPrimitiveJavaObject(fieldData))
+        if (fieldData instanceof DateWritable) {
+            DateWritable dateWritable = (DateWritable) fieldData;
+            return LocalDate.ofEpochDay(dateWritable.getDays());
+        } else {
+            return LocalDate.ofEpochDay((((DateObjectInspector) fieldInspector).getPrimitiveJavaObject(fieldData))
                 .toEpochDay());
+        }
     }
 
     @Override
     public LocalDateTime getDateTime() {
-        if (fieldData instanceof Timestamp) {
-            return ((Timestamp) fieldData).toLocalDateTime();
+        if (fieldData instanceof org.apache.hadoop.hive.common.type.Timestamp) {
+            return ((org.apache.hadoop.hive.common.type.Timestamp) fieldData).toSqlTimestamp().toLocalDateTime();
         } else if (fieldData instanceof TimestampWritableV2) {
             return LocalDateTime.ofInstant(Instant.ofEpochSecond((((TimestampObjectInspector) fieldInspector)
                     .getPrimitiveJavaObject(fieldData)).toEpochSecond()), zoneId);
+        } else if (fieldData instanceof TimestampWritable) {
+            return (((org.apache.hadoop.hive.serde2.io.TimestampWritable) fieldData).getTimestamp()).toLocalDateTime();
         } else {
             long datetime = ((LongWritable) fieldData).get();
             long seconds;

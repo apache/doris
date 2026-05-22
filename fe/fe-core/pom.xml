@@ -83,6 +83,11 @@ under the License.
     </profiles>
     <dependencies>
         <dependency>
+            <groupId>com.jd.chubaofs</groupId>
+            <artifactId>chubaofs-hadoop</artifactId>
+            <version>${chubao.version}</version>
+        </dependency>
+        <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>
@@ -643,6 +648,26 @@ under the License.
             <artifactId>hudi-hadoop-mr</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.apache.hudi</groupId>
+            <artifactId>hudi-hadoop-mr-bundle</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.calcite</groupId>
+            <artifactId>calcite-core</artifactId>
+            <version>1.16.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-llap-common</artifactId>
+            <version>3.1.2-20240819-SNAPSHOT</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
             <groupId>org.apache.parquet</groupId>
             <artifactId>parquet-avro</artifactId>
         </dependency>
@@ -772,6 +797,11 @@ under the License.
         <dependency>
             <groupId>org.immutables</groupId>
             <artifactId>value</artifactId>
+        </dependency>
+        <!-- Pin slice for Trino predicate pushdown; must not be shadowed by hudi's orc-core:1.6.0 embedded slice -->
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>slice</artifactId>
         </dependency>
         <dependency>
             <groupId>io.trino</groupId>

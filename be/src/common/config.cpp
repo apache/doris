@@ -125,6 +125,9 @@ DEFINE_String(mem_limit, "90%");
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");
 
+// Hudi MOR init reader timeout (ms), default 60000
+DEFINE_mInt64(hudi_init_reader_timeout_ms, "60000");
+
 // Cache capacity reduce mem limit as a fraction of soft mem limit.
 DEFINE_mDouble(cache_capacity_reduce_mem_limit_frac, "0.7");
 
@@ -1044,6 +1047,8 @@ DEFINE_mInt32(cold_data_compaction_interval_sec, "1800");
 DEFINE_mInt32(cold_data_compaction_score_threshold, "100");
 
 DEFINE_String(tmp_file_dir, "tmp");
+
+DEFINE_String(hoodie_memory_spillable_map_path, "/tmp/hudi_spill");
 
 DEFINE_Int32(min_s3_file_system_thread_num, "16");
 DEFINE_Int32(max_s3_file_system_thread_num, "64");

@@ -427,6 +427,9 @@ struct TQueryOptions {
 
   203: optional bool enable_inverted_index_wand_query = true;
 
+  // Hudi JNI reader init timeout in milliseconds; -1 means use FE/session default (half of query_timeout).
+  204: optional i64 hudi_init_reader_timeout_ms = -1;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

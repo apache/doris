@@ -61,6 +61,7 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSplitSource;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -415,9 +416,20 @@ public abstract class FileQueryScanNode extends FileScanNode {
             HiveSplit hiveSplit = (HiveSplit) fileSplit;
             isACID = hiveSplit.isACID();
         }
-        List<String> partitionValuesFromPath = fileSplit.getPartitionValues() == null
-                ? BrokerUtil.parseColumnsFromPath(fileSplit.getPathString(), pathPartitionKeys,
-                false, isACID) : fileSplit.getPartitionValues();
+        // Empty partition values must not skip path parsing when the table has partition columns:
+        // otherwise BE receives columns_from_path_keys + empty columns_from_path and crashes in
+        // VFileScanner::_generate_fill_columns (out-of-bounds index).
+        List<String> partitionValuesFromPath;
+        if (fileSplit.getPartitionValues() == null) {
+            partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPathString(), pathPartitionKeys,
+                    false, isACID);
+        } else if (fileSplit.getPartitionValues().isEmpty() && pathPartitionKeys != null
+                && !pathPartitionKeys.isEmpty()) {
+            partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPathString(), pathPartitionKeys,
+                    false, isACID);
+        } else {
+            partitionValuesFromPath = fileSplit.getPartitionValues();
+        }
 
         TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
         TFileCompressType fileCompressType = getFileCompressType(fileSplit);
@@ -510,7 +522,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return locations;
     }
 
-    private TFileRangeDesc createFileRangeDesc(FileSplit fileSplit, List<String> columnsFromPath,
+    @VisibleForTesting
+    protected TFileRangeDesc createFileRangeDesc(FileSplit fileSplit, List<String> columnsFromPath,
                                                List<String> columnsFromPathKeys) {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
         rangeDesc.setStartOffset(fileSplit.getStart());
@@ -525,12 +538,16 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         rangeDesc.setFileType(fileSplit.getLocationType());
         rangeDesc.setPath(fileSplit.getPath().toStorageLocation().toString());
+        setFsNameForRangeDesc(fileSplit, rangeDesc);
+        rangeDesc.setModificationTime(fileSplit.getModificationTime());
+        return rangeDesc;
+    }
+
+    public void setFsNameForRangeDesc(FileSplit fileSplit, TFileRangeDesc rangeDesc) {
         if (fileSplit.getLocationType() == TFileType.FILE_HDFS) {
             URI fileUri = fileSplit.getPath().getPath().toUri();
             rangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());
         }
-        rangeDesc.setModificationTime(fileSplit.getModificationTime());
-        return rangeDesc;
     }
 
     // To Support Hive 1.x orc internal column name like (_col0, _col1, _col2...)

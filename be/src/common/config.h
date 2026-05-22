@@ -1175,6 +1175,9 @@ DECLARE_Bool(enable_graceful_exit_check);
 
 DECLARE_Bool(enable_debug_points);
 
+// Hudi MOR init reader timeout (ms), default 30000
+DECLARE_mInt64(hudi_init_reader_timeout_ms);
+
 DECLARE_Int32(pipeline_executor_size);
 DECLARE_Int32(blocking_pipeline_executor_size);
 
@@ -1547,6 +1550,8 @@ DECLARE_mInt32(aws_client_request_timeout_ms);
 
 // write as inverted index tmp directory
 DECLARE_String(tmp_file_dir);
+
+DECLARE_String(hoodie_memory_spillable_map_path);
 
 // the directory for storing the trino-connector plugins.
 DECLARE_String(trino_connector_plugin_dir);

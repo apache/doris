@@ -28,7 +28,6 @@ import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
-import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -56,12 +55,11 @@ public class HudiCachedMetaClientProcessor {
 
     private HoodieTableMetaClient createHoodieTableMetaClient(HudiCachedClientKey key) {
         LOG.debug("create hudi table meta client for {}.{}", key.getNameMapping().getFullLocalName());
-        HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(key.getConf());
         return HiveMetaStoreClientHelper.ugiDoAs(
                 key.getConf(),
                 () -> HoodieTableMetaClient
                         .builder()
-                        .setConf(hadoopStorageConfiguration)
+                        .setConf(key.getConf())
                         .setBasePath(key.getHudiBasePath())
                         .build());
     }

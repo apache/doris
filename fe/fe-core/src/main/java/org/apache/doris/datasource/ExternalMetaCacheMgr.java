@@ -86,6 +86,7 @@ public class ExternalMetaCacheMgr {
     private ExecutorService fileListingExecutor;
     // This executor is used to schedule the getting split tasks
     private ExecutorService scheduleExecutor;
+    private ExecutorService lakehouseGetPartitionSplitExecutor;
 
     private final CatalogScopedCacheMgr<HiveMetaStoreCache> hiveMetaStoreCacheMgr;
     private final CatalogScopedCacheMgr<IcebergMetadataCache> icebergMetadataCacheMgr;
@@ -117,6 +118,12 @@ public class ExternalMetaCacheMgr {
                 Config.max_external_file_cache_loader_thread_pool_size,
                 Config.max_external_file_cache_loader_thread_pool_size * 1000,
                 "FileListingExecutor", 10, true));
+
+        lakehouseGetPartitionSplitExecutor = TtlExecutors.getTtlExecutorService(
+            ThreadPoolManager.newDaemonFixedThreadPool(
+                Config.max_get_partition_split_thread_pool_size,
+                Config.max_external_cache_loader_thread_pool_size * 1000,
+                "LakehouseGetPartitionSplitExecutor", Config.lakehouse_get_split_max_second, true));
 
         scheduleExecutor = TtlExecutors.getTtlExecutorService(newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
@@ -157,6 +164,10 @@ public class ExternalMetaCacheMgr {
 
     public ExecutorService getFileListingExecutor() {
         return fileListingExecutor;
+    }
+
+    public  ExecutorService getLakehouseGetPartitionSplitExecutor() {
+        return lakehouseGetPartitionSplitExecutor;
     }
 
     public ExecutorService getScheduleExecutor() {

@@ -2303,12 +2303,22 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static int max_external_cache_loader_thread_pool_size = 128;
 
+    @ConfField(mutable = false, masterOnly = false, description = {"湖仓表获取分片的超时时间",
+            "max execution time for lakehouse get split in second"})
+    public static int lakehouse_get_split_max_second = 120;
+
     /**
      * Max file cache loader thread-pool size.
      * Max thread pool size for loading external file meta cache
      */
     @ConfField(mutable = false, masterOnly = false)
     public static int max_external_file_cache_loader_thread_pool_size = 4096;
+
+    /**
+     * Max get partition split thread-pool size for lakehouse tables.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static int max_get_partition_split_thread_pool_size = 4096;
 
     /**
      * Max cache num of external catalog's file
@@ -3985,4 +3995,16 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"连接HMS超过指定时间打印慢调用日志",
         "print a warning when the duration exceeds the specified time."})
     public static long log_slow_hms_time_ms = 5000;
+    /**
+     * Max pool size for loading hudi client cache
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static int max_hudi_client_cache_pool_size = 64;
+
+    /**
+     *  The expiration time of a cache object after last write of it.
+     *  For hudi client cache.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static long external_hudi_client_cache_expire_time_minutes_after_write = 3; // 3 mins
 }

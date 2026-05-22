@@ -20,24 +20,27 @@ package org.apache.doris.datasource.hudi.source;
 import org.apache.doris.spi.Split;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.GlobPattern;
+import org.apache.hadoop.fs.Path;
 import org.apache.hudi.common.model.BaseFile;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
+import org.apache.hudi.common.storage.HoodieStorageStrategyFactory;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineUtils;
-import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.hadoop.utils.HoodieInputFormatUtils;
-import org.apache.hudi.metadata.HoodieTableMetadataUtil;
-import org.apache.hudi.storage.StoragePathInfo;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -47,14 +50,14 @@ public class MORIncrementalRelation implements IncrementalRelation {
     private final Map<String, String> optParams;
     private final HoodieTableMetaClient metaClient;
     private final HoodieTimeline timeline;
-    private final HollowCommitHandling hollowCommitHandling;
+    private final boolean useStateTransitionTime;
     private String startTimestamp;
     private String endTimestamp;
     private final boolean startInstantArchived;
     private final boolean endInstantArchived;
     private final List<HoodieInstant> includedCommits;
     private final List<HoodieCommitMetadata> commitsMetadata;
-    private final List<StoragePathInfo> affectedFilesInCommits;
+    private final List<FileStatus> affectedFilesInCommits;
     private final boolean fullTableScan;
     private final String globPattern;
     private final String startTs;
@@ -67,14 +70,15 @@ public class MORIncrementalRelation implements IncrementalRelation {
         this.optParams = optParams;
         this.metaClient = metaClient;
         timeline = metaClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
+        String holesPolicy = optParams.getOrDefault(
+                "hoodie.read.timeline.holes.resolution.policy", "FAIL");
+        this.useStateTransitionTime = "USE_TRANSITION_TIME".equalsIgnoreCase(holesPolicy);
         if (timeline.empty()) {
             throw new HoodieException("No instants to incrementally pull");
         }
         if (!metaClient.getTableConfig().populateMetaFields()) {
             throw new HoodieException("Incremental queries are not supported when meta fields are disabled");
         }
-        hollowCommitHandling = HollowCommitHandling.valueOf(
-                optParams.getOrDefault("hoodie.read.timeline.holes.resolution.policy", "FAIL"));
 
         startTimestamp = optParams.get("hoodie.datasource.read.begin.instanttime");
         if (startTimestamp == null) {
@@ -85,9 +89,10 @@ public class MORIncrementalRelation implements IncrementalRelation {
             startTimestamp = "000";
         }
 
-        String latestTime = hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME
-                        ? timeline.lastInstant().get().getCompletionTime()
-                : timeline.lastInstant().get().requestedTime();
+        HoodieInstant lastInstant = timeline.lastInstant().get();
+        String latestTime = useStateTransitionTime
+                ? lastInstant.getStateTransitionTime()
+                : lastInstant.getTimestamp();
         endTimestamp = optParams.getOrDefault("hoodie.datasource.read.end.instanttime", latestTime);
         if (LATEST_TIME.equals(latestTime)) {
             endTimestamp = latestTime;
@@ -98,10 +103,17 @@ public class MORIncrementalRelation implements IncrementalRelation {
 
         includedCommits = getIncludedCommits();
         commitsMetadata = getCommitsMetadata();
-        affectedFilesInCommits = HoodieInputFormatUtils.listAffectedFilesForCommits(configuration,
-                metaClient.getBasePath(), commitsMetadata);
-        fullTableScan = shouldFullTableScan();
-        if (hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME && fullTableScan) {
+        Map<HoodieInstant, HoodieCommitMetadata> commitMetadataMap = new LinkedHashMap<>();
+        for (int i = 0; i < includedCommits.size(); i++) {
+            commitMetadataMap.put(includedCommits.get(i), commitsMetadata.get(i));
+        }
+        FileStatus[] affected = HoodieInputFormatUtils.listAffectedFilesForCommits(configuration,
+                new Path(metaClient.getBasePath()),
+                commitMetadataMap,
+                HoodieStorageStrategyFactory.getInstant(metaClient));
+        affectedFilesInCommits = Arrays.asList(affected);
+        fullTableScan = shouldFullTableScan(configuration);
+        if (useStateTransitionTime && fullTableScan) {
             throw new HoodieException("Cannot use stateTransitionTime while enables full table scan");
         }
         globPattern = optParams.getOrDefault("hoodie.datasource.read.incr.path.glob", "");
@@ -121,8 +133,8 @@ public class MORIncrementalRelation implements IncrementalRelation {
         if (!startInstantArchived || !endInstantArchived) {
             // If endTimestamp commit is not archived, will filter instants
             // before endTimestamp.
-            if (hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME) {
-                return timeline.findInstantsInRangeByCompletionTime(startTimestamp, endTimestamp).getInstants();
+            if (useStateTransitionTime) {
+                return timeline.findInstantsInRangeByStateTransitionTime(startTimestamp, endTimestamp).getInstants();
             } else {
                 return timeline.findInstantsInRange(startTimestamp, endTimestamp).getInstants();
             }
@@ -139,15 +151,16 @@ public class MORIncrementalRelation implements IncrementalRelation {
         return result;
     }
 
-    private boolean shouldFullTableScan() throws IOException {
+    private boolean shouldFullTableScan(Configuration configuration) throws IOException {
         boolean should = Boolean.parseBoolean(
                 optParams.getOrDefault("hoodie.datasource.read.incr.fallback.fulltablescan.enable", "false")) && (
                 startInstantArchived || endInstantArchived);
         if (should) {
             return true;
         }
-        for (StoragePathInfo fileStatus : affectedFilesInCommits) {
-            if (!metaClient.getStorage().exists(fileStatus.getPath())) {
+        FileSystem fs = metaClient.getRawFs(new Path(metaClient.getBasePath()));
+        for (FileStatus fileStatus : affectedFilesInCommits) {
+            if (!fs.exists(fileStatus.getPath())) {
                 return true;
             }
         }
@@ -176,19 +189,17 @@ public class MORIncrementalRelation implements IncrementalRelation {
         } else if (fullTableScan) {
             throw new HoodieException("Fallback to full table scan");
         }
+        HoodieTimeline rawCommits = metaClient.getCommitsAndCompactionTimeline();
         HoodieTimeline scanTimeline;
-        if (hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME) {
-            scanTimeline = metaClient.getCommitsAndCompactionTimeline()
-                    .findInstantsInRangeByCompletionTime(startTimestamp, endTimestamp);
+        if (useStateTransitionTime) {
+            scanTimeline = rawCommits.findInstantsInRangeByStateTransitionTime(startTimestamp, endTimestamp);
         } else {
-            scanTimeline = TimelineUtils.handleHollowCommitIfNeeded(
-                            metaClient.getCommitsAndCompactionTimeline(), metaClient, hollowCommitHandling)
-                    .findInstantsInRange(startTimestamp, endTimestamp);
+            scanTimeline = rawCommits.findInstantsInRange(startTimestamp, endTimestamp);
         }
-        String latestCommit = includedCommits.get(includedCommits.size() - 1).requestedTime();
-        HoodieTableFileSystemView fsView = new HoodieTableFileSystemView(metaClient, scanTimeline,
-                affectedFilesInCommits);
-        Stream<FileSlice> fileSlices = HoodieTableMetadataUtil.getWritePartitionPaths(commitsMetadata)
+        String latestCommit = includedCommits.get(includedCommits.size() - 1).getTimestamp();
+        FileStatus[] affected = affectedFilesInCommits.toArray(new FileStatus[0]);
+        HoodieTableFileSystemView fsView = new HoodieTableFileSystemView(metaClient, scanTimeline, affected);
+        Stream<FileSlice> fileSlices = HoodieInputFormatUtils.getWritePartitionPaths(commitsMetadata)
                 .stream().flatMap(relativePartitionPath ->
                         fsView.getLatestMergedFileSlicesBeforeOrOn(relativePartitionPath, latestCommit));
         if ("".equals(globPattern)) {

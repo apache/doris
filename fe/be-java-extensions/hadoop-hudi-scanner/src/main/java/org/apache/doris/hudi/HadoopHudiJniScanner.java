@@ -27,6 +27,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.JavaUtils;
@@ -41,6 +42,7 @@ import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.RecordReader;
 import org.apache.hadoop.mapred.Reporter;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.util.Option;
@@ -49,11 +51,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.security.PrivilegedAction;
 import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -64,6 +73,7 @@ public class HadoopHudiJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(HadoopHudiJniScanner.class);
 
     private static final String HADOOP_CONF_PREFIX = "hadoop_conf.";
+    /** One WARN per process: default BE log level often hides INFO where token-open was logged. */
 
     // Hudi data info
     private final String basePath;
@@ -89,12 +99,40 @@ public class HadoopHudiJniScanner extends JniScanner {
     private Deserializer deserializer;
     private final Map<String, String> fsOptionsProps;
 
+    private final String hadoopUserName;
+    private final String hadoopUserToken;
+
+    private final long initReaderTimeoutMs;
+
+    public static int HUDI_READER_INIT_CORE_THREAD_NUM = 20;
+    public static int HUDI_READER_INIT_MAXIMUM_THREAD_NUM = 256;
+    public static int HUDI_READER_INIT_QUEUE_CAPACITY = 102400;
     // scanner info
     private final HadoopHudiColumnValue columnValue;
     private final int fetchSize;
     private final ClassLoader classLoader;
 
     private final PreExecutionAuthenticator preExecutionAuthenticator;
+
+    private static final ThreadPoolExecutor hudiReaderInitExecutorService = buildHudiReaderInitExecutor();
+
+    private static ThreadPoolExecutor buildHudiReaderInitExecutor() {
+        BlockingQueue<Runnable> queue = new LinkedBlockingQueue<>(HUDI_READER_INIT_QUEUE_CAPACITY);
+        ThreadFactory threadFactory = new ThreadFactoryBuilder()
+                .setDaemon(true)
+                .setNameFormat("HudiReaderInit-%d")
+                .build();
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(
+                HUDI_READER_INIT_CORE_THREAD_NUM,
+                HUDI_READER_INIT_MAXIMUM_THREAD_NUM,
+                60L,
+                TimeUnit.SECONDS,
+                queue,
+                threadFactory,
+                new ThreadPoolExecutor.AbortPolicy()
+        );
+        return executor;
+    }
 
     public HadoopHudiJniScanner(int fetchSize, Map<String, String> params) {
         this.basePath = params.get("base_path");
@@ -111,10 +149,12 @@ public class HadoopHudiJniScanner extends JniScanner {
 
         this.hudiColumnNames = params.get("hudi_column_names");
         this.hudiColumnTypes = params.get("hudi_column_types").split("#");
-        // Required fields will be empty when only partition fields are selected
-        // This is because partition fields are not stored in the data files
-        if (!params.get("required_fields").equals("")) {
-            this.requiredFields = params.get("required_fields").split(",");
+        String requiredFieldsParam = params.getOrDefault("required_fields", "");
+        if (!requiredFieldsParam.isEmpty()) {
+            this.requiredFields = requiredFieldsParam.split(",");
+        } else if (!params.getOrDefault("hudi_primary_keys", "").isEmpty()) {
+            // Fall back to primary keys when only partition columns are projected.
+            this.requiredFields = params.get("hudi_primary_keys").split(",");
         } else {
             this.requiredFields = new String[0];
         }
@@ -124,6 +164,8 @@ public class HadoopHudiJniScanner extends JniScanner {
         for (Map.Entry<String, String> entry : params.entrySet()) {
             if (entry.getKey().startsWith(HADOOP_CONF_PREFIX)) {
                 fsOptionsProps.put(entry.getKey().substring(HADOOP_CONF_PREFIX.length()), entry.getValue());
+            } else if (entry.getKey().equals("hoodie_memory_spillable_map_path")) {
+                fsOptionsProps.put("hoodie.memory.spillable.map.path", entry.getValue());
             }
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get hudi params {}: {}", entry.getKey(), entry.getValue());
@@ -140,19 +182,18 @@ public class HadoopHudiJniScanner extends JniScanner {
         this.columnValue = new HadoopHudiColumnValue(zoneId);
         this.fetchSize = fetchSize;
         this.classLoader = this.getClass().getClassLoader();
+        this.hadoopUserName = params.get("HADOOP_USER_NAME");
+        this.hadoopUserToken = params.get("HADOOP_USER_TOKEN");
+        this.initReaderTimeoutMs = Long.parseLong(params.getOrDefault("hudi_init_reader_timeout_ms", "30000"));
     }
 
     @Override
     public void open() throws IOException {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            preExecutionAuthenticator.execute(() -> {
-                initRequiredColumnsAndTypes();
-                initTableInfo(requiredTypes, requiredFields, fetchSize);
-                Properties properties = getReaderProperties();
-                initReader(properties);
-                return null;
-            });
-
+            initRequiredColumnsAndTypes();
+            initTableInfo(requiredTypes, requiredFields, fetchSize);
+            Properties properties = getReaderProperties();
+            initReader(properties);
         } catch (Exception e) {
             close();
             LOG.warn("failed to open hadoop hudi jni scanner", e);
@@ -163,37 +204,47 @@ public class HadoopHudiJniScanner extends JniScanner {
     @Override
     public int getNext() throws IOException {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            return preExecutionAuthenticator.execute(() -> {
-                NullWritable key = reader.createKey();
-                ArrayWritable value = reader.createValue();
-                long startTime = System.nanoTime();
-                int numRows = 0;
-                for (; numRows < fetchSize; numRows++) {
-                    if (!reader.next(key, value)) {
-                        break;
-                    }
-                    if (fields.length > 0) {
-                        Object rowData = deserializer.deserialize(value);
-                        for (int i = 0; i < fields.length; i++) {
-                            Object fieldData = rowInspector.getStructFieldData(rowData, structFields[i]);
-                            columnValue.setRow(fieldData);
-                            columnValue.setField(types[i], fieldInspectors[i]);
-                            appendData(i, columnValue);
-                        }
-                    }
+            UserGroupInformation ugi =
+                    UserGroupInformation.createRemoteUser(hadoopUserName, null, hadoopUserToken);
+            return ugi.doAs((PrivilegedAction<Integer>) () -> {
+                try {
+                    return doGetNext();
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
                 }
-                // vectorTable is virtual
-                if (fields.length == 0) {
-                    vectorTable.appendVirtualData(numRows);
-                }
-                appendDataTime += System.nanoTime() - startTime;
-                return numRows;
             });
         } catch (Exception e) {
             close();
             LOG.warn("failed to get next in hadoop hudi jni scanner", e);
             throw new IOException("failed to get next in hadoop hudi jni scanner: " + e.getMessage(), e);
         }
+    }
+
+    private int doGetNext() throws Exception {
+        NullWritable key = reader.createKey();
+        ArrayWritable value = reader.createValue();
+        long startTime = System.nanoTime();
+        int numRows = 0;
+        for (; numRows < fetchSize; numRows++) {
+            if (!reader.next(key, value)) {
+                break;
+            }
+            if (fields.length > 0) {
+                Object rowData = deserializer.deserialize(value);
+                for (int i = 0; i < fields.length; i++) {
+                    Object fieldData = rowInspector.getStructFieldData(rowData, structFields[i]);
+                    columnValue.setRow(fieldData);
+                    columnValue.setField(types[i], fieldInspectors[i]);
+                    appendData(i, columnValue);
+                }
+            }
+        }
+        // vectorTable is virtual
+        if (fields.length == 0) {
+            vectorTable.appendVirtualData(numRows);
+        }
+        appendDataTime += System.nanoTime() - startTime;
+        return numRows;
     }
 
     @Override
@@ -261,8 +312,29 @@ public class HadoopHudiJniScanner extends JniScanner {
         JobConf jobConf = new JobConf(new Configuration());
         properties.stringPropertyNames().forEach(name -> jobConf.set(name, properties.getProperty(name)));
         InputFormat<?, ?> inputFormatClass = createInputFormat(jobConf, inputFormat);
-        reader = (RecordReader<NullWritable, ArrayWritable>) inputFormatClass
-                .getRecordReader(hudiSplit, jobConf, Reporter.NULL);
+        UserGroupInformation ugi = UserGroupInformation.createRemoteUser(hadoopUserName,
+                null, hadoopUserToken);
+
+        // Build reader via async with timeout to avoid hang in init because of scan-log (MOR or fallback)
+        Future<RecordReader<NullWritable, ArrayWritable>> buildReaderFuture = hudiReaderInitExecutorService.submit(() ->
+                ugi.doAs((PrivilegedAction<RecordReader<NullWritable, ArrayWritable>>) () -> {
+                    try {
+                        return (RecordReader<NullWritable, ArrayWritable>) inputFormatClass.getRecordReader(
+                            hudiSplit, jobConf, Reporter.NULL);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+        );
+        try {
+            reader = buildReaderFuture.get(initReaderTimeoutMs, TimeUnit.MILLISECONDS);
+        } catch (Exception ex) {
+            buildReaderFuture.cancel(true);
+            LOG.warn("Failed to init Hudi RecordReader, size of query: {}, size of running threads: {}, hudiSplit: {}",
+                    hudiReaderInitExecutorService.getQueue().size(),
+                    hudiReaderInitExecutorService.getActiveCount(), hudiSplit, ex);
+            throw ex;
+        }
 
         deserializer = getDeserializer(jobConf, properties, serde);
         rowInspector = getTableObjectInspector(deserializer);
@@ -295,4 +367,65 @@ public class HadoopHudiJniScanner extends JniScanner {
                 "expected STRUCT: %s", inspector.getCategory());
         return (StructObjectInspector) inspector;
     }
+
+    public String getBasePath() {
+        return basePath;
+    }
+
+    public String getDataFilePath() {
+        return dataFilePath;
+    }
+
+    public long getDataFileLength() {
+        return dataFileLength;
+    }
+
+    public String[] getDeltaFilePaths() {
+        return deltaFilePaths;
+    }
+
+    public String getInstantTime() {
+        return instantTime;
+    }
+
+    public String getSerde() {
+        return serde;
+    }
+
+    public String getInputFormat() {
+        return inputFormat;
+    }
+
+    public String getHudiColumnNames() {
+        return hudiColumnNames;
+    }
+
+    public String[] getHudiColumnTypes() {
+        return hudiColumnTypes;
+    }
+
+    public String[] getRequiredFields() {
+        return requiredFields;
+    }
+
+    public Map<String, String> getFsOptionsProps() {
+        return fsOptionsProps;
+    }
+
+    public int getFetchSize() {
+        return fetchSize;
+    }
+
+    public HadoopHudiColumnValue getColumnValue() {
+        return columnValue;
+    }
+
+    public String getHadoopUserName() {
+        return hadoopUserName;
+    }
+
+    public String getHadoopUserToken() {
+        return hadoopUserToken;
+    }
+
 }

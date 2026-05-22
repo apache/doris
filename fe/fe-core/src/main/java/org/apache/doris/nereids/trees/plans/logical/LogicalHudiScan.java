@@ -53,6 +53,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -105,7 +106,7 @@ public class LogicalHudiScan extends LogicalFileScan {
 
     /**
      * replace incremental params as AND expression
-     * incr('beginTime'='20240308110257169', 'endTime'='20240308110677278') =>
+     * incr('beginTime'='20240308110257169', 'endTime'='20240308110677278', 'iscdc'='false') =>
      * _hoodie_commit_time > 20240308110257169 and _hoodie_commit_time <= '20240308110677278'
      */
     public Set<Expression> generateIncrementalExpression(List<Slot> slots) {
@@ -197,32 +198,54 @@ public class LogicalHudiScan extends LogicalFileScan {
             TableScanParams scanParams = optScanParams.get();
             // Clone the getBackendStorageProperties, because we need to modify it for the incremental read
             Map<String, String> optParams = new HashMap<>(table.getBackendStorageProperties());
-            if (scanParams.getMapParams().containsKey("beginTime")) {
-                optParams.put("hoodie.datasource.read.begin.instanttime", scanParams.getMapParams().get("beginTime"));
+            Map<String, String> storageDescriptorParameters =
+                    table.getRemoteTable().getSd().getSerdeInfo().getParameters();
+            Map<String, String> paras = table.getRemoteTable().getParameters();
+            String cacheLayerKey = "hoodie.query.without.cache.layer.enabled";
+            if (paras != null && paras.containsKey(cacheLayerKey)) {
+                optParams.put(cacheLayerKey, paras.get(cacheLayerKey));
+            } else if (storageDescriptorParameters != null && storageDescriptorParameters.containsKey(cacheLayerKey)) {
+                optParams.put(cacheLayerKey, storageDescriptorParameters.get(cacheLayerKey));
             }
-            if (scanParams.getMapParams().containsKey("endTime")) {
-                optParams.put("hoodie.datasource.read.end.instanttime", scanParams.getMapParams().get("endTime"));
+            String beginInstant = null;
+            String endInstant = null;
+            for (Map.Entry<String, String> e : scanParams.getMapParams().entrySet()) {
+                if (e.getKey() == null) {
+                    continue;
+                }
+                String lk = e.getKey().toLowerCase(Locale.ROOT);
+                if ("begintime".equals(lk)) {
+                    beginInstant = e.getValue();
+                } else if ("endtime".equals(lk)) {
+                    endInstant = e.getValue();
+                }
+            }
+            if (beginInstant != null) {
+                optParams.put("hoodie.datasource.read.begin.instanttime", beginInstant);
+            }
+            if (endInstant != null) {
+                optParams.put("hoodie.datasource.read.end.instanttime", endInstant);
             }
             scanParams.getMapParams().forEach((k, v) -> {
                 if (k.startsWith("hoodie.")) {
                     optParams.put(k, v);
                 }
             });
-            HoodieTableMetaClient hudiClient = table.getHudiClient();
+            HoodieTableMetaClient hudiClient = HiveMetaStoreClientHelper.getHudiClient(table);
             try {
-                boolean isCowOrRoTable = table.isHoodieCowTable();
-                if (isCowOrRoTable) {
+                boolean isCowTable = table.isHoodieCowTable();
+                if (isCowTable) {
                     Map<String, String> serd = table.getRemoteTable().getSd().getSerdeInfo().getParameters();
                     if ("true".equals(serd.get("hoodie.query.as.ro.table"))
                             && table.getRemoteTable().getTableName().endsWith("_ro")) {
                         // Incremental read RO table as RT table, I don't know why?
-                        isCowOrRoTable = false;
+                        isCowTable = false;
                         LOG.warn("Execute incremental read on RO table: {}", table.getFullQualifiers());
                     }
                 }
                 if (hudiClient.getCommitsTimeline().filterCompletedInstants().countInstants() == 0) {
                     newIncrementalRelation = Optional.of(new EmptyIncrementalRelation(optParams));
-                } else if (isCowOrRoTable) {
+                } else if (isCowTable) {
                     newIncrementalRelation = Optional.of(new COWIncrementalRelation(
                         optParams, HiveMetaStoreClientHelper.getConfiguration(table), hudiClient));
                 } else {
@@ -235,7 +258,7 @@ public class LogicalHudiScan extends LogicalFileScan {
             }
         }
         return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
-            selectedPartitions, tableSample, tableSnapshot, scanParams, newIncrementalRelation,
+            selectedPartitions, tableSample, tableSnapshot, optScanParams, newIncrementalRelation,
             operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()), cachedOutputs);
     }
 }

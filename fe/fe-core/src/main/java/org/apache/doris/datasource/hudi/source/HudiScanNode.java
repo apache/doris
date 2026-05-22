@@ -26,22 +26,28 @@ import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.common.util.HMSPartitionsUtil;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
+import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -51,41 +57,58 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.THudiFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.BaseFile;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieLogFile;
+import org.apache.hudi.common.storage.HoodieStorageStrategy;
+import org.apache.hudi.common.storage.HoodieStorageStrategyFactory;
+import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
-import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.StringUtils;
+import org.apache.hudi.hadoop.client.HoodieHadoopTable;
+import org.apache.hudi.hadoop.client.HoodieSplit;
+import org.apache.hudi.hadoop.client.HoodieSplit.SerializableInputSplit;
+import org.apache.hudi.hadoop.config.InputFormatConfig;
 import org.apache.hudi.internal.schema.InternalSchema;
-import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
-import org.apache.hudi.storage.StoragePath;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.File;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.ObjectOutputStream;
+import java.security.PrivilegedAction;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -94,6 +117,16 @@ import java.util.stream.Collectors;
 public class HudiScanNode extends HiveScanNode {
 
     private static final Logger LOG = LogManager.getLogger(HudiScanNode.class);
+
+    private static final String HOODIE_TABLE_LOG_FORMAT = "hoodie.table.log.format";
+    private static final String HOODIE_LOG_FORMAT_LSM = "lsm";
+    private static final int HUDI_SPLIT_FORK_JOIN_PARALLELISM =
+            Math.max(1, ForkJoinPool.getCommonPoolParallelism());
+    private static final ForkJoinPool HUDI_SPLIT_FORK_JOIN_POOL = new ForkJoinPool(
+            HUDI_SPLIT_FORK_JOIN_PARALLELISM,
+            new LegacyForkJoinWorkerThreadFactory(),
+            null,
+            false);
 
     private boolean isCowTable;
 
@@ -105,6 +138,7 @@ public class HudiScanNode extends HiveScanNode {
     private String serdeLib;
     private List<String> columnNames;
     private List<String> columnTypes;
+    private List<String> primaryKeys;
 
     private boolean partitionInit = false;
     private HoodieTimeline timeline;
@@ -116,9 +150,13 @@ public class HudiScanNode extends HiveScanNode {
     private final AtomicInteger numSplitsPerPartition = new AtomicInteger(NUM_SPLITS_PER_PARTITION);
 
     private boolean incrementalRead = false;
+    private boolean enableCdcRead = false;
     private TableScanParams scanParams;
     private IncrementalRelation incrementalRelation;
     private HoodieTableFileSystemView fsView;
+    private HoodieStorageStrategy storageStrategy;
+
+    private String chubaoFsOwner;
 
     // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
@@ -148,6 +186,9 @@ public class HudiScanNode extends HiveScanNode {
         this.scanParams = scanParams.orElse(null);
         this.incrementalRelation = incrementalRelation.orElse(null);
         this.incrementalRead = (this.scanParams != null && this.scanParams.incrementalRead());
+        if (this.incrementalRead) {
+            this.enableCdcRead = this.scanParams == null || this.scanParams.isCdcRead();
+        }
     }
 
     @Override
@@ -171,12 +212,37 @@ public class HudiScanNode extends HiveScanNode {
         computeColumnsFilter();
         initBackendPolicy();
         initSchemaParams();
-
-        hudiClient = hmsTable.getHudiClient();
+        hudiClient = HiveMetaStoreClientHelper.getHudiClient(hmsTable);
         hudiClient.reloadActiveTimeline();
         basePath = hmsTable.getRemoteTable().getSd().getLocation();
         inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
         serdeLib = hmsTable.getRemoteTable().getSd().getSerdeInfo().getSerializationLib();
+        chubaoFsOwner = hudiClient.getTableConfig().getChubaoFsOwner();
+        if (chubaoFsOwner != null && chubaoFsOwner.contains(":")) {
+            chubaoFsOwner = chubaoFsOwner.split(":")[1];
+        }
+        boolean queryWithoutCacheLayer = false;
+        Map<String, String> storageDescriptorParameters =
+                hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
+
+        Map<String, String> tableParams = hmsTable.getRemoteTable().getParameters();
+        String key = "hoodie.query.without.cache.layer.enabled";
+        if (tableParams != null) {
+            queryWithoutCacheLayer = Boolean.valueOf(tableParams.getOrDefault(key, "false"));
+        }
+        if (!queryWithoutCacheLayer && storageDescriptorParameters != null) {
+            queryWithoutCacheLayer = Boolean.valueOf(storageDescriptorParameters.getOrDefault(key, "false"));
+        }
+        String primaryKey = "hoodie.datasource.write.recordkey.field";
+        String primaryKeyStr = tableParams != null ? tableParams.getOrDefault(primaryKey, "") : "";
+        TypedProperties props = hudiClient.getTableConfig().getProps();
+        String primaryKeyStrHoodie = props.getString(HoodieTableConfig.RECORDKEY_FIELDS.key());
+        String effectivePrimaryKey = StringUtils.isNullOrEmpty(primaryKeyStr) ? primaryKeyStrHoodie : primaryKeyStr;
+        if (StringUtils.isNullOrEmpty(effectivePrimaryKey)) {
+            throw new AnalysisException("Primary key is not set in hudi table " + hmsTable.getFullQualifiers());
+        }
+        primaryKeys = Arrays.asList(effectivePrimaryKey.split(","));
+        storageStrategy = HoodieStorageStrategyFactory.getInstant(hudiClient, queryWithoutCacheLayer);
 
         if (scanParams != null && !scanParams.incrementalRead()) {
             // Only support incremental read
@@ -201,7 +267,7 @@ public class HudiScanNode extends HiveScanNode {
             }
         }
 
-        timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
+        timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedAndCompactionInstants();
         TableSnapshot tableSnapshot = getQueryTableSnapshot();
         if (tableSnapshot != null) {
             if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
@@ -215,7 +281,7 @@ public class HudiScanNode extends HiveScanNode {
                 partitionInit = true;
                 return;
             }
-            queryInstant = snapshotInstant.get().requestedTime();
+            queryInstant = snapshotInstant.get().getTimestamp();
         }
 
         HudiSchemaCacheValue hudiSchemaCacheValue = HudiUtils.getSchemaCacheValue(hmsTable, queryInstant);
@@ -236,39 +302,21 @@ public class HudiScanNode extends HiveScanNode {
 
     @Override
     protected Map<String, String> getLocationProperties() {
+        Map<String, String> properties = new HashMap<>();
         if (incrementalRead) {
-            return incrementalRelation.getHoodieParams();
+            properties.putAll(incrementalRelation.getHoodieParams());
+            properties.put(InputFormatConfig.ENABLE_CDC_READ, String.valueOf(enableCdcRead));
         } else {
-            // Merge both BE format (AWS_*) and Hadoop format (fs.s3a.*) properties
-            // Native reader needs BE format, JNI reader needs Hadoop format
-            Map<String, String> properties = new HashMap<>();
-            // Add BE format properties for native reader
             properties.putAll(hmsTable.getBackendStorageProperties());
-            // Add Hadoop format properties for JNI reader
             properties.putAll(hmsTable.getCatalog().getCatalogProperty().getHadoopProperties());
-            return properties;
         }
+        return properties;
     }
 
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
         if (split instanceof HudiSplit) {
-            HudiSplit hudiSplit = (HudiSplit) split;
-            if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_JNI
-                    && !sessionVariable.isForceJniScanner()
-                    && hudiSplit.getHudiDeltaLogs().isEmpty()) {
-                // no logs, is read optimize table, fallback to use native reader
-                String fileFormat = FileFormatUtils.getFileFormatBySuffix(hudiSplit.getDataFilePath())
-                        .orElse("Unknown");
-                if (fileFormat.equals("parquet")) {
-                    rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
-                } else if (fileFormat.equals("orc")) {
-                    rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
-                } else {
-                    throw new RuntimeException("Unsupported file format: " + fileFormat);
-                }
-            }
-            setHudiParams(rangeDesc, hudiSplit);
+            setHudiParams(rangeDesc, (HudiSplit) split);
         }
     }
 
@@ -283,7 +331,14 @@ public class HudiScanNode extends HiveScanNode {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(hudiSplit.getTableFormatType().value());
         THudiFileDesc fileDesc = new THudiFileDesc();
-        if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_JNI) {
+
+        // Check if this is a new reader split with serialized input split
+        if (hudiSplit.getSerializedInputSplit() != null) {
+            fileDesc.setSerializedInputSplit(hudiSplit.getSerializedInputSplit());
+            fileDesc.setDatabaseName(hudiSplit.getDatabaseName());
+            fileDesc.setTableName(hudiSplit.getTableName());
+            fileDesc.setStartInstant(hudiSplit.getStartInstant());
+            fileDesc.setEndInstant(hudiSplit.getEndInstant());
             fileDesc.setInstantTime(hudiSplit.getInstantTime());
             fileDesc.setSerde(hudiSplit.getSerde());
             fileDesc.setInputFormat(hudiSplit.getInputFormat());
@@ -293,42 +348,40 @@ public class HudiScanNode extends HiveScanNode {
             fileDesc.setDeltaLogs(hudiSplit.getHudiDeltaLogs());
             fileDesc.setColumnNames(hudiSplit.getHudiColumnNames());
             fileDesc.setColumnTypes(hudiSplit.getHudiColumnTypes());
-            // TODO(gaoxin): support complex types
-            // fileDesc.setNestedFields(hudiSplit.getNestedFields());
+            fileDesc.setPrimaryKeys(hudiSplit.getPrimaryKeys());
+            if (hudiSplit.getSerializedHoodieTable() != null && !hudiSplit.getSerializedHoodieTable().isEmpty()) {
+                fileDesc.setSerializedHoodieTable(hudiSplit.getSerializedHoodieTable());
+            }
         } else {
-            HudiSchemaCacheValue hudiSchemaCacheValue = HudiUtils.getSchemaCacheValue(hmsTable, queryInstant);
-            if (hudiSchemaCacheValue.isEnableSchemaEvolution()) {
-                long commitInstantTime = Long.parseLong(FSUtils.getCommitTime(
-                        new File(hudiSplit.getPath().getNormalizedLocation()).getName()));
-                InternalSchema internalSchema = hudiSchemaCacheValue
-                        .getCommitInstantInternalSchema(hudiClient, commitInstantTime);
-                putHistorySchemaInfo(internalSchema); //for schema change. (native reader)
-                fileDesc.setSchemaId(internalSchema.schemaId());
-            } else {
-                try {
-                    TableSchemaResolver schemaUtil = new TableSchemaResolver(hudiClient);
-                    InternalSchema internalSchema =
-                            AvroInternalSchemaConverter.convert(schemaUtil.getTableAvroSchema(true));
-                    putHistorySchemaInfo(internalSchema); //Handle column name case for BE
-                    fileDesc.setSchemaId(internalSchema.schemaId());
-                } catch (Exception e) {
-                    throw new RuntimeException("Cannot get hudi table schema.", e);
-                }
-            }
+            // Old reader path
+            fileDesc.setInstantTime(hudiSplit.getInstantTime());
+            fileDesc.setSerde(hudiSplit.getSerde());
+            fileDesc.setInputFormat(hudiSplit.getInputFormat());
+            fileDesc.setBasePath(hudiSplit.getBasePath());
+            fileDesc.setDataFilePath(hudiSplit.getDataFilePath());
+            fileDesc.setDataFileLength(hudiSplit.getFileLength());
+            fileDesc.setDeltaLogs(hudiSplit.getHudiDeltaLogs());
+            fileDesc.setColumnNames(hudiSplit.getHudiColumnNames());
+            fileDesc.setColumnTypes(hudiSplit.getHudiColumnTypes());
+            fileDesc.setPrimaryKeys(hudiSplit.getPrimaryKeys());
         }
+        // TODO(gaoxin): support complex types
+        // fileDesc.setNestedFields(hudiSplit.getNestedFields());
+
         tableFormatFileDesc.setHudiParams(fileDesc);
-        Map<String, String> partitionValues = hudiSplit.getHudiPartitionValues();
-        if (partitionValues != null) {
-            List<String> formPathKeys = new ArrayList<>();
-            List<String> formPathValues = new ArrayList<>();
-            for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
-                formPathKeys.add(entry.getKey());
-                formPathValues.add(entry.getValue());
-            }
-            rangeDesc.setColumnsFromPathKeys(formPathKeys);
-            rangeDesc.setColumnsFromPath(formPathValues);
-        }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
+    }
+
+    private void setSharedSerializedHoodieTable(String serializedHoodieTable) {
+        if (serializedHoodieTable == null || serializedHoodieTable.isEmpty()) {
+            return;
+        }
+        TTableFormatFileDesc sharedTableFormat = new TTableFormatFileDesc();
+        sharedTableFormat.setTableFormatType(TableFormatType.HUDI.value());
+        THudiFileDesc sharedHudiDesc = new THudiFileDesc();
+        sharedHudiDesc.setSerializedHoodieTable(serializedHoodieTable);
+        sharedTableFormat.setHudiParams(sharedHudiDesc);
+        params.setTableFormatParams(sharedTableFormat);
     }
 
     private boolean canUseNativeReader() {
@@ -369,18 +422,17 @@ public class HudiScanNode extends HiveScanNode {
         return Lists.newArrayList(dummyPartition);
     }
 
-    private List<Split> getIncrementalSplits() {
-        if (canUseNativeReader()) {
-            List<Split> splits = incrementalRelation.collectSplits();
-            noLogsSplitNum.addAndGet(splits.size());
-            return splits;
+    // Data class to hold partition metadata
+    private static class PartitionMetadata {
+        final String partitionName;
+        final HivePartition partition;
+        long totalSize;
+
+        PartitionMetadata(String partitionName, HivePartition partition, long totalSize) {
+            this.partitionName = partitionName;
+            this.partition = partition;
+            this.totalSize = totalSize;
         }
-        Option<String[]> partitionColumns = hudiClient.getTableConfig().getPartitionFields();
-        List<String> partitionNames = partitionColumns.isPresent() ? Arrays.asList(partitionColumns.get())
-                : Collections.emptyList();
-        return incrementalRelation.collectFileSlices().stream().map(fileSlice -> generateHudiSplit(fileSlice,
-                HudiPartitionProcessor.parsePartitionValues(partitionNames, fileSlice.getPartitionPath()),
-                incrementalRelation.getEndTs())).collect(Collectors.toList());
     }
 
     private void getPartitionSplits(HivePartition partition, List<Split> splits) throws IOException {
@@ -389,8 +441,8 @@ public class HudiScanNode extends HiveScanNode {
         if (partition.isDummyPartition()) {
             partitionName = "";
         } else {
-            partitionName = FSUtils.getRelativePartitionPath(hudiClient.getBasePath(),
-                    new StoragePath(partition.getPath()));
+            partitionName = FSUtils.getRelativePartitionPath(new Path(hudiClient.getBasePath()),
+                    new Path(partition.getPath()));
         }
 
         final Map<String, String> partitionValues = sessionVariable.isEnableRuntimeFilterPartitionPrune()
@@ -420,33 +472,120 @@ public class HudiScanNode extends HiveScanNode {
         }
     }
 
-    private void getPartitionsSplits(List<HivePartition> partitions, List<Split> splits) {
-        Executor executor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
-        CountDownLatch countDownLatch = new CountDownLatch(partitions.size());
-        AtomicReference<Throwable> throwable = new AtomicReference<>();
-        partitions.forEach(partition -> executor.execute(() -> {
-            try {
-                getPartitionSplits(partition, splits);
-            } catch (Throwable t) {
-                throwable.set(t);
-            } finally {
-                countDownLatch.countDown();
-            }
-        }));
+    private PartitionMetadata getPartitionMetadata(HivePartition partition, Path basePath) {
+        String partitionName;
+        if (partition.isDummyPartition()) {
+            partitionName = "";
+        } else {
+            partitionName = FSUtils.getRelativePartitionPath(basePath,
+                new Path(partition.getPath()));
+        }
+        return new PartitionMetadata(partitionName, partition, 0);
+    }
+
+    private void processPartitionWithMetadata(HoodieTableFileSystemView fileSystemView,
+                                              PartitionMetadata metadata, List<Split> splits) {
+        if (isCowTable) {
+            fileSystemView.getLatestBaseFilesBeforeOrOn(metadata.partitionName, queryInstant).forEach(baseFile -> {
+                noLogsSplitNum.incrementAndGet();
+                String filePath = baseFile.getPath();
+                long fileSize = baseFile.getFileSize();
+                metadata.totalSize += fileSize;
+                // Need add hdfs host to location
+                LocationPath locationPath = LocationPath.of(filePath, hmsTable.getStoragePropertiesMap());
+                splits.add(new FileSplit(locationPath, 0, fileSize, fileSize, 0,
+                        new String[0], metadata.partition.getPartitionValues()));
+            });
+        } else {
+            fileSystemView.getLatestMergedFileSlicesBeforeOrOn(metadata.partitionName, queryInstant)
+                    .forEach(fileSlice -> {
+                        splits.add(
+                                generateHudiSplit(fileSlice, metadata.partition.getPartitionValues(), queryInstant));
+                        metadata.totalSize += fileSlice.getTotalFileSize();
+                    });
+        }
+    }
+
+    public void getPartitionsSplits(List<HivePartition> partitions, List<Split> splits) throws AnalysisException {
+        ExecutorService executor = Env.getCurrentEnv().getExtMetaCacheMgr().getLakehouseGetPartitionSplitExecutor();
+        List<PartitionMetadata> metadataList = Collections.synchronizedList(new ArrayList<>());
+        Path basePath = hudiClient.getBasePathV2();
+        for (HivePartition partition : partitions) {
+            PartitionMetadata metadata = getPartitionMetadata(partition, basePath);
+            metadataList.add(metadata);
+        }
+        CountDownLatch countDownLatch = new CountDownLatch(metadataList.size());
+        AtomicReference<Throwable> error = new AtomicReference<>();
+        HoodieTableFileSystemView fileSystemView = new HoodieTableFileSystemView(hudiClient,
+                timeline, storageStrategy);
+        List<Future<?>> futures = Lists.newArrayList();
+        metadataList.forEach(metadata -> {
+            Future<?> f = executor.submit(() -> {
+                try {
+                    processPartitionWithMetadata(fileSystemView, metadata, splits);
+                    HMSPartitionsUtil.checkSelectedSplitNumLimit(hmsTable, splits.size());
+                } catch (Throwable t) {
+                    error.compareAndSet(null, t);
+                } finally {
+                    countDownLatch.countDown();
+                }
+            });
+            futures.add(f);
+        });
+
         try {
-            countDownLatch.await();
+            if (!countDownLatch.await(Config.lakehouse_get_split_max_second, TimeUnit.SECONDS)) {
+                for (Future<?> f : futures) {
+                    f.cancel(true);
+                }
+                throw new AnalysisException("Timeout while processing partitions for hudi table: "
+                    + hmsTable.getDbName() + "." + hmsTable.getName());
+            }
         } catch (InterruptedException e) {
-            throw new RuntimeException(e.getMessage(), e);
+            throw new AnalysisException("Interrupted while processing partitions: " + e.getMessage(), e);
         }
-        if (throwable.get() != null) {
-            throw new RuntimeException(throwable.get().getMessage(), throwable.get());
+
+        if (error.get() != null) {
+            Throwable t = error.get();
+            if (t instanceof AnalysisException) {
+                throw (AnalysisException) t;
+            }
+            throw new AnalysisException("Failed to process partitions: " + t.getMessage(), t);
         }
+
+        long totalFileSize = 0L;
+        for (PartitionMetadata metadata : metadataList) {
+            totalFileSize += metadata.totalSize;
+        }
+        if (totalFileSize > sessionVariable.maxSelectedTotalFileSizeForLakehouseTable) {
+            throw new AnalysisException("the total scan bytes: " + totalFileSize
+                + " for " + hmsTable.getDbName() + "." + hmsTable.getName()
+                + " has exceed max bytes for single hive/hudi table: "
+                + sessionVariable.maxSelectedTotalFileSizeForLakehouseTable);
+        }
+        MetricRepo.COUNTER_HMS_SCAN_SIZE_BYTES.increase(totalFileSize);
     }
 
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
-        if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
-            return getIncrementalSplits();
+        // @incr queries use new-reader path (HoodieHadoopTable.getSplits + serialized input splits).
+        if (incrementalRead) {
+            List<Split> splits = getNewHudiSplits();
+            if (LOG.isInfoEnabled()) {
+                boolean hasSerialized = false;
+                if (!splits.isEmpty() && splits.get(0) instanceof HudiSplit) {
+                    HudiSplit hs = (HudiSplit) splits.get(0);
+                    hasSerialized = hs.getSerializedInputSplit() != null && !hs.getSerializedInputSplit().isEmpty();
+                }
+                LOG.info("Hudi @incr getSplits: table={}, incrementalRead={}, enableCdcRead={}, splits={},"
+                        + "firstHasSerializedInputSplit={}, query_id={}",
+                        hmsTable.getFullQualifiers(), incrementalRead, enableCdcRead, splits.size(), hasSerialized);
+            }
+            return splits;
+        }
+        // LSM log-format (non-COW): same 2.1 path — getNewHudiSplits → JDHadoopHudiJniScanner on BE.
+        if (isHudiLsmMorTable()) {
+            return getNewHudiSplits();
         }
         if (!partitionInit) {
             try {
@@ -527,6 +666,10 @@ public class HudiScanNode extends HiveScanNode {
         if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
             return false;
         }
+        // Lazy split scheduling uses the legacy per-partition path; LSM uses synchronous getNewHudiSplits.
+        if (isHudiLsmMorTable()) {
+            return false;
+        }
         if (!partitionInit) {
             // Non partition table will get one dummy partition
             try {
@@ -553,7 +696,7 @@ public class HudiScanNode extends HiveScanNode {
         fileSlice.getPartitionPath();
 
         List<String> logs = fileSlice.getLogFiles().map(HoodieLogFile::getPath)
-                .map(StoragePath::toString)
+                .map(Path::toString)
                 .collect(Collectors.toList());
         if (logs.isEmpty() && !sessionVariable.isForceJniScanner()) {
             noLogsSplitNum.incrementAndGet();
@@ -572,8 +715,274 @@ public class HudiScanNode extends HiveScanNode {
         split.setBasePath(basePath);
         split.setHudiColumnNames(columnNames);
         split.setHudiColumnTypes(columnTypes);
+        split.setPrimaryKeys(primaryKeys);
         split.setInstantTime(queryInstant);
         return split;
+    }
+
+    /**
+     * True when the table is <b>not</b> COW and HMS marks LSM log format ({@code hoodie.table.log.format=lsm}).
+     * COW is excluded up front; the remaining case is typically MOR, so this was historically called
+     * "LSM MOR" — the rule is really "LSM layout + non-COW", not an extra MOR predicate.
+     */
+    private boolean isHudiLsmMorTable() {
+        if (hmsTable.isHoodieCowTable()) {
+            return false;
+        }
+        org.apache.hadoop.hive.metastore.api.Table remoteTable = hmsTable.getRemoteTable();
+        if (remoteTable == null) {
+            return false;
+        }
+        Map<String, String> params = remoteTable.getParameters();
+        if (params == null) {
+            return false;
+        }
+        String logFormat = params.get(HOODIE_TABLE_LOG_FORMAT);
+        return logFormat != null && HOODIE_LOG_FORMAT_LSM.equalsIgnoreCase(logFormat.trim());
+    }
+
+    /**
+     * Generate splits using new HoodieHadoopTable.getSplits API
+     */
+    private List<Split> getNewHudiSplits() throws UserException {
+        try {
+            if (!partitionInit) {
+                prunedPartitions = getPartitions();
+                partitionInit = true;
+            }
+            TableSnapshot tableSnapshot = getQueryTableSnapshot();
+            String startInstantValue = null;
+            String endInstantValue = null;
+
+            // Always take instants from incrementalRelation when present (including full-table fallback),
+            // so LSM HoodieHadoopTable.getSplits never sees a null start when @incr is used.
+            final boolean hasIncrRelation = incrementalRead && incrementalRelation != null;
+            if (hasIncrRelation) {
+                startInstantValue = incrementalRelation.getStartTs();
+                endInstantValue = incrementalRelation.getEndTs();
+            }
+            if (incrementalRead && (startInstantValue == null || startInstantValue.isEmpty()) && scanParams != null) {
+                for (Map.Entry<String, String> e : scanParams.getMapParams().entrySet()) {
+                    if (e.getKey() == null) {
+                        continue;
+                    }
+                    String lk = e.getKey().toLowerCase(Locale.ROOT);
+                    if ("begintime".equals(lk)) {
+                        startInstantValue = e.getValue();
+                    } else if ("endtime".equals(lk)) {
+                        endInstantValue = e.getValue();
+                    }
+                }
+            }
+
+            // Time travel / non-@incr: do not overwrite @incr(start,end) after relation/scanParams above.
+            if (!incrementalRead) {
+                if (tableSnapshot != null) {
+                    if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
+                        startInstantValue = tableSnapshot.getValue().replaceAll("[-: ]", "");
+                    } else {
+                        throw new UserException("New Hudi reader only supports TIME snapshot type");
+                    }
+                } else if (queryInstant != null) {
+                    endInstantValue = queryInstant;
+                }
+                if (startInstantValue == null || startInstantValue.isEmpty()) {
+                    startInstantValue = "000";
+                }
+            } else if (startInstantValue == null || startInstantValue.isEmpty()) {
+                throw new UserException("Hudi @incr read requires beginTime (start instant is empty)");
+            }
+
+            final String startInstant = startInstantValue;
+            final String endInstant = endInstantValue;
+
+            // Build Hadoop configuration
+            Configuration conf = new Configuration();
+            Map<String, String> hadoopProperties = hmsTable.getBackendStorageProperties();
+            for (Map.Entry<String, String> entry : hadoopProperties.entrySet()) {
+                conf.set(entry.getKey(), entry.getValue());
+            }
+            conf.set("fs.hdfs.impl", "org.apache.hadoop.hdfs.DistributedFileSystem");
+            conf.set("fs.file.impl", "org.apache.hadoop.fs.LocalFileSystem");
+            conf.setBoolean("fs.hdfs.impl.disable.cache", true);
+            conf.setBoolean("hoodie.hive.parquet.read_as_avro", true);
+            // HoodieHadoopTable depends on hive metastore uris, must not be null.
+            String metastoreUris = null;
+            if (hadoopProperties != null) {
+                metastoreUris = hadoopProperties.get(HMSBaseProperties.HIVE_METASTORE_URIS);
+            }
+            if (metastoreUris == null) {
+                metastoreUris = hmsTable.getCatalogProperties().get(HMSBaseProperties.HIVE_METASTORE_URIS);
+            }
+            if (metastoreUris == null && params != null && params.properties != null) {
+                metastoreUris = params.properties.get(HMSBaseProperties.HIVE_METASTORE_URIS);
+            }
+            Preconditions.checkArgument(metastoreUris != null,
+                    "The value of property hive.metastore.uris must not be null");
+            conf.set(HMSBaseProperties.HIVE_METASTORE_URIS, metastoreUris);
+
+            BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+            conf.setStrings("BEE_SOURCE", bdpAuthContext.getSource());
+            conf.setStrings("BEE_USER", bdpAuthContext.getErp());
+            UserGroupInformation ugi = UserGroupInformation.createRemoteUser(bdpAuthContext.getHadoopUserName(), null,
+                    bdpAuthContext.getUserToken());
+            // Create HoodieHadoopTable
+            HoodieHadoopTable table = ugi.doAs((PrivilegedAction<HoodieHadoopTable>) () -> {
+                try {
+                    return new HoodieHadoopTable(hmsTable.getDbName(), hmsTable.getName(), conf);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            });
+
+            // Build filter from pruned partitions.
+            String filter = buildPartitionFilter(prunedPartitions);
+
+            // Build options (see getLocationProperties for CDC toggle rules)
+            Map<String, String> options = new HashMap<>();
+            options.put(InputFormatConfig.ENABLE_CDC_READ, String.valueOf(enableCdcRead));
+            if (hasIncrRelation) {
+                options.putAll(incrementalRelation.getHoodieParams());
+            }
+            LOG.info("Going to get splits for table: {}, filter: {}", hmsTable.getName(), filter);
+            // Get splits in shared ForkJoinPool to avoid creating a new pool per query.
+            HoodieSplit hoodieSplit = ugi.doAs((PrivilegedAction<HoodieSplit>) () -> {
+                try {
+                    return HUDI_SPLIT_FORK_JOIN_POOL.submit(() -> {
+                        try {
+                            return table.getSplits(startInstant, endInstant, filter, options);
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }).get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                } catch (ExecutionException e) {
+                    Throwable cause = e.getCause();
+                    if (cause instanceof RuntimeException) {
+                        throw (RuntimeException) cause;
+                    }
+                    throw new RuntimeException(cause);
+                }
+            });
+
+            SerializableInputSplit[] serializableInputSplits = hoodieSplit.serializedInputSplit();
+            LOG.info("Found {} splits for table: {}, filter: {}",
+                    serializableInputSplits.length, hmsTable.getName(), filter);
+            String serializedHoodieTable = encodeObjectToString(table);
+            setSharedSerializedHoodieTable(serializedHoodieTable);
+
+            // Convert to HudiSplit list
+            List<Split> splits = new ArrayList<>();
+            for (SerializableInputSplit serializableSplit : serializableInputSplits) {
+                // Serialize the split
+                String serializedSplit = encodeObjectToString(serializableSplit);
+
+                // Use the Hadoop split file path so FileQueryScanNode can fill columns_from_path
+                // for partitioned tables (base path alone has no key=value segments).
+                String splitLocation = basePath;
+                try {
+                    Object wrapped = serializableSplit.get();
+                    if (wrapped instanceof org.apache.hadoop.mapred.FileSplit) {
+                        Path p = ((org.apache.hadoop.mapred.FileSplit) wrapped).getPath();
+                        if (p != null) {
+                            splitLocation = p.toString();
+                        }
+                    } else if (wrapped instanceof org.apache.hadoop.mapreduce.lib.input.FileSplit) {
+                        Path p = ((org.apache.hadoop.mapreduce.lib.input.FileSplit) wrapped).getPath();
+                        if (p != null) {
+                            splitLocation = p.toString();
+                        }
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Could not get path from SerializableInputSplit, using table base path: {}",
+                            e.getMessage());
+                }
+
+                HudiSplit hudiSplit = new HudiSplit(
+                        LocationPath.of(splitLocation, hmsTable.getStoragePropertiesMap()),
+                        0, 0, 0, new String[0], Collections.emptyList());
+                hudiSplit.setTableFormatType(TableFormatType.HUDI);
+                hudiSplit.setSerializedInputSplit(serializedSplit);
+                // BE HudiJniReader passes serialized_hoodie_table from per-range THudiFileDesc, not scan params.
+                hudiSplit.setSerializedHoodieTable(serializedHoodieTable);
+                hudiSplit.setDatabaseName(hmsTable.getDbName());
+                hudiSplit.setTableName(hmsTable.getName());
+                hudiSplit.setStartInstant(startInstant);
+                hudiSplit.setEndInstant(endInstant != null ? endInstant : hoodieSplit.endInstant());
+                // Same table schema/metadata as generateHudiSplit — JNI requires hudi_column_names / types, etc.
+                hudiSplit.setHudiColumnNames(columnNames);
+                hudiSplit.setHudiColumnTypes(columnTypes);
+                hudiSplit.setPrimaryKeys(primaryKeys);
+                hudiSplit.setSerde(serdeLib);
+                hudiSplit.setInputFormat(inputFormat);
+                hudiSplit.setBasePath(basePath);
+                hudiSplit.setInstantTime(queryInstant);
+
+                splits.add(hudiSplit);
+            }
+
+            return splits;
+        } catch (Exception e) {
+            throw new UserException("Failed to generate new Hudi splits: " + e.getMessage(), e);
+        }
+    }
+
+    private String buildPartitionFilter(List<HivePartition> partitions) {
+        if (partitions == null || partitions.isEmpty()) {
+            return "";
+        }
+
+        Option<String[]> partitionColumns = hudiClient.getTableConfig().getPartitionFields();
+        if (partitionColumns == null || !partitionColumns.isPresent()) {
+            return "";
+        }
+        List<String> partitionNames = Arrays.asList(partitionColumns.get());
+        if (partitionNames.isEmpty()) {
+            return "";
+        }
+
+        List<String> partitionPredicates = new ArrayList<>();
+        for (HivePartition partition : partitions) {
+            if (partition == null || partition.isDummyPartition()) {
+                continue;
+            }
+            List<String> values = partition.getPartitionValues();
+            if (values == null || values.size() != partitionNames.size()) {
+                continue;
+            }
+            List<String> conjunctPredicates = new ArrayList<>(partitionNames.size());
+            for (int i = 0; i < partitionNames.size(); i++) {
+                String partitionName = partitionNames.get(i);
+                if (partitionName == null || partitionName.isEmpty()) {
+                    conjunctPredicates.clear();
+                    break;
+                }
+                String partitionValue = values.get(i);
+                String escapedValue = partitionValue == null ? HiveMetaStoreCache.HIVE_DEFAULT_PARTITION
+                        : partitionValue.replace("'", "''");
+                conjunctPredicates.add(partitionName.toLowerCase(Locale.ROOT) + "='" + escapedValue + "'");
+            }
+            if (!conjunctPredicates.isEmpty()) {
+                partitionPredicates.add("(" + String.join(" and ", conjunctPredicates) + ")");
+            }
+        }
+
+        return partitionPredicates.isEmpty() ? "" : String.join(" or ", partitionPredicates);
+    }
+
+    private String encodeObjectToString(Object object) {
+        try {
+            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+            ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream);
+            objectOutputStream.writeObject(object);
+            objectOutputStream.close();
+
+            return Base64.getUrlEncoder().encodeToString(byteArrayOutputStream.toByteArray());
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to encode object: " + e.getMessage(), e);
+        }
     }
 
     @Override

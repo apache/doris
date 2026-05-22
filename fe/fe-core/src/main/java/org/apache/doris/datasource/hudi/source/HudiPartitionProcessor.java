@@ -25,6 +25,7 @@ import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineUtils;
+import org.apache.hudi.hadoop.utils.HoodieInputFormatUtils;
 import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.metadata.HoodieTableMetadataUtil;
 
@@ -51,16 +52,16 @@ public abstract class HudiPartitionProcessor {
                 .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(tableMetaClient))
                 .build();
 
-        HoodieTableMetadata newTableMetadata = HoodieTableMetadata.create(
-                new HoodieLocalEngineContext(tableMetaClient.getStorageConf()), tableMetaClient.getStorage(),
+        HoodieTableMetadata newTableMetadata = HoodieTableMetadata.createFSBackedTableMetadata(
+                new HoodieLocalEngineContext(tableMetaClient.getHadoopConf()),
                 metadataConfig,
-                tableMetaClient.getBasePath().toString(), true);
+                tableMetaClient.getBasePath());
 
         return newTableMetadata.getAllPartitionPaths();
     }
 
     public List<String> getPartitionNamesBeforeOrEquals(HoodieTimeline timeline, String timestamp) {
-        return new ArrayList<>(HoodieTableMetadataUtil.getWritePartitionPaths(
+        return new ArrayList<>(HoodieInputFormatUtils.getWritePartitionPaths(
                 timeline.findInstantsBeforeOrEquals(timestamp).getInstants().stream().map(instant -> {
                     try {
                         return TimelineUtils.getCommitMetadata(instant, timeline);
@@ -71,7 +72,7 @@ public abstract class HudiPartitionProcessor {
     }
 
     public List<String> getPartitionNamesInRange(HoodieTimeline timeline, String startTimestamp, String endTimestamp) {
-        return new ArrayList<>(HoodieTableMetadataUtil.getWritePartitionPaths(
+        return new ArrayList<>(HoodieInputFormatUtils.getWritePartitionPaths(
                 timeline.findInstantsInRange(startTimestamp, endTimestamp).getInstants().stream().map(instant -> {
                     try {
                         return TimelineUtils.getCommitMetadata(instant, timeline);

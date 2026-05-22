@@ -104,6 +104,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
+    public static final String HUDI_INIT_READER_TIMEOUT_MS = "hudi_init_reader_timeout_ms";
     public static final String ENABLE_PROFILE = "enable_profile";
     public static final String RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT = "rpc_verbose_profile_max_instance_count";
     public static final String AUTO_PROFILE_THRESHOLD_MS = "auto_profile_threshold_ms";
@@ -784,6 +785,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_STATS = "enable_stats";
 
+    public static final String MAX_SELECTED_TOTAL_FILE_SIZE_FOR_HIVE_TABLE =
+            "max_selected_total_file_size_for_hive_table";
+
+    public static final String MAX_SELECTED_FILE_SIZE_FOR_UNRECOMMENDED_HIVE_TABLE =
+            "max_selected_file_size_for_unrecommended_hive_table";
+    public static final String MAX_SELECTED_TOTAL_FILE_SIZE_FOR_LAKEHOUSE_TABLE =
+            "max_selected_total_file_size_for_lakehouse_table";
+
     public static final String LIMIT_ROWS_FOR_SINGLE_INSTANCE = "limit_rows_for_single_instance";
 
     public static final String FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS = "fetch_remote_schema_timeout_seconds";
@@ -1025,6 +1034,15 @@ public class SessionVariable implements Serializable, Writable {
     })
     public String maskingLineagePrintSuffix = "";
 
+    @VariableMgr.VarAttr(name = MAX_SELECTED_TOTAL_FILE_SIZE_FOR_HIVE_TABLE)
+    public long maxSelectedTotalFileSizeForHiveTable = 8796093022208L;
+
+    @VariableMgr.VarAttr(name = MAX_SELECTED_FILE_SIZE_FOR_UNRECOMMENDED_HIVE_TABLE)
+    public long maxSelectedFileSizeForUnrecommendedHiveTable = 8796093022208L;
+
+    @VariableMgr.VarAttr(name = MAX_SELECTED_TOTAL_FILE_SIZE_FOR_LAKEHOUSE_TABLE)
+    public long maxSelectedTotalFileSizeForLakehouseTable = 8796093022208L;
+
     // session origin value
     public Map<SessionVariableField, String> sessionOriginValue = new HashMap<>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -1132,6 +1150,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = INSERT_TIMEOUT, needForward = true)
     public int insertTimeoutS = 14400;
+
+    // Hudi init reader timeout in milliseconds. Default is half of query_timeout.
+    @VariableMgr.VarAttr(name = HUDI_INIT_READER_TIMEOUT_MS, needForward = true)
+    private int hudiInitReaderTimeoutMs = -1; // -1 means use default (query_timeout / 2)
 
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
@@ -3671,6 +3693,44 @@ public class SessionVariable implements Serializable, Writable {
         this.insertTimeoutS = insertTimeoutS;
     }
 
+    public int getHudiInitReaderTimeoutMs() {
+        // If not set (default -1), return half of query_timeout in milliseconds
+        if (hudiInitReaderTimeoutMs == -1) {
+            return queryTimeoutS * 500; // queryTimeoutS is in seconds, convert to ms and divide by 2
+        }
+        return hudiInitReaderTimeoutMs;
+    }
+
+    public void setHudiInitReaderTimeoutMs(int hudiInitReaderTimeoutMs) {
+        if (hudiInitReaderTimeoutMs < 0 && hudiInitReaderTimeoutMs != -1) {
+            LOG.warn("Setting invalid hudi_init_reader_timeout_ms: {}", hudiInitReaderTimeoutMs);
+        }
+        this.hudiInitReaderTimeoutMs = hudiInitReaderTimeoutMs;
+    }
+
+    public void setHudiInitReaderTimeoutMs(String hudiInitReaderTimeoutMs) {
+        try {
+            int value = Integer.parseInt(hudiInitReaderTimeoutMs);
+            setHudiInitReaderTimeoutMs(value);
+        } catch (NumberFormatException e) {
+            LOG.warn("Invalid hudi_init_reader_timeout_ms value: {}", hudiInitReaderTimeoutMs);
+        }
+    }
+
+    /**
+     * Get variables that need to be set in {@link TQueryOptions} (same role as release-branch-2.1).
+     */
+    public TQueryOptions getQueryOptionVariables() {
+        TQueryOptions queryOptions = new TQueryOptions();
+        queryOptions.setMemLimit(maxExecMemByte);
+        queryOptions.setScanQueueMemLimit(maxScanQueueMemByte);
+        queryOptions.setQueryTimeout(queryTimeoutS);
+        queryOptions.setInsertTimeout(insertTimeoutS);
+        queryOptions.setAnalyzeTimeout(analyzeTimeoutS);
+        queryOptions.setHudiInitReaderTimeoutMs(getHudiInitReaderTimeoutMs());
+        return queryOptions;
+    }
+
     public boolean enableProfile() {
         return enableProfile;
     }
@@ -5030,6 +5090,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setMinFileScannersConcurrency(minFileScannersConcurrency);
 
         tResult.setQueryTimeout(queryTimeoutS);
+        tResult.setHudiInitReaderTimeoutMs(getHudiInitReaderTimeoutMs());
         tResult.setEnableProfile(enableProfile);
         tResult.setRpcVerboseProfileMaxInstanceCount(rpcVerboseProfileMaxInstanceCount);
         tResult.setShuffledAggIds(getShuffledAggNodeIds());
@@ -5425,6 +5486,9 @@ public class SessionVariable implements Serializable, Writable {
         }
         if (queryOptions.isSetAnalyzeTimeout()) {
             setAnalyzeTimeoutS(queryOptions.getAnalyzeTimeout());
+        }
+        if (queryOptions.isSetHudiInitReaderTimeoutMs()) {
+            setHudiInitReaderTimeoutMs((int) queryOptions.getHudiInitReaderTimeoutMs());
         }
     }
 

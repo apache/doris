@@ -25,10 +25,10 @@
 
 #include "common/status.h"
 #include "exec/olap_common.h"
+#include "util/runtime_profile.h"
 #include "vec/exec/format/jni_reader.h"
 
 namespace doris {
-class RuntimeProfile;
 class RuntimeState;
 class SlotDescriptor;
 namespace vectorized {
@@ -53,9 +53,12 @@ public:
 
     Status init_reader();
 
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+
 private:
     const TFileScanRangeParams& _scan_params;
     const THudiFileDesc& _hudi_params;
+    RuntimeProfile::Counter* _hudi_init_reader_timer = nullptr;
 };
 
 #include "common/compile_check_end.h"

@@ -73,6 +73,22 @@ public class TableScanParams {
         return INCREMENTAL_READ.equals(paramType);
     }
 
+    /**
+     * CDC read flag for {@code @incr}. Defaults to true when {@code iscdc} is absent;
+     * only {@code iscdc='false'} disables it.
+     */
+    public boolean isCdcRead() {
+        if (!incrementalRead()) {
+            return false;
+        }
+        for (Map.Entry<String, String> entry : mapParams.entrySet()) {
+            if (entry.getKey() != null && "iscdc".equalsIgnoreCase(entry.getKey())) {
+                return Boolean.parseBoolean(entry.getValue());
+            }
+        }
+        return true;
+    }
+
     public boolean isBranch() {
         return BRANCH.equals(paramType);
     }

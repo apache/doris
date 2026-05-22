@@ -39,7 +39,9 @@ import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
+import org.apache.doris.datasource.hudi.HudiMvccSnapshot;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheKey;
+import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSchemaCacheKey;
@@ -98,7 +100,6 @@ import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
-import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -117,6 +118,7 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Hive metastore external table.
@@ -444,7 +446,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (getPartitionColumns().isEmpty()) {
             return SelectedPartitions.NOT_PRUNED;
         }
-        TablePartitionValues tablePartitionValues = HudiUtils.getPartitionValues(tableSnapshot, this);
+        TablePartitionValues tablePartitionValues;
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(this);
+        if (snapshot.isPresent() && snapshot.get() instanceof HudiMvccSnapshot) {
+            tablePartitionValues = ((HudiMvccSnapshot) snapshot.get()).getTablePartitionValues();
+        } else {
+            tablePartitionValues = HudiUtils.getPartitionValues(tableSnapshot, this);
+        }
 
         Map<Long, PartitionItem> idToPartitionItem = tablePartitionValues.getIdToPartitionItem();
         Map<Long, String> idToNameMap = tablePartitionValues.getPartitionIdToNameMap();
@@ -697,6 +705,39 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return Long.parseLong(parameters.get(TBL_PROP_TRANSIENT_LAST_DDL_TIME)) * 1000;
     }
 
+    private Optional<SchemaCacheValue> initHudiSchema() {
+        // Use HMS schema as the base (consistent with initSchema()), but attach Hudi-specific metadata
+        // (column type strings and schema evolution flag) for readers that require it.
+        List<Column> partitionColumns = initPartitionColumns();
+        List<Column> columns = initHiveSchema();
+        columns.addAll(partitionColumns);
+
+        // Do not call Hoodie TableSchemaResolver / AvroInternalSchemaConverter here: Hudi shades Avro and the
+        // convert() signature differs across bundles, causing NoSuchMethodError. Schema evolution flag for cache
+        // follows HMS table property; internal schema resolution stays on BE/JNI when needed.
+        boolean enableSchemaEvolution = false;
+        Map<String, String> tblParams = remoteTable.getParameters();
+        if (tblParams != null) {
+            String schemaOnRead = tblParams.get("hoodie.schema.on.read.enable");
+            if (StringUtils.isNotBlank(schemaOnRead) && "true".equalsIgnoreCase(schemaOnRead.trim())) {
+                enableSchemaEvolution = true;
+            }
+        }
+
+        HudiSchemaCacheValue value = new HudiSchemaCacheValue(columns, partitionColumns, enableSchemaEvolution);
+        // Keep the order aligned with `columns` above: data columns first, then partition columns.
+        List<String> dataColTypes = remoteTable.getSd().getCols().stream()
+                .filter(f -> f.getType() != null && !"void".equalsIgnoreCase(f.getType()))
+                .map(f -> f.getType().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toList());
+        List<String> partitionColTypes = remoteTable.getPartitionKeys().stream()
+                .map(f -> f.getType() == null ? "" : f.getType().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toList());
+        value.setColTypes(Stream.concat(dataColTypes.stream(), partitionColTypes.stream())
+                .collect(Collectors.toList()));
+        return Optional.of(value);
+    }
+
     @Override
     public Optional<SchemaCacheValue> initSchema() {
         makeSureInitialized();
@@ -705,6 +746,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (dlaType.equals(DLAType.ICEBERG)) {
             SchemaCacheKey key = new SchemaCacheKey(this.nameMapping);
             return initIcebergSchema(key);
+        } else if (dlaType.equals(DLAType.HUDI)) {
+            return initHudiSchema();
         } else {
             columns = initHiveSchema();
             columns.addAll(partitionColumns);
@@ -1129,7 +1172,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
         if (getDlaType() == DLAType.HUDI) {
-            return HudiUtils.getHudiMvccSnapshot(tableSnapshot, this);
+            return HudiUtils.getHudiMvccSnapshot(tableSnapshot, this, scanParams);
         } else if (getDlaType() == DLAType.ICEBERG) {
             return new IcebergMvccSnapshot(
                     IcebergUtils.getSnapshotCacheValue(tableSnapshot, this, scanParams));
@@ -1144,16 +1187,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             return false;
         }
         return columns.get(0).getType().isScalarType(PrimitiveType.STRING);
-    }
-
-    public HoodieTableMetaClient getHudiClient() {
-        return Env.getCurrentEnv()
-            .getExtMetaCacheMgr()
-            .getMetaClientProcessor(getCatalog())
-            .getHoodieTableMetaClient(
-                    getOrBuildNameMapping(),
-                getRemoteTable().getSd().getLocation(),
-                getCatalog().getConfiguration());
     }
 
     public boolean isValidRelatedTable() {

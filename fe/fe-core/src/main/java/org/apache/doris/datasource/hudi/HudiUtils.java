@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hudi;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
@@ -57,11 +58,11 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.internal.schema.Types;
 import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
-import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -258,36 +259,92 @@ public class HudiUtils {
     }
 
     public static HudiMvccSnapshot getHudiMvccSnapshot(Optional<TableSnapshot> tableSnapshot,
-            HMSExternalTable hmsTable) {
+            HMSExternalTable hmsTable, Optional<TableScanParams> scanParams) {
         long timestamp = 0L;
         if (tableSnapshot.isPresent()) {
             String queryInstant = tableSnapshot.get().getValue().replaceAll("[-: ]", "");
             timestamp = Long.parseLong(queryInstant);
+        } else if (scanParams.isPresent() && scanParams.get().incrementalRead()) {
+            Optional<String[]> incrRange = getIncrTimeRange(scanParams.get());
+            if (incrRange.isPresent()) {
+                timestamp = Long.parseLong(incrRange.get()[1]);
+            } else {
+                timestamp = getLastTimeStamp(hmsTable);
+            }
         } else {
             timestamp = getLastTimeStamp(hmsTable);
         }
 
-        return new HudiMvccSnapshot(HudiUtils.getPartitionValues(tableSnapshot, hmsTable), timestamp);
+        return new HudiMvccSnapshot(HudiUtils.getPartitionValues(tableSnapshot, hmsTable, scanParams), timestamp);
+    }
+
+    /**
+     * Parse {@code @incr('beginTime'='...', 'endTime'='...')} instants. Returns [begin, end] when begin is set.
+     */
+    public static Optional<String[]> getIncrTimeRange(TableScanParams scanParams) {
+        if (scanParams == null || !scanParams.incrementalRead()) {
+            return Optional.empty();
+        }
+        String beginInstant = null;
+        String endInstant = null;
+        for (Map.Entry<String, String> e : scanParams.getMapParams().entrySet()) {
+            if (e.getKey() == null) {
+                continue;
+            }
+            String lk = e.getKey().toLowerCase(Locale.ROOT);
+            if ("begintime".equals(lk)) {
+                beginInstant = e.getValue();
+            } else if ("endtime".equals(lk)) {
+                endInstant = e.getValue();
+            }
+        }
+        if (beginInstant == null || beginInstant.isEmpty()) {
+            return Optional.empty();
+        }
+        if (endInstant == null || endInstant.isEmpty()) {
+            endInstant = beginInstant;
+        }
+        return Optional.of(new String[] {beginInstant, endInstant});
     }
 
     public static long getLastTimeStamp(HMSExternalTable hmsTable) {
-        HoodieTableMetaClient hudiClient = hmsTable.getHudiClient();
+        HoodieTableMetaClient hudiClient = HiveMetaStoreClientHelper.getHudiClient(hmsTable);
         HoodieTimeline timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
         Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
         if (!snapshotInstant.isPresent()) {
             return 0L;
         }
-        return Long.parseLong(snapshotInstant.get().requestedTime());
+        return Long.parseLong(snapshotInstant.get().getTimestamp());
     }
 
     public static TablePartitionValues getPartitionValues(Optional<TableSnapshot> tableSnapshot,
             HMSExternalTable hmsTable) {
+        return getPartitionValues(tableSnapshot, hmsTable, Optional.empty());
+    }
+
+    public static TablePartitionValues getPartitionValues(Optional<TableSnapshot> tableSnapshot,
+            HMSExternalTable hmsTable, Optional<TableScanParams> scanParams) {
         TablePartitionValues partitionValues = new TablePartitionValues();
 
-        HoodieTableMetaClient hudiClient = hmsTable.getHudiClient();
+        HoodieTableMetaClient hudiClient = HiveMetaStoreClientHelper.getHudiClient(hmsTable);
         HudiCachedPartitionProcessor processor = (HudiCachedPartitionProcessor) Env.getCurrentEnv()
                 .getExtMetaCacheMgr().getHudiPartitionProcess(hmsTable.getCatalog());
         boolean useHiveSyncPartition = hmsTable.useHiveSyncPartition();
+
+        if (scanParams.isPresent() && scanParams.get().incrementalRead()) {
+            Optional<String[]> incrRange = getIncrTimeRange(scanParams.get());
+            if (incrRange.isPresent()) {
+                try {
+                    String startInstant = incrRange.get()[0];
+                    String endInstant = incrRange.get()[1];
+                    partitionValues = HiveMetaStoreClientHelper.bdpUgiDoAs(() ->
+                            processor.getIncrementalPartitionValues(hmsTable, hudiClient, startInstant, endInstant));
+                } catch (Exception e) {
+                    throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+                }
+                return partitionValues;
+            }
+        }
 
         if (tableSnapshot.isPresent()) {
             if (tableSnapshot.get().getType() == TableSnapshot.VersionType.VERSION) {
@@ -296,7 +353,7 @@ public class HudiUtils {
             }
             String queryInstant = tableSnapshot.get().getValue().replaceAll("[-: ]", "");
             try {
-                partitionValues = hmsTable.getCatalog().getExecutionAuthenticator().execute(() ->
+                partitionValues = HiveMetaStoreClientHelper.bdpUgiDoAs(() ->
                         processor.getSnapshotPartitionValues(hmsTable, hudiClient, queryInstant, useHiveSyncPartition));
             } catch (Exception e) {
                 throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
@@ -308,8 +365,8 @@ public class HudiUtils {
                 return partitionValues;
             }
             try {
-                partitionValues = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
-                        -> processor.getPartitionValues(hmsTable, hudiClient, useHiveSyncPartition));
+                partitionValues = HiveMetaStoreClientHelper.bdpUgiDoAs(() ->
+                        processor.getPartitionValues(hmsTable, hudiClient, useHiveSyncPartition));
             } catch (Exception e) {
                 throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
             }
@@ -318,11 +375,10 @@ public class HudiUtils {
     }
 
     public static HoodieTableMetaClient buildHudiTableMetaClient(String hudiBasePath, Configuration conf) {
-        HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(conf);
         return HiveMetaStoreClientHelper.ugiDoAs(
             conf,
             () -> HoodieTableMetaClient.builder()
-                .setConf(hadoopStorageConfiguration).setBasePath(hudiBasePath).build());
+                .setConf(conf).setBasePath(hudiBasePath).build());
     }
 
 

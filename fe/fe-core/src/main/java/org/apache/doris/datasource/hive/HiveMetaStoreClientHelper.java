@@ -37,14 +37,20 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.nereids.types.VarBinaryType;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.thrift.TExprOpcode;
 
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import lombok.Data;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
@@ -58,6 +64,7 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.util.Option;
@@ -67,7 +74,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.security.PrivilegedAction;
 import java.security.PrivilegedExceptionAction;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -79,6 +88,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -148,6 +158,81 @@ public class HiveMetaStoreClientHelper {
             return formatDesc;
         }
     }
+
+    @Data
+    public static class HudiClientKey {
+        private String hadoopUserName;
+        private HMSExternalTable table;
+        private String beeSource;
+        private String beeUser;
+
+        public HudiClientKey(String hadoopUserName, String beeSource, String beeUser, HMSExternalTable table) {
+            this.hadoopUserName = hadoopUserName;
+            this.beeSource = beeSource;
+            this.beeUser = beeUser;
+            this.table = table;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof HudiClientKey)) {
+                return false;
+            }
+            return hadoopUserName.equals(((HudiClientKey) obj).hadoopUserName)
+                && beeSource.equals(((HudiClientKey) obj).beeSource)
+                && beeUser.equals(((HudiClientKey) obj).beeUser)
+                && table.getDbName().equals(((HudiClientKey) obj).getTable().getDbName())
+                && table.getName().equals(((HudiClientKey) obj).getTable().getName());
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(hadoopUserName, beeSource, beeUser, table.getDbName(), table.getName());
+        }
+
+        @Override
+        public String toString() {
+            return "HudiClientKey{" + "hadoopUserName='" + hadoopUserName + '\''
+                + ", beeSource='" + beeSource + '\'' + ", beeUser='" + beeUser + '\''
+                + ",dbName='" + table.getDbName() + '\'' + ", tblName='" + table.getName() + "'}";
+        }
+    }
+
+    private static volatile LoadingCache<HudiClientKey, HoodieTableMetaClient> hudiClientCache;
+
+    private static LoadingCache<HudiClientKey, HoodieTableMetaClient> getOrCreateHudiClientCache() {
+        if (hudiClientCache == null) {
+            synchronized (HiveMetaStoreClientHelper.class) {
+                if (hudiClientCache == null) {
+                    hudiClientCache = createHudiClientCache();
+                }
+            }
+        }
+        return hudiClientCache;
+    }
+
+    private static LoadingCache<HudiClientKey, HoodieTableMetaClient> createHudiClientCache() {
+        return Caffeine.newBuilder()
+                .maximumSize(Config.max_hudi_client_cache_pool_size)
+                .expireAfterWrite(Duration.ofMinutes(Config.external_hudi_client_cache_expire_time_minutes_after_write))
+                .build(clientKey -> {
+                    String hudiBasePath = clientKey.getTable().getRemoteTable().getSd().getLocation();
+                    Configuration conf = getConfiguration(clientKey.getTable());
+                    BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+                    Preconditions.checkNotNull(bdpAuthContext, "bdp auth info cannot be null");
+                    UserGroupInformation ugi = UserGroupInformation.createRemoteUser(bdpAuthContext.getHadoopUserName(),
+                            null, bdpAuthContext.getUserToken());
+                    conf.set("BEE_SOURCE", bdpAuthContext.getSource());
+                    conf.set("BEE_USER", bdpAuthContext.getErp());
+                    conf.setBoolean("fs.hdfs.impl.disable.cache", true);
+                    return ugi.doAs((PrivilegedAction<HoodieTableMetaClient>) () ->
+                            HoodieTableMetaClient.builder().setConf(conf).setBasePath(hudiBasePath).build());
+                });
+    }
+
 
     /**
      * Convert Doris expr to Hive expr, only for partition column
@@ -643,8 +728,8 @@ public class HiveMetaStoreClientHelper {
                 return Type.BIGINT;
             case "date":
                 return ScalarType.createDateV2Type();
-            case "timestamp":
             case "datetime":
+            case "timestamp":
                 return ScalarType.createDatetimeV2Type(timeScale);
             case "float":
                 return Type.FLOAT;
@@ -747,6 +832,21 @@ public class HiveMetaStoreClientHelper {
             return enableMappingTimeStampTz ? ScalarType.createTimeStampTzType(timeScale)
                     : ScalarType.createDatetimeV2Type(timeScale);
         }
+        if (lowerCaseType.startsWith("bigint")) {
+            return Type.BIGINT;
+        }
+        if (lowerCaseType.startsWith("int")) {
+            return Type.INT;
+        }
+        if (lowerCaseType.startsWith("tinyint")) {
+            return Type.TINYINT;
+        }
+        if (lowerCaseType.startsWith("smallint")) {
+            return Type.SMALLINT;
+        }
+        if (lowerCaseType.startsWith("timestamp")) {
+            return ScalarType.createDatetimeV2Type(timeScale);
+        }
         return Type.UNSUPPORTED;
     }
 
@@ -845,7 +945,7 @@ public class HiveMetaStoreClientHelper {
 
     public static InternalSchema getHudiTableSchema(HMSExternalTable table, boolean[] enableSchemaEvolution,
             String timestamp) {
-        HoodieTableMetaClient metaClient = table.getHudiClient();
+        HoodieTableMetaClient metaClient = getHudiClient(table);
         TableSchemaResolver schemaUtil = new TableSchemaResolver(metaClient);
 
         // Here, the timestamp should be reloaded again.
@@ -871,6 +971,21 @@ public class HiveMetaStoreClientHelper {
                 throw new RuntimeException("Cannot get hudi table schema.", e);
             }
         }
+    }
+
+    public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {
+        BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+        Preconditions.checkNotNull(bdpAuthContext, "bdp auth info cannot be null");
+        return getOrCreateHudiClientCache().get(new HudiClientKey(bdpAuthContext.getHadoopUserName(),
+            bdpAuthContext.getSource(), bdpAuthContext.getErp(), table));
+    }
+
+    public static <T> T bdpUgiDoAs(PrivilegedAction<T> action) {
+        BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+        Preconditions.checkNotNull(bdpAuthContext, "bdp auth info cannot be null");
+        UserGroupInformation ugi = UserGroupInformation.createRemoteUser(bdpAuthContext.getHadoopUserName(),
+                null, bdpAuthContext.getUserToken());
+        return ugi.doAs(action);
     }
 
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {

@@ -25,19 +25,17 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.GlobPattern;
 import org.apache.hadoop.fs.Path;
-import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieReplaceCommitMetadata;
 import org.apache.hudi.common.model.HoodieWriteStat;
+import org.apache.hudi.common.storage.HoodieStorageStrategyFactory;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineUtils;
-import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieException;
-import org.apache.hudi.storage.StoragePath;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -53,7 +51,7 @@ import java.util.stream.Collectors;
 public class COWIncrementalRelation implements IncrementalRelation {
     private final Map<String, String> optParams;
     private final HoodieTableMetaClient metaClient;
-    private final HollowCommitHandling hollowCommitHandling;
+    private final boolean useStateTransitionTime;
     private final boolean startInstantArchived;
     private final boolean endInstantArchived;
     private final boolean fullTableScan;
@@ -70,10 +68,10 @@ public class COWIncrementalRelation implements IncrementalRelation {
             throws HoodieException, IOException {
         this.optParams = optParams;
         this.metaClient = metaClient;
-        hollowCommitHandling = HollowCommitHandling.valueOf(
-                optParams.getOrDefault("hoodie.read.timeline.holes.resolution.policy", "FAIL"));
-        HoodieTimeline commitTimeline = TimelineUtils.handleHollowCommitIfNeeded(
-                metaClient.getCommitTimeline().filterCompletedInstants(), metaClient, hollowCommitHandling);
+        String holesPolicy = optParams.getOrDefault(
+                "hoodie.read.timeline.holes.resolution.policy", "FAIL");
+        this.useStateTransitionTime = "USE_TRANSITION_TIME".equalsIgnoreCase(holesPolicy);
+        HoodieTimeline commitTimeline = metaClient.getCommitTimeline().filterCompletedInstants();
         if (commitTimeline.empty()) {
             throw new HoodieException("No instants to incrementally pull");
         }
@@ -90,9 +88,10 @@ public class COWIncrementalRelation implements IncrementalRelation {
             startInstantTime = "000";
         }
 
-        String latestTime = hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME
-                ? commitTimeline.lastInstant().get().getCompletionTime()
-                : commitTimeline.lastInstant().get().requestedTime();
+        HoodieInstant lastInstant = commitTimeline.lastInstant().get();
+        String latestTime = useStateTransitionTime
+                ? lastInstant.getStateTransitionTime()
+                : lastInstant.getTimestamp();
         String endInstantTime = optParams.getOrDefault("hoodie.datasource.read.end.instanttime", latestTime);
         if (LATEST_TIME.equals(endInstantTime)) {
             endInstantTime = latestTime;
@@ -102,8 +101,8 @@ public class COWIncrementalRelation implements IncrementalRelation {
         endInstantArchived = commitTimeline.isBeforeTimelineStarts(endInstantTime);
 
         HoodieTimeline commitsTimelineToReturn;
-        if (hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME) {
-            commitsTimelineToReturn = commitTimeline.findInstantsInRangeByCompletionTime(startInstantTime,
+        if (useStateTransitionTime) {
+            commitsTimelineToReturn = commitTimeline.findInstantsInRangeByStateTransitionTime(startInstantTime,
                     endInstantTime);
         } else {
             commitsTimelineToReturn = commitTimeline.findInstantsInRange(startInstantTime, endInstantTime);
@@ -111,39 +110,43 @@ public class COWIncrementalRelation implements IncrementalRelation {
         List<HoodieInstant> commitsToReturn = commitsTimelineToReturn.getInstants();
 
         // todo: support configuration hoodie.datasource.read.incr.filters
-        StoragePath basePath = metaClient.getBasePath();
+        String basePathStr = metaClient.getBasePath();
+        Path tableBasePath = new Path(basePathStr);
         Map<String, String> regularFileIdToFullPath = new HashMap<>();
         Map<String, String> metaBootstrapFileIdToFullPath = new HashMap<>();
         HoodieTimeline replacedTimeline = commitsTimelineToReturn.getCompletedReplaceTimeline();
         Map<String, String> replacedFile = new HashMap<>();
         for (HoodieInstant instant : replacedTimeline.getInstants()) {
-            HoodieReplaceCommitMetadata metadata = metaClient.getActiveTimeline()
-                    .readReplaceCommitMetadata(instant);
+            HoodieReplaceCommitMetadata metadata = HoodieReplaceCommitMetadata.fromBytes(
+                    metaClient.getActiveTimeline().getInstantDetails(instant).get(),
+                    HoodieReplaceCommitMetadata.class);
             metadata.getPartitionToReplaceFileIds().forEach(
                             (key, value) -> value.forEach(
-                                    e -> replacedFile.put(e, FSUtils.constructAbsolutePath(basePath, key).toString())));
+                                    e -> replacedFile.put(e, new Path(tableBasePath, key).toString())));
         }
 
         fileToWriteStat = new HashMap<>();
         for (HoodieInstant commit : commitsToReturn) {
-            HoodieCommitMetadata metadata = metaClient.getActiveTimeline().readCommitMetadata(commit);
+            HoodieCommitMetadata metadata = TimelineUtils.getCommitMetadata(commit, commitsTimelineToReturn);
             metadata.getPartitionToWriteStats().forEach((partition, stats) -> {
                 for (HoodieWriteStat stat : stats) {
-                    fileToWriteStat.put(FSUtils.constructAbsolutePath(basePath, stat.getPath()).toString(), stat);
+                    fileToWriteStat.put(new Path(tableBasePath, stat.getPath()).toString(), stat);
                 }
             });
-            if (HoodieTimeline.METADATA_BOOTSTRAP_INSTANT_TS.equals(commit.requestedTime())) {
-                metadata.getFileIdAndFullPaths(basePath).forEach((k, v) -> {
-                    if (!(replacedFile.containsKey(k) && v.startsWith(replacedFile.get(k)))) {
-                        metaBootstrapFileIdToFullPath.put(k, v);
-                    }
-                });
+            if (HoodieTimeline.METADATA_BOOTSTRAP_INSTANT_TS.equals(commit.getTimestamp())) {
+                metadata.getFileIdAndFullPaths(basePathStr,
+                        HoodieStorageStrategyFactory.getInstant(metaClient)).forEach((k, v) -> {
+                            if (!(replacedFile.containsKey(k) && v.startsWith(replacedFile.get(k)))) {
+                                metaBootstrapFileIdToFullPath.put(k, v);
+                            }
+                        });
             } else {
-                metadata.getFileIdAndFullPaths(basePath).forEach((k, v) -> {
-                    if (!(replacedFile.containsKey(k) && v.startsWith(replacedFile.get(k)))) {
-                        regularFileIdToFullPath.put(k, v);
-                    }
-                });
+                metadata.getFileIdAndFullPaths(basePathStr,
+                        HoodieStorageStrategyFactory.getInstant(metaClient)).forEach((k, v) -> {
+                            if (!(replacedFile.containsKey(k) && v.startsWith(replacedFile.get(k)))) {
+                                regularFileIdToFullPath.put(k, v);
+                            }
+                        });
             }
         }
 
@@ -164,7 +167,7 @@ public class COWIncrementalRelation implements IncrementalRelation {
 
         }
 
-        fs = new Path(basePath.toUri().getPath()).getFileSystem(configuration);
+        fs = tableBasePath.getFileSystem(configuration);
         fullTableScan = shouldFullTableScan();
         startTs = startInstantTime;
         endTs = endInstantTime;
@@ -174,7 +177,7 @@ public class COWIncrementalRelation implements IncrementalRelation {
         boolean fallbackToFullTableScan = Boolean.parseBoolean(
                 optParams.getOrDefault("hoodie.datasource.read.incr.fallback.fulltablescan.enable", "false"));
         if (fallbackToFullTableScan && (startInstantArchived || endInstantArchived)) {
-            if (hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME) {
+            if (useStateTransitionTime) {
                 throw new HoodieException("Cannot use stateTransitionTime while enables full table scan");
             }
             return true;

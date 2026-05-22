@@ -53,7 +53,7 @@ public class HudiCachedFsViewProcessor {
 
     private HoodieTableFileSystemView createFsView(FsViewKey key) {
         HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder().build();
-        HoodieLocalEngineContext ctx = new HoodieLocalEngineContext(key.getClient().getStorageConf());
+        HoodieLocalEngineContext ctx = new HoodieLocalEngineContext(key.getClient().getHadoopConf());
         return FileSystemViewManager.createInMemoryFileSystemView(ctx, key.getClient(), metadataConfig);
     }
 

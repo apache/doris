@@ -34,6 +34,10 @@ under the License.
         <fe_ut_parallel>1</fe_ut_parallel>
         <luben.zstd.jni.version>1.5.4-2</luben.zstd.jni.version>
         <hive-apache.version>3.1.2-22</hive-apache.version>
+        <!-- Hadoop on BE is older than 3.3 (no FileSystem#openFile(Path)). Hudi bundle may embed newer Parquet;
+             package.xml strips parquet from the bundle; we ship parquet-hadoop compiled for legacy FS APIs. -->
+        <!-- <parquet.version>1.11.2</parquet.version> -->
+        <parquet.version>1.13.1</parquet.version>
     </properties>
 
     <dependencies>
@@ -55,50 +59,42 @@ under the License.
             <version>${project.version}</version>
             <scope>provided</scope>
         </dependency>
-      
-        <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
-        <dependency>
-            <groupId>org.apache.hudi</groupId>
-            <artifactId>hudi-common</artifactId>
-            <version>${hudi.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.apache.hbase</groupId>
-                    <artifactId>hbase-client</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.hbase</groupId>
-                    <artifactId>hbase-server</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.thrift</groupId>
-                    <artifactId>libthrift</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.fasterxml.jackson.core</groupId>
-                    <artifactId>jackson-databind</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-io -->
         <dependency>
             <groupId>org.apache.hudi</groupId>
-            <artifactId>hudi-io</artifactId>
+            <artifactId>hudi-hadoop-mr-bundle</artifactId>
             <version>${hudi.version}</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-hadoop-mr -->
+        <!-- Pin full parquet stack (bundle parquet is excluded at assembly time). -->
         <dependency>
-            <groupId>org.apache.hudi</groupId>
-            <artifactId>hudi-hadoop-mr</artifactId>
-            <version>${hudi.version}</version>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-hadoop</artifactId>
+            <version>${parquet.version}</version>
         </dependency>
-
-        <!-- https://mvnrepository.com/artifact/org.apache.parquet/parquet-avro -->
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-column</artifactId>
+            <version>${parquet.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-common</artifactId>
+            <version>${parquet.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-encoding</artifactId>
+            <version>${parquet.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.apache.parquet</groupId>
             <artifactId>parquet-avro</artifactId>
+            <version>${parquet.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-hadoop-bundle</artifactId>
             <version>${parquet.version}</version>
         </dependency>
 

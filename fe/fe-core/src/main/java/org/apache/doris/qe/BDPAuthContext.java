@@ -17,7 +17,9 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TBDPAuthContext;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.alibaba.ttl.TransmittableThreadLocal;
 
@@ -33,6 +35,7 @@ public class BDPAuthContext {
     private volatile boolean viewBased = false;
     private String userType = null;
     private String businessLine = null;
+    private TUniqueId queryId = null;
 
     public BDPAuthContext() {
     }
@@ -142,6 +145,14 @@ public class BDPAuthContext {
 
     public String getBusinessLine() {
         return businessLine;
+    }
+
+    public TUniqueId getQueryId() {
+        return queryId;
+    }
+
+    public String getQueryIdStr() {
+        return queryId != null ? DebugUtil.printId(queryId) : "none";
     }
 
     public String getHmsClientCacheKey() {
