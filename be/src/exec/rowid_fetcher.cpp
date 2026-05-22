@@ -1157,11 +1157,9 @@ Status RowIdStorageReader::read_doris_format_row(
                 iterator_item.storage_read_options.stats = &stats;
                 iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
             }
-            for (auto row_id : row_ids) {
-                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
-                        full_read_schema, &slots[x], row_id, column,
-                        iterator_item.storage_read_options, iterator_item.iterator));
-            }
+            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
+                    full_read_schema, &slots[x], row_ids, column,
+                    iterator_item.storage_read_options, iterator_item.iterator));
         }
     }
     return Status::OK();
