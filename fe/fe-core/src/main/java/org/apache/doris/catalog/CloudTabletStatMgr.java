@@ -370,6 +370,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                 long tabletIndexSize = 0L;
                                 long tabletSegmentSize = 0L;
 
+                                // getReplicas() returns an immutable volatile snapshot; CME-safe under concurrent DDL.
                                 for (Replica replica : tablet.getReplicas()) {
                                     if (replica.getDataSize() > tabletDataSize) {
                                         tabletDataSize = replica.getDataSize();
