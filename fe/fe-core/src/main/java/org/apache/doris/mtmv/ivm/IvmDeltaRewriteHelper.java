@@ -79,6 +79,21 @@ class IvmDeltaRewriteHelper {
         throw new AnalysisException("IVM failed to find slot: " + name);
     }
 
+    /**
+     * Add a runtime fallback guard when a joined delta may delete rows and the snapshot side row-id is
+     * non-deterministic.
+     *
+     * <p>The delta side itself is known to have deterministic row-ids for delete rows: base-table deletes only come
+     * from MOW tables and this property is preserved while delta rows are rewritten upward. Outer join does not break
+     * this assumption. Its NULL-row repair delete is derived from the normalized preserved/non-delta side row-id plus
+     * NULL; LEFT/RIGHT OUTER JOIN normalization requires that side to be deterministic, and FULL OUTER JOIN
+     * normalization requires both children to be deterministic. Therefore this guard only needs to check the snapshot
+     * side that is joined with the delta side.
+     *
+     * <p>For an aggregate MV, child join row-ids are only used to compute signed aggregate input rows. The MV row-id
+     * is rebuilt from group-by keys at the aggregate, so delete rows can be applied without this child join fallback
+     * guard.
+     */
     IvmDeltaRewriteResult addNonDetGuardForJoinDelta(LogicalJoin<Plan, Plan> join,
             IvmDeltaRewriteResult leftResult, IvmDeltaRewriteResult rightResult, IvmRefreshContext ctx) {
         boolean deltaOnLeft = leftResult.dmlFactorSlot != null;
@@ -94,12 +109,19 @@ class IvmDeltaRewriteHelper {
 
     /**
      * Checks if the snapshot side's row_id slot is non-deterministic.
-     * Returns true when normalizeResult or row_id slot is unavailable.
+     * Returns true when normalizeResult or row_id slot is unavailable. Aggregate MV returns false because final
+     * delete rows use aggregate group-key row-id instead of child join row-id.
      */
     boolean needNonDetGuard(Plan snapshotSidePlan, IvmRefreshContext ctx) {
         IvmNormalizeResult normalizeResult = ctx.getNormalizeResult();
         if (normalizeResult == null) {
             return true;
+        }
+        // Aggregate MV delete rows are applied by the aggregate output row-id, which is rebuilt from group-by keys.
+        // The child join row-id is only an intermediate input for aggregate state changes, so it does not need this
+        // fallback guard even when the snapshot side row-id is non-deterministic.
+        if (normalizeResult.isAggMv()) {
+            return false;
         }
         Slot rowIdSlot = IvmUtil.findRowIdSlotOrNull(snapshotSidePlan.getOutput());
         if (rowIdSlot == null) {

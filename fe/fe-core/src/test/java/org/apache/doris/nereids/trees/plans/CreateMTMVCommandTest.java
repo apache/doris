@@ -1112,6 +1112,55 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreateIncrementalAggMVAllowsJoinWithNonDeterministicChildRowId() throws Exception {
+        createIvmDupTable("ivm_agg_inner_dup_l");
+        createIvmMowTable("ivm_agg_inner_mow_r");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_agg_inner_join_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT ivm_agg_inner_dup_l.k1, COUNT(*) AS cnt, SUM(ivm_agg_inner_dup_l.v1) AS total\n"
+                + " FROM ivm_agg_inner_dup_l\n"
+                + " INNER JOIN ivm_agg_inner_mow_r ON ivm_agg_inner_dup_l.k1 = ivm_agg_inner_mow_r.k1\n"
+                + " GROUP BY ivm_agg_inner_dup_l.k1;");
+
+        MTMV innerJoinMtmv = getMtmv("ivm_agg_inner_join_mv");
+        Assertions.assertTrue(innerJoinMtmv.isIvm());
+        Assertions.assertTrue(innerJoinMtmv.getIvmInfo().isEnableIvm());
+
+        createIvmDupTable("ivm_agg_left_dup_l");
+        createIvmMowTable("ivm_agg_left_mow_r");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_agg_left_join_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT ivm_agg_left_dup_l.k1, COUNT(ivm_agg_left_mow_r.v1) AS matched_cnt,"
+                + " SUM(ivm_agg_left_dup_l.v1) AS total\n"
+                + " FROM ivm_agg_left_dup_l\n"
+                + " LEFT OUTER JOIN ivm_agg_left_mow_r ON ivm_agg_left_dup_l.k1 = ivm_agg_left_mow_r.k1\n"
+                + " GROUP BY ivm_agg_left_dup_l.k1;");
+
+        MTMV leftJoinMtmv = getMtmv("ivm_agg_left_join_mv");
+        Assertions.assertTrue(leftJoinMtmv.isIvm());
+        Assertions.assertTrue(leftJoinMtmv.getIvmInfo().isEnableIvm());
+
+        createIvmDupTable("ivm_agg_full_dup_l");
+        createIvmDupTable("ivm_agg_full_dup_r");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_agg_full_join_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT ivm_agg_full_dup_l.k1, COUNT(*) AS cnt, SUM(ivm_agg_full_dup_r.v1) AS total\n"
+                + " FROM ivm_agg_full_dup_l\n"
+                + " FULL OUTER JOIN ivm_agg_full_dup_r ON ivm_agg_full_dup_l.k1 = ivm_agg_full_dup_r.k1\n"
+                + " GROUP BY ivm_agg_full_dup_l.k1;");
+
+        MTMV fullJoinMtmv = getMtmv("ivm_agg_full_join_mv");
+        Assertions.assertTrue(fullJoinMtmv.isIvm());
+        Assertions.assertTrue(fullJoinMtmv.getIvmInfo().isEnableIvm());
+    }
+
+    @Test
     public void testCreateIncrementalMVRejectsOuterJoinWithNonDeterministicRequiredRowId() throws Exception {
         createIvmDupTable("ivm_loj_nondet_l");
         createIvmMowTable("ivm_loj_nondet_r");

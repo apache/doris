@@ -145,37 +145,47 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
             ImmutableSet.of(Count.class, Sum.class, Avg.class, Min.class, Max.class);
 
     static final class NormalizeContext {
-        private static final NormalizeContext ROOT = new NormalizeContext(true, false, false);
+        private static final NormalizeContext ROOT = new NormalizeContext(true, false, false, false);
 
         private final boolean isFirstNonSink;
         private final boolean isOuterJoinNullSide;
         private final boolean isInsideUnion;
+        private final boolean isInsideAggregate;
 
-        private NormalizeContext(boolean isFirstNonSink, boolean isOuterJoinNullSide, boolean isInsideUnion) {
+        private NormalizeContext(boolean isFirstNonSink, boolean isOuterJoinNullSide, boolean isInsideUnion,
+                boolean isInsideAggregate) {
             this.isFirstNonSink = isFirstNonSink;
             this.isOuterJoinNullSide = isOuterJoinNullSide;
             this.isInsideUnion = isInsideUnion;
+            this.isInsideAggregate = isInsideAggregate;
         }
 
         private NormalizeContext afterNonSink() {
             if (!isFirstNonSink) {
                 return this;
             }
-            return new NormalizeContext(false, isOuterJoinNullSide, isInsideUnion);
+            return new NormalizeContext(false, isOuterJoinNullSide, isInsideUnion, isInsideAggregate);
         }
 
         private NormalizeContext enterOuterJoinNullSide() {
             if (isOuterJoinNullSide) {
                 return this;
             }
-            return new NormalizeContext(isFirstNonSink, true, isInsideUnion);
+            return new NormalizeContext(isFirstNonSink, true, isInsideUnion, isInsideAggregate);
         }
 
         private NormalizeContext enterUnion() {
             if (isInsideUnion) {
                 return this;
             }
-            return new NormalizeContext(isFirstNonSink, isOuterJoinNullSide, true);
+            return new NormalizeContext(isFirstNonSink, isOuterJoinNullSide, true, isInsideAggregate);
+        }
+
+        private NormalizeContext enterAggregate() {
+            if (isInsideAggregate) {
+                return this;
+            }
+            return new NormalizeContext(isFirstNonSink, isOuterJoinNullSide, isInsideUnion, true);
         }
     }
 
@@ -295,7 +305,9 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
         // Look up each child's row_id determinism from the accumulated map
         boolean leftDet = normalizeResult.isDeterministic(leftRowIdSlot);
         boolean rightDet = normalizeResult.isDeterministic(rightRowIdSlot);
-        if (joinType.isOuterJoin()) {
+        // Aggregate MVs rebuild the final MV row-id from group-by keys. Child outer join row-ids only feed signed
+        // aggregate input rows, so retained-side determinism is not required below the aggregate.
+        if (joinType.isOuterJoin() && !context.isInsideAggregate) {
             // If one side may be filled as NULL by an outer join, null-side repair rows
             // are keyed by the opposite side row_id plus NULL. That opposite row_id must be stable
             // across refreshes. FULL OUTER JOIN applies this rule to both sides.
@@ -419,7 +431,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
             throw new IvmException(IvmFailureReason.AGG_UNSUPPORTED,
                     "IVM aggregate must be the top-level operator (only sinks and projects allowed above it)");
         }
-        Plan newChild = agg.child().accept(this, context.afterNonSink());
+        Plan newChild = agg.child().accept(this, context.enterAggregate().afterNonSink());
 
         // After NormalizeAggregate, outputs are: group-by key Slots + Alias(AggFunc)
         List<NamedExpression> origOutputs = agg.getOutputExpressions();

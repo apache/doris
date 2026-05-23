@@ -69,6 +69,10 @@ public class IvmNormalizeResult {
         return aggMeta;
     }
 
+    public boolean isAggMv() {
+        return aggMeta != null;
+    }
+
     public void setAggMeta(IvmAggMeta aggMeta) {
         this.aggMeta = aggMeta;
     }
