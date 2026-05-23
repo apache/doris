@@ -438,7 +438,7 @@ size_t ColumnNullable::filter(const Filter& filter) {
 
 Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
     auto* nullable_col_ptr = assert_cast<ColumnNullable*>(col_ptr);
-    // Access the nested column via const path to avoid assume_mutable_ref (which requires
+    // Access the nested column via const path to avoid assert_mutable_ref (which requires
     // exclusive ownership). The output col_ptr was just created, so its nested column is exclusive.
     IColumn* nest_col_raw = const_cast<IColumn*>(
             static_cast<const WrappedPtr&>(nullable_col_ptr->_nested_column).get());

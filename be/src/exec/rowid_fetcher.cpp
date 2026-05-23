@@ -495,7 +495,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
         for (int x = 0; x < slots.size(); ++x) {
             std::vector<segment_v2::rowid_t> row_ids {
                     static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};
-            MutableColumnPtr column = result_block.get_by_position(x).column->assume_mutable();
+            MutableColumnPtr column = result_block.get_by_position(x).column->assert_mutable();
             IteratorKey iterator_key {.tablet_id = tablet->tablet_id(),
                                       .rowset_id = rowset_id,
                                       .segment_id = row_loc.segment_id(),

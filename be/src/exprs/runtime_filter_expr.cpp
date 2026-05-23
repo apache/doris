@@ -121,7 +121,7 @@ Status RuntimeFilterExpr::execute_filter(VExprContext* context, const Block* blo
     // bloom filter will handle null aware inside itself
     if (_null_aware && TExprNodeType::BLOOM_PRED != node_type()) {
         DCHECK(arg_column);
-        change_null_to_true(filter_column->assume_mutable(), arg_column);
+        change_null_to_true(filter_column->assert_mutable(), arg_column);
     }
 
     if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {

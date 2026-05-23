@@ -94,7 +94,7 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
         Status st = wrapper(new_context.get(), tmp_block, {0}, 1, input_rows_count, nullptr);
         if (!st.ok()) {
             // Fill with default values, which is null
-            col_to->assume_mutable()->insert_many_defaults(input_rows_count);
+            col_to->assert_mutable()->insert_many_defaults(input_rows_count);
             col_to = make_nullable(col_to, true);
         } else {
             col_to = tmp_block.get_by_position(1).column;
@@ -106,7 +106,7 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
         }
     } else {
         if (variant.only_have_default_values()) {
-            col_to->assume_mutable()->insert_many_defaults(input_rows_count);
+            col_to->assert_mutable()->insert_many_defaults(input_rows_count);
             col_to = make_nullable(col_to, true);
         } else if (is_string_type(data_type_to->get_primitive_type())) {
             // serialize to string
@@ -118,10 +118,10 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
         } else if (!data_type_to->is_nullable() &&
                    !is_string_type(data_type_to->get_primitive_type())) {
             // other types
-            col_to->assume_mutable()->insert_many_defaults(input_rows_count);
+            col_to->assert_mutable()->insert_many_defaults(input_rows_count);
             col_to = make_nullable(col_to, true);
         } else {
-            assert_cast<ColumnNullable&>(*col_to->assume_mutable())
+            assert_cast<ColumnNullable&>(*col_to->assert_mutable())
                     .insert_many_defaults(input_rows_count);
         }
     }

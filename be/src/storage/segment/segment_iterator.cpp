@@ -2931,10 +2931,10 @@ Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& c
         DataTypePtr file_column_type = _storage_name_and_type[i].second;
         if (!file_column_type->equals(*expected_type)) {
             ColumnPtr expected;
-            ColumnPtr original = _current_return_columns[i]->assume_mutable()->get_ptr();
+            ColumnPtr original = _current_return_columns[i]->assert_mutable()->get_ptr();
             RETURN_IF_ERROR(variant_util::cast_column({original, file_column_type, ""},
                                                       expected_type, &expected));
-            _current_return_columns[i] = expected->assume_mutable();
+            _current_return_columns[i] = expected->assert_mutable();
             _converted_column_ids[i] = true;
             VLOG_DEBUG << fmt::format("Convert {} fom file column type {} to {}, num_rows {}",
                                       column_desc->path_info_ptr() == nullptr

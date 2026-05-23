@@ -247,7 +247,7 @@ inline void change_null_to_true(MutableColumnPtr column, ColumnPtr argument = nu
     size_t rows = column->size();
     if (is_column_const(*column)) {
         change_null_to_true(
-                assert_cast<ColumnConst*>(column.get())->get_data_column_ptr()->assume_mutable());
+                assert_cast<ColumnConst*>(column.get())->get_data_column_ptr()->assert_mutable());
     } else if (column->has_null()) {
         auto* nullable = assert_cast<ColumnNullable*>(column.get());
         auto* __restrict data = assert_cast<ColumnUInt8*>(nullable->get_nested_column_ptr().get())

@@ -384,7 +384,7 @@ Status VCollectIterator::_topn_next(Block* block) {
                 // create column that is not in mutable_block but in block
                 for (size_t j = mutable_block.columns(); j < block->columns(); ++j) {
                     auto col = block->get_by_position(j).clone_empty();
-                    mutable_block.mutable_columns().push_back(col.column->assume_mutable());
+                    mutable_block.mutable_columns().push_back(col.column->assert_mutable());
                     mutable_block.data_types().push_back(std::move(col.type));
                     mutable_block.get_names().push_back(std::move(col.name));
                 }

@@ -111,7 +111,7 @@ public:
                 ColumnPtr result_column_ptr;
                 RETURN_IF_ERROR(ctx->execute(block, result_column_ptr));
                 if (result_column_ptr->use_count() == 1) {
-                    auto mutable_column = result_column_ptr->assume_mutable();
+                    auto mutable_column = result_column_ptr->assert_mutable();
                     mutable_column->resize(rows);
                     result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                     auto origin_column_type =

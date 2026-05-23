@@ -230,7 +230,7 @@ public:
             bool mem_reuse = lambda_block.mem_reuse();
             for (int i = 0; i < column_size; i++) {
                 if (mem_reuse) {
-                    columns[i] = lambda_block.get_by_position(i).column->assume_mutable();
+                    columns[i] = lambda_block.get_by_position(i).column->assert_mutable();
                 } else {
                     if (_contains_column_id(output_slot_ref_indexs, i) || i >= gap) {
                         // TODO: maybe could create const column, so not insert_many_from when extand data
@@ -239,7 +239,7 @@ public:
                     } else {
                         columns[i] = data_types[i]
                                              ->create_column_const_with_default_value(0)
-                                             ->assume_mutable();
+                                             ->assert_mutable();
                     }
                 }
             }

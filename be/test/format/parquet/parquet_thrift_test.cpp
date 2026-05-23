@@ -162,7 +162,7 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
 static int fill_nullable_column(ColumnPtr& doris_column, level_t* definitions, size_t num_values) {
     CHECK(doris_column->is_nullable());
     doris_column = IColumn::mutate(std::move(doris_column));
-    auto* nullable_column = assert_cast<ColumnNullable*>(doris_column->assume_mutable().get());
+    auto* nullable_column = assert_cast<ColumnNullable*>(doris_column->assert_mutable().get());
     NullMap& map_data = nullable_column->get_null_map_data();
     int null_cnt = 0;
     for (int i = 0; i < num_values; ++i) {
@@ -220,11 +220,11 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     if (src_column->is_nullable()) {
         // fill nullable values
         fill_nullable_column(src_column, definitions, rows);
-        auto* nullable_column = assert_cast<ColumnNullable*>(src_column->assume_mutable().get());
+        auto* nullable_column = assert_cast<ColumnNullable*>(src_column->assert_mutable().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         src_column = IColumn::mutate(std::move(src_column));
-        data_column = src_column->assume_mutable();
+        data_column = src_column->assert_mutable();
     }
     FilterMap filter_map;
     RETURN_IF_ERROR(filter_map.init(nullptr, 0, false));

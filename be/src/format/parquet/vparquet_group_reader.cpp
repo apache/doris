@@ -912,7 +912,7 @@ Status RowGroupReader::_fill_missing_columns(
                 // call resize because the first column of _src_block_ptr may not be filled by reader,
                 // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
                 // has only one row.
-                auto mutable_column = result_column_ptr->assume_mutable();
+                auto mutable_column = result_column_ptr->assert_mutable();
                 mutable_column->resize(rows);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
@@ -1158,7 +1158,7 @@ Status RowGroupReader::_rewrite_dict_predicates() {
         if (dict_pos != 0) {
             // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
             // The following process may be tricky and time-consuming, but we have no other way.
-            temp_block.get_by_position(0).column->assume_mutable()->resize(dict_value_column_size);
+            temp_block.get_by_position(0).column->assert_mutable()->resize(dict_value_column_size);
         }
         IColumn::Filter result_filter(temp_block.rows(), 1);
         bool can_filter_all;
@@ -1168,7 +1168,7 @@ Status RowGroupReader::_rewrite_dict_predicates() {
         }
         if (dict_pos != 0) {
             // We have to clean the first column to insert right data.
-            temp_block.get_by_position(0).column->assume_mutable()->clear();
+            temp_block.get_by_position(0).column->assert_mutable()->clear();
         }
 
         // If can_filter_all = true, can filter this row group.

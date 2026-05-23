@@ -207,7 +207,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
             // swap the column directly, to solve Check failed: d.column->use_count() == 1 (2 vs. 1)
             for (int i = 0; i < key_size; ++i) {
                 auto output_column = out_block->get_by_position(i).column;
-                out_block->replace_by_position(i, key_columns[i]->assume_mutable());
+                out_block->replace_by_position(i, key_columns[i]->assert_mutable());
                 in_block->replace_by_position(result_idxs[i], output_column);
             }
         } else {
@@ -240,7 +240,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
         ColumnsWithTypeAndName columns_with_schema;
         for (int i = 0; i < key_size; ++i) {
             if (_stop_emplace_flag) {
-                columns_with_schema.emplace_back(key_columns[i]->assume_mutable(),
+                columns_with_schema.emplace_back(key_columns[i]->assert_mutable(),
                                                  _probe_expr_ctxs[i]->root()->data_type(),
                                                  _probe_expr_ctxs[i]->root()->expr_name());
             } else {

@@ -880,7 +880,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(Block* output_
     output_block->insert({std::move(filter_column), std::make_shared<DataTypeUInt8>(), ""});
     uint8_t* __restrict filter_column_ptr =
             assert_cast<ColumnUInt8&>(
-                    output_block->get_by_position(result_column_id).column->assume_mutable_ref())
+                    output_block->get_by_position(result_column_id).column->assert_mutable_ref())
                     .get_data()
                     .data();
 

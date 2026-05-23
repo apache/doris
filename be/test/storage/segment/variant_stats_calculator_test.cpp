@@ -312,7 +312,7 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithMultipleColumns) {
                   std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()), "sub1"});
 
     auto map_col = create_map_column();
-    map_col->assume_mutable()->insert_many_defaults(3);
+    map_col->assert_mutable()->insert_many_defaults(3);
     block.insert({std::move(map_col),
                   std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
                                                 std::make_shared<DataTypeString>()),

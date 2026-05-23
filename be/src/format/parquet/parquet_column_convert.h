@@ -198,7 +198,7 @@ struct ConvertParams {
 
 inline IColumn* get_mutable_inner_column(ColumnPtr& column) {
     column = IColumn::mutate(std::move(column));
-    auto mutable_column = column->assume_mutable();
+    auto mutable_column = column->assert_mutable();
     if (mutable_column->is_nullable()) {
         return &assert_cast<ColumnNullable*>(mutable_column.get())->get_nested_column();
     }
@@ -238,7 +238,7 @@ inline void align_null_map(ColumnPtr& src_column, ColumnPtr& dst_column, size_t 
     }
 
     dst_column = IColumn::mutate(std::move(dst_column));
-    auto* dst_nullable = assert_cast<ColumnNullable*>(dst_column->assume_mutable().get());
+    auto* dst_nullable = assert_cast<ColumnNullable*>(dst_column->assert_mutable().get());
     auto& dst_null_map = dst_nullable->get_null_map_column();
     const size_t expected_rows = old_null_map_size + new_rows;
     if (dst_null_map.size() == expected_rows) {
@@ -369,7 +369,7 @@ public:
         const size_t dst_old_rows = get_mutable_inner_column_size(dst_logical_col);
         const size_t dst_old_null_map_size =
                 get_null_map_size_or_inner_column_size(dst_logical_col);
-        auto converted_column = dst_logical_col->assume_mutable();
+        auto converted_column = dst_logical_col->assert_mutable();
         RETURN_IF_ERROR(_logical_converter->convert(src_logical_column, converted_column));
         const size_t dst_new_rows = get_mutable_inner_column_size(dst_logical_col) - dst_old_rows;
         align_null_map(src_logical_column, dst_logical_col, dst_old_null_map_size, dst_new_rows,
