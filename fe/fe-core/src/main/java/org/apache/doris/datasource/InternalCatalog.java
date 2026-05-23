@@ -3419,12 +3419,19 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
+        // Collect bucket tablets locally and bulk-publish to the MaterializedIndex's
+        // tablets list in a single copy-on-write after the loop (O(bucketNum) instead
+        // of O(bucketNum^2)). TabletInvertedIndex registration stays per-iteration
+        // because Tablet.addReplica(...) below needs the tablet present in the
+        // inverted index.
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        List<Tablet> bucketTablets = new ArrayList<>(distributionInfo.getBucketNum());
         for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
             // create a new tablet with random chosen backends
             Tablet tablet = EnvFactory.getInstance().createTablet(idGeneratorBuffer.getNextId());
 
-            // add tablet to inverted index first
-            index.addTablet(tablet, tabletMeta);
+            invertedIndex.addTablet(tablet.getId(), tabletMeta);
+            bucketTablets.add(tablet);
             tabletIdSet.add(tablet.getId());
 
             // get BackendIds
@@ -3463,6 +3470,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum(),
                     totalReplicaNum + " vs. " + replicaAlloc.getTotalReplicaNum());
         }
+
+        // Publish all bucket tablets to the materialized index in one batch.
+        index.appendTablets(bucketTablets);
 
         if (groupId != null && chooseBackendsArbitrary) {
             colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
