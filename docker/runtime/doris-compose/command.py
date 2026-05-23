@@ -492,6 +492,11 @@ class UpCommand(Command):
             type=str,
             default="7.1.26",
             help="fdb image version. Only use in cloud cluster.")
+        parser.add_argument(
+            "--fdb-image",
+            type=str,
+            default=os.environ.get("DORIS_FDB_IMAGE", ""),
+            help="Override fdb image. Only use in cloud cluster.")
 
         parser.add_argument(
             "--tde-ak",
@@ -663,9 +668,10 @@ class UpCommand(Command):
             if for_all:
                 cluster.set_image(args.IMAGE)
 
+        fdb_image = args.fdb_image or "foundationdb/foundationdb:{}".format(
+            args.fdb_version)
         for node in cluster.get_all_nodes(CLUSTER.Node.TYPE_FDB):
-            node.set_image("foundationdb/foundationdb:{}".format(
-                args.fdb_version))
+            node.set_image(fdb_image)
 
         cluster.save()
 
