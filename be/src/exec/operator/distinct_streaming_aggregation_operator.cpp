@@ -162,7 +162,13 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
                     in_block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
             key_columns[i] = in_block->get_by_position(result_column_id).column.get();
-            key_columns[i]->assume_mutable()->replace_float_special_values();
+            {
+                auto mutable_col = IColumn::mutate(
+                        std::move(in_block->get_by_position(result_column_id).column));
+                mutable_col->replace_float_special_values();
+                in_block->get_by_position(result_column_id).column = std::move(mutable_col);
+                key_columns[i] = in_block->get_by_position(result_column_id).column.get();
+            }
             result_idxs[i] = result_column_id;
         }
     }
@@ -210,18 +216,22 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
             if (out_block->rows() + _distinct_row.size() > batch_size) {
                 size_t split_size = batch_size - out_block->rows();
                 for (int i = 0; i < key_size; ++i) {
-                    auto output_dst = out_block->get_by_position(i).column->assume_mutable();
+                    auto output_dst =
+                            IColumn::mutate(std::move(out_block->get_by_position(i).column));
                     key_columns[i]->append_data_by_selector(output_dst, _distinct_row, 0,
                                                             split_size);
-                    auto cache_dst = _cache_block.get_by_position(i).column->assume_mutable();
+                    out_block->get_by_position(i).column = std::move(output_dst);
+                    auto cache_dst =
+                            IColumn::mutate(std::move(_cache_block.get_by_position(i).column));
                     key_columns[i]->append_data_by_selector(cache_dst, _distinct_row, split_size,
                                                             _distinct_row.size());
+                    _cache_block.get_by_position(i).column = std::move(cache_dst);
                 }
             } else {
                 for (int i = 0; i < key_size; ++i) {
-                    auto output_column = out_block->get_by_position(i).column;
-                    auto dst = output_column->assume_mutable();
+                    auto dst = IColumn::mutate(std::move(out_block->get_by_position(i).column));
                     key_columns[i]->append_data_by_selector(dst, _distinct_row);
+                    out_block->get_by_position(i).column = std::move(dst);
                 }
             }
         }

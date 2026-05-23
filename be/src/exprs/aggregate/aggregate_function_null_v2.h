@@ -259,8 +259,7 @@ public:
                 }
             }
         }};
-        const IColumn* src_nested_column =
-                src_nullable_col->get_nested_column().assume_mutable().get();
+        const IColumn* src_nested_column = &src_nullable_col->get_nested_column();
         if (src_nullable_col->has_null()) {
             for (size_t i = 0; i < num_rows; ++i) {
                 if (!src_null_map_data[i]) {

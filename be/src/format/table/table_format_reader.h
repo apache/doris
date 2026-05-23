@@ -67,8 +67,9 @@ public:
             if (it == _fill_partition_values.end()) {
                 continue;
             }
-            auto col_ptr = block->get_by_position((*_fill_col_name_to_block_idx)[col_name])
-                                   .column->assume_mutable();
+            auto column_guard =
+                    block->mutate_column_scoped((*_fill_col_name_to_block_idx)[col_name]);
+            auto& col_ptr = column_guard.mutable_column();
             const auto& [value, slot_desc] = it->second;
             auto text_serde = slot_desc->get_data_type_ptr()->get_serde();
             Slice slice(value.data(), value.size());
@@ -101,9 +102,9 @@ public:
             VExprContextSPtr ctx = (it != _fill_missing_defaults.end()) ? it->second : nullptr;
 
             if (ctx == nullptr) {
-                auto mutable_column =
-                        block->get_by_position((*_fill_col_name_to_block_idx)[col_name])
-                                .column->assume_mutable();
+                auto column_guard =
+                        block->mutate_column_scoped((*_fill_col_name_to_block_idx)[col_name]);
+                auto& mutable_column = column_guard.mutable_column();
                 auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
                 nullable_column->insert_many_defaults(rows);
             } else {
@@ -147,7 +148,7 @@ public:
             if (col_pos < 0) {
                 continue;
             }
-            block->get_by_position(static_cast<size_t>(col_pos)).column->assume_mutable()->clear();
+            block->clear_column_data(std::vector<uint32_t> {static_cast<uint32_t>(col_pos)});
         }
         return Status::OK();
     }
@@ -212,7 +213,7 @@ public:
             if (col_pos < 0) {
                 continue;
             }
-            block->get_by_position(static_cast<size_t>(col_pos)).column->assume_mutable()->clear();
+            block->clear_column_data(std::vector<uint32_t> {static_cast<uint32_t>(col_pos)});
         }
         return Status::OK();
     }

@@ -527,7 +527,8 @@ TEST_F(NativeReaderWriterTest, round_trip_native_file_large_rows) {
                 total_read_rows = read_rows;
                 first_block = false;
             } else {
-                MutableBlock merged_mutable(&merged_block);
+                ScopedMutableBlock scoped_merged_mutable(&merged_block);
+                auto& merged_mutable = scoped_merged_mutable.mutable_block();
                 Status add_st = merged_mutable.add_rows(&dst_block, 0, read_rows);
                 ASSERT_TRUE(add_st.ok()) << add_st;
                 total_read_rows += read_rows;

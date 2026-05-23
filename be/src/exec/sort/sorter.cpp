@@ -114,7 +114,9 @@ void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::Block* block
 
     size_t num_columns = unsorted_block()->columns();
 
-    MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(block, *unsorted_block());
+    auto scoped_mutable_block =
+            VectorizedUtils::build_scoped_mutable_mem_reuse_block(block, *unsorted_block());
+    auto& m_block = scoped_mutable_block.mutable_block();
     MutableColumns& merged_columns = m_block.mutable_columns();
 
     /// Take rows from queue in right order and push to 'merged'.
@@ -143,7 +145,6 @@ void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::Block* block
         }
     }
 
-    block->set_columns(std::move(merged_columns));
     *eos = merged_rows == 0;
 }
 

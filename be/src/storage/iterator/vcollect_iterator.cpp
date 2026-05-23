@@ -292,7 +292,7 @@ Status VCollectIterator::_topn_next(Block* block) {
             }
         }
     }
-    MutableBlock mutable_block = MutableBlock::build_mutable_block(&clone_block);
+    MutableBlock mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
 
     const std::vector<uint32_t>* sort_columns = _reader->_reader_context.read_orderby_key_columns;
     for (auto column_idx : *sort_columns) {
@@ -413,7 +413,7 @@ Status VCollectIterator::_topn_next(Block* block) {
                                << mutable_block.rows() << " rows";
                     Block tmp_block = mutable_block.to_block();
                     clone_block = tmp_block.clone_empty();
-                    mutable_block = MutableBlock::build_mutable_block(&clone_block);
+                    mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
                     for (auto it = sorted_row_pos.begin(); it != sorted_row_pos.end(); it++) {
                         mutable_block.add_row(&tmp_block, cast_set<int>(*it));
                     }
@@ -843,8 +843,6 @@ bool VCollectIterator::Level1Iterator::collected_enough_rows(const MutableColumn
 Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     SCOPED_RAW_TIMER(&_reader->_stats.collect_iterator_merge_next_timer);
     int target_block_row = 0;
-    auto target_columns = block->mutate_columns();
-    size_t column_count = target_columns.size();
     IteratorRowRef cur_row = _ref;
     IteratorRowRef pre_row_ref = _ref;
 
@@ -852,6 +850,9 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     for (size_t i = block->columns(); i < cur_row.block->columns(); ++i) {
         block->insert(cur_row.block->get_by_position(i).clone_empty());
     }
+    auto target_columns_guard = block->mutate_columns_scoped();
+    auto& target_columns = target_columns_guard.mutable_columns();
+    size_t column_count = target_columns.size();
 
     auto batch_size = _reader->batch_max_rows();
     if (UNLIKELY(_reader->_reader_context.record_rowids)) {
@@ -883,7 +884,6 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             if (UNLIKELY(_reader->_reader_context.record_rowids)) {
                 _block_row_locations.resize(target_block_row);
             }
-            block->set_columns(std::move(target_columns));
             return res;
         }
 
@@ -900,7 +900,6 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
                                                          continuous_row_in_block);
                 }
             }
-            block->set_columns(std::move(target_columns));
             return Status::OK();
         }
         if (continuous_row_in_block == 0) {
@@ -932,7 +931,6 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             if (UNLIKELY(_reader->_reader_context.record_rowids)) {
                 _block_row_locations.resize(target_block_row);
             }
-            block->set_columns(std::move(target_columns));
             return Status::OK();
         }
     } while (true);

@@ -148,7 +148,7 @@ static void fill_varaint_column(auto& variant_column, int size, int uid) {
 }
 
 static void fill_block_with_test_data(Block* block, int size) {
-    auto columns = block->mutate_columns();
+    auto columns = std::move(*block).mutate_columns();
     // insert key
     for (int i = 0; i < size; i++) {
         auto field = Field::create_field<PrimitiveType::TYPE_INT>(i);
@@ -172,6 +172,7 @@ static void fill_block_with_test_data(Block* block, int size) {
         auto v4 = Field::create_field<PrimitiveType::TYPE_INT>(i);
         columns[4]->insert(v4);
     }
+    block->set_columns(std::move(columns));
 }
 static int64_t inc_id = 1000;
 static RowsetWriterContext rowset_writer_context(const std::unique_ptr<DataDir>& data_dir,

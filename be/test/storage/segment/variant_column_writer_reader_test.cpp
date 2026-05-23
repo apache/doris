@@ -82,6 +82,38 @@ static void construct_tablet_index(TabletIndexPB* tablet_index, int64_t index_id
     tablet_index->add_col_unique_id(col_unique_id);
 }
 
+static void fill_nullable_variant_block(Block* block,
+                                        std::unordered_map<int, std::string>* inserted_jsonstr,
+                                        variant_util::PathToNoneNullValues* path_with_size) {
+    MutableColumnPtr column = IColumn::mutate(block->get_by_position(0).column);
+    auto* nullable_object = assert_cast<ColumnNullable*>(column.get());
+    for (int idx = 0; idx < 10; idx++) {
+        nullable_object->insert_default(); // insert null
+        {
+            auto column_object = nullable_object->get_nested_column_ptr();
+            auto res = VariantUtil::fill_object_column_with_test_data(column_object, 80,
+                                                                      inserted_jsonstr);
+            path_with_size->insert(res.begin(), res.end());
+        }
+        for (int j = 0; j < 80; ++j) {
+            Field f = Field::create_field<TYPE_BOOLEAN>(UInt8(0));
+            nullable_object->get_null_map_column().insert(f);
+        }
+        nullable_object->insert_many_defaults(17);
+        {
+            auto column_object = nullable_object->get_nested_column_ptr();
+            auto res = VariantUtil::fill_object_column_with_test_data(column_object, 2,
+                                                                      inserted_jsonstr);
+            path_with_size->insert(res.begin(), res.end());
+        }
+        for (int j = 0; j < 2; ++j) {
+            Field f = Field::create_field<TYPE_BOOLEAN>(UInt8(0));
+            nullable_object->get_null_map_column().insert(f);
+        }
+    }
+    block->replace_by_position(0, std::move(column));
+}
+
 // MockColumnReaderCache class for testing
 class MockColumnReaderCache : public segment_v2::ColumnReaderCache {
 public:
@@ -232,7 +264,7 @@ protected:
 
         for (const auto& batch : batches) {
             Block block = _tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             auto variant_col = ColumnVariant::create(
                     _tablet_schema->column(0).variant_max_subcolumns_count(), false);
             auto json_col = ColumnString::create();
@@ -273,7 +305,7 @@ protected:
         }
 
         Block block = _tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
         auto variant_col = ColumnVariant::create(
                 _tablet_schema->column(0).variant_max_subcolumns_count(), false);
         auto json_col = ColumnString::create();
@@ -2627,28 +2659,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     // here is nullable variant
     auto block = _tablet_schema->create_block();
-    auto nullable_object = assert_cast<ColumnNullable*>(
-            (*std::move(block.get_by_position(0).column)).mutate().get());
     std::unordered_map<int, std::string> inserted_jsonstr;
-    auto column_object = nullable_object->get_nested_column_ptr();
     variant_util::PathToNoneNullValues path_with_size;
-    for (int idx = 0; idx < 10; idx++) {
-        nullable_object->insert_default(); // insert null
-        auto res = VariantUtil::fill_object_column_with_test_data(column_object, 80,
-                                                                  &inserted_jsonstr);
-        path_with_size.insert(res.begin(), res.end());
-        for (int j = 0; j < 80; ++j) {
-            Field f = Field::create_field<TYPE_BOOLEAN>(UInt8(0));
-            nullable_object->get_null_map_column_ptr()->insert(f);
-        }
-        nullable_object->insert_many_defaults(17);
-        res = VariantUtil::fill_object_column_with_test_data(column_object, 2, &inserted_jsonstr);
-        path_with_size.insert(res.begin(), res.end());
-        for (int j = 0; j < 2; ++j) {
-            Field f = Field::create_field<TYPE_BOOLEAN>(UInt8(0));
-            nullable_object->get_null_map_column_ptr()->insert(f);
-        }
-    }
+    fill_nullable_variant_block(&block, &inserted_jsonstr, &path_with_size);
     // sort path_with_size with value
     olap_data_convertor->add_column_data_convertor(column);
     olap_data_convertor->set_source_content(&block, 0, 1000);
@@ -2780,28 +2793,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable_without_finalize)
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     // here is nullable variant
     auto block = _tablet_schema->create_block();
-    auto nullable_object = assert_cast<ColumnNullable*>(
-            (*std::move(block.get_by_position(0).column)).mutate().get());
     std::unordered_map<int, std::string> inserted_jsonstr;
-    auto column_object = nullable_object->get_nested_column_ptr();
     variant_util::PathToNoneNullValues path_with_size;
-    for (int idx = 0; idx < 10; idx++) {
-        nullable_object->insert_default(); // insert null
-        auto res = VariantUtil::fill_object_column_with_test_data(column_object, 80,
-                                                                  &inserted_jsonstr);
-        path_with_size.insert(res.begin(), res.end());
-        for (int j = 0; j < 80; ++j) {
-            Field f = Field::create_field<TYPE_BOOLEAN>(UInt8(0));
-            nullable_object->get_null_map_column_ptr()->insert(f);
-        }
-        nullable_object->insert_many_defaults(17);
-        res = VariantUtil::fill_object_column_with_test_data(column_object, 2, &inserted_jsonstr);
-        path_with_size.insert(res.begin(), res.end());
-        for (int j = 0; j < 2; ++j) {
-            Field f = Field::create_field<TYPE_BOOLEAN>(UInt8(0));
-            nullable_object->get_null_map_column_ptr()->insert(f);
-        }
-    }
+    fill_nullable_variant_block(&block, &inserted_jsonstr, &path_with_size);
     // sort path_with_size with value
     olap_data_convertor->add_column_data_convertor(column);
     olap_data_convertor->set_source_content(&block, 0, 1000);
@@ -2875,28 +2869,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_bm_with_finalize) {
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     // here is nullable variant
     auto block = _tablet_schema->create_block();
-    auto nullable_object = assert_cast<ColumnNullable*>(
-            (*std::move(block.get_by_position(0).column)).mutate().get());
     std::unordered_map<int, std::string> inserted_jsonstr;
-    auto column_object = nullable_object->get_nested_column_ptr();
     variant_util::PathToNoneNullValues path_with_size;
-    for (int idx = 0; idx < 10; idx++) {
-        nullable_object->insert_default(); // insert null
-        auto res = VariantUtil::fill_object_column_with_test_data(column_object, 80,
-                                                                  &inserted_jsonstr);
-        path_with_size.insert(res.begin(), res.end());
-        for (int j = 0; j < 80; ++j) {
-            Field f = Field::create_field<TYPE_BOOLEAN>(UInt8(0));
-            nullable_object->get_null_map_column_ptr()->insert(f);
-        }
-        nullable_object->insert_many_defaults(17);
-        res = VariantUtil::fill_object_column_with_test_data(column_object, 2, &inserted_jsonstr);
-        path_with_size.insert(res.begin(), res.end());
-        for (int j = 0; j < 2; ++j) {
-            Field f = Field::create_field<TYPE_BOOLEAN>(UInt8(0));
-            nullable_object->get_null_map_column_ptr()->insert(f);
-        }
-    }
+    fill_nullable_variant_block(&block, &inserted_jsonstr, &path_with_size);
     // sort path_with_size with value
     olap_data_convertor->add_column_data_convertor(column);
     olap_data_convertor->set_source_content(&block, 0, 1000);
@@ -2970,28 +2945,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_bf_with_finalize) {
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     // here is nullable variant
     auto block = _tablet_schema->create_block();
-    auto nullable_object = assert_cast<ColumnNullable*>(
-            (*std::move(block.get_by_position(0).column)).mutate().get());
     std::unordered_map<int, std::string> inserted_jsonstr;
-    auto column_object = nullable_object->get_nested_column_ptr();
     variant_util::PathToNoneNullValues path_with_size;
-    for (int idx = 0; idx < 10; idx++) {
-        nullable_object->insert_default(); // insert null
-        auto res = VariantUtil::fill_object_column_with_test_data(column_object, 80,
-                                                                  &inserted_jsonstr);
-        path_with_size.insert(res.begin(), res.end());
-        for (int j = 0; j < 80; ++j) {
-            Field f = Field::create_field<TYPE_BOOLEAN>(UInt8(0));
-            nullable_object->get_null_map_column_ptr()->insert(f);
-        }
-        nullable_object->insert_many_defaults(17);
-        res = VariantUtil::fill_object_column_with_test_data(column_object, 2, &inserted_jsonstr);
-        path_with_size.insert(res.begin(), res.end());
-        for (int j = 0; j < 2; ++j) {
-            Field f = Field::create_field<TYPE_BOOLEAN>(UInt8(0));
-            nullable_object->get_null_map_column_ptr()->insert(f);
-        }
-    }
+    fill_nullable_variant_block(&block, &inserted_jsonstr, &path_with_size);
     // sort path_with_size with value
     olap_data_convertor->add_column_data_convertor(column);
     olap_data_convertor->set_source_content(&block, 0, 1000);
@@ -3067,28 +3023,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_zm_with_finalize) {
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     // here is nullable variant
     auto block = _tablet_schema->create_block();
-    auto nullable_object = assert_cast<ColumnNullable*>(
-            (*std::move(block.get_by_position(0).column)).mutate().get());
     std::unordered_map<int, std::string> inserted_jsonstr;
-    auto column_object = nullable_object->get_nested_column_ptr();
     variant_util::PathToNoneNullValues path_with_size;
-    for (int idx = 0; idx < 10; idx++) {
-        nullable_object->insert_default(); // insert null
-        auto res = VariantUtil::fill_object_column_with_test_data(column_object, 80,
-                                                                  &inserted_jsonstr);
-        path_with_size.insert(res.begin(), res.end());
-        for (int j = 0; j < 80; ++j) {
-            Field f = Field::create_field<TYPE_BOOLEAN>(UInt8(0));
-            nullable_object->get_null_map_column_ptr()->insert(f);
-        }
-        nullable_object->insert_many_defaults(17);
-        res = VariantUtil::fill_object_column_with_test_data(column_object, 2, &inserted_jsonstr);
-        path_with_size.insert(res.begin(), res.end());
-        for (int j = 0; j < 2; ++j) {
-            Field f = Field::create_field<TYPE_BOOLEAN>(UInt8(0));
-            nullable_object->get_null_map_column_ptr()->insert(f);
-        }
-    }
+    fill_nullable_variant_block(&block, &inserted_jsonstr, &path_with_size);
     // sort path_with_size with value
     olap_data_convertor->add_column_data_convertor(column);
     olap_data_convertor->set_source_content(&block, 0, 1000);
@@ -3164,28 +3101,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_inverted_with_finalize) {
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     // here is nullable variant
     auto block = _tablet_schema->create_block();
-    auto nullable_object = assert_cast<ColumnNullable*>(
-            (*std::move(block.get_by_position(0).column)).mutate().get());
     std::unordered_map<int, std::string> inserted_jsonstr;
-    auto column_object = nullable_object->get_nested_column_ptr();
     variant_util::PathToNoneNullValues path_with_size;
-    for (int idx = 0; idx < 10; idx++) {
-        nullable_object->insert_default(); // insert null
-        auto res = VariantUtil::fill_object_column_with_test_data(column_object, 80,
-                                                                  &inserted_jsonstr);
-        path_with_size.insert(res.begin(), res.end());
-        for (int j = 0; j < 80; ++j) {
-            Field f = Field::create_field<TYPE_BOOLEAN>(UInt8(0));
-            nullable_object->get_null_map_column_ptr()->insert(f);
-        }
-        nullable_object->insert_many_defaults(17);
-        res = VariantUtil::fill_object_column_with_test_data(column_object, 2, &inserted_jsonstr);
-        path_with_size.insert(res.begin(), res.end());
-        for (int j = 0; j < 2; ++j) {
-            Field f = Field::create_field<TYPE_BOOLEAN>(UInt8(0));
-            nullable_object->get_null_map_column_ptr()->insert(f);
-        }
-    }
+    fill_nullable_variant_block(&block, &inserted_jsonstr, &path_with_size);
     // sort path_with_size with value
     olap_data_convertor->add_column_data_convertor(column);
     olap_data_convertor->set_source_content(&block, 0, 1000);
@@ -3712,7 +3630,7 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
     // fill with nullable ColumnVariant target
     MutableColumnPtr new_column_object1 = ColumnVariant::create(3, false);
     MutableColumnPtr null_object =
-            ColumnNullable::create(new_column_object1->assume_mutable(), ColumnUInt8::create());
+            ColumnNullable::create(std::move(new_column_object1), ColumnUInt8::create());
     size_t n = 1000;
     st = nested_iter->seek_to_ordinal(0);
     EXPECT_TRUE(st.ok()) << st.msg();
@@ -3723,8 +3641,8 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
     {
         // fill with nullable ColumnVariant target
         MutableColumnPtr new_column_object12 = ColumnVariant::create(3, false);
-        MutableColumnPtr null_object12 = ColumnNullable::create(
-                new_column_object12->assume_mutable(), ColumnUInt8::create());
+        MutableColumnPtr null_object12 =
+                ColumnNullable::create(std::move(new_column_object12), ColumnUInt8::create());
         st = nested_iter->seek_to_ordinal(0);
         EXPECT_TRUE(st.ok()) << st.msg();
         st = nested_iter->next_batch(&n, null_object12, &has_null);
@@ -3756,7 +3674,7 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
         // fill with nullable ColumnVariant target
         MutableColumnPtr new_column_object2 = ColumnVariant::create(3, false);
         MutableColumnPtr null_object2 =
-                ColumnNullable::create(new_column_object2->assume_mutable(), ColumnUInt8::create());
+                ColumnNullable::create(std::move(new_column_object2), ColumnUInt8::create());
         size_t nrows = 1000;
         st = nested_iter2->seek_to_ordinal(0);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -3866,7 +3784,7 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter_nullable) {
     // fill with nullable ColumnVariant target
     MutableColumnPtr new_column_object1 = ColumnVariant::create(3, false);
     MutableColumnPtr null_object =
-            ColumnNullable::create(new_column_object1->assume_mutable(), ColumnUInt8::create());
+            ColumnNullable::create(std::move(new_column_object1), ColumnUInt8::create());
     size_t nrows = 1000;
     st = nested_iter->seek_to_ordinal(0);
     EXPECT_TRUE(st.ok()) << st.msg();

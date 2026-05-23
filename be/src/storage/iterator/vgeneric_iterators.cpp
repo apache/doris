@@ -63,7 +63,8 @@ Status VStatisticsIterator::next_batch(Block* block) {
     DCHECK(block->columns() == _column_iterators.size());
     if (_output_rows < _target_rows) {
         block->clear_column_data();
-        auto columns = block->mutate_columns();
+        auto columns_guard = block->mutate_columns_scoped();
+        auto& columns = columns_guard.mutable_columns();
 
         size_t size = _push_down_agg_type_opt == TPushAggOp::MINMAX
                               ? 2
@@ -86,7 +87,6 @@ Status VStatisticsIterator::next_batch(Block* block) {
                 }
             }
         }
-        block->set_columns(std::move(columns));
         _output_rows += size;
         return Status::OK();
     }

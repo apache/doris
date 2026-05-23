@@ -116,6 +116,40 @@ namespace doris {
 // TODO: we need to determine it by test.
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 static constexpr char EMPTY_STRING_FOR_OVERFLOW[ColumnString::MAX_STRINGS_OVERFLOW_SIZE] = "";
+
+static void fill_orc_null_map(ColumnNullable* nullable_column, const orc::ColumnVectorBatch* cvb,
+                              size_t num_values) {
+    NullMap& map_data_column = nullable_column->get_null_map_data();
+    const auto origin_size = map_data_column.size();
+    map_data_column.resize(origin_size + num_values);
+    if (cvb->hasNulls) {
+        const auto* cvb_nulls = cvb->notNull.data();
+        for (int i = 0; i < num_values; ++i) {
+            map_data_column[origin_size + i] = !cvb_nulls[i];
+        }
+    } else {
+        memset(map_data_column.data() + origin_size, 0, num_values);
+    }
+}
+
+static void align_orc_null_map(const ColumnPtr& src_column, ColumnNullable* dst_nullable_column,
+                               size_t src_null_map_start, size_t new_rows) {
+    auto& dst_null_map = dst_nullable_column->get_null_map_column();
+    const size_t old_rows = dst_nullable_column->get_nested_column().size();
+    const size_t expected_rows = old_rows + new_rows;
+    if (dst_null_map.size() == expected_rows) {
+        return;
+    }
+    DCHECK_EQ(dst_null_map.size(), old_rows);
+    if (src_column->is_nullable()) {
+        const auto* src_nullable = assert_cast<const ColumnNullable*>(src_column.get());
+        DCHECK_GE(src_nullable->get_null_map_column().size(), src_null_map_start + new_rows);
+        dst_null_map.insert_range_from(src_nullable->get_null_map_column(), src_null_map_start,
+                                       new_rows);
+    } else {
+        dst_null_map.insert_many_vals(0, new_rows);
+    }
+}
 // Because HIVE 0.11 & 0.12 does not support precision and scale for decimal
 // The decimal type of orc file produced by HIVE 0.11 & 0.12 are DECIMAL(0,0)
 // We should set a default precision and scale for these orc files.
@@ -2018,13 +2052,14 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         // Handle key column: if still missing, fill with default values
         if (key_is_missing) {
             // Fill key column with default values (nulls or empty values)
-            auto mutable_key_column = doris_key_column->assume_mutable();
+            auto mutable_key_column = IColumn::mutate(std::move(doris_key_column));
             if (mutable_key_column->is_nullable()) {
                 auto* nullable_column = static_cast<ColumnNullable*>(mutable_key_column.get());
                 nullable_column->insert_many_defaults(element_size);
             } else {
                 mutable_key_column->insert_many_defaults(element_size);
             }
+            doris_key_column = std::move(mutable_key_column);
         } else {
             // Normal processing: convert ORC column to Doris column
             RETURN_IF_ERROR(_orc_column_to_doris_column<false>(
@@ -2035,13 +2070,14 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         // Handle value column: if still missing, fill with default values
         if (value_is_missing) {
             // Fill value column with default values (nulls or empty values)
-            auto mutable_value_column = doris_value_column->assume_mutable();
+            auto mutable_value_column = IColumn::mutate(std::move(doris_value_column));
             if (mutable_value_column->is_nullable()) {
                 auto* nullable_column = static_cast<ColumnNullable*>(mutable_value_column.get());
                 nullable_column->insert_many_defaults(element_size);
             } else {
                 mutable_value_column->insert_many_defaults(element_size);
             }
+            doris_value_column = std::move(mutable_value_column);
         } else {
             // Normal processing: convert ORC column to Doris column
             RETURN_IF_ERROR(_orc_column_to_doris_column<false>(
@@ -2106,8 +2142,10 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                         "Child field of '{}' is not nullable, but is missing in orc file",
                         col_name);
             }
-            reinterpret_cast<ColumnNullable*>(doris_field->assume_mutable().get())
+            auto mutable_field = IColumn::mutate(std::move(doris_field));
+            reinterpret_cast<ColumnNullable*>(mutable_field.get())
                     ->insert_many_defaults(num_values);
+            doris_field = std::move(mutable_field);
         }
 
         for (auto read_field : read_fields) {
@@ -2172,45 +2210,64 @@ Status OrcReader::_orc_column_to_doris_column(
         resolved_column = converter->get_column(src_type, doris_column, data_type);
         resolved_type = converter->get_type();
 
-        if (resolved_column->is_nullable()) {
+        MutableColumnPtr mutable_resolved_column;
+        if (converter->is_consistent()) {
+            resolved_column.reset();
+            mutable_resolved_column = IColumn::mutate(std::move(doris_column));
+        } else {
+            mutable_resolved_column = IColumn::mutate(std::move(resolved_column));
+        }
+
+        size_t src_null_map_start = 0;
+        if (mutable_resolved_column->is_nullable()) {
             SCOPED_RAW_TIMER(&_statistics.decode_null_map_time);
             auto* nullable_column =
-                    reinterpret_cast<ColumnNullable*>(resolved_column->assume_mutable().get());
+                    reinterpret_cast<ColumnNullable*>(mutable_resolved_column.get());
             data_column = nullable_column->get_nested_column_ptr();
-
-            NullMap& map_data_column = nullable_column->get_null_map_data();
-            auto origin_size = map_data_column.size();
-            map_data_column.resize(origin_size + num_values);
-            if (cvb->hasNulls) {
-                const auto* cvb_nulls = cvb->notNull.data();
-                for (int i = 0; i < num_values; ++i) {
-                    map_data_column[origin_size + i] = !cvb_nulls[i];
-                }
-            } else {
-                memset(map_data_column.data() + origin_size, 0, num_values);
-            }
+            src_null_map_start = nullable_column->get_null_map_column().size();
+            fill_orc_null_map(nullable_column, cvb, num_values);
         } else {
             if (cvb->hasNulls) {
                 return Status::InternalError("Not nullable column {} has null values in orc file",
                                              col_name);
             }
-            data_column = resolved_column->assume_mutable();
+            data_column = std::move(mutable_resolved_column);
         }
 
         RETURN_IF_ERROR(_fill_doris_data_column<is_filter>(
                 col_name, data_column, remove_nullable(resolved_type), root_node, orc_column_type,
                 cvb, num_values));
-        // resolve schema change
+
+        if (mutable_resolved_column) {
+            data_column.reset();
+            resolved_column = std::move(mutable_resolved_column);
+        } else {
+            resolved_column = std::move(data_column);
+        }
+
+        if (converter->is_consistent()) {
+            doris_column = std::move(resolved_column);
+            return Status::OK();
+        }
+
+        doris_column = IColumn::mutate(std::move(doris_column));
         auto converted_column = doris_column->assume_mutable();
+        if (converted_column->is_nullable()) {
+            const size_t new_rows = remove_nullable(resolved_column)->size();
+            align_orc_null_map(resolved_column,
+                               reinterpret_cast<ColumnNullable*>(converted_column.get()),
+                               src_null_map_start, new_rows);
+        }
         return converter->convert(resolved_column, converted_column);
     } else {
-        auto mutable_column = doris_column->assume_mutable();
+        auto mutable_column = IColumn::mutate(std::move(doris_column));
         if (mutable_column->is_nullable()) {
             auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(num_values);
         } else {
             mutable_column->insert_many_defaults(num_values);
         }
+        doris_column = std::move(mutable_column);
     }
 
     return Status::OK();
@@ -2628,9 +2685,7 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                 }
 
                 if (can_filter_all) {
-                    for (auto& col : columns_to_filter) {
-                        std::move(*block->get_by_position(col).column).assume_mutable()->clear();
-                    }
+                    block->clear_column_data(columns_to_filter);
                     Block::erase_useless_column(block, column_to_keep);
                     return _convert_dict_cols_to_string_cols(block, &batch_vec);
                 }
@@ -2802,7 +2857,8 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     if (_lazy_read_ctx.resize_first_column) {
         // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
         // The following process may be tricky and time-consuming, but we have no other way.
-        block->get_by_position(0).column->assume_mutable()->resize(size);
+        auto column_guard = block->mutate_column_scoped(0);
+        column_guard.mutable_column()->resize(size);
     }
 
     // transactional hive orc delete row
@@ -2829,26 +2885,25 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
 
     if (_lazy_read_ctx.resize_first_column) {
         // We have to clean the first column to insert right data.
-        block->get_by_position(0).column->assume_mutable()->clear();
+        block->clear_column_data(std::vector<uint32_t> {0});
     }
 
     if (can_filter_all) {
+        std::vector<uint32_t> columns_to_clear;
+        columns_to_clear.reserve(table_col_names.size() +
+                                 _lazy_read_ctx.predicate_partition_columns.size() +
+                                 _lazy_read_ctx.predicate_missing_columns.size());
         for (auto& col : table_col_names) {
             // clean block to read predicate columns and acid columns
-            block->get_by_position((*_col_name_to_block_idx)[col])
-                    .column->assume_mutable()
-                    ->clear();
+            columns_to_clear.emplace_back((*_col_name_to_block_idx)[col]);
         }
         for (auto& col : _lazy_read_ctx.predicate_partition_columns) {
-            block->get_by_position((*_col_name_to_block_idx)[col.first])
-                    .column->assume_mutable()
-                    ->clear();
+            columns_to_clear.emplace_back((*_col_name_to_block_idx)[col.first]);
         }
         for (auto& col : _lazy_read_ctx.predicate_missing_columns) {
-            block->get_by_position((*_col_name_to_block_idx)[col.first])
-                    .column->assume_mutable()
-                    ->clear();
+            columns_to_clear.emplace_back((*_col_name_to_block_idx)[col.first]);
         }
+        block->clear_column_data(columns_to_clear);
         Block::erase_useless_column(block, origin_column_num);
         RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, nullptr));
     }

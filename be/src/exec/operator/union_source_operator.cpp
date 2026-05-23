@@ -149,7 +149,9 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, Block* block) {
     SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
 
     auto& _const_expr_list_idx = local_state._const_expr_list_idx;
-    MutableBlock mblock = VectorizedUtils::build_mutable_mem_reuse_block(block, row_descriptor());
+    auto scoped_mutable_block =
+            VectorizedUtils::build_scoped_mutable_mem_reuse_block(block, row_descriptor());
+    auto& mblock = scoped_mutable_block.mutable_block();
 
     ColumnsWithTypeAndName tmp_block_columns;
     for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() < state->batch_size();
@@ -177,6 +179,7 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, Block* block) {
             tmp_block.clear();
         }
     }
+    scoped_mutable_block.restore();
 
     // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
     // the const expr will be in output expr cause the union node return a empty block. so here we

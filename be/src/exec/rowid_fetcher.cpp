@@ -164,10 +164,12 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                     default_values[i] = _fetch_option.desc->slots()[i]->col_default_value();
                 }
             }
+            auto output_columns_guard = output_block->mutate_columns_scoped();
+            MutableColumns& output_columns = output_columns_guard.mutable_columns();
             for (int i = 0; i < resp.binary_row_data_size(); ++i) {
-                RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+                RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
                         serdes, resp.binary_row_data(i).data(), resp.binary_row_data(i).size(),
-                        col_uid_to_idx, *output_block, default_values, {}));
+                        col_uid_to_idx, output_columns, default_values, {}));
             }
             return Status::OK();
         }
@@ -190,10 +192,10 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                     partial_block.dump_types());
         } else {
             for (int i = 0; i < output_block->columns(); ++i) {
-                output_block->get_by_position(i).column->assume_mutable()->insert_range_from(
-                        *partial_block.get_by_position(i)
-                                 .column->convert_to_full_column_if_const()
-                                 .get(),
+                auto column_guard = output_block->mutate_column_scoped(i);
+                MutableColumnPtr& column = column_guard.mutable_column();
+                column->insert_range_from(
+                        *partial_block.get_by_position(i).column->convert_to_full_column_if_const(),
                         0, partial_block.rows());
             }
         }
@@ -368,9 +370,10 @@ struct DorisFormatReadBatch {
 
 static void scatter_scan_blocks_to_result_block(
         const std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
-        std::vector<Block>& scan_blocks, Block& result_block) {
+        const std::vector<Block>& scan_blocks, Block& result_block) {
     for (size_t column_id = 0; column_id < result_block.columns(); ++column_id) {
-        auto dst_col = const_cast<IColumn*>(result_block.get_by_position(column_id).column.get());
+        auto dst_col_guard = result_block.mutate_column_scoped(column_id);
+        MutableColumnPtr& dst_col = dst_col_guard.mutable_column();
 
         std::vector<const IColumn*> scan_src_columns;
         scan_src_columns.reserve(row_id_block_idx.size());
@@ -1122,6 +1125,8 @@ Status RowIdStorageReader::read_doris_format_row(
             return Status::InternalError("Tablet {} does not have row store for all columns",
                                          tablet->tablet_id());
         }
+        auto result_columns_guard = result_block.mutate_columns_scoped();
+        MutableColumns& result_columns = result_columns_guard.mutable_columns();
         for (auto row_id : row_ids) {
             RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_id));
             row_store_read_struct.row_store_buffer.clear();
@@ -1132,15 +1137,16 @@ Status RowIdStorageReader::read_doris_format_row(
                     },
                     lookup_row_data_ms));
 
-            RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+            RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
                     row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
                     row_store_read_struct.row_store_buffer.size(),
-                    row_store_read_struct.col_uid_to_idx, result_block,
+                    row_store_read_struct.col_uid_to_idx, result_columns,
                     row_store_read_struct.default_values, {}));
         }
     } else {
         for (int x = 0; x < slots.size(); ++x) {
-            MutableColumnPtr column = result_block.get_by_position(x).column->assume_mutable();
+            auto column_guard = result_block.mutate_column_scoped(x);
+            MutableColumnPtr& column = column_guard.mutable_column();
             IteratorKey iterator_key {.tablet_id = tablet_id,
                                       .rowset_id = rowset_id,
                                       .segment_id = segment_id,

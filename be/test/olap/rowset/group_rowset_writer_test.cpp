@@ -96,12 +96,15 @@ protected:
 
     Block create_block(int start_key, int num_rows) const {
         Block block = _tablet->tablet_schema()->create_block();
-        auto columns = block.mutate_columns();
-        for (int i = 0; i < num_rows; ++i) {
-            columns[0]->insert(Field::create_field<PrimitiveType::TYPE_INT>(start_key + i));
-            columns[1]->insert(Field::create_field<PrimitiveType::TYPE_INT>((start_key + i) * 10));
+        {
+            auto columns_guard = block.mutate_columns_scoped();
+            auto& columns = columns_guard.mutable_columns();
+            for (int i = 0; i < num_rows; ++i) {
+                columns[0]->insert(Field::create_field<PrimitiveType::TYPE_INT>(start_key + i));
+                columns[1]->insert(
+                        Field::create_field<PrimitiveType::TYPE_INT>((start_key + i) * 10));
+            }
         }
-        block.set_columns(std::move(columns));
         return block;
     }
 
