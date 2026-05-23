@@ -113,9 +113,14 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
                 newQualifier.addAll(qualifier);
             }
 
+            // Subquery alias outputs are synthetic slots. They should keep the aliased
+            // qualifier/name, but must not reuse the child slot's SQL index. Otherwise
+            // CREATE VIEW rewrite can map an outer alias-star expansion back onto inner
+            // aggregate SQL text and persist invalid self-references.
             Slot qualified = originSlot
                     .withQualifier(newQualifier)
-                    .withName(columnAlias);
+                    .withName(columnAlias)
+                    .withIndexInSql(null);
             currentOutput.add(qualified);
         }
         return currentOutput.build();
