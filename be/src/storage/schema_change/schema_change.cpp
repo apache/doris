@@ -170,14 +170,14 @@ public:
                 if (i == rows - 1 || _cmp.compare(row_refs[i], row_refs[i + 1])) {
                     for (int j = 0; j < key_number; j++) {
                         auto& column_ptr = finalized_block.get_by_position(j).column;
-                        auto column = column_ptr->assume_mutable();
+                        auto column = column_ptr->assert_mutable();
                         column->insert_from(*row_ref.get_column(j), row_ref.position);
                         column_ptr = std::move(column);
                     }
 
                     for (int j = key_number; j < columns; j++) {
                         auto& column_ptr = finalized_block.get_by_position(j).column;
-                        auto column = column_ptr->assume_mutable();
+                        auto column = column_ptr->assert_mutable();
                         agg_functions[j - key_number]->insert_result_into(
                                 agg_places[j - key_number], *column);
                         column_ptr = std::move(column);
@@ -227,7 +227,7 @@ public:
 
                 for (int idx = 0; idx < columns; idx++) {
                     auto& column_ptr = finalized_block.get_by_position(idx).column;
-                    auto column = column_ptr->assume_mutable();
+                    auto column = column_ptr->assert_mutable();
 
                     for (int j = 0; j < limit; j++) {
                         auto row_ref = pushed_row_refs[i + j];
@@ -377,7 +377,7 @@ Status BlockChanger::change_block(Block* ref_block, Block* new_block) const {
         } else if (_schema_mapping[idx].ref_column_idx < 0) {
             // new column, write default value
             const auto& value = _schema_mapping[idx].default_value;
-            auto column = new_block->get_by_position(idx).column->assume_mutable();
+            auto column = new_block->get_by_position(idx).column->assert_mutable();
             if (value.is_null()) {
                 DCHECK(column->is_nullable());
                 column->insert_many_defaults(row_num);
@@ -402,7 +402,7 @@ Status BlockChanger::change_block(Block* ref_block, Block* new_block) const {
         if (ref_col_nullable != new_col_nullable) {
             // not nullable to nullable
             if (new_col_nullable) {
-                auto mutable_new_col = new_col->assume_mutable();
+                auto mutable_new_col = new_col->assert_mutable();
                 auto* new_nullable_col = assert_cast<ColumnNullable*>(mutable_new_col.get());
 
                 new_nullable_col->change_nested_column(ref_col);

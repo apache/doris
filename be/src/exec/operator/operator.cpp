@@ -348,14 +348,14 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
                 null_column.get_null_map_column().get_data().resize_fill(rows, 0);
                 bytes_usage += null_column.allocated_bytes();
             } else {
-                to = make_nullable(from, false)->assume_mutable();
+                to = make_nullable(from, false)->assert_mutable();
             }
         } else {
             if (_keep_origin || !from->is_exclusive()) {
                 to->insert_range_from(*from, 0, rows);
                 bytes_usage += from->allocated_bytes();
             } else {
-                to = from->assume_mutable();
+                to = from->assert_mutable();
             }
         }
     };

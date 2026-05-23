@@ -2251,7 +2251,7 @@ Status OrcReader::_orc_column_to_doris_column(
         }
 
         doris_column = IColumn::mutate(std::move(doris_column));
-        auto converted_column = doris_column->assume_mutable();
+        auto converted_column = doris_column->assert_mutable();
         if (converted_column->is_nullable()) {
             const size_t new_rows = remove_nullable(resolved_column)->size();
             align_orc_null_map(resolved_column,
@@ -3088,7 +3088,7 @@ Status OrcReader::on_string_dicts_loaded(
         if (dict_pos != 0) {
             // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
             // The following process may be tricky and time-consuming, but we have no other way.
-            temp_block.get_by_position(0).column->assume_mutable()->resize(dict_value_column_size);
+            temp_block.get_by_position(0).column->assert_mutable()->resize(dict_value_column_size);
         }
         IColumn::Filter result_filter(temp_block.rows(), 1);
         bool can_filter_all;
@@ -3096,7 +3096,7 @@ Status OrcReader::on_string_dicts_loaded(
                                                         &can_filter_all));
         if (dict_pos != 0) {
             // We have to clean the first column to insert right data.
-            temp_block.get_by_position(0).column->assume_mutable()->clear();
+            temp_block.get_by_position(0).column->assert_mutable()->clear();
         }
 
         // If can_filter_all = true, can filter this stripe.

@@ -195,7 +195,7 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                 // first row is mocked
                 for (int i = 0; i < block.columns(); i++) {
                     auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-                    assert_cast<ColumnNullable*>(column->assume_mutable().get())
+                    assert_cast<ColumnNullable*>(column->assert_mutable().get())
                             ->get_null_map_column()
                             .get_data()
                             .data()[0] = 1;
@@ -590,7 +590,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
         // first row is mocked
         for (int i = 0; i < block.columns(); i++) {
             auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-            assert_cast<ColumnNullable*>(column->assume_mutable().get())
+            assert_cast<ColumnNullable*>(column->assert_mutable().get())
                     ->get_null_map_column()
                     .get_data()
                     .data()[0] = 1;

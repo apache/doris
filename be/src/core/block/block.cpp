@@ -816,7 +816,7 @@ void Block::clear_column_data(int64_t column_size) {
     for (auto& d : data) {
         if (d.column) {
             if (d.column->is_exclusive()) {
-                d.column->assume_mutable()->clear();
+                d.column->assert_mutable()->clear();
             } else {
                 d.column = d.column->clone_empty();
             }
@@ -831,7 +831,7 @@ void Block::clear_column_data(const std::vector<uint32_t>& columns_to_clear) {
         auto& column = data[col].column;
         if (column) {
             if (column->is_exclusive()) {
-                column->assume_mutable()->clear();
+                column->assert_mutable()->clear();
             } else {
                 column = column->clone_empty();
             }
@@ -894,7 +894,7 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
         }
         if (count == 0) {
             if (column->is_exclusive()) {
-                column->assume_mutable()->clear();
+                column->assert_mutable()->clear();
             } else {
                 column = column->clone_empty();
             }
@@ -902,7 +902,7 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
         }
         if (column->is_exclusive()) {
             // COW: safe to mutate in-place since we have exclusive ownership
-            const auto result_size = column->assume_mutable()->filter(filter);
+            const auto result_size = column->assert_mutable()->filter(filter);
             if (result_size != count) [[unlikely]] {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "result_size not equal with filter_size, result_size={}, "
@@ -932,7 +932,7 @@ void Block::filter_block_internal(Block* block, const IColumn::Filter& filter) {
     for (int i = 0; i < block->columns(); ++i) {
         auto& column = block->get_by_position(i).column;
         if (column->is_exclusive()) {
-            column->assume_mutable()->filter(filter);
+            column->assert_mutable()->filter(filter);
         } else {
             column = column->filter(filter, count);
         }
@@ -961,7 +961,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
 
         MutableColumnPtr mutable_holder =
                 nested_column->use_count() == 1
-                        ? nested_column->assume_mutable()
+                        ? nested_column->assert_mutable()
                         : nested_column->clone_resized(nested_column->size());
 
         auto* concrete_column = assert_cast<ColumnUInt8*>(mutable_holder.get());
@@ -980,7 +980,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
             for (const auto& col : columns_to_filter) {
                 auto& column = block->get_by_position(col).column;
                 if (column->is_exclusive()) {
-                    column->assume_mutable()->clear();
+                    column->assert_mutable()->clear();
                 } else {
                     column = column->clone_empty();
                 }
@@ -1263,7 +1263,7 @@ void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_
         if (idx < data.size()) {
             auto& col_and_name = this->get_by_position(idx);
             if (col_and_name.column->is_exclusive()) {
-                col_and_name.column->assume_mutable()->shrink_padding_chars();
+                col_and_name.column->assert_mutable()->shrink_padding_chars();
             } else {
                 auto mutable_col = std::move(*col_and_name.column).mutate();
                 mutable_col->shrink_padding_chars();

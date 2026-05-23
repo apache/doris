@@ -546,7 +546,7 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, Block* block,
                 // unless `count`, other aggregate function dispose empty set should be null
                 // so here check the children row return
                 ptr = make_nullable(ptr, shared_state.input_num_rows == 0);
-                columns[i] = ptr->assume_mutable();
+                columns[i] = ptr->assert_mutable();
             }
         }
     }

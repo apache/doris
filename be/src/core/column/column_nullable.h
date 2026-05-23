@@ -278,7 +278,7 @@ public:
 
     const ColumnPtr& get_nested_column_ptr() const { return _nested_column; }
 
-    MutableColumnPtr get_nested_column_ptr() { return _nested_column->assume_mutable(); }
+    MutableColumnPtr get_nested_column_ptr() { return _nested_column->assert_mutable(); }
 
     void clear() override {
         _null_map->clear();
@@ -386,7 +386,7 @@ public:
     }
     const NullMap& get_null_map_data() const { return get_null_map_column().get_data(); }
 
-    MutableColumnPtr get_null_map_column_ptr() { return _null_map->assume_mutable(); }
+    MutableColumnPtr get_null_map_column_ptr() { return _null_map->assert_mutable(); }
     ColumnUInt8& get_null_map_column() {
         return assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*_null_map);
     }

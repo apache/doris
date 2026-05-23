@@ -891,10 +891,10 @@ Status VerticalSegmentWriter::_generate_encoded_default_seq_value(const TabletSc
         const auto& default_value = info.default_values[idx];
         StringRef str {default_value};
         RETURN_IF_ERROR(block.get_by_position(0).type->get_serde()->default_from_string(
-                str, *block.get_by_position(0).column->assume_mutable().get()));
+                str, *block.get_by_position(0).column->assert_mutable().get()));
 
     } else {
-        block.get_by_position(0).column->assume_mutable()->insert_default();
+        block.get_by_position(0).column->assert_mutable()->insert_default();
     }
     DCHECK_EQ(block.rows(), 1);
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();

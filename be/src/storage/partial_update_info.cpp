@@ -1018,7 +1018,7 @@ Status BlockAggregator::fill_sequence_column(Block* block, size_t num_rows,
     RETURN_IF_ERROR(read_plan.read_columns_by_plan(_tablet_schema, cids, _writer._rsid_to_rowset,
                                                    seq_col_block, &read_index, false));
 
-    auto new_seq_col_ptr = tmp_block.get_by_position(0).column->assume_mutable();
+    auto new_seq_col_ptr = tmp_block.get_by_position(0).column->assert_mutable();
     const auto& old_seq_col_ptr = *seq_col_block.get_by_position(0).column;
     const auto& cur_seq_col_ptr = *block->get_by_position(_tablet_schema.sequence_col_idx()).column;
     for (uint32_t block_pos {0}; block_pos < num_rows; block_pos++) {

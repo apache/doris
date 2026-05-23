@@ -1026,7 +1026,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
             }
         }
         simdjson::ondemand::value val = field.value();
-        auto* column_ptr = block.get_by_position(column_index).column->assume_mutable().get();
+        auto* column_ptr = block.get_by_position(column_index).column->assert_mutable().get();
         RETURN_IF_ERROR(_simdjson_write_data_to_column<false>(
                 val, slot_descs[column_index]->type(), column_ptr,
                 slot_descs[column_index]->col_name(), _serdes[column_index], valid));
@@ -1066,7 +1066,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         }
 
         auto* slot_desc = slot_descs[i];
-        auto* column_ptr = block.get_by_position(i).column->assume_mutable().get();
+        auto* column_ptr = block.get_by_position(i).column->assert_mutable().get();
 
         // Quick path to insert default value, instead of using default values in the value map.
         if (!_should_process_skip_bitmap_col() &&
@@ -1274,7 +1274,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
             RETURN_IF_ERROR(f(member_value.unescaped_key(),
                               assert_cast<const DataTypeMap*>(remove_nullable(type_desc).get())
                                       ->get_key_type(),
-                              map_column_ptr->get_keys_ptr()->assume_mutable()->get_ptr().get(),
+                              map_column_ptr->get_keys_ptr()->assert_mutable()->get_ptr().get(),
                               sub_serdes[0], _serde_options, valid));
 
             simdjson::ondemand::value field_value = member_value.value();
@@ -1282,7 +1282,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
                     field_value,
                     assert_cast<const DataTypeMap*>(remove_nullable(type_desc).get())
                             ->get_value_type(),
-                    map_column_ptr->get_values_ptr()->assume_mutable()->get_ptr().get(),
+                    map_column_ptr->get_values_ptr()->assert_mutable()->get_ptr().get(),
                     column_name + ".value", sub_serdes[1], valid));
             field_count++;
         }
@@ -1504,7 +1504,7 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
 
     for (size_t i = 0; i < slot_descs.size(); i++) {
         auto* slot_desc = slot_descs[i];
-        auto* column_ptr = block.get_by_position(i).column->assume_mutable().get();
+        auto* column_ptr = block.get_by_position(i).column->assert_mutable().get();
         simdjson::ondemand::value json_value;
         Status st;
         if (i < _parsed_jsonpaths.size()) {
@@ -1614,7 +1614,7 @@ Status NewJsonReader::_fill_missing_column(SlotDescriptor* slot_desc, DataTypeSe
 
 void NewJsonReader::_append_empty_skip_bitmap_value(Block& block, size_t cur_row_count) {
     auto* skip_bitmap_nullable_col_ptr = assert_cast<ColumnNullable*>(
-            block.get_by_position(skip_bitmap_col_idx).column->assume_mutable().get());
+            block.get_by_position(skip_bitmap_col_idx).column->assert_mutable().get());
     auto* skip_bitmap_col_ptr =
             assert_cast<ColumnBitmap*>(skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get());
     DCHECK(skip_bitmap_nullable_col_ptr->size() == cur_row_count);
@@ -1629,7 +1629,7 @@ void NewJsonReader::_set_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* co
     // we record the missing column's column unique id in skip bitmap
     // to indicate which columns need to do the alignment process
     auto* skip_bitmap_nullable_col_ptr = assert_cast<ColumnNullable*>(
-            block.get_by_position(skip_bitmap_col_idx).column->assume_mutable().get());
+            block.get_by_position(skip_bitmap_col_idx).column->assert_mutable().get());
     auto* skip_bitmap_col_ptr =
             assert_cast<ColumnBitmap*>(skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get());
     DCHECK(skip_bitmap_col_ptr->size() == cur_row_count + 1);

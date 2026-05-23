@@ -251,12 +251,12 @@ Status FullSorter::append_block(Block* block) {
                     << " type1: " << data[i].type->get_name()
                     << " type2: " << arrival_data[i].type->get_name() << " i: " << i;
             if (is_column_const(*arrival_data[i].column)) {
-                data[i].column->assume_mutable()->insert_many_from(
+                data[i].column->assert_mutable()->insert_many_from(
                         assert_cast<const ColumnConst*>(arrival_data[i].column.get())
                                 ->get_data_column(),
                         0, sz);
             } else {
-                data[i].column->assume_mutable()->insert_range_from(*arrival_data[i].column, 0, sz);
+                data[i].column->assert_mutable()->insert_range_from(*arrival_data[i].column, 0, sz);
             }
         }
         block->clear_column_data();

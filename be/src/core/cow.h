@@ -309,7 +309,7 @@ protected:
         if (this->use_count() > 1) {
             return derived()->clone();
         } else {
-            return assume_mutable();
+            return assert_mutable();
         }
     }
 
@@ -320,17 +320,17 @@ public:
     // uniquely owned. This does not detach shared owners; use a type-specific
     // COW entry point (for example IColumn::mutate) when the pointer may be
     // shared.
-    MutablePtr assume_mutable() const {
+    MutablePtr assert_mutable() const {
         if (this->use_count() > 1) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "COW::assume_mutable: use_count() > 1");
+            throw Exception(ErrorCode::INTERNAL_ERROR, "COW::assert_mutable: use_count() > 1");
         }
         return const_cast<COW*>(this)->get_ptr();
     }
 
-    // Reference variant of assume_mutable(), with the same ownership contract.
-    Derived& assume_mutable_ref() const {
+    // Reference variant of assert_mutable(), with the same ownership contract.
+    Derived& assert_mutable_ref() const {
         if (this->use_count() > 1) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "COW::assume_mutable: use_count() > 1");
+            throw Exception(ErrorCode::INTERNAL_ERROR, "COW::assert_mutable: use_count() > 1");
         }
         return const_cast<Derived&>(*derived());
     }
@@ -351,13 +351,13 @@ protected:
                 : value(std::forward<std::initializer_list<U>>(arg)) {}
 
         const T* get() const { return value.get(); }
-        T* get() { return &value->assume_mutable_ref(); }
+        T* get() { return &value->assert_mutable_ref(); }
 
         const T* operator->() const { return get(); }
         T* operator->() { return get(); }
 
         const T& operator*() const { return *value; }
-        T& operator*() { return value->assume_mutable_ref(); }
+        T& operator*() { return value->assert_mutable_ref(); }
 
         operator const immutable_ptr<T>&() const { return value; }
         operator immutable_ptr<T>&() { return value; }
