@@ -4,7 +4,7 @@ This is the codebase for Apache Doris, an MPP OLAP database. It primarily consis
 
 ## Security Threat Model
 
-For security scans, vulnerability triage, security reviews, and changes involving authentication, authorization, network boundaries, external catalogs, cloud tenancy, or other security-sensitive behavior, read `threat-model.md` first. Use it to determine in-scope components, trust boundaries, attacker roles, explicit non-goals, and triage classification. Findings that are out of model or by design under `threat-model.md` should be reported as such, not treated as Doris vulnerabilities.
+For security scans, vulnerability triage, security reviews, and changes involving authentication, authorization, network boundaries, external catalogs, cloud tenancy, or other security-sensitive behavior, read `SECURITY.md` first, then follow it to `threat-model.md`. Use `threat-model.md` to determine in-scope components, trust boundaries, attacker roles, explicit non-goals, and triage classification. Findings that are out of model or by design under `threat-model.md` should be reported as such, not treated as Doris vulnerabilities.
 
 ## When running in a WORKTREE directory
 
