@@ -907,7 +907,7 @@ void FragmentMgr::_collect_invalid_queries(
 
                 auto itr = running_fes.find(q_ctx->coord_addr);
                 if (itr != running_fes.end()) {
-                    if (fe_process_uuid == itr->second.info.process_uuid ||
+                    if (fe_process_uuid >= itr->second.info.process_uuid ||
                         itr->second.info.process_uuid == 0) {
                         continue;
                     } else {
