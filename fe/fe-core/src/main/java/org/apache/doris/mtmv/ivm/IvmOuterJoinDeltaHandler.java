@@ -88,7 +88,7 @@ class IvmOuterJoinDeltaHandler {
     /**
      * Dispatch a normalized LEFT/RIGHT/FULL OUTER JOIN by checking which side carries the base-table delta.
      */
-    IvmDeltaRewriteResult rewrite(LogicalJoin<? extends Plan, ? extends Plan> join,
+    IvmDeltaRewriteResult rewriteJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
             IvmDeltaRewriteVisitor visitor, IvmRefreshContext context) {
         if (!join.getJoinType().isOuterJoin()) {
             throw new AnalysisException("IVM outer join handler received unsupported join type: " + join.getJoinType());
