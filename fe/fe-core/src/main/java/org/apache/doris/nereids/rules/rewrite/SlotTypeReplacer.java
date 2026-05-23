@@ -34,7 +34,10 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -63,6 +66,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
+import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 
@@ -551,6 +555,8 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
             return rewriteLambda((Lambda) e, fillAccessPath);
         } else if (e instanceof Cast) {
             return rewriteCast((Cast) e, fillAccessPath);
+        } else if (e instanceof StructElement) {
+            return rewriteStructElement((StructElement) e, fillAccessPath);
         } else if (e instanceof SlotReference) {
             AccessPathInfo accessPathInfo = replacedDataTypes.get(((SlotReference) e).getExprId().asInt());
             if (accessPathInfo != null) {
@@ -573,6 +579,25 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
             newChildren.add(newChild);
         }
         return changed ? e.withChildren(newChildren.build()) : e;
+    }
+
+    private Expression rewriteStructElement(StructElement structElement, boolean fillAccessPath) {
+        Expression originStruct = structElement.child(0);
+        Expression originField = structElement.child(1);
+        Expression newStruct = doRewriteExpression(originStruct, fillAccessPath);
+        Expression newField = doRewriteExpression(originField, fillAccessPath);
+
+        if (originField instanceof IntegerLikeLiteral && originStruct.getDataType() instanceof StructType) {
+            int fieldIndex = ((IntegerLikeLiteral) originField).getIntValue();
+            List<StructField> fields = ((StructType) originStruct.getDataType()).getFields();
+            if (fieldIndex >= 1 && fieldIndex <= fields.size()) {
+                String fieldName = fields.get(fieldIndex - 1).getName();
+                return new StructElement(newStruct, new StringLiteral(fieldName));
+            }
+        }
+
+        return newStruct != originStruct || newField != originField
+                ? structElement.withChildren(ImmutableList.of(newStruct, newField)) : structElement;
     }
 
     private Expression rewriteLambda(Lambda e, boolean fillAccessPath) {
