@@ -168,7 +168,8 @@ public:
                 : context_(context), type_(type) {}
 
         MetricValue& operator+=(uint64_t delta) {
-            context_->put(type_, delta);
+            auto value = value_.fetch_add(delta) + delta;
+            context_->put(type_, value);
             return *this;
         }
 
@@ -178,13 +179,20 @@ public:
         }
 
         uint64_t operator++(int) {
-            context_->put(type_, 1);
-            return 0;
+            auto old_value = value_.fetch_add(1);
+            context_->put(type_, old_value + 1);
+            return old_value;
+        }
+
+        void reset() {
+            value_.store(0);
+            context_->put(type_, 0);
         }
 
     private:
         RecyclerMetricsContext* context_;
         MetricType type_;
+        std::atomic_ullong value_ = 0;
     };
 
     class RecycledNumMetricValue {
@@ -192,8 +200,8 @@ public:
         explicit RecycledNumMetricValue(RecyclerMetricsContext* context) : context_(context) {}
 
         RecycledNumMetricValue& operator+=(uint64_t delta) {
-            value_.fetch_add(delta);
-            context_->put(MetricType::RECYCLED_NUM, delta);
+            auto value = value_.fetch_add(delta) + delta;
+            context_->put(MetricType::RECYCLED_NUM, value);
             return *this;
         }
 
@@ -204,11 +212,16 @@ public:
 
         uint64_t operator++(int) {
             auto old_value = value_.fetch_add(1);
-            context_->put(MetricType::RECYCLED_NUM, 1);
+            context_->put(MetricType::RECYCLED_NUM, old_value + 1);
             return old_value;
         }
 
         uint64_t load() const { return value_.load(); }
+
+        void reset() {
+            value_.store(0);
+            context_->put(MetricType::RECYCLED_NUM, 0);
+        }
 
     private:
         RecyclerMetricsContext* context_;
@@ -220,21 +233,26 @@ public:
         explicit RecycledBytesMetricValue(RecyclerMetricsContext* context) : context_(context) {}
 
         RecycledBytesMetricValue& operator+=(uint64_t delta) {
-            value_.fetch_add(delta);
-            context_->put(MetricType::RECYCLED_BYTES, delta);
+            auto value = value_.fetch_add(delta) + delta;
+            context_->put(MetricType::RECYCLED_BYTES, value);
             return *this;
         }
 
         uint64_t load() const { return value_.load(); }
+
+        void reset() {
+            value_.store(0);
+            context_->put(MetricType::RECYCLED_BYTES, 0);
+        }
 
     private:
         RecyclerMetricsContext* context_;
         std::atomic_ullong value_ = 0;
     };
 
-    RecyclerMetricsContext() = default;
+    RecyclerMetricsContext() = delete;
 
-    RecyclerMetricsContext(std::string instance_id, std::string operation_type)
+    explicit RecyclerMetricsContext(std::string instance_id, std::string operation_type)
             : operation_type(std::move(operation_type)),
               instance_id(std::move(instance_id)),
               start_time_(std::chrono::steady_clock::now()) {}
@@ -255,14 +273,11 @@ public:
     std::string instance_id;
 
     void report_elapsed_time() {
-        if (operation_type.empty()) {
-            return;
-        }
         const auto cost = duration_cast<std::chrono::milliseconds>(
                                   std::chrono::steady_clock::now() - start_time_)
                                   .count();
-        g_bvar_recycler_instance_last_round_recycle_elpased_ts.put({instance_id, operation_type},
-                                                                   cost);
+        g_bvar_recycler_instance_current_round_recycle_elpased_ts.put({instance_id, operation_type},
+                                                                      cost);
         const auto recycled_num = total_recycled_num.load();
         const auto recycled_data_size = total_recycled_data_size.load();
         if (cost != 0) {
@@ -273,47 +288,58 @@ public:
             g_bvar_recycler_instance_recycle_bytes_per_ms.put(
                     {instance_id, operation_type}, static_cast<double>(recycled_data_size) / cost);
         }
+        reset_current_round_metrics();
+    }
+
+    void reset_current_round_metrics() {
+        total_need_recycle_data_size.reset();
+        total_need_recycle_num.reset();
+        total_need_recycle_kv_size.reset();
+        total_need_recycle_kv_num.reset();
+        total_recycled_data_size.reset();
+        total_recycled_num.reset();
+        total_recycled_kv_size.reset();
+        total_recycled_kv_num.reset();
+        g_bvar_recycler_instance_current_round_recycle_elpased_ts.put({instance_id, operation_type},
+                                                                      0);
     }
 
 private:
     std::chrono::steady_clock::time_point start_time_;
 
     void put(MetricType type, uint64_t value) {
-        if (operation_type.empty() || value == 0) {
-            return;
-        }
         switch (type) {
         case MetricType::NEED_RECYCLE_BYTES:
-            g_bvar_recycler_instance_last_round_to_recycle_bytes.put({instance_id, operation_type},
-                                                                     value);
+            g_bvar_recycler_instance_current_round_to_recycle_bytes.put(
+                    {instance_id, operation_type}, value);
             break;
         case MetricType::NEED_RECYCLE_NUM:
-            g_bvar_recycler_instance_last_round_to_recycle_num.put({instance_id, operation_type},
-                                                                   value);
+            g_bvar_recycler_instance_current_round_to_recycle_num.put({instance_id, operation_type},
+                                                                      value);
             break;
         case MetricType::NEED_RECYCLE_KV_BYTES:
-            g_bvar_recycler_instance_last_round_to_recycle_kv_bytes.put(
+            g_bvar_recycler_instance_current_round_to_recycle_kv_bytes.put(
                     {instance_id, operation_type}, value);
             break;
         case MetricType::NEED_RECYCLE_KV_NUM:
-            g_bvar_recycler_instance_last_round_to_recycle_kv_num.put({instance_id, operation_type},
-                                                                      value);
+            g_bvar_recycler_instance_current_round_to_recycle_kv_num.put(
+                    {instance_id, operation_type}, value);
             break;
         case MetricType::RECYCLED_BYTES:
-            g_bvar_recycler_instance_last_round_recycled_bytes.put({instance_id, operation_type},
-                                                                   value);
-            break;
-        case MetricType::RECYCLED_NUM:
-            g_bvar_recycler_instance_last_round_recycled_num.put({instance_id, operation_type},
-                                                                 value);
-            break;
-        case MetricType::RECYCLED_KV_BYTES:
-            g_bvar_recycler_instance_last_round_recycled_kv_bytes.put({instance_id, operation_type},
+            g_bvar_recycler_instance_current_round_recycled_bytes.put({instance_id, operation_type},
                                                                       value);
             break;
-        case MetricType::RECYCLED_KV_NUM:
-            g_bvar_recycler_instance_last_round_recycled_kv_num.put({instance_id, operation_type},
+        case MetricType::RECYCLED_NUM:
+            g_bvar_recycler_instance_current_round_recycled_num.put({instance_id, operation_type},
                                                                     value);
+            break;
+        case MetricType::RECYCLED_KV_BYTES:
+            g_bvar_recycler_instance_current_round_recycled_kv_bytes.put(
+                    {instance_id, operation_type}, value);
+            break;
+        case MetricType::RECYCLED_KV_NUM:
+            g_bvar_recycler_instance_current_round_recycled_kv_num.put(
+                    {instance_id, operation_type}, value);
             break;
         }
     }
