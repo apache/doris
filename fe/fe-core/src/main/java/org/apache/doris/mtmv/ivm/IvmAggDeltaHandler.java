@@ -79,8 +79,8 @@ import java.util.Optional;
  * Aggregate delta rewrite handler for IVM.
  *
  * <p>Non-aggregate nodes are handled by the linear and outer-join handlers. Aggregate
- * nodes return a terminal apply plan from {@link #rewriteAggregate(LogicalAggregate,
- * IvmDeltaRewriteVisitor, IvmRefreshContext)}. Projects above the aggregate are then skipped by the linear handler.
+ * nodes return an apply plan from {@link #rewriteAggregate(LogicalAggregate,
+ * IvmDeltaRewriteVisitor, IvmRefreshContext)} with an aggregate-level dml_factor.
  *
  * <p>Handles single-table aggregate MVs with count/sum/avg/min/max.
  * Min/max use an assert_true guard: if a deleted row matches the current extreme,
@@ -92,14 +92,14 @@ import java.util.Optional;
  *       where each output is weighted by {@code dml_factor} (+1 for inserts, -1 for deletes).</li>
  *   <li><b>Apply plan</b>: LEFT JOINs the delta against the MV's current state on {@code row_id},
  *       computes new hidden states (COALESCE(old,0) + delta), derives visible values, and
- *       determines the {@code __DORIS_DELETE_SIGN__}.</li>
+ *       maps the final row state to {@code __DORIS_IVM_DML_FACTOR_COL__}.</li>
  *   <li><b>Insert command</b>: wraps the result in an {@code InsertIntoTableCommand} that writes
  *       back to the MV via MOW upsert semantics.</li>
  * </ol>
  *
  * <h3>Visitor integration</h3>
  * <p>The visitor calls {@code rewriteAggregate} as the main entry point that builds delta + apply.
- * The returned result is terminal, so linear project rewrite will keep that complete replacement plan unchanged.
+ * Projects above the aggregate are then handled by the linear handler like other normalized projects.
  */
 class IvmAggDeltaHandler {
 
@@ -144,8 +144,8 @@ class IvmAggDeltaHandler {
      * 1. Validates normalize result and agg metadata exist.
      * 2. Walks the aggregate's child subtree to inject dml_factor (via super's visitor).
      * 3. Builds the delta sub-plan (signed aggregate).
-     * 4. Builds the apply plan (LEFT JOIN + state merge + visible derivation).
-     * 5. Returns IvmDeltaRewriteResult with null dmlFactorSlot (apply plan is terminal).
+     * 4. Builds the apply plan (LEFT JOIN + state merge + visible derivation + dml_factor).
+     * 5. Returns IvmDeltaRewriteResult with the apply plan's dml_factor.
      */
     IvmDeltaRewriteResult rewriteAggregate(LogicalAggregate<? extends Plan> agg,
             IvmDeltaRewriteVisitor visitor, IvmRefreshContext context) {
@@ -162,8 +162,9 @@ class IvmAggDeltaHandler {
         IvmDeltaRewriteResult childResult = agg.child().accept(visitor, context);
 
         DeltaPlanParts delta = buildDeltaSubPlan(agg, childResult, aggMeta);
-        LogicalProject<?> applyProject = buildApplyPlan(delta, aggMeta, context);
-        return new IvmDeltaRewriteResult(applyProject, null, true);
+        LogicalProject<?> applyProject = buildApplyPlan(agg, delta, aggMeta, context);
+        Slot dmlFactorSlot = helper.findSlotByName(applyProject.getOutput(), Column.IVM_DML_FACTOR_COL);
+        return new IvmDeltaRewriteResult(applyProject, dmlFactorSlot);
     }
 
     /**
@@ -306,28 +307,28 @@ class IvmAggDeltaHandler {
      *
      * <p>Plan shape:
      * <pre>
-     *   Project(final sink output: [inserted_cols..., __DORIS_DELETE_SIGN__])
+     *   Project(normalized aggregate outputs + __DORIS_IVM_DML_FACTOR_COL__)
      *     └── Filter(net-zero)            // grouped agg only
      *         └── RightOuterJoin(mv.row_id = delta.row_id)
      *             ├── MV current-state scan (with delete-sign filter)  [large, probe side]
      *             └── delta sub-plan                                   [small, build side]
      * </pre>
      *
-     * <p>For each column in the MV's inserted column list, computes:
+     * <p>For each normalized aggregate output, computes:
      * <ul>
-     *   <li>row_id: from delta side</li>
      *   <li>group keys: from delta side</li>
      *   <li>hidden state: COALESCE(mv_old, 0) + delta (with assert_true for non-negative counts)</li>
      *   <li>visible value: derived from new hidden state (see {@link #buildTargetExpressions})</li>
      * </ul>
      *
-     * <p>Delete sign: grouped agg uses IF(new_group_count <= 0, 1, 0);
-     * scalar agg always 0 (single row never deleted).
+     * <p>Dml factor represents final row action rather than input delta polarity:
+     * grouped agg deletes the MV row only when {@code new_group_count <= 0}; scalar agg always upserts.
      *
      * <p>Net-zero filter (grouped only): NOT(mv.row_id IS NULL AND delta_group_count <= 0)
      * prevents inserting delete-sign rows for groups that never existed in the MV.
      */
-    private LogicalProject<?> buildApplyPlan(DeltaPlanParts delta, IvmAggMeta aggMeta, IvmRefreshContext ctx) {
+    private LogicalProject<?> buildApplyPlan(LogicalAggregate<?> normalizedAgg,
+            DeltaPlanParts delta, IvmAggMeta aggMeta, IvmRefreshContext ctx) {
         LogicalOlapScan rawMvScan = buildMvScan(ctx.getMtmv(), ctx);
         LogicalPlan mvPlan = BindRelation.checkAndAddDeleteSignFilter(
                 rawMvScan, ctx.getConnectContext(), ctx.getMtmv());
@@ -352,20 +353,23 @@ class IvmAggDeltaHandler {
             buildTargetExpressions(finalByColumnName, rawMvScan, delta, target, newGroupCount);
         }
 
-        Expression deleteSign = aggMeta.isScalarAgg()
-                ? new TinyIntLiteral((byte) 0)
+        Expression dmlFactor = aggMeta.isScalarAgg()
+                ? new TinyIntLiteral((byte) 1)
                 : new If(new LessThanEqual(newGroupCount, new BigIntLiteral(0)),
-                        new TinyIntLiteral((byte) 1), new TinyIntLiteral((byte) 0));
+                        new TinyIntLiteral((byte) -1), new TinyIntLiteral((byte) 1));
 
         List<NamedExpression> finalOutputs = new ArrayList<>();
-        for (String columnName : ctx.getMtmv().getInsertedColumnNames()) {
-            Expression expr = finalByColumnName.get(columnName);
+        // Keep the normalized aggregate schema here. The normalize-added top project computes row-id above this
+        // project, and the final sink project reorders columns by MV schema.
+        for (Slot target : normalizedAgg.getOutput()) {
+            Expression expr = finalByColumnName.get(target.getName());
             if (expr == null) {
-                throw new AnalysisException("IVM agg delta rewrite missing sink expression for column: " + columnName);
+                throw new AnalysisException("IVM agg delta rewrite missing output expression for column: "
+                        + target.getName());
             }
-            finalOutputs.add(aliasIfNeeded(expr, columnName));
+            finalOutputs.add(new Alias(target.getExprId(), expr, target.getName()));
         }
-        finalOutputs.add(new Alias(deleteSign, Column.DELETE_SIGN));
+        finalOutputs.add(new Alias(dmlFactor, Column.IVM_DML_FACTOR_COL));
         return new LogicalProject<>(ImmutableList.copyOf(finalOutputs), joinInput);
     }
 
@@ -579,14 +583,6 @@ class IvmAggDeltaHandler {
 
     private Expression castIfNeeded(Expression expr, DataType dataType) {
         return expr.getDataType().equals(dataType) ? expr : new Cast(expr, dataType);
-    }
-
-    private NamedExpression aliasIfNeeded(Expression expr, String name) {
-        if (expr instanceof NamedExpression && name.equals(((NamedExpression) expr).getName())) {
-            return (NamedExpression) expr;
-        } else {
-            return new Alias(expr, name);
-        }
     }
 
     /**

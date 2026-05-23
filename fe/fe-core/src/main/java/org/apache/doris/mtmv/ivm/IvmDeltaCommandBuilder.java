@@ -49,12 +49,7 @@ class IvmDeltaCommandBuilder {
 
     List<Command> rewrite(Plan deltaPlan, IvmRefreshContext ctx) {
         IvmDeltaRewriteResult result = visitor.rewritePlan(deltaPlan, ctx);
-        Plan finalPlan;
-        if (result.terminal) {
-            finalPlan = result.plan;
-        } else {
-            finalPlan = helper.buildSinkProject(result, ctx);
-        }
+        Plan finalPlan = helper.buildSinkProject(result, ctx);
         return ImmutableList.of(buildCommandWithDeleteSign(finalPlan, ctx));
     }
 
