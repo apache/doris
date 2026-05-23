@@ -66,11 +66,7 @@ class IvmDeltaRewriteVisitor extends PlanVisitor<IvmDeltaRewriteResult, IvmRefre
     @Override
     public IvmDeltaRewriteResult visitLogicalProject(LogicalProject<? extends Plan> project,
             IvmRefreshContext ctx) {
-        if (project.child() instanceof LogicalAggregate) {
-            return aggHandler.rewriteTopProject(project, this, ctx);
-        } else {
-            return linearHandler.rewriteProject(project, this, ctx);
-        }
+        return linearHandler.rewriteProject(project, this, ctx);
     }
 
     @Override

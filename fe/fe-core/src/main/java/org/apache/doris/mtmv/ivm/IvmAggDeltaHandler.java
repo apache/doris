@@ -80,7 +80,7 @@ import java.util.Optional;
  *
  * <p>Non-aggregate nodes are handled by the linear and outer-join handlers. Aggregate
  * nodes return a terminal apply plan from {@link #rewriteAggregate(LogicalAggregate,
- * IvmDeltaRewriteVisitor, IvmRefreshContext)}.
+ * IvmDeltaRewriteVisitor, IvmRefreshContext)}. Projects above the aggregate are then skipped by the linear handler.
  *
  * <p>Handles single-table aggregate MVs with count/sum/avg/min/max.
  * Min/max use an assert_true guard: if a deleted row matches the current extreme,
@@ -98,12 +98,8 @@ import java.util.Optional;
  * </ol>
  *
  * <h3>Visitor integration</h3>
- * <p>The visitor calls this handler for:
- * <ul>
- *   <li>{@code rewriteTopProject}: skips the normalize top-project when its child is an aggregate,
- *       since the aggregate visitor produces a complete replacement plan.</li>
- *   <li>{@code rewriteAggregate}: main entry point that builds delta + apply.</li>
- * </ul>
+ * <p>The visitor calls {@code rewriteAggregate} as the main entry point that builds delta + apply.
+ * The returned result is terminal, so linear project rewrite will keep that complete replacement plan unchanged.
  */
 class IvmAggDeltaHandler {
 
@@ -139,14 +135,6 @@ class IvmAggDeltaHandler {
             this.semanticSlots = semanticSlots;
             this.groupKeySlotsByName = groupKeySlotsByName;
         }
-    }
-
-    /**
-     * Skips the normalize-added project directly above the root aggregate.
-     */
-    IvmDeltaRewriteResult rewriteTopProject(LogicalProject<? extends Plan> project,
-            IvmDeltaRewriteVisitor visitor, IvmRefreshContext context) {
-        return project.child().accept(visitor, context);
     }
 
     /**
