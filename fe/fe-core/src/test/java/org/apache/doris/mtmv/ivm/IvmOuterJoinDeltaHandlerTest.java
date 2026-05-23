@@ -184,7 +184,7 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
         Assertions.assertInstanceOf(LogicalUnion.class, joinOutputProject.child());
         LogicalUnion union = (LogicalUnion) joinOutputProject.child();
         Assertions.assertEquals(3, union.children().size());
-        assertDirectionalBranch(union.child(0), JoinType.LEFT_OUTER_JOIN);
+        assertProjectedJoinBranch(union.child(0), JoinType.LEFT_OUTER_JOIN);
         assertLeftNullSideRowId((LogicalProject<?>) union.child(1), bundle.leftOutputSize, (byte) -1);
         assertLeftNullSideRowId((LogicalProject<?>) union.child(2), bundle.leftOutputSize, (byte) 1);
         assertUnionChildrenAlign(union);
@@ -208,7 +208,7 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
         Assertions.assertInstanceOf(LogicalUnion.class, joinOutputProject.child());
         LogicalUnion union = (LogicalUnion) joinOutputProject.child();
         Assertions.assertEquals(3, union.children().size());
-        assertDirectionalBranch(union.child(0), JoinType.RIGHT_OUTER_JOIN);
+        assertProjectedJoinBranch(union.child(0), JoinType.RIGHT_OUTER_JOIN);
         assertRightNullSideRowId((LogicalProject<?>) union.child(1), bundle.leftOutputSize, (byte) -1);
         assertRightNullSideRowId((LogicalProject<?>) union.child(2), bundle.leftOutputSize, (byte) 1);
         assertUnionChildrenAlign(union);
@@ -255,6 +255,8 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
         Assertions.assertInstanceOf(LogicalUnion.class, joinOutputProject.child());
         LogicalUnion union = (LogicalUnion) joinOutputProject.child();
         Assertions.assertEquals(3, union.children().size());
+        assertProjectedJoinBranch(union.child(0), JoinType.INNER_JOIN);
+        assertUnionChildrenAlign(union);
         LogicalProject<?> preNullProject = (LogicalProject<?>) union.child(1);
         LogicalProject<?> postNullProject = (LogicalProject<?>) union.child(2);
         assertRightNullSideRowId(preNullProject, bundle.leftOutputSize, (byte) -1);
@@ -279,6 +281,8 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
         Assertions.assertInstanceOf(LogicalUnion.class, joinOutputProject.child());
         LogicalUnion union = (LogicalUnion) joinOutputProject.child();
         Assertions.assertEquals(3, union.children().size());
+        assertProjectedJoinBranch(union.child(0), JoinType.INNER_JOIN);
+        assertUnionChildrenAlign(union);
         assertLeftNullSideRowId((LogicalProject<?>) union.child(1), bundle.leftOutputSize, (byte) -1);
         assertLeftNullSideRowId((LogicalProject<?>) union.child(2), bundle.leftOutputSize, (byte) 1);
     }
@@ -504,7 +508,7 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
         }
     }
 
-    private void assertDirectionalBranch(Plan branch, JoinType joinType) {
+    private void assertProjectedJoinBranch(Plan branch, JoinType joinType) {
         Assertions.assertInstanceOf(LogicalProject.class, branch);
         LogicalProject<?> project = (LogicalProject<?>) branch;
         Assertions.assertInstanceOf(LogicalJoin.class, project.child());
