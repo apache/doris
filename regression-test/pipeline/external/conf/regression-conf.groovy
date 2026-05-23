@@ -173,6 +173,8 @@ max_failure_num=50
 externalEnvIp="127.0.0.1"
 
 enablePaimonTest=true
+GCSEndpoint="https://storage.googleapis.com"
+GCSRegion="us-east1"
 
 hdfs_port=8020
 
