@@ -137,32 +137,32 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts(
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_restore_job_earlest_ts("recycler", "recycle_restore_job_earlest_ts");
 bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency("recycler_task_max_concurrency_num",0);
 // recycler's mbvars
-// cost time of the last whole recycle process
-mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycle_duration(
-        "recycler_instance_last_round_recycle_duration", {"instance_id"});
-mBvarWindowAdder<int64_t> g_bvar_recycler_instance_recycle_last_success_ts(
+// cost time of the current whole recycle process
+mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_recycle_duration(
+        "recycler_instance_current_round_recycle_duration", {"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts(
         "recycler_instance_recycle_last_success_ts", {"instance_id"});
 
 // recycler's mbvars
 // current concurrency of vault delete task
-mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycled_num(
-        "recycler_instance_last_round_recycled_num", {"instance_id", "resource_type"});
-mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num(
-        "recycler_instance_last_round_to_recycle_num", {"instance_id", "resource_type"});
-mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes(
-        "recycler_instance_last_round_recycled_bytes", {"instance_id", "resource_type"});
-mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_to_recycle_bytes(
-        "recycler_instance_last_round_to_recycle_bytes", {"instance_id", "resource_type"});
-mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycled_kv_num(
-        "recycler_instance_last_round_recycled_kv_num", {"instance_id", "resource_type"});
-mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_to_recycle_kv_num(
-        "recycler_instance_last_round_to_recycle_kv_num", {"instance_id", "resource_type"});
-mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycled_kv_bytes(
-        "recycler_instance_last_round_recycled_kv_bytes", {"instance_id", "resource_type"});
-mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_to_recycle_kv_bytes(
-        "recycler_instance_last_round_to_recycle_kv_bytes", {"instance_id", "resource_type"});
-mBvarWindowAdder<double> g_bvar_recycler_instance_last_round_recycle_elpased_ts(
-        "recycler_instance_last_round_recycle_elpased_ts", {"instance_id", "resource_type"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_recycled_num(
+        "recycler_instance_current_round_recycled_num", {"instance_id", "resource_type"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_to_recycle_num(
+        "recycler_instance_current_round_to_recycle_num", {"instance_id", "resource_type"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_recycled_bytes(
+        "recycler_instance_current_round_recycled_bytes", {"instance_id", "resource_type"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_to_recycle_bytes(
+        "recycler_instance_current_round_to_recycle_bytes", {"instance_id", "resource_type"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_recycled_kv_num(
+        "recycler_instance_current_round_recycled_kv_num", {"instance_id", "resource_type"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_to_recycle_kv_num(
+        "recycler_instance_current_round_to_recycle_kv_num", {"instance_id", "resource_type"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_recycled_kv_bytes(
+        "recycler_instance_current_round_recycled_kv_bytes", {"instance_id", "resource_type"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_to_recycle_kv_bytes(
+        "recycler_instance_current_round_to_recycle_kv_bytes", {"instance_id", "resource_type"});
+mBvarStatus<double> g_bvar_recycler_instance_current_round_recycle_elpased_ts(
+        "recycler_instance_current_round_recycle_elpased_ts", {"instance_id", "resource_type"});
 // total recycled num and bytes of resources since recycler started
 // represents the ms required per resource to be recycled
 // value of -1 means no resource recycled

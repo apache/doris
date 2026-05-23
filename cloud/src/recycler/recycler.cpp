@@ -422,6 +422,7 @@ void Recycler::recycle_callback() {
         }
         if (stopped()) return;
         g_bvar_recycler_instance_state.put({instance_id}, RECYCLER_INSTANCE_STATE_RECYCLING);
+        g_bvar_recycler_instance_current_round_recycle_duration.put({instance_id}, 0);
         LOG_WARNING("begin to recycle instance").tag("instance_id", instance_id);
         auto ctime_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
         ret = instance_recycler->do_recycle();
@@ -439,7 +440,7 @@ void Recycler::recycle_callback() {
         auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
         auto elpased_ms = now - ctime_ms;
         g_bvar_recycler_instance_state.put({instance_id}, RECYCLER_INSTANCE_STATE_WAITING);
-        g_bvar_recycler_instance_last_round_recycle_duration.put({instance_id}, elpased_ms);
+        g_bvar_recycler_instance_current_round_recycle_duration.put({instance_id}, 0);
         LOG(INFO) << "recycle instance done, "
                   << "instance_id=" << instance_id << " ret=" << ret << " ctime_ms: " << ctime_ms
                   << " now: " << now;
@@ -843,6 +844,10 @@ auto task_wrapper(Func... funcs) -> std::function<int()> {
 
 int InstanceRecycler::do_recycle() {
     TEST_SYNC_POINT("InstanceRecycler.do_recycle");
+    DORIS_CLOUD_DEFER {
+        tablet_metrics_context_.report_elapsed_time();
+        segment_metrics_context_.report_elapsed_time();
+    };
     if (instance_info_.status() == InstanceInfoPB::DELETED) {
         int res = recycle_cluster_snapshots();
         if (res != 0) {

@@ -652,18 +652,18 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_restore_job_earlest_ts
 
 // recycler's mbvars
 extern bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency;
-extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycle_duration;
-extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_recycle_last_success_ts;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_recycle_duration;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts;
 
-extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycled_num;
-extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num;
-extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes;
-extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_to_recycle_bytes;
-extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycled_kv_num;
-extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_to_recycle_kv_num;
-extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycled_kv_bytes;
-extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_to_recycle_kv_bytes;
-extern mBvarWindowAdder<double> g_bvar_recycler_instance_last_round_recycle_elpased_ts;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_recycled_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_to_recycle_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_recycled_bytes;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_to_recycle_bytes;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_recycled_kv_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_to_recycle_kv_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_recycled_kv_bytes;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_to_recycle_kv_bytes;
+extern mBvarStatus<double> g_bvar_recycler_instance_current_round_recycle_elpased_ts;
 extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_work_pool_in_flight;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_state;
 extern mBvarWindowAdder<double> g_bvar_recycler_instance_recycle_time_per_resource;
@@ -681,7 +681,7 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_bytes_object_delet
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_rowset_scanned_num;
 
 // Operation Log Recycler BVars
-// Note: generic metrics (last_round_to_recycle_num/bytes, last_round_recycled_num/bytes, etc.)
+// Note: generic metrics (current_round_to_recycle_num/bytes, current_round_recycled_num/bytes, etc.)
 // are reported by RecyclerMetricsContext with operation_type = "recycle_operation_logs".
 extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_total_num;
 extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_not_recycled_num;
