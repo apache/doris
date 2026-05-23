@@ -147,11 +147,11 @@ struct StrToDate {
                 execute_impl_const_right<TYPE_DATEV2>(
                         context, ldata, loffsets, specific_char_column->get_data_at(0),
                         result_null_map,
-                        static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data());
+                        static_cast<ColumnDateV2*>(res->assert_mutable().get())->get_data());
             } else {
                 execute_impl<TYPE_DATEV2>(
                         context, ldata, loffsets, rdata, roffsets, result_null_map,
-                        static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data());
+                        static_cast<ColumnDateV2*>(res->assert_mutable().get())->get_data());
             }
         } else {
             DCHECK(block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2);
@@ -161,11 +161,11 @@ struct StrToDate {
                 execute_impl_const_right<TYPE_DATETIMEV2>(
                         context, ldata, loffsets, specific_char_column->get_data_at(0),
                         result_null_map,
-                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data());
+                        static_cast<ColumnDateTimeV2*>(res->assert_mutable().get())->get_data());
             } else {
                 execute_impl<TYPE_DATETIMEV2>(
                         context, ldata, loffsets, rdata, roffsets, result_null_map,
-                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data());
+                        static_cast<ColumnDateTimeV2*>(res->assert_mutable().get())->get_data());
             }
         }
 
@@ -298,11 +298,11 @@ struct MakeDateImpl {
         if (col_const[1]) {
             execute_impl_right_const(
                     year_col->get_data(), dayofyear_col->get_element(0), result_null_map,
-                    static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
+                    static_cast<ColumnDateV2*>(res_column->assert_mutable().get())->get_data());
         } else {
             execute_impl(
                     year_col->get_data(), dayofyear_col->get_data(), result_null_map,
-                    static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
+                    static_cast<ColumnDateV2*>(res_column->assert_mutable().get())->get_data());
         }
 
         // Wrap result in nullable column only if input has nullable arguments
@@ -542,7 +542,7 @@ private:
     static void execute_impl_right_const(const ColumnPtr& datetime_column, ColumnPtr& result_column,
                                          size_t input_rows_count, const cctz::time_zone& timezone) {
         auto& data = static_cast<const ColumnType*>(datetime_column.get())->get_data();
-        auto& res = static_cast<ColumnType*>(result_column->assume_mutable().get())->get_data();
+        auto& res = static_cast<ColumnType*>(result_column->assert_mutable().get())->get_data();
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto dt = data[i];
             // datetime_trunc only raise only when dt invalid which is impossible. so we dont throw error better.
@@ -612,12 +612,12 @@ public:
             res_column = ColumnDate::create(input_rows_count);
             _execute<VecDateTimeValue>(
                     input_rows_count, data_col->get_data(), result_null_map,
-                    static_cast<ColumnDateTime*>(res_column->assume_mutable().get())->get_data());
+                    static_cast<ColumnDateTime*>(res_column->assert_mutable().get())->get_data());
         } else {
             res_column = ColumnDateV2::create(input_rows_count);
             _execute<DateV2Value<DateV2ValueType>>(
                     input_rows_count, data_col->get_data(), result_null_map,
-                    static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
+                    static_cast<ColumnDateV2*>(res_column->assert_mutable().get())->get_data());
         }
 
         // Wrap result in nullable column only if input has nullable arguments
@@ -1055,7 +1055,7 @@ struct LastDayImpl {
         auto res_column = ResultColumnType::create(input_rows_count);
         execute_straight(
                 input_rows_count, data_col->get_data(),
-                static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data(),
+                static_cast<ResultColumnType*>(res_column->assert_mutable().get())->get_data(),
                 result_null_map);
 
         if (is_nullable) {
@@ -1130,7 +1130,7 @@ struct ToMondayImpl {
         auto res_column = ResultColumnType::create(input_rows_count);
         execute_straight(
                 input_rows_count, data_col->get_data(),
-                static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data(),
+                static_cast<ResultColumnType*>(res_column->assert_mutable().get())->get_data(),
                 result_null_map);
 
         if (is_nullable) {

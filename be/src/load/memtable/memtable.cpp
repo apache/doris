@@ -201,9 +201,10 @@ Status MemTable::insert(const Block* input_block, const DorisVector<uint32_t>& r
     if (_is_first_insertion) {
         _is_first_insertion = false;
         auto clone_block = input_block->clone_without_columns(&_column_offset);
-        _input_mutable_block = MutableBlock::build_mutable_block(&clone_block);
+        _input_mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
         _vec_row_comparator->set_block(&_input_mutable_block);
-        _output_mutable_block = MutableBlock::build_mutable_block(&clone_block);
+        clone_block = input_block->clone_without_columns(&_column_offset);
+        _output_mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
         if (_tablet_schema->has_sequence_col()) {
             if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
                 // for unique key fixed partial update, sequence column index in block
@@ -390,9 +391,9 @@ Status MemTable::_sort_by_cluster_keys() {
     _stat.sort_times++;
     // sort all rows
     Block in_block = _output_mutable_block.to_block();
-    MutableBlock mutable_block = MutableBlock::build_mutable_block(&in_block);
     auto clone_block = in_block.clone_without_columns();
-    _output_mutable_block = MutableBlock::build_mutable_block(&clone_block);
+    MutableBlock mutable_block = MutableBlock::build_mutable_block(std::move(in_block));
+    _output_mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
 
     DorisVector<std::shared_ptr<RowInBlock>> row_in_blocks;
     row_in_blocks.reserve(mutable_block.rows());
@@ -453,12 +454,11 @@ void MemTable::_sort_one_column(DorisVector<std::shared_ptr<RowInBlock>>& row_in
 }
 
 template <bool is_final>
-void MemTable::_finalize_one_row(RowInBlock* row, const ColumnsWithTypeAndName& block_data,
-                                 int row_pos) {
+void MemTable::_finalize_one_row(RowInBlock* row, MutableBlock& mutable_block, int row_pos) {
     // move key columns
     for (size_t i = 0; i < _tablet_schema->num_key_columns(); ++i) {
-        _output_mutable_block.get_column_by_position(i)->insert_from(*block_data[i].column.get(),
-                                                                     row->_row_pos);
+        _output_mutable_block.get_column_by_position(i)->insert_from(
+                *mutable_block.get_column_by_position(i), row->_row_pos);
     }
     if (row->has_init_agg()) {
         // get value columns from agg_places
@@ -490,7 +490,7 @@ void MemTable::_finalize_one_row(RowInBlock* row, const ColumnsWithTypeAndName& 
         // move columns for rows do not need agg
         for (size_t i = _tablet_schema->num_key_columns(); i < _num_columns; ++i) {
             _output_mutable_block.get_column_by_position(i)->insert_from(
-                    *block_data[i].column.get(), row->_row_pos);
+                    *mutable_block.get_column_by_position(i), row->_row_pos);
         }
     }
     if constexpr (!is_final) {
@@ -525,9 +525,9 @@ void MemTable::_aggregate() {
     SCOPED_RAW_TIMER(&_stat.agg_ns);
     _stat.agg_times++;
     Block in_block = _input_mutable_block.to_block();
-    MutableBlock mutable_block = MutableBlock::build_mutable_block(&in_block);
+    std::unique_ptr<Block> empty_input_block = in_block.create_same_struct_block(0);
+    MutableBlock mutable_block = MutableBlock::build_mutable_block(std::move(in_block));
     _vec_row_comparator->set_block(&mutable_block);
-    auto& block_data = in_block.get_columns_with_type_and_name();
     DorisVector<std::shared_ptr<RowInBlock>> temp_row_in_blocks;
     temp_row_in_blocks.reserve(_last_sorted_pos);
     //only init agg if needed
@@ -558,7 +558,7 @@ void MemTable::_aggregate() {
                 if (!temp_row_in_blocks.empty()) {
                     // The rows from the previous batch of _row_in_blocks have been merged into temp_row_in_blocks,
                     // now call finalize to write the aggregation results into _output_mutable_block.
-                    _finalize_one_row<is_final>(temp_row_in_blocks.back().get(), block_data,
+                    _finalize_one_row<is_final>(temp_row_in_blocks.back().get(), mutable_block,
                                                 row_pos);
                 }
                 temp_row_in_blocks.push_back(cur_row_ptr);
@@ -567,15 +567,15 @@ void MemTable::_aggregate() {
         }
         if (!temp_row_in_blocks.empty()) {
             // finalize the last low
-            _finalize_one_row<is_final>(temp_row_in_blocks.back().get(), block_data, row_pos);
+            _finalize_one_row<is_final>(temp_row_in_blocks.back().get(), mutable_block, row_pos);
         }
     } else {
         DCHECK(_delete_sign_col_idx != -1);
         if (_seq_col_idx_in_block == -1) {
-            _aggregate_for_flexible_partial_update_without_seq_col<is_final>(
-                    block_data, mutable_block, temp_row_in_blocks);
+            _aggregate_for_flexible_partial_update_without_seq_col<is_final>(mutable_block,
+                                                                             temp_row_in_blocks);
         } else {
-            _aggregate_for_flexible_partial_update_with_seq_col<is_final>(block_data, mutable_block,
+            _aggregate_for_flexible_partial_update_with_seq_col<is_final>(mutable_block,
                                                                           temp_row_in_blocks);
         }
     }
@@ -583,8 +583,7 @@ void MemTable::_aggregate() {
         // if is not final, we collect the agg results to input_block and then continue to insert
         _input_mutable_block.swap(_output_mutable_block);
         //TODO(weixang):opt here.
-        std::unique_ptr<Block> empty_input_block = in_block.create_same_struct_block(0);
-        _output_mutable_block = MutableBlock::build_mutable_block(empty_input_block.get());
+        _output_mutable_block = MutableBlock::build_mutable_block(std::move(*empty_input_block));
         _output_mutable_block.clear_column_data();
         *_row_in_blocks = temp_row_in_blocks;
         _last_sorted_pos = _row_in_blocks->size();
@@ -593,8 +592,7 @@ void MemTable::_aggregate() {
 
 template <bool is_final>
 void MemTable::_aggregate_for_flexible_partial_update_without_seq_col(
-        const ColumnsWithTypeAndName& block_data, MutableBlock& mutable_block,
-        DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks) {
+        MutableBlock& mutable_block, DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks) {
     std::shared_ptr<RowInBlock> prev_row {nullptr};
     int row_pos = -1;
     auto& skip_bitmaps =
@@ -609,12 +607,12 @@ void MemTable::_aggregate_for_flexible_partial_update_without_seq_col(
     auto finalize_rows = [&]() {
         if (row_with_delete_sign != nullptr) {
             temp_row_in_blocks.push_back(row_with_delete_sign);
-            _finalize_one_row<is_final>(row_with_delete_sign.get(), block_data, ++row_pos);
+            _finalize_one_row<is_final>(row_with_delete_sign.get(), mutable_block, ++row_pos);
             row_with_delete_sign = nullptr;
         }
         if (row_without_delete_sign != nullptr) {
             temp_row_in_blocks.push_back(row_without_delete_sign);
-            _finalize_one_row<is_final>(row_without_delete_sign.get(), block_data, ++row_pos);
+            _finalize_one_row<is_final>(row_without_delete_sign.get(), mutable_block, ++row_pos);
             row_without_delete_sign = nullptr;
         }
         // _arena.clear();
@@ -670,15 +668,14 @@ void MemTable::_aggregate_for_flexible_partial_update_without_seq_col(
 
 template <bool is_final>
 void MemTable::_aggregate_for_flexible_partial_update_with_seq_col(
-        const ColumnsWithTypeAndName& block_data, MutableBlock& mutable_block,
-        DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks) {
+        MutableBlock& mutable_block, DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks) {
     // For flexible partial update, when table has sequence column, we don't do any aggregation
     // in memtable. These duplicate rows will be aggregated in VerticalSegmentWriter
     int row_pos = -1;
     for (const auto& row_ptr : *_row_in_blocks) {
         RowInBlock* row = row_ptr.get();
         temp_row_in_blocks.push_back(row_ptr);
-        _finalize_one_row<is_final>(row, block_data, ++row_pos);
+        _finalize_one_row<is_final>(row, mutable_block, ++row_pos);
     }
 }
 
