@@ -125,4 +125,55 @@ public class WorkloadSchedPolicyMgrTest {
         // Explicit empty string is OK too: ignored like absent.
         mgr.checkProperties(propsWith(""), new ArrayList<>());
     }
+
+    @Test
+    public void testCloudModeRejectsTrailingDotInWorkloadGroup() {
+        Config.cloud_unique_id = "ut_cloud";
+        Assert.assertTrue(Config.isCloudMode());
+
+        // "etl." splits to ["etl", ""] under split(".", -1); the empty workload-group
+        // segment must be rejected before reaching the compute-group lookup.
+        try {
+            mgr.checkProperties(propsWith("etl."), new ArrayList<>());
+            Assert.fail("expected UserException for trailing-dot workload_group in cloud mode");
+        } catch (UserException e) {
+            Assert.assertTrue("message should mention <compute_group>.<workload_group>; got: " + e.getMessage(),
+                    e.getMessage().contains("<compute_group>.<workload_group>"));
+        }
+    }
+
+    @Test
+    public void testCloudModeRejectsLeadingDotInWorkloadGroup() {
+        Config.cloud_unique_id = "ut_cloud";
+        Assert.assertTrue(Config.isCloudMode());
+
+        // ".superset" splits to ["", "superset"]; the empty compute-group segment must
+        // be rejected rather than falling through with an empty cg name.
+        try {
+            mgr.checkProperties(propsWith(".superset"), new ArrayList<>());
+            Assert.fail("expected UserException for leading-dot workload_group in cloud mode");
+        } catch (UserException e) {
+            Assert.assertTrue("message should mention <compute_group>.<workload_group>; got: " + e.getMessage(),
+                    e.getMessage().contains("<compute_group>.<workload_group>"));
+        }
+    }
+
+    @Test
+    public void testNonCloudModeRejectsTrailingDotInWorkloadGroup() {
+        Config.deploy_mode = "share_nothing";
+        Config.cloud_unique_id = "";
+        Assert.assertFalse(Config.isCloudMode());
+
+        // "wg." splits to ["wg", ""]; previously split("\\.") would drop the trailing
+        // empty segment and let this pass, but the contract forbids any qualifier.
+        try {
+            mgr.checkProperties(propsWith("wg."), new ArrayList<>());
+            Assert.fail("expected UserException for trailing-dot workload_group in non-cloud mode");
+        } catch (UserException e) {
+            Assert.assertTrue("message should mention single-name form; got: " + e.getMessage(),
+                    e.getMessage().contains("<workload_group>"));
+            Assert.assertTrue("message should mention non-cloud mode; got: " + e.getMessage(),
+                    e.getMessage().contains("non-cloud mode"));
+        }
+    }
 }

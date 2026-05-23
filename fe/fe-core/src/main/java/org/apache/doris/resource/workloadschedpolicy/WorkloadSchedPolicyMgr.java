@@ -445,13 +445,16 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
 
         String workloadGroupNameStr = properties.get(WorkloadSchedPolicy.WORKLOAD_GROUP);
         if (workloadGroupNameStr != null && !workloadGroupNameStr.isEmpty()) {
-            String[] ss = workloadGroupNameStr.split("\\.");
+            // Use limit=-1 so trailing empty segments are preserved; otherwise inputs like
+            // "wg." would silently collapse to ["wg"] and slip past the length check, and
+            // ".wg" would pass the length==2 check with an empty compute-group component.
+            String[] ss = workloadGroupNameStr.split("\\.", -1);
             String cg;
             String wg;
             if (Config.isCloudMode()) {
                 // Cloud mode requires the fully-qualified "<compute_group>.<workload_group>" form
                 // so the binding is unambiguous across multiple compute groups.
-                if (ss.length != 2) {
+                if (ss.length != 2 || ss[0].isEmpty() || ss[1].isEmpty()) {
                     throw new UserException("workload_group must be '<compute_group>.<workload_group>' "
                             + "in cloud mode, got: " + workloadGroupNameStr);
                 }
@@ -460,7 +463,7 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
             } else {
                 // Non-cloud mode has a single implicit compute group; only the workload group
                 // name is allowed.
-                if (ss.length != 1) {
+                if (ss.length != 1 || ss[0].isEmpty()) {
                     throw new UserException("workload_group must be '<workload_group>' "
                             + "(no compute group prefix) in non-cloud mode, got: " + workloadGroupNameStr);
                 }

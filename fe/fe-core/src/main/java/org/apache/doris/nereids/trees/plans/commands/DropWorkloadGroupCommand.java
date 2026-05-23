@@ -61,7 +61,7 @@ public class DropWorkloadGroupCommand extends DropCommand {
 
         if (Config.isCloudMode()) {
             if (StringUtils.isEmpty(computeGroup)) {
-                throw new UserException("Must specify compute group via 'FROM <compute_group>' "
+                throw new UserException("Must specify compute group via 'FOR <compute_group>' "
                         + "in cloud mode.");
             }
             String originCgStr = computeGroup;
@@ -82,7 +82,7 @@ public class DropWorkloadGroupCommand extends DropCommand {
             }
         } else {
             if (!StringUtils.isEmpty(computeGroup)) {
-                throw new UserException("'FROM <compute_group>' is not supported in non-cloud mode.");
+                throw new UserException("'FOR <compute_group>' is not supported in non-cloud mode.");
             }
             computeGroup = Tag.VALUE_DEFAULT_TAG;
         }
