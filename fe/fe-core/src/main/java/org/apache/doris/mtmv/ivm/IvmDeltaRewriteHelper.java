@@ -178,17 +178,6 @@ class IvmDeltaRewriteHelper {
     }
 
     /**
-     * Add an identity Project so later branches can depend on stable output slots after aliasing or copying.
-     */
-    Pair<Plan, Map<Slot, Slot>> remapOutputs(Plan plan) {
-        Map<Slot, Slot> identityMapping = new HashMap<>();
-        for (Slot slot : plan.getOutput()) {
-            identityMapping.put(slot, slot);
-        }
-        return remapOutputs(plan, identityMapping);
-    }
-
-    /**
      * Remap an existing source-to-output mapping through a fresh identity Project.
      */
     Pair<Plan, Map<Slot, Slot>> remapOutputs(Pair<Plan, Map<Slot, Slot>> plan) {

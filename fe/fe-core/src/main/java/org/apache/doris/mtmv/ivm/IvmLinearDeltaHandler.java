@@ -81,28 +81,23 @@ class IvmLinearDeltaHandler {
     IvmDeltaRewriteResult rewriteProject(LogicalProject<? extends Plan> project,
             IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
         IvmDeltaRewriteResult childResult = project.child().accept(visitor, ctx);
-        if (childResult.terminal) {
-            return childResult;
-        }
         if (childResult.dmlFactorSlot == null) {
             LogicalProject<?> newProject = project.withProjectsAndChild(project.getProjects(), childResult.plan);
             return new IvmDeltaRewriteResult(newProject, null);
         }
-        return propagateDmlFactorThroughProject(project, childResult);
-    }
-
-    /**
-     * Appends (or reuses) dml_factor in the project's output list.
-     */
-    IvmDeltaRewriteResult propagateDmlFactorThroughProject(
-            LogicalProject<? extends Plan> project, IvmDeltaRewriteResult childResult) {
+        // IVM normalize only adds hidden row-id columns to existing projects. dml_factor is introduced later
+        // while rewriting delta scans, so normalized projects normally need to propagate it explicitly.
+        int dmlFactorIndex = -1;
         for (int i = 0; i < project.getProjects().size(); i++) {
             NamedExpression expr = project.getProjects().get(i);
             if (Column.IVM_DML_FACTOR_COL.equals(expr.getName())) {
-                LogicalProject<?> newProject = project.withProjectsAndChild(
-                        project.getProjects(), childResult.plan);
-                return new IvmDeltaRewriteResult(newProject, newProject.getOutput().get(i));
+                dmlFactorIndex = i;
+                break;
             }
+        }
+        if (dmlFactorIndex >= 0) {
+            LogicalProject<?> newProject = project.withProjectsAndChild(project.getProjects(), childResult.plan);
+            return new IvmDeltaRewriteResult(newProject, newProject.getOutput().get(dmlFactorIndex));
         }
         ImmutableList.Builder<NamedExpression> newOutputs = ImmutableList.builderWithExpectedSize(
                 project.getProjects().size() + 1);

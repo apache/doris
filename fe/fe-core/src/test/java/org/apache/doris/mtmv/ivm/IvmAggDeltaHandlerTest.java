@@ -69,14 +69,31 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     }
 
     private LogicalJoin<?, ?> getJoin(AggRewriteResult result) {
-        if (result.finalProject.child() instanceof LogicalFilter) {
-            return (LogicalJoin<?, ?>) ((LogicalFilter<?>) result.finalProject.child()).child();
+        Plan applyInput = getApplyProject(result).child();
+        if (applyInput instanceof LogicalFilter) {
+            return (LogicalJoin<?, ?>) ((LogicalFilter<?>) applyInput).child();
         }
-        return (LogicalJoin<?, ?>) result.finalProject.child();
+        return (LogicalJoin<?, ?>) applyInput;
     }
 
     private LogicalProject<?> getDeltaTopProject(AggRewriteResult result) {
         return (LogicalProject<?>) getJoin(result).right();
+    }
+
+    private LogicalProject<?> getNormalizedTopProject(AggRewriteResult result) {
+        return (LogicalProject<?>) result.finalProject.child();
+    }
+
+    private LogicalProject<?> getApplyProject(AggRewriteResult result) {
+        return (LogicalProject<?>) getNormalizedTopProject(result).child();
+    }
+
+    private void assertSinkProjectMatchesSinkColumns(AggRewriteResult result) {
+        List<String> expectedSinkColumns = new ArrayList<>(result.mtmv.getInsertedColumnNames());
+        expectedSinkColumns.add(Column.DELETE_SIGN);
+        Assertions.assertEquals(expectedSinkColumns, result.sink.getColNames());
+        Assertions.assertEquals(expectedSinkColumns, result.finalProject.getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toList()));
     }
 
     private LogicalOlapScan buildMowScan(long tableId, String tableName, boolean delta) {
@@ -99,9 +116,25 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         Assertions.assertEquals(result.mtmv.getInsertedColumnNames().size() + 1, result.sink.getColNames().size());
         Assertions.assertEquals(Column.DELETE_SIGN,
                 result.sink.getColNames().get(result.sink.getColNames().size() - 1));
-        List<String> outputNames = result.finalProject.getOutput().stream().map(Slot::getName).collect(Collectors.toList());
+        List<String> outputNames = result.finalProject.getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toList());
         Assertions.assertEquals(result.mtmv.getInsertedColumnNames(),
                 outputNames.subList(0, result.mtmv.getInsertedColumnNames().size()));
+    }
+
+    @Test
+    void testGroupedAggTopProjectAddsRowIdAndSinkProjectMatchesSinkColumns() {
+        AggRewriteResult result = rewriteAgg(buildGroupedAgg(buildScan()));
+
+        List<String> applyOutputNames = getApplyProject(result).getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        Assertions.assertFalse(applyOutputNames.contains(Column.IVM_ROW_ID_COL));
+        Assertions.assertTrue(applyOutputNames.containsAll(result.mtmv.getInsertedColumnNames().stream()
+                .filter(name -> !Column.IVM_ROW_ID_COL.equals(name)).collect(Collectors.toList())));
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL,
+                applyOutputNames.get(applyOutputNames.size() - 1));
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, getNormalizedTopProject(result).getOutput().get(0).getName());
+        assertSinkProjectMatchesSinkColumns(result);
     }
 
     @Test
@@ -127,7 +160,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     void testScalarAggSkipsNetZeroFilterButKeepsDeleteSignSink() {
         AggRewriteResult result = rewriteAgg(buildScalarAgg(buildScan()));
 
-        Assertions.assertInstanceOf(LogicalJoin.class, result.finalProject.child());
+        Assertions.assertInstanceOf(LogicalJoin.class, getApplyProject(result).child());
         Assertions.assertEquals(Column.DELETE_SIGN,
                 result.sink.getColNames().get(result.sink.getColNames().size() - 1));
     }
@@ -169,7 +202,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     void testMaxApplyPlanContainsAssertTrueGuard() {
         AggRewriteResult result = rewriteAgg(buildMaxAgg(buildScan()));
         // The final project should contain an AssertTrue expression nested in an If for the guard
-        boolean hasAssertTrue = result.finalProject.getProjects().stream()
+        boolean hasAssertTrue = getApplyProject(result).getProjects().stream()
                 .anyMatch(expr -> containsAssertTrue(expr));
         Assertions.assertTrue(hasAssertTrue, "Expected assert_true guard in MAX apply plan");
     }
@@ -177,7 +210,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testMinApplyPlanContainsAssertTrueGuard() {
         AggRewriteResult result = rewriteAgg(buildMinAgg(buildScan()));
-        boolean hasAssertTrue = result.finalProject.getProjects().stream()
+        boolean hasAssertTrue = getApplyProject(result).getProjects().stream()
                 .anyMatch(expr -> containsAssertTrue(expr));
         Assertions.assertTrue(hasAssertTrue, "Expected assert_true guard in MIN apply plan");
     }
@@ -211,7 +244,12 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         NamedExpression lastExpr = result.finalProject.getProjects().get(result.finalProject.getProjects().size() - 1);
         Assertions.assertEquals(Column.DELETE_SIGN, lastExpr.getName());
         Assertions.assertInstanceOf(Alias.class, lastExpr);
-        Assertions.assertInstanceOf(TinyIntLiteral.class, ((Alias) lastExpr).child());
+        Assertions.assertInstanceOf(If.class, ((Alias) lastExpr).child());
+
+        NamedExpression dmlFactor = getApplyProject(result).getProjects()
+                .get(getApplyProject(result).getProjects().size() - 1);
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, dmlFactor.getName());
+        Assertions.assertInstanceOf(TinyIntLiteral.class, ((Alias) dmlFactor).child());
     }
 
     @Test
@@ -282,8 +320,8 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     void testNetZeroFilterPredicateStructure() {
         AggRewriteResult result = rewriteAgg(buildGroupedAgg(buildScan()));
 
-        Assertions.assertInstanceOf(LogicalFilter.class, result.finalProject.child());
-        LogicalFilter<?> filter = (LogicalFilter<?>) result.finalProject.child();
+        Assertions.assertInstanceOf(LogicalFilter.class, getApplyProject(result).child());
+        LogicalFilter<?> filter = (LogicalFilter<?>) getApplyProject(result).child();
         Assertions.assertEquals(1, filter.getConjuncts().size());
         Assertions.assertInstanceOf(Not.class, filter.getConjuncts().iterator().next());
     }
@@ -306,16 +344,16 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         AggRewriteResult result = rewriteAgg(buildScalarMinAgg(buildScan()));
 
         // Scalar agg: no net-zero filter — join is direct child of finalProject
-        Assertions.assertInstanceOf(LogicalJoin.class, result.finalProject.child(),
+        Assertions.assertInstanceOf(LogicalJoin.class, getApplyProject(result).child(),
                 "Scalar MIN should have no net-zero filter");
-        // Delete sign must be constant 0 for scalar
+        // Delete sign is produced by the common sink project from the aggregate-level dml_factor.
         NamedExpression lastExpr = result.finalProject.getProjects()
                 .get(result.finalProject.getProjects().size() - 1);
         Assertions.assertEquals(Column.DELETE_SIGN, lastExpr.getName());
         Assertions.assertInstanceOf(Alias.class, lastExpr);
-        Assertions.assertInstanceOf(TinyIntLiteral.class, ((Alias) lastExpr).child());
+        Assertions.assertInstanceOf(If.class, ((Alias) lastExpr).child());
         // Must contain assert_true guard for MIN boundary protection
-        boolean hasAssertTrue = result.finalProject.getProjects().stream()
+        boolean hasAssertTrue = getApplyProject(result).getProjects().stream()
                 .anyMatch(this::containsAssertTrue);
         Assertions.assertTrue(hasAssertTrue, "Scalar MIN should have assert_true guard");
     }
@@ -324,14 +362,14 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     void testScalarMaxAggSkipsNetZeroFilterAndHasGuard() {
         AggRewriteResult result = rewriteAgg(buildScalarMaxAgg(buildScan()));
 
-        Assertions.assertInstanceOf(LogicalJoin.class, result.finalProject.child(),
+        Assertions.assertInstanceOf(LogicalJoin.class, getApplyProject(result).child(),
                 "Scalar MAX should have no net-zero filter");
         NamedExpression lastExpr = result.finalProject.getProjects()
                 .get(result.finalProject.getProjects().size() - 1);
         Assertions.assertEquals(Column.DELETE_SIGN, lastExpr.getName());
         Assertions.assertInstanceOf(Alias.class, lastExpr);
-        Assertions.assertInstanceOf(TinyIntLiteral.class, ((Alias) lastExpr).child());
-        boolean hasAssertTrue = result.finalProject.getProjects().stream()
+        Assertions.assertInstanceOf(If.class, ((Alias) lastExpr).child());
+        boolean hasAssertTrue = getApplyProject(result).getProjects().stream()
                 .anyMatch(this::containsAssertTrue);
         Assertions.assertTrue(hasAssertTrue, "Scalar MAX should have assert_true guard");
     }
@@ -343,7 +381,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         AggRewriteResult result = rewriteAgg(buildMinMaxAgg(buildScan()));
 
         // Count distinct assert_true-containing project expressions
-        long guardCount = result.finalProject.getProjects().stream()
+        long guardCount = getApplyProject(result).getProjects().stream()
                 .filter(this::containsAssertTrue).count();
         // MIN guard + MAX guard = at least 2 expressions containing assert_true
         // (visible value expressions also reference the guarded hidden state, so count >= 2)
@@ -351,7 +389,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
                 "Expected at least 2 assert_true guards (MIN + MAX), got " + guardCount);
 
         // Net-zero filter should be present (grouped agg)
-        Assertions.assertInstanceOf(LogicalFilter.class, result.finalProject.child(),
+        Assertions.assertInstanceOf(LogicalFilter.class, getApplyProject(result).child(),
                 "Combined MIN+MAX grouped agg should have net-zero filter");
     }
 
@@ -364,7 +402,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         // Find the boundary guard AssertTrue — the one whose condition is an Or expression.
         // (assertNonNegative also uses AssertTrue but with GreaterThanEqual; skip those)
         List<AssertTrue> allAssertTrue = new ArrayList<>();
-        for (NamedExpression expr : result.finalProject.getProjects()) {
+        for (NamedExpression expr : getApplyProject(result).getProjects()) {
             collectAssertTrue(expr, allAssertTrue);
         }
         Assertions.assertFalse(allAssertTrue.isEmpty(), "Should find AssertTrue expressions in final project");
@@ -381,7 +419,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
                 + allAssertTrue.size() + " AssertTrue(s) with conditions: "
                 + allAssertTrue.stream().map(at -> at.child(0).getClass().getSimpleName())
                         .collect(Collectors.joining(", "))
-                + ". Projects: " + result.finalProject.getProjects().stream()
+                + ". Projects: " + getApplyProject(result).getProjects().stream()
                         .map(e -> e.getName()).collect(Collectors.joining(", ")));
 
         // Guard should be: OR(IS_NULL(deltaDel), OR(IS_NULL(old), deltaDel > old))
@@ -415,7 +453,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         AggRewriteResult result = rewriteAgg(buildCompositeGroupAgg(buildScan()));
 
         // Should have net-zero filter (grouped agg)
-        Assertions.assertInstanceOf(LogicalFilter.class, result.finalProject.child(),
+        Assertions.assertInstanceOf(LogicalFilter.class, getApplyProject(result).child(),
                 "Composite group agg should have net-zero filter");
 
         LogicalJoin<?, ?> join = getJoin(result);
@@ -431,7 +469,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         // Delta sub-plan aggregate should have both group keys
         LogicalAggregate<?> deltaAgg = (LogicalAggregate<?>) getDeltaTopProject(result).child();
         // Group keys: k1, k2; agg outputs: delta_group_count, delta_sum_count, delta_sum
-        // Total: 2 (group keys) + 4 (delta_group_count + count_star_hidden_count + sum_hidden_sum + sum_hidden_count) = 6
+        // Total: 2 group keys plus 4 aggregate outputs.
         Assertions.assertTrue(deltaAgg.getGroupByExpressions().size() >= 2,
                 "Expected at least 2 group-by keys, got " + deltaAgg.getGroupByExpressions().size());
 
@@ -450,7 +488,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         AggRewriteResult result = rewriteAgg(buildExprAgg(buildScan()));
 
         // Should have net-zero filter (grouped agg)
-        Assertions.assertInstanceOf(LogicalFilter.class, result.finalProject.child(),
+        Assertions.assertInstanceOf(LogicalFilter.class, getApplyProject(result).child(),
                 "Expr agg should have net-zero filter");
 
         LogicalJoin<?, ?> join = getJoin(result);
@@ -467,14 +505,14 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         AggRewriteResult result = rewriteAgg(buildExprMinMaxAgg(buildScan()));
 
         // Should have net-zero filter (grouped agg)
-        Assertions.assertInstanceOf(LogicalFilter.class, result.finalProject.child(),
+        Assertions.assertInstanceOf(LogicalFilter.class, getApplyProject(result).child(),
                 "Expr min/max agg should have net-zero filter");
 
         LogicalJoin<?, ?> join = getJoin(result);
         Assertions.assertEquals(JoinType.RIGHT_OUTER_JOIN, join.getJoinType());
 
         // assert_true guards should be present in the plan
-        Assertions.assertTrue(result.finalProject.getProjects().stream()
+        Assertions.assertTrue(getApplyProject(result).getProjects().stream()
                 .anyMatch(expr -> expr.toSql().contains("assert_true")),
                 "MIN/MAX with expression args should still have assert_true guards");
     }

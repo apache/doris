@@ -139,8 +139,12 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Assertions.assertEquals(Column.DELETE_SIGN, sink.getColNames().get(sink.getColNames().size() - 1));
         Assertions.assertInstanceOf(LogicalProject.class, sink.child());
         LogicalProject<?> finalProject = (LogicalProject<?>) sink.child();
-        Assertions.assertInstanceOf(LogicalFilter.class, finalProject.child());
-        Assertions.assertInstanceOf(LogicalJoin.class, ((LogicalFilter<?>) finalProject.child()).child());
+        Assertions.assertInstanceOf(LogicalProject.class, finalProject.child());
+        LogicalProject<?> normalizedTopProject = (LogicalProject<?>) finalProject.child();
+        Assertions.assertInstanceOf(LogicalProject.class, normalizedTopProject.child());
+        LogicalProject<?> applyProject = (LogicalProject<?>) normalizedTopProject.child();
+        Assertions.assertInstanceOf(LogicalFilter.class, applyProject.child());
+        Assertions.assertInstanceOf(LogicalJoin.class, ((LogicalFilter<?>) applyProject.child()).child());
     }
 
     @Test
@@ -153,7 +157,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testDeltaRewriterKeepsAggTerminalApplyPlan() {
+    void testDeltaRewriterPropagatesAggApplyPlanThroughTopProject() {
         LogicalOlapScan scan = buildScan();
         Map<TableNameInfo, IvmStreamRef> streams = makeStreams(scan);
         PlanBundle bundle = normalizeAggPlan(buildGroupedAgg(scan));
@@ -165,8 +169,12 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
                 .rewrite(bundle.normalizedPlan, ctx).get(0);
         UnboundTableSink<?> sink = getSink(command);
         LogicalProject<?> finalProject = (LogicalProject<?>) sink.child();
-        Assertions.assertTrue(finalProject.child() instanceof LogicalFilter
-                || finalProject.child() instanceof LogicalJoin);
+        Assertions.assertInstanceOf(LogicalProject.class, finalProject.child());
+        LogicalProject<?> normalizedTopProject = (LogicalProject<?>) finalProject.child();
+        Assertions.assertInstanceOf(LogicalProject.class, normalizedTopProject.child());
+        LogicalProject<?> applyProject = (LogicalProject<?>) normalizedTopProject.child();
+        Assertions.assertTrue(applyProject.child() instanceof LogicalFilter
+                || applyProject.child() instanceof LogicalJoin);
     }
 
     @Test

@@ -26,16 +26,9 @@ import org.apache.doris.nereids.trees.plans.Plan;
 class IvmDeltaRewriteResult {
     final Plan plan;
     final Slot dmlFactorSlot;
-    /** True only for the terminal apply plan produced by the aggregate handler. */
-    final boolean terminal;
 
     IvmDeltaRewriteResult(Plan plan, Slot dmlFactorSlot) {
-        this(plan, dmlFactorSlot, false);
-    }
-
-    IvmDeltaRewriteResult(Plan plan, Slot dmlFactorSlot, boolean terminal) {
         this.plan = plan;
         this.dmlFactorSlot = dmlFactorSlot;
-        this.terminal = terminal;
     }
 }
