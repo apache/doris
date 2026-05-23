@@ -123,17 +123,6 @@ RowCursor RowCursor::clone() const {
     return result;
 }
 
-void RowCursor::pad_char_fields() {
-    for (size_t i = 0; i < _fields.size(); ++i) {
-        const TabletColumn* col = _schema->column(cast_set<uint32_t>(i));
-        if (col->type() == FieldType::OLAP_FIELD_TYPE_CHAR && !_fields[i].is_null()) {
-            String padded = _fields[i].get<TYPE_CHAR>();
-            padded.resize(col->length(), '\0');
-            _fields[i] = Field::create_field<TYPE_CHAR>(std::move(padded));
-        }
-    }
-}
-
 std::string RowCursor::to_string() const {
     std::string result;
     for (size_t i = 0; i < _fields.size(); ++i) {

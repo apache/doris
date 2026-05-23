@@ -121,10 +121,6 @@ ColumnArray::ColumnArray(SharedTag, ColumnPtr nested_column, ColumnPtr offsets_c
                            *static_cast<const IColumn::Ptr&>(offsets));
 }
 
-void ColumnArray::shrink_padding_chars() {
-    data->shrink_padding_chars();
-}
-
 std::string ColumnArray::get_name() const {
     return "Array(" + get_data().get_name() + ")";
 }
