@@ -111,7 +111,7 @@ class IvmOuterJoinDeltaHandler {
         } else {
             NullSideDeltaContext deltaContext = new NullSideDeltaContext(
                     join, leftResult, rightResult, deltaOnLeft);
-            return rewriteNullSideDelta(join, leftResult, rightResult, deltaContext, context);
+            return rewriteNullSideDelta(deltaContext, context);
         }
     }
 
@@ -161,16 +161,15 @@ class IvmOuterJoinDeltaHandler {
      * predicates. FULL OUTER JOIN uses the general three-branch path because the first branch must also keep
      * unmatched delta-side rows with LEFT/RIGHT OUTER JOIN.
      */
-    private IvmDeltaRewriteResult rewriteNullSideDelta(LogicalJoin<? extends Plan, ? extends Plan> join,
-            IvmDeltaRewriteResult leftResult, IvmDeltaRewriteResult rightResult, NullSideDeltaContext deltaContext,
-            IvmRefreshContext context) {
+    private IvmDeltaRewriteResult rewriteNullSideDelta(
+            NullSideDeltaContext deltaContext, IvmRefreshContext context) {
+        LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
         boolean isFullOuterJoin = join.getJoinType().isFullOuterJoin();
         EquiJoinKeys equiJoinKeys = isFullOuterJoin ? null : extractEquiJoinKeys(join);
         if (equiJoinKeys != null) {
-            return rewriteNullSideDeltaWithNullSideEvents(join, leftResult, rightResult, deltaContext,
-                    equiJoinKeys, context);
+            return rewriteNullSideDeltaWithNullSideEvents(deltaContext, equiJoinKeys, context);
         } else {
-            return rewriteNullSideDeltaWithRepairBranches(join, leftResult, rightResult, deltaContext, context);
+            return rewriteNullSideDeltaWithRepairBranches(deltaContext, context);
         }
     }
 
@@ -178,8 +177,8 @@ class IvmOuterJoinDeltaHandler {
      * General null-side delta rewrite using one joined-row branch and two NULL-row repair branches.
      */
     private IvmDeltaRewriteResult rewriteNullSideDeltaWithRepairBranches(
-            LogicalJoin<? extends Plan, ? extends Plan> join, IvmDeltaRewriteResult leftResult,
-            IvmDeltaRewriteResult rightResult, NullSideDeltaContext deltaContext, IvmRefreshContext context) {
+            NullSideDeltaContext deltaContext, IvmRefreshContext context) {
+        LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
         // Null-side delta for:
         //   retained_snapshot OUTER JOIN null_side_delta
         //
@@ -208,9 +207,8 @@ class IvmOuterJoinDeltaHandler {
         //      multiplying them by matched delta rows. The anti join then keeps only rows
         //      that have no matching null-side row after this delta. For those rows, the new MV
         //      needs one null-side row, so we emit that row with dml_factor = +1.
-        LogicalProject<Plan> joinedProject = rewriteNullSideJoinedRowsDelta(
-                join, leftResult, rightResult, deltaContext);
-        List<LogicalProject<Plan>> repairProjects = buildNullSideRepairProjects(join, deltaContext, context);
+        LogicalProject<Plan> joinedProject = rewriteNullSideJoinedRowsDelta(deltaContext);
+        List<LogicalProject<Plan>> repairProjects = buildNullSideRepairProjects(deltaContext, context);
 
         LogicalUnion union = helper.buildUnionAll(ImmutableList.of(
                 joinedProject, repairProjects.get(0), repairProjects.get(1)));
@@ -225,18 +223,17 @@ class IvmOuterJoinDeltaHandler {
      * <p>LEFT/RIGHT OUTER JOIN uses INNER JOIN. FULL OUTER JOIN uses LEFT/RIGHT OUTER JOIN selected by the delta
      * side, so unmatched delta rows are emitted by this first branch.
      */
-    private LogicalProject<Plan> rewriteNullSideJoinedRowsDelta(LogicalJoin<? extends Plan, ? extends Plan> join,
-            IvmDeltaRewriteResult leftResult, IvmDeltaRewriteResult rightResult,
-            NullSideDeltaContext deltaContext) {
+    private LogicalProject<Plan> rewriteNullSideJoinedRowsDelta(NullSideDeltaContext deltaContext) {
+        LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
         JoinType joinType = join.getJoinType().isFullOuterJoin()
                 ? (deltaContext.isDeltaOnLeft ? JoinType.LEFT_OUTER_JOIN : JoinType.RIGHT_OUTER_JOIN)
                 : JoinType.INNER_JOIN;
         LogicalJoin<Plan, Plan> newJoin = join.withTypeChildren(
-                joinType, leftResult.plan, rightResult.plan, JoinReorderContext.EMPTY);
+                joinType, deltaContext.leftResult.plan, deltaContext.rightResult.plan, JoinReorderContext.EMPTY);
         // The joined-row branch changes the join type, so its output slots/schema are not the same as the
         // original outer join output. Project it back before unioning with the repair branches.
         return projectJoinDeltaOutputs(join,
-                new IvmDeltaRewriteResult(newJoin, deltaContext.deltaSideResult.dmlFactorSlot));
+                new IvmDeltaRewriteResult(newJoin, deltaContext.deltaSideResult().dmlFactorSlot));
     }
 
     /**
@@ -247,14 +244,13 @@ class IvmOuterJoinDeltaHandler {
      * for retained rows that move from matched to a null-side row.
      */
     private List<LogicalProject<Plan>> buildNullSideRepairProjects(
-            LogicalJoin<? extends Plan, ? extends Plan> join, NullSideDeltaContext deltaContext,
-            IvmRefreshContext context) {
+            NullSideDeltaContext deltaContext, IvmRefreshContext context) {
         Pair<Plan, Map<Slot, Slot>> insertedNullSideDelta = helper.remapOutputs(helper.aliasPlan(
-                helper.freshPlan(deltaContext.deltaSideResult.plan), NULL_SIDE_INSERT_DELTA_ALIAS));
+                helper.freshPlan(deltaContext.deltaSideResult().plan), NULL_SIDE_INSERT_DELTA_ALIAS));
         Slot insertedNullSideDmlFactor = findSlotByName(insertedNullSideDelta.first.getOutput(),
                 Column.IVM_DML_FACTOR_COL);
         Pair<Plan, Map<Slot, Slot>> deletedNullSideDelta = helper.remapOutputs(helper.aliasPlan(
-                helper.freshPlan(deltaContext.deltaSideResult.plan), NULL_SIDE_DELETE_DELTA_ALIAS));
+                helper.freshPlan(deltaContext.deltaSideResult().plan), NULL_SIDE_DELETE_DELTA_ALIAS));
         Slot deletedNullSideDmlFactor = findSlotByName(deletedNullSideDelta.first.getOutput(),
                 Column.IVM_DML_FACTOR_COL);
         Plan nullSideInserts = new LogicalFilter<>(ImmutableSet.of(
@@ -263,8 +259,8 @@ class IvmOuterJoinDeltaHandler {
         Plan nullSideDeletes = new LogicalFilter<>(ImmutableSet.of(
                 new LessThan(deletedNullSideDmlFactor, new TinyIntLiteral((byte) 0))),
                 deletedNullSideDelta.first);
-        // Build delta-side pre/post from the original delta-side plan, not from deltaSideResult.plan.
-        // deltaSideResult.plan may already be linearly rewritten; for example UNION ALL keeps only
+        // Build delta-side pre/post from the original delta-side plan, not from the rewritten delta plan.
+        // The rewritten delta plan may already be linearized; for example UNION ALL keeps only
         // the delta arm and prunes other snapshot arms. NULL-row repair must compare against the
         // full null-side relation, so retain all branches and only replace the one delta scan
         // with its pre/post snapshot.
@@ -274,12 +270,12 @@ class IvmOuterJoinDeltaHandler {
         Pair<Plan, Map<Slot, Slot>> nullSidePostSnapshot = helper.remapOutputs(helper.aliasPlan(
                 helper.freshPlan(copyDeltaScanAsSnapshot(deltaContext.deltaSideChild(), true, context)),
                 NULL_SIDE_POST_SNAPSHOT_ALIAS));
-        LogicalProject<Plan> preNullProject = buildNullSideRepairProject(join,
-                helper.remapOutputs(helper.freshPlan(deltaContext.nonDeltaSideResult.plan)), insertedNullSideDelta.second,
-                nullSideInserts, nullSidePreSnapshot, new TinyIntLiteral((byte) -1), deltaContext);
-        LogicalProject<Plan> postNullProject = buildNullSideRepairProject(join,
-                helper.remapOutputs(helper.freshPlan(deltaContext.nonDeltaSideResult.plan)), deletedNullSideDelta.second,
-                nullSideDeletes, nullSidePostSnapshot, new TinyIntLiteral((byte) 1), deltaContext);
+        LogicalProject<Plan> preNullProject = buildNullSideRepairProject(deltaContext,
+                helper.remapOutputs(helper.freshPlan(deltaContext.nonDeltaSideResult().plan)), insertedNullSideDelta.second,
+                nullSideInserts, nullSidePreSnapshot, new TinyIntLiteral((byte) -1));
+        LogicalProject<Plan> postNullProject = buildNullSideRepairProject(deltaContext,
+                helper.remapOutputs(helper.freshPlan(deltaContext.nonDeltaSideResult().plan)), deletedNullSideDelta.second,
+                nullSideDeletes, nullSidePostSnapshot, new TinyIntLiteral((byte) 1));
         return ImmutableList.of(preNullProject, postNullProject);
     }
 
@@ -287,9 +283,8 @@ class IvmOuterJoinDeltaHandler {
      * Optimized null-side delta rewrite that encodes joined-row changes and NULL-row repair as key events.
      */
     private IvmDeltaRewriteResult rewriteNullSideDeltaWithNullSideEvents(
-            LogicalJoin<? extends Plan, ? extends Plan> join, IvmDeltaRewriteResult leftResult,
-            IvmDeltaRewriteResult rightResult, NullSideDeltaContext deltaContext,
-            EquiJoinKeys equiJoinKeys, IvmRefreshContext context) {
+            NullSideDeltaContext deltaContext, EquiJoinKeys equiJoinKeys, IvmRefreshContext context) {
+        LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
         // Null-side delta for equi outer join can be reduced to one probe:
         //   retained_snapshot INNER JOIN null_side_events
         //
@@ -331,11 +326,10 @@ class IvmOuterJoinDeltaHandler {
         // the three repair branches. Unique functions such as random()/uuid() are
         // also rejected before this path, because recomputing them in different
         // event branches would produce unstable keys.
-        IvmDeltaRewriteResult joinedResult = rewriteNullSideBareJoinDelta(
-                join, leftResult, rightResult, deltaContext);
+        IvmDeltaRewriteResult joinedResult = rewriteNullSideBareJoinDelta(deltaContext);
         Pair<Plan, Map<Slot, Slot>> retainedSnapshot = helper.remapOutputs(
-                helper.freshPlan(deltaContext.nonDeltaSideResult.plan));
-        NullSideEventPlan nullSideEvents = buildNullSideEventPlan(join, deltaContext, equiJoinKeys, context);
+                helper.freshPlan(deltaContext.nonDeltaSideResult().plan));
+        NullSideEventPlan nullSideEvents = buildNullSideEventPlan(deltaContext, equiJoinKeys, context);
 
         // Join retained rows with the event relation by the extracted equality keys. A detail event produces a
         // normal joined-row change; a repair event produces the same retained row with null-side payloads set to NULL.
@@ -363,12 +357,11 @@ class IvmOuterJoinDeltaHandler {
      *
      * This is shared by both null-side strategies. The dml factor comes from the null-side delta.
      */
-    private IvmDeltaRewriteResult rewriteNullSideBareJoinDelta(LogicalJoin<? extends Plan, ? extends Plan> join,
-            IvmDeltaRewriteResult leftResult, IvmDeltaRewriteResult rightResult,
-            NullSideDeltaContext deltaContext) {
+    private IvmDeltaRewriteResult rewriteNullSideBareJoinDelta(NullSideDeltaContext deltaContext) {
+        LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
         LogicalJoin<Plan, Plan> innerJoin = join.withTypeChildren(JoinType.INNER_JOIN,
-                leftResult.plan, rightResult.plan, JoinReorderContext.EMPTY);
-        return new IvmDeltaRewriteResult(innerJoin, deltaContext.deltaSideResult.dmlFactorSlot);
+                deltaContext.leftResult.plan, deltaContext.rightResult.plan, JoinReorderContext.EMPTY);
+        return new IvmDeltaRewriteResult(innerJoin, deltaContext.deltaSideResult().dmlFactorSlot);
     }
 
     /**
@@ -383,10 +376,11 @@ class IvmOuterJoinDeltaHandler {
      * rows that had no match before the inserted delta rows. For delete repair, it is the post-refresh snapshot, so
      * the anti join keeps retained rows that have no match after the deleted delta rows.
      */
-    private LogicalProject<Plan> buildNullSideRepairProject(LogicalJoin<? extends Plan, ? extends Plan> join,
+    private LogicalProject<Plan> buildNullSideRepairProject(
+            NullSideDeltaContext deltaContext,
             Pair<Plan, Map<Slot, Slot>> retainedSnapshot, Map<Slot, Slot> nullSideDeltaMapping, Plan nullSideDelta,
-            Pair<Plan, Map<Slot, Slot>> nullSideSnapshot, Expression dmlFactor,
-            NullSideDeltaContext deltaContext) {
+            Pair<Plan, Map<Slot, Slot>> nullSideSnapshot, Expression dmlFactor) {
+        LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
         // Candidate retained rows are selected with LEFT SEMI JOIN so one retained row is emitted once per repair
         // branch, no matter how many matching null-side delta rows the same key has.
         Map<Slot, Slot> candidateMapping = ImmutableMap.<Slot, Slot>builder()
@@ -407,7 +401,7 @@ class IvmOuterJoinDeltaHandler {
                 ExpressionUtils.replace(join.getHashJoinConjuncts(), antiJoinMapping),
                 ExpressionUtils.replace(join.getOtherJoinConjuncts(), antiJoinMapping), join.getDistributeHint(),
                 candidateJoin, nullSideSnapshot.first, JoinReorderContext.EMPTY);
-        return projectNullSideRepairOutputs(join, antiJoin, dmlFactor, retainedSnapshot.second, deltaContext);
+        return projectNullSideRepairOutputs(deltaContext, antiJoin, dmlFactor, retainedSnapshot.second);
     }
 
     /**
@@ -417,9 +411,10 @@ class IvmOuterJoinDeltaHandler {
      * <p>The retained side is read from the semi/anti join output. The null side is not read from the source at all;
      * every original null-side column is projected as NULL to recreate the outer-join unmatched row.
      */
-    private LogicalProject<Plan> projectNullSideRepairOutputs(LogicalJoin<? extends Plan, ? extends Plan> join,
-            Plan source, Expression dmlFactor, Map<Slot, Slot> retainedOutputMapping,
-            NullSideDeltaContext deltaContext) {
+    private LogicalProject<Plan> projectNullSideRepairOutputs(
+            NullSideDeltaContext deltaContext, Plan source, Expression dmlFactor,
+            Map<Slot, Slot> retainedOutputMapping) {
+        LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
         ImmutableList.Builder<NamedExpression> projects = ImmutableList.builder();
         Map<Slot, Expression> retainedSourceSlots = new HashMap<>();
         for (Slot slot : source.getOutput()) {
@@ -456,12 +451,12 @@ class IvmOuterJoinDeltaHandler {
      * <p>The final event join only needs null-side keys and payload columns. The retained-side columns come from the
      * retained snapshot after probing by the event keys.
      */
-    private NullSideEventPlan buildNullSideEventPlan(LogicalJoin<? extends Plan, ? extends Plan> join,
+    private NullSideEventPlan buildNullSideEventPlan(
             NullSideDeltaContext deltaContext, EquiJoinKeys equiJoinKeys, IvmRefreshContext context) {
         Plan detailEvent = buildNullSideDetailEvent(deltaContext, equiJoinKeys);
-        Plan preNullEvent = buildNullSideRepairEvent(join, deltaContext, equiJoinKeys, false,
+        Plan preNullEvent = buildNullSideRepairEvent(deltaContext, equiJoinKeys, false,
                 new TinyIntLiteral((byte) -1), context);
-        Plan postNullEvent = buildNullSideRepairEvent(join, deltaContext, equiJoinKeys, true,
+        Plan postNullEvent = buildNullSideRepairEvent(deltaContext, equiJoinKeys, true,
                 new TinyIntLiteral((byte) 1), context);
         LogicalUnion union = helper.buildUnionAll(ImmutableList.of(detailEvent, preNullEvent, postNullEvent));
 
@@ -484,7 +479,7 @@ class IvmOuterJoinDeltaHandler {
      */
     private Plan buildNullSideDetailEvent(NullSideDeltaContext deltaContext, EquiJoinKeys equiJoinKeys) {
         Pair<Plan, Map<Slot, Slot>> nullSideDelta = helper.remapOutputs(helper.aliasPlan(
-                helper.freshPlan(deltaContext.deltaSideResult.plan), NULL_SIDE_DETAIL_DELTA_ALIAS));
+                helper.freshPlan(deltaContext.deltaSideResult().plan), NULL_SIDE_DETAIL_DELTA_ALIAS));
         ImmutableList.Builder<NamedExpression> projects = ImmutableList.builder();
         List<Expression> nullSideKeyExpressions = deltaContext.deltaSideKeyExpressions(equiJoinKeys);
         for (int i = 0; i < nullSideKeyExpressions.size(); i++) {
@@ -494,7 +489,7 @@ class IvmOuterJoinDeltaHandler {
         for (Slot slot : nullSideValueSlots(deltaContext)) {
             projects.add(new Alias(nullSideDelta.second.get(slot), slot.getName()));
         }
-        projects.add(new Alias(nullSideDelta.second.get(deltaContext.deltaSideResult.dmlFactorSlot),
+        projects.add(new Alias(nullSideDelta.second.get(deltaContext.deltaSideResult().dmlFactorSlot),
                 Column.IVM_DML_FACTOR_COL));
         return new LogicalProject<>(projects.build(), (LogicalPlan) nullSideDelta.first);
     }
@@ -505,9 +500,10 @@ class IvmOuterJoinDeltaHandler {
      * preSnapshot branch: null-side inserts with no pre-existing match emit dml_factor = -1.
      * postSnapshot branch: null-side deletes with no remaining match emit dml_factor = +1.
      */
-    private Plan buildNullSideRepairEvent(LogicalJoin<? extends Plan, ? extends Plan> join,
+    private Plan buildNullSideRepairEvent(
             NullSideDeltaContext deltaContext, EquiJoinKeys equiJoinKeys, boolean postSnapshot,
             Expression dmlFactor, IvmRefreshContext context) {
+        LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
         NullSideDeltaKeyPlan deltaKeys = buildNullSideDeltaKeyPlan(deltaContext, equiJoinKeys);
         Slot flagSlot = postSnapshot ? deltaKeys.negativeSlot : deltaKeys.positiveSlot;
         Plan affectedKeys = new LogicalFilter<>(ImmutableSet.of(
@@ -546,7 +542,7 @@ class IvmOuterJoinDeltaHandler {
     private NullSideDeltaKeyPlan buildNullSideDeltaKeyPlan(NullSideDeltaContext deltaContext,
             EquiJoinKeys equiJoinKeys) {
         Pair<Plan, Map<Slot, Slot>> nullSideDelta = helper.remapOutputs(helper.aliasPlan(
-                helper.freshPlan(deltaContext.deltaSideResult.plan), NULL_SIDE_KEY_DELTA_ALIAS));
+                helper.freshPlan(deltaContext.deltaSideResult().plan), NULL_SIDE_KEY_DELTA_ALIAS));
         List<Expression> nullSideKeyExpressions = deltaContext.deltaSideKeyExpressions(equiJoinKeys);
         ImmutableList.Builder<Expression> groupBy = ImmutableList.builderWithExpectedSize(
                 nullSideKeyExpressions.size());
@@ -556,7 +552,7 @@ class IvmOuterJoinDeltaHandler {
             groupBy.add(key);
             outputs.add(new Alias(key, eventKeyName(i)));
         }
-        Slot dmlFactor = nullSideDelta.second.get(deltaContext.deltaSideResult.dmlFactorSlot);
+        Slot dmlFactor = nullSideDelta.second.get(deltaContext.deltaSideResult().dmlFactorSlot);
         outputs.add(new Alias(new Max(new If(new GreaterThan(dmlFactor, new TinyIntLiteral((byte) 0)),
                 new TinyIntLiteral((byte) 1), new TinyIntLiteral((byte) 0))), NULL_SIDE_KEY_POSITIVE_ALIAS));
         outputs.add(new Alias(new Max(new If(new LessThan(dmlFactor, new TinyIntLiteral((byte) 0)),
@@ -697,7 +693,7 @@ class IvmOuterJoinDeltaHandler {
      */
     private List<Slot> nullSideValueSlots(NullSideDeltaContext deltaContext) {
         ImmutableList.Builder<Slot> slots = ImmutableList.builder();
-        for (Slot slot : deltaContext.deltaSideResult.plan.getOutput()) {
+        for (Slot slot : deltaContext.deltaSideResult().plan.getOutput()) {
             if (!Column.IVM_DML_FACTOR_COL.equals(slot.getName())) {
                 slots.add(slot);
             }
@@ -778,8 +774,8 @@ class IvmOuterJoinDeltaHandler {
     private static class NullSideDeltaContext {
         private final LogicalJoin<? extends Plan, ? extends Plan> join;
         private final boolean isDeltaOnLeft;
-        private final IvmDeltaRewriteResult deltaSideResult;
-        private final IvmDeltaRewriteResult nonDeltaSideResult;
+        private final IvmDeltaRewriteResult leftResult;
+        private final IvmDeltaRewriteResult rightResult;
 
         /**
          * Map physical left/right results to rewrite-local delta and non-delta roles.
@@ -788,8 +784,22 @@ class IvmOuterJoinDeltaHandler {
                 IvmDeltaRewriteResult leftResult, IvmDeltaRewriteResult rightResult, boolean deltaOnLeft) {
             this.join = join;
             this.isDeltaOnLeft = deltaOnLeft;
-            this.deltaSideResult = deltaOnLeft ? leftResult : rightResult;
-            this.nonDeltaSideResult = deltaOnLeft ? rightResult : leftResult;
+            this.leftResult = leftResult;
+            this.rightResult = rightResult;
+        }
+
+        /**
+         * Return the rewrite result for the physical side carrying delta rows.
+         */
+        private IvmDeltaRewriteResult deltaSideResult() {
+            return isDeltaOnLeft ? leftResult : rightResult;
+        }
+
+        /**
+         * Return the rewrite result for the physical side not carrying delta rows.
+         */
+        private IvmDeltaRewriteResult nonDeltaSideResult() {
+            return isDeltaOnLeft ? rightResult : leftResult;
         }
 
         /**
