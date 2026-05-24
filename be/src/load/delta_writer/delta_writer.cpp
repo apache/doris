@@ -70,7 +70,19 @@ BaseDeltaWriter::BaseDeltaWriter(const WriteRequest& req, RuntimeProfile* profil
 DeltaWriter::DeltaWriter(StorageEngine& engine, const WriteRequest& req, RuntimeProfile* profile,
                          const UniqueId& load_id)
         : BaseDeltaWriter(req, profile, load_id), _engine(engine) {
+    DCHECK(req.write_req_type == WriteRequestType::DATA);
     _rowset_builder = std::make_unique<RowsetBuilder>(_engine, req, profile);
+}
+
+DeltaWriter::DeltaWriter(StorageEngine& engine, const WriteRequest& group_build_req,
+                         const WriteRequest& sub_data_req, const WriteRequest& sub_row_binlog_req,
+                         RuntimeProfile* profile, const UniqueId& load_id)
+        : BaseDeltaWriter(group_build_req, profile, load_id), _engine(engine) {
+    DCHECK(group_build_req.write_req_type == WriteRequestType::GROUP &&
+           sub_data_req.write_req_type == WriteRequestType::DATA &&
+           sub_row_binlog_req.write_req_type == WriteRequestType::ROW_BINLOG);
+    _rowset_builder = std::make_unique<GroupRowsetBuilder>(_engine, group_build_req, sub_data_req,
+                                                           sub_row_binlog_req, profile);
 }
 
 void BaseDeltaWriter::_init_profile(RuntimeProfile* profile) {
@@ -137,7 +149,7 @@ Status BaseDeltaWriter::init() {
     RETURN_IF_ERROR(_memtable_writer->init(
             _rowset_builder->rowset_writer(), _rowset_builder->tablet_schema(),
             _rowset_builder->get_partial_update_info(), wg_sptr,
-            _rowset_builder->tablet()->enable_unique_key_merge_on_write()));
+            _rowset_builder->tablet_sptr()->enable_unique_key_merge_on_write()));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
     return Status::OK();
@@ -203,14 +215,10 @@ Status BaseDeltaWriter::wait_calc_delete_bitmap() {
     return _rowset_builder->wait_calc_delete_bitmap();
 }
 
-RowsetBuilder* DeltaWriter::rowset_builder() {
-    return static_cast<RowsetBuilder*>(_rowset_builder.get());
-}
-
 Status DeltaWriter::commit_txn(const PSlaveTabletNodes& slave_tablet_nodes) {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
-    RETURN_IF_ERROR(rowset_builder()->commit_txn());
+    RETURN_IF_ERROR(_rowset_builder->commit_txn());
 
     for (auto&& node_info : slave_tablet_nodes.slave_nodes()) {
         _request_slave_tablet_pull_rowset(node_info);

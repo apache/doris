@@ -102,7 +102,7 @@ public class Sum0 extends NotNullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
+        DataType argType = getArgument(0).getDataType();
         if (!argType.isNumericType() && !argType.isBooleanType()
                 && !argType.isNullType() && !argType.isStringLikeType()) {
             throw new AnalysisException("sum0 requires a numeric, boolean or string parameter: " + this.toSql());

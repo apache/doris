@@ -200,6 +200,13 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                     "The database property cannot be modified in ALTER JOB");
         }
 
+        if (sourceProperties.containsKey(DataSourceConfigKeys.SCHEMA)) {
+            Preconditions.checkArgument(Objects.equals(
+                    originSourceProperties.get(DataSourceConfigKeys.SCHEMA),
+                    sourceProperties.get(DataSourceConfigKeys.SCHEMA)),
+                    "The schema property cannot be modified in ALTER JOB");
+        }
+
         if (sourceProperties.containsKey(DataSourceConfigKeys.INCLUDE_TABLES)) {
             Preconditions.checkArgument(Objects.equals(
                     originSourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES),
@@ -220,6 +227,36 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                     sourceProperties.get(DataSourceConfigKeys.OFFSET)),
                     "The offset in source properties cannot be modified in ALTER JOB. "
                     + "Use PROPERTIES('offset'='{...}') to alter offset");
+        }
+
+        // Reject keys that the runtime reads only at first initialize and never refreshes,
+        // so ALTER would be a silent no-op. See JdbcSourceOffsetProvider / DebeziumJsonDeserializer.
+        if (sourceProperties.containsKey(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
+            Preconditions.checkArgument(Objects.equals(
+                    originSourceProperties.get(DataSourceConfigKeys.SNAPSHOT_PARALLELISM),
+                    sourceProperties.get(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)),
+                    "The " + DataSourceConfigKeys.SNAPSHOT_PARALLELISM
+                            + " property cannot be modified in ALTER JOB");
+        }
+        if (sourceProperties.containsKey(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)) {
+            Preconditions.checkArgument(Objects.equals(
+                    originSourceProperties.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE),
+                    sourceProperties.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)),
+                    "The " + DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE
+                            + " property cannot be modified in ALTER JOB");
+        }
+        String tablePrefix = DataSourceConfigKeys.TABLE + ".";
+        for (String key : sourceProperties.keySet()) {
+            if (!key.startsWith(tablePrefix)) {
+                continue;
+            }
+            if (key.endsWith("." + DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX)
+                    || key.endsWith("." + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX)) {
+                Preconditions.checkArgument(Objects.equals(
+                        originSourceProperties.get(key),
+                        sourceProperties.get(key)),
+                        "The " + key + " property cannot be modified in ALTER JOB");
+            }
         }
 
         // slot_name / publication_name decide Doris-vs-user ownership at create time; flipping
@@ -271,7 +308,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                         "The uri property cannot be modified in ALTER JOB");
                 break;
             case "cdc_stream":
-                // type, jdbc_url, database, schema, table identify the source and cannot be changed.
+                // type, jdbc_url, database, schema, and table identify the source and cannot be changed.
+                // snapshot_* are materialized into split metadata on first fetch and never re-read.
                 // slot_name / publication_name are fixed at create time to keep ownership stable.
                 // user, password, driver_url, driver_class, etc. are modifiable (credential rotation).
                 for (String unmodifiable : new String[] {
@@ -280,6 +318,9 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                         DataSourceConfigKeys.DATABASE,
                         DataSourceConfigKeys.SCHEMA,
                         DataSourceConfigKeys.TABLE,
+                        DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY,
+                        DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE,
+                        DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
                         DataSourceConfigKeys.SLOT_NAME,
                         DataSourceConfigKeys.PUBLICATION_NAME}) {
                     Preconditions.checkArgument(

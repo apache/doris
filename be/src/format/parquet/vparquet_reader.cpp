@@ -35,12 +35,12 @@
 #include "core/typeid_cast.h"
 #include "core/types.h"
 #include "exec/scan/file_scanner.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vbloom_predicate.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vin_predicate.h"
-#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vslot_ref.h"
 #include "exprs/vtopn_pred.h"
 #include "format/column_type_convert.h"
@@ -87,7 +87,7 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
-          _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
+          _batch_size(std::max(batch_size, 1UL)),
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz),
@@ -106,6 +106,13 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
     _init_file_description();
 }
 
+void ParquetReader::set_batch_size(size_t batch_size) {
+    if (_batch_size == batch_size) {
+        return;
+    }
+    _batch_size = batch_size;
+}
+
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size,
                              const cctz::time_zone* ctz,
@@ -114,7 +121,7 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
-          _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
+          _batch_size(std::max(batch_size, 1UL)),
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz),
@@ -290,6 +297,9 @@ Status ParquetReader::close() {
 
 void ParquetReader::_close_internal() {
     if (!_closed) {
+        _current_group_reader.reset();
+        _tracing_file_reader.reset();
+        _file_reader.reset();
         _closed = true;
     }
 }
@@ -592,7 +602,7 @@ void ParquetReader::_collect_predicate_columns_from_conjuncts(
     for (const auto& conjunct : _lazy_read_ctx.conjuncts) {
         auto expr = conjunct->root();
         if (expr->is_rf_wrapper()) {
-            VRuntimeFilterWrapper* runtime_filter = assert_cast<VRuntimeFilterWrapper*>(expr.get());
+            RuntimeFilterExpr* runtime_filter = assert_cast<RuntimeFilterExpr*>(expr.get());
             auto filter_impl = runtime_filter->get_impl();
             visit_slot(filter_impl.get());
         } else {

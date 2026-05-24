@@ -512,8 +512,10 @@ void PartitionedAggSinkLocalState::_reset_tmp_data() {
     _value_columns.clear();
     _key_block.clear_column_data();
     _value_block.clear_column_data();
-    _key_columns = _key_block.mutate_columns();
-    _value_columns = _value_block.mutate_columns();
+    // _key_columns/_value_columns own the mutable storage until the next reset. The schema blocks
+    // are used only as empty reusable owners here, so consuming their columns is intentional.
+    _key_columns = std::move(_key_block).mutate_columns();
+    _value_columns = std::move(_value_block).mutate_columns();
 }
 
 void PartitionedAggSinkLocalState::_clear_tmp_data() {

@@ -19,13 +19,17 @@ package org.apache.doris.catalog.constraint;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.journal.JournalEntity;
+import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.persist.AlterConstraintLog;
@@ -37,6 +41,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -322,6 +328,146 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         String resolvedName = tni.getCtl() + "." + tni.getDb() + "." + tni.getTbl();
         Assertions.assertEquals(qualifiedName, resolvedName);
         Assertions.assertEquals("pk_compat", log.getConstraint().getName());
+    }
+
+    @Test
+    void liveConstraintShouldExposeDependentMtmvLookupFailureTest() throws Exception {
+        TableIf tableIf = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(tableIf.getNameWithFullQualifiers());
+        String pkName = "pk_live_lookup_failure";
+        ConstraintManager mgr = Env.getCurrentEnv().getConstraintManager();
+
+        try (MockedStatic<MTMVUtil> mtmvUtilMock = Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            mtmvUtilMock.when(() -> MTMVUtil.getDependentMtmvsByBaseTables(Mockito.anyList()))
+                    .thenThrow(new AnalysisException("unexpected relation lookup failure"));
+
+            Assertions.assertThrows(Exception.class, () -> addConstraint(
+                    "alter table t1 add constraint " + pkName + " primary key (k1)"));
+            Assertions.assertNull(mgr.getConstraint(tableNameInfo, pkName));
+        }
+
+        addConstraint("alter table t1 add constraint " + pkName + " primary key (k1)");
+        Assertions.assertNotNull(mgr.getConstraint(tableNameInfo, pkName));
+
+        try (MockedStatic<MTMVUtil> mtmvUtilMock = Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            mtmvUtilMock.when(() -> MTMVUtil.getDependentMtmvsByBaseTables(Mockito.anyList()))
+                    .thenThrow(new AnalysisException("unexpected relation lookup failure"));
+
+            Assertions.assertThrows(Exception.class, () -> dropConstraint(
+                    "alter table t1 drop constraint " + pkName));
+            Assertions.assertNotNull(mgr.getConstraint(tableNameInfo, pkName));
+        } finally {
+            if (mgr.getConstraint(tableNameInfo, pkName) != null) {
+                mgr.dropConstraint(tableNameInfo, pkName, true);
+            }
+        }
+    }
+
+    @Test
+    void liveConstraintShouldIgnoreDependentMtmvInvalidateFailureTest() throws Exception {
+        TableIf tableIf = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(tableIf.getNameWithFullQualifiers());
+        String pkName = "pk_live_invalidate_failure";
+        ConstraintManager mgr = Env.getCurrentEnv().getConstraintManager();
+        MTMV dependentMtmv = Mockito.mock(MTMV.class);
+        Mockito.doThrow(new RuntimeException("invalidate failed"))
+                .when(dependentMtmv).invalidateRewriteCache();
+
+        try (MockedStatic<MTMVUtil> mtmvUtilMock = Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            mtmvUtilMock.when(() -> MTMVUtil.getDependentMtmvsByBaseTables(Mockito.anyList()))
+                    .thenReturn(Lists.newArrayList(dependentMtmv));
+
+            Assertions.assertDoesNotThrow(() -> addConstraint(
+                    "alter table t1 add constraint " + pkName + " primary key (k1)"));
+            Assertions.assertNotNull(mgr.getConstraint(tableNameInfo, pkName));
+
+            Assertions.assertDoesNotThrow(() -> dropConstraint(
+                    "alter table t1 drop constraint " + pkName));
+            Assertions.assertNull(mgr.getConstraint(tableNameInfo, pkName));
+        } finally {
+            if (mgr.getConstraint(tableNameInfo, pkName) != null) {
+                mgr.dropConstraint(tableNameInfo, pkName, true);
+            }
+        }
+    }
+
+    @Test
+    void replayConstraintShouldInvalidateDependentMtmvCacheTest() throws Exception {
+        TableIf tableIf = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(tableIf.getNameWithFullQualifiers());
+        PrimaryKeyConstraint pk = new PrimaryKeyConstraint("pk_replay_cache",
+                com.google.common.collect.ImmutableSet.of("k1"));
+        MTMV dependentMtmv = Mockito.mock(MTMV.class);
+        ConstraintManager mgr = Env.getCurrentEnv().getConstraintManager();
+
+        try (MockedStatic<MTMVUtil> mtmvUtilMock = Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            mtmvUtilMock.when(() -> MTMVUtil.getDependentMtmvsByBaseTables(Mockito.anyList()))
+                    .thenAnswer(invocation -> {
+                        List<BaseTableInfo> baseTableInfos = invocation.getArgument(0);
+                        Assertions.assertEquals(1, baseTableInfos.size());
+                        Assertions.assertEquals(tableNameInfo.getCtl(), baseTableInfos.get(0).getCtlName());
+                        Assertions.assertEquals(tableNameInfo.getDb(), baseTableInfos.get(0).getDbName());
+                        Assertions.assertEquals(tableNameInfo.getTbl(), baseTableInfos.get(0).getTableName());
+                        return Lists.newArrayList(dependentMtmv);
+                    });
+
+            JournalEntity addJournal = new JournalEntity();
+            addJournal.setData(new AlterConstraintLog(pk, tableNameInfo));
+            addJournal.setOpCode(OperationType.OP_ADD_CONSTRAINT);
+            EditLog.loadJournal(Env.getCurrentEnv(), 0L, addJournal);
+            Mockito.verify(dependentMtmv).invalidateRewriteCache();
+
+            JournalEntity dropJournal = new JournalEntity();
+            dropJournal.setData(new AlterConstraintLog(pk, tableNameInfo));
+            dropJournal.setOpCode(OperationType.OP_DROP_CONSTRAINT);
+            EditLog.loadJournal(Env.getCurrentEnv(), 0L, dropJournal);
+            Mockito.verify(dependentMtmv, Mockito.times(2)).invalidateRewriteCache();
+        } finally {
+            if (mgr.getConstraint(tableNameInfo, pk.getName()) != null) {
+                mgr.dropConstraint(tableNameInfo, pk.getName(), true);
+            }
+        }
+    }
+
+    @Test
+    void replayConstraintShouldIgnoreDependentMtmvInvalidateFailureTest() throws Exception {
+        TableIf tableIf = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(tableIf.getNameWithFullQualifiers());
+        PrimaryKeyConstraint pk = new PrimaryKeyConstraint("pk_replay_invalidate_failure",
+                com.google.common.collect.ImmutableSet.of("k1"));
+        MTMV dependentMtmv = Mockito.mock(MTMV.class);
+        Mockito.doThrow(new RuntimeException("invalidate failed"))
+                .when(dependentMtmv).invalidateRewriteCache();
+        ConstraintManager mgr = Env.getCurrentEnv().getConstraintManager();
+
+        try (MockedStatic<MTMVUtil> mtmvUtilMock = Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            mtmvUtilMock.when(() -> MTMVUtil.getDependentMtmvsByBaseTables(Mockito.anyList()))
+                    .thenReturn(Lists.newArrayList(dependentMtmv));
+
+            JournalEntity addJournal = new JournalEntity();
+            addJournal.setData(new AlterConstraintLog(pk, tableNameInfo));
+            addJournal.setOpCode(OperationType.OP_ADD_CONSTRAINT);
+            Assertions.assertDoesNotThrow(() -> EditLog.loadJournal(Env.getCurrentEnv(), 0L, addJournal));
+            Assertions.assertNotNull(mgr.getConstraint(tableNameInfo, pk.getName()));
+
+            JournalEntity dropJournal = new JournalEntity();
+            dropJournal.setData(new AlterConstraintLog(pk, tableNameInfo));
+            dropJournal.setOpCode(OperationType.OP_DROP_CONSTRAINT);
+            Assertions.assertDoesNotThrow(() -> EditLog.loadJournal(Env.getCurrentEnv(), 0L, dropJournal));
+            Assertions.assertNull(mgr.getConstraint(tableNameInfo, pk.getName()));
+        } finally {
+            if (mgr.getConstraint(tableNameInfo, pk.getName()) != null) {
+                mgr.dropConstraint(tableNameInfo, pk.getName(), true);
+            }
+        }
     }
 
     public static class RefreshCatalogProvider implements TestExternalCatalog.TestCatalogProvider {

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type_variant.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_string.h"
@@ -26,18 +27,36 @@ namespace doris::CastWrapper {
 // shared implementation for casting from variant to arbitrary non-nullable target type
 inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
                                      const ColumnNumbers& arguments, uint32_t result,
-                                     size_t input_rows_count,
-                                     const NullMap::value_type* /*null_map*/,
+                                     size_t input_rows_count, const NullMap::value_type* null_map,
                                      const DataTypePtr& data_type_to) {
-    const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
-    const auto& col_from = col_with_type_and_name.column;
-    const auto& variant = assert_cast<const ColumnVariant&>(*col_from);
-    ColumnPtr col_to = data_type_to->create_column();
-
-    if (!variant.is_finalized()) {
-        // ColumnVariant should be finalized before parsing, finalize maybe modify original column structure
-        variant.assume_mutable()->finalize();
+    auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+    auto& col_from = col_with_type_and_name.column;
+    const IColumn* variant_column = col_from.get();
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(*variant_column)) {
+        variant_column = &nullable->get_nested_column();
     }
+
+    if (!assert_cast<const ColumnVariant&>(*variant_column).is_finalized()) {
+        // ColumnVariant should be finalized before parsing, finalize maybe modify original column structure
+        auto mutable_column = IColumn::mutate(std::move(col_with_type_and_name.column));
+        if (auto* nullable = check_and_get_column<ColumnNullable>(*mutable_column)) {
+            const auto& const_nullable = *nullable;
+            auto nested_column = IColumn::mutate(const_nullable.get_nested_column_ptr());
+            assert_cast<ColumnVariant&>(*nested_column).finalize();
+            ColumnPtr nested_column_ptr = std::move(nested_column);
+            nullable->change_nested_column(nested_column_ptr);
+        } else {
+            assert_cast<ColumnVariant&>(*mutable_column).finalize();
+        }
+        col_with_type_and_name.column = std::move(mutable_column);
+    }
+
+    variant_column = col_with_type_and_name.column.get();
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(*variant_column)) {
+        variant_column = &nullable->get_nested_column();
+    }
+    const auto& variant = assert_cast<const ColumnVariant&>(*variant_column);
+    ColumnPtr col_to = data_type_to->create_column();
 
     // It's important to convert as many elements as possible in this context. For instance,
     // if the root of this variant column is a number column, converting it to a number column
@@ -75,18 +94,19 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
         Status st = wrapper(new_context.get(), tmp_block, {0}, 1, input_rows_count, nullptr);
         if (!st.ok()) {
             // Fill with default values, which is null
-            col_to->assume_mutable()->insert_many_defaults(input_rows_count);
+            col_to->assert_mutable()->insert_many_defaults(input_rows_count);
             col_to = make_nullable(col_to, true);
         } else {
             col_to = tmp_block.get_by_position(1).column;
-            // Note: here we should return the nullable result column
-            col_to = wrap_in_nullable(
-                    col_to, Block({{nested, nested_from_type, ""}, {col_to, data_type_to, ""}}),
-                    {0}, input_rows_count);
+            col_to = wrap_in_nullable(col_to,
+                                      Block({{nested, nested_from_type, ""},
+                                             {col_from, col_with_type_and_name.type, ""},
+                                             {col_to, data_type_to, ""}}),
+                                      {0, 1}, input_rows_count);
         }
     } else {
         if (variant.only_have_default_values()) {
-            col_to->assume_mutable()->insert_many_defaults(input_rows_count);
+            col_to->assert_mutable()->insert_many_defaults(input_rows_count);
             col_to = make_nullable(col_to, true);
         } else if (is_string_type(data_type_to->get_primitive_type())) {
             // serialize to string
@@ -98,11 +118,18 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
         } else if (!data_type_to->is_nullable() &&
                    !is_string_type(data_type_to->get_primitive_type())) {
             // other types
-            col_to->assume_mutable()->insert_many_defaults(input_rows_count);
+            col_to->assert_mutable()->insert_many_defaults(input_rows_count);
             col_to = make_nullable(col_to, true);
         } else {
-            assert_cast<ColumnNullable&>(*col_to->assume_mutable())
+            assert_cast<ColumnNullable&>(*col_to->assert_mutable())
                     .insert_many_defaults(input_rows_count);
+        }
+    }
+
+    if (null_map == nullptr) {
+        if (const auto* nullable_result = check_and_get_column<ColumnNullable>(*col_to);
+            nullable_result != nullptr && !nullable_result->has_null()) {
+            col_to = nullable_result->get_nested_column_ptr();
         }
     }
 
@@ -140,7 +167,7 @@ struct CastToVariant {
         auto variant = ColumnVariant::create(
                 variant_type ? variant_type->variant_max_subcolumns_count() : 0,
                 variant_type ? variant_type->enable_doc_mode() : false);
-        variant->create_root(from_type, col_from->assume_mutable());
+        variant->create_root(from_type, IColumn::mutate(col_from));
         block.replace_by_position(result, std::move(variant));
         return Status::OK();
     }

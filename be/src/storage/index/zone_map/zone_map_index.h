@@ -27,12 +27,12 @@
 #include <vector>
 
 #include "common/status.h"
-#include "core/arena.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/string_ref.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "storage/field.h"
 #include "storage/metadata_adder.h"
+#include "storage/tablet/tablet_schema.h"
 #include "util/once.h"
 
 namespace doris {
@@ -87,7 +87,7 @@ struct ZoneMap {
 
 class ZoneMapIndexWriter {
 public:
-    static Status create(DataTypePtr data_type, StorageField* field,
+    static Status create(DataTypePtr data_type, const TabletColumn* column,
                          std::unique_ptr<ZoneMapIndexWriter>& res);
 
     ZoneMapIndexWriter() = default;
@@ -138,6 +138,9 @@ public:
 
 private:
     void _reset_zone_map(ZoneMap* zone_map) {
+        // Do not reset min_value/max_value here: on the next page's first
+        // value write, min/max get updated and has_not_null is then set to
+        // true.
         zone_map->has_null = false;
         zone_map->has_not_null = false;
         zone_map->pass_all = false;
@@ -148,13 +151,19 @@ private:
 
     void _update_page_zonemap(const ValType& min_value, const ValType& max_value);
 
+    // Materialize the running CppType min/max into _page_zone_map.{min,max}_value.
+    // Called at flush() time, so the per-row hot path never constructs a Field.
+    void _materialize_page_minmax();
+
     DataTypePtr _data_type;
-    // memory will be managed by Arena
     ZoneMap _page_zone_map;
     ZoneMap _segment_zone_map;
-    // TODO(zc): we should replace this arena later, we only allocate min/max
-    // for field. But Arena allocate 4KB least, it will a waste for most cases.
-    Arena _arena;
+    // Running min/max for the current page kept as raw ValType.
+    // For string types, _page_min/_page_max are StringRefs that borrow into _page_min_storage/_page_max_storage.
+    ValType _page_min {};
+    ValType _page_max {};
+    std::string _page_min_storage;
+    std::string _page_max_storage;
 
     // serialized ZoneMapPB for each data page
     std::vector<std::string> _values;

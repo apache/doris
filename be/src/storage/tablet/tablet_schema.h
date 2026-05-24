@@ -457,6 +457,15 @@ public:
     void replace_column(size_t pos, TabletColumn new_col);
     const std::vector<TabletColumnPtr>& columns() const;
     size_t num_columns() const { return _num_columns; }
+    size_t num_visible_columns() const {
+        return std::count_if(_cols.begin(), _cols.end(),
+                             [](const TabletColumnPtr& column) { return column->visible(); });
+    }
+    size_t num_visible_value_columns() const {
+        return std::count_if(_cols.begin(), _cols.end(), [](const TabletColumnPtr& column) {
+            return column->visible() && !column->is_key();
+        });
+    }
     size_t num_key_columns() const { return _num_key_columns; }
     const std::vector<uint32_t>& cluster_key_uids() const { return _cluster_key_uids; }
     size_t num_null_columns() const { return _num_null_columns; }
@@ -694,6 +703,12 @@ public:
         std::unordered_map<std::string, TabletIndexes> subcolumn_indexes; // subcolumns indexes
         PathSet sub_path_set;                                             // extracted columns
         PathSet sparse_path_set;                                          // sparse columns
+
+        // "Materialized regular path" means compaction chose to store this path as a dedicated
+        // column in the schema, either typed or extracted, instead of re-emitting it dynamically.
+        bool contains_materialized_regular_path(const std::string& path) const {
+            return typed_path_set.contains(path) || sub_path_set.contains(path);
+        }
     };
 
     void set_path_set_info(std::unordered_map<int32_t, PathsSetInfo>&& path_set_info_map) {
@@ -702,6 +717,11 @@ public:
 
     const PathsSetInfo& path_set_info(int32_t unique_id) const {
         return _path_set_info_map.at(unique_id);
+    }
+
+    const PathsSetInfo* try_path_set_info(int32_t unique_id) const {
+        auto it = _path_set_info_map.find(unique_id);
+        return it == _path_set_info_map.end() ? nullptr : &it->second;
     }
 
     bool need_record_variant_extended_schema() const { return variant_max_subcolumns_count() == 0; }

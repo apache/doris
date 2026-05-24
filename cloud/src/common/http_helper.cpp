@@ -38,7 +38,7 @@
 #include <type_traits>
 
 #include "common/metric.h"
-#include "cpp/s3_rate_limiter.h"
+#include "cpp/token_bucket_rate_limiter.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_http.h"
@@ -710,7 +710,7 @@ HttpResponse process_statistics_recycle(RecyclerServiceImpl* service, brpc::Cont
                                "failed to parse StatisticsRecycleRequest");
     }
     MetaServiceCode code = MetaServiceCode::OK;
-    std::string msg;
+    std::string msg = "OK";
     service->statistics_recycle(req, code, msg);
     return http_text_reply(code, msg, msg);
 }
@@ -721,7 +721,7 @@ HttpResponse process_recycle_copy_jobs(RecyclerServiceImpl* service, brpc::Contr
         return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "no instance id");
     }
     MetaServiceCode code = MetaServiceCode::OK;
-    std::string msg;
+    std::string msg = "OK";
     recycle_copy_jobs(service->txn_kv(), *instance_id, code, msg,
                       service->recycler()->thread_pool_group(), service->txn_lazy_committer());
     return http_text_reply(code, msg, msg);
@@ -748,7 +748,7 @@ HttpResponse process_check_instance(RecyclerServiceImpl* service, brpc::Controll
         return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "checker not enabled");
     }
     MetaServiceCode code = MetaServiceCode::OK;
-    std::string msg;
+    std::string msg = "OK";
     service->check_instance(*instance_id, code, msg);
     return http_text_reply(code, msg, msg);
 }
@@ -776,7 +776,7 @@ HttpResponse process_check_meta(RecyclerServiceImpl* service, brpc::Controller* 
         !password || !user || user->empty()) {
         return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "missing required parameters");
     }
-    std::string msg;
+    std::string msg = "OK";
     check_meta(service->txn_kv(), *instance_id, *host, *port, *user, *password, msg);
     return http_text_reply(MetaServiceCode::OK, msg, msg);
 }

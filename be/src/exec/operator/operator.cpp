@@ -348,22 +348,23 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
                 null_column.get_null_map_column().get_data().resize_fill(rows, 0);
                 bytes_usage += null_column.allocated_bytes();
             } else {
-                to = make_nullable(from, false)->assume_mutable();
+                to = make_nullable(from, false)->assert_mutable();
             }
         } else {
             if (_keep_origin || !from->is_exclusive()) {
                 to->insert_range_from(*from, 0, rows);
                 bytes_usage += from->allocated_bytes();
             } else {
-                to = from->assume_mutable();
+                to = from->assert_mutable();
             }
         }
     };
 
-    MutableBlock mutable_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
+    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+            output_block, *_output_row_descriptor);
+    auto& mutable_block = scoped_mutable_block.mutable_block();
+    auto& mutable_columns = mutable_block.mutable_columns();
     if (rows != 0) {
-        auto& mutable_columns = mutable_block.mutable_columns();
         DCHECK_EQ(mutable_columns.size(), local_state->_projections.size()) << debug_string();
         for (int i = 0; i < mutable_columns.size(); ++i) {
             ColumnPtr column_ptr;
@@ -379,9 +380,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
             insert_column_datas(mutable_columns[i], column_ptr, rows);
         }
         DCHECK(mutable_block.rows() == rows);
-        output_block->set_columns(std::move(mutable_columns));
     }
-
     local_state->_estimate_memory_usage += bytes_usage;
 
     return Status::OK();
@@ -403,10 +402,7 @@ Status OperatorXBase::get_block_after_projects(RuntimeState* state, Block* block
     auto* local_state = state->get_local_state(operator_id());
     Defer defer([&]() {
         if (status.ok()) {
-            if (auto rows = block->rows()) {
-                COUNTER_UPDATE(local_state->_rows_returned_counter, rows);
-                COUNTER_UPDATE(local_state->_blocks_returned_counter, 1);
-            }
+            local_state->update_output_block_counters(*block);
         }
     });
     if (_output_row_descriptor) {
@@ -441,6 +437,7 @@ void PipelineXLocalStateBase::reached_limit(Block* block, bool* eos) {
 
     if (auto rows = block->rows()) {
         _num_rows_returned += rows;
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_process_rows(rows);
     }
 }
 
@@ -523,7 +520,11 @@ PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* 
         : _parent(parent), _state(state) {}
 
 PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
-        : _num_rows_returned(0), _rows_returned_counter(nullptr), _parent(parent), _state(state) {}
+        : _num_rows_returned(0),
+          _rows_returned_counter(nullptr),
+          _parent(parent),
+          _state(state),
+          _budget(state->batch_size(), state->preferred_block_size_bytes()) {}
 
 template <typename SharedStateArg>
 Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalStateInfo& info) {
@@ -572,6 +573,12 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
             ADD_COUNTER_WITH_LEVEL(_common_profile, profile::ROWS_PRODUCED, TUnit::UNIT, 1);
     _blocks_returned_counter =
             ADD_COUNTER_WITH_LEVEL(_common_profile, profile::BLOCKS_PRODUCED, TUnit::UNIT, 1);
+    _output_block_bytes_counter =
+            ADD_COUNTER_WITH_LEVEL(_common_profile, profile::OUTPUT_BLOCK_BYTES, TUnit::BYTES, 1);
+    _max_output_block_bytes_counter = ADD_COUNTER_WITH_LEVEL(
+            _common_profile, profile::MAX_OUTPUT_BLOCK_BYTES, TUnit::BYTES, 1);
+    _min_output_block_bytes_counter = ADD_COUNTER_WITH_LEVEL(
+            _common_profile, profile::MIN_OUTPUT_BLOCK_BYTES, TUnit::BYTES, 1);
     _projection_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::PROJECTION_TIME, 2);
     _init_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::INIT_TIME, 2);
     _open_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::OPEN_TIME, 2);

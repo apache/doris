@@ -54,6 +54,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
@@ -200,8 +201,32 @@ public class SchemaChangeHandler extends AlterHandler {
 
         Set<String> newColNameSet = Sets.newHashSet(column.getName());
 
-        return addColumnInternal(olapTable, column, columnPos, targetIndexId, baseIndexId, indexSchemaMap,
-            newColNameSet, false, colUniqueIdSupplierMap);
+        boolean lightSchemaChange = addColumnInternal(olapTable, column, columnPos, targetIndexId, baseIndexId,
+                indexSchemaMap, newColNameSet, false, colUniqueIdSupplierMap);
+
+        // add column to binlog<Row> schema
+        long rowBinlogIndexId = olapTable.getBaseIndexMeta().getRowBinlogIndexId();
+        if (rowBinlogIndexId > 0) {
+            if (column.getType().isVariantType()) {
+                throw new DdlException(
+                        "table with binlog<Row> does not support VARIANT column: " + column.getName());
+            }
+            if (!lightSchemaChange) {
+                throw new DdlException("table with binlog<Row> only support light schema change," + "add column: "
+                        + column);
+            }
+            Preconditions.checkState(indexSchemaMap.containsKey(rowBinlogIndexId));
+
+            LinkedList<Column> rowBinlogSchema = indexSchemaMap.get(rowBinlogIndexId);
+            boolean needHistoricalValue = olapTable.getBinlogConfig().getNeedHistoricalValue();
+            if (needHistoricalValue && !column.isKey()) {
+                newColNameSet.add(Column.generateBeforeColName(column.getName()));
+            }
+            addColumnRowBinlog(rowBinlogSchema, column, columnPos, newColNameSet, needHistoricalValue,
+                    colUniqueIdSupplierMap.get(rowBinlogIndexId));
+        }
+
+        return lightSchemaChange;
     }
 
     private void processAddColumn(AddColumnOp addColumnOp, Table externalTable, List<Column> newSchema)
@@ -247,6 +272,16 @@ public class SchemaChangeHandler extends AlterHandler {
             newColNameSet.add(column.getName());
         }
 
+        long rowBinlogIndexId = olapTable.getBaseIndexMeta().getRowBinlogIndexId();
+        boolean needHistoricalValue = rowBinlogIndexId > 0 && olapTable.getBinlogConfig().getNeedHistoricalValue();
+        if (needHistoricalValue) {
+            for (Column column : columns) {
+                if (!column.isKey()) {
+                    newColNameSet.add(Column.generateBeforeColName(column.getName()));
+                }
+            }
+        }
+
         String baseIndexName = olapTable.getName();
         checkAssignedTargetIndexName(baseIndexName, targetIndexName);
 
@@ -263,8 +298,111 @@ public class SchemaChangeHandler extends AlterHandler {
             if (!result) {
                 lightSchemaChange = false;
             }
+
+            // add column to binlog<Row> schema
+            if (rowBinlogIndexId > 0) {
+                if (column.getType().isVariantType()) {
+                    throw new DdlException(
+                            "table with binlog<Row> does not support VARIANT column: " + column.getName());
+                }
+                if (!lightSchemaChange) {
+                    throw new DdlException("table with binlog<Row> only support light schema change," + "add column: "
+                            + column);
+                }
+                Preconditions.checkState(indexSchemaMap.containsKey(rowBinlogIndexId));
+
+                LinkedList<Column> rowBinlogSchema = indexSchemaMap.get(rowBinlogIndexId);
+                addColumnRowBinlog(rowBinlogSchema, column, null, newColNameSet, needHistoricalValue,
+                        colUniqueIdSupplierMap.get(rowBinlogIndexId));
+            }
         }
         return lightSchemaChange;
+    }
+
+    private void addColumnRowBinlog(List<Column> rowBinlogSchema, Column newColumn, ColumnPosition columnPos,
+                                    Set<String> newColNameSet, boolean needHistoricalValue,
+                                    IntSupplier columnUniqueIdSupplier) throws DdlException {
+        if (!newColumn.isVisible()) {
+            // row binlog schema is generated from visible columns only, so schema change must not
+            // sync hidden system columns such as sequence/delete/version/skip-bitmap columns.
+            return;
+        }
+
+        if (newColumn.isAutoInc() || newColumn.getDataType().isVariantType()) {
+            throw new DdlException("can't add AutoInc/Variant column " + " on table with binlog<Row>, column: "
+                    + newColumn.getDataType());
+        }
+
+        if (newColumn.isKey()) {
+            // key (don't support now)
+            Column keyBinlogColumn = Column.generateRowBinlogKeyColumn(newColumn);
+            ColumnPosition keyBinlogColumnPos =
+                    convertToRowBinlogPosition(rowBinlogSchema, columnPos, true, false);
+            checkAndAddColumn(rowBinlogSchema, keyBinlogColumn, keyBinlogColumnPos, newColNameSet, false,
+                    columnUniqueIdSupplier.getAsInt());
+        } else {
+            // after value
+            Column afterBinlogColumn = Column.generateAfterValueColumn(newColumn);
+            ColumnPosition afterBinlogColumnPos =
+                    convertToRowBinlogPosition(rowBinlogSchema, columnPos, false, false);
+            checkAndAddColumn(rowBinlogSchema, afterBinlogColumn, afterBinlogColumnPos, newColNameSet, false,
+                    columnUniqueIdSupplier.getAsInt());
+
+            // before value: only exist when table needs historical value.
+            if (needHistoricalValue) {
+                Column beforeBinlogColumn = Column.generateBeforeValueColumn(newColumn);
+                ColumnPosition beforeBinlogColumnPos =
+                        convertToRowBinlogPosition(rowBinlogSchema, columnPos, false, true);
+                checkAndAddColumn(rowBinlogSchema, beforeBinlogColumn, beforeBinlogColumnPos, newColNameSet, false,
+                        columnUniqueIdSupplier.getAsInt());
+            }
+        }
+    }
+
+    private ColumnPosition convertToRowBinlogPosition(List<Column> rowBinlogSchema, ColumnPosition columnPosition,
+                                                      boolean isKey, boolean before) {
+        String lastKeyCol = "";
+        String lastValueCol = "";
+        String lastBeforeValueCol = "";
+        for (Column column : rowBinlogSchema) {
+            String columnName = column.getName();
+            if (column.isKey()) {
+                lastKeyCol = columnName;
+            } else {
+                if (columnName.contains(Column.BINLOG_BEFORE_PREFIX)) {
+                    lastBeforeValueCol = columnName;
+                } else if (columnName.equals(Column.BINLOG_LSN_COL) || columnName.equals(Column.BINLOG_OPERATION_COL)
+                        || columnName.equals(Column.BINLOG_TIMESTAMP_COL)) {
+                    continue;
+                } else {
+                    lastValueCol = columnName;
+                }
+            }
+        }
+        if (Strings.isNullOrEmpty(lastValueCol)) {
+            lastValueCol = lastKeyCol;
+        }
+        if (Strings.isNullOrEmpty(lastBeforeValueCol)) {
+            lastBeforeValueCol = lastValueCol;
+        }
+        if (columnPosition == null) {
+            // add to last
+            if (isKey) {
+                return new ColumnPosition(lastKeyCol);
+            } else if (!before) {
+                return new ColumnPosition(lastValueCol);
+            } else {
+                return new ColumnPosition(lastBeforeValueCol);
+            }
+        }
+        if (columnPosition == ColumnPosition.FIRST) {
+            return ColumnPosition.FIRST;
+        }
+        String lastCol = columnPosition.getLastCol();
+        if (lastCol.equals(lastKeyCol)) {
+            return new ColumnPosition(before ? lastValueCol : lastKeyCol);
+        }
+        return new ColumnPosition(before ? Column.generateBeforeColName(lastCol) : lastCol);
     }
 
     private void processAddSequenceMapping(Map<String, List<String>> sequenceMapping, OlapTable olapTable,
@@ -660,7 +798,50 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Column does not exists: " + dropColName);
             }
         }
+
+        // drop column to binlog<Row> schema
+        long rowBinlogIndexId = olapTable.getBaseIndexMeta().getRowBinlogIndexId();
+        if (rowBinlogIndexId > 0) {
+            if (!lightSchemaChange) {
+                throw new DdlException("table with binlog<Row> only support light schema change,"
+                        + "drop column: " + dropColName);
+            }
+            Preconditions.checkState(indexSchemaMap.containsKey(rowBinlogIndexId));
+
+            LinkedList<Column> rowBinlogSchema = indexSchemaMap.get(rowBinlogIndexId);
+            dropColumnRowBinlog(rowBinlogSchema, dropColumnOp);
+        }
         return lightSchemaChange;
+    }
+
+    private void dropColumnRowBinlog(List<Column> rowBinlogSchema, DropColumnOp dropColumnOp) throws DdlException {
+        String dropColName = dropColumnOp.getColName();
+        Iterator<Column> rowBinlogIter = rowBinlogSchema.iterator();
+        boolean foundKey = false;
+        boolean foundAfter = false;
+        boolean foundBefore = false;
+        while (rowBinlogIter.hasNext()) {
+            Column column = rowBinlogIter.next();
+            if (column.getName().equalsIgnoreCase(dropColName)) {
+                rowBinlogIter.remove();
+                if (column.isKey()) {
+                    foundKey = true;
+                    // key column only exists once
+                    continue;
+                } else {
+                    // value(after) column
+                    foundAfter = true;
+                }
+            }
+            if (column.getName().equalsIgnoreCase(Column.generateBeforeColName(dropColName))) {
+                rowBinlogIter.remove();
+                foundBefore = true;
+                continue;
+            }
+        }
+        if (!foundKey && !foundAfter && !foundBefore) {
+            throw new DdlException("Column does not exists in binlog<Row>: " + dropColName);
+        }
     }
 
     private void processDropSequenceMapping(Map<String, List<String>> sequenceMapping, String colName)
@@ -756,6 +937,12 @@ public class SchemaChangeHandler extends AlterHandler {
         if (modColumn.getType().isVariantType() && !olapTable.getEnableLightSchemaChange()) {
             throw new DdlException("Variant type rely on light schema change, "
                     + "please use light_schema_change = true.");
+        }
+
+        long rowBinlogIndexId = olapTable.getBaseIndexMeta().getRowBinlogIndexId();
+        if (rowBinlogIndexId > 0) {
+            throw new DdlException("table with binlog<Row> don't support modify column,"
+                    + "modify column: " + modColumn);
         }
 
         if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
@@ -1864,14 +2051,23 @@ public class SchemaChangeHandler extends AlterHandler {
                 MaterializedIndex originIndex = partition.getIndex(originIndexId);
                 ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partitionId);
                 Short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
+                // All shadow tablets of the same (partition, shadow index) share the same TabletMeta;
+                // build it once and bulk-publish to MaterializedIndex.tablets after the per-tablet
+                // loop to keep copy-on-write O(n). TabletInvertedIndex registration stays
+                // per-iteration because Tablet.addReplica(...) below needs the tablet present
+                // in the inverted index.
+                TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
+                        newSchemaHash, medium);
+                List<Tablet> shadowTabletsForPartition = Lists.newArrayListWithCapacity(
+                        originIndex.getTablets().size());
+                TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
                 for (Tablet originTablet : originIndex.getTablets()) {
-                    TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                            newSchemaHash, medium);
                     long originTabletId = originTablet.getId();
                     long shadowTabletId = idGeneratorBuffer.getNextId();
 
                     Tablet shadowTablet = EnvFactory.getInstance().createTablet(shadowTabletId);
-                    shadowIndex.addTablet(shadowTablet, shadowTabletMeta);
+                    invertedIndex.addTablet(shadowTabletId, shadowTabletMeta);
+                    shadowTabletsForPartition.add(shadowTablet);
                     addedTablets.add(shadowTablet);
 
                     schemaChangeJob.addTabletIdMap(partitionId, shadowIndexId, shadowTabletId, originTabletId);
@@ -1928,6 +2124,9 @@ public class SchemaChangeHandler extends AlterHandler {
                                 "tablet " + originTabletId + " has few healthy replica: " + healthyReplicaNum);
                     }
                 }
+
+                // Bulk-publish all shadow tablets for this partition in one copy-on-write.
+                shadowIndex.appendTablets(shadowTabletsForPartition);
 
                 schemaChangeJob.addPartitionShadowIndex(partitionId, shadowIndexId, shadowIndex);
             } // end for partition
@@ -2139,7 +2338,7 @@ public class SchemaChangeHandler extends AlterHandler {
             //for multi add columns clauses
             //index id -> index col_unique_id supplier
             Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
-            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
+            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchemaWithRowBinlog(true).entrySet()) {
                 indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
 
                 IntSupplier colUniqueIdSupplier = null;
@@ -2466,6 +2665,10 @@ public class SchemaChangeHandler extends AlterHandler {
                         lightIndexChange, buildIndexChange, indexSchemaMap);
             }
 
+            if (olapTable.needRowBinlog() && !(lightSchemaChange || lightIndexChange)) {
+                throw new DdlException("only support light schema change operator when use table with binlog<Row>");
+            }
+
             if (lightSchemaChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
                 //for schema change add/drop value column optimize, direct modify table meta.
@@ -2773,10 +2976,35 @@ public class SchemaChangeHandler extends AlterHandler {
             skip = Boolean.parseBoolean(skipWriteIndexOnLoad) ? 1 : 0;
         }
 
-        for (Partition partition : partitions) {
-            updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory,
-                                    null, compactionPolicy, timeSeriesCompactionConfig, enableSingleCompaction, skip,
-                                    disableAutoCompaction, verticalCompactionNumColumnsPerGroup);
+        // Only iterate partitions when there are properties that actually need to be
+        // dispatched to each partition's tablets. Pure catalog-level metadata properties
+        // such as partition.retention_count do not require per-partition updates, and
+        // iterating over a stale partition snapshot can race with concurrent partition
+        // drops (e.g., by DynamicPartitionScheduler when retention_count or dynamic_partition
+        // is enabled) and fail with "Partition does not exist".
+        boolean needPerPartitionUpdate = isInMemory >= 0 || storagePolicyId >= 0
+                || compactionPolicy != null || !timeSeriesCompactionConfig.isEmpty()
+                || enableSingleCompaction >= 0 || skip >= 0 || disableAutoCompaction >= 0
+                || verticalCompactionNumColumnsPerGroup >= 0;
+        if (needPerPartitionUpdate) {
+            for (Partition partition : partitions) {
+                try {
+                    updatePartitionProperties(db, olapTable.getName(), partition.getName(),
+                            storagePolicyId, isInMemory, null, compactionPolicy, timeSeriesCompactionConfig,
+                            enableSingleCompaction, skip, disableAutoCompaction,
+                            verticalCompactionNumColumnsPerGroup);
+                } catch (DdlException e) {
+                    // The partition may have been dropped concurrently (e.g., by
+                    // DynamicPartitionScheduler). It is safe to skip the meta dispatch
+                    // for a partition that no longer exists.
+                    if (olapTable.getPartition(partition.getName()) == null) {
+                        LOG.info("partition {} of table {} was dropped concurrently, "
+                                + "skip updating its properties", partition.getName(), olapTable.getName());
+                        continue;
+                    }
+                    throw e;
+                }
+            }
         }
 
         olapTable.writeLockOrDdlException();
@@ -3286,7 +3514,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         //update base index schema
-        Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchema(true);
+        Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchemaWithRowBinlog(true);
         try {
             updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
         } catch (Exception e) {
@@ -3487,6 +3715,10 @@ public class SchemaChangeHandler extends AlterHandler {
         List<Long> indexIds = new ArrayList<Long>();
         indexIds.add(baseIndexId);
         indexIds.addAll(olapTable.getIndexIdListExceptBaseIndex());
+        long rowBinlogIndexId = olapTable.getBaseIndexMeta().getRowBinlogIndexId();
+        if (rowBinlogIndexId > 0 && indexSchemaMap.containsKey(rowBinlogIndexId)) {
+            indexIds.add(rowBinlogIndexId);
+        }
         for (int i = 0; i < indexIds.size(); i++) {
             List<Column> indexSchema = indexSchemaMap.get(indexIds.get(i));
             MaterializedIndexMeta currentIndexMeta = olapTable.getIndexMetaByIndexId(indexIds.get(i));
@@ -3708,33 +3940,17 @@ public class SchemaChangeHandler extends AlterHandler {
                 continue;
             }
 
-            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)) {
-                boolean binlogEnable = Boolean.parseBoolean(properties.get(
-                        PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE));
-                if (binlogEnable != oldBinlogConfig.isEnable()) {
-                    newBinlogConfig.setEnable(binlogEnable);
+            try {
+                Map<String, String> binlogConfigMap = PropertyAnalyzer.analyzeBinlogConfig(Maps.newHashMap(properties));
+                if (binlogConfigMap != null) {
+                    Pair<Boolean, String> mergePropertiesStatus =
+                            newBinlogConfig.mergeFromProperties(binlogConfigMap, false);
+                    if (!mergePropertiesStatus.first) {
+                        throw new AnalysisException(mergePropertiesStatus.second);
+                    }
                 }
-            }
-            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)) {
-                Long binlogTtlSeconds = Long.parseLong(properties.get(
-                        PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS));
-                if (binlogTtlSeconds != oldBinlogConfig.getTtlSeconds()) {
-                    newBinlogConfig.setTtlSeconds(binlogTtlSeconds);
-                }
-            }
-            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)) {
-                Long binlogMaxBytes = Long.parseLong(properties.get(
-                        PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES));
-                if (binlogMaxBytes != oldBinlogConfig.getMaxBytes()) {
-                    newBinlogConfig.setMaxBytes(binlogMaxBytes);
-                }
-            }
-            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)) {
-                Long binlogMaxHistoryNums = Long.parseLong(properties.get(
-                        PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS));
-                if (binlogMaxHistoryNums != oldBinlogConfig.getMaxHistoryNums()) {
-                    newBinlogConfig.setMaxHistoryNums(binlogMaxHistoryNums);
-                }
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
             }
         }
 
@@ -3753,8 +3969,8 @@ public class SchemaChangeHandler extends AlterHandler {
         } finally {
             db.readUnlock();
         }
-        boolean dbBinlogEnable = (dbBinlogConfig != null && dbBinlogConfig.isEnable());
-        if (dbBinlogEnable && !newBinlogConfig.isEnable()) {
+        boolean dbBinlogEnable = (dbBinlogConfig != null && dbBinlogConfig.isEnableForCCR());
+        if (dbBinlogEnable && !newBinlogConfig.isEnableForCCR()) {
             throw new DdlException("db binlog is enable, but table binlog is disable");
         }
 

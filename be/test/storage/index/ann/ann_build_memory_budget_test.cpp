@@ -305,8 +305,8 @@ TEST_F(WriterAdmissionTest, SkipModeDeletesIndexAndSwallowsRows) {
     config::ann_index_build_memory_wait_timeout_ms = 0;
     config::ann_index_build_on_oom_action = "skip";
 
-    auto writer = std::make_unique<TestSkipAwareWriter>(_index_file_writer.get(),
-                                                        _tablet_index.get());
+    auto writer =
+            std::make_unique<TestSkipAwareWriter>(_index_file_writer.get(), _tablet_index.get());
     auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
     fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
     EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
@@ -333,8 +333,8 @@ TEST_F(WriterAdmissionTest, FailModeReturnsErrorFromInit) {
     config::ann_index_build_memory_wait_timeout_ms = 0;
     config::ann_index_build_on_oom_action = "fail";
 
-    auto writer = std::make_unique<AnnIndexColumnWriter>(_index_file_writer.get(),
-                                                         _tablet_index.get());
+    auto writer =
+            std::make_unique<AnnIndexColumnWriter>(_index_file_writer.get(), _tablet_index.get());
     auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
     fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
     EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
@@ -354,8 +354,8 @@ TEST_F(WriterAdmissionTest, FailModeDoesNotWaitDespiteLargeTimeout) {
     // Occupy the budget so the writer's reservation cannot fit.
     ASSERT_TRUE(AnnBuildMemoryBudget::instance().try_reserve(1, /*timeout_ms=*/0));
 
-    auto writer = std::make_unique<AnnIndexColumnWriter>(_index_file_writer.get(),
-                                                         _tablet_index.get());
+    auto writer =
+            std::make_unique<AnnIndexColumnWriter>(_index_file_writer.get(), _tablet_index.get());
     auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
     fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
     EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
@@ -379,8 +379,8 @@ TEST_F(WriterAdmissionTest, ReservationGrowsWithAccumulatedRows) {
     config::ann_index_build_memory_wait_timeout_ms = 1000;
     config::ann_index_build_on_oom_action = "wait";
 
-    auto writer = std::make_unique<AnnIndexColumnWriter>(_index_file_writer.get(),
-                                                         _tablet_index.get());
+    auto writer =
+            std::make_unique<AnnIndexColumnWriter>(_index_file_writer.get(), _tablet_index.get());
     auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
     fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
     EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
@@ -402,9 +402,8 @@ TEST_F(WriterAdmissionTest, ReservationGrowsWithAccumulatedRows) {
                         .ok());
 
     const int64_t after_adds = AnnBuildMemoryBudget::instance().reserved_bytes();
-    EXPECT_GT(after_adds, after_init)
-            << "reservation did not grow: after_init=" << after_init
-            << " after_adds=" << after_adds;
+    EXPECT_GT(after_adds, after_init) << "reservation did not grow: after_init=" << after_init
+                                      << " after_adds=" << after_adds;
 
     ASSERT_TRUE(writer->finish().ok());
     writer.reset(); // RAII release
@@ -413,8 +412,8 @@ TEST_F(WriterAdmissionTest, ReservationGrowsWithAccumulatedRows) {
 
 TEST_F(WriterAdmissionTest, DisabledBudgetIsTransparent) {
     config::ann_index_build_memory_budget_bytes = 0;
-    auto writer = std::make_unique<TestSkipAwareWriter>(_index_file_writer.get(),
-                                                        _tablet_index.get());
+    auto writer =
+            std::make_unique<TestSkipAwareWriter>(_index_file_writer.get(), _tablet_index.get());
     auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
     fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
     EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));

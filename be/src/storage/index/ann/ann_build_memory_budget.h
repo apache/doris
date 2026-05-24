@@ -70,8 +70,7 @@ public:
     AnnBuildMemoryReservation() = default;
     AnnBuildMemoryReservation(const AnnBuildMemoryReservation&) = delete;
     AnnBuildMemoryReservation& operator=(const AnnBuildMemoryReservation&) = delete;
-    AnnBuildMemoryReservation(AnnBuildMemoryReservation&& other) noexcept
-            : _bytes(other._bytes) {
+    AnnBuildMemoryReservation(AnnBuildMemoryReservation&& other) noexcept : _bytes(other._bytes) {
         other._bytes = 0;
     }
     AnnBuildMemoryReservation& operator=(AnnBuildMemoryReservation&& other) noexcept {

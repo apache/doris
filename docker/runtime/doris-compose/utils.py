@@ -26,6 +26,7 @@ import subprocess
 import sys
 import time
 import yaml
+import shlex
 
 DORIS_PREFIX = "doris-"
 
@@ -219,6 +220,51 @@ def exec_shell_command(command, ignore_errors=False, output_real_time=False):
     return exitcode, out
 
 
+def detect_docker_compose_cmd():
+    """
+    Return compose command prefix as a list.
+
+    Priority:
+    1. DORIS_DOCKER_COMPOSE_CMD env override
+       e.g. "docker compose" or "docker-compose" or "/path/to/docker-compose"
+    2. docker compose v2
+    3. docker-compose v1 / wrapper
+    """
+    def _command_available(cmd):
+        try:
+            subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True,
+            )
+            return True
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return False
+
+    override = os.environ.get("DORIS_DOCKER_COMPOSE_CMD")
+    if override:
+        cmd = shlex.split(override)
+        if not _command_available(cmd + ["version"]):
+            raise RuntimeError(
+                "DORIS_DOCKER_COMPOSE_CMD is set but not usable: {}".format(override)
+            )
+        return cmd
+
+    # Prefer Compose v2.
+    if _command_available(["docker", "compose", "version"]):
+        return ["docker", "compose"]
+
+    # Fallback for old machines.
+    if _command_available(["docker-compose", "version"]):
+        return ["docker-compose"]
+
+    raise RuntimeError(
+        "Neither 'docker compose' nor 'docker-compose' is available. "
+        "Please install Docker Compose v2 plugin or legacy docker-compose."
+    )
+
+
 def exec_docker_compose_command(compose_file,
                                 command,
                                 options=None,
@@ -228,8 +274,9 @@ def exec_docker_compose_command(compose_file,
     if nodes != None and not nodes:
         return 0, "Skip"
 
-    compose_cmd = "docker-compose -f {}  {}  {} {} {}".format(
-        compose_file, command, " ".join(options) if options else "",
+    docker_compose_cmd = detect_docker_compose_cmd()
+    compose_cmd = "{} -f {}  {}  {} {}".format(
+        " ".join(docker_compose_cmd), compose_file, command, " ".join(options) if options else "",
         " ".join([node.service_name() for node in nodes]) if nodes else "",
         user_command if user_command else "")
 

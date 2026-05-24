@@ -23,6 +23,8 @@
 #include <streamvbyte.h>
 
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <type_traits>
 
@@ -359,4 +361,136 @@ TEST_F(DataTypeDecimalSerDeTest, JsonDeserializeKeepsUnderflowCompatibility) {
     EXPECT_EQ(vector_column->get_element(0), expected);
 }
 
+TEST_F(DataTypeDecimalSerDeTest, ArrowMemNotAlignedDecimal256) {
+    // 1.Prepare the data.
+    arrow::Decimal256Builder builder(arrow::decimal256(76, 20));
+    std::vector<std::string> decimal_strings = {"1.00000000000000000000",
+                                                "-12345678901234567890.12345678901234567890"};
+
+    for (const auto& str : decimal_strings) {
+        EXPECT_TRUE(builder.Append(arrow::Decimal256(str)).ok());
+    }
+
+    std::shared_ptr<arrow::Array> aligned_array;
+    EXPECT_TRUE(builder.Finish(&aligned_array).ok());
+    auto decimal_array = std::static_pointer_cast<arrow::Decimal256Array>(aligned_array);
+
+    // 2.Create an unaligned memory buffer.
+    const int64_t num_elements = decimal_array->length();
+    const int64_t element_size = decimal_array->byte_width();
+
+    std::vector<uint8_t> data_storage(num_elements * element_size + 10);
+    uint8_t* unaligned_data = data_storage.data() + 1;
+
+    // 3.Copy data to unaligned memory.
+    const uint8_t* original_data = decimal_array->raw_values();
+    memcpy(unaligned_data, original_data, num_elements * element_size);
+
+    // 4.Create Arrow array with unaligned memory.
+    auto unaligned_buffer = arrow::Buffer::Wrap(unaligned_data, num_elements * element_size);
+    auto arr = std::make_shared<arrow::Decimal256Array>(arrow::decimal256(76, 20), num_elements,
+                                                        unaligned_buffer);
+
+    const auto* raw_values_ptr = arr->raw_values();
+    uintptr_t address = reinterpret_cast<uintptr_t>(raw_values_ptr);
+    EXPECT_EQ(address % alignof(Decimal256), 1);
+
+    // 5.Test read_column_from_arrow.
+    cctz::time_zone tz;
+    auto column = ColumnDecimal256::create(0, 20);
+    auto st = serde_decimal256_2->read_column_from_arrow(*column, arr.get(), 0, num_elements, tz);
+    EXPECT_TRUE(st.ok());
+    ASSERT_EQ(column->size(), num_elements);
+    EXPECT_EQ(column->get_element(0).to_string(20), decimal_strings[0]);
+    EXPECT_EQ(column->get_element(1).to_string(20), decimal_strings[1]);
+}
+
+template <typename T>
+uint8_t* find_misaligned_address(std::vector<uint8_t>& storage) {
+    auto base = reinterpret_cast<uintptr_t>(storage.data());
+    for (size_t offset = 1; offset <= alignof(T); ++offset) {
+        if ((base + offset) % alignof(T) != 0) {
+            return storage.data() + offset;
+        }
+    }
+    return storage.data() + 1;
+}
+
+TEST_F(DataTypeDecimalSerDeTest, ArrowMemNotAlignedDecimalV2TypeAlignment) {
+    arrow::Decimal128Builder builder(arrow::decimal(27, 9));
+    std::vector<std::string> decimal_strings = {"1.000000000", "-123456789012345678.123456789"};
+
+    for (const auto& str : decimal_strings) {
+        EXPECT_TRUE(builder.Append(arrow::Decimal128(str)).ok());
+    }
+
+    std::shared_ptr<arrow::Array> aligned_array;
+    EXPECT_TRUE(builder.Finish(&aligned_array).ok());
+    auto decimal_array = std::static_pointer_cast<arrow::DecimalArray>(aligned_array);
+
+    const int64_t num_elements = decimal_array->length();
+    const int64_t element_size = decimal_array->byte_width();
+
+    std::vector<uint8_t> data_storage(num_elements * element_size + alignof(Decimal128V2) + 1);
+    uint8_t* unaligned_data = find_misaligned_address<Decimal128V2>(data_storage);
+
+    const uint8_t* original_data = decimal_array->raw_values();
+    memcpy(unaligned_data, original_data, num_elements * element_size);
+
+    auto unaligned_buffer = arrow::Buffer::Wrap(unaligned_data, num_elements * element_size);
+    auto arr = std::make_shared<arrow::DecimalArray>(arrow::decimal(27, 9), num_elements,
+                                                     unaligned_buffer);
+
+    const auto* raw_values_ptr = arr->raw_values();
+    uintptr_t address = reinterpret_cast<uintptr_t>(raw_values_ptr);
+    EXPECT_NE(address % alignof(Decimal128V2), 0);
+
+    cctz::time_zone tz;
+    auto column = ColumnDecimal128V2::create(0, 9);
+    auto st = serde_decimal128v2->read_column_from_arrow(*column, arr.get(), 0, num_elements, tz);
+    EXPECT_TRUE(st.ok());
+    ASSERT_EQ(column->size(), num_elements);
+    EXPECT_EQ(column->get_element(0).to_string(9), decimal_strings[0]);
+    EXPECT_EQ(column->get_element(1).to_string(9), decimal_strings[1]);
+}
+
+TEST_F(DataTypeDecimalSerDeTest, ArrowMemNotAlignedDecimal256TypeAlignment) {
+    arrow::Decimal256Builder builder(arrow::decimal256(76, 20));
+    std::vector<std::string> decimal_strings = {"1.00000000000000000000",
+                                                "-12345678901234567890.12345678901234567890"};
+
+    for (const auto& str : decimal_strings) {
+        EXPECT_TRUE(builder.Append(arrow::Decimal256(str)).ok());
+    }
+
+    std::shared_ptr<arrow::Array> aligned_array;
+    EXPECT_TRUE(builder.Finish(&aligned_array).ok());
+    auto decimal_array = std::static_pointer_cast<arrow::Decimal256Array>(aligned_array);
+
+    const int64_t num_elements = decimal_array->length();
+    const int64_t element_size = decimal_array->byte_width();
+
+    std::vector<uint8_t> data_storage(num_elements * element_size + alignof(Decimal256) + 1);
+    uint8_t* unaligned_data = find_misaligned_address<Decimal256>(data_storage);
+
+    const uint8_t* original_data = decimal_array->raw_values();
+    memcpy(unaligned_data, original_data, num_elements * element_size);
+
+    auto unaligned_buffer = arrow::Buffer::Wrap(unaligned_data, num_elements * element_size);
+    auto arr = std::make_shared<arrow::Decimal256Array>(arrow::decimal256(76, 20), num_elements,
+                                                        unaligned_buffer);
+
+    const auto* raw_values_ptr = arr->raw_values();
+    uintptr_t address = reinterpret_cast<uintptr_t>(raw_values_ptr);
+    EXPECT_NE(address % alignof(Decimal256), 0);
+
+    cctz::time_zone tz;
+    DataTypeDecimalSerDe<TYPE_DECIMAL256> serde_decimal256_20(76, 20);
+    auto column = ColumnDecimal256::create(0, 20);
+    auto st = serde_decimal256_20.read_column_from_arrow(*column, arr.get(), 0, num_elements, tz);
+    EXPECT_TRUE(st.ok());
+    ASSERT_EQ(column->size(), num_elements);
+    EXPECT_EQ(column->get_element(0).to_string(20), decimal_strings[0]);
+    EXPECT_EQ(column->get_element(1).to_string(20), decimal_strings[1]);
+}
 } // namespace doris

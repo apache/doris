@@ -100,7 +100,7 @@ public class Embed extends AIFunction {
             return;
         }
         if (arity() == 2) {
-            String aiResourceName = requireStringLiteral(child(0), "resource name",
+            String aiResourceName = requireStringLiteral(getArgument(0), "resource name",
                     "AI Function must accept literal for the resource name.");
             validateAIResource(aiResourceName);
             return;

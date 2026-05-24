@@ -27,6 +27,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.util.Iterator;
+import java.util.Map;
+
 /**
  * literal for json type.
  */
@@ -49,8 +52,42 @@ public class JsonLiteral extends Literal {
         }
         if (jsonNode == null || jsonNode.isMissingNode()) {
             throw new AnalysisException("Invalid jsonb literal: ''");
+        }
+        validateNoLoneSurrogate(jsonNode);
+        this.value = jsonNode.toString();
+    }
+
+    // RFC 8259 §8.2: JSON strings must not contain lone UTF-16 surrogates.
+    // Jackson accepts them by default, so we validate after parsing.
+    // Both string values AND object field names are checked.
+    private static void validateNoLoneSurrogate(JsonNode node) {
+        if (node.isTextual()) {
+            validateNoLoneSurrogateInString(node.textValue());
+        } else if (node.isObject()) {
+            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> entry = fields.next();
+                validateNoLoneSurrogateInString(entry.getKey());
+                validateNoLoneSurrogate(entry.getValue());
+            }
         } else {
-            this.value = jsonNode.toString();
+            node.forEach(JsonLiteral::validateNoLoneSurrogate);
+        }
+    }
+
+    private static void validateNoLoneSurrogateInString(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (Character.isHighSurrogate(c)) {
+                if (i + 1 >= s.length() || !Character.isLowSurrogate(s.charAt(i + 1))) {
+                    throw new AnalysisException(
+                            "Invalid jsonb literal: JSON string contains lone high surrogate");
+                }
+                i++; // skip the paired low surrogate
+            } else if (Character.isLowSurrogate(c)) {
+                throw new AnalysisException(
+                        "Invalid jsonb literal: JSON string contains lone low surrogate");
+            }
         }
     }
 

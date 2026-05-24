@@ -31,6 +31,11 @@ import java.util.Objects;
 
 /**
  * Describes an ARRAY type.
+ *
+ * <p>Array elements are always nullable in Doris. The {@code containsNull} field is retained
+ * only for backward compatibility with serialized metadata (Gson). It is always treated as
+ * {@code true} at runtime. The two-argument constructor is kept but deprecated; prefer the
+ * single-argument constructor {@link #ArrayType(Type)} which defaults to nullable elements.</p>
  */
 public class ArrayType extends Type {
 
@@ -39,6 +44,8 @@ public class ArrayType extends Type {
     @SerializedName(value = "itemType")
     private final Type itemType;
 
+    // Retained for Gson deserialization compatibility with older metadata.
+    // Always treated as true at runtime — array elements are always nullable.
     @SerializedName(value = "containsNull")
     private final boolean containsNull;
 
@@ -48,20 +55,31 @@ public class ArrayType extends Type {
     }
 
     public ArrayType(Type itemType) {
-        this(itemType, true);
+        this.itemType = itemType;
+        this.containsNull = true;
     }
 
+    /**
+     * @deprecated Array elements are always nullable. Use {@link #ArrayType(Type)} instead.
+     *             This constructor is retained only for call-site compatibility during transition.
+     */
+    @Deprecated
     public ArrayType(Type itemType, boolean containsNull) {
         this.itemType = itemType;
-        this.containsNull = containsNull;
+        // Ignore the parameter — always true
+        this.containsNull = true;
     }
 
     public Type getItemType() {
         return itemType;
     }
 
+    /**
+     * Always returns {@code true}. Array elements are always nullable in Doris.
+     */
     public boolean getContainsNull() {
-        return containsNull;
+        // Always true — array elements are always nullable
+        return true;
     }
 
     @Override
@@ -83,10 +101,7 @@ public class ArrayType extends Type {
             return false;
         }
 
-        if (((ArrayType) t).getContainsNull() != getContainsNull()) {
-            return false;
-        }
-
+        // containsNull is always true, no need to compare
         return itemType.matchesType(((ArrayType) t).itemType);
     }
 
@@ -94,24 +109,27 @@ public class ArrayType extends Type {
         return new ArrayType();
     }
 
+    public static ArrayType create(Type type) {
+        return new ArrayType(type);
+    }
+
+    /**
+     * @deprecated Array elements are always nullable. Use {@link #create(Type)} instead.
+     */
+    @Deprecated
     public static ArrayType create(Type type, boolean containsNull) {
-        return new ArrayType(type, containsNull);
+        return new ArrayType(type);
     }
 
     @Override
     public String toSql(int depth) {
-        StringBuilder typeStr = new StringBuilder();
-        typeStr.append("array<").append(itemType.toSql(depth + 1));
-        if (!containsNull) {
-            typeStr.append(" not null");
-        }
-        typeStr.append(">");
-        return typeStr.toString();
+        // Array elements are always nullable, no "not null" suffix needed
+        return "array<" + itemType.toSql(depth + 1) + ">";
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(itemType, containsNull);
+        return Objects.hash(itemType);
     }
 
     @Override
@@ -120,7 +138,7 @@ public class ArrayType extends Type {
             return false;
         }
         ArrayType otherArrayType = (ArrayType) other;
-        return otherArrayType.itemType.equals(itemType) && otherArrayType.containsNull == containsNull;
+        return otherArrayType.itemType.equals(itemType);
     }
 
     @Override
@@ -129,8 +147,9 @@ public class ArrayType extends Type {
         container.types.add(node);
         Preconditions.checkNotNull(itemType);
         node.setType(TTypeNodeType.ARRAY);
-        node.setContainsNull(containsNull);
-        node.setContainsNulls(Lists.newArrayList(containsNull));
+        // Array elements are always nullable
+        node.setContainsNull(true);
+        node.setContainsNulls(Lists.newArrayList(true));
         itemType.toThrift(container);
     }
 

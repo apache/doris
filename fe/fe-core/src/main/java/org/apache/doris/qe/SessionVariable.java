@@ -164,6 +164,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
     public static final String BROKER_LOAD_BATCH_SIZE = "broker_load_batch_size";
+    public static final String PREFERRED_BLOCK_SIZE_BYTES = "preferred_block_size_bytes";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String ENABLE_DISTINCT_STREAMING_AGGREGATION = "enable_distinct_streaming_aggregation";
     public static final String ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH =
@@ -443,6 +444,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_EXT_FUNC_PRED_PUSHDOWN = "enable_ext_func_pred_pushdown";
 
     public static final String ENABLE_COMMON_EXPR_PUSHDOWN = "enable_common_expr_pushdown";
+
+    public static final String ENABLE_SEGMENT_LIMIT_PUSHDOWN = "enable_segment_limit_pushdown";
 
     public static final String FRAGMENT_TRANSMISSION_COMPRESSION_CODEC = "fragment_transmission_compression_codec";
 
@@ -839,6 +842,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX = "enable_fallback_on_missing_inverted_index";
     public static final String ENABLE_INVERTED_INDEX_SEARCHER_CACHE = "enable_inverted_index_searcher_cache";
     public static final String ENABLE_INVERTED_INDEX_QUERY_CACHE = "enable_inverted_index_query_cache";
+    public static final String ENABLE_ANN_INDEX_RESULT_CACHE = "enable_ann_index_result_cache";
 
     public static final String IN_LIST_VALUE_COUNT_THRESHOLD = "in_list_value_count_threshold";
 
@@ -1294,13 +1298,24 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = HAVE_QUERY_CACHE, flag = VarAttrDef.READ_ONLY)
     public boolean haveQueryCache = false;
 
-    // 4096 minus 16 + 16 bytes padding that in padding pod array
+    // 8192 minus 16 + 16 bytes padding that in padding pod array.
+    // This remains the row cap for output blocks even when adaptive byte budgeting is enabled.
     @VarAttrDef.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize", needForward = true)
     public int batchSize = 8160;
 
     // 16352 + 16 + 16 = 16384
     @VarAttrDef.VarAttr(name = BROKER_LOAD_BATCH_SIZE, fuzzy = true, checker = "checkBatchSize")
     public int brokerLoadBatchSize = 16352;
+
+    // Target output block size in bytes for adaptive batch size.
+    // Valid range: [1MB, 512MB]. Default 8MB.
+    @VarAttrDef.VarAttr(name = PREFERRED_BLOCK_SIZE_BYTES, needForward = true,
+            checker = "checkPreferredBlockSizeBytes",
+            description = {"目标输出 Block 字节数上限，自适应 batch size 功能使用。"
+                    + "范围 [1MB, 512MB]，默认 8MB",
+                "Target output block size in bytes for adaptive batch size. "
+                    + "Range [1MB, 512MB]. Default 8MB."})
+    public long preferredBlockSizeBytes = 8388608L; // 8MB
 
     @VarAttrDef.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
     public boolean disableStreamPreaggregations = false;
@@ -2086,8 +2101,14 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = FORBID_UNKNOWN_COLUMN_STATS)
     public boolean forbidUnknownColStats = false;
 
+    // Legacy session variable. BE treats common expr pushdown as enabled in this branch.
     @VarAttrDef.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN, fuzzy = true)
     public boolean enableCommonExprPushdown = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_SEGMENT_LIMIT_PUSHDOWN, fuzzy = true, needForward = true,
+            description = {"是否启用 SegmentIterator 层 LIMIT 下推。",
+                    "Set whether to push down LIMIT into SegmentIterator."})
+    public boolean enableSegmentLimitPushdown = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = false, flag = VarAttrDef.INVISIBLE,
             varType = VariableAnnotation.DEPRECATED)
@@ -2193,7 +2214,11 @@ public class SessionVariable implements Serializable, Writable {
     // Whether enable two phase read optimization
     // 1. read related rowids along with necessary column data
     // 2. spawn fetch RPC to other nodes to get related data by sorted rowids
-    @VarAttrDef.VarAttr(name = ENABLE_TWO_PHASE_READ_OPT, fuzzy = true)
+    @VarAttrDef.VarAttr(name = ENABLE_TWO_PHASE_READ_OPT, fuzzy = true, varType = VariableAnnotation.REMOVED,
+            description = {"由topn_lazy_materialization_threshold 替代，"
+                    + "当topn_lazy_materialization_threshold=-1时关闭两阶段读优化",
+                    "Replaced by topn_lazy_materialization_threshold. The two-stage read optimization "
+                            + "is disabled when topn_lazy_materialization_threshold = -1."})
     public boolean enableTwoPhaseReadOpt = true;
     @VarAttrDef.VarAttr(name = TOPN_OPT_LIMIT_THRESHOLD)
     public long topnOptLimitThreshold = 1024;
@@ -2552,7 +2577,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_ORDERED_SCAN_RANGE_LOCATIONS)
     public boolean enableOrderedScanRangeLocations = false;
 
-    @VarAttrDef.VarAttr(name = CTE_INLINE_MODE, alias = "cbo_cte_inline_mode", description = {
+    @VarAttrDef.VarAttr(name = CTE_INLINE_MODE, description = {
             "CTE内联模式。<0:禁用; =0:仅当CTE体含UNION ALL且filter可消除部分分支时内联; >=1:CBO比较物化与内联",
             "CTE inline mode. <0: disable; =0: only inline when CTE body contains UNION ALL "
                     + "and consumer filters can eliminate some union branches; "
@@ -3384,6 +3409,12 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enableInvertedIndexQueryCache = true;
 
+    @VarAttrDef.VarAttr(name = ENABLE_ANN_INDEX_RESULT_CACHE, needForward = true, description = {
+        "开启后会缓存 ANN 索引查询结果",
+        "Enabling this will cache the results of ANN index queries."
+    })
+    public boolean enableAnnIndexResultCache = true;
+
     @VarAttrDef.VarAttr(name = IN_LIST_VALUE_COUNT_THRESHOLD, description = {
         "in 条件 value 数量大于这个 threshold 后将不会走 fast_execute",
         "When the number of values in the IN condition exceeds this threshold,"
@@ -3690,6 +3721,9 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
+        // enable fuzzy after we clean all case of
+        // enable_common_expr_pushdown/enable_common_exp_pushdown_for_inverted_index
+        // this.enableSegmentLimitPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
@@ -5430,6 +5464,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
 
         tResult.setBatchSize(batchSize);
+        tResult.setPreferredBlockSizeBytes(preferredBlockSizeBytes);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
         tResult.setEnableStreamingAggHashJoinForcePassthrough(enableStreamingAggHashJoinForcePassthrough);
@@ -5470,6 +5505,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
         tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
+        tResult.setEnableSegmentLimitPushdown(enableSegmentLimitPushdown);
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec.trim().toLowerCase());
         tResult.setEnableLocalExchange(enableLocalExchange);
@@ -5571,6 +5607,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
         tResult.setEnableInvertedIndexSearcherCache(enableInvertedIndexSearcherCache);
         tResult.setEnableInvertedIndexQueryCache(enableInvertedIndexQueryCache);
+        tResult.setEnableAnnIndexResultCache(enableAnnIndexResultCache);
         tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
         tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
         tResult.setQuerySlotCount(wgQuerySlotCount);
@@ -6115,6 +6152,19 @@ public class SessionVariable implements Serializable, Writable {
 
     public void checkAiContextWindowSize(String value) throws Exception {
         checkFieldLongValue(AI_CONTEXT_WINDOW_SIZE, 1, value);
+    }
+
+    private static final long PREFERRED_BLOCK_SIZE_BYTES_MIN = 1048576L;      // 1MB
+    private static final long PREFERRED_BLOCK_SIZE_BYTES_MAX = 536870912L;    // 512MB
+
+    public void checkPreferredBlockSizeBytes(String value) {
+        long v = Long.parseLong(value);
+        if (v < PREFERRED_BLOCK_SIZE_BYTES_MIN || v > PREFERRED_BLOCK_SIZE_BYTES_MAX) {
+            throw new InvalidParameterException(
+                    "preferred_block_size_bytes should be between 1MB ("
+                    + PREFERRED_BLOCK_SIZE_BYTES_MIN + ") and 512MB ("
+                    + PREFERRED_BLOCK_SIZE_BYTES_MAX + "), got " + v);
+        }
     }
 
     public void checkSkewRewriteAggBucketNum(String bucketNumStr) {

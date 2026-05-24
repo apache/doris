@@ -70,6 +70,8 @@
 #include "storage/olap_common.h"
 #include "util/defer_op.h"
 #include "util/json/path_in_data.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_document_cast.h"
 #include "util/jsonb_parser_simd.h"
 #include "util/jsonb_utils.h"
 #include "util/simd/bits.h"
@@ -339,16 +341,6 @@ ColumnVariant::Subcolumn ColumnVariant::Subcolumn::clone_with_default_values(
     return new_subcolumn;
 }
 
-Field ColumnVariant::Subcolumn::get_last_field() const {
-    if (data.empty()) {
-        return Field();
-    }
-
-    const auto& last_part = data.back();
-    assert(!last_part->empty());
-    return (*last_part)[last_part->size() - 1];
-}
-
 void ColumnVariant::Subcolumn::insert_range_from(const Subcolumn& src, size_t start,
                                                  size_t length) {
     if (start + length > src.size()) {
@@ -393,17 +385,22 @@ void ColumnVariant::Subcolumn::insert_range_from(const Subcolumn& src, size_t st
             data.back()->insert_range_from(*column, from, n);
             return;
         }
-        // When LCT is Array<Variant> (NG data) and the part is scalar, cast
-        // would crash.  Under DISCARD_SCALAR the scalar part becomes defaults.
+        // When LCT is Array<Variant> (NG data), only true scalar sources should
+        // be discarded under DISCARD_SCALAR. Mixed regular arrays such as
+        // [null, "plain_text", 123, {"k":"v"}] must still get a chance to cast
+        // into the NG-compatible array type during query-side merges.
         if (is_nested_group_type(least_common_type.get())) {
-            if (!config::variant_nested_group_discard_scalar_on_conflict) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "NestedGroup type conflict: cannot cast scalar type {} to "
-                                       "Array<Variant>",
-                                       column_type->get_name());
+            const bool src_is_scalar = get_number_of_dimensions(*column_type) == 0;
+            if (src_is_scalar) {
+                if (!config::variant_nested_group_discard_scalar_on_conflict) {
+                    throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                           "NestedGroup type conflict: cannot cast scalar type "
+                                           "{} to Array<Variant>",
+                                           column_type->get_name());
+                }
+                data.back()->insert_many_defaults(n);
+                return;
             }
-            data.back()->insert_many_defaults(n);
-            return;
         }
         /// If we need to insert large range, there is no sense to cut part of column and cast it.
         /// Casting of all column and inserting from it can be faster.
@@ -413,6 +410,11 @@ void ColumnVariant::Subcolumn::insert_range_from(const Subcolumn& src, size_t st
             Status st = variant_util::cast_column({column, column_type, ""},
                                                   least_common_type.get(), &casted_column);
             if (!st.ok()) {
+                if (is_nested_group_type(least_common_type.get()) &&
+                    config::variant_nested_group_discard_scalar_on_conflict) {
+                    data.back()->insert_many_defaults(n);
+                    return;
+                }
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT, st.to_string());
             }
             data.back()->insert_range_from(*casted_column, from, n);
@@ -422,6 +424,11 @@ void ColumnVariant::Subcolumn::insert_range_from(const Subcolumn& src, size_t st
         Status st = variant_util::cast_column({casted_column, column_type, ""},
                                               least_common_type.get(), &casted_column);
         if (!st.ok()) {
+            if (is_nested_group_type(least_common_type.get()) &&
+                config::variant_nested_group_discard_scalar_on_conflict) {
+                data.back()->insert_many_defaults(n);
+                return;
+            }
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, st.to_string());
         }
         data.back()->insert_range_from(*casted_column, 0, n);
@@ -477,7 +484,7 @@ MutableColumnPtr ColumnVariant::apply_for_columns(Func&& func) const {
         auto& finalized_object = assert_cast<ColumnVariant&>(*finalized);
         return finalized_object.apply_for_columns(std::forward<Func>(func));
     }
-    auto new_root = func(get_root())->assume_mutable();
+    auto new_root = std::move(*func(get_root())).mutate();
     auto res = ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode, get_root_type(),
                                      std::move(new_root));
     for (const auto& subcolumn : subcolumns) {
@@ -485,16 +492,16 @@ MutableColumnPtr ColumnVariant::apply_for_columns(Func&& func) const {
             continue;
         }
         auto new_subcolumn = func(subcolumn->data.get_finalized_column_ptr());
-        if (!res->add_sub_column(subcolumn->path, new_subcolumn->assume_mutable(),
+        if (!res->add_sub_column(subcolumn->path, std::move(*new_subcolumn).mutate(),
                                  subcolumn->data.get_least_common_type())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "add path {} is error",
                                    subcolumn->path.get_path());
         }
     }
     auto sparse_column = func(serialized_sparse_column);
-    res->serialized_sparse_column = sparse_column->assume_mutable();
+    res->serialized_sparse_column = IColumn::mutate(std::move(sparse_column));
     auto doc_value_column = func(serialized_doc_value_column);
-    res->serialized_doc_value_column = doc_value_column->assume_mutable();
+    res->serialized_doc_value_column = IColumn::mutate(std::move(doc_value_column));
     res->num_rows = res->serialized_sparse_column->size();
     ENABLE_CHECK_CONSISTENCY(res.get());
     return res;
@@ -677,6 +684,9 @@ ColumnVariant::Subcolumn::LeastCommonType::LeastCommonType(DataTypePtr type_, bo
     base_type_id = base_type->get_primitive_type();
 }
 
+ColumnVariant::ColumnVariant(int32_t max_subcolumns_count)
+        : ColumnVariant(max_subcolumns_count, false) {}
+
 ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode)
         : is_nullable(true),
           num_rows(0),
@@ -684,6 +694,11 @@ ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode)
           _enable_doc_mode(enable_doc_mode) {
     subcolumns.create_root(Subcolumn(0, is_nullable, true /*root*/));
     ENABLE_CHECK_CONSISTENCY(this);
+}
+
+ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, DataTypePtr root_type,
+                             MutableColumnPtr&& root_column)
+        : ColumnVariant(max_subcolumns_count, false, std::move(root_type), std::move(root_column)) {
 }
 
 ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
@@ -698,6 +713,9 @@ ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
     serialized_doc_value_column->resize(num_rows);
     ENABLE_CHECK_CONSISTENCY(this);
 }
+
+ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, Subcolumns&& subcolumns_)
+        : ColumnVariant(max_subcolumns_count, false, std::move(subcolumns_)) {}
 
 ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
                              Subcolumns&& subcolumns_)
@@ -715,6 +733,9 @@ ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
     serialized_sparse_column->resize(num_rows);
     serialized_doc_value_column->resize(num_rows);
 }
+
+ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, size_t size)
+        : ColumnVariant(max_subcolumns_count, false, size) {}
 
 ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode, size_t size)
         : is_nullable(true),
@@ -818,12 +839,15 @@ void ColumnVariant::for_each_subcolumn(ColumnCallback callback) {
 }
 
 void ColumnVariant::insert_from(const IColumn& src, size_t n) {
-    const auto* src_v = check_and_get_column<ColumnVariant>(src);
+    const auto* src_v = assert_cast<const ColumnVariant*>(&src);
     ENABLE_CHECK_CONSISTENCY(src_v);
     ENABLE_CHECK_CONSISTENCY(this);
-    // doc mode fast path: both sides root-only, direct copy root + sparse + doc_value
-    if (_enable_doc_mode) {
-        DCHECK(src_v->_enable_doc_mode) << "dst is doc mode but src is not";
+    // Preserve the original root-only copy path for ordinary variant columns.
+    // Reconstructing through try_insert() loses sparse/doc_value structure for
+    // mixed-shape rows and nested-group data.
+    if (src_v->get_subcolumns().size() == 1 && get_subcolumns().size() == 1) {
+        DCHECK(_enable_doc_mode == src_v->_enable_doc_mode)
+                << "root-only variant copy requires matching doc mode";
         FieldWithDataType field;
         src_v->subcolumns.get_root()->data.get(n, field);
         subcolumns.get_mutable_root()->data.insert(field);
@@ -918,6 +942,10 @@ bool ColumnVariant::Subcolumn::is_null_at(size_t n) const {
         }
         ind -= part->size();
     }
+    // Remaining rows are pending lazy defaults (current_num_of_defaults suffix).
+    if (ind < current_num_of_defaults) {
+        return true;
+    }
     throw doris::Exception(ErrorCode::OUT_OF_BOUND, "Index ({}) for getting field is out of range",
                            n);
 }
@@ -947,6 +975,11 @@ void ColumnVariant::Subcolumn::get(size_t n, FieldWithDataType& res) const {
         }
 
         ind -= part->size();
+    }
+    // Remaining rows are pending lazy defaults (current_num_of_defaults suffix).
+    if (ind < current_num_of_defaults) {
+        res = FieldWithDataType(Field());
+        return;
     }
     throw doris::Exception(ErrorCode::OUT_OF_BOUND, "Index ({}) for getting field is out of range",
                            n);
@@ -1641,34 +1674,130 @@ struct Prefix {
     bool root_is_first_flag = true;
 };
 
-// skip empty nested json:
-// 1. nested array with only nulls, eg. [null. null],todo: think a better way to deal distinguish array null value and real null value.
-// 2. type is nothing
-bool ColumnVariant::Subcolumn::is_empty_nested(size_t row) const {
-    PrimitiveType base_type_id = least_common_type.get_base_type_id();
-    const DataTypePtr& type = least_common_type.get();
-    if (type->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
-        // check if it is empty nested json array, then skip
-        FieldWithDataType field;
-        get(row, field);
-        if (field.field.get_type() == PrimitiveType::TYPE_ARRAY) {
-            const auto& array = field.field.get<TYPE_ARRAY>();
-            bool only_nulls_inside = true;
-            for (const auto& elem : array) {
-                if (elem.get_type() != PrimitiveType::TYPE_NULL) {
-                    only_nulls_inside = false;
-                    break;
-                }
-            }
-            // if only nulls then skip
-            return only_nulls_inside;
-        }
+enum class NestedJsonSkipKind {
+    kVisible,
+    kNullOnlyArray,
+    kEmptyShellArray,
+    kInvalidType,
+};
+
+static bool is_semantically_empty_jsonb_value(const JsonbValue* value) {
+    if (value == nullptr || value->isNull()) {
+        return true;
     }
-    // skip nothing type
-    if (base_type_id == PrimitiveType::INVALID_TYPE) {
+    if (value->isArray()) {
+        const auto* array = value->unpack<ArrayVal>();
+        for (auto it = array->begin(); it != array->end(); ++it) {
+            if (!is_semantically_empty_jsonb_value(&*it)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (value->isObject()) {
+        const auto* object = value->unpack<ObjectVal>();
+        for (auto it = object->begin(); it != object->end(); ++it) {
+            if (!is_semantically_empty_jsonb_value(it->value())) {
+                return false;
+            }
+        }
         return true;
     }
     return false;
+}
+
+static bool is_semantically_empty_nested_field(const Field& field) {
+    switch (field.get_type()) {
+    case PrimitiveType::TYPE_NULL:
+        return true;
+    case PrimitiveType::TYPE_ARRAY: {
+        const auto& array = field.get<TYPE_ARRAY>();
+        for (const auto& elem : array) {
+            if (!is_semantically_empty_nested_field(elem)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    case PrimitiveType::TYPE_VARIANT: {
+        const auto& object = field.get<TYPE_VARIANT>();
+        for (const auto& [_, value] : object) {
+            if (!is_semantically_empty_nested_field(value.field)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    case PrimitiveType::TYPE_JSONB: {
+        const auto& jsonb = field.get<TYPE_JSONB>();
+        const JsonbDocument* doc = nullptr;
+        Status st =
+                JsonbDocument::checkAndCreateDocument(jsonb.get_value(), jsonb.get_size(), &doc);
+        if (!st.ok() || doc == nullptr) {
+            return false;
+        }
+        return is_semantically_empty_jsonb_value(doc->getValue());
+    }
+    default:
+        return false;
+    }
+}
+
+static NestedJsonSkipKind classify_nested_json_skip_kind(const Field& field,
+                                                         PrimitiveType base_type_id,
+                                                         const DataTypePtr& type) {
+    if (base_type_id == PrimitiveType::INVALID_TYPE) {
+        return NestedJsonSkipKind::kInvalidType;
+    }
+    if (type->get_primitive_type() != PrimitiveType::TYPE_ARRAY ||
+        field.get_type() != PrimitiveType::TYPE_ARRAY) {
+        return NestedJsonSkipKind::kVisible;
+    }
+
+    const auto& array = field.get<TYPE_ARRAY>();
+    bool only_nulls_inside = true;
+    bool only_empty_shells_inside = true;
+    for (const auto& elem : array) {
+        if (elem.get_type() != PrimitiveType::TYPE_NULL) {
+            only_nulls_inside = false;
+        }
+        if (!is_semantically_empty_nested_field(elem)) {
+            only_empty_shells_inside = false;
+        }
+        if (!only_nulls_inside && !only_empty_shells_inside) {
+            return NestedJsonSkipKind::kVisible;
+        }
+    }
+
+    if (only_nulls_inside) {
+        return NestedJsonSkipKind::kNullOnlyArray;
+    }
+    if (only_empty_shells_inside) {
+        return NestedJsonSkipKind::kEmptyShellArray;
+    }
+    return NestedJsonSkipKind::kVisible;
+}
+
+NestedJsonSkipKind get_nested_json_skip_kind(const ColumnVariant::Subcolumn& subcolumn,
+                                             size_t row) {
+    FieldWithDataType field;
+    subcolumn.get(row, field);
+    return classify_nested_json_skip_kind(field.field, subcolumn.get_least_common_base_type_id(),
+                                          subcolumn.get_least_common_type());
+}
+
+// Skip nested JSON during row serialization when it carries no visible payload.
+// For non-root nested subcolumns we ignore array payloads that recursively serialize to
+// nothing, e.g. [], [null], [{}], or [{"L2": []}].
+bool ColumnVariant::Subcolumn::is_empty_nested(size_t row) const {
+    return get_nested_json_skip_kind(*this, row) != NestedJsonSkipKind::kVisible;
+}
+
+// Root array visibility keeps the historical semantics: skip only null-like arrays and
+// INVALID_TYPE. Empty object arrays such as [{}] must remain visible at the root level.
+bool ColumnVariant::Subcolumn::is_empty_nested_root_value(size_t row) const {
+    NestedJsonSkipKind kind = get_nested_json_skip_kind(*this, row);
+    return kind == NestedJsonSkipKind::kNullOnlyArray || kind == NestedJsonSkipKind::kInvalidType;
 }
 
 bool ColumnVariant::is_visible_root_value(size_t nrow) const {
@@ -1683,7 +1812,7 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
     // for top level array we should also use field to check if it is empty
     if (root->data.least_common_type.get_type_id() == PrimitiveType::TYPE_ARRAY) {
         // nested field which field is Array
-        return !root->data.is_empty_nested(nrow);
+        return !root->data.is_empty_nested_root_value(nrow);
     }
     for (const auto& subcolumn : subcolumns) {
         if (subcolumn->data.is_root) {
@@ -1939,14 +2068,13 @@ Status ColumnVariant::serialize_sparse_columns(
 /// directly as NestedGroup data by the writer (VariantColumnWriterImpl).
 void ColumnVariant::unnest(Subcolumns::NodePtr& entry, Subcolumns& res_subcolumns) const {
     entry->data.finalize();
-    auto nested_column = entry->data.get_finalized_column_ptr()->assume_mutable();
+    auto nested_column = std::move(*entry->data.get_finalized_column_ptr()).mutate();
     auto* nested_column_nullable = assert_cast<ColumnNullable*>(nested_column.get());
     auto* nested_column_array =
-            assert_cast<ColumnArray*>(nested_column_nullable->get_nested_column_ptr().get());
+            assert_cast<ColumnArray*>(&nested_column_nullable->get_nested_column());
     auto& offset = nested_column_array->get_offsets_ptr();
 
-    auto* nested_object_nullable = assert_cast<ColumnNullable*>(
-            nested_column_array->get_data_ptr()->assume_mutable().get());
+    auto* nested_object_nullable = assert_cast<ColumnNullable*>(&nested_column_array->get_data());
     auto& nested_object_column =
             assert_cast<ColumnVariant&>(nested_object_nullable->get_nested_column());
     PathInData nested_path = entry->path;
@@ -1962,13 +2090,18 @@ void ColumnVariant::unnest(Subcolumns::NodePtr& entry, Subcolumns& res_subcolumn
         path_builder.append(nested_entry->path.get_parts(), true);
         auto subnested_column = ColumnArray::create(
                 ColumnNullable::create(nested_entry->data.get_finalized_column_ptr(),
-                                       nested_object_nullable->get_null_map_column_ptr()),
+                                       static_cast<const ColumnNullable*>(nested_object_nullable)
+                                               ->get_null_map_column()
+                                               .get_ptr()),
                 offset);
-        auto nullable_subnested_column = ColumnNullable::create(
-                std::move(subnested_column), nested_column_nullable->get_null_map_column_ptr());
+        auto nullable_subnested_column =
+                ColumnNullable::create(std::move(subnested_column),
+                                       static_cast<const ColumnNullable*>(nested_column_nullable)
+                                               ->get_null_map_column()
+                                               .get_ptr());
         auto type = make_nullable(
                 std::make_shared<DataTypeArray>(nested_entry->data.least_common_type.get()));
-        Subcolumn subcolumn(nullable_subnested_column->assume_mutable(), type, is_nullable);
+        Subcolumn subcolumn(std::move(nullable_subnested_column), type, is_nullable);
         res_subcolumns.add(path_builder.build(), subcolumn);
     }
 }
@@ -1981,7 +2114,24 @@ void ColumnVariant::clear_sparse_column() {
     }
 #endif
 
-    serialized_sparse_column->clear();
+    serialized_sparse_column = ColumnPtr(create_binary_column_fn());
+}
+
+void ColumnVariant::ensure_binary_columns_rows() {
+    auto resize_if_empty = [this](WrappedPtr& column) {
+        const auto& const_column = static_cast<const IColumn::Ptr&>(column);
+        if (const_column->size() == num_rows) {
+            return;
+        }
+        CHECK(const_column->empty())
+                << "ColumnVariant binary column size mismatch, rows: " << num_rows
+                << ", column rows: " << const_column->size();
+        auto mutable_column = IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(column)));
+        mutable_column->resize(num_rows);
+        column = std::move(mutable_column);
+    };
+    resize_if_empty(serialized_sparse_column);
+    resize_if_empty(serialized_doc_value_column);
 }
 
 Status ColumnVariant::convert_typed_path_to_storage_type(
@@ -2096,6 +2246,7 @@ Status ColumnVariant::pick_subcolumns_to_sparse_column(
 }
 
 void ColumnVariant::finalize(FinalizeMode mode) {
+    ensure_binary_columns_rows();
     if (is_finalized() && mode == FinalizeMode::READ_MODE) {
         _prev_positions.clear();
         ENABLE_CHECK_CONSISTENCY(this);
@@ -2143,6 +2294,7 @@ void ColumnVariant::finalize(FinalizeMode mode) {
     std::swap(subcolumns, new_subcolumns);
 
     _prev_positions.clear();
+    ensure_binary_columns_rows();
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
@@ -2193,7 +2345,7 @@ ColumnPtr ColumnVariant::filter(const Filter& filter, ssize_t count) const {
         ENABLE_CHECK_CONSISTENCY(res.get());
         return res;
     }
-    auto new_root = get_root()->filter(filter, count)->assume_mutable();
+    auto new_root = std::move(*get_root()->filter(filter, count)).mutate();
     auto new_column = ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode,
                                             get_root_type(), std::move(new_root));
     for (const auto& entry : subcolumns) {
@@ -2201,7 +2353,7 @@ ColumnPtr ColumnVariant::filter(const Filter& filter, ssize_t count) const {
             continue;
         }
         auto subcolumn = entry->data.get_finalized_column().filter(filter, -1);
-        new_column->add_sub_column(entry->path, subcolumn->assume_mutable(),
+        new_column->add_sub_column(entry->path, std::move(*subcolumn).mutate(),
                                    entry->data.get_least_common_type());
     }
     new_column->serialized_sparse_column = serialized_sparse_column->filter(filter, count);
@@ -2248,8 +2400,10 @@ void ColumnVariant::clear() {
     // we must keep root column exist
     empty.create_root(Subcolumn(0, is_nullable, true));
     std::swap(empty, subcolumns);
-    serialized_sparse_column->clear();
-    serialized_doc_value_column->clear();
+    // Reassign to fresh empty columns to avoid requiring exclusive ownership.
+    // The existing columns may be shared (use_count > 1) so we cannot clear them in-place.
+    serialized_sparse_column = ColumnPtr(create_binary_column_fn());
+    serialized_doc_value_column = ColumnPtr(create_binary_column_fn());
     num_rows = 0;
     _prev_positions.clear();
     ENABLE_CHECK_CONSISTENCY(this);
@@ -2649,10 +2803,26 @@ void ColumnVariant::fill_path_column_from_sparse_data(Subcolumn& subcolumn, Null
 
 MutableColumnPtr ColumnVariant::clone() const {
     auto res = ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode);
+    // Copy typed_path_count and nested_path_count so the subcolumn limit logic is consistent.
+    res->typed_path_count = typed_path_count;
+    res->nested_path_count = nested_path_count;
     Subcolumns new_subcolumns;
     for (const auto& subcolumn : subcolumns) {
-        auto new_subcolumn = subcolumn->data;
-        if (subcolumn->data.is_root) {
+        // Struct-copy all metadata (num_rows, num_of_defaults_in_prefix,
+        // current_num_of_defaults, data_types, etc.), then deep-clone data WrappedPtrs.
+        Subcolumn new_subcolumn = subcolumn->data;
+        for (auto& wp : new_subcolumn.data) {
+            static_cast<IColumn::Ptr&>(wp) =
+                    std::move(*static_cast<const IColumn::Ptr&>(wp)).mutate();
+        }
+        // Flush pending lazy defaults into actual data so that the cloned subcolumn
+        // is self-consistent (current_num_of_defaults == 0 after clone).
+        if (new_subcolumn.current_num_of_defaults > 0) {
+            size_t pending = new_subcolumn.current_num_of_defaults;
+            new_subcolumn.current_num_of_defaults = 0;
+            new_subcolumn.insert_many_defaults(pending);
+        }
+        if (subcolumn->data.is_root || subcolumn->path.empty()) {
             new_subcolumns.create_root(std::move(new_subcolumn));
         } else if (!new_subcolumns.add(subcolumn->path, std::move(new_subcolumn))) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "add path {} is error in clone()",
@@ -2663,22 +2833,12 @@ MutableColumnPtr ColumnVariant::clone() const {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "root is nullptr in clone()");
     }
     res->subcolumns = std::move(new_subcolumns);
-    auto&& column = serialized_sparse_column->get_ptr();
-    auto sparse_column = std::move(*column).mutate();
-    res->serialized_sparse_column = sparse_column->assume_mutable();
-
-    auto&& new_doc_value_column = serialized_doc_value_column->get_ptr();
-    auto doc_value_column = std::move(*new_doc_value_column).mutate();
-    res->serialized_doc_value_column = doc_value_column->assume_mutable();
+    res->serialized_sparse_column = IColumn::mutate(serialized_sparse_column->get_ptr());
+    res->serialized_doc_value_column = IColumn::mutate(serialized_doc_value_column->get_ptr());
     res->set_num_rows(num_rows);
 
     ENABLE_CHECK_CONSISTENCY(res.get());
     return res;
-}
-
-bool ColumnVariant::is_doc_mode() const {
-    const auto& offset = serialized_doc_value_column_offsets();
-    return subcolumns.size() == 1 && offset[num_rows - 1] != 0;
 }
 
 } // namespace doris

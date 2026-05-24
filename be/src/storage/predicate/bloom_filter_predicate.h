@@ -24,7 +24,7 @@
 #include "core/column/predicate_column.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/bloom_filter_func.h"
-#include "exprs/vruntimefilter_wrapper.h"
+#include "exprs/runtime_filter_expr.h"
 #include "storage/predicate/column_predicate.h"
 
 namespace doris {

@@ -298,9 +298,22 @@ void ConcurrentContextMap<Key, Value, ValueType>::insert(const Key& query_id,
 
 template <typename Key, typename Value, typename ValueType>
 void ConcurrentContextMap<Key, Value, ValueType>::clear() {
+    // Avoid self-deadlock from releasing the last QueryContext
+    // in _query_ctx_map_delay_delete:
+    // FragmentMgr::stop()
+    //   -> _query_ctx_map_delay_delete.clear()
+    //     -> unique_lock(query_id_lock)
+    //     -> map.clear()
+    //       -> QueryContext::~QueryContext()
+    //         -> FragmentMgr::remove_query_context(query_id)
+    //           -> _query_ctx_map_delay_delete.erase(query_id)
+    //             -> unique_lock(query_id_lock) <- deadlock
     for (auto& pair : _internal_map) {
-        std::unique_lock lock(*pair.first);
-        auto& map = pair.second;
+        phmap::flat_hash_map<Key, Value> map;
+        {
+            std::unique_lock lock(*pair.first);
+            map.swap(pair.second);
+        }
         map.clear();
     }
 }

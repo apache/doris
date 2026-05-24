@@ -407,8 +407,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, vertical));
 
         RowsetMetaSharedPtr existed_rs_meta;
-        auto st = _cloud_storage_engine.meta_mgr().prepare_rowset(*rowset_writer->rowset_meta(),
-                                                                  _job_id, &existed_rs_meta);
+        auto st = _cloud_storage_engine.meta_mgr().prepare_rowset(
+                *rowset_writer->rowset_meta(), _job_id, _new_tablet->table_id(), &existed_rs_meta);
         if (!st.ok()) {
             if (st.is<ALREADY_EXIST>()) {
                 LOG(INFO) << "Rowset " << rs_reader->version() << " has already existed in tablet "
@@ -443,8 +443,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                                          st.to_string());
         }
 
-        st = _cloud_storage_engine.meta_mgr().commit_rowset(*rowset_writer->rowset_meta(), _job_id,
-                                                            &existed_rs_meta);
+        st = _cloud_storage_engine.meta_mgr().commit_rowset(
+                *rowset_writer->rowset_meta(), _job_id, _new_tablet->table_id(), &existed_rs_meta);
         if (!st.ok()) {
             if (st.is<ALREADY_EXIST>()) {
                 LOG(INFO) << "Rowset " << rs_reader->version() << " has already existed in tablet "
@@ -573,6 +573,10 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
             }
         }
         _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock, false);
+        // Ensure the real new tablet has a continuous local version graph before it becomes
+        // visible. Later RUNNING-tablet delete bitmap sync depends on capturing all old versions.
+        RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().fill_version_holes(
+                _new_tablet.get(), _new_tablet->max_version_unlocked(), wlock));
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
         _new_tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                              stats.num_rows(), stats.data_size());
@@ -673,7 +677,8 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     // step4, store delete bitmap
     RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().update_delete_bitmap(
             *_new_tablet, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, initiator, &delete_bitmap,
-            &delete_bitmap, "", storage_resource, config::delete_bitmap_store_write_version));
+            &delete_bitmap, "", storage_resource, config::delete_bitmap_store_write_version,
+            _new_tablet->table_id()));
 
     _new_tablet->tablet_meta()->delete_bitmap() = delete_bitmap;
     return Status::OK();

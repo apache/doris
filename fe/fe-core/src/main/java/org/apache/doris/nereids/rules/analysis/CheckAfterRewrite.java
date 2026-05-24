@@ -38,7 +38,6 @@ import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunctio
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -232,8 +231,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
     private void checkMatchIsUsedCorrectly(Plan plan) {
         for (Expression expression : plan.getExpressions()) {
             if (expression instanceof Match) {
-                if (plan instanceof LogicalFilter && (plan.child(0) instanceof LogicalOlapScan
-                        || plan.child(0) instanceof LogicalDeferMaterializeOlapScan)) {
+                if (plan instanceof LogicalFilter && plan.child(0) instanceof LogicalOlapScan) {
                     return;
                 } else {
                     throw new AnalysisException(String.format(

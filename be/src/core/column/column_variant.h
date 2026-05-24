@@ -172,9 +172,6 @@ public:
         /// creates a single column that stores all values.
         void finalize(FinalizeMode mode = FinalizeMode::READ_MODE);
 
-        /// Returns last inserted field.
-        Field get_last_field() const;
-
         void deserialize_from_binary_column(const ColumnString* value, size_t row);
 
         /// Returns single column if subcolumn in finalizes.
@@ -200,6 +197,7 @@ public:
         friend class ColumnVariant;
 
         bool is_empty_nested(size_t row) const;
+        bool is_empty_nested_root_value(size_t row) const;
 
         void resize(size_t n);
 
@@ -301,14 +299,19 @@ public:
 private:
     friend class COWHelper<IColumn, ColumnVariant>;
     // always create root: data type nothing
+    explicit ColumnVariant(int32_t max_subcolumns_count);
     explicit ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode);
 
     // always create root: data type nothing
+    explicit ColumnVariant(int32_t max_subcolumns_count, size_t size);
     explicit ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode, size_t size);
 
+    explicit ColumnVariant(int32_t max_subcolumns_count, DataTypePtr root_type,
+                           MutableColumnPtr&& root_column);
     explicit ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
                            DataTypePtr root_type, MutableColumnPtr&& root_column);
 
+    explicit ColumnVariant(int32_t max_subcolumns_count, Subcolumns&& subcolumns_);
     explicit ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
                            Subcolumns&& subcolumns_);
 
@@ -322,7 +325,7 @@ public:
         if (subcolumns.empty()) {
             return nullptr;
         }
-        return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
+        return std::move(*subcolumns.get_mutable_root()->data.get_finalized_column_ptr()).mutate();
     }
 
     void serialize_one_row_to_string(int64_t row, std::string* output,
@@ -350,6 +353,8 @@ public:
     static const DataTypePtr& get_most_common_type();
 
     void clear_sparse_column();
+
+    void ensure_binary_columns_rows();
 
     // root is null or type nothing
     bool is_null_root() const;
@@ -406,7 +411,11 @@ public:
 
     ColumnPtr get_sparse_column() const { return serialized_sparse_column; }
 
+    IColumn& get_sparse_column_mutable() { return *serialized_sparse_column; }
+
     ColumnPtr get_doc_value_column() const { return serialized_doc_value_column; }
+
+    IColumn& get_doc_value_column_mutable() { return *serialized_doc_value_column; }
 
     // use sparse_subcolumns_schema to record sparse column's path info and type
     static MutableColumnPtr create_binary_column_fn() {
@@ -639,9 +648,6 @@ public:
                 subcolumns.size() - typed_path_count - nested_path_count - 1;
         return _max_subcolumns_count - current_subcolumns_count;
     }
-
-    // doc snapshot mode: only root column, and doc snapshot column is not empty
-    bool is_doc_mode() const;
 
     void try_get_from_doc_value_column(size_t n, Field& res) const;
 

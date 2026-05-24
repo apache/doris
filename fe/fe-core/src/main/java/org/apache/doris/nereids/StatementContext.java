@@ -139,8 +139,10 @@ public class StatementContext implements Closeable {
     private int maxNAryInnerJoin = 0;
 
     private boolean isDpHyp = false;
+    private boolean isAfterDpHyper = false;
 
     private boolean isDelete = false;
+
     private boolean hasNondeterministic = false;
 
     // hasUnknownColStats true if any column stats in the tables used by this sql is
@@ -551,6 +553,14 @@ public class StatementContext implements Closeable {
         isDpHyp = dpHyp;
     }
 
+    public boolean isAfterDpHyper() {
+        return isAfterDpHyper;
+    }
+
+    public void setAfterDpHyper(boolean isAfterDpHyper) {
+        this.isAfterDpHyper = isAfterDpHyper;
+    }
+
     public ExprId getNextExprId() {
         return exprIdGenerator.getNextId();
     }
@@ -655,6 +665,17 @@ public class StatementContext implements Closeable {
 
     public Map<CTEId, LogicalPlan> getRewrittenCteConsumer() {
         return rewrittenCteConsumer;
+    }
+
+    /** Clear CTE-related rewrite and memo state before rebuilding it from a new plan tree. */
+    public void clearCteEnvironment() {
+        cteIdToConsumers.clear();
+        cteIdToOutputIds.clear();
+        cteIdToProducer.clear();
+        consumerIdToFilters.clear();
+        cteIdToConsumerGroup.clear();
+        rewrittenCteProducer.clear();
+        rewrittenCteConsumer.clear();
     }
 
     /**

@@ -546,7 +546,7 @@ std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id
 
         auto st = Status::create(result.status);
         if (!st.ok()) {
-            if (st.is<CANCELED>()) {
+            if (st.is<ErrorCode::CANCELLED>()) {
                 LOG(INFO) << "get_replica_info: warm up job cancelled, tablet_id=" << tablet_id
                           << ", job_id=" << job_id;
                 cancelled_jobs.push_back(job_id);

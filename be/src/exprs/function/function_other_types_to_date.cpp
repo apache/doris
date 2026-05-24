@@ -108,7 +108,7 @@ struct StrToDate {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnPtr argument_columns[2];
         bool col_const[2];
@@ -147,11 +147,11 @@ struct StrToDate {
                 execute_impl_const_right<TYPE_DATEV2>(
                         context, ldata, loffsets, specific_char_column->get_data_at(0),
                         result_null_map,
-                        static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data());
+                        static_cast<ColumnDateV2*>(res->assert_mutable().get())->get_data());
             } else {
                 execute_impl<TYPE_DATEV2>(
                         context, ldata, loffsets, rdata, roffsets, result_null_map,
-                        static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data());
+                        static_cast<ColumnDateV2*>(res->assert_mutable().get())->get_data());
             }
         } else {
             DCHECK(block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2);
@@ -161,11 +161,11 @@ struct StrToDate {
                 execute_impl_const_right<TYPE_DATETIMEV2>(
                         context, ldata, loffsets, specific_char_column->get_data_at(0),
                         result_null_map,
-                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data());
+                        static_cast<ColumnDateTimeV2*>(res->assert_mutable().get())->get_data());
             } else {
                 execute_impl<TYPE_DATETIMEV2>(
                         context, ldata, loffsets, rdata, roffsets, result_null_map,
-                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data());
+                        static_cast<ColumnDateTimeV2*>(res->assert_mutable().get())->get_data());
             }
         }
 
@@ -263,7 +263,7 @@ struct MakeDateImpl {
 
         // Handle null map manually - update result null map from input null maps upfront
         auto result_null_map_column = ColumnBool::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnBool&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnPtr argument_columns[2];
         bool col_const[2];
@@ -298,11 +298,11 @@ struct MakeDateImpl {
         if (col_const[1]) {
             execute_impl_right_const(
                     year_col->get_data(), dayofyear_col->get_element(0), result_null_map,
-                    static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
+                    static_cast<ColumnDateV2*>(res_column->assert_mutable().get())->get_data());
         } else {
             execute_impl(
                     year_col->get_data(), dayofyear_col->get_data(), result_null_map,
-                    static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
+                    static_cast<ColumnDateV2*>(res_column->assert_mutable().get())->get_data());
         }
 
         // Wrap result in nullable column only if input has nullable arguments
@@ -542,7 +542,7 @@ private:
     static void execute_impl_right_const(const ColumnPtr& datetime_column, ColumnPtr& result_column,
                                          size_t input_rows_count, const cctz::time_zone& timezone) {
         auto& data = static_cast<const ColumnType*>(datetime_column.get())->get_data();
-        auto& res = static_cast<ColumnType*>(result_column->assume_mutable().get())->get_data();
+        auto& res = static_cast<ColumnType*>(result_column->assert_mutable().get())->get_data();
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto dt = data[i];
             // datetime_trunc only raise only when dt invalid which is impossible. so we dont throw error better.
@@ -551,7 +551,13 @@ private:
                 DateV2Value<DateTimeV2ValueType> local_dt;
                 dt.convert_utc_to_local(timezone, local_dt);
                 local_dt.template datetime_trunc<Unit>();
-                dt.convert_local_to_utc(timezone, local_dt);
+                if constexpr (Unit == TimeUnit::SECOND || Unit == TimeUnit::MINUTE ||
+                              Unit == TimeUnit::HOUR) {
+                    const int preferred_offset = dt.utc_offset(timezone);
+                    dt.convert_local_to_utc(timezone, local_dt, preferred_offset);
+                } else {
+                    dt.convert_local_to_utc(timezone, local_dt);
+                }
             } else {
                 dt.template datetime_trunc<Unit>();
             }
@@ -584,7 +590,7 @@ public:
 
         // Handle null map manually - update result null map from input null map upfront
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         // Update result null map from input null map using standard approach
         bool col_const = is_column_const(*argument_column);
@@ -606,12 +612,12 @@ public:
             res_column = ColumnDate::create(input_rows_count);
             _execute<VecDateTimeValue>(
                     input_rows_count, data_col->get_data(), result_null_map,
-                    static_cast<ColumnDateTime*>(res_column->assume_mutable().get())->get_data());
+                    static_cast<ColumnDateTime*>(res_column->assert_mutable().get())->get_data());
         } else {
             res_column = ColumnDateV2::create(input_rows_count);
             _execute<DateV2Value<DateV2ValueType>>(
                     input_rows_count, data_col->get_data(), result_null_map,
-                    static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
+                    static_cast<ColumnDateV2*>(res_column->assert_mutable().get())->get_data());
         }
 
         // Wrap result in nullable column only if input has nullable arguments
@@ -794,7 +800,7 @@ struct UnixTimeStampStrImpl {
                                size_t input_rows_count) {
         // Handle null map manually
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnPtr col_left = nullptr, col_right = nullptr;
         bool source_const = false, format_const = false;
@@ -1011,7 +1017,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         // Handle null map manually - update result null map from input null maps upfront
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
         const NullMap* null_map = VectorizedUtils::get_null_map(argument_column);
@@ -1049,7 +1055,7 @@ struct LastDayImpl {
         auto res_column = ResultColumnType::create(input_rows_count);
         execute_straight(
                 input_rows_count, data_col->get_data(),
-                static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data(),
+                static_cast<ResultColumnType*>(res_column->assert_mutable().get())->get_data(),
                 result_null_map);
 
         if (is_nullable) {
@@ -1124,7 +1130,7 @@ struct ToMondayImpl {
         auto res_column = ResultColumnType::create(input_rows_count);
         execute_straight(
                 input_rows_count, data_col->get_data(),
-                static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data(),
+                static_cast<ResultColumnType*>(res_column->assert_mutable().get())->get_data(),
                 result_null_map);
 
         if (is_nullable) {
@@ -1260,7 +1266,7 @@ struct FromIso8601DateV2 {
                           uint32_t result, size_t input_rows_count) {
         const auto* src_column_ptr = block.get_by_position(arguments[0]).column.get();
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnDateV2::MutablePtr res = ColumnDateV2::create(input_rows_count);
         auto& result_data = res->get_data();

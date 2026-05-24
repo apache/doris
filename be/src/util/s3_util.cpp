@@ -30,7 +30,7 @@
 #include <aws/s3/S3Client.h>
 #include <aws/sts/STSClient.h>
 #include <bvar/reducer.h>
-#include <cpp/s3_rate_limiter.h>
+#include <cpp/token_bucket_rate_limiter.h>
 
 #include <atomic>
 
@@ -626,6 +626,16 @@ static CredProviderType cred_provider_type_from_thrift(TCredProviderType::type c
         return CredProviderType::Simple;
     case TCredProviderType::INSTANCE_PROFILE:
         return CredProviderType::InstanceProfile;
+    case TCredProviderType::ENV:
+        return CredProviderType::Env;
+    case TCredProviderType::SYSTEM_PROPERTIES:
+        return CredProviderType::SystemProperties;
+    case TCredProviderType::WEB_IDENTITY:
+        return CredProviderType::WebIdentity;
+    case TCredProviderType::CONTAINER:
+        return CredProviderType::Container;
+    case TCredProviderType::ANONYMOUS:
+        return CredProviderType::Anonymous;
     default:
         __builtin_unreachable();
         LOG(WARNING) << "Invalid TCredProviderType value: " << cred_provider_type

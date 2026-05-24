@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -30,9 +31,12 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.util.List;
+import java.util.Map;
 
 public class ShowBuildIndexCommandTest extends TestWithFeService {
     @Override
@@ -106,5 +110,35 @@ public class ShowBuildIndexCommandTest extends TestWithFeService {
                 new StringLiteral("xxx"));
         sa = new ShowBuildIndexCommand("test", where10, null, 1, 0);
         sa.handleShowBuildIndex(connectContext, null);
+    }
+
+    @Test
+    void testTimeCompoundPredicateShouldKeepAndExpression() throws Exception {
+        Expression where = new And(
+                new GreaterThanEqual(new UnboundSlot(Lists.newArrayList("CreateTime")),
+                        new StringLiteral("2026-04-17 10:44:34")),
+                new LessThanEqual(new UnboundSlot(Lists.newArrayList("CreateTime")),
+                        new StringLiteral("2026-04-17 10:44:36")));
+
+        ShowBuildIndexCommand cmd1 = new ShowBuildIndexCommand("test", where, null, -1, -1);
+        cmd1.validate(connectContext);
+
+        where = new And(
+                new GreaterThanEqual(new UnboundSlot(Lists.newArrayList("FinishTime")),
+                        new StringLiteral("2026-04-17 10:44:34")),
+                new LessThanEqual(new UnboundSlot(Lists.newArrayList("FinishTime")),
+                        new StringLiteral("2026-04-17 10:44:36")));
+
+        ShowBuildIndexCommand cmd2 = new ShowBuildIndexCommand("test", where, null, -1, -1);
+        cmd2.validate(connectContext);
+
+        Field filterMapField = ShowBuildIndexCommand.class.getDeclaredField("filterMap");
+        filterMapField.setAccessible(true);
+
+        Assertions.assertTrue(((Map<String, Expression>) filterMapField.get(cmd1)).get("createtime") instanceof And,
+                "CreateTime compound predicate should be kept as AND expression");
+
+        Assertions.assertTrue(((Map<String, Expression>) filterMapField.get(cmd2)).get("finishtime") instanceof And,
+                "FinishTime compound predicate should be kept as AND expression");
     }
 }

@@ -33,8 +33,10 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/Opcodes_types.h>
 
+#include <memory>
 #include <roaring/roaring.hh>
 #include <string>
+#include <vector>
 
 #include "exec/scan/vector_search_user_params.h"
 #include "runtime/runtime_profile.h"
@@ -44,6 +46,8 @@ struct IOContext;
 } // namespace doris::io
 
 namespace doris::segment_v2 {
+
+struct AnnIndexResultCacheHandle;
 
 struct AnnIndexStats {
     AnnIndexStats()
@@ -58,6 +62,8 @@ struct AnnIndexStats {
               ivf_on_disk_search_cnt(TUnit::UNIT, 0),
               ivf_on_disk_cache_hit_cnt(TUnit::UNIT, 0),
               ivf_on_disk_cache_miss_cnt(TUnit::UNIT, 0),
+              topn_cache_hits(TUnit::UNIT, 0),
+              range_cache_hits(TUnit::UNIT, 0),
               fall_back_brute_force_cnt(0) {}
 
     AnnIndexStats(const AnnIndexStats& other)
@@ -73,6 +79,8 @@ struct AnnIndexStats {
               ivf_on_disk_search_cnt(TUnit::UNIT, other.ivf_on_disk_search_cnt.value()),
               ivf_on_disk_cache_hit_cnt(TUnit::UNIT, other.ivf_on_disk_cache_hit_cnt.value()),
               ivf_on_disk_cache_miss_cnt(TUnit::UNIT, other.ivf_on_disk_cache_miss_cnt.value()),
+              topn_cache_hits(TUnit::UNIT, other.topn_cache_hits.value()),
+              range_cache_hits(TUnit::UNIT, other.range_cache_hits.value()),
               fall_back_brute_force_cnt(other.fall_back_brute_force_cnt) {}
 
     AnnIndexStats& operator=(const AnnIndexStats& other) {
@@ -88,6 +96,8 @@ struct AnnIndexStats {
             ivf_on_disk_search_cnt.set(other.ivf_on_disk_search_cnt.value());
             ivf_on_disk_cache_hit_cnt.set(other.ivf_on_disk_cache_hit_cnt.value());
             ivf_on_disk_cache_miss_cnt.set(other.ivf_on_disk_cache_miss_cnt.value());
+            topn_cache_hits.set(other.topn_cache_hits.value());
+            range_cache_hits.set(other.range_cache_hits.value());
             fall_back_brute_force_cnt = other.fall_back_brute_force_cnt;
         }
         return *this;
@@ -105,19 +115,47 @@ struct AnnIndexStats {
     RuntimeProfile::Counter ivf_on_disk_search_cnt;      // IVF_ON_DISK search count
     RuntimeProfile::Counter ivf_on_disk_cache_hit_cnt;   // IVF_ON_DISK cache hit count
     RuntimeProfile::Counter ivf_on_disk_cache_miss_cnt;  // IVF_ON_DISK cache miss count
+    RuntimeProfile::Counter topn_cache_hits; // number of cache hits in ANN TopN result cache
+    RuntimeProfile::Counter range_cache_hits;
     int64_t fall_back_brute_force_cnt; // fallback count when ANN range search is bypassed
 };
 
 struct AnnTopNParam {
+    // =========================
+    // TopN execution inputs
+    // =========================
+    // Query vector data pointer.
     const float* query_value;
+    // Query vector dimension.
     const size_t query_value_size;
+    // Requested TopK/TopN count.
     size_t limit;
+    // Runtime ANN search options (HNSW/IVF specific params).
     doris::VectorSearchUserParams _user_params;
+    // Candidate row bitmap after pre-filters.
+    // ANN TopN search only evaluates rows inside this bitmap.
     roaring::Roaring* roaring;
+    // Total row count of current segment, used by ANN engine for bounds/checks.
     size_t rows_of_segment = 0;
-    std::unique_ptr<std::vector<float>> distance = nullptr;
-    std::unique_ptr<std::vector<uint64_t>> row_ids = nullptr;
+    bool enable_result_cache = true;
+
+    // =========================
+    // TopN execution outputs
+    // =========================
+    // Output distances of returned TopN rows. Aligned with `row_ids`.
+    std::shared_ptr<float[]> distance = nullptr;
+    // Output row ids corresponding to `distance`.
+    std::shared_ptr<std::vector<uint64_t>> row_ids = nullptr;
+    // Optional per-call statistics holder.
     std::unique_ptr<AnnIndexStats> stats = nullptr;
+
+    std::string to_string() const {
+        return fmt::format(
+                "query_value_size: {}, limit: {}, rows_of_segment: {}, hnsw_ef_search: {}, "
+                "hnsw_check_relative_distance: {}, hnsw_bounded_queue: {}",
+                query_value_size, limit, rows_of_segment, _user_params.hnsw_ef_search,
+                _user_params.hnsw_check_relative_distance, _user_params.hnsw_bounded_queue);
+    }
 };
 
 struct AnnRangeSearchParams {
@@ -125,6 +163,7 @@ struct AnnRangeSearchParams {
     const float* query_value = nullptr;
     float radius = -1;
     roaring::Roaring* roaring; // roaring from segment_iterator
+    bool enable_result_cache = true;
     std::string to_string() const {
         DCHECK(roaring != nullptr);
         return fmt::format("is_le_or_lt: {}, radius: {}, input rows {}", is_le_or_lt, radius,
@@ -135,22 +174,31 @@ struct AnnRangeSearchParams {
 
 struct AnnRangeSearchResult {
     std::shared_ptr<roaring::Roaring> roaring;
-    std::unique_ptr<std::vector<uint64_t>> row_ids;
-    std::unique_ptr<float[]> distance;
+    std::shared_ptr<std::vector<uint64_t>> row_ids;
+    std::shared_ptr<float[]> distance;
+
+    AnnIndexResultCacheHandle to_cache_handle() const;
+    static AnnRangeSearchResult from_cache_handle(const AnnIndexResultCacheHandle& handle);
 };
 
 /*
 This struct is used to wrap the search result of a vector index.
 roaring is a bitmap that contains the row ids that satisfy the search condition.
-row_ids is a vector of row ids that are returned by the search, it could be used by virtual_column_iterator to do column filter.
+row_ids is an ordered vector of row ids returned by the search. row_ids[i] is aligned with
+distances[i], so virtual_column_iterator can map each distance back to its segment row id.
 distances is a vector of distances that are returned by the search.
 For range search, is condition is not le_or_lt, the row_ids and distances will be nullptr.
 */
 struct IndexSearchResult {
     IndexSearchResult() = default;
 
-    std::unique_ptr<float[]> distances = nullptr;
-    std::unique_ptr<std::vector<uint64_t>> row_ids = nullptr;
+    AnnIndexResultCacheHandle to_cache_handle() const;
+
+    // distances from index.
+    std::shared_ptr<float[]> distances = nullptr;
+    // row_id of each distance. Aligned with distances, so row_ids[i] corresponds to distances[i].
+    std::shared_ptr<std::vector<uint64_t>> row_ids = nullptr;
+    // roaring from/to doris segment iterator.
     std::shared_ptr<roaring::Roaring> roaring = nullptr;
     // Internal engine timings (ns)
     int64_t engine_search_ns = 0;  // time spent in the underlying index search call

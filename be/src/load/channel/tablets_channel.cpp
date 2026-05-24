@@ -29,6 +29,7 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <initializer_list>
+#include <optional>
 #include <set>
 #include <thread>
 #include <utility>
@@ -44,6 +45,7 @@
 #include "load/channel/load_channel.h"
 #include "load/delta_writer/delta_writer.h"
 #include "storage/storage_engine.h"
+#include "storage/tablet/tablet_manager.h"
 #include "storage/tablet_info.h"
 #include "storage/txn/txn_manager.h"
 #include "util/defer_op.h"
@@ -203,6 +205,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
 
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
+
     for (const auto& index : _schema->indexes()) {
         if (index->index_id == _index_id) {
             index_slots = &index->slots;
@@ -238,6 +241,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.is_high_priority = _is_high_priority;
         wrequest.table_schema_param = _schema;
         wrequest.txn_expiration = params.txn_expiration(); // Required by CLOUD.
+        wrequest.write_file_cache = params.write_file_cache();
         wrequest.storage_vault_id = params.storage_vault_id();
 
         auto delta_writer = create_delta_writer(wrequest);
@@ -258,7 +262,41 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
 }
 
 std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(const WriteRequest& request) {
-    return std::make_unique<DeltaWriter>(_engine, request, _profile, _load_id);
+    DCHECK(request.write_req_type == WriteRequestType::DATA);
+    DCHECK(request.table_schema_param != nullptr);
+
+    int64_t row_binlog_index_id = 0;
+    for (const auto* index_schema : request.table_schema_param->indexes()) {
+        if (index_schema->index_id == request.index_id) {
+            row_binlog_index_id = index_schema->row_binlog_id;
+            break;
+        }
+    }
+    if (row_binlog_index_id <= 0) {
+        return std::make_unique<DeltaWriter>(_engine, request, _profile, _load_id);
+    }
+
+    const auto* row_binlog_index_schema = request.table_schema_param->row_binlog_index_schema();
+    DCHECK(row_binlog_index_schema != nullptr);
+    DCHECK(row_binlog_index_schema->index_id == row_binlog_index_id);
+
+    // group_build_req is only for the group wrapper itself. It provides the group semantics and
+    // metadata used by BaseDeltaWriter/GroupRowsetBuilder to expose tablet_id, txn_id,
+    // partition_id, load_id and profile information, while concrete rowset builders use the
+    // sub requests below.
+    WriteRequest group_build_req = request;
+    group_build_req.write_req_type = WriteRequestType::GROUP;
+
+    WriteRequest sub_data_req = request;
+    sub_data_req.write_req_type = WriteRequestType::DATA;
+
+    WriteRequest sub_row_binlog_req = request;
+    sub_row_binlog_req.write_req_type = WriteRequestType::ROW_BINLOG;
+    sub_row_binlog_req.index_id = row_binlog_index_schema->index_id;
+    sub_row_binlog_req.schema_hash = row_binlog_index_schema->schema_hash;
+
+    return std::make_unique<DeltaWriter>(_engine, group_build_req, sub_data_req, sub_row_binlog_req,
+                                         _profile, _load_id);
 }
 
 Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,

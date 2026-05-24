@@ -241,12 +241,6 @@ TEST_F(DataTypeJsonbTest, simple_func_test) {
         EXPECT_TRUE(dt.equals(dt));
 
         EXPECT_EQ(std::string(dt.get_family_name()), std::string("JSONB"));
-
-        JsonBinaryValue jsonb_value;
-        THROW_IF_ERROR(jsonb_value.from_json_string("null"));
-        EXPECT_EQ(dt.get_default(),
-                  Field::create_field<TYPE_JSONB>(
-                          JsonbField(jsonb_value.value(), cast_set<Int32>(jsonb_value.size()))));
     };
     test_func(dt_jsonb);
     EXPECT_EQ(dt_jsonb.get_primitive_type(), TYPE_JSONB);

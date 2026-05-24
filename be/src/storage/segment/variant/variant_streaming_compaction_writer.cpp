@@ -18,6 +18,7 @@
 #include "storage/segment/variant/variant_streaming_compaction_writer.h"
 
 #include <memory>
+#include <unordered_set>
 
 #include "common/cast_set.h"
 #include "core/column/column_nullable.h"
@@ -25,6 +26,7 @@
 #include "exec/common/variant_util.h"
 #include "storage/index/indexed_column_writer.h"
 #include "storage/iterator/olap_data_convertor.h"
+#include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/variant/variant_writer_helpers.h"
 #include "storage/types.h"
 
@@ -53,8 +55,7 @@ Status VariantStreamingCompactionWriter::init() {
 
 Status VariantStreamingCompactionWriter::_init_root_writer() {
     _root_writer = std::make_unique<ScalarColumnWriter>(
-            _opts, std::unique_ptr<StorageField>(StorageFieldFactory::create(*_tablet_column)),
-            _opts.file_writer);
+            _opts, std::make_shared<TabletColumn>(*_tablet_column), _opts.file_writer);
     RETURN_IF_ERROR(_root_writer->init());
     _opts.meta->set_num_rows(0);
     return Status::OK();
@@ -62,7 +63,26 @@ Status VariantStreamingCompactionWriter::_init_root_writer() {
 
 Status VariantStreamingCompactionWriter::_init_regular_subcolumn_writers(int& column_id) {
     _streaming_regular_subcolumn_writers.clear();
+    const auto* path_set_info =
+            _opts.rowset_ctx->tablet_schema->try_path_set_info(_tablet_column->unique_id());
+    std::unordered_set<std::string> schema_regular_paths;
+    for (const auto& column : _opts.rowset_ctx->tablet_schema->columns()) {
+        if (!column->is_extracted_column() ||
+            column->parent_unique_id() != _tablet_column->unique_id()) {
+            continue;
+        }
+        schema_regular_paths.emplace(column->path_info_ptr()->copy_pop_front().get_path());
+    }
     for (const auto& plan_entry : _streaming_plan.regular_subcolumns) {
+        const bool is_materialized_regular_path =
+                schema_regular_paths.contains(plan_entry.path) ||
+                (path_set_info != nullptr &&
+                 path_set_info->contains_materialized_regular_path(plan_entry.path));
+        if (is_materialized_regular_path) {
+            // Compaction schema already decided to materialize this regular path as a standalone
+            // extracted column. Reopening it here would duplicate the same writer target.
+            continue;
+        }
         TabletColumn tablet_column;
         TabletIndexes subcolumn_indexes;
         ColumnWriterOptions opts;
@@ -120,8 +140,10 @@ Status VariantStreamingCompactionWriter::_append_root_column(const ColumnVariant
     auto expected_root_type = make_nullable(std::make_shared<ColumnVariant::MostCommonType>());
     variant->ensure_root_node_type(expected_root_type);
 
-    auto& nullable_column = assert_cast<ColumnNullable&>(*variant->get_root()->assume_mutable());
-    auto root_column = nullable_column.get_nested_column_ptr();
+    auto root_mut = variant->get_root();
+    auto& nullable_column = assert_cast<ColumnNullable&>(*root_mut);
+    auto root_column = IColumn::mutate(
+            static_cast<const ColumnNullable&>(nullable_column).get_nested_column_ptr());
     const size_t num_rows = chunk_variant.rows();
     variant_writer_helpers::maybe_remove_root_jsonb_with_empty_defaults(
             &root_column, num_rows, _streaming_plan.can_remove_root_jsonb());
@@ -136,10 +158,11 @@ Status VariantStreamingCompactionWriter::_append_root_column(const ColumnVariant
         } else {
             null_column->insert_many_defaults(num_rows);
         }
-        root_column = ColumnNullable::create(root_column->get_ptr(), std::move(null_column));
+        root_column = ColumnNullable::create(std::move(root_column), std::move(null_column));
     } else {
-        root_column = ColumnNullable::create(root_column->get_ptr(),
-                                             ColumnUInt8::create(root_column->size(), 0));
+        const size_t root_column_size = root_column->size();
+        root_column = ColumnNullable::create(std::move(root_column),
+                                             ColumnUInt8::create(root_column_size, 0));
     }
 
     auto converter = std::make_unique<OlapBlockDataConvertor>();

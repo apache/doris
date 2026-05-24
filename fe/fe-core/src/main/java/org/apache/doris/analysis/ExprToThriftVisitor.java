@@ -413,37 +413,6 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
     public Void visitSearchPredicate(SearchPredicate expr, TExprNode msg) {
         msg.node_type = TExprNodeType.SEARCH_EXPR;
         msg.setSearchParam(buildSearchThriftParam(expr));
-
-        LOG.info("SearchPredicate.toThrift: dsl='{}', num_children_in_base={}, children_size={}",
-                expr.getDslString(), msg.num_children, expr.getChildren().size());
-
-        if (expr.getQsPlan() != null) {
-            LOG.info("SearchPredicate.toThrift: QsPlan fieldBindings.size={}",
-                    expr.getQsPlan().getFieldBindings() != null
-                            ? expr.getQsPlan().getFieldBindings().size() : 0);
-            if (expr.getQsPlan().getFieldBindings() != null) {
-                for (int i = 0; i < expr.getQsPlan().getFieldBindings().size(); i++) {
-                    SearchDslParser.QsFieldBinding binding = expr.getQsPlan().getFieldBindings().get(i);
-                    LOG.info("SearchPredicate.toThrift: binding[{}] fieldName='{}', slotIndex={}",
-                            i, binding.getFieldName(), binding.getSlotIndex());
-                }
-            }
-        }
-
-        for (int i = 0; i < expr.getChildren().size(); i++) {
-            Expr child = expr.getChildren().get(i);
-            LOG.info("SearchPredicate.toThrift: child[{}] = {} (type={})",
-                    i, child.getClass().getSimpleName(), child.getType());
-            if (child instanceof SlotRef) {
-                SlotRef slotRef = (SlotRef) child;
-                LOG.info("SearchPredicate.toThrift: SlotRef details - column={}",
-                        slotRef.getColumnName());
-                if (slotRef.getDesc() != null) {
-                    LOG.info("SearchPredicate.toThrift: SlotRef analyzed - slotId={}",
-                            slotRef.getSlotId());
-                }
-            }
-        }
         return null;
     }
 
@@ -662,9 +631,6 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
                 thriftBinding.setIsVariantSubcolumn(true);
                 thriftBinding.setParentFieldName(parentField);
                 thriftBinding.setSubcolumnPath(subcolumnPath);
-
-                LOG.info("buildThriftParam: variant subcolumn field='{}', parent='{}', subcolumn='{}'",
-                        fieldPath, parentField, subcolumnPath);
             } else {
                 thriftBinding.setIsVariantSubcolumn(false);
             }
@@ -675,10 +641,7 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
                 SlotRef slotRef = (SlotRef) expr.getChildren().get(i);
                 int actualSlotId = slotRef.getSlotId().asInt();
                 thriftBinding.setSlotIndex(actualSlotId);
-                LOG.info("buildThriftParam: binding field='{}', actual slotId={}",
-                        binding.getFieldName(), actualSlotId);
             } else {
-                LOG.warn("buildThriftParam: No corresponding SlotRef for field '{}'", binding.getFieldName());
                 thriftBinding.setSlotIndex(i);
             }
 
@@ -687,8 +650,6 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
                 Map<String, String> properties = fieldIndexes.get(i).getProperties();
                 if (properties != null && !properties.isEmpty()) {
                     thriftBinding.setIndexProperties(properties);
-                    LOG.debug("buildThriftParam: field='{}' index_properties={}",
-                            fieldPath, properties);
                 }
             }
 

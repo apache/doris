@@ -26,8 +26,6 @@
 #include <string>
 #include <vector>
 
-#include "runtime/collection_value.h"
-#include "storage/field.h"
 #include "storage/index/ann/vector_search_utils.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
@@ -260,22 +258,6 @@ TEST_F(AnnIndexWriterTest, TestAddArrayValuesWrongDimension) {
                                      reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());
-}
-
-TEST_F(AnnIndexWriterTest, TestAddArrayValuesWithCollectionValue) {
-    auto writer =
-            std::make_unique<AnnIndexColumnWriter>(_index_file_writer.get(), _tablet_index.get());
-
-    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
-    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
-    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
-
-    ASSERT_TRUE(writer->init().ok());
-
-    // This should return an error as ANN index doesn't support nullable columns
-    Status status = writer->add_array_values(sizeof(float), nullptr, 1);
-    EXPECT_FALSE(status.ok());
-    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>());
 }
 
 TEST_F(AnnIndexWriterTest, TestAddValues) {
@@ -574,8 +556,8 @@ TEST_F(AnnIndexWriterTest, TestCreateFromIndexColumnWriter) {
     tablet_schema->append_column(array_column);
 
     // Get field for array column
-    std::unique_ptr<StorageField> field(StorageFieldFactory::create(array_column));
-    ASSERT_NE(field.get(), nullptr);
+    const TabletColumn* field = &(array_column);
+    ASSERT_NE(field, nullptr);
 
     auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
     fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
@@ -583,7 +565,7 @@ TEST_F(AnnIndexWriterTest, TestCreateFromIndexColumnWriter) {
 
     // Create column writer
     std::unique_ptr<IndexColumnWriter> column_writer;
-    auto status = IndexColumnWriter::create(field.get(), &column_writer, _index_file_writer.get(),
+    auto status = IndexColumnWriter::create(field, &column_writer, _index_file_writer.get(),
                                             _tablet_index.get());
     EXPECT_TRUE(status.ok());
 

@@ -142,9 +142,9 @@ public:
         NullMap* temp_nullmap_data[2] = {nullptr, nullptr};
         for (int i = 0; i < 2; i++) {
             auto* temp_column = assert_cast<ColumnNullable*>(
-                    lambda_block.get_by_position(i).column->assume_mutable().get());
+                    lambda_block.get_by_position(i).column->assert_mutable().get());
             temp_data[i] = temp_column->get_nested_column_ptr();
-            auto& null_map_col = assert_cast<ColumnUInt8&>(temp_column->get_null_map_column());
+            auto& null_map_col = temp_column->get_null_map_column();
             temp_nullmap_data[i] = &null_map_col.get_data();
             temp_data[i]->resize(1);
             temp_nullmap_data[i]->resize(1);

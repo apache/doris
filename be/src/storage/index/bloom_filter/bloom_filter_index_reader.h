@@ -42,8 +42,7 @@ class BloomFilterIndexReader : public MetadataAdder<BloomFilterIndexReader> {
 public:
     explicit BloomFilterIndexReader(io::FileReaderSPtr file_reader,
                                     const BloomFilterIndexPB& bloom_filter_index_meta)
-            : _file_reader(std::move(file_reader)),
-              _type_info(get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>()) {
+            : _file_reader(std::move(file_reader)) {
         _bloom_filter_index_meta.reset(new BloomFilterIndexPB(bloom_filter_index_meta));
     }
 
@@ -56,7 +55,7 @@ public:
     Status new_iterator(std::unique_ptr<BloomFilterIndexIterator>* iterator,
                         OlapReaderStatistics* index_load_stats);
 
-    const TypeInfo* type_info() const { return _type_info; }
+    FieldType type() const { return FieldType::OLAP_FIELD_TYPE_VARCHAR; }
 
 private:
     Status _load(bool use_page_cache, bool kept_in_memory, OlapReaderStatistics* index_load_stats);
@@ -68,7 +67,6 @@ private:
 
     io::FileReaderSPtr _file_reader;
     DorisCallOnce<Status> _load_once;
-    const TypeInfo* _type_info = nullptr;
     std::unique_ptr<BloomFilterIndexPB> _bloom_filter_index_meta = nullptr;
     std::unique_ptr<IndexedColumnReader> _bloom_filter_reader;
 };

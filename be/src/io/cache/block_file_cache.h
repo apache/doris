@@ -169,6 +169,7 @@ class BlockFileCache {
     friend class CacheLRUDumper;
     friend class LRUQueueRecorder;
     friend struct FileBlockCell;
+    friend class BlockFileCacheTest;
 
 public:
     // hash the file_name to uint128

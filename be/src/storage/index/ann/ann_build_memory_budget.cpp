@@ -185,8 +185,8 @@ int64_t estimate_ann_build_memory(const FaissBuildParameter& params, int64_t exp
     switch (params.index_type) {
     case FaissBuildParameter::IndexType::HNSW: {
         const int64_t degree = std::max(1, params.max_degree);
-        structure_bytes = static_cast<int64_t>(expected_rows * degree * kHnswEdgeBytes *
-                                               kHnswGraphFactor);
+        structure_bytes =
+                static_cast<int64_t>(expected_rows * degree * kHnswEdgeBytes * kHnswGraphFactor);
         break;
     }
     case FaissBuildParameter::IndexType::IVF:

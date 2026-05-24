@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <cpp/s3_rate_limiter.h>
+#include <cpp/token_bucket_rate_limiter.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include "meta-service/txn_lazy_committer.h"

@@ -48,7 +48,6 @@
 #include "json2pb/json_to_pb.h"
 #include "runtime/exec_env.h"
 #include "storage/delete/delete_handler.h"
-#include "storage/field.h"
 #include "storage/iterator/vertical_merge_iterator.h"
 #include "storage/merger.h"
 #include "storage/olap_common.h"
@@ -105,6 +104,14 @@ protected:
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
         engine_ref = nullptr;
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
+    }
+
+    Status add_block_with_columns(RowsetWriter* rowset_writer, Block* block,
+                                  MutableColumns* columns) {
+        block->set_columns(std::move(*columns));
+        auto st = rowset_writer->add_block(block);
+        *columns = std::move(*block).mutate_columns();
+        return st;
     }
 
     TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS, bool without_key = false) {
@@ -242,7 +249,7 @@ protected:
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rowset_data[i].size(); ++rid) {
                 int32_t c1 = std::get<0>(rowset_data[i][rid]);
                 int32_t c2 = std::get<1>(rowset_data[i][rid]);
@@ -255,7 +262,7 @@ protected:
                 }
                 num_rows++;
             }
-            auto s = rowset_writer->add_block(&block);
+            auto s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_TRUE(s.ok());
@@ -433,6 +440,83 @@ TEST_F(VerticalCompactionTest, TestRowSourcesBuffer) {
         EXPECT_EQ(same, 2);
         buffer1.advance(same);
     }
+}
+
+// Regression test for RowSourcesBuffer::append spill threshold.
+//
+// Background:
+// PaddedPODArray::allocated_bytes() returns the total allocated memory which
+// INCLUDES pad_left and pad_right. These padding bytes are NOT usable for
+// storing elements. Earlier, append() used `allocated_bytes() - size*sizeof`
+// as "available room" to decide whether to skip spilling. This over-estimates
+// the truly usable space (by pad_left + pad_right bytes), so when the buffer
+// has already crossed the configured memory limit, append() may incorrectly
+// decide that the upcoming push_back will fit without reallocation, skip the
+// spill, and then push_back triggers a reallocation that doubles the buffer,
+// exceeding the configured `vertical_compaction_max_row_source_memory_mb`.
+//
+// This test simulates the case by setting a very small memory limit (1 MB) and
+// repeatedly appending row sources. After the first time the buffer crosses
+// the limit, the next append must trigger a spill (file write + reset) instead
+// of silently growing the in-memory buffer beyond the limit.
+TEST_F(VerticalCompactionTest, TestRowSourcesBufferSpillThreshold) {
+    // 1 MB limit (set in SetUp as well, but make it explicit here).
+    config::vertical_compaction_max_row_source_memory_mb = 1;
+    const size_t mem_limit_bytes =
+            static_cast<size_t>(config::vertical_compaction_max_row_source_memory_mb) * 1024 * 1024;
+
+    RowSourcesBuffer buffer(200, absolute_dir, ReaderType::READER_CUMULATIVE_COMPACTION);
+
+    // Build a batch of row sources. Use a moderate batch size so that the
+    // buffer's allocated_bytes() can become very close to the limit before
+    // a single append crosses it.
+    constexpr size_t kBatchSize = 4096;
+    std::vector<RowSource> batch;
+    batch.reserve(kBatchSize);
+    for (size_t i = 0; i < kBatchSize; ++i) {
+        batch.emplace_back(static_cast<uint16_t>(i % 8), false);
+    }
+
+    // Total elements that fit in the memory limit (a safe upper bound).
+    // Each element is 2 bytes (UInt16), so ~512K elements per MB.
+    const size_t total_appends = (mem_limit_bytes / sizeof(uint16_t)) * 4 / kBatchSize + 8;
+
+    size_t expected_total = 0;
+    for (size_t i = 0; i < total_appends; ++i) {
+        ASSERT_TRUE(buffer.append(batch).ok());
+        expected_total += kBatchSize;
+
+        // Invariant: in-memory buffered_size() must never exceed what the
+        // memory limit allows (in elements). Otherwise the spill logic is
+        // broken (the bug described above).
+        // Allow a small slack equal to one batch because the spill check is
+        // performed BEFORE the push_back that crosses the threshold.
+        size_t buffered_elems = buffer.buffered_size();
+        size_t buffered_bytes = buffered_elems * sizeof(uint16_t);
+        // After each append, buffered_bytes should be <= mem_limit + one batch size.
+        // It must NOT grow unboundedly (e.g., 2x of the limit due to PODArray
+        // reallocation that the buggy version would allow).
+        EXPECT_LE(buffered_bytes, mem_limit_bytes + kBatchSize * sizeof(uint16_t))
+                << "RowSourcesBuffer in-memory size exceeded the configured limit, "
+                << "spill threshold logic is broken. iter=" << i
+                << ", buffered_elems=" << buffered_elems;
+    }
+
+    EXPECT_EQ(buffer.total_size(), expected_total);
+
+    // Make sure data is persisted and can be read back correctly.
+    ASSERT_TRUE(buffer.flush().ok());
+    ASSERT_TRUE(buffer.seek_to_begin().ok());
+
+    size_t read_back = 0;
+    while (buffer.has_remaining().ok()) {
+        // Verify that the source num matches the pattern we wrote.
+        auto cur = buffer.current().get_source_num();
+        EXPECT_EQ(cur, (read_back % kBatchSize) % 8);
+        buffer.advance(1);
+        ++read_back;
+    }
+    EXPECT_EQ(read_back, expected_total);
 }
 
 TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
@@ -1126,7 +1210,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMergeWithNullableSparseColum
 
         // Create block with nullable c2 column
         Block block = tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         for (int rid = 0; rid < rows_per_segment; ++rid) {
             int32_t c1 = i * rows_per_segment + rid;
@@ -1146,7 +1230,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMergeWithNullableSparseColum
             columns[2]->insert_data((const char*)&delete_sign, sizeof(delete_sign));
         }
 
-        auto s = rowset_writer->add_block(&block);
+        auto s = add_block_with_columns(rowset_writer.get(), &block, &columns);
         ASSERT_TRUE(s.ok()) << s;
         s = rowset_writer->flush();
         ASSERT_TRUE(s.ok()) << s;
@@ -1305,13 +1389,13 @@ TEST_F(VerticalCompactionTest, TestFooterRawDataBytesAccuracy) {
     auto rowset_writer = std::move(res).value();
 
     Block block = tablet_schema->create_block();
-    auto columns = block.mutate_columns();
+    auto columns = std::move(block).mutate_columns();
     for (int i = 0; i < kNumRows; i++) {
         int32_t int_val = i;
         columns[0]->insert_data(reinterpret_cast<const char*>(&int_val), sizeof(int_val));
         columns[1]->insert_data(fixed_string.data(), fixed_string.size());
     }
-    ASSERT_TRUE(rowset_writer->add_block(&block).ok());
+    ASSERT_TRUE(add_block_with_columns(rowset_writer.get(), &block, &columns).ok());
     ASSERT_TRUE(rowset_writer->flush().ok());
 
     RowsetSharedPtr rowset;
@@ -1401,7 +1485,7 @@ TEST_F(VerticalCompactionTest, TestFooterRawDataBytesNullableSparse) {
     auto rowset_writer = std::move(res).value();
 
     Block block = tablet_schema->create_block();
-    auto columns = block.mutate_columns();
+    auto columns = std::move(block).mutate_columns();
     for (int i = 0; i < kNumRows; i++) {
         int32_t key_val = i;
         columns[0]->insert_data(reinterpret_cast<const char*>(&key_val), sizeof(key_val));
@@ -1412,7 +1496,7 @@ TEST_F(VerticalCompactionTest, TestFooterRawDataBytesNullableSparse) {
             columns[1]->insert_default(); // ColumnNullable default is null
         }
     }
-    ASSERT_TRUE(rowset_writer->add_block(&block).ok());
+    ASSERT_TRUE(add_block_with_columns(rowset_writer.get(), &block, &columns).ok());
     ASSERT_TRUE(rowset_writer->flush().ok());
 
     RowsetSharedPtr rowset;
