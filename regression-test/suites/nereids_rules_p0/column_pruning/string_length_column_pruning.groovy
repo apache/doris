@@ -96,7 +96,7 @@ suite("string_length_column_pruning") {
         CREATE TABLE slcp_struct_offset_group_tbl (
             id INT,
             val STRING,
-            s STRUCT<a: INT, b: STRING>
+            s STRUCT<c: CHAR(10), b: STRING>
         ) ENGINE = OLAP
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 3
@@ -104,16 +104,16 @@ suite("string_length_column_pruning") {
     """
     sql """
         INSERT INTO slcp_struct_offset_group_tbl VALUES
-            (0, 'v0', named_struct('a', 10, 'b', 'a')),
-            (1, 'v1', named_struct('a', 11, 'b', 'bb')),
-            (2, 'v2', named_struct('a', 12, 'b', 'ccc')),
-            (3, 'v3', named_struct('a', 13, 'b', 'dddd')),
-            (4, 'v4', named_struct('a', 14, 'b', 'eeeee')),
-            (5, 'v5', named_struct('a', 15, 'b', 'ffffff')),
-            (6, 'v6', named_struct('a', 16, 'b', NULL)),
-            (7, 'v7', named_struct('a', 17, 'b', 'gg')),
-            (8, 'v8', named_struct('a', 18, 'b', 'hhhh')),
-            (9, 'v9', named_struct('a', 19, 'b', 'iii'))
+            (0, 'v0', named_struct('c', 'x', 'b', 'a')),
+            (1, 'v1', named_struct('c', 'x', 'b', 'bb')),
+            (2, 'v2', named_struct('c', 'x', 'b', 'ccc')),
+            (3, 'v3', named_struct('c', 'x', 'b', 'dddd')),
+            (4, 'v4', named_struct('c', 'x', 'b', 'eeeee')),
+            (5, 'v5', named_struct('c', 'x', 'b', 'ffffff')),
+            (6, 'v6', named_struct('c', 'x', 'b', NULL)),
+            (7, 'v7', named_struct('c', 'x', 'b', 'gg')),
+            (8, 'v8', named_struct('c', 'x', 'b', 'hhhh')),
+            (9, 'v9', named_struct('c', 'x', 'b', 'iii'))
     """
     explain {
         sql """
@@ -129,6 +129,12 @@ suite("string_length_column_pruning") {
         from slcp_struct_offset_group_tbl
         group by 1
         order by 1, 2
+    """
+    order_qt_struct_offset_group_count """
+        select length(struct_element(s, 'b')), count(*)
+        from slcp_struct_offset_group_tbl
+        group by 1
+        order by 1
     """
 
     // length() in both SELECT and WHERE: predicate must remain length(str_col) > 1,

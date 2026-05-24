@@ -298,7 +298,10 @@ public:
             running_offset += lengths[i];
             offsets_ptr[i] = static_cast<T>(running_offset);
         }
-        chars.resize(offsets[old_rows + num - 1]);
+        // OFFSET_ONLY columns carry valid offsets but no real string payload. Use non-zero
+        // placeholders so char-padding shrink logic cannot recompute these offsets as zero-length
+        // strings when this column is nested under a struct that also contains CHAR fields.
+        chars.resize_fill(offsets[old_rows + num - 1], 1);
     }
 
     void insert_many_strings(const StringRef* strings, size_t num) override {
