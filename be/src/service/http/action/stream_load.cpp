@@ -800,13 +800,18 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
 
 #ifndef BE_TEST
     // plan this load
-    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     int64_t stream_load_put_start_time = MonotonicNanos();
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
+    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc_fe_with_master_refresh(
+            master_addr_provider,
             [&request, ctx](FrontendServiceConnection& client) {
                 client->streamLoadPut(ctx->put_result, request);
-            }));
+            },
+            [ctx]() { return ctx->put_result.status; },
+            // TStreamLoadPutResult does not carry master_address (FE
+            // streamLoadPut does not call checkMaster), so on transport-layer
+            // failure we fall back to heartbeat-driven refresh.
+            []() -> const TNetworkAddress* { return nullptr; }));
     ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
 #else
     ctx->put_result = k_stream_load_put_result;

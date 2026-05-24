@@ -376,13 +376,16 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
     }
 
     // plan this load
-    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     int64_t stream_load_put_start_time = MonotonicNanos();
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
+    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc_fe_with_master_refresh(
+            master_addr_provider,
             [&request, ctx](FrontendServiceConnection& client) {
                 client->streamLoadPut(ctx->put_result, request);
-            }));
+            },
+            [ctx]() { return ctx->put_result.status; },
+            // TStreamLoadPutResult does not carry master_address.
+            []() -> const TNetworkAddress* { return nullptr; }));
     ctx->put_result.pipeline_params.query_options.__set_enable_strict_cast(false);
     ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
     Status plan_status(Status::create(ctx->put_result.status));
