@@ -55,6 +55,22 @@ struct CLIndexInputDeleter {
 };
 using IndexInputPtr = std::unique_ptr<lucene::store::IndexInput, CLIndexInputDeleter>;
 
+static bool resolve_index_data_flag(const std::string& file_name, bool* is_index_data) {
+    for (const auto& entry : InvertedIndexDescriptor::index_file_info_map) {
+        if (file_name.find(entry.first) != std::string::npos) {
+            *is_index_data = true;
+            return true;
+        }
+    }
+    for (const auto& entry : InvertedIndexDescriptor::normal_file_info_map) {
+        if (file_name.find(entry.first) != std::string::npos) {
+            *is_index_data = false;
+            return true;
+        }
+    }
+    return false;
+}
+
 /** Implementation of an IndexInput that reads from a portion of the
  *  compound file.
  */
@@ -68,6 +84,8 @@ private:
     int64_t fileOffset;
     int64_t _length;
     const io::IOContext* _io_ctx = nullptr;
+    bool _has_index_data_flag = false;
+    bool _is_index_data = false;
 
 protected:
     void readInternal(uint8_t* /*b*/, const int32_t /*len*/) override;
@@ -95,7 +113,9 @@ CSIndexInput::CSIndexInput(IndexInputPtr base, const std::string& file_name,
           base(std::move(base)),
           file_name(file_name),
           fileOffset(fileOffset),
-          _length(length) {}
+          _length(length) {
+    _has_index_data_flag = resolve_index_data_flag(this->file_name, &_is_index_data);
+}
 
 void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
     // Thread-safety: each CSIndexInput owns a private `base` clone (P0-3/P0-4),
@@ -109,6 +129,9 @@ void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
 
     if (_io_ctx) {
         base->setIoContext(_io_ctx);
+    }
+    if (_has_index_data_flag) {
+        base->setIndexFile(_is_index_data);
     }
 
     DBUG_EXECUTE_IF("CSIndexInput.readInternal", {
@@ -154,7 +177,9 @@ CSIndexInput::CSIndexInput(const CSIndexInput& other)
                                                "[CSIndexInput] base is null in clone", false)),
           file_name(other.file_name),
           fileOffset(other.fileOffset),
-          _length(other._length) {}
+          _length(other._length),
+          _has_index_data_flag(other._has_index_data_flag),
+          _is_index_data(other._is_index_data) {}
 
 void CSIndexInput::close() {}
 

@@ -44,6 +44,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 
 using namespace lucene::index;
@@ -56,6 +57,9 @@ public:
     const std::string kTestDir = "./ut_dir/inverted_index_compound_reader_test";
 
     void SetUp() override {
+        _original_enable_debug_points = config::enable_debug_points;
+        config::enable_debug_points = true;
+
         auto st = io::global_local_filesystem()->delete_directory(kTestDir);
         ASSERT_TRUE(st.ok()) << st;
         st = io::global_local_filesystem()->create_directory(kTestDir);
@@ -70,7 +74,10 @@ public:
         ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
     }
 
-    void TearDown() override {}
+    void TearDown() override {
+        DebugPoints::instance()->remove("CSIndexInput.readInternal");
+        config::enable_debug_points = _original_enable_debug_points;
+    }
 
     CL_NS(store)::IndexInput* create_mock_index_input(const std::string& file_path,
                                                       const std::vector<std::string>& file_names,
@@ -221,6 +228,8 @@ public:
     std::string local_segment_path(std::string base, std::string rowset_id, int64_t seg_id) {
         return base + "/" + rowset_id + "/" + std::to_string(seg_id) + ".dat";
     }
+
+    bool _original_enable_debug_points = false;
 };
 
 TEST_F(DorisCompoundReaderTest, BasicConstruction) {
@@ -1155,6 +1164,31 @@ TEST_F(DorisCompoundReaderTest, OpenInputProducesIndependentBases) {
     _CLLDELETE(ia);
     _CLLDELETE(ib);
     _CLLDELETE(ic);
+    reader.close();
+}
+
+TEST_F(DorisCompoundReaderTest, CSIndexInputRefreshesIndexDataFlagPerSubFile) {
+    std::string index_path = kTestDir + "/tc_p0_index_data_flag.idx";
+    std::vector<std::string> names = {"segments_1", "field.tis"};
+    std::vector<int64_t> lens = {17 * 1024 * 1024, 17 * 1024 * 1024};
+    auto* index_input = create_mock_index_input(index_path, names, lens);
+    index_input->setIndexFile(true);
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    CLuceneError err;
+    lucene::store::IndexInput* meta = nullptr;
+    lucene::store::IndexInput* normal = nullptr;
+    ASSERT_TRUE(reader.openInput("segments_1", meta, err, 4096));
+    ASSERT_TRUE(reader.openInput("field.tis", normal, err, 4096));
+
+    DebugPoints::instance()->add("CSIndexInput.readInternal");
+
+    uint8_t buf[16] = {0};
+    EXPECT_NO_THROW(meta->readBytes(buf, static_cast<int32_t>(sizeof(buf))));
+    EXPECT_NO_THROW(normal->readBytes(buf, static_cast<int32_t>(sizeof(buf))));
+
+    _CLLDELETE(meta);
+    _CLLDELETE(normal);
     reader.close();
 }
 
