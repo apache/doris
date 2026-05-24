@@ -59,6 +59,11 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
         return withAggOutput(prunedOutputs);
     }
 
+    /**
+     * get aggregate functions
+     * aggregate functions cannot be nested, so we stop recursion when we find an aggregate function,
+     * and do not need to traverse its children.
+     */
     default Set<AggregateFunction> getAggregateFunctions() {
         ImmutableSet.Builder<AggregateFunction> aggregateFunctions = ImmutableSet.builder();
         for (Expression outputExpression : getOutputExpressions()) {
