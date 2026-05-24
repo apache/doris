@@ -1179,7 +1179,7 @@ public class StatementContext implements Closeable {
         return queryStatsRecorded;
     }
 
-    public void setQueryStatsRecorded() {
+    public void markQueryStatsRecorded() {
         queryStatsRecorded = true;
     }
 

@@ -180,6 +180,9 @@ public class NereidsPlanner extends Planner {
             LOG.info(getExplainString(new ExplainOptions(ExplainLevel.SHAPE_PLAN, false)));
             LOG.info(getExplainString(new ExplainOptions(ExplainLevel.DISTRIBUTED_PLAN, false)));
         }
+        if (physicalPlan != null) {
+            QueryStatsRecorder.record(physicalPlan, statementContext);
+        }
     }
 
     @VisibleForTesting
@@ -614,7 +617,6 @@ public class NereidsPlanner extends Planner {
             return;
         }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
-        QueryStatsRecorder.record(physicalPlan, statementContext);
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
                     .setNereidsTranslateTime(TimeUtils.getStartTimeMs());

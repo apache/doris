@@ -24,15 +24,14 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -41,11 +40,23 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Records column-level query and filter hit stats from the Nereids physical plan.
+ * Records column-level query-hit and filter-hit statistics from the Nereids physical plan.
+ * Called once per query in NereidsPlanner after plan translation.
+ *
+ * <p>Scope (Part 1):
+ * <ul>
+ *   <li>queryHit: base SELECT columns whose ExprId flows straight through to the root
+ *       plan's output without rewriting. Columns hidden by an alias, an expression,
+ *       or an aggregate function are NOT recorded yet (Part 2).</li>
+ *   <li>filterHit: columns referenced in WHERE predicate conjuncts.</li>
+ *   <li>Only OlapTable scans are recorded; external tables (Hive, Iceberg, JDBC, …) are not.</li>
+ *   <li>DML, EXPLAIN, and internal queries (e.g. auto-analyze) are skipped.</li>
+ *   <li>Per query, each table's count is incremented at most once regardless of scan count.</li>
+ * </ul>
+ * GROUP BY, ORDER BY, window, JOIN, and aliased/projected columns are deferred to Part 2.
  */
 public class QueryStatsRecorder {
     private static final Logger LOG = LogManager.getLogger(QueryStatsRecorder.class);
@@ -59,41 +70,56 @@ public class QueryStatsRecorder {
         if (stmtContext.isQueryStatsRecorded()) {
             return;
         }
-        stmtContext.setQueryStatsRecorded();
+        // Set the latch before the work so a partial-failure retry does not double-count.
+        stmtContext.markQueryStatsRecorded();
         try {
-            Map<ExprId, PhysicalOlapScan> exprIdToScan = new HashMap<>();
-            Map<String, StatsDelta> deltas = new LinkedHashMap<>();
-            walkPlan(plan, exprIdToScan, deltas);
-            if (exprIdToScan.isEmpty()) {
-                return;
-            }
-            for (Slot slot : plan.getOutput()) {
-                SlotReference sr = unwrapSlotRef(slot);
-                if (sr == null) {
-                    continue;
-                }
-                PhysicalOlapScan sourceScan = exprIdToScan.get(sr.getExprId());
-                if (sourceScan == null) {
-                    continue;
-                }
-                StatsDelta delta = getOrCreateDelta(deltas, sourceScan);
-                if (delta == null) {
-                    continue;
-                }
-                sr.getOriginalColumn().ifPresent(col -> {
-                    if (!col.getName().isEmpty()) {
-                        delta.addQueryStats(col.getName());
-                    }
-                });
-            }
+            Map<String, StatsDelta> deltas = collectDeltas(plan);
             for (StatsDelta delta : deltas.values()) {
                 if (!delta.empty()) {
-                    Env.getCurrentEnv().getQueryStats().addStats(delta);
+                    try {
+                        Env.getCurrentEnv().getQueryStats().addStats(delta);
+                    } catch (Exception e) {
+                        ConnectContext cc = stmtContext.getConnectContext();
+                        String queryId = (cc != null && cc.queryId() != null)
+                                ? cc.queryId().toString() : "unknown";
+                        LOG.warn("Failed to record query stats for query={}", queryId, e);
+                    }
                 }
             }
         } catch (Exception e) {
-            LOG.warn("Failed to record query stats", e);
+            ConnectContext cc = stmtContext.getConnectContext();
+            String queryId = (cc != null && cc.queryId() != null)
+                    ? cc.queryId().toString() : "unknown";
+            LOG.warn("Failed to build query stats deltas for query={}", queryId, e);
         }
+    }
+
+    /**
+     * Builds the per-table StatsDelta map from the physical plan.
+     * Package-private so unit tests can verify recording logic without touching Env.
+     */
+    static Map<String, StatsDelta> collectDeltas(PhysicalPlan plan) {
+        Map<ExprId, PhysicalOlapScan> exprIdToScan = new HashMap<>();
+        Map<String, StatsDelta> deltas = new HashMap<>();
+        walkPlan(plan, exprIdToScan, deltas);
+        if (exprIdToScan.isEmpty()) {
+            return deltas;
+        }
+        for (Slot slot : plan.getOutput()) {
+            if (!(slot instanceof SlotReference)) {
+                continue;
+            }
+            SlotReference sr = (SlotReference) slot;
+            PhysicalOlapScan sourceScan = exprIdToScan.get(sr.getExprId());
+            if (sourceScan == null) {
+                continue;
+            }
+            StatsDelta delta = getOrCreateDelta(deltas, sourceScan);
+            if (delta != null) {
+                sr.getOriginalColumn().ifPresent(col -> delta.addQueryStats(col.getName()));
+            }
+        }
+        return deltas;
     }
 
     // Package-private for testing.
@@ -101,13 +127,17 @@ public class QueryStatsRecorder {
         if (!Config.enable_query_hit_stats) {
             return false;
         }
-        // Skip internal queries such as auto-analyze.
         ConnectContext connectContext = ctx.getConnectContext();
         if (connectContext != null && connectContext.getState().isInternal()) {
             return false;
         }
         StatementBase stmt = ctx.getParsedStatement();
         if (stmt == null || stmt.isExplain()) {
+            return false;
+        }
+        // isInsert guards INSERT INTO … SELECT: parsedStmt may be the SELECT sub-plan,
+        // not the INSERT Command, when NereidsPlanner re-enters for execution planning.
+        if (ctx.isInsert()) {
             return false;
         }
         if (stmt instanceof LogicalPlanAdapter
@@ -117,21 +147,29 @@ public class QueryStatsRecorder {
         return true;
     }
 
+    /**
+     * Single-pass tree walk: registers scan output slots into exprIdToScan,
+     * and records filterHit for PhysicalFilter conjuncts.
+     * Children are visited before the current node so scans are registered
+     * before parent filters look them up.
+     * PhysicalLazyMaterializeOlapScan is checked before PhysicalOlapScan
+     * because it is a subclass; the inner scan's metadata must be used.
+     */
     private static void walkPlan(Plan plan,
             Map<ExprId, PhysicalOlapScan> exprIdToScan,
             Map<String, StatsDelta> deltas) {
+        if (plan instanceof PhysicalLazyMaterializeOlapScan) {
+            PhysicalOlapScan inner =
+                    ((PhysicalLazyMaterializeOlapScan) plan).getScan();
+            for (Slot slot : plan.getOutput()) {
+                exprIdToScan.put(slot.getExprId(), inner);
+            }
+            return;
+        }
         if (plan instanceof PhysicalOlapScan) {
             PhysicalOlapScan scan = (PhysicalOlapScan) plan;
             for (Slot slot : scan.getOutput()) {
                 exprIdToScan.put(slot.getExprId(), scan);
-            }
-            return;
-        }
-        if (plan instanceof PhysicalDeferMaterializeOlapScan) {
-            PhysicalOlapScan inner =
-                    ((PhysicalDeferMaterializeOlapScan) plan).getPhysicalOlapScan();
-            for (Slot slot : plan.getOutput()) {
-                exprIdToScan.put(slot.getExprId(), inner);
             }
             return;
         }
@@ -151,27 +189,12 @@ public class QueryStatsRecorder {
                         return;
                     }
                     StatsDelta delta = getOrCreateDelta(deltas, sourceScan);
-                    if (delta == null) {
-                        return;
+                    if (delta != null) {
+                        sr.getOriginalColumn().ifPresent(col -> delta.addFilterStats(col.getName()));
                     }
-                    sr.getOriginalColumn().ifPresent(col -> {
-                        if (!col.getName().isEmpty()) {
-                            delta.addFilterStats(col.getName());
-                        }
-                    });
                 });
             }
         }
-    }
-
-    private static SlotReference unwrapSlotRef(Expression expr) {
-        if (expr instanceof SlotReference) {
-            return (SlotReference) expr;
-        }
-        if (expr instanceof Alias) {
-            return unwrapSlotRef(((Alias) expr).child());
-        }
-        return null;
     }
 
     private static StatsDelta getOrCreateDelta(Map<String, StatsDelta> deltas,
