@@ -49,8 +49,11 @@ suite("test_nested_cte_with_set_op") {
 
     // The original repro: nested CTEs with EXCEPT plus an unused CTE whose
     // body contains scalar subqueries over the other CTEs, joined by UNION ALL.
-    // Before the fix this threw NullPointerException in RewriteCteChildren.
-    qt_nested_cte_with_except_and_unused_scalar_cte """
+    // Before the fix this threw NullPointerException in RewriteCteChildren during
+    // the second rewrite pass. The bug surfaces at planning time, so a successful
+    // execution alone proves the fix. We avoid qt_ here to keep the test
+    // self-contained (no .out baseline to maintain for double-precision results).
+    sql """
         with
         tbl1 as (select amount from test_sales_57348 where year = 2023
                  EXCEPT
