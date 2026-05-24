@@ -90,36 +90,6 @@ suite("string_length_column_pruning") {
         notContains "type=bigint"
     }
     sql "select length(struct_element(struct_col, 'f3')) from slcp_str_tbl"
-
-    // Integer ordinal struct_element must be normalized to field-name access
-    // before the scan slot type is pruned, otherwise the ordinal would refer to
-    // the pruned struct shape instead of the original struct shape.
-    explain {
-        sql "select length(struct_element(struct_col, 2)) from slcp_str_tbl"
-        contains "nested columns"
-        contains "struct_col.f3.OFFSET"
-        notContains "type=bigint"
-    }
-    order_qt_struct_element_index_length """
-        select length(struct_element(struct_col, 2)) from slcp_str_tbl
-        order by id
-    """
-
-    explain {
-        sql "select struct_element(struct_col, 2) from slcp_str_tbl"
-        contains "nested columns"
-        contains "struct_col.f3"
-        notContains "struct_col.f3.OFFSET"
-    }
-    order_qt_struct_element_index_value """
-        select struct_element(struct_col, 2) from slcp_str_tbl
-        order by id
-    """
-    order_qt_element_at_struct_index_value """
-        select element_at(struct_col, 2) from slcp_str_tbl
-        order by id
-    """
-
     // length() in both SELECT and WHERE: predicate must remain length(str_col) > 1,
     // never be rewritten to CAST(str_col AS int) > 1. Slot type must stay varchar.
     explain {

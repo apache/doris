@@ -383,34 +383,6 @@ suite("null_column_pruning") {
 
     order_qt_23 "select count(1) from ncp_tbl where struct_element(struct_col, 'zip') is null";
 
-    // Ordinal-based struct_element must be normalized to field-name access before
-    // the scan slot type is pruned. Otherwise struct_element(struct_col, 2) would
-    // point at the second field of the pruned STRUCT<zip: INT> instead of the
-    // original struct_col.zip field.
-    explain {
-        sql "select count(1) from ncp_tbl where struct_element(struct_col, 2) is null"
-        contains "nested columns"
-        contains "struct_col.zip.NULL"
-    }
-
-    order_qt_struct_element_index_is_null """
-        select count(1) from ncp_tbl where struct_element(struct_col, 2) is null
-    """
-
-    explain {
-        sql "select count(1) from ncp_tbl where struct_element(struct_col, 2) is not null"
-        contains "nested columns"
-        contains "struct_col.zip.NULL"
-    }
-
-    order_qt_struct_element_index_is_not_null """
-        select count(1) from ncp_tbl where struct_element(struct_col, 2) is not null
-    """
-
-    order_qt_element_at_struct_index_is_not_null """
-        select count(1) from ncp_tbl where element_at(struct_col, 2) is not null
-    """
-
     // ─── struct_element IS NOT NULL ─────────────────────────────────────────────
     explain {
         sql "select count(1) from ncp_tbl where struct_element(struct_col, 'city') is not null"

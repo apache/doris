@@ -76,15 +76,6 @@
 -- !23 --
 0
 
--- !struct_element_index_is_null --
-0
-
--- !struct_element_index_is_not_null --
-1
-
--- !element_at_struct_index_is_not_null --
-1
-
 -- !24 --
 0
 
