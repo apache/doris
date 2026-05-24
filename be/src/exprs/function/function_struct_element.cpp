@@ -101,9 +101,9 @@ public:
         size_t index;
         RETURN_IF_ERROR(get_element_index(*struct_type, index_column, index_type, &index));
         ColumnPtr res_column = struct_col->get_column_ptr(index);
-        ColumnPtr ele_column = res_column->clone_resized(res_column->size());
-        //This function must return a ColumnNullable column, so it is necessary to convert the result column into ColumnNullable.
-        block.replace_by_position(result, make_nullable(ele_column));
+        // This function must return a ColumnNullable column, so it is necessary to convert the
+        // result column into ColumnNullable.
+        block.replace_by_position(result, make_nullable(res_column));
         return Status::OK();
     }
 

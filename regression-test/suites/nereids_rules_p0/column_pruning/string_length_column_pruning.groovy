@@ -90,6 +90,47 @@ suite("string_length_column_pruning") {
         notContains "type=bigint"
     }
     sql "select length(struct_element(struct_col, 'f3')) from slcp_str_tbl"
+
+    sql """ DROP TABLE IF EXISTS slcp_struct_offset_group_tbl """
+    sql """
+        CREATE TABLE slcp_struct_offset_group_tbl (
+            id INT,
+            val STRING,
+            s STRUCT<a: INT, b: STRING>
+        ) ENGINE = OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql """
+        INSERT INTO slcp_struct_offset_group_tbl VALUES
+            (0, 'v0', named_struct('a', 10, 'b', 'a')),
+            (1, 'v1', named_struct('a', 11, 'b', 'bb')),
+            (2, 'v2', named_struct('a', 12, 'b', 'ccc')),
+            (3, 'v3', named_struct('a', 13, 'b', 'dddd')),
+            (4, 'v4', named_struct('a', 14, 'b', 'eeeee')),
+            (5, 'v5', named_struct('a', 15, 'b', 'ffffff')),
+            (6, 'v6', named_struct('a', 16, 'b', NULL)),
+            (7, 'v7', named_struct('a', 17, 'b', 'gg')),
+            (8, 'v8', named_struct('a', 18, 'b', 'hhhh')),
+            (9, 'v9', named_struct('a', 19, 'b', 'iii'))
+    """
+    explain {
+        sql """
+            select length(struct_element(s, 'b')), min_by(val, id)
+            from slcp_struct_offset_group_tbl
+            group by 1
+        """
+        contains "nested columns"
+        contains "s.b.OFFSET"
+    }
+    order_qt_struct_offset_group_min_by """
+        select length(struct_element(s, 'b')), min_by(val, id)
+        from slcp_struct_offset_group_tbl
+        group by 1
+        order by 1, 2
+    """
+
     // length() in both SELECT and WHERE: predicate must remain length(str_col) > 1,
     // never be rewritten to CAST(str_col AS int) > 1. Slot type must stay varchar.
     explain {
