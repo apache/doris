@@ -178,7 +178,6 @@ class IvmOuterJoinDeltaHandler {
      */
     private IvmDeltaRewriteResult rewriteNullSideDeltaWithRepairBranches(
             NullSideDeltaContext deltaContext, IvmRefreshContext context) {
-        LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
         // Null-side delta for:
         //   retained_snapshot OUTER JOIN null_side_delta
         //
@@ -271,11 +270,13 @@ class IvmOuterJoinDeltaHandler {
                 helper.freshPlan(copyDeltaScanAsSnapshot(deltaContext.deltaSideChild(), true, context)),
                 NULL_SIDE_POST_SNAPSHOT_ALIAS));
         LogicalProject<Plan> preNullProject = buildNullSideRepairProject(deltaContext,
-                helper.remapOutputs(helper.freshPlan(deltaContext.nonDeltaSideResult().plan)), insertedNullSideDelta.second,
-                nullSideInserts, nullSidePreSnapshot, new TinyIntLiteral((byte) -1));
+                helper.remapOutputs(helper.freshPlan(deltaContext.nonDeltaSideResult().plan)),
+                insertedNullSideDelta.second, nullSideInserts, nullSidePreSnapshot,
+                new TinyIntLiteral((byte) -1));
         LogicalProject<Plan> postNullProject = buildNullSideRepairProject(deltaContext,
-                helper.remapOutputs(helper.freshPlan(deltaContext.nonDeltaSideResult().plan)), deletedNullSideDelta.second,
-                nullSideDeletes, nullSidePostSnapshot, new TinyIntLiteral((byte) 1));
+                helper.remapOutputs(helper.freshPlan(deltaContext.nonDeltaSideResult().plan)),
+                deletedNullSideDelta.second, nullSideDeletes, nullSidePostSnapshot,
+                new TinyIntLiteral((byte) 1));
         return ImmutableList.of(preNullProject, postNullProject);
     }
 
