@@ -221,8 +221,8 @@ TEST(function_cosine_numerical_stability_test, large_magnitude_no_overflow) {
 
     {
         DataSet data_set = {{{big1, big2}, Float32(1.0)}};
-        static_cast<void>(check_function<DataTypeFloat32, false>("cosine_similarity", input_types,
-                                                                 data_set));
+        static_cast<void>(
+                check_function<DataTypeFloat32, false>("cosine_similarity", input_types, data_set));
     }
     {
         DataSet data_set = {{{big1, big2}, Float32(0.0)}};
