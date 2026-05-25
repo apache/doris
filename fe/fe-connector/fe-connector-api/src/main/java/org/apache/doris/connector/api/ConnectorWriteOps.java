@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.handle.ConnectorDeleteHandle;
 import org.apache.doris.connector.api.handle.ConnectorInsertHandle;
 import org.apache.doris.connector.api.handle.ConnectorMergeHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.write.ConnectorWriteConfig;
 
 import java.util.Collection;
@@ -196,5 +197,21 @@ public interface ConnectorWriteOps {
     default void abortMerge(ConnectorSession session,
             ConnectorMergeHandle handle) {
         // default: no-op
+    }
+
+    // ──────────────────── TRANSACTION ────────────────────
+
+    /**
+     * Begins a new transaction scoped to a single SQL statement (auto-commit)
+     * or to an explicit BEGIN..COMMIT block. The returned transaction is passed
+     * to subsequent {@code begin*} / {@code finish*} / {@code abort*} calls via
+     * the same {@link ConnectorSession}.
+     *
+     * <p>Connectors that do not support multi-statement transactions can either
+     * return a no-op transaction whose commit/rollback do nothing, or throw, in
+     * which case the engine treats every statement as auto-commit.</p>
+     */
+    default ConnectorTransaction beginTransaction(ConnectorSession session) {
+        throw new DorisConnectorException("Transactions not supported");
     }
 }
