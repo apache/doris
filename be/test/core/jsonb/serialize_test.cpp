@@ -35,6 +35,7 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/exception.h"
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
@@ -619,6 +620,45 @@ static void fill_block_with_array_string(Block& block) {
     ColumnWithTypeAndName test_array_string(std::move(column_array_ptr), array_type,
                                             "test_array_string");
     block.insert(test_array_string);
+}
+
+TEST(BlockSerializeCowTest, JsonbToBlockMutatesDestinationOwnerColumn) {
+    TabletSchema schema;
+    TabletColumn c1;
+    c1.set_name("k1");
+    c1.set_unique_id(1);
+    c1.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    schema.append_column(c1);
+
+    auto src_column = ColumnInt32::create();
+    src_column->insert_value(10);
+    src_column->insert_value(20);
+    auto int_type = std::make_shared<DataTypeInt32>();
+    Block src_block;
+    src_block.insert({std::move(src_column), int_type, "k1"});
+
+    auto jsonb_column = ColumnString::create();
+    auto serdes = create_data_type_serdes(src_block.get_data_types());
+    JsonbSerializeUtil::block_to_jsonb(schema, src_block, *jsonb_column, src_block.columns(),
+                                       serdes, {});
+
+    ColumnPtr shared_column = ColumnInt32::create();
+    const auto* original_column = shared_column.get();
+    Block dst_block;
+    dst_block.insert({shared_column, int_type, "k1"});
+
+    std::unordered_map<uint32_t, uint32_t> col_uid_to_idx {{1, 0}};
+    std::vector<std::string> default_values(1);
+    THROW_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(serdes, *jsonb_column, col_uid_to_idx,
+                                                      dst_block, default_values, {}));
+
+    EXPECT_NE(dst_block.get_by_position(0).column.get(), original_column);
+    EXPECT_EQ(shared_column->size(), 0);
+    EXPECT_EQ(dst_block.rows(), 2);
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(*dst_block.get_by_position(0).column).get_data()[0],
+              10);
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(*dst_block.get_by_position(0).column).get_data()[1],
+              20);
 }
 
 TEST(BlockSerializeTest, Array) {

@@ -92,6 +92,14 @@ inline std::string vertical_segment_writer_mem_tracker_name(uint32_t segment_id)
     return "VerticalSegmentWriter:Segment-" + std::to_string(segment_id);
 }
 
+static ColumnBitmap* get_mutable_skip_bitmap_column(Block* block, size_t skip_bitmap_col_idx) {
+    auto skip_bitmap_column =
+            IColumn::mutate(std::move(block->get_by_position(skip_bitmap_col_idx).column));
+    auto* skip_bitmap_column_ptr = assert_cast<ColumnBitmap*>(skip_bitmap_column.get());
+    block->replace_by_position(skip_bitmap_col_idx, std::move(skip_bitmap_column));
+    return skip_bitmap_column_ptr;
+}
+
 VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                              DataDir* data_dir,
@@ -362,7 +370,7 @@ void VerticalSegmentWriter::_maybe_invalid_row_cache(const std::string& key) con
     }
 }
 
-void VerticalSegmentWriter::_serialize_block_to_row_column(const Block& block) {
+void VerticalSegmentWriter::_serialize_block_to_row_column(Block& block) {
     if (block.rows() == 0) {
         return;
     }
@@ -371,15 +379,15 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(const Block& block) {
     int row_column_id = 0;
     for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
         if (_tablet_schema->column(i).is_row_store_column()) {
-            auto* row_store_column = static_cast<ColumnString*>(
-                    block.get_by_position(i).column->assume_mutable_ref().assume_mutable().get());
-            row_store_column->clear();
+            auto row_store_column_ptr = block.get_by_position(i).column->clone_empty();
+            auto* row_store_column = static_cast<ColumnString*>(row_store_column_ptr.get());
             DataTypeSerDeSPtrs serdes = create_data_type_serdes(block.get_data_types());
             std::unordered_set<int> row_store_cids_set(_tablet_schema->row_columns_uids().begin(),
                                                        _tablet_schema->row_columns_uids().end());
             JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
                                                cast_set<int>(_tablet_schema->num_columns()), serdes,
                                                row_store_cids_set);
+            block.replace_by_position(i, std::move(row_store_column_ptr));
             break;
         }
     }
@@ -766,10 +774,9 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
     RETURN_IF_ERROR(_block_aggregator.convert_seq_column(const_cast<Block*>(data.block),
                                                          data.row_pos, data.num_rows, seq_column));
 
-    std::vector<BitmapValue>* skip_bitmaps = &(
-            assert_cast<ColumnBitmap*>(
-                    data.block->get_by_position(skip_bitmap_col_idx).column->assume_mutable().get())
-                    ->get_data());
+    auto* mutable_block = const_cast<Block*>(data.block);
+    std::vector<BitmapValue>* skip_bitmaps =
+            &get_mutable_skip_bitmap_column(mutable_block, skip_bitmap_col_idx)->get_data();
     const auto* delete_signs =
             BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
     DCHECK(delete_signs != nullptr);
@@ -884,10 +891,10 @@ Status VerticalSegmentWriter::_generate_encoded_default_seq_value(const TabletSc
         const auto& default_value = info.default_values[idx];
         StringRef str {default_value};
         RETURN_IF_ERROR(block.get_by_position(0).type->get_serde()->default_from_string(
-                str, *block.get_by_position(0).column->assume_mutable().get()));
+                str, *block.get_by_position(0).column->assert_mutable().get()));
 
     } else {
-        block.get_by_position(0).column->assume_mutable()->insert_default();
+        block.get_by_position(0).column->assert_mutable()->insert_default();
     }
     DCHECK_EQ(block.rows(), 1);
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
@@ -1010,7 +1017,7 @@ Status VerticalSegmentWriter::write_batch() {
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
         for (auto& data : _batched_blocks) {
             // TODO: maybe we should pass range to this method
-            _serialize_block_to_row_column(*data.block);
+            _serialize_block_to_row_column(*const_cast<Block*>(data.block));
         }
     }
 

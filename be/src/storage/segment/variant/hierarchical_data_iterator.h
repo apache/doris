@@ -137,6 +137,7 @@ private:
     // process read
     template <typename ReadFunction>
     Status process_read(ReadFunction&& read_func, MutableColumnPtr& dst, size_t nrows) {
+        dst = IColumn::mutate(std::move(dst));
         // // Read all sub columns, and merge with root column
         ColumnNullable* nullable_column = nullptr;
         if (dst->is_nullable()) {

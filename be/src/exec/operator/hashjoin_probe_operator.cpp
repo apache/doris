@@ -232,7 +232,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, Block* output_bl
 
     local_state._join_block.clear_column_data();
 
-    MutableBlock mutable_join_block(&local_state._join_block);
+    ScopedMutableBlock scoped_mutable_join_block(&local_state._join_block);
+    auto& mutable_join_block = scoped_mutable_join_block.mutable_block();
     Block temp_block;
 
     Status st;
@@ -313,8 +314,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, Block* output_bl
             state, output_block, eos, &temp_block,
             !local_state._shared_state->left_semi_direct_return));
     // Here make _join_block release the columns' ptr
+    scoped_mutable_join_block.restore();
     local_state._join_block.set_columns(local_state._join_block.clone_empty_columns());
-    mutable_join_block.clear();
     return Status::OK();
 }
 

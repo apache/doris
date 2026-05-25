@@ -50,7 +50,7 @@ public:
     for (size_t i = 0; i < column_to_keep; ++i) {        \
         auto& column = block->get_by_position(i).column; \
         if (column->is_exclusive()) {                    \
-            column->assume_mutable()->clear();           \
+            column->assert_mutable()->clear();           \
         } else {                                         \
             column = column->clone_empty();              \
         }                                                \

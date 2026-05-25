@@ -51,7 +51,8 @@ Status VExplodeV2TableFunction::_process_init_variant(Block* block, int value_co
     // explode variant array
     auto column_without_nullable = remove_nullable(block->get_by_position(value_column_idx).column);
     auto column = column_without_nullable->convert_to_full_column_if_const();
-    auto& variant_column = assert_cast<ColumnVariant&>(*(column->assume_mutable()));
+    auto variant_column_ptr = IColumn::mutate(std::move(column));
+    auto& variant_column = assert_cast<ColumnVariant&>(*variant_column_ptr);
     variant_column.finalize();
     _multi_detail[children_column_idx].output_as_variant = true;
     _multi_detail[children_column_idx].variant_enable_doc_mode = variant_column.enable_doc_mode();
@@ -68,10 +69,10 @@ Status VExplodeV2TableFunction::_process_init_variant(Block* block, int value_co
         _multi_detail[children_column_idx].nested_type = array_type->get_nested_type();
     } else {
         // null root, use nothing type
-        _array_columns[children_column_idx] = ColumnNullable::create(
-                ColumnArray::create(ColumnNothing::create(0)), ColumnUInt8::create(0));
-        _array_columns[children_column_idx]->assume_mutable()->insert_many_defaults(
-                variant_column.size());
+        auto array_column = ColumnNullable::create(ColumnArray::create(ColumnNothing::create(0)),
+                                                   ColumnUInt8::create(0));
+        array_column->insert_many_defaults(variant_column.size());
+        _array_columns[children_column_idx] = std::move(array_column);
         _multi_detail[children_column_idx].nested_type = std::make_shared<DataTypeNothing>();
     }
     return Status::OK();
