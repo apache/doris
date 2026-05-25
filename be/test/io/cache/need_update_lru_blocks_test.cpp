@@ -131,7 +131,6 @@ TEST(NeedUpdateLRUBlocksTest, UpdateBlockLRUIgnoresNullAndCorruptedCellPointer) 
     key.offset = 0;
     key.meta.expiration_time = 0;
     key.meta.type = FileCacheType::NORMAL;
-    key.meta.tablet_id = 0;
 
     auto block =
             std::make_shared<FileBlock>(key, /*size*/ 1, /*mgr*/ &mgr, FileBlock::State::EMPTY);
