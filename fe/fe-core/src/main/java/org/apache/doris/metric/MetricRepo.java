@@ -116,6 +116,7 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_REQUEST_ALL;
     public static LongCounterMetric COUNTER_QUERY_ALL;
     public static LongCounterMetric COUNTER_QUERY_ERR;
+    public static LongCounterMetric COUNTER_ANALYSIS_ERR;
     public static LongCounterMetric COUNTER_QUERY_SLOW;
     public static LongCounterMetric COUNTER_QUERY_TABLE;
     public static LongCounterMetric COUNTER_QUERY_OLAP_TABLE;
@@ -501,6 +502,8 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_ALL);
         COUNTER_QUERY_ERR = new LongCounterMetric("query_err", MetricUnit.REQUESTS, "total error query");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_ERR);
+        COUNTER_ANALYSIS_ERR = new LongCounterMetric("analysis_err", MetricUnit.REQUESTS, "total analysis error query");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_ANALYSIS_ERR);
         COUNTER_QUERY_SLOW = new LongCounterMetric("query_slow", MetricUnit.REQUESTS, "total slow query");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_SLOW);
         COUNTER_QUERY_TABLE = new LongCounterMetric("query_table", MetricUnit.REQUESTS, "total query from table");

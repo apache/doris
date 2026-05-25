@@ -424,10 +424,12 @@ public class AuditLogHelper {
         MetricRepo.increaseClusterQueryAll(cloudCluster);
 
         if (!ctx.getState().isInternal()) {
-            if (ctx.getState().getStateType() == MysqlStateType.ERR
-                    && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
+            if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 // err query
                 MetricRepo.COUNTER_QUERY_ERR.increase(1L);
+                if (ctx.getState().getErrType() == QueryState.ErrType.ANALYSIS_ERR) {
+                    MetricRepo.COUNTER_ANALYSIS_ERR.increase(1L);
+                }
                 MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd(ctx.getQualifiedUser()).increase(1L);
                 if (cloudCluster.equals(physicalClusterName)) {
                     // not vcg
