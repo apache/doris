@@ -17,24 +17,14 @@
 
 package org.apache.doris.common.security.authentication;
 
-import com.google.common.base.Strings;
 import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 public class HadoopSimpleAuthenticator implements HadoopAuthenticator {
-    private static final Logger LOG = LogManager.getLogger(HadoopSimpleAuthenticator.class);
     private final UserGroupInformation ugi;
 
     public HadoopSimpleAuthenticator() {
-        String hadoopUserName = System.getenv("HADOOP_USER_NAME");
-        String userToken = System.getenv("HADOOP_USER_TOKEN");
-        if (Strings.isNullOrEmpty(hadoopUserName)) {
-            hadoopUserName = "hadoop";
-            LOG.warn("{} is unset, use default user: hadoop", AuthenticationConfig.HADOOP_USER_NAME);
-        }
-        ugi = UserGroupInformation.createRemoteUser(hadoopUserName, null, userToken);
-        LOG.info("Login by proxy user, hadoop.username: {}", hadoopUserName);
+        String hadoopUserName = "";
+        ugi = UserGroupInformation.createRemoteUser(hadoopUserName, "", "");
     }
 
     @Override

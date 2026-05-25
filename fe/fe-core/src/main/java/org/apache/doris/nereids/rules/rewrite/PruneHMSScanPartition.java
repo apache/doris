@@ -219,61 +219,47 @@ public class PruneHMSScanPartition extends OneRewriteRuleFactory {
             allPartitionValuesByFilter = false;
         }
         if (!allPartitionValuesByFilter) {
-            if (hiveTable.getDlaType() == HMSExternalTable.DLAType.HUDI) {
-                // table$partitions resolves to partition_values TVF, which runs Hudi JNI on BE and touches HDFS
-                // during FE-internal planning (e.g. Namenode IP whitelist). Use HMS partition cache only.
-                try {
-                    HMSPartitionsUtil.checkSelectedPartitionNumLimit(hiveTable, partitionNum);
-                    selectedPartitionItems = HMSPartitionsUtil.getPartitionItems(cache, hiveTable, partitionNum);
-                } catch (Exception e) {
-                    String errorMessage = "failed to list hms partitions for hudi table "
-                            + hiveTable.getDbName() + "." + hiveTable.getName();
-                    LOG.warn(errorMessage, e);
-                    throw new InternalQueryExecutionException(errorMessage, e);
-                }
-            } else {
-                BDPAuthContext bdpAuthContext = BDPAuthContext.get();
-                BDPAuthContext partitionFilterAuthContext = hiveTable.isViewBased() ? new BDPAuthContext(
-                        bdpAuthContext.getErp(), bdpAuthContext.getSource(), bdpAuthContext.getHadoopUserName(),
-                        bdpAuthContext.getUserToken(), true) : bdpAuthContext;
-                try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(partitionFilterAuthContext)) {
-                    partitionPredicate = PartitionPruneExpressionExtractor.extract(filter.getPredicate(),
-                        ImmutableSet.copyOf(partitionSlots), ctx);
-                    Map<String, String> params = new HashMap<>();
-                    params.put("catalogName", hiveTable.getCatalog().getName());
-                    params.put("dbName", hiveTable.getDbName());
-                    params.put("tblName", hiveTable.getName());
-                    params.put("filterSql", partitionPredicate.toSql());
-                    StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-                    String sql = stringSubstitutor.replace(QUERY_FILTER_PARTITION_SQL);
-                    List<ResultRow> partitionRows = executePartitionFilterQuery(hiveTable, r, sql);
-                    selectedPartitionItems = Maps.newHashMapWithExpectedSize(partitionRows.size());
-                    for (ResultRow partition : partitionRows) {
-                        List<PartitionValue> values = Lists.newArrayListWithExpectedSize(partitionSlots.size());
-                        for (String partitionValue : partition.getValues()) {
-                            values.add(new PartitionValue(partitionValue,
-                                    HiveMetaStoreCache.HIVE_DEFAULT_PARTITION.equals(partitionValue)));
-                        }
-                        try {
-                            PartitionKey partitionKey = PartitionKey.createListPartitionKeyWithTypes(values,
-                                    hiveTable.getPartitionColumnTypes(), true);
-                            String partitionName = IntStream.range(0, partitionSlots.size())
-                                    .mapToObj(i -> partitionSlots.get(i).getName()
-                                            + "=" + values.get(i).getStringValue())
-                                    .collect(Collectors.joining("/"));
-                            selectedPartitionItems.put(partitionName,
-                                new ListPartitionItem(Lists.newArrayList(partitionKey)));
-                        } catch (AnalysisException e) {
-                            throw new InternalQueryExecutionException(
-                                String.format("failed to convert hive partition %s to list partition in catalog %s",
-                                e, partition.getValues(), hiveTable.getCatalog().getName()), e);
-                        }
+            BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+            BDPAuthContext partitionFilterAuthContext = hiveTable.isViewBased() ? new BDPAuthContext(
+                    bdpAuthContext.getErp(), bdpAuthContext.getSource(), bdpAuthContext.getHadoopUserName(),
+                    bdpAuthContext.getUserToken(), true, bdpAuthContext.getUserType(),
+                    bdpAuthContext.getBusinessLine()) : bdpAuthContext;
+            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(partitionFilterAuthContext)) {
+                partitionPredicate = PartitionPruneExpressionExtractor.extract(filter.getPredicate(),
+                    ImmutableSet.copyOf(partitionSlots), ctx);
+                Map<String, String> params = new HashMap<>();
+                params.put("catalogName", hiveTable.getCatalog().getName());
+                params.put("dbName", hiveTable.getDbName());
+                params.put("tblName", hiveTable.getName());
+                params.put("filterSql", partitionPredicate.toSql());
+                StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+                String sql = stringSubstitutor.replace(QUERY_FILTER_PARTITION_SQL);
+                List<ResultRow> partitionRows = executePartitionFilterQuery(hiveTable, r, sql);
+                selectedPartitionItems = Maps.newHashMapWithExpectedSize(partitionRows.size());
+                for (ResultRow partition : partitionRows) {
+                    List<PartitionValue> values = Lists.newArrayListWithExpectedSize(partitionSlots.size());
+                    for (String partitionValue : partition.getValues()) {
+                        values.add(new PartitionValue(partitionValue,
+                                HiveMetaStoreCache.HIVE_DEFAULT_PARTITION.equals(partitionValue)));
                     }
-                } catch (Exception e) {
-                    LOG.warn("failed to fetch filter partitions for " + hiveTable.getDbName() + "."
-                            + hiveTable.getName());
-                    throw e;
+                    try {
+                        PartitionKey partitionKey = PartitionKey.createListPartitionKeyWithTypes(values,
+                                hiveTable.getPartitionColumnTypes(), true);
+                        String partitionName = IntStream.range(0, partitionSlots.size())
+                                .mapToObj(i -> partitionSlots.get(i).getName()
+                                        + "=" + values.get(i).getStringValue())
+                                .collect(Collectors.joining("/"));
+                        selectedPartitionItems.put(partitionName,
+                            new ListPartitionItem(Lists.newArrayList(partitionKey)));
+                    } catch (AnalysisException e) {
+                        throw new InternalQueryExecutionException(
+                            String.format("failed to convert hive partition %s to list partition in catalog %s",
+                                e, partition.getValues(), hiveTable.getCatalog().getName()), e);
+                    }
                 }
+            } catch (Exception e) {
+                LOG.warn("failed to fetch filter partitions for " + hiveTable.getDbName() + "." + hiveTable.getName());
+                throw e;
             }
         }
         return new SelectedPartitions(partitionNum, selectedPartitionItems, true);

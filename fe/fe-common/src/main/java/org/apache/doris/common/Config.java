@@ -4000,11 +4000,4 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = false)
     public static int max_hudi_client_cache_pool_size = 64;
-
-    /**
-     *  The expiration time of a cache object after last write of it.
-     *  For hudi client cache.
-     */
-    @ConfField(mutable = false, masterOnly = false)
-    public static long external_hudi_client_cache_expire_time_minutes_after_write = 3; // 3 mins
 }

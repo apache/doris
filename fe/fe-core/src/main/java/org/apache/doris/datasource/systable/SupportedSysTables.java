@@ -38,7 +38,7 @@ public class SupportedSysTables {
         // paimon
         PAIMON_SUPPORTED_SYS_TABLES = Lists.newArrayList(
                 PaimonSysTable.getSupportedPaimonSysTables());
-        // hudi: enable table$partitions (partition_values TVF) for HMS partition pruning.
+        // hudi
         HUDI_SUPPORTED_SYS_TABLES = Lists.newArrayList();
         HUDI_SUPPORTED_SYS_TABLES.add(PartitionsSysTable.INSTANCE);
     }

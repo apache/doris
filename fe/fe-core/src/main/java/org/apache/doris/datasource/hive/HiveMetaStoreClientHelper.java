@@ -217,7 +217,7 @@ public class HiveMetaStoreClientHelper {
     private static LoadingCache<HudiClientKey, HoodieTableMetaClient> createHudiClientCache() {
         return Caffeine.newBuilder()
                 .maximumSize(Config.max_hudi_client_cache_pool_size)
-                .expireAfterWrite(Duration.ofMinutes(Config.external_hudi_client_cache_expire_time_minutes_after_write))
+                .expireAfterWrite(Duration.ofMinutes(Config.external_cache_expire_time_seconds_after_write))
                 .build(clientKey -> {
                     String hudiBasePath = clientKey.getTable().getRemoteTable().getSd().getLocation();
                     Configuration conf = getConfiguration(clientKey.getTable());
@@ -831,21 +831,6 @@ public class HiveMetaStoreClientHelper {
         if (lowerCaseType.startsWith("timestamp with local time zone")) {
             return enableMappingTimeStampTz ? ScalarType.createTimeStampTzType(timeScale)
                     : ScalarType.createDatetimeV2Type(timeScale);
-        }
-        if (lowerCaseType.startsWith("bigint")) {
-            return Type.BIGINT;
-        }
-        if (lowerCaseType.startsWith("int")) {
-            return Type.INT;
-        }
-        if (lowerCaseType.startsWith("tinyint")) {
-            return Type.TINYINT;
-        }
-        if (lowerCaseType.startsWith("smallint")) {
-            return Type.SMALLINT;
-        }
-        if (lowerCaseType.startsWith("timestamp")) {
-            return ScalarType.createDatetimeV2Type(timeScale);
         }
         return Type.UNSUPPORTED;
     }
