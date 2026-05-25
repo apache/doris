@@ -59,18 +59,21 @@ public:
     static Status rpc(std::function<TNetworkAddress()> address_provider,
                       std::function<void(ClientConnection<T>&)> callback, int timeout_ms);
 
-    // Wrapper around `rpc<FrontendServiceClient>` for the 6 stream-load FE RPCs
+    // Wrapper around `rpc<FrontendServiceClient>` for stream-load FE RPCs
     // (loadTxnBegin / loadTxnPreCommit / loadTxnCommit / loadTxn2PC /
-    // loadTxnRollback / streamLoadPut). It transparently retries **once** in
-    // two narrow situations:
+    // loadTxnRollback / streamLoadPut). It transparently recovers in two
+    // narrow master-transition situations:
     //   1) Transport-layer failure (master FE not reachable, e.g. restarting):
     //      the first RPC never reached FE, so retrying with the same txn_id is
-    //      side-effect-free.
+    //      side-effect-free. If the cached master is still stale after the
+    //      built-in rpc retry, this helper probes a bounded number of running
+    //      non-master FEs to discover or hit the new master.
     //   2) The FE returned TStatusCode::NOT_MASTER (BE was still pointing at
     //      the previous master after a leadership transfer). FE early-returns
     //      before touching the txn, and now also sets `result.master_address`
     //      so this helper can refresh `cluster_info()->master_fe_addr` without
-    //      any extra round trip.
+    //      any extra round trip, then retry the original request once against
+    //      the refreshed master.
     // Other failures (ANALYSIS_ERROR, LABEL_ALREADY_EXISTS, ...) are returned
     // verbatim — they are not master-related and retrying is unsafe.
     //

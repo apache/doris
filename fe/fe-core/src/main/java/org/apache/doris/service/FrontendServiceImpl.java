@@ -2140,6 +2140,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = checkMaster();
         result.setStatus(status);
         if (status.getStatusCode() != TStatusCode.OK) {
+            TNetworkAddress masterAddr = getMasterAddressOrNull();
+            if (masterAddr != null) {
+                result.setMasterAddress(masterAddr);
+            }
             return result;
         }
         try {

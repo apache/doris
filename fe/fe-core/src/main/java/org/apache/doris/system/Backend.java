@@ -985,43 +985,84 @@ public class Backend implements Writable {
             lastMissingHeartbeatTime = System.currentTimeMillis();
         }
 
-        // If we detected a BE restart (new epoch, or dead->alive transition) and this is NOT
-        // a replay path, proactively invalidate FE-side caches (DNSCache + gRPC channels +
-        // Thrift pool) so the first query after restart does not hit a stale channel.
-        if (restartDetected && !isReplay) {
+        // If we detected a BE restart (new epoch, or dead->alive transition), proactively
+        // invalidate FE-side caches (DNSCache + gRPC channels + Thrift pool) so the first
+        // query after restart does not hit a stale channel.
+        //
+        // NOTE: This must run on BOTH master (isReplay=false) and follower FEs
+        // (isReplay=true, replaying OP_HEARTBEAT editlog). Each FE process holds its own
+        // in-memory caches, and follower FEs also serve client queries on port 9030. If we
+        // skipped follower replay, follower FEs would keep stale gRPC channels / Thrift
+        // sockets pointing to the previous BE IP and fail the first query after BE restart
+        if (restartDetected) {
             try {
-                onBackendRestartDetected(preHbStartTime, newStartTime, preHbIsAlive);
+                String reason = String.format(
+                        "heartbeat: restart detected (preHbStartTime=%d (%s), "
+                                + "postHbStartTime=%d (%s), preHbIsAlive=%s, postHbIsAlive=%s, "
+                                + "isAvailable=%s, isShutDown=%s, isQueryDisabled=%s)",
+                        preHbStartTime, TimeUtils.longToTimeString(preHbStartTime),
+                        newStartTime, TimeUtils.longToTimeString(newStartTime),
+                        preHbIsAlive, isAlive.get(), SimpleScheduler.isAvailable(this),
+                        isShutDown(), isQueryDisabled());
+                invalidateLocalConnections(host, reason);
             } catch (Throwable t) {
-                LOG.warn("onBackendRestartDetected failed, backendId={}, host={}, err={}",
-                        id, host, t.getMessage(), t);
+                LOG.warn("invalidateLocalConnections failed (heartbeat path), backendId={}, "
+                        + "host={}, err={}", id, host, t.getMessage(), t);
             }
         }
 
         return isChanged;
     }
 
-    // Invalidate FE-side caches that may still point to the previous BE process / IP.
-    // Called when the heartbeat response indicates the BE has restarted.
-    private void onBackendRestartDetected(long preStartTime, long postStartTime, boolean preIsAlive) {
-        LOG.info("BE restart detected on FE. backendId={}, host={}, bePort={}, brpcPort={}, "
-                        + "preHbStartTime={} ({}), postHbStartTime={} ({}), preHbIsAlive={}, "
-                        + "postHbIsAlive={}, isAvailable={}, isShutDown={}, isQueryDisabled={}. "
+    /**
+     * Public entry to invalidate FE-side connection caches (DNSCache + gRPC channels +
+     * Thrift pool) targeting this backend. Safe to call from any thread; all three
+     * underlying operations are idempotent.
+     *
+     * <p>Called from two replay paths:
+     * <ul>
+     *   <li>{@link #handleHbResponse} when a heartbeat indicates a BE epoch change
+     *       (covers {@code OP_HEARTBEAT} editlog replay on follower FEs);</li>
+     *   <li>{@code SystemInfoService.updateBackendState()} which replays
+     *       {@code OP_BACKEND_STATE_CHANGE} editlog entries and bypasses the heartbeat
+     *       handler entirely.</li>
+     * </ul>
+     * Without this unified entry, follower FEs that learn about a BE restart via
+     * state-change editlog instead of heartbeat would never clear their in-memory
+     * connection caches and the next query would hit a stale gRPC channel / Thrift
+     * socket pointing to the previous BE IP.
+     *
+     * @param prevHost the host string seen BEFORE the update, used to invalidate the
+     *                 DNSCache entry for the old hostname in case the host field has
+     *                 been mutated by setters. Pass current host if it did not change.
+     * @param reason   short tag included in the log line for diagnostics
+     *                 (e.g. {@code "OP_BACKEND_STATE_CHANGE replay"}).
+     */
+    public void invalidateLocalConnections(String prevHost, String reason) {
+        LOG.info("BE restart detected on FE. reason={}, backendId={}, currentHost={}, "
+                        + "prevHost={}, bePort={}, brpcPort={}, isAlive={}, lastStartTime={} ({}). "
                         + "Will proactively invalidate DNSCache, gRPC channels and Thrift pool "
                         + "to avoid stale connections on next query.",
-                id, host, bePort, brpcPort,
-                preStartTime, TimeUtils.longToTimeString(preStartTime),
-                postStartTime, TimeUtils.longToTimeString(postStartTime),
-                preIsAlive, isAlive.get(), SimpleScheduler.isAvailable(this),
-                isShutDown(), isQueryDisabled());
+                reason, id, host, prevHost, bePort, brpcPort, isAlive.get(),
+                lastStartTime, TimeUtils.longToTimeString(lastStartTime));
 
         Env env = Env.getCurrentEnv();
         DNSCache dnsCache = env == null ? null : env.getDnsCache();
         if (dnsCache != null) {
-            String prevIp = dnsCache.get(host);
-            dnsCache.remove(host);
-            LOG.info("BE restart cleanup: invalidated FE DNSCache. backendId={}, host={}, "
-                            + "previousCachedIp={}. Next getProxy() will force re-resolution.",
-                    id, host, prevIp);
+            if (prevHost != null && !prevHost.isEmpty()) {
+                String prevIp = dnsCache.get(prevHost);
+                dnsCache.remove(prevHost);
+                LOG.info("BE restart cleanup: invalidated FE DNSCache. backendId={}, host={}, "
+                                + "previousCachedIp={}. Next getProxy() will force re-resolution.",
+                        id, prevHost, prevIp);
+            }
+            if (host != null && !host.isEmpty() && !host.equals(prevHost)) {
+                String prevIp = dnsCache.get(host);
+                dnsCache.remove(host);
+                LOG.info("BE restart cleanup: invalidated FE DNSCache for current host. "
+                                + "backendId={}, host={}, previousCachedIp={}.",
+                        id, host, prevIp);
+            }
         } else {
             LOG.info("BE restart cleanup: DNSCache not available, skipped. backendId={}", id);
         }
@@ -1040,7 +1081,8 @@ public class Backend implements Writable {
                     id, bePoolAddr);
         }
 
-        LOG.info("BE restart cleanup done. backendId={}, host={}", id, host);
+        LOG.info("BE restart cleanup done. backendId={}, host={}, prevHost={}",
+                id, host, prevHost);
     }
 
     public void setTabletMaxCompactionScore(long compactionScore) {

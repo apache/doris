@@ -257,20 +257,115 @@ Status ThriftRpcHelper::rpc_fe_with_master_refresh(
                   << ", refreshed master_fe_addr to " << new_master;
     } else {
         // Scenario A: transport failure; or NOT_MASTER without master_address
-        // (old FE without thrift change). Brief backoff so heartbeat thread
-        // may have time to push a new master.
-        std::this_thread::sleep_for(
-                std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 2));
-        TNetworkAddress refreshed = address_provider();
-        if (refreshed.hostname == old_master.hostname && refreshed.port == old_master.port) {
-            // Heartbeat has not learned about a new master yet. Return the
-            // original error and let upper layer (stream load executor) decide.
+        // (old FE without thrift change).
+        //
+        // Replace the previous "sleep & re-read heartbeat" fallback with a
+        // bounded follower-probe loop: enumerate live FEs from
+        // get_running_frontends() (heartbeat-fresh, not just configured), skip
+        // the failed master, and try up to kMaxProbes candidates within a
+        // small time budget.
+        //
+        //   * candidate RPC returns ok          -> candidate IS current master,
+        //                                          cache it and return OK
+        //                                          (the response was filled by
+        //                                          callback during the probe).
+        //   * candidate returns NOT_MASTER hint -> refresh master_fe_addr and
+        //                                          fall through to the single
+        //                                          retry against new master.
+        //   * candidate transport-failed        -> try the next one.
+        //
+        // We do NOT sleep, do NOT scan the whole FE list (max 2 probes), and
+        // give up to the caller if no candidate yields recovery within the
+        // budget.
+        constexpr int kMaxProbes = 2;
+        const auto deadline = std::chrono::steady_clock::now()
+                + std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 4);
+
+        auto running = _s_exec_env->get_running_frontends();
+        int probed = 0;
+        bool master_refreshed = false;
+
+        for (const auto& kv : running) {
+            if (probed >= kMaxProbes) {
+                break;
+            }
+            if (std::chrono::steady_clock::now() >= deadline) {
+                break;
+            }
+            const TNetworkAddress& candidate_addr = kv.first;
+            if (candidate_addr.hostname == old_master.hostname &&
+                candidate_addr.port == old_master.port) {
+                continue; // Skip the already-failed master.
+            }
+            if (candidate_addr.hostname.empty() || candidate_addr.port == 0) {
+                continue;
+            }
+            ++probed;
+
+            // Each probe goes through the existing rpc<T>() helper. Its
+            // built-in one-shot transport retry is acceptable because it
+            // only re-reads address_provider() which here returns the
+            // constant candidate address; the worst case is one extra
+            // sleep of thrift_client_retry_interval_ms, still bounded by
+            // our deadline.
+            auto candidate_provider = [candidate_addr]() { return candidate_addr; };
+            Status probe_st = rpc<FrontendServiceClient>(
+                    candidate_provider, callback, timeout_ms);
+            if (!probe_st.ok()) {
+                LOG(INFO) << "fe RPC probe to " << candidate_addr
+                          << " transport-failed after master " << old_master
+                          << " was unreachable: " << probe_st;
+                continue;
+            }
+
+            TStatus probe_resp = status_extractor();
+            if (probe_resp.status_code == TStatusCode::NOT_MASTER) {
+                const TNetworkAddress* hinted = master_addr_extractor();
+                if (hinted != nullptr && !hinted->hostname.empty()
+                        && hinted->port != 0) {
+                    if (hinted->hostname == old_master.hostname &&
+                        hinted->port == old_master.port) {
+                        LOG(INFO) << "fe RPC probe to " << candidate_addr
+                                  << " returned NOT_MASTER with stale master_address "
+                                  << *hinted << ", same as failed master " << old_master
+                                  << "; trying next";
+                        continue;
+                    }
+                    _s_exec_env->cluster_info()->master_fe_addr = *hinted;
+                    LOG(INFO) << "fe RPC probe to " << candidate_addr
+                              << " returned NOT_MASTER, refreshed master_fe_addr to "
+                              << *hinted << " (after transport failure on " << old_master << ")";
+                    master_refreshed = true;
+                    break;
+                }
+                // NOT_MASTER without master_address (old FE). Try next candidate.
+                LOG(INFO) << "fe RPC probe to " << candidate_addr
+                          << " returned NOT_MASTER without master_address, trying next";
+                continue;
+            }
+
+            // Probe succeeded on the candidate: it IS the current master.
+            // The callback has already populated the response on this probe
+            // (status_extractor returned non-NOT_MASTER OK), so the original
+            // operation has completed against the new master. Refresh the
+            // cache so subsequent RPCs go directly there.
+            _s_exec_env->cluster_info()->master_fe_addr = candidate_addr;
+            LOG(INFO) << "fe RPC succeeded on probe candidate " << candidate_addr
+                      << " after transport failure on " << old_master
+                      << ", refreshed master_fe_addr.";
+            return Status::OK();
+        }
+
+        if (!master_refreshed) {
+            LOG(WARNING) << "fe RPC failed against " << old_master
+                         << ", probed " << probed
+                         << " follower(s) without recovery; returning original error.";
             return st.ok() ? Status::Error<ErrorCode::NOT_MASTER>(
                                      "FE returned NOT_MASTER but no new master address available")
                            : st;
         }
         LOG(INFO) << "fe RPC failed against " << old_master
-                  << ", heartbeat now reports master=" << refreshed << ", retrying";
+                  << ", master refreshed via probe, retrying original request.";
     }
 
     // Second (and only) attempt against the new master address.
