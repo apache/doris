@@ -303,6 +303,19 @@ class LiteralExprCompareLiteralTest {
             Assertions.assertThrows(RuntimeException.class,
                     () -> new IPv6Literal("::1").compareLiteral(new StringLiteral("::1")));
         }
+
+        @Test
+        void ipv4MappedNotEqualToLoopback() throws AnalysisException {
+            // ::ffff:0.0.0.1 must keep its full 128-bit value (the ::ffff:
+            // prefix is part of the address) and order strictly above ::1.
+            // Earlier the helper let Inet4Address collapse it to 4 bytes, so
+            // both literals compared as BigInteger(1) and dedup folded them
+            // into one range.
+            Assertions.assertTrue(
+                    new IPv6Literal("::ffff:0.0.0.1").compareLiteral(new IPv6Literal("::1")) > 0);
+            Assertions.assertNotEquals(0,
+                    new IPv6Literal("::ffff:0.0.0.1").compareLiteral(new IPv6Literal("::1")));
+        }
     }
 
     @Nested

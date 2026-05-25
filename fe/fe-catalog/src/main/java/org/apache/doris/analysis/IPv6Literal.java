@@ -21,9 +21,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.gson.annotations.SerializedName;
+import com.googlecode.ipv6.IPv6Address;
 
-import java.math.BigInteger;
-import java.net.InetAddress;
 import java.util.regex.Pattern;
 
 public class IPv6Literal extends LiteralExpr {
@@ -102,7 +101,7 @@ public class IPv6Literal extends LiteralExpr {
             return -1;
         }
         if (expr instanceof IPv6Literal) {
-            return toUnsigned128(this.value).compareTo(toUnsigned128(((IPv6Literal) expr).value));
+            return parseAddress(this.value).compareTo(parseAddress(((IPv6Literal) expr).value));
         }
         throw new RuntimeException("Cannot compare two values with different data types: "
                 + this + " (" + this.type + ") vs " + expr + " (" + expr.type + ")");
@@ -116,18 +115,22 @@ public class IPv6Literal extends LiteralExpr {
         if (!(obj instanceof IPv6Literal)) {
             return false;
         }
-        return toUnsigned128(this.value).equals(toUnsigned128(((IPv6Literal) obj).value));
+        return parseAddress(this.value).equals(parseAddress(((IPv6Literal) obj).value));
     }
 
     @Override
     public int hashCode() {
-        return 31 * super.hashCode() + toUnsigned128(this.value).hashCode();
+        return 31 * super.hashCode() + parseAddress(this.value).hashCode();
     }
 
-    private static BigInteger toUnsigned128(String ipv6) {
+    // IPv6Address keeps the full 128-bit value for IPv4-mapped literals
+    // (e.g. ::ffff:0.0.0.1, ::ffff:0:1) and matches the canonicalization used by
+    // the Nereids IPv6Literal, so dedup/range logic stays consistent across both
+    // planners. InetAddress.getByName would otherwise collapse mapped forms to a
+    // 4-byte Inet4Address and hash-collide with addresses like ::1.
+    private static IPv6Address parseAddress(String ipv6) {
         try {
-            byte[] bytes = InetAddress.getByName(ipv6).getAddress();
-            return new BigInteger(1, bytes);
+            return IPv6Address.fromString(ipv6);
         } catch (Exception e) {
             throw new IllegalStateException("Invalid IPv6 literal: " + ipv6, e);
         }

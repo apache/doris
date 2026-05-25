@@ -212,6 +212,19 @@ class LiteralExprEqualsTest {
         void notEqualToNonIPv6Literal() throws AnalysisException {
             Assertions.assertNotEquals(new IPv6Literal("::1"), new StringLiteral("::1"));
         }
+
+        @Test
+        void ipv4MappedNotEqualToLoopback() throws AnalysisException {
+            // ::ffff:0.0.0.1 is the IPv4-mapped IPv6 form of 0.0.0.1 and must
+            // preserve its full 128-bit value (the ::ffff: prefix), so it must
+            // NOT collide with ::1 in equals/hashCode. Earlier the helper
+            // collapsed Inet4Address results to 4 bytes and both literals
+            // ended up as BigInteger(1).
+            IPv6Literal mapped = new IPv6Literal("::ffff:0.0.0.1");
+            IPv6Literal loopback = new IPv6Literal("::1");
+            Assertions.assertNotEquals(mapped, loopback);
+            Assertions.assertNotEquals(mapped.hashCode(), loopback.hashCode());
+        }
     }
 
     @Nested
