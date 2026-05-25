@@ -1,6 +1,6 @@
 # 📊 项目进度仪表盘
 
-> 最后更新：**2026-05-24（夜 ②）** | 当前阶段：**P0 SPI 缺口补齐**（批 0 + 批 1 完成，下一步批 2 守门 + 回归 T21-T27） | 项目总进度：**12%**
+> 最后更新：**2026-05-24（夜 ③）** | 当前阶段：**P0 SPI 缺口补齐**（批 0 + 批 1 + 批 2 代码侧完成；待 T24-T25 用户跑 JDBC/ES regression-test） | 项目总进度：**13%**
 > [README](./README.md) · [Master Plan](./00-connector-migration-master-plan.md) · [SPI RFC](./01-spi-extensions-rfc.md) · [Decisions](./decisions-log.md) · [Deviations](./deviations-log.md) · [Risks](./risks.md) · [Agent Playbook](./AGENT-PLAYBOOK.md) · [Handoff](./HANDOFF.md)
 
 ---
@@ -9,7 +9,7 @@
 
 | 阶段 | 范围 | 估时 | 进度 | 状态 | 任务文档 |
 |---|---|---|---|---|---|
-| **P0** | SPI 缺口补齐 | 2 周 | ▰▰▰▰▰▰▰▱▱▱ 74% | 🚧 进行中（批 0 + 批 1 完成 T03-T20；下一步批 2 守门 + 回归 T21-T27） | [tasks/P0](./tasks/P0-spi-foundation.md) |
+| **P0** | SPI 缺口补齐 | 2 周 | ▰▰▰▰▰▰▰▰▰▱ 93% | 🚧 收尾（批 0 + 1 + 2 代码侧完成 T03-T23, T26-T27；T24-T25 用户在本地跑 regression-test） | [tasks/P0](./tasks/P0-spi-foundation.md) |
 | P1 | scan-node 收口 + 重复清理 | 1 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动（被 P0 阻塞）| — |
 | P2 | trino-connector 迁移 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P3 | hudi 迁移 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
@@ -19,7 +19,7 @@
 | P7 | hive (+HMS) 迁移 | 6 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P8 | 收尾清理 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 
-**全局进度：6%**（25 周计划中处于第 1 周）
+**全局进度：7%**（25 周计划中处于第 1 周末）
 
 ---
 
@@ -68,7 +68,14 @@
 | P0-T18 | `listPartitions(handle, filter)` default | @me | ✅ | 2026-05-24 | filter 用 Optional&lt;ConnectorExpression&gt; |
 | P0-T19 | `listPartitionValues` default | @me | ✅ | 2026-05-24 | emptyList |
 | P0-T20 | `ConnectorPartitionInfo` 追加 rowCount/sizeBytes/lastModifiedMillis | @me | ✅ | 2026-05-24 | UNKNOWN=-1L；3-arg 委托到 6-arg |
-| P0-T21..T27 | 守门脚本 + 回归测试 | — | ⏳ | — | 见 tasks/P0 |
+| **批 2 守门 + 测试** | | | | | |
+| P0-T21 | `tools/check-connector-imports.sh` 实现 | @me | ✅ | 2026-05-24 | grep 守门；正/负冒烟均通过 |
+| P0-T22 | exec-maven-plugin 接入脚本（fe-connector aggregator validate） | @me | ✅ | 2026-05-24 | `inherited=false`；RFC §15.4 等价实现 |
+| P0-T23 | `FakeConnectorPlugin` + 11 个 default 行为测试 | @me | ✅ | 2026-05-24 | 覆盖 Connector/Metadata/TableOps/WriteOps/Session/Context 全 default |
+| P0-T24 | JDBC regression-test 全套跑通 | @用户 | ⏳ | — | 用户在本地跑 |
+| P0-T25 | ES regression-test 全套跑通 | @用户 | ⏳ | — | 用户在本地跑 |
+| P0-T26 | `ConnectorMetaInvalidator` 路由测试 | @me | ✅ | 2026-05-24 | 5 个 @Test；MockedStatic&lt;Env&gt; |
+| P0-T27 | `CreateTableInfoToConnectorRequestConverter` 单元测试 | @me | ✅ | 2026-05-24 | 7 个 @Test；4 partition style + 2 bucket |
 
 完整 P0 任务清单：[tasks/P0-spi-foundation.md](./tasks/P0-spi-foundation.md)
 
@@ -78,6 +85,7 @@
 
 > 倒序，新内容置顶；超过 14 天的条目移除（git log 保留历史）。
 
+- **2026-05-24（夜 ③）** ✅ **P0 批 2 守门 + 单测完成**（T21-T23, T26-T27；T24-T25 用户跑）：新增 `tools/check-connector-imports.sh` grep 守门 + 通过 exec-maven-plugin 在 `fe-connector` aggregator validate 阶段调起（`inherited=false`）；新增 `FakeConnectorPlugin`（fe-core test）+ 23 个新 @Test 覆盖 11 个 default 路径 + ConnectorMetaInvalidator 5 个 routing + Converter 7 个（4 partition style × IDENTITY/TRANSFORM/LIST/RANGE + hash/random bucket + 列穿透）；39/39 tests green；checkstyle 0；JDBC/ES regression-test 转交用户在本地执行
 - **2026-05-24（夜 ②）** ✅ **P0 批 1 DDL + Partition SPI 完成**（T13-T20）：新增 `connector.api.ddl` 包 5 个 POJO（CreateTableRequest + 4 spec）；`ConnectorTableOps` 加 4 个 default（createTable(request) + listPartitionNames/listPartitions/listPartitionValues）；`ConnectorPartitionInfo` 追加 rowCount/sizeBytes/lastModifiedMillis；fe-core 新 `CreateTableInfoToConnectorRequestConverter` 覆盖 IDENTITY/TRANSFORM/LIST/RANGE 四种 partition + hash/random bucket；`PluginDrivenExternalCatalog.createTable` 路由到 SPI；fe-core BUILD SUCCESS + checkstyle 0；JDBC/ES 下游 zero-impact
 - **2026-05-24（深夜）** ✅ **P0 批 0 fe-core 桥接完成**（T09-T12）：`ExternalMetaCacheInvalidator` + `ConnectorMvccSnapshotAdapter` 新类、`DefaultConnectorContext.getMetaInvalidator()` override、`PluginDrivenTransactionManager` 加 SPI `ConnectorTransaction` 重载（legacy auto-commit 不变）；fe-core 全编译通过 + checkstyle 0 violations；JDBC/ES 下游 zero-impact
 - **2026-05-24（晚）** ✅ **P0 批 0 SPI 接口三件套完成**（T03-T08）：`ConnectorMetaInvalidator`、`ConnectorTransaction`、`ConnectorMvccSnapshot` 共 3 个新类型 + 4 个 default 方法；JDBC/ES clean compile 通过，零下游修改
@@ -121,8 +129,8 @@
 
 > 当本项目通过 Claude Code 这类 LLM agent 推进时，跟踪当前 session 状态、handoff 状况和 context 健康度。
 
-- **本 session 已完成**：P0 批 1 DDL + Partition SPI（T13-T20）—— 6 个新文件（5 ddl 包 POJO + 1 fe-core converter）+ 3 个 surgical edits（`ConnectorTableOps` 加 4 个 default、`ConnectorPartitionInfo` 加 3 字段、`PluginDrivenExternalCatalog` 加 createTable override）；fe-core BUILD SUCCESS + checkstyle 0；JDBC/ES 下游零回归
-- **下一个 session 应做**：批 2 守门 + 测试（P0-T21..T27）—— `tools/check-connector-imports.sh` 守门脚本 + maven enforcer 接入、`FakeConnectorPlugin` 覆盖所有 default 行为、JDBC/ES 全 regression-test、`ConnectorMetaInvalidator` 路由测试、`CreateTableInfoToConnectorRequestConverter` 单测（4 种 partition 风格 + bucket）
+- **本 session 已完成**：P0 批 2 守门 + 单测（T21-T23, T26-T27）—— 1 个新脚本（`tools/check-connector-imports.sh`）+ 1 个 fe-connector aggregator pom 加 exec-maven-plugin + 4 个 fe-core test 新文件（`FakeConnectorPlugin` + 3 个 *Test）；39/39 tests green；checkstyle 0；T24/T25 转交用户在本地跑 JDBC/ES regression-test
+- **下一个 session 应做**：等 T24/T25 用户跑完后翻 ✅ → P0 阶段全收尾 → 启动 P1（scan-node 收口）；或在等待期间开 P0-T28 benchmark（R-006 缓解，原列入 P1）作为 P0 末加项
 - **是否需要 handoff**：是，已写新 [HANDOFF.md](./HANDOFF.md)
 - **协作规范**：[AGENT-PLAYBOOK.md](./AGENT-PLAYBOOK.md)（context 预算、subagent 使用、handoff 触发条件）
 

@@ -33,15 +33,15 @@
 
 从 [RFC §17 验收清单](../01-spi-extensions-rfc.md) 同步：
 
-- [ ] `mvn -pl fe-connector verify` 全绿，新增类型 / 方法全部就位
-- [ ] `fe-connector-spi` 仅新增 `ConnectorMetaInvalidator` 接口与 `ConnectorContext.getMetaInvalidator()` 默认方法
-- [ ] fe-core 侧 converter 就位：`CreateTableInfoToConnectorRequestConverter`、`ExternalMetaCacheInvalidator`、`ConnectorMvccSnapshotAdapter`
-- [ ] `PluginDrivenTransactionManager` 通用化（不再依赖任何具体连接器）
-- [ ] JDBC、ES 现有 regression-test 全绿
-- [ ] `FakeConnectorPlugin` 覆盖所有新增 default 行为路径
-- [ ] `tools/check-connector-imports.sh` 接入 maven enforcer
+- [x] `mvn -pl fe-connector validate` 全绿，新增类型 / 方法全部就位（含 import 守门）
+- [x] `fe-connector-spi` 仅新增 `ConnectorMetaInvalidator` 接口与 `ConnectorContext.getMetaInvalidator()` 默认方法
+- [x] fe-core 侧 converter 就位：`CreateTableInfoToConnectorRequestConverter`、`ExternalMetaCacheInvalidator`、`ConnectorMvccSnapshotAdapter`
+- [x] `PluginDrivenTransactionManager` 通用化（不再依赖任何具体连接器）
+- [ ] JDBC、ES 现有 regression-test 全绿（T24-T25 用户在本地跑）
+- [x] `FakeConnectorPlugin` 覆盖所有新增 default 行为路径（11 个 @Test）
+- [x] `tools/check-connector-imports.sh` 接入 exec-maven-plugin（RFC §15.4 等价实现：enforcer 无原生 shell-exec rule，见日志 trade-off #1）
 - [x] 本阶段关闭未决问题 U1-U6（2026-05-24 完成，决策 D-013..D-018）
-- [ ] master plan §3.1 全部任务勾选
+- [ ] master plan §3.1 全部任务勾选（T24-T25 用户跑完后由用户勾选）
 
 ---
 
@@ -82,21 +82,40 @@
 | P0-T19 | E10：`ConnectorTableOps.listPartitionValues` default | RFC §13.2 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | 返回 `Collections.emptyList()` |
 | P0-T20 | E10：`ConnectorPartitionInfo` 追加字段（rowCount/sizeBytes/lastModifiedMillis） | RFC §13.3 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | 3 个 long 字段（UNKNOWN=-1）；3-arg 构造器委托到 6-arg；equals/hashCode 更新 |
 
-### 批 1：守门 + 测试（W1 D4-5）
+### 批 2：守门 + 测试（W1 D4-5）
 
 | ID | 任务 | 设计参考 | Owner | 状态 | PR | 启动 | 完成 | 备注 |
 |---|---|---|---|---|---|---|---|---|
-| P0-T21 | `tools/check-connector-imports.sh` 实现 | RFC §15.4 | — | ⏳ | — | — | — | 禁用 import 守门 |
-| P0-T22 | maven enforcer plugin 接入脚本 | RFC §15.4 | — | ⏳ | — | — | — | |
-| P0-T23 | `FakeConnectorPlugin`（fe-core test）覆盖所有 default 行为 | RFC §15.1 | — | ⏳ | — | — | — | 跑通"什么都不实现" |
-| P0-T24 | JDBC regression-test 全套跑通 | RFC §17 | — | ⏳ | — | — | — | 验证 baseline |
-| P0-T25 | ES regression-test 全套跑通 | RFC §17 | — | ⏳ | — | — | — | 验证 baseline |
-| P0-T26 | `ConnectorMetaInvalidator` 路由测试 | RFC §15.2 | — | ⏳ | — | — | — | mock ExternalMetaCacheMgr |
-| P0-T27 | `CreateTableInfoToConnectorRequestConverter` 单元测试 | RFC §15.2 | — | ⏳ | — | — | — | 覆盖 4 种 partition 风格 |
+| P0-T21 | `tools/check-connector-imports.sh` 实现 | RFC §15.4 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | grep 守门；script 自含正/负冒烟测试 |
+| P0-T22 | exec-maven-plugin 接入脚本（aggregator pom validate 阶段） | RFC §15.4 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | `inherited=false` 避免 11 个子模块重复扫描 |
+| P0-T23 | `FakeConnectorPlugin`（fe-core test）覆盖所有 default 行为 | RFC §15.1 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | 11 个测试覆盖 Connector/Metadata/TableOps/WriteOps/Session/Context 全 default |
+| P0-T24 | JDBC regression-test 全套跑通 | RFC §17 | @用户 | ⏳ | — | — | — | 用户在本地跑（needs docker） |
+| P0-T25 | ES regression-test 全套跑通 | RFC §17 | @用户 | ⏳ | — | — | — | 用户在本地跑（needs docker） |
+| P0-T26 | `ConnectorMetaInvalidator` 路由测试 | RFC §15.2 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | 5 个测试 mockStatic(Env)；pin 当前 partition fallback & stats no-op 行为 |
+| P0-T27 | `CreateTableInfoToConnectorRequestConverter` 单元测试 | RFC §15.2 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | 7 个测试覆盖 IDENTITY/TRANSFORM/LIST/RANGE + hash/random bucket + 列穿透 |
 
 ---
 
 ## 阶段日志（倒序）
+
+### 2026-05-24（夜 ③）— 批 2 守门 + 单测完成（T21-T23, T26-T27；T24-T25 用户跑）
+
+- P0-T21 ✅：新增 `tools/check-connector-imports.sh`。在 `fe-connector/*/src/main/java` 下 grep 禁词 `org.apache.doris.(catalog|common|datasource|qe|analysis|nereids|planner)`，allowlist `thrift / connector / extension / filesystem`。脚本接受可选 ROOT 参数（默认 `$(dirname $0)/../fe/fe-connector`），自动适配 cwd。当前 baseline 全绿（fe-connector 模块仅引用 `connector / extension / thrift / trinoconnector`）；自构造的负样本（注入 `import org.apache.doris.catalog.Column`）正确报错退出
+- P0-T22 ✅：fe-connector 聚合 pom 加 `exec-maven-plugin` 调用脚本，绑 `validate` 阶段，`inherited=false`（避免 11 个子模块每次都跑同一份扫描）。`executable` 使用 `${project.basedir}/../../tools/check-connector-imports.sh`——不依赖 `directory-maven-plugin` 的 `fe.dir` 属性（后者在 `initialize` 阶段才设值，早于 `validate`）。`mvn -pl fe-connector validate` BUILD SUCCESS
+- P0-T23 ✅：fe-core test 包新增 `org.apache.doris.connector.fake.FakeConnectorPlugin`（4 个静态嵌套：`FakeConnector` / `FakeMetadata`（**零** override）/ `FakeSession` / `FakeContext`）。同包测试类 `FakeConnectorPluginTest` 11 个 `@Test` 覆盖：Context.getMetaInvalidator()=NOOP（且 5 个 invalidate 方法 callable）；Session.getCurrentTransaction()=Optional.empty()；Metadata MVCC 3 方法=Optional.empty()；TableOps listTableNames / getTableHandle / listPartitionNames / listPartitions / listPartitionValues / getPrimaryKeys / getTableComment defaults；createTable(request) 退化到 legacy createTable(schema, props) 并抛 "CREATE TABLE not supported"；WriteOps supports*=false + beginTransaction throws；Connector top-level defaults。Tests run: **11/11 green**
+- P0-T26 ✅：新增 `org.apache.doris.connector.ExternalMetaCacheInvalidatorTest`。5 个测试：invalidateAll→invalidateCatalog(id)、invalidateDatabase→invalidateDb(id, db)、invalidateTable→invalidateTable(id, db, t)、invalidatePartition→**fallback** 到 invalidateTable（pin 当前 SPI 不携 column 名的行为）、invalidateStatistics→**no-op**（pin 当前缺 stats-only entry point 的行为）。用 `MockedStatic<Env>` + `Mockito.mock(ExternalMetaCacheMgr)` 完全隔离 FE bootstrap。Tests run: **5/5 green**
+- P0-T27 ✅：新增 `org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverterTest`。7 个测试覆盖：列穿透（name/type/nullable/comment）+ scalar 字段穿透（dbName/tableName/comment/properties/ifNotExists/isExternal）+ IDENTITY partition（UnboundSlot）+ TRANSFORM partition（UnboundFunction `bucket(16, id)` + `YEAR(d)` 验证 lowercase normalization + IntegerLiteral 提取）+ LIST partition（PartitionType.LIST）+ RANGE partition（PartitionType.RANGE）+ hash bucket 算法 `doris_default` + random bucket 算法 `doris_random`。用 `Mockito.mock(CreateTableInfo)` 绕开 18-arg 构造器与 `PropertyAnalyzer.getInstance()` 调用；PartitionTableInfo/DistributionDescriptor/ColumnDefinition/UnboundFunction 等都用真实构造器。Tests run: **7/7 green**
+- 验证：
+  - `tools/check-connector-imports.sh` 正/负冒烟测试通过
+  - `mvn -pl fe-connector validate -Dmaven.build.cache.enabled=false` → BUILD SUCCESS（脚本被 maven 调起）
+  - `mvn -pl fe-core -am test -Dtest='FakeConnectorPluginTest,ExternalMetaCacheInvalidatorTest,CreateTableInfoToConnectorRequestConverterTest,ConnectorPluginManagerTest,ConnectorSessionImplTest' -DfailIfNoTests=false -Dmaven.build.cache.enabled=false` → **39/39 tests green**（含 batch 2 新增 23 个 + 既有 16 个相邻 connector 测试）
+  - `mvn -pl fe-core checkstyle:check` → **0 violations**
+- 已知 trade-off（**未升 DV**，是 RFC §15 / §17 范围内的实现取舍）：
+  1. 守门脚本挂到 `exec-maven-plugin` 而非 `maven-enforcer-plugin`——RFC §15.4 原文写"挂到 maven enforcer plugin"，但 enforcer 没有原生 shell-exec rule（要么写自定义 Java Rule 类，要么用 `EvaluateBeanshell`）。`exec-maven-plugin` 在 fe-common 已是既有 dep（make + protoc 都用它），引入零新依赖。效果等价：脚本 non-zero exit → maven `BUILD FAILURE`
+  2. 守门绑 `validate` 阶段且 `inherited=false`——只在 fe-connector aggregator 一次运行；devs 跑 `mvn -pl fe-connector/fe-connector-iceberg compile` 时不会自动触发，但 CI 跑顶层 `mvn install` 必扫。Trade-off：少 11 次重复扫，换"单模块增量构建本地无守门"
+  3. ConnectorMetaInvalidator 的 partition fallback 测试明确 pin 当前"回退到 invalidateTable"的行为——一旦未来 SPI 在 invalidatePartition 中加 column 名携带能力可以做精确失效，bridge 和这个测试必须同步更新；测试已留 inline comment 描述意图
+  4. CreateTableInfo 用 Mockito.mock 而非真实构造器——RFC §15.2 没规定单测必须用真实输入对象。Trade-off：测试更聚焦于 converter 自身逻辑（不必维护 18-arg 输入构造），但代价是如果 CreateTableInfo 加新 getter 且 converter 改用之，需要在 stubInfo helper 加新 stub
+- T24/T25 转交用户：用户在本地跑 JDBC + ES regression-test（containers / docker 在本地环境下更稳）。任务状态保持 ⏳，owner @用户
 
 ### 2026-05-24（夜 ②）— 批 1 DDL + Partition SPI 完成（T13-T20）
 
