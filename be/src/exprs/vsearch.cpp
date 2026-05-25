@@ -234,13 +234,19 @@ Status VSearchExpr::execute_column_impl(VExprContext* context, const Block* bloc
 }
 
 Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+    // NOTE: this function runs once per segment. Keep the hot path quiet —
+    // LOG(INFO) / LOG(WARNING) at this level can add tens of seconds of
+    // cumulative wall-clock inside InvertedIndexFilterTime on busy scans with
+    // many segments, making the filter-time dwarf the inner
+    // InvertedIndexQueryTime. Prefer VLOG_DEBUG except for real failures
+    // returned up the stack.
     if (_search_param.original_dsl.empty()) {
         return Status::InvalidArgument("search DSL is empty");
     }
 
     auto index_context = context->get_index_context();
     if (!index_context) {
-        LOG(WARNING) << "VSearchExpr: No inverted index context available";
+        VLOG_DEBUG << "VSearchExpr: No inverted index context available";
         return Status::OK();
     }
 
@@ -251,8 +257,8 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
 
     const bool is_nested_query = _search_param.root.clause_type == "NESTED";
     if (bundle.iterators.empty() && !is_nested_query) {
-        LOG(WARNING) << "VSearchExpr: No indexed columns available for evaluation, DSL: "
-                     << _original_dsl;
+        VLOG_DEBUG << "VSearchExpr: No indexed columns available for evaluation, DSL: "
+                   << _original_dsl;
         auto empty_bitmap = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
                                                       std::make_shared<roaring::Roaring>());
         index_context->set_index_result_for_expr(this, std::move(empty_bitmap));
@@ -273,6 +279,18 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
         return status;
     }
 
+    // IMPORTANT: do NOT std::move `result_bitmap` here. The DSL result cache
+    // (InvertedIndexQueryCache) already holds a shared_ptr to the same
+    // underlying roaring::Roaring as `result_bitmap._data_bitmap`. Storing a
+    // moved-from copy in the per-segment expr context would make the per-
+    // segment map entry SHARE that same Roaring object, and any later
+    // mutating consumer (notably `VCompoundPred::COMPOUND_NOT` →
+    // `InvertedIndexResultBitmap::op_not()`, which is `const` but writes
+    // through the shared_ptr) would corrupt the DSL cache entry, so the
+    // *next* segment that gets a cache hit would observe the negated data
+    // instead of the original SEARCH result. Pass by lvalue so the copy
+    // constructor deep-copies the bitmap and isolates the cache from
+    // per-segment mutations.
     index_context->set_index_result_for_expr(this, result_bitmap);
     for (int column_id : bundle.column_ids) {
         index_context->set_true_for_index_status(this, column_id);
