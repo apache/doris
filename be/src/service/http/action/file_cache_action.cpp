@@ -19,8 +19,8 @@
 
 #include <glog/logging.h>
 
-#include <atomic>
 #include <algorithm>
+#include <atomic>
 #include <memory>
 #include <shared_mutex>
 #include <sstream>
@@ -98,9 +98,8 @@ Status FileCacheAction::_handle_header(
         const std::string& sync = req->param(std::string(SYNC));
         const std::string& segment_path = req->param(std::string(VALUE));
         if (segment_path.empty()) {
-            *json_metrics =
-                    io::FileCacheFactory::instance()->clear_file_caches(to_lower(sync) == "true",
-                                                                        cancel_token);
+            *json_metrics = io::FileCacheFactory::instance()->clear_file_caches(
+                    to_lower(sync) == "true", cancel_token);
         } else {
             io::UInt128Wrapper hash = io::BlockFileCache::hash(segment_path);
             io::BlockFileCache* cache = io::FileCacheFactory::instance()->get_by_path(hash);
@@ -224,11 +223,9 @@ void FileCacheAction::handle(HttpRequest* req) {
         const std::string header_json(HEADER_JSON);
         req->add_output_header(HttpHeaders::CONTENT_TYPE, header_json.c_str());
         req->mark_send_reply();
-        auto cancel_token =
-                std::make_shared<io::BlockFileCache::ClearFileCacheCancelToken>();
-        req->set_cancel_callback([cancel_token] {
-            cancel_token->cancelled.store(true, std::memory_order_release);
-        });
+        auto cancel_token = std::make_shared<io::BlockFileCache::ClearFileCacheCancelToken>();
+        req->set_cancel_callback(
+                [cancel_token] { cancel_token->cancelled.store(true, std::memory_order_release); });
         std::thread([this, req, cancel_token] {
             std::string json_metrics;
             Status status = _handle_header(req, &json_metrics, cancel_token, false);

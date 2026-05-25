@@ -18,10 +18,10 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/tests/gtest_lru_file_cache.cpp
 // and modified by Doris
 
+#include <future>
+
 #include "io/cache/block_file_cache_test_common.h"
 #include "storage/olap_define.h"
-
-#include <future>
 
 namespace doris::io {
 
@@ -8487,7 +8487,8 @@ TEST_F(BlockFileCacheTest, clear_file_cache_sync_waits_deleting_block) {
     ASSERT_TRUE(block->get_or_set_downloader() == io::FileBlock::get_caller_id());
     download(block);
 
-    auto future = std::async(std::launch::async, [&cache] { return cache.clear_file_cache_sync(); });
+    auto future =
+            std::async(std::launch::async, [&cache] { return cache.clear_file_cache_sync(); });
     ASSERT_EQ(future.wait_for(std::chrono::milliseconds(100)), std::future_status::timeout);
     EXPECT_EQ(cache.get_used_cache_size(io::FileCacheType::NORMAL), 5);
 
@@ -8535,8 +8536,8 @@ TEST_F(BlockFileCacheTest, clear_file_cache_sync_cancel_waiting_keeps_async_clea
     download(block);
 
     auto token = std::make_shared<io::BlockFileCache::ClearFileCacheCancelToken>();
-    auto future =
-            std::async(std::launch::async, [&cache, token] { return cache.clear_file_cache_sync(token); });
+    auto future = std::async(std::launch::async,
+                             [&cache, token] { return cache.clear_file_cache_sync(token); });
     ASSERT_EQ(future.wait_for(std::chrono::milliseconds(100)), std::future_status::timeout);
 
     token->cancelled.store(true, std::memory_order_release);

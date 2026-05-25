@@ -390,8 +390,7 @@ Status CacheBlockMetaStore::wait_for_fence(const DeleteFence& fence) {
         return Status::OK();
     }
     std::unique_lock lock(_fence_mutex);
-    _fence_cv.wait(lock,
-                   [&] { return fence.done->load(std::memory_order_acquire); });
+    _fence_cv.wait(lock, [&] { return fence.done->load(std::memory_order_acquire); });
     return fence.status ? *fence.status : Status::OK();
 }
 
@@ -460,8 +459,7 @@ void CacheBlockMetaStore::async_write_worker() {
 
             if (!_db) {
                 LOG(WARNING) << "Database not initialized, skipping operation";
-                finish_write_operation(
-                        op, rocksdb::Status::IOError("Database not initialized"));
+                finish_write_operation(op, rocksdb::Status::IOError("Database not initialized"));
                 continue;
             }
 
