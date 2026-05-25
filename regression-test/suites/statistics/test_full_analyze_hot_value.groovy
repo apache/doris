@@ -52,7 +52,7 @@ suite("test_full_analyze_hot_value") {
 
     // Test 2: Full analyze collects hot_value when explicitly enabled.
     sql """drop stats full_hot_skew"""
-    sql """analyze table full_hot_skew with sync PROPERTIES("collect.hot.value"="true")"""
+    sql """analyze table full_hot_skew with sync with hot value"""
     result = sql """show column stats full_hot_skew(value1)"""
     logger.info("Test2 result: " + result)
     assertEquals(1, result.size())
@@ -95,7 +95,7 @@ suite("test_full_analyze_hot_value") {
     """
     sql """insert into full_hot_special select number, " : ;a" from numbers("number"="100")"""
 
-    sql """analyze table full_hot_special with sync PROPERTIES("collect.hot.value"="true")"""
+    sql """analyze table full_hot_special with sync with hot value"""
     result = sql """show column stats full_hot_special(value1)"""
     logger.info("Test4 result: " + result)
     assertEquals(1, result.size())
@@ -114,17 +114,15 @@ suite("test_full_analyze_hot_value") {
     assertTrue(hotValues[0].trim() == "'1':0.5" || hotValues[0].trim() == "'0':0.5")
     assertTrue(hotValues[1].trim() == "'1':0.5" || hotValues[1].trim() == "'0':0.5")
 
-    // Test 6: Sample analyze can explicitly skip hot_value collection.
-    sql """drop stats full_hot_skew"""
-    sql """analyze table full_hot_skew with sample rows 400 with sync PROPERTIES("collect.hot.value"="false")"""
-    result = sql """show column stats full_hot_skew(value1)"""
-    logger.info("Test6 result: " + result)
-    assertEquals(1, result.size())
-    assertEquals("null", String.valueOf(result[0][17]))
+    // Test 6: Sample analyze rejects WITH HOT VALUE because it always collects hot_value.
+    test {
+        sql """analyze table full_hot_skew with sample rows 400 with sync with hot value"""
+        exception "Sample analyze always collects hot value"
+    }
 
     // Test 7: Explicit full analyze produces same hot_value as sample analyze for same data.
     sql """drop stats full_hot_skew"""
-    sql """analyze table full_hot_skew with sync PROPERTIES("collect.hot.value"="true")"""
+    sql """analyze table full_hot_skew with sync with hot value"""
     def fullResult = sql """show column stats full_hot_skew(value1)"""
     logger.info("Test7 full result: " + fullResult)
     assertEquals(1, fullResult.size())
@@ -154,7 +152,7 @@ suite("test_full_analyze_hot_value") {
             "replication_num" = "1"
         )
     """
-    sql """analyze table full_hot_empty with sync PROPERTIES("collect.hot.value"="true")"""
+    sql """analyze table full_hot_empty with sync with hot value"""
     result = sql """show column stats full_hot_empty(value1)"""
     logger.info("Test8 empty table result: " + result)
     assertEquals(1, result.size())
@@ -175,7 +173,7 @@ suite("test_full_analyze_hot_value") {
         )
     """
     sql """insert into full_hot_all_null select number, null from numbers("number"="100")"""
-    sql """analyze table full_hot_all_null with sync PROPERTIES("collect.hot.value"="true")"""
+    sql """analyze table full_hot_all_null with sync with hot value"""
     result = sql """show column stats full_hot_all_null(value1)"""
     logger.info("Test9 all-null result: " + result)
     assertEquals(1, result.size())

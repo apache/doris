@@ -91,7 +91,7 @@ public class OlapAnalysisTaskTest {
     public void testShouldCollectHotValue() {
         OlapAnalysisTask olapAnalysisTask = new OlapAnalysisTask();
         olapAnalysisTask.info = new AnalysisInfoBuilder().build();
-        Assertions.assertTrue(olapAnalysisTask.shouldCollectHotValue());
+        Assertions.assertFalse(olapAnalysisTask.shouldCollectHotValue());
 
         olapAnalysisTask.info = new AnalysisInfoBuilder().setCollectHotValue(true).build();
         Assertions.assertTrue(olapAnalysisTask.shouldCollectHotValue());
@@ -820,6 +820,7 @@ public class OlapAnalysisTaskTest {
             AnalysisInfoBuilder builder = new AnalysisInfoBuilder();
             builder.setJobType(AnalysisInfo.JobType.MANUAL);
             builder.setColName("testCol");
+            builder.setCollectHotValue(true);
             task.info = builder.build();
             task.catalog = catalogIf;
             task.db = databaseIf;
@@ -870,7 +871,7 @@ public class OlapAnalysisTaskTest {
     }
 
     @Test
-    public void testDoSampleWithoutHotValue() throws Exception {
+    public void testDoSampleAlwaysCollectsHotValue() throws Exception {
         CatalogIf catalogIf = Mockito.mock(CatalogIf.class);
         DatabaseIf databaseIf = Mockito.mock(DatabaseIf.class);
         OlapTable tableIf = Mockito.mock(OlapTable.class);
@@ -887,10 +888,11 @@ public class OlapAnalysisTaskTest {
         Mockito.doNothing().when(task).getSampleParams(ArgumentMatchers.any(), ArgumentMatchers.anyLong());
         Mockito.doAnswer(invocation -> {
             String sql = invocation.getArgument(0);
-            Assertions.assertTrue(sql.contains("null as `hot_value`"), sql);
-            Assertions.assertFalse(sql.contains("cte3"), sql);
-            Assertions.assertFalse(sql.contains("CROSS JOIN"), sql);
-            Assertions.assertFalse(sql.contains("GROUP BY `hash_value`"), sql);
+            Assertions.assertTrue(sql.contains("as `hot_value`"), sql);
+            Assertions.assertTrue(sql.contains("cte3"), sql);
+            Assertions.assertTrue(sql.contains("CROSS JOIN cte3"), sql);
+            Assertions.assertTrue(sql.contains("LIMIT 10"), sql);
+            Assertions.assertFalse(sql.contains("null as `hot_value`"), sql);
             return null;
         }).when(task).runQuery(Mockito.anyString());
 
@@ -945,6 +947,7 @@ public class OlapAnalysisTaskTest {
             AnalysisInfoBuilder builder = new AnalysisInfoBuilder();
             builder.setJobType(AnalysisInfo.JobType.MANUAL);
             builder.setColName("strCol");
+            builder.setCollectHotValue(true);
             task.info = builder.build();
             task.catalog = catalogIf;
             task.db = databaseIf;

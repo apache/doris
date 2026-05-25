@@ -381,9 +381,9 @@ public class AnalysisManager implements Writable {
         infoBuilder.setCronExpression(cronExpression);
         infoBuilder.setForceFull(command.forceFull());
         infoBuilder.setUsingSqlForExternalTable(command.usingSqlForExternalTable());
-        if (command.hasCollectHotValue() || scheduleType != ScheduleType.AUTOMATIC) {
-            infoBuilder.setCollectHotValue(command.collectHotValue());
-        }
+        AnalyzeProperties analyzeProperties = command.getAnalyzeProperties();
+        infoBuilder.setCollectHotValue((analyzeProperties.hasCollectHotValue()
+                && analyzeProperties.collectHotValue()) || analysisMethod == AnalysisMethod.SAMPLE);
         if (analysisMethod == AnalysisMethod.SAMPLE) {
             infoBuilder.setSamplePercent(samplePercent);
             infoBuilder.setSampleRows(sampleRows);

@@ -138,20 +138,15 @@ public abstract class AnalyzeCommand extends Command implements ForwardWithSync 
         return analyzeProperties.usingSqlForExternalTable();
     }
 
-    public boolean hasCollectHotValue() {
-        return analyzeProperties.hasCollectHotValue();
-    }
-
-    public Boolean collectHotValue() {
-        if (analyzeProperties.hasCollectHotValue()) {
-            return analyzeProperties.collectHotValue();
-        }
-        return getAnalysisMethod() == AnalysisInfo.AnalysisMethod.SAMPLE;
-    }
-
+    /**
+     * Validate analyze command properties.
+     */
     public void validate(ConnectContext ctx) throws UserException {
         if (analyzeProperties != null) {
             analyzeProperties.check();
+        }
+        if (analyzeProperties.hasCollectHotValue() && getAnalysisMethod() == AnalysisInfo.AnalysisMethod.SAMPLE) {
+            throw new AnalysisException("Sample analyze always collects hot value");
         }
     }
 

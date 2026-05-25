@@ -124,23 +124,13 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 ? tbl.getRowCount()
                 : ((OlapTable) tbl).getRowCountForIndex(info.indexId, false);
         getSampleParams(params, tableRowCount);
-        String template;
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        boolean collectHotValue = shouldCollectHotValue();
+        String sql;
         if (useLinearAnalyzeTemplate()) {
-            if (collectHotValue) {
-                template = LINEAR_ANALYZE_TEMPLATE;
-            } else {
-                template = LINEAR_ANALYZE_WITHOUT_HOT_VALUE_TEMPLATE;
-            }
+            sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);
         } else {
-            if (collectHotValue) {
-                template = DUJ1_ANALYZE_TEMPLATE;
-            } else {
-                template = DUJ1_ANALYZE_WITHOUT_HOT_VALUE_TEMPLATE;
-            }
+            sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
         }
-        String sql = stringSubstitutor.replace(template);
         LOG.info("Analyze param: scanFullTable {}, partitionColumnTooMany {}, keyColumnTooMany {}",
                 scanFullTable, partitionColumnSampleTooManyRows, keyColumnSampleTooManyRows);
         LOG.debug(sql);
@@ -353,7 +343,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     protected boolean shouldCollectHotValue() {
-        return info.collectHotValue == null || info.collectHotValue;
+        return Boolean.TRUE.equals(info.collectHotValue);
     }
 
     @Override
