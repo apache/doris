@@ -368,20 +368,31 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     private List<Split> getIncrementalSplits() {
+        long startTime = System.currentTimeMillis();
         if (canUseNativeReader()) {
             List<Split> splits = incrementalRelation.collectSplits();
             noLogsSplitNum.addAndGet(splits.size());
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
+            }
             return splits;
         }
         Option<String[]> partitionColumns = hudiClient.getTableConfig().getPartitionFields();
         List<String> partitionNames = partitionColumns.isPresent() ? Arrays.asList(partitionColumns.get())
                 : Collections.emptyList();
-        return incrementalRelation.collectFileSlices().stream().map(fileSlice -> generateHudiSplit(fileSlice,
-                HudiPartitionUtils.parsePartitionValues(partitionNames, fileSlice.getPartitionPath()),
-                incrementalRelation.getEndTs())).collect(Collectors.toList());
+        List<Split> splits = incrementalRelation.collectFileSlices().stream()
+                .map(fileSlice -> generateHudiSplit(fileSlice,
+                        HudiPartitionUtils.parsePartitionValues(partitionNames, fileSlice.getPartitionPath()),
+                        incrementalRelation.getEndTs()))
+                .collect(Collectors.toList());
+        if (getSummaryProfile() != null) {
+            getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
+        }
+        return splits;
     }
 
     private void getPartitionSplits(HivePartition partition, List<Split> splits) throws IOException {
+        long startTime = System.currentTimeMillis();
 
         String partitionName;
         if (partition.isDummyPartition()) {
@@ -416,6 +427,9 @@ public class HudiScanNode extends HiveScanNode {
                     .forEach(fileSlice -> splits.add(
                             generateHudiSplit(fileSlice, partition.getPartitionValues(), queryInstant)));
         }
+        if (getSummaryProfile() != null) {
+            getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
+        }
     }
 
     private void getPartitionsSplits(List<HivePartition> partitions, List<Split> splits) {
@@ -447,9 +461,13 @@ public class HudiScanNode extends HiveScanNode {
             return getIncrementalSplits();
         }
         if (!partitionInit) {
+            long startTime = System.currentTimeMillis();
             try {
                 prunedPartitions = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
                         -> getPrunedPartitions(hudiClient));
+                if (getSummaryProfile() != null) {
+                    getSummaryProfile().addExternalTableGetPartitionsTime(System.currentTimeMillis() - startTime);
+                }
             } catch (Exception e) {
                 throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
             }

@@ -32,6 +32,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -1271,11 +1272,18 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     public HiveExternalMetaCache.HivePartitionValues getHivePartitionValues(Optional<MvccSnapshot> snapshot) {
+        long startTime = System.currentTimeMillis();
         HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .hive(getCatalog().getId());
         try {
             List<Type> partitionColumnTypes = this.getPartitionColumnTypes(snapshot);
-            return cache.getPartitionValues(this, partitionColumnTypes);
+            HiveExternalMetaCache.HivePartitionValues partitionValues = cache.getPartitionValues(this,
+                    partitionColumnTypes);
+            SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(null);
+            if (summaryProfile != null) {
+                summaryProfile.addExternalTableGetPartitionValuesTime(System.currentTimeMillis() - startTime);
+            }
+            return partitionValues;
         } catch (Exception e) {
             if (e.getMessage().contains(HiveExternalMetaCache.ERR_CACHE_INCONSISTENCY)) {
                 LOG.warn("Hive metastore cache inconsistency detected for table: {}.{}.{}. "
@@ -1284,7 +1292,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableByEngine(
                         getCatalog().getId(), getMetaCacheEngine(), getDbName(), getName());
                 List<Type> partitionColumnTypes = this.getPartitionColumnTypes(snapshot);
-                return cache.getPartitionValues(this, partitionColumnTypes);
+                HiveExternalMetaCache.HivePartitionValues partitionValues = cache.getPartitionValues(this,
+                        partitionColumnTypes);
+                SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(null);
+                if (summaryProfile != null) {
+                    summaryProfile.addExternalTableGetPartitionValuesTime(System.currentTimeMillis() - startTime);
+                }
+                return partitionValues;
             } else {
                 throw e;
             }

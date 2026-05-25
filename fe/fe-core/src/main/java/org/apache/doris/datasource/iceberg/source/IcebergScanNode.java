@@ -570,6 +570,17 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
+        long startTime = System.currentTimeMillis();
+        try {
+            return doPlanFileScanTask(scan);
+        } finally {
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
+            }
+        }
+    }
+
+    private CloseableIterable<FileScanTask> doPlanFileScanTask(TableScan scan) {
         if (!IcebergUtils.isManifestCacheEnabled(source.getCatalog())) {
             return splitFiles(scan);
         }
