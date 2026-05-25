@@ -17,40 +17,40 @@
 
 #pragma once
 
-#include <optional>
-#include <string>
-#include <vector>
+#include <cstdint>
+#include <string_view>
 
 #include "common/status.h"
 #include "io/io_common.h"
 #include "storage/compaction/compaction.h"
-#include "storage/compaction_task_tracker.h"
-#include "storage/olap_common.h"
 
 namespace doris {
 
-class CumulativeCompaction final : public CompactionMixin {
+class BinlogCompaction final : public CompactionMixin {
 public:
-    CumulativeCompaction(StorageEngine& engine, const TabletSharedPtr& tablet);
-
-    ~CumulativeCompaction() override;
+    BinlogCompaction(StorageEngine& engine, const TabletSharedPtr& tablet, int8_t compaction_level);
+    ~BinlogCompaction() override;
 
     Status prepare_compact() override;
-
     Status execute_compact() override;
 
     std::optional<CompactionProfileType> profile_type() const override {
-        return CompactionProfileType::CUMULATIVE;
+        return CompactionProfileType::BINLOG;
     }
 
+    int8_t compaction_level() const override { return _compaction_level; }
+
+protected:
+    Status modify_rowsets() override;
+
+    std::string_view compaction_name() const override { return "binlog compaction"; }
+
+    ReaderType compaction_type() const override { return ReaderType::READER_BINLOG_COMPACTION; }
+
 private:
-    std::string_view compaction_name() const override { return "cumulative compaction"; }
-
-    ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
-
     Status pick_rowsets_to_compact();
 
-    Version _last_delete_version {-1, -1};
+    int8_t _compaction_level = -1;
 };
 
 } // namespace doris

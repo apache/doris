@@ -181,7 +181,8 @@ Status EngineCloneTask::_do_clone() {
     Status status = Status::OK();
     std::string src_file_path;
     TBackend src_host;
-    int32_t copy_type = _clone_req.__isset.copy_type ? _clone_req.copy_type : TabletCopyType::DEFAULT;
+    int32_t copy_type =
+            _clone_req.__isset.copy_type ? _clone_req.copy_type : TabletCopyType::DEFAULT;
     RETURN_IF_ERROR(TabletCopyType::validate(copy_type));
     bool copy_row_binlog = TabletCopyType::has(copy_type, TTabletCopyType::ROW_BINLOG);
     RETURN_IF_ERROR(
@@ -524,7 +525,8 @@ Status EngineCloneTask::_make_snapshot(const std::string& ip, int port, TTableId
     request.__set_schema_hash(schema_hash);
     request.__set_preferred_snapshot_version(g_Types_constants.TPREFER_SNAPSHOT_REQ_VERSION);
     request.__set_version(_clone_req.version);
-    int32_t copy_type = _clone_req.__isset.copy_type ? _clone_req.copy_type : TabletCopyType::DEFAULT;
+    int32_t copy_type =
+            _clone_req.__isset.copy_type ? _clone_req.copy_type : TabletCopyType::DEFAULT;
     RETURN_IF_ERROR(TabletCopyType::validate(copy_type));
     request.__set_copy_type(copy_type);
     request.__set_is_copy_binlog(TabletCopyType::has(copy_type, TTabletCopyType::CCR_BINLOG));
@@ -865,8 +867,8 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     if (copy_row_binlog) {
         RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(row_binlog_dir));
         local_files.clear();
-        RETURN_IF_ERROR(io::global_local_filesystem()->list(row_binlog_dir, true,
-                                                            &local_files, &exists));
+        RETURN_IF_ERROR(
+                io::global_local_filesystem()->list(row_binlog_dir, true, &local_files, &exists));
         for (auto& file : local_files) {
             row_binlog_local_file_names.insert(file.file_name);
         }
@@ -925,8 +927,8 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
         }
 
         if (!skip_link_file) {
-            auto& clone_file_dir = clone_file_type == CloneFileType::ROW_BINLOG ? row_binlog_clone_dir
-                                                                                : clone_dir;
+            auto& clone_file_dir =
+                    clone_file_type == CloneFileType::ROW_BINLOG ? row_binlog_clone_dir : clone_dir;
             auto from = fmt::format("{}/{}", clone_file_dir, clone_file);
             status = io::global_local_filesystem()->link_file(from, to);
             if (!status.ok()) {

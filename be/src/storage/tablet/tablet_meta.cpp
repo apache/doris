@@ -1580,6 +1580,13 @@ bool DeleteBitmap::contains(const BitmapKey& bmk, uint32_t row_id) const {
     return it != delete_bitmap.end() && it->second.contains(row_id);
 }
 
+bool DeleteBitmap::contain_rowsets(const RowsetIdUnorderedSet& rowset_ids) const {
+    std::shared_lock l(lock);
+    return std::any_of(delete_bitmap.begin(), delete_bitmap.end(), [&](const auto& entry) {
+        return rowset_ids.contains(std::get<0>(entry.first));
+    });
+}
+
 bool DeleteBitmap::contains_agg(const BitmapKey& bmk, uint32_t row_id) const {
     return get_agg(bmk)->contains(row_id);
 }

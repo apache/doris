@@ -137,7 +137,10 @@ bool VMergeIteratorContext::compare(const VMergeIteratorContext& rhs) const {
         col_cmp_res = _block->compare_column_at(_index_in_block, rhs._index_in_block,
                                                 _sequence_id_idx, *rhs._block, -1);
     }
-    auto result = col_cmp_res == 0 ? data_id() < rhs.data_id() : col_cmp_res < 0;
+    auto result = col_cmp_res == 0
+                          ? (_use_insert_order_when_same ? (data_id() > rhs.data_id())
+                                                         : (data_id() < rhs.data_id()))
+                          : col_cmp_res < 0;
 
     if (_is_unique) {
         result ? set_skip(true) : rhs.set_skip(true);
@@ -358,7 +361,7 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     for (auto& iter : _origin_iters) {
         auto ctx = std::make_shared<VMergeIteratorContext>(
                 std::move(iter), _sequence_id_idx, _is_unique, _is_reverse,
-                opts.read_orderby_key_columns, _output_schema);
+                opts.use_insert_order_when_same, opts.read_orderby_key_columns, _output_schema);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;

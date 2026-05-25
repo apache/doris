@@ -81,6 +81,8 @@
 #include "service/point_query_executor.h"
 #include "storage/binlog.h"
 #include "storage/compaction/base_compaction.h"
+#include "storage/compaction/binlog_compaction.h"
+#include "storage/compaction/binlog_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
@@ -160,6 +162,9 @@ void set_last_failure_time(Tablet* tablet, const Compaction& compaction, int64_t
         return;
     case ReaderType::READER_FULL_COMPACTION:
         tablet->set_last_full_compaction_failure_time(ms);
+        return;
+    case ReaderType::READER_BINLOG_COMPACTION:
+        tablet->set_last_binlog_compaction_failure_time(ms);
         return;
     default:
         LOG(FATAL) << "invalid compaction type " << compaction.compaction_name()
@@ -255,6 +260,7 @@ Tablet::Tablet(StorageEngine& engine, TabletMetaSharedPtr tablet_meta, DataDir* 
           _last_cumu_compaction_success_millis(0),
           _last_base_compaction_success_millis(0),
           _last_full_compaction_success_millis(0),
+          _last_binlog_compaction_failure_millis(0),
           _cumulative_point(K_INVALID_CUMULATIVE_POINT),
           _newly_created_rowset_num(0),
           _last_checkpoint_time(0),
@@ -266,6 +272,16 @@ Tablet::Tablet(StorageEngine& engine, TabletMetaSharedPtr tablet_meta, DataDir* 
         _tablet_path = fmt::format("{}/{}/{}/{}/{}", _data_dir->path(), DATA_PREFIX,
                                    _tablet_meta->shard_id(), tablet_id(), schema_hash());
     }
+    _binlog_compaction_policy = std::make_shared<BinlogCompactionPolicy>();
+    init_last_binlog_compaction_success_and_failure_time();
+}
+
+void Tablet::init_last_binlog_compaction_success_and_failure_time() {
+    int64_t now = UnixMillis();
+    for (int8_t level = 0; level < BinlogCompactionPolicy::kBinlogCompactionMaxLevel; ++level) {
+        _last_binlog_compaction_success_millis[level] = now;
+    }
+    _last_binlog_compaction_failure_millis = 0;
 }
 
 bool Tablet::set_tablet_schema_into_rowset_meta() {
@@ -688,6 +704,50 @@ Status Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
     return Status::OK();
 }
 
+Status Tablet::modify_row_binlog_rowsets(std::vector<RowsetSharedPtr>& to_add,
+                                         std::vector<RowsetSharedPtr>& to_delete) {
+    if (to_add.empty() && to_delete.empty()) {
+        return Status::OK();
+    }
+
+    for (auto&& rs : to_delete) {
+        if (auto it = _row_binlog_rs_version_map.find(rs->version());
+            it == _row_binlog_rs_version_map.end()) {
+            return Status::Error<DELETE_VERSION_ERROR>(
+                    "try to delete not exist row-binlog {} from {}", rs->version().to_string(),
+                    tablet_id());
+        } else if (rs->rowset_id() != it->second->rowset_id()) {
+            return Status::Error<DELETE_VERSION_ERROR>(
+                    "try to delete row-binlog {} from {}, but rowset id changed, delete rowset id "
+                    "is {}, exists rowsetid is {}",
+                    rs->version().to_string(), tablet_id(), rs->rowset_id().to_string(),
+                    it->second->rowset_id().to_string());
+        }
+    }
+
+    std::vector<RowsetMetaSharedPtr> rs_metas_to_delete;
+    for (auto& rs : to_delete) {
+        rs_metas_to_delete.push_back(rs->rowset_meta());
+        _row_binlog_rs_version_map.erase(rs->version());
+        _row_binlog_version_tracker.delete_version(rs->version());
+        // Delete binlog delvec immediately because input rowsets will be deleted.
+        tablet_meta()->binlog_delvec().remove({rs->rowset_id(), 0, 0},
+                                              {rs->rowset_id(), UINT32_MAX, UINT64_MAX});
+        _engine.add_unused_rowset(rs);
+    }
+
+    std::vector<RowsetMetaSharedPtr> rs_metas_to_add;
+    for (auto& rs : to_add) {
+        rs_metas_to_add.push_back(rs->rowset_meta());
+        _row_binlog_rs_version_map[rs->version()] = rs;
+        _row_binlog_version_tracker.add_version(rs->version());
+        ++_newly_created_rowset_num;
+    }
+
+    _tablet_meta->modify_row_binlog_rs_metas(rs_metas_to_add, rs_metas_to_delete);
+    return Status::OK();
+}
+
 void Tablet::add_rowsets(const std::vector<RowsetSharedPtr>& to_add, bool copy_row_binlog) {
     if (to_add.empty()) {
         return;
@@ -762,9 +822,6 @@ Status Tablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, boo
         _row_binlog_version_tracker.delete_version(rs->version());
         if (rs->is_local()) {
             _engine.add_unused_rowset(rs);
-            RETURN_IF_ERROR(RowsetMetaManager::remove_row_binlog_metas(_data_dir->get_meta(),
-                                                                       tablet_uid(),
-                                                                       {rs->rowset_id()}));
         }
     }
     return Status::OK();
@@ -1104,6 +1161,11 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         return false;
     }
 
+    if (compaction_type == CompactionType::BINLOG_COMPACTION &&
+        (!config::enable_feature_binlog || !enable_row_binlog())) {
+        return false;
+    }
+
     if (data_dir()->path_hash() != path_hash || !is_used() || !init_succeeded()) {
         return false;
     }
@@ -1113,7 +1175,13 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
     return tablet_state() == TABLET_RUNNING || tablet_state() == TABLET_NOTREADY;
 }
 
-uint32_t Tablet::calc_compaction_score() {
+uint32_t Tablet::calc_compaction_score(CompactionType compaction_type,
+                                       int8_t* prefer_compaction_level) {
+    if (compaction_type == CompactionType::BINLOG_COMPACTION) {
+        std::shared_lock rdlock(_meta_lock);
+        return _calc_binlog_compaction_score(prefer_compaction_level);
+    }
+
     if (_score_check_cnt++ % config::check_score_rounds_num != 0) {
         std::shared_lock rdlock(_meta_lock);
         if (_compaction_score > 0) {
@@ -1143,9 +1211,13 @@ bool Tablet::suitable_for_compaction(
     int32_t score = -1;
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
         score = _calc_cumulative_compaction_score(cumulative_compaction_policy);
-    } else {
+    } else if (compaction_type == CompactionType::BASE_COMPACTION) {
         DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
         score = _calc_base_compaction_score();
+    } else if (compaction_type == CompactionType::BINLOG_COMPACTION) {
+        score = _calc_binlog_compaction_score();
+    } else {
+        DCHECK(false) << "Unknown compaction type: " << compaction_type;
     }
     return score > 0;
 }
@@ -1379,6 +1451,47 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_full_compaction()
     return candidate_rowsets;
 }
 
+std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_binlog_compaction() {
+    auto [visible_version, _] = get_visible_version_and_time();
+    int64_t now = UnixSeconds();
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    int64_t max_processable_old_version = 0;
+    int64_t max_version = 0;
+    {
+        std::shared_lock rlock(_meta_lock);
+        bool filter_new_rowset =
+                _row_binlog_rs_version_map.size() <= config::binlog_compaction_file_count_threshold;
+        for (const auto& [version, rs] : _row_binlog_rs_version_map) {
+            max_version = std::max(max_version, version.second);
+            if (filter_new_rowset && rs->rowset_meta()->is_singleton_delta() &&
+                rs->rowset_meta()->newest_write_timestamp() +
+                                config::binlog_compaction_wait_timesec_after_visible >
+                        now) {
+                continue;
+            }
+            max_processable_old_version = std::max(max_processable_old_version, version.second);
+        }
+
+        if (max_version <= visible_version + config::compaction_keep_invisible_version_max_count) {
+            max_processable_old_version = std::min(max_processable_old_version, visible_version);
+        }
+
+        for (const auto& [version, rs] : _row_binlog_rs_version_map) {
+            if (!rs->is_local() || version.first > max_processable_old_version) {
+                continue;
+            }
+            candidate_rowsets.emplace_back(rs);
+        }
+    }
+    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
+    return candidate_rowsets;
+}
+
+uint32_t Tablet::_calc_binlog_compaction_score(int8_t* prefer_compaction_level) {
+    DCHECK(_binlog_compaction_policy != nullptr);
+    return _binlog_compaction_policy->calc_binlog_compaction_score(this, prefer_compaction_level);
+}
+
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_index(
         const std::set<int64_t>& alter_index_uids, bool is_drop_op) {
     std::vector<RowsetSharedPtr> candidate_rowsets;
@@ -1488,12 +1601,27 @@ void Tablet::get_compaction_status(std::string* json_result) {
                                     _last_base_compaction_failure_millis)
     FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last full failure time",
                                     _last_full_compaction_failure_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last binlog failure time",
+                                    _last_binlog_compaction_failure_millis)
     FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last cumulative success time",
                                     _last_cumu_compaction_success_millis)
     FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last base success time",
                                     _last_base_compaction_success_millis)
     FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last full success time",
                                     _last_full_compaction_success_millis)
+    {
+        int64_t last_binlog_success_millis = 0;
+        for (int8_t level = 0; level < BinlogCompactionPolicy::kBinlogCompactionMaxLevel; ++level) {
+            last_binlog_success_millis =
+                    std::max(last_binlog_success_millis,
+                             _last_binlog_compaction_success_millis[level].load());
+        }
+        rapidjson::Value value;
+        std::string format_str = ToStringFromUnixMillis(last_binlog_success_millis);
+        value.SetString(format_str.c_str(), cast_set<uint32_t>(format_str.length()),
+                        root.GetAllocator());
+        root.AddMember("last binlog success time", value, root.GetAllocator());
+    }
     FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last cumulative schedule time",
                                     _last_cumu_compaction_schedule_millis)
     FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last base schedule time",
@@ -1503,6 +1631,7 @@ void Tablet::get_compaction_status(std::string* json_result) {
     FORMAT_STRING_ADD_JSON_NODE(root, "last cumulative status", _last_cumu_compaction_status)
     FORMAT_STRING_ADD_JSON_NODE(root, "last base status", _last_base_compaction_status)
     FORMAT_STRING_ADD_JSON_NODE(root, "last full status", _last_full_compaction_status)
+    FORMAT_STRING_ADD_JSON_NODE(root, "last binlog status", _last_binlog_compaction_status)
 
     // last single replica compaction status
     // "single replica compaction status": {
@@ -1889,7 +2018,8 @@ void Tablet::report_error(const Status& st) {
 
 Status Tablet::prepare_compaction_and_calculate_permits(
         CompactionType compaction_type, const TabletSharedPtr& tablet,
-        std::shared_ptr<CompactionMixin>& compaction, int64_t& permits) {
+        std::shared_ptr<CompactionMixin>& compaction, int64_t& permits,
+        int8_t prefer_compaction_level) {
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
         MonotonicStopWatch watch;
         watch.start();
@@ -1957,7 +2087,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             // And because we set permits to 0, so even if we return OK here, nothing will be done.
             return Status::OK();
         }
-    } else {
+    } else if (compaction_type == CompactionType::FULL_COMPACTION) {
         DCHECK_EQ(compaction_type, CompactionType::FULL_COMPACTION);
 
         compaction = std::make_shared<FullCompaction>(tablet->_engine, tablet);
@@ -1974,6 +2104,29 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             // And because we set permits to 0, so even if we return OK here, nothing will be done.
             return Status::OK();
         }
+    } else if (compaction_type == CompactionType::BINLOG_COMPACTION) {
+        MonotonicStopWatch watch;
+        watch.start();
+
+        DCHECK_GE(prefer_compaction_level, 0);
+        compaction = std::make_shared<BinlogCompaction>(tablet->_engine, tablet,
+                                                        prefer_compaction_level);
+        Status res = compaction->prepare_compact();
+
+        if (!res.ok()) {
+            tablet->set_last_binlog_compaction_failure_time(UnixMillis());
+            permits = 0;
+            if (!res.is<BINLOG_COMPACTION_NO_SUITABLE_VERSION>()) {
+                return Status::InternalError("prepare binlog compaction with err: {}",
+                                             res.to_string());
+            }
+            // return OK if OLAP_ERR_BINLOG_COMPACTION_NO_SUITABLE_VERSION, so that we don't need to
+            // print too much useless logs.
+            // And because we set permits to 0, so even if we return OK here, nothing will be done.
+            return Status::OK();
+        }
+    } else {
+        DCHECK(false) << "Unknown compaction type: " << compaction_type;
     }
 
     // Time series policy does not rely on permits, it uses goal size to control memory
@@ -2817,15 +2970,19 @@ void Tablet::set_skip_compaction(bool skip, CompactionType compaction_type, int6
     if (!skip) {
         _skip_cumu_compaction = false;
         _skip_base_compaction = false;
+        _skip_binlog_compaction = false;
         return;
     }
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
         _skip_cumu_compaction = true;
         _skip_cumu_compaction_ts = start;
-    } else {
-        DCHECK(compaction_type == CompactionType::BASE_COMPACTION);
+    } else if (compaction_type == CompactionType::BASE_COMPACTION) {
         _skip_base_compaction = true;
         _skip_base_compaction_ts = start;
+    } else {
+        DCHECK(compaction_type == CompactionType::BINLOG_COMPACTION);
+        _skip_binlog_compaction = true;
+        _skip_binlog_compaction_ts = start;
     }
 }
 
@@ -2835,6 +2992,9 @@ bool Tablet::should_skip_compaction(CompactionType compaction_type, int64_t now)
         return true;
     } else if (compaction_type == CompactionType::BASE_COMPACTION && _skip_base_compaction &&
                now < _skip_base_compaction_ts + config::skip_tablet_compaction_second) {
+        return true;
+    } else if (compaction_type == CompactionType::BINLOG_COMPACTION && _skip_binlog_compaction &&
+               now < _skip_binlog_compaction_ts + config::skip_tablet_compaction_second) {
         return true;
     }
     return false;

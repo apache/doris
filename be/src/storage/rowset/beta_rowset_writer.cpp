@@ -107,6 +107,9 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     std::vector<uint32_t> num_segment_rows;
     spec_rowset_meta.get_num_segment_rows(&num_segment_rows);
     rowset_meta.set_num_segment_rows(num_segment_rows);
+    if (spec_rowset_meta.has_commit_tso()) {
+        rowset_meta.set_commit_tso(spec_rowset_meta.commit_tso());
+    }
     if (spec_rowset_meta.is_row_binlog()) {
         rowset_meta.mark_row_binlog();
     }

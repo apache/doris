@@ -531,6 +531,7 @@ public:
      * @return true if marked deleted
      */
     bool contains(const BitmapKey& bmk, uint32_t row_id) const;
+    bool contain_rowsets(const RowsetIdUnorderedSet& rowset_ids) const;
 
     /**
      * Checks if this delete bitmap is empty

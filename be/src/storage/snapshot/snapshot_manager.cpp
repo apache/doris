@@ -389,7 +389,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     context.segments_overlap = rowset_meta->segments_overlap();
     context.compaction_level = org_rowset_meta->compaction_level();
     if (org_rowset_meta->is_row_binlog()) {
-        context.write_binlog_opt().mark_binlog_writer();
+        context.write_binlog_opt().enable = true;
     }
     // propagate MOW flag so that non-MOW key-bounds aggregation is not applied
     // when restoring a MOW tablet's rowset
@@ -469,8 +469,7 @@ std::string SnapshotManager::_get_header_full_path(const TabletSharedPtr& ref_ta
     return fmt::format("{}/{}.hdr", schema_hash_path, ref_tablet->tablet_id());
 }
 
-std::string SnapshotManager::_get_row_binlog_full_path(
-        const std::string& schema_hash_path) const {
+std::string SnapshotManager::_get_row_binlog_full_path(const std::string& schema_hash_path) const {
     return fmt::format("{}/{}", schema_hash_path, FDRowBinlogSuffix);
 }
 
@@ -598,8 +597,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                         LOG(WARNING)
                                 << "failed to find row binlog when do compaction snapshot. "
                                 << " tablet=" << request.tablet_id
-                                << " schema_hash=" << request.schema_hash
-                                << " version=" << version;
+                                << " schema_hash=" << request.schema_hash << " version=" << version;
                         res = Status::InternalError(
                                 "failed to find row binlog when do compaction snapshot. tablet={}, "
                                 "schema_hash={}, version={}",

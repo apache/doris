@@ -225,10 +225,27 @@ bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, L
     }
 
     // if row cursors equal, compare data version.
-    // read data from higher version to lower version.
+    // By default, read data from higher version to lower version. If
+    // `_use_insert_order_when_same` is enabled, read from lower to higher.
     // for UNIQUE_KEYS just read the highest version and no need agg_update.
     // for AGG_KEYS if a version is deleted, the lower version no need to agg_update
-    bool lower = (cmp_res != 0) ? (cmp_res < 0) : (lhs->version() < rhs->version());
+    bool lower = (cmp_res != 0)
+                         ? (cmp_res < 0)
+                         : (_use_insert_order_when_same ? (lhs->version() > rhs->version())
+                                                        : (lhs->version() < rhs->version()));
+    // [BINLOG_DIAG] sample the first ~50 same-key tie-breaks
+    {
+        static thread_local int s_diag_count = 0;
+        if (cmp_res == 0 && s_diag_count < 50) {
+            s_diag_count++;
+            LOG(INFO) << "[BINLOG_DIAG][LevelIterCmp tie-break] lhs_v=" << lhs->version()
+                      << ", rhs_v=" << rhs->version()
+                      << ", use_insert_order_when_same=" << _use_insert_order_when_same
+                      << ", is_reverse=" << _is_reverse
+                      << ", lower(returned)=" << lower
+                      << " => (lower=true means rhs pops first)";
+        }
+    }
     lower ? lhs->set_same(true) : rhs->set_same(true);
 
     return lower;
@@ -681,6 +698,27 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
         return Status::OK();
     }
 
+    // [BINLOG_DIAG]
+    if (_reader != nullptr &&
+        (_reader->_reader_type == ReaderType::READER_BINLOG ||
+         _reader->_reader_type == ReaderType::READER_BINLOG_COMPACTION)) {
+        std::stringstream ss;
+        ss << "[BINLOG_DIAG][Level1Iterator::init] tablet="
+           << _reader->_tablet->tablet_id()
+           << ", reader_type=" << int(_reader->_reader_type)
+           << ", merge=" << _merge << ", is_reverse=" << _is_reverse
+           << ", skip_same=" << _skip_same
+           << ", children=" << _children.size()
+           << ", use_insert_order_when_same="
+           << _reader->_reader_context.use_insert_order_when_same
+           << ", child_versions=[";
+        for (auto& c : _children) {
+            ss << c->version() << " ";
+        }
+        ss << "]";
+        LOG(INFO) << ss.str();
+    }
+
     // Only when there are multiple children that need to be merged
     if (_merge && _children.size() > 1) {
         auto sequence_loc = -1;
@@ -690,7 +728,8 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
                 break;
             }
         }
-        _heap = std::make_unique<MergeHeap>(LevelIteratorComparator(sequence_loc, _is_reverse));
+        _heap = std::make_unique<MergeHeap>(LevelIteratorComparator(
+                sequence_loc, _is_reverse, _reader->_reader_context.use_insert_order_when_same));
         for (auto&& child : _children) {
             DCHECK(child != nullptr);
             //DCHECK(child->current_row().ok());

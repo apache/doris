@@ -23,6 +23,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.annotation.DependsRules;
@@ -704,6 +705,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             // The zone map max length of CharFamily is 512, do not
             // over the length: https://github.com/apache/doris/pull/6293
             if (mergeOp == PushDownAggOp.MIN_MAX || mergeOp == PushDownAggOp.MIX) {
+                if (logicalScan instanceof LogicalOlapScan
+                        && ((LogicalOlapScan) logicalScan).getTable() instanceof RowBinlogTableWrapper
+                        && RowBinlogTableWrapper.isRowBinlogSyntheticColumn(column)) {
+                    return canNotPush;
+                }
                 PrimitiveType colType = column.getType().getPrimitiveType();
                 if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()
                          || (colType == PrimitiveType.STRING && !enablePushDownStringMinMax())) {

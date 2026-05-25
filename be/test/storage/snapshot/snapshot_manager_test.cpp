@@ -322,10 +322,10 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsRowBinlog) {
     tablet_schema.__set_short_key_column_count(schema_pb->num_short_key_columns());
     tablet_schema.__set_keys_type(TKeysType::AGG_KEYS);
     tablet_schema.__set_storage_type(TStorageType::COLUMN);
-    tablet_schema.__set_columns({testutil::create_tablet_column({"k1", TPrimitiveType::INT, true}),
-                                 testutil::create_tablet_column(
-                                         {"v1", TPrimitiveType::STRING, false, true,
-                                          TAggregationType::REPLACE})});
+    tablet_schema.__set_columns(
+            {testutil::create_tablet_column({"k1", TPrimitiveType::INT, true}),
+             testutil::create_tablet_column(
+                     {"v1", TPrimitiveType::STRING, false, true, TAggregationType::REPLACE})});
     create_tablet_req.__set_tablet_schema(tablet_schema);
 
     std::vector<DataDir*> stores;
@@ -335,8 +335,8 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsRowBinlog) {
     Status status = _engine->tablet_manager()->create_tablet(create_tablet_req, stores, &profile);
     EXPECT_TRUE(status.ok()) << "Failed to create tablet: " << status;
 
-    auto result = _engine->snapshot_mgr()->convert_rowset_ids(clone_dir, 20007, 2, 2000, 200,
-                                                              65433);
+    auto result =
+            _engine->snapshot_mgr()->convert_rowset_ids(clone_dir, 20007, 2, 2000, 200, 65433);
     EXPECT_TRUE(result.has_value());
 
     TabletMetaPB converted_meta_pb;

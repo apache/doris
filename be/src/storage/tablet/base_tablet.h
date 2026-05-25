@@ -89,7 +89,7 @@ public:
     }
 
     // Property encapsulated in TabletMeta
-    const TabletMetaSharedPtr& tablet_meta() { return _tablet_meta; }
+    const TabletMetaSharedPtr& tablet_meta() const { return _tablet_meta; }
 
     int32_t max_version_config();
 
