@@ -2168,14 +2168,42 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
     if (auto mcd = req.runtime_state->mc_commit_datas(); !mcd.empty()) {
         params.__isset.mc_commit_datas = true;
         params.mc_commit_datas.insert(params.mc_commit_datas.end(), mcd.begin(), mcd.end());
+        LOG(INFO) << "MC_DIAG stage=BE_REPORT_MC_COMMIT_DATA_FROM_PRIMARY"
+                  << ", query_id=" << print_id(req.query_id)
+                  << ", fragment_instance_id=" << print_id(req.fragment_instance_id)
+                  << ", commit_datas=" << mcd.size();
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
             if (auto rs_mcd = rs->mc_commit_datas(); !rs_mcd.empty()) {
                 params.__isset.mc_commit_datas = true;
                 params.mc_commit_datas.insert(params.mc_commit_datas.end(), rs_mcd.begin(),
                                               rs_mcd.end());
+                LOG(INFO) << "MC_DIAG stage=BE_REPORT_MC_COMMIT_DATA_FROM_RUNTIME_STATE"
+                          << ", query_id=" << print_id(req.query_id)
+                          << ", fragment_instance_id=" << print_id(req.fragment_instance_id)
+                          << ", commit_datas=" << rs_mcd.size();
             }
         }
+    }
+    if (params.__isset.mc_commit_datas) {
+        int64_t mc_rows = 0;
+        int64_t mc_commit_messages = 0;
+        int64_t mc_commit_message_bytes = 0;
+        for (const auto& data : params.mc_commit_datas) {
+            if (data.__isset.row_count) {
+                mc_rows += data.row_count;
+            }
+            if (data.__isset.commit_message && !data.commit_message.empty()) {
+                mc_commit_messages++;
+                mc_commit_message_bytes += data.commit_message.size();
+            }
+        }
+        LOG(INFO) << "MC_DIAG stage=BE_REPORT_MC_COMMIT_DATA_READY"
+                  << ", query_id=" << print_id(req.query_id)
+                  << ", fragment_instance_id=" << print_id(req.fragment_instance_id)
+                  << ", commit_datas=" << params.mc_commit_datas.size()
+                  << ", rows=" << mc_rows << ", commit_messages=" << mc_commit_messages
+                  << ", commit_message_bytes=" << mc_commit_message_bytes;
     }
 
     req.runtime_state->get_unreported_errors(&(params.error_log));
@@ -2197,7 +2225,19 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
     }
     try {
         try {
+            LOG(INFO) << "MC_DIAG stage=BE_REPORT_EXEC_STATUS_BEFORE"
+                      << ", query_id=" << print_id(req.query_id)
+                      << ", fragment_instance_id=" << print_id(req.fragment_instance_id)
+                      << ", has_mc_commit_datas=" << params.__isset.mc_commit_datas
+                      << ", mc_commit_datas="
+                      << (params.__isset.mc_commit_datas ? params.mc_commit_datas.size() : 0);
             (*coord)->reportExecStatus(res, params);
+            LOG(INFO) << "MC_DIAG stage=BE_REPORT_EXEC_STATUS_AFTER"
+                      << ", query_id=" << print_id(req.query_id)
+                      << ", fragment_instance_id=" << print_id(req.fragment_instance_id)
+                      << ", has_mc_commit_datas=" << params.__isset.mc_commit_datas
+                      << ", mc_commit_datas="
+                      << (params.__isset.mc_commit_datas ? params.mc_commit_datas.size() : 0);
         } catch ([[maybe_unused]] apache::thrift::transport::TTransportException& e) {
 #ifndef ADDRESS_SANITIZER
             LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(req.query_id)
@@ -2210,7 +2250,19 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
                 req.cancel_fn(rpc_status);
                 return;
             }
+            LOG(INFO) << "MC_DIAG stage=BE_REPORT_EXEC_STATUS_RETRY_BEFORE"
+                      << ", query_id=" << print_id(req.query_id)
+                      << ", fragment_instance_id=" << print_id(req.fragment_instance_id)
+                      << ", has_mc_commit_datas=" << params.__isset.mc_commit_datas
+                      << ", mc_commit_datas="
+                      << (params.__isset.mc_commit_datas ? params.mc_commit_datas.size() : 0);
             (*coord)->reportExecStatus(res, params);
+            LOG(INFO) << "MC_DIAG stage=BE_REPORT_EXEC_STATUS_RETRY_AFTER"
+                      << ", query_id=" << print_id(req.query_id)
+                      << ", fragment_instance_id=" << print_id(req.fragment_instance_id)
+                      << ", has_mc_commit_datas=" << params.__isset.mc_commit_datas
+                      << ", mc_commit_datas="
+                      << (params.__isset.mc_commit_datas ? params.mc_commit_datas.size() : 0);
         }
 
         rpc_status = Status::create<false>(res.status);

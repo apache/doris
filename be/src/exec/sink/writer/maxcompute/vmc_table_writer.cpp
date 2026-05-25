@@ -24,10 +24,19 @@
 #include "format/transformer/vjni_format_transformer.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+namespace {
+
+const char* mc_diag_bool(bool value) {
+    return value ? "true" : "false";
+}
+
+} // namespace
 
 VMCTableWriter::VMCTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_expr_ctxs,
                                std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep)
@@ -43,11 +52,19 @@ Status VMCTableWriter::init_properties(ObjectPool* pool) {
 
 Status VMCTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
+    int64_t start_ms = MonotonicMillis();
 
     LOG(INFO) << "VMCTableWriter::open"
               << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
               << ", per_fragment_instance_idx=" << state->per_fragment_instance_idx()
               << ", write_session_id=" << _mc_sink.write_session_id;
+    LOG(INFO) << "MC_DIAG stage=BE_TABLE_OPEN_ENTER"
+              << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+              << ", per_fragment_instance_idx=" << state->per_fragment_instance_idx()
+              << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+              << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+              << ", write_session_id="
+              << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "");
 
     _written_rows_counter = ADD_COUNTER(_operator_profile, "WrittenRows", TUnit::UNIT);
     _send_data_timer = ADD_TIMER(_operator_profile, "SendDataTime");
@@ -95,6 +112,18 @@ Status VMCTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
         }
     }
 
+    LOG(INFO) << "MC_DIAG stage=BE_TABLE_OPEN_EXIT"
+              << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+              << ", per_fragment_instance_idx=" << state->per_fragment_instance_idx()
+              << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+              << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+              << ", write_session_id="
+              << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "")
+              << ", partition_columns=" << _partition_column_names.size()
+              << ", has_static_partition=" << mc_diag_bool(_has_static_partition)
+              << ", static_partition_spec=" << _static_partition_spec
+              << ", write_exprs=" << _write_output_vexpr_ctxs.size()
+              << ", cost_ms=" << MonotonicMillis() - start_ms;
     return Status::OK();
 }
 
@@ -124,6 +153,15 @@ std::map<std::string, std::string> VMCTableWriter::_build_base_writer_params() {
     params["fe_port"] = std::to_string(master_fe_addr.port);
     params["fe_rpc_timeout_ms"] = std::to_string(config::thrift_rpc_timeout_ms);
     params["fe_thrift_server_type"] = config::thrift_server_type_of_fe;
+    LOG(INFO) << "MC_DIAG stage=BE_TABLE_BUILD_WRITER_PARAMS"
+              << ", fragment_instance_id=" << print_id(_state->fragment_instance_id())
+              << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+              << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+              << ", write_session_id="
+              << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "")
+              << ", fe=" << master_fe_addr.hostname << ":" << master_fe_addr.port
+              << ", read_timeout=" << (_mc_sink.__isset.read_timeout ? _mc_sink.read_timeout : 0)
+              << ", retry_count=" << (_mc_sink.__isset.retry_count ? _mc_sink.retry_count : 0);
     return params;
 }
 
@@ -133,6 +171,13 @@ std::shared_ptr<VMCPartitionWriter> VMCTableWriter::_create_partition_writer(
     params["partition_spec"] = partition_spec;
     LOG(INFO) << "VMCTableWriter::_create_partition_writer"
               << ", fragment_instance_id=" << print_id(_state->fragment_instance_id())
+              << ", partition_spec=" << partition_spec;
+    LOG(INFO) << "MC_DIAG stage=BE_TABLE_CREATE_PARTITION_WRITER"
+              << ", fragment_instance_id=" << print_id(_state->fragment_instance_id())
+              << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+              << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+              << ", write_session_id="
+              << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "")
               << ", partition_spec=" << partition_spec;
     return std::make_shared<VMCPartitionWriter>(_state, _write_output_vexpr_ctxs, partition_spec,
                                                 std::move(params));
@@ -144,10 +189,41 @@ Status VMCTableWriter::write(RuntimeState* state, Block& block) {
         return Status::OK();
     }
 
+    int64_t start_ms = MonotonicMillis();
+    LOG(INFO) << "MC_DIAG stage=BE_TABLE_WRITE_ENTER"
+              << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+              << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+              << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+              << ", write_session_id="
+              << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "")
+              << ", input_rows=" << block.rows() << ", input_columns=" << block.columns()
+              << ", has_static_partition=" << mc_diag_bool(_has_static_partition)
+              << ", partition_columns=" << _partition_column_names.size();
     Block output_block;
-    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_vec_output_expr_ctxs, block,
-                                                                       &output_block, false));
+    int64_t expr_start_ms = MonotonicMillis();
+    LOG(INFO) << "MC_DIAG stage=BE_TABLE_EXPR_BEFORE"
+              << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+              << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+              << ", input_rows=" << block.rows() << ", input_columns=" << block.columns();
+    Status status = VExprContext::get_output_block_after_execute_exprs(_vec_output_expr_ctxs, block,
+                                                                       &output_block, false);
+    LOG(INFO) << "MC_DIAG stage=BE_TABLE_EXPR_AFTER"
+              << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+              << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+              << ", status=" << status.to_string()
+              << ", cost_ms=" << MonotonicMillis() - expr_start_ms;
+    RETURN_IF_ERROR(status);
+    LOG(INFO) << "MC_DIAG stage=BE_TABLE_MATERIALIZE_BEFORE"
+              << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+              << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+              << ", output_rows=" << output_block.rows()
+              << ", output_columns=" << output_block.columns();
     materialize_block_inplace(output_block);
+    LOG(INFO) << "MC_DIAG stage=BE_TABLE_MATERIALIZE_AFTER"
+              << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+              << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+              << ", output_rows=" << output_block.rows()
+              << ", output_columns=" << output_block.columns();
 
     _row_count += output_block.rows();
 
@@ -156,12 +232,46 @@ Status VMCTableWriter::write(RuntimeState* state, Block& block) {
         auto it = _partitions_to_writers.find(_static_partition_spec);
         if (it == _partitions_to_writers.end()) {
             auto writer = _create_partition_writer(_static_partition_spec);
-            RETURN_IF_ERROR(writer->open());
+            LOG(INFO) << "MC_DIAG stage=BE_TABLE_PARTITION_OPEN_BEFORE"
+                      << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+                      << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+                      << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+                      << ", write_session_id="
+                      << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "")
+                      << ", partition_spec=" << _static_partition_spec;
+            status = writer->open();
+            LOG(INFO) << "MC_DIAG stage=BE_TABLE_PARTITION_OPEN_AFTER"
+                      << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+                      << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+                      << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+                      << ", write_session_id="
+                      << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "")
+                      << ", partition_spec=" << _static_partition_spec
+                      << ", status=" << status.to_string();
+            RETURN_IF_ERROR(status);
             _partitions_to_writers.insert({_static_partition_spec, writer});
             it = _partitions_to_writers.find(_static_partition_spec);
         }
         output_block.erase(_non_write_columns_indices);
-        return it->second->write(output_block);
+        LOG(INFO) << "MC_DIAG stage=BE_TABLE_PARTITION_WRITE_BEFORE"
+                  << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+                  << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+                  << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+                  << ", write_session_id="
+                  << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "")
+                  << ", partition_spec=" << _static_partition_spec
+                  << ", rows=" << output_block.rows() << ", columns=" << output_block.columns();
+        status = it->second->write(output_block);
+        LOG(INFO) << "MC_DIAG stage=BE_TABLE_PARTITION_WRITE_AFTER"
+                  << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+                  << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+                  << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+                  << ", write_session_id="
+                  << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "")
+                  << ", partition_spec=" << _static_partition_spec
+                  << ", rows=" << output_block.rows() << ", status=" << status.to_string()
+                  << ", cost_ms=" << MonotonicMillis() - start_ms;
+        return status;
     }
 
     // Case 2: Dynamic partition or non-partitioned table
@@ -172,20 +282,81 @@ Status VMCTableWriter::write(RuntimeState* state, Block& block) {
     auto it = _partitions_to_writers.find(partition_key);
     if (it == _partitions_to_writers.end()) {
         auto writer = _create_partition_writer("");
-        RETURN_IF_ERROR(writer->open());
+        LOG(INFO) << "MC_DIAG stage=BE_TABLE_PARTITION_OPEN_BEFORE"
+                  << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+                  << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+                  << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+                  << ", write_session_id="
+                  << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "")
+                  << ", partition_spec=" << partition_key
+                  << ", dynamic_partition=" << mc_diag_bool(!_partition_column_names.empty());
+        status = writer->open();
+        LOG(INFO) << "MC_DIAG stage=BE_TABLE_PARTITION_OPEN_AFTER"
+                  << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+                  << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+                  << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+                  << ", write_session_id="
+                  << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "")
+                  << ", partition_spec=" << partition_key << ", status=" << status.to_string();
+        RETURN_IF_ERROR(status);
         _partitions_to_writers.insert({partition_key, writer});
         it = _partitions_to_writers.find(partition_key);
     }
-    return it->second->write(output_block);
+    LOG(INFO) << "MC_DIAG stage=BE_TABLE_PARTITION_WRITE_BEFORE"
+              << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+              << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+              << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+              << ", write_session_id="
+              << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "")
+              << ", partition_spec=" << partition_key
+              << ", dynamic_partition=" << mc_diag_bool(!_partition_column_names.empty())
+              << ", rows=" << output_block.rows() << ", columns=" << output_block.columns();
+    status = it->second->write(output_block);
+    LOG(INFO) << "MC_DIAG stage=BE_TABLE_PARTITION_WRITE_AFTER"
+              << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+              << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+              << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+              << ", write_session_id="
+              << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "")
+              << ", partition_spec=" << partition_key << ", rows=" << output_block.rows()
+              << ", status=" << status.to_string()
+              << ", cost_ms=" << MonotonicMillis() - start_ms;
+    return status;
 }
 
 Status VMCTableWriter::close(Status status) {
+    int64_t start_ms = MonotonicMillis();
     Status result_status;
     int64_t partitions_count = _partitions_to_writers.size();
+    LOG(INFO) << "MC_DIAG stage=BE_TABLE_CLOSE_ENTER"
+              << ", fragment_instance_id=" << print_id(_state->fragment_instance_id())
+              << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+              << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+              << ", write_session_id="
+              << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "")
+              << ", input_status=" << status.to_string()
+              << ", partitions_count=" << partitions_count
+              << ", row_count=" << _row_count;
     {
         SCOPED_RAW_TIMER(&_close_ns);
         for (const auto& [partition_spec, writer] : _partitions_to_writers) {
+            LOG(INFO) << "MC_DIAG stage=BE_TABLE_CLOSE_PARTITION_BEFORE"
+                      << ", fragment_instance_id=" << print_id(_state->fragment_instance_id())
+                      << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+                      << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+                      << ", write_session_id="
+                      << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "")
+                      << ", partition_spec=" << partition_spec;
+            int64_t partition_close_start_ms = MonotonicMillis();
             Status st = writer->close(status);
+            LOG(INFO) << "MC_DIAG stage=BE_TABLE_CLOSE_PARTITION_AFTER"
+                      << ", fragment_instance_id=" << print_id(_state->fragment_instance_id())
+                      << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+                      << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+                      << ", write_session_id="
+                      << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "")
+                      << ", partition_spec=" << partition_spec << ", status=" << st.to_string()
+                      << ", cost_ms=" << MonotonicMillis() - partition_close_start_ms;
             if (!st.ok()) {
                 LOG(WARNING) << "VMCPartitionWriter close failed for partition " << partition_spec
                              << ": " << st.to_string();
@@ -202,6 +373,16 @@ Status VMCTableWriter::close(Status status) {
         COUNTER_SET(_close_timer, _close_ns);
         COUNTER_SET(_partition_writers_count, partitions_count);
     }
+    LOG(INFO) << "MC_DIAG stage=BE_TABLE_CLOSE_EXIT"
+              << ", fragment_instance_id=" << print_id(_state->fragment_instance_id())
+              << ", table=" << (_mc_sink.__isset.table_name ? _mc_sink.table_name : "")
+              << ", txn_id=" << (_mc_sink.__isset.txn_id ? std::to_string(_mc_sink.txn_id) : "")
+              << ", write_session_id="
+              << (_mc_sink.__isset.write_session_id ? _mc_sink.write_session_id : "")
+              << ", result_status=" << result_status.to_string()
+              << ", partitions_count=" << partitions_count
+              << ", row_count=" << _row_count
+              << ", cost_ms=" << MonotonicMillis() - start_ms;
     return result_status;
 }
 

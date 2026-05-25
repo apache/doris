@@ -64,8 +64,24 @@ public class MCTransaction implements Transaction {
     }
 
     public void updateMCCommitData(List<TMCCommitData> commitDataList) {
+        long incomingRows = 0;
+        int incomingCommitMessages = 0;
+        long incomingCommitMessageBytes = 0;
+        for (TMCCommitData data : commitDataList) {
+            incomingRows += data.getRowCount();
+            if (data.isSetCommitMessage() && !data.getCommitMessage().isEmpty()) {
+                incomingCommitMessages++;
+                incomingCommitMessageBytes += data.getCommitMessage().length();
+            }
+        }
         synchronized (this) {
+            LOG.info("MC_DIAG stage=FE_UPDATE_COMMIT_DATA table={} sessionId={} incomingDatas={} incomingRows={}"
+                            + " incomingCommitMessages={} incomingCommitMessageBytes={} existingDatas={}",
+                    table == null ? "null" : table.getName(), writeSessionId, commitDataList.size(), incomingRows,
+                    incomingCommitMessages, incomingCommitMessageBytes, this.commitDataList.size());
             this.commitDataList.addAll(commitDataList);
+            LOG.info("MC_DIAG stage=FE_UPDATE_COMMIT_DATA_DONE table={} sessionId={} totalDatas={}",
+                    table == null ? "null" : table.getName(), writeSessionId, this.commitDataList.size());
         }
     }
 
@@ -73,7 +89,15 @@ public class MCTransaction implements Transaction {
         this.table = (MaxComputeExternalTable) dorisTable;
 
         try {
+            long beginStartMs = System.currentTimeMillis();
+            LOG.info("MC_DIAG stage=FE_BEGIN_INSERT_START db={} table={}",
+                    table.getDbName(), table.getName());
+            long tableIdStartMs = System.currentTimeMillis();
+            LOG.info("MC_DIAG stage=FE_GET_ODPS_TABLE_ID_BEFORE db={} table={}",
+                    table.getDbName(), table.getName());
             TableIdentifier tableId = catalog.getOdpsTableIdentifier(table.getDbName(), table.getName());
+            LOG.info("MC_DIAG stage=FE_GET_ODPS_TABLE_ID_AFTER db={} table={} costMs={}",
+                    table.getDbName(), table.getName(), System.currentTimeMillis() - tableIdStartMs);
 
             boolean isDynamicPartition = !table.getPartitionColumns().isEmpty();
             boolean isStaticPartition = false;
@@ -94,6 +118,10 @@ public class MCTransaction implements Transaction {
                 }
                 isOverwrite = mcCtx.isOverwrite();
             }
+            LOG.info("MC_DIAG stage=FE_BEGIN_INSERT_ENTER table={}.{} dynamicPartition={} staticPartition={}"
+                            + " staticPartitionSpec={} overwrite={} partitionColumns={}",
+                    catalog.getDefaultProject(), table.getName(), isDynamicPartition, isStaticPartition,
+                    staticPartitionSpecStr, isOverwrite, table.getPartitionColumns().size());
 
             TableWriteSessionBuilder builder = new TableWriteSessionBuilder()
                     .identifier(tableId)
@@ -114,13 +142,25 @@ public class MCTransaction implements Transaction {
                 builder.overwrite(true);
             }
 
+            long buildSessionStartMs = System.currentTimeMillis();
+            LOG.info("MC_DIAG stage=FE_BUILD_WRITE_SESSION_BEFORE table={}.{} dynamicPartition={}"
+                            + " staticPartition={} overwrite={}",
+                    catalog.getDefaultProject(), table.getName(), isDynamicPartition, isStaticPartition, isOverwrite);
             TableBatchWriteSession writeSession = builder.buildBatchWriteSession();
             writeSessionId = writeSession.getId();
             nextBlockId.set(0);
+            LOG.info("MC_DIAG stage=FE_BUILD_WRITE_SESSION_AFTER table={}.{} sessionId={} costMs={}",
+                    catalog.getDefaultProject(), table.getName(), writeSessionId,
+                    System.currentTimeMillis() - buildSessionStartMs);
 
             LOG.info("Created MC Storage API write session: {} for table {}.{}",
                     writeSessionId, catalog.getDefaultProject(), table.getName());
+            LOG.info("MC_DIAG stage=FE_BEGIN_INSERT_EXIT table={}.{} sessionId={} costMs={}",
+                    catalog.getDefaultProject(), table.getName(), writeSessionId,
+                    System.currentTimeMillis() - beginStartMs);
         } catch (Exception e) {
+            LOG.warn("MC_DIAG stage=FE_BEGIN_INSERT_ERROR table={} error={}: {}",
+                    dorisTable.getName(), e.getClass().getName(), e.getMessage(), e);
             throw new UserException("Failed to begin insert for MaxCompute table "
                     + dorisTable.getName() + ": " + e.getMessage(), e);
         }
@@ -131,6 +171,11 @@ public class MCTransaction implements Transaction {
     }
 
     public long allocateBlockIdRange(String requestWriteSessionId, long length) throws UserException {
+        long startMs = System.currentTimeMillis();
+        LOG.info("MC_DIAG stage=FE_ALLOCATE_BLOCK_ID_ENTER table={} sessionId={} requestSessionId={} length={}"
+                        + " nextBlockId={}",
+                table == null ? "null" : table.getName(), writeSessionId, requestWriteSessionId, length,
+                nextBlockId.get());
         if (length <= 0) {
             throw new UserException("MaxCompute block_id allocation length must be positive: " + length);
         }
@@ -156,29 +201,48 @@ public class MCTransaction implements Transaction {
 
         LOG.info("Allocated MaxCompute block_id range: sessionId={}, start={}, length={}",
                 writeSessionId, start, length);
+        LOG.info("MC_DIAG stage=FE_ALLOCATE_BLOCK_ID_EXIT table={} sessionId={} start={} length={} nextBlockId={}"
+                        + " costMs={}",
+                table == null ? "null" : table.getName(), writeSessionId, start, length, nextBlockId.get(),
+                System.currentTimeMillis() - startMs);
         return start;
     }
 
     private void appendCommitMessages(List<WriterCommitMessage> allMessages, String encodedCommitMessage)
             throws Exception {
+        long startMs = System.currentTimeMillis();
+        LOG.info("MC_DIAG stage=FE_APPEND_COMMIT_MESSAGE_BEFORE table={} sessionId={} encodedLength={}",
+                table == null ? "null" : table.getName(), writeSessionId, encodedCommitMessage.length());
         byte[] bytes = Base64.getDecoder().decode(encodedCommitMessage);
         ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
         ObjectInputStream ois = new ObjectInputStream(bais);
         Object payload = ois.readObject();
         ois.close();
+        LOG.info("MC_DIAG stage=FE_APPEND_COMMIT_MESSAGE_DECODED table={} sessionId={} payloadType={}"
+                        + " decodedBytes={} costMs={}",
+                table == null ? "null" : table.getName(), writeSessionId,
+                payload == null ? "null" : payload.getClass().getName(), bytes.length,
+                System.currentTimeMillis() - startMs);
 
         if (payload instanceof WriterCommitMessage) {
             allMessages.add((WriterCommitMessage) payload);
+            LOG.info("MC_DIAG stage=FE_APPEND_COMMIT_MESSAGE_AFTER table={} sessionId={} added=1 totalMessages={}",
+                    table == null ? "null" : table.getName(), writeSessionId, allMessages.size());
             return;
         }
         if (payload instanceof List<?>) {
+            int added = 0;
             for (Object item : (List<?>) payload) {
                 if (!(item instanceof WriterCommitMessage)) {
                     throw new UserException("Unexpected MaxCompute commit payload item type: "
                             + (item == null ? "null" : item.getClass().getName()));
                 }
                 allMessages.add((WriterCommitMessage) item);
+                added++;
             }
+            LOG.info("MC_DIAG stage=FE_APPEND_COMMIT_MESSAGE_AFTER table={} sessionId={} added={}"
+                            + " totalMessages={}",
+                    table == null ? "null" : table.getName(), writeSessionId, added, allMessages.size());
             return;
         }
         throw new UserException("Unexpected MaxCompute commit payload type: "
@@ -188,33 +252,69 @@ public class MCTransaction implements Transaction {
     public void finishInsert() throws UserException {
         try {
             long t0 = System.currentTimeMillis();
+            LOG.info("MC_DIAG stage=FE_FINISH_INSERT_ENTER table={}.{} sessionId={} commitDataCount={}"
+                            + " updateRows={}",
+                    catalog.getDefaultProject(), table.getName(), writeSessionId, commitDataList.size(),
+                    getUpdateCnt());
             // Collect all WriterCommitMessages from BEs
             List<WriterCommitMessage> allMessages = new ArrayList<>();
             synchronized (this) {
+                LOG.info("MC_DIAG stage=FE_DESERIALIZE_COMMIT_MESSAGES_BEFORE table={}.{} sessionId={}"
+                                + " commitDataCount={}",
+                        catalog.getDefaultProject(), table.getName(), writeSessionId, commitDataList.size());
                 for (TMCCommitData data : commitDataList) {
                     if (data.isSetCommitMessage() && !data.getCommitMessage().isEmpty()) {
+                        LOG.info("MC_DIAG stage=FE_DESERIALIZE_COMMIT_MESSAGE_ITEM table={}.{} sessionId={}"
+                                        + " partitionSpec={} rowCount={} commitMessageLength={}",
+                                catalog.getDefaultProject(), table.getName(), writeSessionId,
+                                data.isSetPartitionSpec() ? data.getPartitionSpec() : "",
+                                data.getRowCount(), data.getCommitMessage().length());
                         appendCommitMessages(allMessages, data.getCommitMessage());
                     }
                 }
             }
             long t1 = System.currentTimeMillis();
+            LOG.info("MC_DIAG stage=FE_DESERIALIZE_COMMIT_MESSAGES_AFTER table={}.{} sessionId={}"
+                            + " writerCommitMessages={} costMs={}",
+                    catalog.getDefaultProject(), table.getName(), writeSessionId, allMessages.size(), t1 - t0);
 
             // Restore session and commit all messages
+            long tableIdStartMs = System.currentTimeMillis();
+            LOG.info("MC_DIAG stage=FE_COMMIT_GET_ODPS_TABLE_ID_BEFORE table={}.{} sessionId={}",
+                    catalog.getDefaultProject(), table.getName(), writeSessionId);
             TableIdentifier tableId = catalog.getOdpsTableIdentifier(table.getDbName(), table.getName());
+            LOG.info("MC_DIAG stage=FE_COMMIT_GET_ODPS_TABLE_ID_AFTER table={}.{} sessionId={} costMs={}",
+                    catalog.getDefaultProject(), table.getName(), writeSessionId,
+                    System.currentTimeMillis() - tableIdStartMs);
+            LOG.info("MC_DIAG stage=FE_RESTORE_COMMIT_SESSION_BEFORE table={}.{} sessionId={}",
+                    catalog.getDefaultProject(), table.getName(), writeSessionId);
             TableBatchWriteSession commitSession = new TableWriteSessionBuilder()
                     .identifier(tableId)
                     .withSessionId(writeSessionId)
                     .withSettings(catalog.getSettings())
                     .buildBatchWriteSession();
             long t2 = System.currentTimeMillis();
+            LOG.info("MC_DIAG stage=FE_RESTORE_COMMIT_SESSION_AFTER table={}.{} sessionId={} costMs={}",
+                    catalog.getDefaultProject(), table.getName(), writeSessionId, t2 - t1);
 
+            LOG.info("MC_DIAG stage=FE_COMMIT_SESSION_BEFORE table={}.{} sessionId={} writerCommitMessages={}",
+                    catalog.getDefaultProject(), table.getName(), writeSessionId, allMessages.size());
             commitSession.commit(allMessages.toArray(new WriterCommitMessage[0]));
             long t3 = System.currentTimeMillis();
+            LOG.info("MC_DIAG stage=FE_COMMIT_SESSION_AFTER table={}.{} sessionId={} writerCommitMessages={}"
+                            + " costMs={}",
+                    catalog.getDefaultProject(), table.getName(), writeSessionId, allMessages.size(), t3 - t2);
             LOG.info("Committed MC write session {} with {} messages for table {}.{}"
                             + " Breakdown: deserialize={}ms, restoreSession={}ms, commit={}ms, total={}ms",
                     writeSessionId, allMessages.size(), catalog.getDefaultProject(), table.getName(),
                     t1 - t0, t2 - t1, t3 - t2, t3 - t0);
+            LOG.info("MC_DIAG stage=FE_FINISH_INSERT_EXIT table={}.{} sessionId={} writerCommitMessages={}"
+                            + " totalCostMs={}",
+                    catalog.getDefaultProject(), table.getName(), writeSessionId, allMessages.size(), t3 - t0);
         } catch (Exception e) {
+            LOG.warn("MC_DIAG stage=FE_FINISH_INSERT_ERROR table={}.{} sessionId={} error={}: {}",
+                    catalog.getDefaultProject(), table == null ? "null" : table.getName(), writeSessionId,
+                    e.getClass().getName(), e.getMessage(), e);
             throw new UserException("Failed to commit MaxCompute write session: " + e.getMessage(), e);
         }
     }
@@ -222,11 +322,15 @@ public class MCTransaction implements Transaction {
     @Override
     public void commit() throws UserException {
         // commit is handled in finishInsert()
+        LOG.info("MC_DIAG stage=FE_TRANSACTION_COMMIT_NOOP table={} sessionId={}",
+                table == null ? "null" : table.getName(), writeSessionId);
     }
 
     @Override
     public void rollback() {
         // MC sessions auto-expire if not committed; no explicit rollback needed
+        LOG.info("MC_DIAG stage=FE_TRANSACTION_ROLLBACK table={} sessionId={} commitDataCount={}",
+                table == null ? "null" : table.getName(), writeSessionId, commitDataList.size());
         LOG.info("MCTransaction rollback called; uncommitted sessions will auto-expire.");
     }
 

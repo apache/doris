@@ -231,6 +231,21 @@ public class LoadProcessor extends AbstractJobProcessor {
                     .updateIcebergCommitData(params.getIcebergCommitDatas());
         }
         if (params.isSetMcCommitDatas()) {
+            long mcRows = 0;
+            int mcCommitMessages = 0;
+            long mcCommitMessageBytes = 0;
+            for (org.apache.doris.thrift.TMCCommitData data : params.getMcCommitDatas()) {
+                mcRows += data.getRowCount();
+                if (data.isSetCommitMessage() && !data.getCommitMessage().isEmpty()) {
+                    mcCommitMessages++;
+                    mcCommitMessageBytes += data.getCommitMessage().length();
+                }
+            }
+            LOG.info("MC_DIAG stage=FE_LOAD_PROCESSOR_MC_COMMIT_DATA queryId={} txnId={} fragmentId={}"
+                            + " backendId={} datas={} rows={} commitMessages={} commitMessageBytes={}",
+                    DebugUtil.printId(coordinatorContext.queryId), txnId, params.getFragmentId(),
+                    params.getBackendId(), params.getMcCommitDatasSize(), mcRows, mcCommitMessages,
+                    mcCommitMessageBytes);
             ((MCTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
                     .updateMCCommitData(params.getMcCommitDatas());
         }

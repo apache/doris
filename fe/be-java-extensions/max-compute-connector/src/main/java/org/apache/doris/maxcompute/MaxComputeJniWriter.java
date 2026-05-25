@@ -156,18 +156,37 @@ public class MaxComputeJniWriter extends JniWriter {
                 params.getOrDefault(MCProperties.WRITE_MAX_BLOCK_BYTES,
                         MCProperties.DEFAULT_WRITE_MAX_BLOCK_BYTES));
         this.feClient = MaxComputeFeClient.create(params);
+        logDiag("JAVA_WRITER_CONSTRUCTED",
+                "connectTimeout=" + connectTimeout
+                        + ", readTimeout=" + readTimeout
+                        + ", retryCount=" + retryCount
+                        + ", maxBlockBytes=" + maxBlockBytes
+                        + ", preallocatedBlockId=" + preallocatedBlockId);
     }
 
     @Override
     public void open() throws IOException {
+        logDiag("JAVA_OPEN_ENTER",
+                "connectTimeout=" + connectTimeout
+                        + ", readTimeout=" + readTimeout
+                        + ", retryCount=" + retryCount
+                        + ", maxBlockBytes=" + maxBlockBytes);
         try {
+            long stageStartNs = System.nanoTime();
+            logDiag("JAVA_CREATE_MC_CLIENT_BEFORE", "");
             Odps odps = MCUtils.createMcClient(params);
             odps.setDefaultProject(project);
             odps.setEndpoint(endpoint);
+            logDiag("JAVA_CREATE_MC_CLIENT_AFTER", "costMs=" + elapsedMs(stageStartNs));
 
+            stageStartNs = System.nanoTime();
+            logDiag("JAVA_BUILD_CREDENTIALS_BEFORE", "");
             Credentials credentials = Credentials.newBuilder().withAccount(odps.getAccount())
                     .withAppAccount(odps.getAppAccount()).build();
+            logDiag("JAVA_BUILD_CREDENTIALS_AFTER", "costMs=" + elapsedMs(stageStartNs));
 
+            stageStartNs = System.nanoTime();
+            logDiag("JAVA_BUILD_SETTINGS_BEFORE", "");
             RestOptions restOptions = RestOptions.newBuilder()
                     .withConnectTimeout(connectTimeout)
                     .withReadTimeout(readTimeout)
@@ -179,16 +198,22 @@ public class MaxComputeJniWriter extends JniWriter {
                     .withQuotaName(Strings.isNullOrEmpty(quota) ? null : quota)
                     .withRestOptions(restOptions)
                     .build();
+            logDiag("JAVA_BUILD_SETTINGS_AFTER", "costMs=" + elapsedMs(stageStartNs));
 
             // Restore the write session created by FE
+            stageStartNs = System.nanoTime();
+            logDiag("JAVA_RESTORE_SESSION_BEFORE", "");
             writeSession = new TableWriteSessionBuilder()
                     .identifier(com.aliyun.odps.table.TableIdentifier.of(project, tableName))
                     .withSessionId(writeSessionId)
                     .withSettings(settings)
                     .buildBatchWriteSession();
+            logDiag("JAVA_RESTORE_SESSION_AFTER", "costMs=" + elapsedMs(stageStartNs));
 
             // SDK skips ArrowOptions when restoring session via withSessionId,
             // set it via reflection to avoid NPE in ArrowWriterImpl
+            stageStartNs = System.nanoTime();
+            logDiag("JAVA_SET_ARROW_OPTIONS_BEFORE", "");
             ArrowOptions arrowOptions = ArrowOptions.newBuilder()
                     .withDatetimeUnit(TimestampUnit.MILLI)
                     .withTimestampUnit(TimestampUnit.MILLI)
@@ -197,8 +222,11 @@ public class MaxComputeJniWriter extends JniWriter {
                     .getSuperclass().getDeclaredField("arrowOptions");
             arrowField.setAccessible(true);
             arrowField.set(writeSession, arrowOptions);
+            logDiag("JAVA_SET_ARROW_OPTIONS_AFTER", "costMs=" + elapsedMs(stageStartNs));
 
             // Get schema info for type mapping
+            stageStartNs = System.nanoTime();
+            logDiag("JAVA_REQUIRED_SCHEMA_BEFORE", "");
             com.aliyun.odps.table.DataSchema dataSchema = writeSession.requiredSchema();
             columnTypeInfos = new java.util.ArrayList<>();
             columnNames = new java.util.ArrayList<>();
@@ -206,20 +234,30 @@ public class MaxComputeJniWriter extends JniWriter {
                 columnTypeInfos.add(col.getTypeInfo());
                 columnNames.add(col.getName());
             }
+            logDiag("JAVA_REQUIRED_SCHEMA_AFTER",
+                    "columns=" + columnNames.size() + ", costMs=" + elapsedMs(stageStartNs));
 
+            stageStartNs = System.nanoTime();
+            logDiag("JAVA_ALLOCATOR_CREATE_BEFORE", "");
             allocator = new RootAllocator(Long.MAX_VALUE);
+            logDiag("JAVA_ALLOCATOR_CREATE_AFTER", "costMs=" + elapsedMs(stageStartNs));
 
+            stageStartNs = System.nanoTime();
+            logDiag("JAVA_WRITER_OPTIONS_BEFORE", "");
             writerOptions = WriterOptions.newBuilder()
                     .withSettings(settings)
                     .withCompressionCodec(CompressionCodec.ZSTD)
                     .build();
+            logDiag("JAVA_WRITER_OPTIONS_AFTER", "costMs=" + elapsedMs(stageStartNs));
             openBatchWriter(resolveInitialBlockId());
 
             LOG.info("MaxComputeJniWriter opened: project=" + project + ", table=" + tableName
                     + ", writeSessionId=" + writeSessionId + ", partitionSpec=" + partitionSpec
                     + ", blockId=" + currentBlockId);
+            logDiag("JAVA_OPEN_EXIT", "");
         } catch (Exception e) {
             String errorMsg = "Failed to open MaxCompute write session for table " + project + "." + tableName;
+            logDiag("JAVA_OPEN_ERROR", "error=" + e.getClass().getName() + ": " + e.getMessage());
             LOG.error(errorMsg, e);
             throw new IOException(errorMsg, e);
         }
@@ -233,58 +271,112 @@ public class MaxComputeJniWriter extends JniWriter {
             return;
         }
 
+        long startNs = System.nanoTime();
+        logDiag("JAVA_WRITE_INTERNAL_ENTER", "rows=" + numRows + ", columns=" + numCols);
         try {
             writeRowsWithRowChecks(inputTable, numRows, numCols);
+            logDiag("JAVA_WRITE_INTERNAL_EXIT",
+                    "rows=" + numRows + ", columns=" + numCols + ", costMs=" + elapsedMs(startNs));
         } catch (Exception e) {
             String errorMsg = "Failed to write data to MaxCompute table " + project + "." + tableName;
+            logDiag("JAVA_WRITE_INTERNAL_ERROR",
+                    "rows=" + numRows + ", columns=" + numCols
+                            + ", costMs=" + elapsedMs(startNs)
+                            + ", error=" + e.getClass().getName() + ": " + e.getMessage());
             LOG.error(errorMsg, e);
             throw new IOException(errorMsg, e);
         }
     }
 
     private long resolveInitialBlockId() throws IOException {
-        return preallocatedBlockId != null ? preallocatedBlockId : requestBlockId();
+        if (preallocatedBlockId != null) {
+            logDiag("JAVA_RESOLVE_INITIAL_BLOCK_PREALLOCATED", "blockId=" + preallocatedBlockId);
+            return preallocatedBlockId;
+        }
+        return requestBlockId();
     }
 
     private long requestBlockId() throws IOException {
-        return feClient.requestBlockId(txnId, writeSessionId);
+        long startNs = System.nanoTime();
+        logDiag("JAVA_REQUEST_BLOCK_ID_BEFORE", "");
+        long blockId = feClient.requestBlockId(txnId, writeSessionId);
+        logDiag("JAVA_REQUEST_BLOCK_ID_AFTER",
+                "newBlockId=" + blockId + ", costMs=" + elapsedMs(startNs));
+        return blockId;
     }
 
     private void openBatchWriter(long blockId) throws IOException {
+        long startNs = System.nanoTime();
+        logDiag("JAVA_OPEN_BATCH_WRITER_BEFORE", "targetBlockId=" + blockId);
         currentBlockId = blockId;
         currentBlockWrittenBytes = 0L;
         batchWriter = writeSession.createArrowWriter(blockId, WriterAttemptId.of(0), writerOptions);
+        logDiag("JAVA_OPEN_BATCH_WRITER_AFTER",
+                "targetBlockId=" + blockId + ", costMs=" + elapsedMs(startNs));
     }
 
     private void closeCurrentBatchWriterAndCollectCommit() throws IOException {
         if (batchWriter == null) {
+            logDiag("JAVA_COMMIT_SKIP_NO_BATCH_WRITER", "");
             return;
         }
+        long startNs = System.nanoTime();
+        logDiag("JAVA_COMMIT_BEFORE",
+                "currentBlockWrittenBytes=" + currentBlockWrittenBytes
+                        + ", commitMessageCount=" + commitMessages.size());
         WriterCommitMessage commitMessage = batchWriter.commit();
         if (commitMessage != null) {
             commitMessages.add(commitMessage);
         }
         batchWriter = null;
+        logDiag("JAVA_COMMIT_AFTER",
+                "commitMessageAdded=" + (commitMessage != null)
+                        + ", commitMessageCount=" + commitMessages.size()
+                        + ", costMs=" + elapsedMs(startNs));
     }
 
     private void rotateCurrentBatchWriter() throws IOException {
+        long startNs = System.nanoTime();
+        logDiag("JAVA_ROTATE_BEFORE",
+                "currentBlockWrittenBytes=" + currentBlockWrittenBytes
+                        + ", commitMessageCount=" + commitMessages.size());
         closeCurrentBatchWriterAndCollectCommit();
         openBatchWriter(requestBlockId());
+        logDiag("JAVA_ROTATE_AFTER", "costMs=" + elapsedMs(startNs));
     }
 
     private void writeRowsWithRowChecks(VectorTable inputTable, int numRows, int numCols) throws IOException {
+        logDiag("JAVA_WRITE_ROWS_ENTER", "rows=" + numRows + ", columns=" + numCols);
         int rowStart = 0;
         while (rowStart < numRows) {
             int rowEnd = rowStart;
             long batchEstimatedBytes = 0L;
             boolean rotateAfterWrite = false;
+            int estimatedRows = 0;
+            long rangeStartNs = System.nanoTime();
+            logDiag("JAVA_RANGE_SELECT_BEFORE",
+                    "rowStart=" + rowStart
+                            + ", rows=" + numRows
+                            + ", currentBlockWrittenBytes=" + currentBlockWrittenBytes);
             while (rowEnd < numRows) {
+                if (estimatedRows == 0 || estimatedRows % 1024 == 0) {
+                    logDiag("JAVA_RANGE_SELECT_PROGRESS",
+                            "rowStart=" + rowStart
+                                    + ", probingRow=" + rowEnd
+                                    + ", estimatedRows=" + estimatedRows
+                                    + ", batchEstimatedBytes=" + batchEstimatedBytes);
+                }
                 long rowEstimatedBytes = estimateSingleRowPayloadBytes(inputTable, numCols, rowEnd);
+                estimatedRows++;
                 boolean exceedsHardLimit = currentBlockWrittenBytes + batchEstimatedBytes
                         + rowEstimatedBytes > maxBlockBytes;
                 if (exceedsHardLimit) {
                     if (rowEnd == rowStart) {
                         if (currentBlockWrittenBytes > 0) {
+                            logDiag("JAVA_RANGE_SELECT_ROTATE_FOR_OVERSIZE_ROW",
+                                    "rowStart=" + rowStart
+                                            + ", rowEstimatedBytes=" + rowEstimatedBytes
+                                            + ", currentBlockWrittenBytes=" + currentBlockWrittenBytes);
                             rotateCurrentBatchWriter();
                             continue;
                         }
@@ -301,28 +393,75 @@ public class MaxComputeJniWriter extends JniWriter {
                     break;
                 }
             }
+            logDiag("JAVA_RANGE_SELECT_AFTER",
+                    "rowStart=" + rowStart
+                            + ", rowEnd=" + rowEnd
+                            + ", selectedRows=" + (rowEnd - rowStart)
+                            + ", estimatedRows=" + estimatedRows
+                            + ", batchEstimatedBytes=" + batchEstimatedBytes
+                            + ", rotateAfterWrite=" + rotateAfterWrite
+                            + ", costMs=" + elapsedMs(rangeStartNs));
 
             if (rowEnd == rowStart) {
+                long fallbackStartNs = System.nanoTime();
+                logDiag("JAVA_RANGE_SELECT_FALLBACK_BEFORE", "rowStart=" + rowStart);
                 long rowEstimatedBytes = estimateSingleRowPayloadBytes(inputTable, numCols, rowStart);
                 batchEstimatedBytes = rowEstimatedBytes;
                 rowEnd = rowStart + 1;
                 rotateAfterWrite = true;
+                logDiag("JAVA_RANGE_SELECT_FALLBACK_AFTER",
+                        "rowStart=" + rowStart
+                                + ", rowEstimatedBytes=" + rowEstimatedBytes
+                                + ", costMs=" + elapsedMs(fallbackStartNs));
             }
 
-            try (VectorSchemaRoot root = buildRowRangeRoot(inputTable, numCols, rowStart, rowEnd)) {
+            long buildStartNs = System.nanoTime();
+            logDiag("JAVA_BUILD_ROOT_BEFORE",
+                    "rowStart=" + rowStart + ", rowEnd=" + rowEnd
+                            + ", selectedRows=" + (rowEnd - rowStart));
+            try (VectorSchemaRoot root = buildRowRangeRoot(inputTable, numCols, rowStart, rowEnd, true)) {
+                logDiag("JAVA_BUILD_ROOT_AFTER",
+                        "rowStart=" + rowStart + ", rowEnd=" + rowEnd
+                                + ", selectedRows=" + (rowEnd - rowStart)
+                                + ", costMs=" + elapsedMs(buildStartNs));
+                long writeStartNs = System.nanoTime();
+                logDiag("JAVA_BATCH_WRITE_BEFORE",
+                        "rowStart=" + rowStart + ", rowEnd=" + rowEnd
+                                + ", selectedRows=" + (rowEnd - rowStart)
+                                + ", batchEstimatedBytes=" + batchEstimatedBytes);
                 batchWriter.write(root);
+                logDiag("JAVA_BATCH_WRITE_AFTER",
+                        "rowStart=" + rowStart + ", rowEnd=" + rowEnd
+                                + ", selectedRows=" + (rowEnd - rowStart)
+                                + ", costMs=" + elapsedMs(writeStartNs));
             }
+            long flushStartNs = System.nanoTime();
+            logDiag("JAVA_FLUSH_BEFORE",
+                    "rowStart=" + rowStart + ", rowEnd=" + rowEnd
+                            + ", selectedRows=" + (rowEnd - rowStart));
             batchWriter.flush();
+            logDiag("JAVA_FLUSH_AFTER",
+                    "rowStart=" + rowStart + ", rowEnd=" + rowEnd
+                            + ", selectedRows=" + (rowEnd - rowStart)
+                            + ", costMs=" + elapsedMs(flushStartNs));
             int rowsWrittenNow = rowEnd - rowStart;
             writtenRows += rowsWrittenNow;
             currentBlockWrittenBytes += batchEstimatedBytes;
             writtenBytes += batchEstimatedBytes;
+            logDiag("JAVA_BATCH_DONE",
+                    "rowsWrittenNow=" + rowsWrittenNow
+                            + ", nextRowStart=" + rowEnd
+                            + ", currentBlockWrittenBytes=" + currentBlockWrittenBytes
+                            + ", writtenRows=" + writtenRows
+                            + ", writtenBytes=" + writtenBytes
+                            + ", rotateAfterWrite=" + rotateAfterWrite);
             rowStart = rowEnd;
 
             if (rotateAfterWrite && rowStart < numRows) {
                 rotateCurrentBatchWriter();
             }
         }
+        logDiag("JAVA_WRITE_ROWS_EXIT", "rows=" + numRows + ", columns=" + numCols);
     }
 
     private static class CountingDiscardOutputStream extends OutputStream {
@@ -339,7 +478,7 @@ public class MaxComputeJniWriter extends JniWriter {
 
     private long estimateSingleRowPayloadBytes(VectorTable inputTable, int numCols, int rowIndex)
             throws IOException {
-        try (VectorSchemaRoot root = buildRowRangeRoot(inputTable, numCols, rowIndex, rowIndex + 1);
+        try (VectorSchemaRoot root = buildRowRangeRoot(inputTable, numCols, rowIndex, rowIndex + 1, false);
                 ArrowWriter estimator = ArrowWriterFactory.getRecordBatchWriter(
                         new CountingDiscardOutputStream(), writerOptions)) {
             estimator.writeBatch(root);
@@ -347,13 +486,32 @@ public class MaxComputeJniWriter extends JniWriter {
         }
     }
 
-    private VectorSchemaRoot buildRowRangeRoot(VectorTable inputTable, int numCols, int rowStart, int rowEnd) {
+    private VectorSchemaRoot buildRowRangeRoot(VectorTable inputTable, int numCols, int rowStart, int rowEnd,
+                                              boolean logColumns) {
         int rowCount = rowEnd - rowStart;
         VectorSchemaRoot root = batchWriter.newElement();
         root.setRowCount(rowCount);
         for (int col = 0; col < numCols && col < columnTypeInfos.size(); col++) {
+            long columnStartNs = System.nanoTime();
+            if (logColumns) {
+                logDiag("JAVA_BUILD_COLUMN_BEFORE",
+                        "columnIndex=" + col
+                                + ", columnName=" + columnNames.get(col)
+                                + ", odpsType=" + columnTypeInfos.get(col).getOdpsType()
+                                + ", rowStart=" + rowStart
+                                + ", rowCount=" + rowCount);
+            }
             fillArrowVectorStreaming(root, col, columnTypeInfos.get(col).getOdpsType(),
                     inputTable.getColumn(col), rowStart, rowCount);
+            if (logColumns) {
+                logDiag("JAVA_BUILD_COLUMN_AFTER",
+                        "columnIndex=" + col
+                                + ", columnName=" + columnNames.get(col)
+                                + ", odpsType=" + columnTypeInfos.get(col).getOdpsType()
+                                + ", rowStart=" + rowStart
+                                + ", rowCount=" + rowCount
+                                + ", costMs=" + elapsedMs(columnStartNs));
+            }
         }
         return root;
     }
@@ -904,28 +1062,42 @@ public class MaxComputeJniWriter extends JniWriter {
 
     @Override
     public void close() throws IOException {
+        long closeStartNs = System.nanoTime();
+        logDiag("JAVA_CLOSE_ENTER", "");
         try {
             closeCurrentBatchWriterAndCollectCommit();
             if (allocator != null) {
+                long allocatorStartNs = System.nanoTime();
+                logDiag("JAVA_ALLOCATOR_CLOSE_BEFORE", "");
                 allocator.close();
                 allocator = null;
+                logDiag("JAVA_ALLOCATOR_CLOSE_AFTER", "costMs=" + elapsedMs(allocatorStartNs));
             }
             LOG.info("MaxComputeJniWriter closed: writeSessionId=" + writeSessionId
                     + ", partitionSpec=" + partitionSpec
                     + ", writtenRows=" + writtenRows
                     + ", lastBlockId=" + currentBlockId
                     + ", commitMessageCount=" + commitMessages.size());
+            logDiag("JAVA_CLOSE_EXIT", "costMs=" + elapsedMs(closeStartNs));
         } catch (Exception e) {
             String errorMsg = "Failed to close MaxCompute arrow writer";
+            logDiag("JAVA_CLOSE_ERROR",
+                    "costMs=" + elapsedMs(closeStartNs)
+                            + ", error=" + e.getClass().getName() + ": " + e.getMessage());
             LOG.error(errorMsg, e);
             throw new IOException(errorMsg, e);
         } finally {
+            long feClientCloseStartNs = System.nanoTime();
+            logDiag("JAVA_FE_CLIENT_CLOSE_BEFORE", "");
             feClient.close();
+            logDiag("JAVA_FE_CLIENT_CLOSE_AFTER", "costMs=" + elapsedMs(feClientCloseStartNs));
         }
     }
 
     @Override
     public Map<String, String> getStatistics() {
+        long startNs = System.nanoTime();
+        logDiag("JAVA_GET_STATISTICS_ENTER", "commitMessageCount=" + commitMessages.size());
         Map<String, String> stats = new HashMap<>();
         stats.put("mc_partition_spec", partitionSpec != null ? partitionSpec : "");
 
@@ -936,8 +1108,14 @@ public class MaxComputeJniWriter extends JniWriter {
                 ObjectOutputStream oos = new ObjectOutputStream(baos);
                 oos.writeObject(commitMessages);
                 oos.close();
-                stats.put("mc_commit_message", Base64.getEncoder().encodeToString(baos.toByteArray()));
+                String encoded = Base64.getEncoder().encodeToString(baos.toByteArray());
+                stats.put("mc_commit_message", encoded);
+                logDiag("JAVA_GET_STATISTICS_COMMIT_MESSAGE_SERIALIZED",
+                        "commitMessageCount=" + commitMessages.size()
+                                + ", encodedLength=" + encoded.length());
             } catch (IOException e) {
+                logDiag("JAVA_GET_STATISTICS_ERROR",
+                        "error=" + e.getClass().getName() + ": " + e.getMessage());
                 LOG.error("Failed to serialize WriterCommitMessages", e);
             }
         }
@@ -946,6 +1124,29 @@ public class MaxComputeJniWriter extends JniWriter {
         stats.put("bytes:WrittenBytes", String.valueOf(writtenBytes));
         stats.put("timer:WriteTime", String.valueOf(writeTime));
         stats.put("timer:ReadTableTime", String.valueOf(readTableTime));
+        logDiag("JAVA_GET_STATISTICS_EXIT",
+                "statsSize=" + stats.size()
+                        + ", costMs=" + elapsedMs(startNs));
         return stats;
+    }
+
+    private void logDiag(String stage, String detail) {
+        String message = "MC_DIAG stage=" + stage
+                + ", table=" + tableName
+                + ", txnId=" + txnId
+                + ", writeSessionId=" + writeSessionId
+                + ", partitionSpec=" + partitionSpec
+                + ", blockId=" + currentBlockId
+                + ", writtenRows=" + writtenRows
+                + ", writtenBytes=" + writtenBytes
+                + ", thread=" + Thread.currentThread().getName();
+        if (detail != null && !detail.isEmpty()) {
+            message += ", " + detail;
+        }
+        LOG.info(message);
+    }
+
+    private static long elapsedMs(long startNs) {
+        return (System.nanoTime() - startNs) / 1_000_000L;
     }
 }

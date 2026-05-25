@@ -2535,6 +2535,20 @@ public class Coordinator implements CoordInterface {
                 .updateIcebergCommitData(params.getIcebergCommitDatas());
         }
         if (params.isSetMcCommitDatas()) {
+            long mcRows = 0;
+            int mcCommitMessages = 0;
+            long mcCommitMessageBytes = 0;
+            for (org.apache.doris.thrift.TMCCommitData data : params.getMcCommitDatas()) {
+                mcRows += data.getRowCount();
+                if (data.isSetCommitMessage() && !data.getCommitMessage().isEmpty()) {
+                    mcCommitMessages++;
+                    mcCommitMessageBytes += data.getCommitMessage().length();
+                }
+            }
+            LOG.info("MC_DIAG stage=FE_COORDINATOR_MC_COMMIT_DATA queryId={} txnId={} fragmentId={} backendId={}"
+                            + " datas={} rows={} commitMessages={} commitMessageBytes={}",
+                    DebugUtil.printId(queryId), txnId, params.getFragmentId(), params.getBackendId(),
+                    params.getMcCommitDatasSize(), mcRows, mcCommitMessages, mcCommitMessageBytes);
             ((MCTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
                 .updateMCCommitData(params.getMcCommitDatas());
         }
@@ -3554,4 +3568,3 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setEnableProfile(isSafe && queryOptions.isEnableProfile());
     }
 }
-

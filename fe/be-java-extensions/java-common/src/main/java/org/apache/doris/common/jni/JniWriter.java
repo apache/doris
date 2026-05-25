@@ -20,6 +20,8 @@ package org.apache.doris.common.jni;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.VectorTable;
 
+import org.apache.log4j.Logger;
+
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
@@ -32,6 +34,8 @@ import java.util.Map;
  * Lifecycle: open() -> write() [repeated] -> close()
  */
 public abstract class JniWriter {
+    private static final Logger LOG = Logger.getLogger(JniWriter.class);
+
     protected int batchSize;
     protected Map<String, String> params;
     protected ColumnType[] columnTypes;
@@ -51,10 +55,21 @@ public abstract class JniWriter {
      * then delegates to writeInternal.
      */
     public void write(Map<String, String> inputParams) throws IOException {
+        long writeEnterNs = System.nanoTime();
+        String requiredFields = inputParams.get("required_fields");
+        String columnsTypes = inputParams.get("columns_types");
+        LOG.info("MC_DIAG stage=JNI_WRITER_WRITE_ENTER writer=" + getClass().getName()
+                + ", batchSize=" + batchSize
+                + ", schemaCached=" + (columnTypes != null)
+                + ", requiredFieldsLength=" + (requiredFields == null ? 0 : requiredFields.length())
+                + ", columnsTypesLength=" + (columnsTypes == null ? 0 : columnsTypes.length())
+                + ", thread=" + Thread.currentThread().getName());
+
         // Parse and cache schema on first call
         if (columnTypes == null) {
-            String requiredFields = inputParams.get("required_fields");
-            String columnsTypes = inputParams.get("columns_types");
+            long schemaStartNs = System.nanoTime();
+            LOG.info("MC_DIAG stage=JNI_WRITER_SCHEMA_PARSE_BEFORE writer=" + getClass().getName()
+                    + ", thread=" + Thread.currentThread().getName());
             if (requiredFields != null && !requiredFields.isEmpty()) {
                 fields = requiredFields.split(",");
                 String[] typeStrs = columnsTypes.split("#");
@@ -66,15 +81,37 @@ public abstract class JniWriter {
                 fields = new String[0];
                 columnTypes = new ColumnType[0];
             }
+            LOG.info("MC_DIAG stage=JNI_WRITER_SCHEMA_PARSE_AFTER writer=" + getClass().getName()
+                    + ", fields=" + fields.length
+                    + ", columnTypes=" + columnTypes.length
+                    + ", costMs=" + elapsedMs(schemaStartNs)
+                    + ", thread=" + Thread.currentThread().getName());
         }
 
         long startRead = System.nanoTime();
+        LOG.info("MC_DIAG stage=JNI_WRITER_CREATE_READABLE_TABLE_BEFORE writer=" + getClass().getName()
+                + ", thread=" + Thread.currentThread().getName());
         VectorTable inputTable = VectorTable.createReadableTable(inputParams);
         readTableTime += System.nanoTime() - startRead;
+        LOG.info("MC_DIAG stage=JNI_WRITER_CREATE_READABLE_TABLE_AFTER writer=" + getClass().getName()
+                + ", rows=" + inputTable.getNumRows()
+                + ", columns=" + inputTable.getNumColumns()
+                + ", costMs=" + elapsedMs(startRead)
+                + ", thread=" + Thread.currentThread().getName());
 
         long startWrite = System.nanoTime();
+        LOG.info("MC_DIAG stage=JNI_WRITER_WRITE_INTERNAL_BEFORE writer=" + getClass().getName()
+                + ", rows=" + inputTable.getNumRows()
+                + ", columns=" + inputTable.getNumColumns()
+                + ", thread=" + Thread.currentThread().getName());
         writeInternal(inputTable);
         writeTime += System.nanoTime() - startWrite;
+        LOG.info("MC_DIAG stage=JNI_WRITER_WRITE_INTERNAL_AFTER writer=" + getClass().getName()
+                + ", rows=" + inputTable.getNumRows()
+                + ", columns=" + inputTable.getNumColumns()
+                + ", writeCostMs=" + elapsedMs(startWrite)
+                + ", totalCostMs=" + elapsedMs(writeEnterNs)
+                + ", thread=" + Thread.currentThread().getName());
     }
 
     protected abstract void writeInternal(VectorTable inputTable) throws IOException;
@@ -95,5 +132,9 @@ public abstract class JniWriter {
 
     public long getReadTableTime() {
         return readTableTime;
+    }
+
+    private static long elapsedMs(long startNs) {
+        return (System.nanoTime() - startNs) / 1_000_000L;
     }
 }

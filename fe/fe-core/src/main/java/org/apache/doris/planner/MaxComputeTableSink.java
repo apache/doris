@@ -28,6 +28,9 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TMaxComputeTableSink;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +39,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class MaxComputeTableSink extends BaseExternalTableDataSink {
+
+    private static final Logger LOG = LogManager.getLogger(MaxComputeTableSink.class);
 
     private final MaxComputeExternalTable targetTable;
 
@@ -97,6 +102,11 @@ public class MaxComputeTableSink extends BaseExternalTableDataSink {
 
         tDataSink = new TDataSink(TDataSinkType.MAXCOMPUTE_TABLE_SINK);
         tDataSink.setMaxComputeTableSink(tSink);
+        LOG.info("MC_DIAG stage=FE_MC_BIND_SINK table={} project={} endpoint={} partitionColumns={}"
+                        + " hasStaticPartition={} connectTimeout={} readTimeout={} retryCount={}",
+                targetTable.getName(), catalog.getDefaultProject(), catalog.getEndpoint(),
+                partitionColumnNames.size(), tSink.isSetStaticPartitionSpec(), catalog.getConnectTimeout(),
+                catalog.getReadTimeout(), catalog.getRetryTimes());
     }
 
     /**
@@ -106,8 +116,15 @@ public class MaxComputeTableSink extends BaseExternalTableDataSink {
      */
     public void setWriteContext(long txnId, String writeSessionId) {
         if (tDataSink != null && tDataSink.isSetMaxComputeTableSink()) {
+            LOG.info("MC_DIAG stage=FE_MC_SET_SINK_WRITE_CONTEXT_BEFORE table={} txnId={} sessionId={}",
+                    targetTable.getName(), txnId, writeSessionId);
             tDataSink.getMaxComputeTableSink().setTxnId(txnId);
             tDataSink.getMaxComputeTableSink().setWriteSessionId(writeSessionId);
+            LOG.info("MC_DIAG stage=FE_MC_SET_SINK_WRITE_CONTEXT_AFTER table={} txnId={} sessionId={}",
+                    targetTable.getName(), txnId, writeSessionId);
+        } else {
+            LOG.info("MC_DIAG stage=FE_MC_SET_SINK_WRITE_CONTEXT_SKIP table={} txnId={} sessionId={}",
+                    targetTable.getName(), txnId, writeSessionId);
         }
     }
 }

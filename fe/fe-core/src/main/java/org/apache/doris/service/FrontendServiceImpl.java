@@ -2928,8 +2928,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMaxComputeBlockIdResult getMaxComputeBlockIdRange(TMaxComputeBlockIdRequest request) {
+        long startMs = System.currentTimeMillis();
         String clientAddr = getClientAddrAsString();
         LOG.info("receive getMaxComputeBlockIdRange request: {}, backend: {}", request, clientAddr);
+        LOG.info("MC_DIAG stage=FE_BLOCK_ID_RPC_ENTER txnId={} sessionId={} length={} backend={}",
+                request.getTxnId(), request.getWriteSessionId(), request.getLength(), clientAddr);
 
         TMaxComputeBlockIdResult result = new TMaxComputeBlockIdResult();
         TStatus status = checkMaster();
@@ -2937,10 +2940,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         if (status.getStatusCode() != TStatusCode.OK) {
             result.setMasterAddress(getMasterAddress());
+            LOG.info("MC_DIAG stage=FE_BLOCK_ID_RPC_NOT_MASTER txnId={} sessionId={} backend={} status={}"
+                            + " master={} costMs={}",
+                    request.getTxnId(), request.getWriteSessionId(), clientAddr, status.getStatusCode(),
+                    result.getMasterAddress(), System.currentTimeMillis() - startMs);
             return result;
         }
 
         try {
+            LOG.info("MC_DIAG stage=FE_BLOCK_ID_GET_TXN_BEFORE txnId={} sessionId={} backend={}",
+                    request.getTxnId(), request.getWriteSessionId(), clientAddr);
             Transaction transaction = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr()
                     .getTxnById(request.getTxnId());
             if (!(transaction instanceof MCTransaction)) {
@@ -2948,25 +2957,42 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         + " is not a MaxCompute transaction");
             }
 
+            LOG.info("MC_DIAG stage=FE_BLOCK_ID_ALLOCATE_BEFORE txnId={} sessionId={} length={} backend={}",
+                    request.getTxnId(), request.getWriteSessionId(), request.getLength(), clientAddr);
             long start = ((MCTransaction) transaction).allocateBlockIdRange(
                     request.getWriteSessionId(), request.getLength());
             result.setStart(start);
             result.setLength(request.getLength());
+            LOG.info("MC_DIAG stage=FE_BLOCK_ID_ALLOCATE_AFTER txnId={} sessionId={} start={} length={}"
+                            + " backend={} costMs={}",
+                    request.getTxnId(), request.getWriteSessionId(), start, request.getLength(), clientAddr,
+                    System.currentTimeMillis() - startMs);
         } catch (UserException e) {
+            LOG.warn("MC_DIAG stage=FE_BLOCK_ID_RPC_USER_ERROR txnId={} sessionId={} backend={} error={}",
+                    request.getTxnId(), request.getWriteSessionId(), clientAddr, e.getMessage(), e);
             LOG.warn("failed to allocate MaxCompute block_id, txnId={}, sessionId={}, errmsg={}",
                     request.getTxnId(), request.getWriteSessionId(), e.getMessage());
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (RuntimeException e) {
+            LOG.warn("MC_DIAG stage=FE_BLOCK_ID_RPC_RUNTIME_ERROR txnId={} sessionId={} backend={} error={}",
+                    request.getTxnId(), request.getWriteSessionId(), clientAddr, e.getMessage(), e);
             LOG.warn("failed to allocate MaxCompute block_id, txnId={}, sessionId={}, errmsg={}",
                     request.getTxnId(), request.getWriteSessionId(), e.getMessage(), e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
         } catch (Throwable e) {
+            LOG.warn("MC_DIAG stage=FE_BLOCK_ID_RPC_UNKNOWN_ERROR txnId={} sessionId={} backend={} error={}",
+                    request.getTxnId(), request.getWriteSessionId(), clientAddr, e.getMessage(), e);
             LOG.warn("catch unknown result when allocating MaxCompute block_id.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
         }
+        LOG.info("MC_DIAG stage=FE_BLOCK_ID_RPC_EXIT txnId={} sessionId={} status={} startSet={} start={} lengthSet={}"
+                        + " length={} backend={} costMs={}",
+                request.getTxnId(), request.getWriteSessionId(), status.getStatusCode(), result.isSetStart(),
+                result.isSetStart() ? result.getStart() : -1, result.isSetLength(),
+                result.isSetLength() ? result.getLength() : -1, clientAddr, System.currentTimeMillis() - startMs);
         return result;
     }
 

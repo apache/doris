@@ -87,12 +87,22 @@ class MaxComputeFeClient implements AutoCloseable {
             throw new IOException("empty MaxCompute write_session_id for block_id allocation");
         }
 
+        long startNs = System.nanoTime();
+        LOG.info("MC_DIAG stage=JAVA_FE_CLIENT_BLOCK_ID_BEFORE txnId=" + txnId
+                + ", writeSessionId=" + writeSessionId
+                + ", masterFe=" + formatAddress(masterAddress)
+                + ", rpcTimeoutMs=" + rpcTimeoutMs);
         TMaxComputeBlockIdRequest request = buildBlockIdRequest(txnId, writeSessionId);
-        return callWithMasterRedirect(
+        long blockId = callWithMasterRedirect(
                 "allocate MaxCompute block_id",
                 client -> client.getMaxComputeBlockIdRange(request),
                 (result, requestAddress, retryTimes) ->
                         handleBlockIdResult(result, requestAddress, retryTimes, txnId, writeSessionId));
+        LOG.info("MC_DIAG stage=JAVA_FE_CLIENT_BLOCK_ID_AFTER txnId=" + txnId
+                + ", writeSessionId=" + writeSessionId
+                + ", blockId=" + blockId
+                + ", costMs=" + elapsedMs(startNs));
+        return blockId;
     }
 
     @Override
@@ -109,16 +119,30 @@ class MaxComputeFeClient implements AutoCloseable {
         for (int retryTimes = 0; retryTimes < FETCH_BLOCK_ID_MAX_RETRY_TIMES; retryTimes++) {
             TNetworkAddress requestAddress = copyAddress(masterAddress);
             T result;
+            long rpcStartNs = System.nanoTime();
+            LOG.info("MC_DIAG stage=JAVA_FE_CLIENT_RPC_BEFORE operation=" + operation
+                    + ", retry=" + retryTimes
+                    + ", fe=" + formatAddress(requestAddress)
+                    + ", rpcTimeoutMs=" + rpcTimeoutMs
+                    + ", framedTransport=" + useFramedTransport());
             try {
                 result = rpcExecutor.call(requestAddress, rpcTimeoutMs, useFramedTransport(), call);
             } catch (Exception e) {
                 lastException = e;
                 rpcExecutor.close();
+                LOG.warn("MC_DIAG stage=JAVA_FE_CLIENT_RPC_ERROR operation=" + operation
+                        + ", retry=" + retryTimes
+                        + ", fe=" + formatAddress(requestAddress)
+                        + ", costMs=" + elapsedMs(rpcStartNs), e);
                 LOG.warn("Failed to " + operation + ", rpc failure, retry_time="
                         + retryTimes + ", fe=" + formatAddress(requestAddress), e);
                 sleepBeforeRetry();
                 continue;
             }
+            LOG.info("MC_DIAG stage=JAVA_FE_CLIENT_RPC_AFTER operation=" + operation
+                    + ", retry=" + retryTimes
+                    + ", fe=" + formatAddress(requestAddress)
+                    + ", costMs=" + elapsedMs(rpcStartNs));
 
             try {
                 return handler.handle(result, requestAddress, retryTimes);
@@ -155,6 +179,11 @@ class MaxComputeFeClient implements AutoCloseable {
                     + formatAddress(requestAddress) + ", switch to FE@" + formatAddress(result.getMasterAddress())
                     + ", retry_time=" + retryTimes + ", txn_id=" + txnId
                     + ", write_session_id=" + writeSessionId);
+            LOG.info("MC_DIAG stage=JAVA_FE_CLIENT_BLOCK_ID_NOT_MASTER txnId=" + txnId
+                    + ", writeSessionId=" + writeSessionId
+                    + ", requestFe=" + formatAddress(requestAddress)
+                    + ", masterFe=" + formatAddress(result.getMasterAddress())
+                    + ", retry=" + retryTimes);
             throw new NotMasterException(result.getMasterAddress());
         }
 
@@ -173,11 +202,11 @@ class MaxComputeFeClient implements AutoCloseable {
                     + result.getLength() + ", txn_id=" + txnId + ", write_session_id=" + writeSessionId);
         }
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Allocated MaxCompute block_id from FE@" + formatAddress(requestAddress)
-                    + ", txn_id=" + txnId + ", write_session_id=" + writeSessionId
-                    + ", block_id=" + result.getStart());
-        }
+        LOG.info("MC_DIAG stage=JAVA_FE_CLIENT_BLOCK_ID_RESULT txnId=" + txnId
+                + ", writeSessionId=" + writeSessionId
+                + ", fe=" + formatAddress(requestAddress)
+                + ", retry=" + retryTimes
+                + ", blockId=" + result.getStart());
         return result.getStart();
     }
 
@@ -248,6 +277,10 @@ class MaxComputeFeClient implements AutoCloseable {
         return address.getHostname() + ":" + address.getPort();
     }
 
+    private static long elapsedMs(long startNs) {
+        return (System.nanoTime() - startNs) / 1_000_000L;
+    }
+
     interface RpcExecutor {
         <T> T call(TNetworkAddress address, int timeoutMs, boolean useFramedTransport,
                 FeCall<T> call) throws Exception;
@@ -273,10 +306,22 @@ class MaxComputeFeClient implements AutoCloseable {
         @Override
         public synchronized <T> T call(TNetworkAddress address, int timeoutMs, boolean useFramedTransport,
                 FeCall<T> call) throws Exception {
+            long callStartNs = System.nanoTime();
+            LOG.info("MC_DIAG stage=JAVA_FE_CLIENT_EXECUTOR_CALL_ENTER fe=" + formatAddress(address)
+                    + ", timeoutMs=" + timeoutMs
+                    + ", framedTransport=" + useFramedTransport);
             ensureConnected(address, timeoutMs, useFramedTransport);
             try {
-                return call.call(client);
+                long thriftCallStartNs = System.nanoTime();
+                LOG.info("MC_DIAG stage=JAVA_FE_CLIENT_THRIFT_CALL_BEFORE fe=" + formatAddress(address));
+                T result = call.call(client);
+                LOG.info("MC_DIAG stage=JAVA_FE_CLIENT_THRIFT_CALL_AFTER fe=" + formatAddress(address)
+                        + ", thriftCallCostMs=" + elapsedMs(thriftCallStartNs)
+                        + ", totalCostMs=" + elapsedMs(callStartNs));
+                return result;
             } catch (Exception e) {
+                LOG.warn("MC_DIAG stage=JAVA_FE_CLIENT_EXECUTOR_CALL_ERROR fe=" + formatAddress(address)
+                        + ", costMs=" + elapsedMs(callStartNs), e);
                 close();
                 throw e;
             }
@@ -297,10 +342,15 @@ class MaxComputeFeClient implements AutoCloseable {
             if (client != null && transport != null && transport.isOpen()
                     && connectedFramedTransport == useFramedTransport
                     && sameAddress(connectedAddress, address)) {
+                LOG.info("MC_DIAG stage=JAVA_FE_CLIENT_REUSE_CONNECTION fe=" + formatAddress(address));
                 return;
             }
 
             close();
+            long connectStartNs = System.nanoTime();
+            LOG.info("MC_DIAG stage=JAVA_FE_CLIENT_CONNECT_BEFORE fe=" + formatAddress(address)
+                    + ", timeoutMs=" + timeoutMs
+                    + ", framedTransport=" + useFramedTransport);
             TTransport newTransport = createTransport(address, timeoutMs, useFramedTransport);
             try {
                 newTransport.open();
@@ -308,7 +358,11 @@ class MaxComputeFeClient implements AutoCloseable {
                 client = new FrontendService.Client(new TBinaryProtocol(transport));
                 connectedAddress = copyAddress(address);
                 connectedFramedTransport = useFramedTransport;
+                LOG.info("MC_DIAG stage=JAVA_FE_CLIENT_CONNECT_AFTER fe=" + formatAddress(address)
+                        + ", costMs=" + elapsedMs(connectStartNs));
             } catch (Exception e) {
+                LOG.warn("MC_DIAG stage=JAVA_FE_CLIENT_CONNECT_ERROR fe=" + formatAddress(address)
+                        + ", costMs=" + elapsedMs(connectStartNs), e);
                 newTransport.close();
                 throw e;
             }
