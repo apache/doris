@@ -128,6 +128,7 @@ import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
 import org.apache.doris.persist.TableBranchOrTagInfo;
 import org.apache.doris.persist.TableInfo;
+import org.apache.doris.persist.TableMetaChange;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TableStatsDeletionLog;
@@ -1019,6 +1020,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_META_SYNC_POINT: {
                 data = CloudMetaSyncPoint.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_TABLE_META_CHANGE: {
+                data = TableMetaChange.read(in);
                 isRead = true;
                 break;
             }
