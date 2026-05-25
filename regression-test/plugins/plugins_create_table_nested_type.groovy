@@ -133,9 +133,9 @@ Suite.metaClass.get_create_table_with_nested_type { int depth, String tb_name ->
     }
 
     backtrack();
-    for (int i = 0; i < res.size; i++) {
+    for (int i = 0; i < res.size(); i++) {
         def date_type_str = ""
-        for (int j = 0; j < res[i].size; j++) {
+        for (int j = 0; j < res[i].size(); j++) {
             date_type_str += res[i][j] + " "
         }
         logger.info(date_type_str)
