@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -58,8 +58,8 @@ private:
 } // namespace
 
 TEST(FreqProxEncoderTest, SingleDocSingleFreqEncodesAsTaggedVInt) {
-    MemoryLuceneOutput frq;
-    MemoryLuceneOutput prx;
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
     FreqProxEncoder e(&frq, &prx, /*skip_interval=*/16, /*max_skip_levels=*/10);
 
     e.StartTerm(1);
@@ -91,8 +91,8 @@ TEST(FreqProxEncoderTest, SingleDocSingleFreqEncodesAsTaggedVInt) {
 }
 
 TEST(FreqProxEncoderTest, MultiFreqDocEncodesAsTwoVInts) {
-    MemoryLuceneOutput frq;
-    MemoryLuceneOutput prx;
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
     FreqProxEncoder e(&frq, &prx);
 
     e.StartTerm(1);
@@ -116,8 +116,8 @@ TEST(FreqProxEncoderTest, MultiFreqDocEncodesAsTwoVInts) {
 }
 
 TEST(FreqProxEncoderTest, MultipleDocsWithDocDeltas) {
-    MemoryLuceneOutput frq;
-    MemoryLuceneOutput prx;
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
     FreqProxEncoder e(&frq, &prx);
 
     e.StartTerm(3);
@@ -156,8 +156,8 @@ TEST(FreqProxEncoderTest, MultipleDocsWithDocDeltas) {
 }
 
 TEST(FreqProxEncoderTest, ProxResetsPerDoc) {
-    MemoryLuceneOutput frq;
-    MemoryLuceneOutput prx;
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
     FreqProxEncoder e(&frq, &prx);
     e.StartTerm(2);
     // doc 1, positions {2, 7}
@@ -181,8 +181,8 @@ TEST(FreqProxEncoderTest, ProxResetsPerDoc) {
 }
 
 TEST(FreqProxEncoderTest, SkipListEmittedWhenDocFreqExceedsInterval) {
-    MemoryLuceneOutput frq;
-    MemoryLuceneOutput prx;
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
     // Tiny skip_interval so we can hit boundaries quickly.
     FreqProxEncoder e(&frq, &prx, /*skip_interval=*/4, /*max_skip_levels=*/2);
 
@@ -200,8 +200,8 @@ TEST(FreqProxEncoderTest, SkipListEmittedWhenDocFreqExceedsInterval) {
 }
 
 TEST(FreqProxEncoderTest, NoSkipListWhenDocFreqBelowInterval) {
-    MemoryLuceneOutput frq;
-    MemoryLuceneOutput prx;
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
     FreqProxEncoder e(&frq, &prx, /*skip_interval=*/4, /*max_skip_levels=*/2);
 
     e.StartTerm(3);
@@ -215,8 +215,8 @@ TEST(FreqProxEncoderTest, NoSkipListWhenDocFreqBelowInterval) {
 }
 
 TEST(FreqProxEncoderTest, MultipleTermsReuseTheEncoder) {
-    MemoryLuceneOutput frq;
-    MemoryLuceneOutput prx;
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
     FreqProxEncoder e(&frq, &prx);
 
     // Term A.
@@ -245,8 +245,8 @@ TEST(FreqProxEncoderTest, MultipleTermsReuseTheEncoder) {
 }
 
 TEST(FreqProxEncoderTest, SkipOffsetMatchesFrqByteLayout) {
-    MemoryLuceneOutput frq;
-    MemoryLuceneOutput prx;
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
     FreqProxEncoder e(&frq, &prx, /*skip_interval=*/4, /*max_skip_levels=*/2);
     e.StartTerm(4);
     for (int i = 0; i < 4; ++i) {

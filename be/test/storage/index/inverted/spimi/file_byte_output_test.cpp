@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/spimi/file_lucene_output.h"
+#include "storage/index/inverted/spimi/file_byte_output.h"
 
 #include <gtest/gtest.h>
 
@@ -25,7 +25,7 @@
 
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/segment_writer.h"
 
@@ -56,28 +56,28 @@ void RemoveIfExists(const std::string& path) {
 
 } // namespace
 
-TEST(FileLuceneOutputTest, EncodingMatchesMemoryOutput) {
+TEST(FileByteOutputTest, EncodingMatchesMemoryOutput) {
     const std::string path = MakeTempPath(".bin");
     RemoveIfExists(path);
 
     io::FileWriterPtr file_writer;
     ASSERT_TRUE(io::global_local_filesystem()->create_file(path, &file_writer).ok());
 
-    FileLuceneOutput file_out(file_writer.get(), /*buffer_size=*/8);
-    MemoryLuceneOutput mem;
+    FileByteOutput file_out(file_writer.get(), /*buffer_size=*/8);
+    MemoryByteOutput mem;
 
     // Exercise every primitive crossing the small (8-byte) flush boundary.
     auto write_both = [&](auto&& fn) {
-        fn(static_cast<LuceneOutput*>(&file_out));
-        fn(static_cast<LuceneOutput*>(&mem));
+        fn(static_cast<ByteOutput*>(&file_out));
+        fn(static_cast<ByteOutput*>(&mem));
     };
 
-    write_both([](LuceneOutput* o) { o->WriteInt(0x01020304); });
-    write_both([](LuceneOutput* o) { o->WriteLong(-1); });
-    write_both([](LuceneOutput* o) { o->WriteVInt(0x7FFFFFFF); });
-    write_both([](LuceneOutput* o) { o->WriteVLong(0x0102030405060708LL); });
+    write_both([](ByteOutput* o) { o->WriteInt(0x01020304); });
+    write_both([](ByteOutput* o) { o->WriteLong(-1); });
+    write_both([](ByteOutput* o) { o->WriteVInt(0x7FFFFFFF); });
+    write_both([](ByteOutput* o) { o->WriteVLong(0x0102030405060708LL); });
     const std::wstring wide = L"hello, 中文 🌐";
-    write_both([&](LuceneOutput* o) {
+    write_both([&](ByteOutput* o) {
         o->WriteSCharsFromWide(wide.data(), static_cast<int32_t>(wide.size()));
     });
 
@@ -91,7 +91,7 @@ TEST(FileLuceneOutputTest, EncodingMatchesMemoryOutput) {
     RemoveIfExists(path);
 }
 
-TEST(FileLuceneOutputTest, BufferBoundariesPreserveByteOrder) {
+TEST(FileByteOutputTest, BufferBoundariesPreserveByteOrder) {
     const std::string path = MakeTempPath(".bin");
     RemoveIfExists(path);
 
@@ -100,7 +100,7 @@ TEST(FileLuceneOutputTest, BufferBoundariesPreserveByteOrder) {
 
     // Buffer is 4 bytes; write 10 bytes mixed via WriteByte and WriteBytes
     // so the flush triggers multiple times mid-stream.
-    FileLuceneOutput out(file_writer.get(), /*buffer_size=*/4);
+    FileByteOutput out(file_writer.get(), /*buffer_size=*/4);
     out.WriteByte(0x11);
     out.WriteByte(0x22);
     const uint8_t chunk[] = {0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA};
@@ -118,8 +118,8 @@ TEST(FileLuceneOutputTest, BufferBoundariesPreserveByteOrder) {
     RemoveIfExists(path);
 }
 
-TEST(FileLuceneOutputTest, RoundTripsSegmentWriterOutputThroughDisk) {
-    // End-to-end: drive a SegmentWriter against FileLuceneOutputs backed by
+TEST(FileByteOutputTest, RoundTripsSegmentWriterOutputThroughDisk) {
+    // End-to-end: drive a SegmentWriter against FileByteOutputs backed by
     // four temp files, then re-read those files and compare against an
     // equivalent in-memory run.
     const std::string tis_path = MakeTempPath(".tis");
@@ -131,7 +131,7 @@ TEST(FileLuceneOutputTest, RoundTripsSegmentWriterOutputThroughDisk) {
     }
 
     // In-memory reference.
-    MemoryLuceneOutput mem_tis, mem_tii, mem_frq, mem_prx;
+    MemoryByteOutput mem_tis, mem_tii, mem_frq, mem_prx;
     SegmentWriter mem_w(&mem_tis, &mem_tii, &mem_frq, &mem_prx);
 
     // Disk-backed writer.
@@ -140,10 +140,10 @@ TEST(FileLuceneOutputTest, RoundTripsSegmentWriterOutputThroughDisk) {
     ASSERT_TRUE(io::global_local_filesystem()->create_file(tii_path, &tii_fw).ok());
     ASSERT_TRUE(io::global_local_filesystem()->create_file(frq_path, &frq_fw).ok());
     ASSERT_TRUE(io::global_local_filesystem()->create_file(prx_path, &prx_fw).ok());
-    FileLuceneOutput disk_tis(tis_fw.get());
-    FileLuceneOutput disk_tii(tii_fw.get());
-    FileLuceneOutput disk_frq(frq_fw.get());
-    FileLuceneOutput disk_prx(prx_fw.get());
+    FileByteOutput disk_tis(tis_fw.get());
+    FileByteOutput disk_tii(tii_fw.get());
+    FileByteOutput disk_frq(frq_fw.get());
+    FileByteOutput disk_prx(prx_fw.get());
     SegmentWriter disk_w(&disk_tis, &disk_tii, &disk_frq, &disk_prx);
 
     SpimiPostingBuffer buffer;

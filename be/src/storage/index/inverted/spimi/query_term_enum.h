@@ -37,7 +37,7 @@ namespace doris::segment_v2::inverted_index::spimi {
 
 // `lucene::index::TermEnum` subclass that iterates a SPIMI segment's
 // `.tis` term dictionary in (field_number, term_text) order. Used by
-// `SpimiCLuceneIndexReader` to satisfy the CLucene query engine's
+// `SpimiQueryIndexReader` to satisfy the CLucene query engine's
 // term-enumeration contract; the engine drives all 16 query types
 // (TermQuery, PhraseQuery, BooleanQuery, RegexpQuery, …) through this
 // interface, so faithfully matching the contract gives SPIMI full
@@ -57,15 +57,15 @@ namespace doris::segment_v2::inverted_index::spimi {
 // wide-char name table (one `std::wstring` per field_number; passed in
 // from `FieldInfosReader::Read`). `Term*` instances are constructed
 // on demand using the field name from this table.
-class SpimiCLuceneTermEnum final : public lucene::index::TermEnum {
+class SpimiQueryTermEnum final : public lucene::index::TermEnum {
 public:
-    SpimiCLuceneTermEnum(const uint8_t* tis_data, size_t tis_length, int32_t skip_interval,
+    SpimiQueryTermEnum(const uint8_t* tis_data, size_t tis_length, int32_t skip_interval,
                          std::vector<std::wstring> field_names_by_number);
 
-    ~SpimiCLuceneTermEnum() override;
+    ~SpimiQueryTermEnum() override;
 
-    SpimiCLuceneTermEnum(const SpimiCLuceneTermEnum&) = delete;
-    SpimiCLuceneTermEnum& operator=(const SpimiCLuceneTermEnum&) = delete;
+    SpimiQueryTermEnum(const SpimiQueryTermEnum&) = delete;
+    SpimiQueryTermEnum& operator=(const SpimiQueryTermEnum&) = delete;
 
     bool next() override;
     lucene::index::Term* term(bool pointer = true) override;
@@ -73,7 +73,7 @@ public:
     void close() override;
 
     // The current term's TermInfo (freq_pointer, prox_pointer,
-    // skip_offset) — needed by `SpimiCLuceneTermDocs::seek(TermEnum*)`
+    // skip_offset) — needed by `SpimiQueryTermDocs::seek(TermEnum*)`
     // so the TermDocs can position into `.frq` without re-binary-
     // searching the `.tis` index. CLucene's `SegmentTermEnum` exposes
     // a similar `getTermInfo()` for the same reason.
@@ -82,7 +82,7 @@ public:
 
     // NamedObject identification — keeps CLucene's RTTI-free polymorphism
     // hooks consistent with what `SegmentTermEnum` exposes.
-    const char* getObjectName() const override { return "SpimiCLuceneTermEnum"; }
+    const char* getObjectName() const override { return "SpimiQueryTermEnum"; }
 
 private:
     const uint8_t* _tis_data;

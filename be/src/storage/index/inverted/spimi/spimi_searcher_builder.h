@@ -23,7 +23,7 @@
 namespace doris::segment_v2 {
 
 // `IndexSearcherBuilder` that opens a SPIMI segment from a CLucene
-// Directory*, builds `SpimiCLuceneIndexReader`, and wraps it in a
+// Directory*, builds `SpimiQueryIndexReader`, and wraps it in a
 // `lucene::search::IndexSearcher`. Returned via the existing
 // `IndexSearcherBuilder::create_index_searcher_builder` switch when
 // the reader type is `SPIMI_FULLTEXT`.

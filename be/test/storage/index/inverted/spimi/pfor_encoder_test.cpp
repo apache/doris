@@ -23,7 +23,7 @@
 #include <random>
 #include <vector>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 

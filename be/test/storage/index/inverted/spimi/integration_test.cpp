@@ -19,8 +19,8 @@
 // integrated InvertedIndexColumnWriter will do (Phase 16 follow-up):
 //   1. Open seven outputs in a CLucene `RAMDirectory` (the same abstraction
 //      `DorisFSDirectory` exposes in production).
-//   2. Wrap each output with `IndexOutputLuceneOutput` so SPIMI's writers
-//      treat them as portable `LuceneOutput` sinks.
+//   2. Wrap each output with `IndexOutputByteOutput` so SPIMI's writers
+//      treat them as portable `ByteOutput` sinks.
 //   3. Feed synthetic token streams through `SpimiFulltextWriter`.
 //   4. Finalize the segment and confirm every output is non-empty and the
 //      headers / counts on each stream agree with what was added.
@@ -44,7 +44,7 @@
 
 #include "storage/index/inverted/spimi/field_infos_writer.h"
 #include "storage/index/inverted/spimi/fulltext_writer.h"
-#include "storage/index/inverted/spimi/index_output_lucene_output.h"
+#include "storage/index/inverted/spimi/index_output_byte_output.h"
 #include "storage/index/inverted/spimi/segment_infos_writer.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
@@ -154,13 +154,13 @@ EmittedBytes EmitSegmentViaSpimi(
     lucene::store::RAMDirectory ram;
     auto outs = OpenSegmentOutputs(&ram, segment_name);
     {
-        IndexOutputLuceneOutput a_tis(outs.tis);
-        IndexOutputLuceneOutput a_tii(outs.tii);
-        IndexOutputLuceneOutput a_frq(outs.frq);
-        IndexOutputLuceneOutput a_prx(outs.prx);
-        IndexOutputLuceneOutput a_fnm(outs.fnm);
-        IndexOutputLuceneOutput a_sn(outs.segments_n);
-        IndexOutputLuceneOutput a_sg(outs.segments_gen);
+        IndexOutputByteOutput a_tis(outs.tis);
+        IndexOutputByteOutput a_tii(outs.tii);
+        IndexOutputByteOutput a_frq(outs.frq);
+        IndexOutputByteOutput a_prx(outs.prx);
+        IndexOutputByteOutput a_fnm(outs.fnm);
+        IndexOutputByteOutput a_sn(outs.segments_n);
+        IndexOutputByteOutput a_sg(outs.segments_gen);
         SpimiSegmentSink sink {.tis = &a_tis,
                                .tii = &a_tii,
                                .frq = &a_frq,
@@ -252,7 +252,7 @@ TEST(SpimiIntegrationTest, SegmentsGenIsThreeFixedFields) {
 
 TEST(SpimiIntegrationTest, RamDirectoryRoundTripsByteIdenticallyToMemoryOutputs) {
     // Same input through both the IndexOutput-backed path and a parallel
-    // MemoryLuceneOutput path; the four primary streams must be byte equal.
+    // MemoryByteOutput path; the four primary streams must be byte equal.
     const std::vector<std::pair<uint32_t, std::vector<std::string>>> docs = {
             {0, {"apple", "banana"}},
             {1, {"apple", "cherry"}},
@@ -262,8 +262,8 @@ TEST(SpimiIntegrationTest, RamDirectoryRoundTripsByteIdenticallyToMemoryOutputs)
     // CLucene-backed path.
     const auto disk = EmitSegmentViaSpimi(docs);
 
-    // Reference: same writer, MemoryLuceneOutput sinks.
-    MemoryLuceneOutput m_tis, m_tii, m_frq, m_prx, m_fnm, m_sn, m_sg;
+    // Reference: same writer, MemoryByteOutput sinks.
+    MemoryByteOutput m_tis, m_tii, m_frq, m_prx, m_fnm, m_sn, m_sg;
     SpimiSegmentSink ref_sink {.tis = &m_tis,
                                .tii = &m_tii,
                                .frq = &m_frq,

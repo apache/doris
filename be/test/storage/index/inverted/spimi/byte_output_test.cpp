@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 #include <gtest/gtest.h>
 
@@ -36,15 +36,15 @@ std::vector<uint8_t> Bytes(std::initializer_list<int> list) {
 
 } // namespace
 
-TEST(LuceneOutputTest, WriteIntIsBigEndian) {
-    MemoryLuceneOutput out;
+TEST(ByteOutputTest, WriteIntIsBigEndian) {
+    MemoryByteOutput out;
     out.WriteInt(0x01020304);
     EXPECT_EQ(out.bytes(), Bytes({0x01, 0x02, 0x03, 0x04}));
     EXPECT_EQ(out.FilePointer(), 4);
 }
 
-TEST(LuceneOutputTest, WriteIntNegativeOnesAndFormat) {
-    MemoryLuceneOutput out;
+TEST(ByteOutputTest, WriteIntNegativeOnesAndFormat) {
+    MemoryByteOutput out;
     out.WriteInt(-1);
     EXPECT_EQ(out.bytes(), Bytes({0xFF, 0xFF, 0xFF, 0xFF}));
     out.Clear();
@@ -52,32 +52,32 @@ TEST(LuceneOutputTest, WriteIntNegativeOnesAndFormat) {
     EXPECT_EQ(out.bytes(), Bytes({0xFF, 0xFF, 0xFF, 0xFC}));
 }
 
-TEST(LuceneOutputTest, WriteLongIsBigEndian) {
-    MemoryLuceneOutput out;
+TEST(ByteOutputTest, WriteLongIsBigEndian) {
+    MemoryByteOutput out;
     out.WriteLong(0x0102030405060708LL);
     EXPECT_EQ(out.bytes(), Bytes({0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}));
 }
 
-TEST(LuceneOutputTest, WriteLongNegativeOne) {
-    MemoryLuceneOutput out;
+TEST(ByteOutputTest, WriteLongNegativeOne) {
+    MemoryByteOutput out;
     out.WriteLong(-1);
     EXPECT_EQ(out.bytes(), Bytes({0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}));
 }
 
-TEST(LuceneOutputTest, WriteVIntZeroIsOneByte) {
-    MemoryLuceneOutput out;
+TEST(ByteOutputTest, WriteVIntZeroIsOneByte) {
+    MemoryByteOutput out;
     out.WriteVInt(0);
     EXPECT_EQ(out.bytes(), Bytes({0x00}));
 }
 
-TEST(LuceneOutputTest, WriteVIntSmallSingleByte) {
-    MemoryLuceneOutput out;
+TEST(ByteOutputTest, WriteVIntSmallSingleByte) {
+    MemoryByteOutput out;
     out.WriteVInt(127);
     EXPECT_EQ(out.bytes(), Bytes({0x7F}));
 }
 
-TEST(LuceneOutputTest, WriteVIntTwoBytes) {
-    MemoryLuceneOutput out;
+TEST(ByteOutputTest, WriteVIntTwoBytes) {
+    MemoryByteOutput out;
     out.WriteVInt(128); // 0x80 = 10000000_b — needs two bytes
     EXPECT_EQ(out.bytes(), Bytes({0x80, 0x01}));
     out.Clear();
@@ -85,15 +85,15 @@ TEST(LuceneOutputTest, WriteVIntTwoBytes) {
     EXPECT_EQ(out.bytes(), Bytes({0xAC, 0x02}));
 }
 
-TEST(LuceneOutputTest, WriteVIntBigValueFiveBytes) {
-    MemoryLuceneOutput out;
+TEST(ByteOutputTest, WriteVIntBigValueFiveBytes) {
+    MemoryByteOutput out;
     out.WriteVInt(0x7FFFFFFF);
     // 31 bits packed 7-at-a-time → 5 bytes; top byte holds the highest 4 bits.
     EXPECT_EQ(out.bytes(), Bytes({0xFF, 0xFF, 0xFF, 0xFF, 0x07}));
 }
 
-TEST(LuceneOutputTest, WriteVLongLargeValue) {
-    MemoryLuceneOutput out;
+TEST(ByteOutputTest, WriteVLongLargeValue) {
+    MemoryByteOutput out;
     out.WriteVLong(0x0102030405060708LL);
     // Same scheme as VInt, just longer. Compare against the bit pattern.
     // 0x0102030405060708 in binary, split low→high 7 bits each.
@@ -107,32 +107,32 @@ TEST(LuceneOutputTest, WriteVLongLargeValue) {
     EXPECT_EQ(out.bytes(), expected);
 }
 
-TEST(LuceneOutputTest, WriteSCharsAsciiIsOneBytePerChar) {
-    MemoryLuceneOutput out;
+TEST(ByteOutputTest, WriteSCharsAsciiIsOneBytePerChar) {
+    MemoryByteOutput out;
     const std::wstring w = L"abc";
     out.WriteSCharsFromWide(w.data(), static_cast<int32_t>(w.size()));
     EXPECT_EQ(out.bytes(), Bytes({'a', 'b', 'c'}));
 }
 
-TEST(LuceneOutputTest, WriteSCharsTwoByteRange) {
-    MemoryLuceneOutput out;
+TEST(ByteOutputTest, WriteSCharsTwoByteRange) {
+    MemoryByteOutput out;
     const std::wstring w {static_cast<wchar_t>(0xA9)}; // ©
     out.WriteSCharsFromWide(w.data(), 1);
     EXPECT_EQ(out.bytes(), Bytes({0xC2, 0xA9}));
 }
 
-TEST(LuceneOutputTest, WriteSCharsThreeByteRange) {
-    MemoryLuceneOutput out;
+TEST(ByteOutputTest, WriteSCharsThreeByteRange) {
+    MemoryByteOutput out;
     const std::wstring w {static_cast<wchar_t>(0x4E2D)}; // 中
     out.WriteSCharsFromWide(w.data(), 1);
     EXPECT_EQ(out.bytes(), Bytes({0xE4, 0xB8, 0xAD}));
 }
 
-TEST(LuceneOutputTest, WriteSCharsFourByteUsesCLuceneModifiedEncoding) {
+TEST(ByteOutputTest, WriteSCharsFourByteUsesCLuceneModifiedEncoding) {
     // U+1F600 (😀). CLucene's writeSChars<TCHAR> emits four bytes ALL with the
     // high bit set, not the proper UTF-8 (which would start with 0xF0). We
     // mimic the same byte stream so existing readers stay compatible.
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     const std::wstring w {static_cast<wchar_t>(0x1F600)};
     out.WriteSCharsFromWide(w.data(), 1);
     const uint32_t code = 0x1F600;
@@ -143,18 +143,18 @@ TEST(LuceneOutputTest, WriteSCharsFourByteUsesCLuceneModifiedEncoding) {
     EXPECT_EQ(out.bytes()[0] & 0x80U, 0x80U);
 }
 
-TEST(LuceneOutputTest, Utf8ToWideAsciiAndCjk) {
+TEST(ByteOutputTest, Utf8ToWideAsciiAndCjk) {
     EXPECT_EQ(Utf8ToWide("abc"), std::wstring(L"abc"));
     EXPECT_EQ(Utf8ToWide("中文"),
               (std::wstring {static_cast<wchar_t>(0x4E2D), static_cast<wchar_t>(0x6587)}));
 }
 
-TEST(LuceneOutputTest, Utf8ToWideFourByteEmoji) {
+TEST(ByteOutputTest, Utf8ToWideFourByteEmoji) {
     const std::wstring expected {static_cast<wchar_t>(0x1F600)};
     EXPECT_EQ(Utf8ToWide("\xF0\x9F\x98\x80"), expected);
 }
 
-TEST(LuceneOutputTest, Utf8ToWideEmptyIsEmpty) {
+TEST(ByteOutputTest, Utf8ToWideEmptyIsEmpty) {
     EXPECT_TRUE(Utf8ToWide("").empty());
 }
 
@@ -162,7 +162,7 @@ TEST(LuceneOutputTest, Utf8ToWideEmptyIsEmpty) {
 // that breaks the SPIMI term comparator's strict-ascending invariant or
 // confuses the CLucene reader.
 
-TEST(LuceneOutputTest, Utf8ToWideRejectsOverlongTwoByteForm) {
+TEST(ByteOutputTest, Utf8ToWideRejectsOverlongTwoByteForm) {
     // C0 80 decodes to U+0000 if accepted (modified-UTF-8 NUL encoding); we
     // reject it. The leading byte advances `n` bytes (length-prefix said 2)
     // and emits one replacement.
@@ -171,14 +171,14 @@ TEST(LuceneOutputTest, Utf8ToWideRejectsOverlongTwoByteForm) {
     EXPECT_EQ(got[0], static_cast<wchar_t>(0xFFFD));
 }
 
-TEST(LuceneOutputTest, Utf8ToWideRejectsOverlongThreeByteForm) {
+TEST(ByteOutputTest, Utf8ToWideRejectsOverlongThreeByteForm) {
     // E0 82 80 decodes to U+0080 if accepted (overlong); must be replaced.
     const std::wstring got = Utf8ToWide("\xE0\x82\x80");
     ASSERT_EQ(got.size(), 1U);
     EXPECT_EQ(got[0], static_cast<wchar_t>(0xFFFD));
 }
 
-TEST(LuceneOutputTest, Utf8ToWideRejectsHighSurrogate) {
+TEST(ByteOutputTest, Utf8ToWideRejectsHighSurrogate) {
     // ED A0 80 decodes to U+D800 (high surrogate) if accepted; not a valid
     // scalar value. Must be replaced.
     const std::wstring got = Utf8ToWide("\xED\xA0\x80");
@@ -186,14 +186,14 @@ TEST(LuceneOutputTest, Utf8ToWideRejectsHighSurrogate) {
     EXPECT_EQ(got[0], static_cast<wchar_t>(0xFFFD));
 }
 
-TEST(LuceneOutputTest, Utf8ToWideRejectsCodepointAbove10FFFF) {
+TEST(ByteOutputTest, Utf8ToWideRejectsCodepointAbove10FFFF) {
     // F4 90 80 80 decodes to U+110000 if accepted; out of Unicode range.
     const std::wstring got = Utf8ToWide("\xF4\x90\x80\x80");
     ASSERT_EQ(got.size(), 1U);
     EXPECT_EQ(got[0], static_cast<wchar_t>(0xFFFD));
 }
 
-TEST(LuceneOutputTest, Utf8ToWideRejectsTruncatedContinuation) {
+TEST(ByteOutputTest, Utf8ToWideRejectsTruncatedContinuation) {
     // 0xE0 says "three-byte sequence" but only one continuation byte
     // follows. The decoder must replace and resync at the next byte.
     const std::wstring got = Utf8ToWide(std::string("\xE0\x80", 2));

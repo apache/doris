@@ -23,7 +23,7 @@
 #include <string>
 #include <vector>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -76,7 +76,7 @@ private:
 } // namespace
 
 TEST(SegmentInfosWriterTest, SegmentsGenIsThreeFixedFields) {
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     SegmentInfosWriter writer;
     writer.WriteSegmentsGen(&out, /*generation=*/7);
 
@@ -88,7 +88,7 @@ TEST(SegmentInfosWriterTest, SegmentsGenIsThreeFixedFields) {
 }
 
 TEST(SegmentInfosWriterTest, EmptySegmentsNListHasHeaderOnly) {
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     SegmentInfosWriter writer;
     writer.WriteSegmentsN(&out, /*version=*/1, /*counter=*/0, /*segments=*/ {});
 
@@ -101,7 +101,7 @@ TEST(SegmentInfosWriterTest, EmptySegmentsNListHasHeaderOnly) {
 }
 
 TEST(SegmentInfosWriterTest, SingleSegmentDefaultShape) {
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     SegmentInfosWriter writer;
     SegmentInfoEntry seg;
     seg.name = "_0";
@@ -131,7 +131,7 @@ TEST(SegmentInfosWriterTest, SingleSegmentDefaultShape) {
 }
 
 TEST(SegmentInfosWriterTest, SegmentWithDocStoreAppendsExtraFields) {
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     SegmentInfosWriter writer;
     SegmentInfoEntry seg;
     seg.name = "_5";
@@ -167,7 +167,7 @@ TEST(SegmentInfosWriterTest, SegmentWithDocStoreAppendsExtraFields) {
 }
 
 TEST(SegmentInfosWriterTest, MultipleSegmentsRoundTrip) {
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     SegmentInfosWriter writer;
     SegmentInfoEntry a;
     a.name = "_0";

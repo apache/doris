@@ -15,26 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/spimi/clucene_term_positions.h"
+#include "storage/index/inverted/spimi/query_term_positions.h"
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "storage/index/inverted/spimi/prox_reader.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
-SpimiCLuceneTermPositions::SpimiCLuceneTermPositions(
+SpimiQueryTermPositions::SpimiQueryTermPositions(
         const TermDictReader* term_dict, const uint8_t* frq_data, size_t frq_length,
         const uint8_t* prx_data, size_t prx_length, const std::vector<FieldInfoEntry>* field_infos,
         const std::vector<std::wstring>* field_names_wide)
-        : SpimiCLuceneTermDocs(term_dict, frq_data, frq_length, field_infos, field_names_wide),
+        : SpimiQueryTermDocs(term_dict, frq_data, frq_length, field_infos, field_names_wide),
           _prx_data(prx_data),
           _prx_length(prx_length) {
     DCHECK(_prx_data != nullptr || _prx_length == 0);
 }
 
-SpimiCLuceneTermPositions::~SpimiCLuceneTermPositions() = default;
+SpimiQueryTermPositions::~SpimiQueryTermPositions() = default;
 
-void SpimiCLuceneTermPositions::LoadPositionsForCurrentTerm() {
+void SpimiQueryTermPositions::LoadPositionsForCurrentTerm() {
     _positions.clear();
     _pos_index = -1;
 
@@ -76,21 +77,30 @@ void SpimiCLuceneTermPositions::LoadPositionsForCurrentTerm() {
         _CLTHROWA(CL_ERR_IO, "SPIMI .tis prox_pointer out of .prx bounds");
     }
     const auto fp = static_cast<size_t>(ti->prox_pointer);
-    _positions = SpimiProxReader::ReadPositions(_prx_data + fp, _prx_length - fp, freqs_per_doc);
+    // Translate pure-SPIMI exceptions to CLuceneError at the
+    // CLucene boundary: ReadPositions throws `doris::Exception`
+    // (INVERTED_INDEX_FILE_CORRUPTED) on malformed `.prx` bytes;
+    // the CLucene query engine only catches CLuceneError.
+    try {
+        _positions = SpimiProxReader::ReadPositions(_prx_data + fp, _prx_length - fp,
+                                                    freqs_per_doc);
+    } catch (const ::doris::Exception& e) {
+        _CLTHROWA(CL_ERR_IO, e.what());
+    }
 }
 
-void SpimiCLuceneTermPositions::seek(lucene::index::Term* term) {
-    SpimiCLuceneTermDocs::seek(term);
+void SpimiQueryTermPositions::seek(lucene::index::Term* term) {
+    SpimiQueryTermDocs::seek(term);
     LoadPositionsForCurrentTerm();
 }
 
-void SpimiCLuceneTermPositions::seek(lucene::index::TermEnum* term_enum) {
-    SpimiCLuceneTermDocs::seek(term_enum);
+void SpimiQueryTermPositions::seek(lucene::index::TermEnum* term_enum) {
+    SpimiQueryTermDocs::seek(term_enum);
     LoadPositionsForCurrentTerm();
 }
 
-bool SpimiCLuceneTermPositions::next() {
-    if (!SpimiCLuceneTermDocs::next()) {
+bool SpimiQueryTermPositions::next() {
+    if (!SpimiQueryTermDocs::next()) {
         _pos_index = -1;
         return false;
     }
@@ -98,19 +108,19 @@ bool SpimiCLuceneTermPositions::next() {
     return true;
 }
 
-bool SpimiCLuceneTermPositions::skipTo(int32_t target) {
+bool SpimiQueryTermPositions::skipTo(int32_t target) {
     // CLucene contract: `SegmentTermPositions::skipTo` (CLucene
     // `_SegmentHeader.h:286` impl) advances the doc cursor AND
     // re-positions the prox stream to the start of that doc's
     // positions — so the next `nextPosition()` returns the first
     // position of the new doc. Without this override SPIMI inherited
-    // the base `SpimiCLuceneTermDocs::skipTo`, which moved `_index`
+    // the base `SpimiQueryTermDocs::skipTo`, which moved `_index`
     // but left `_pos_index` pointing inside the previous doc's
     // positions (or at -1 if no `next()` had run). `PhraseQuery::
     // do_next` reaches matches via `_lead2.advance(doc)` without a
     // preceding `next()`, so the position cursor was never reset
     // and every multi-doc phrase silently returned no hits.
-    if (!SpimiCLuceneTermDocs::skipTo(target)) {
+    if (!SpimiQueryTermDocs::skipTo(target)) {
         _pos_index = -1;
         return false;
     }
@@ -118,7 +128,7 @@ bool SpimiCLuceneTermPositions::skipTo(int32_t target) {
     return true;
 }
 
-int32_t SpimiCLuceneTermPositions::nextPosition() {
+int32_t SpimiQueryTermPositions::nextPosition() {
     const int32_t field_number = current_field_number();
     if (field_number < 0) {
         return 0;
@@ -134,7 +144,7 @@ int32_t SpimiCLuceneTermPositions::nextPosition() {
         // upper-layer query routing surfaces a clear error rather
         // than producing wrong results.
         _CLTHROWA(CL_ERR_UnsupportedOperation,
-                  "SpimiCLuceneTermPositions::nextPosition called on omit_tfap field "
+                  "SpimiQueryTermPositions::nextPosition called on omit_tfap field "
                   "(no positions written); phrase queries require support_phrase=true");
     }
 
@@ -148,7 +158,7 @@ int32_t SpimiCLuceneTermPositions::nextPosition() {
     return doc_positions[static_cast<size_t>(_pos_index++)];
 }
 
-int32_t SpimiCLuceneTermPositions::read(int32_t* /*docs*/, int32_t* /*freqs*/,
+int32_t SpimiQueryTermPositions::read(int32_t* /*docs*/, int32_t* /*freqs*/,
                                         int32_t /*length*/) {
     // Match `SegmentTermPositions::read` semantics: throw rather
     // than silently return 0. Doris's current query paths use
@@ -156,13 +166,13 @@ int32_t SpimiCLuceneTermPositions::read(int32_t* /*docs*/, int32_t* /*freqs*/,
     // that batches positions via this API will get a loud
     // CLuceneError instead of a silent empty result.
     _CLTHROWA(CL_ERR_UnsupportedOperation,
-              "SpimiCLuceneTermPositions::read is unsupported; use next() + nextPosition()");
+              "SpimiQueryTermPositions::read is unsupported; use next() + nextPosition()");
 }
 
-int32_t SpimiCLuceneTermPositions::read(int32_t* /*docs*/, int32_t* /*freqs*/, int32_t* /*norms*/,
+int32_t SpimiQueryTermPositions::read(int32_t* /*docs*/, int32_t* /*freqs*/, int32_t* /*norms*/,
                                         int32_t /*length*/) {
     _CLTHROWA(CL_ERR_UnsupportedOperation,
-              "SpimiCLuceneTermPositions::read is unsupported; use next() + nextPosition()");
+              "SpimiQueryTermPositions::read is unsupported; use next() + nextPosition()");
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

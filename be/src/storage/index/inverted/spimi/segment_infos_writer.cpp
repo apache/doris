@@ -21,14 +21,14 @@
 
 namespace doris::segment_v2::inverted_index::spimi {
 
-void SegmentInfosWriter::WriteWideString(LuceneOutput* out, const std::string& utf8) {
+void SegmentInfosWriter::WriteWideString(ByteOutput* out, const std::string& utf8) {
     const std::wstring wide = Utf8ToWide(utf8);
     const auto len = static_cast<int32_t>(wide.size());
     out->WriteVInt(len);
     out->WriteSCharsFromWide(wide.data(), len);
 }
 
-void SegmentInfosWriter::WriteSegment(LuceneOutput* out, const SegmentInfoEntry& seg) {
+void SegmentInfosWriter::WriteSegment(ByteOutput* out, const SegmentInfoEntry& seg) {
     WriteWideString(out, seg.name);
     out->WriteInt(seg.doc_count);
     out->WriteLong(seg.del_gen);
@@ -44,7 +44,7 @@ void SegmentInfosWriter::WriteSegment(LuceneOutput* out, const SegmentInfoEntry&
     out->WriteByte(static_cast<uint8_t>(seg.is_compound_file));
 }
 
-void SegmentInfosWriter::WriteSegmentsN(LuceneOutput* out, int64_t version, int32_t counter,
+void SegmentInfosWriter::WriteSegmentsN(ByteOutput* out, int64_t version, int32_t counter,
                                         const std::vector<SegmentInfoEntry>& segments) const {
     DCHECK(out != nullptr);
     out->WriteInt(kFormatSharedDocStore);
@@ -56,7 +56,7 @@ void SegmentInfosWriter::WriteSegmentsN(LuceneOutput* out, int64_t version, int3
     }
 }
 
-void SegmentInfosWriter::WriteSegmentsGen(LuceneOutput* out, int64_t generation) const {
+void SegmentInfosWriter::WriteSegmentsGen(ByteOutput* out, int64_t generation) const {
     DCHECK(out != nullptr);
     out->WriteInt(kFormatLockless);
     out->WriteLong(generation);

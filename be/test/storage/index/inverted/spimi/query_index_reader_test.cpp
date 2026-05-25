@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/spimi/clucene_index_reader.h"
+#include "storage/index/inverted/spimi/query_index_reader.h"
 
 #include <gtest/gtest.h>
 
@@ -23,7 +23,7 @@
 #include <vector>
 
 #include "storage/index/inverted/spimi/field_infos_writer.h"
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/segment_writer.h"
 
@@ -33,14 +33,14 @@ namespace {
 
 // End-to-end fixture: writes a SPIMI segment via the real
 // SegmentWriter + FieldInfosWriter, then constructs the
-// SpimiCLuceneIndexReader on the resulting bytes. Tests assert
+// SpimiQueryIndexReader on the resulting bytes. Tests assert
 // CLucene's IndexReader contract holds for SPIMI segments.
 struct IndexReaderFixture {
-    MemoryLuceneOutput tis;
-    MemoryLuceneOutput tii;
-    MemoryLuceneOutput frq;
-    MemoryLuceneOutput prx;
-    MemoryLuceneOutput fnm;
+    MemoryByteOutput tis;
+    MemoryByteOutput tii;
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
+    MemoryByteOutput fnm;
 
     void Build(const std::vector<std::tuple<std::string, uint32_t, uint32_t>>& posts,
                int32_t max_doc, std::string_view field_name = "body") {
@@ -61,8 +61,8 @@ struct IndexReaderFixture {
         _max_doc = max_doc;
     }
 
-    std::unique_ptr<SpimiCLuceneIndexReader> Make() {
-        return std::make_unique<SpimiCLuceneIndexReader>(tis.bytes(), tii.bytes(), frq.bytes(),
+    std::unique_ptr<SpimiQueryIndexReader> Make() {
+        return std::make_unique<SpimiQueryIndexReader>(tis.bytes(), tii.bytes(), frq.bytes(),
                                                          prx.bytes(), fnm.bytes(), _max_doc);
     }
 
@@ -71,7 +71,7 @@ struct IndexReaderFixture {
 
 } // namespace
 
-TEST(SpimiCLuceneIndexReaderTest, ReportsBasicMetadata) {
+TEST(SpimiQueryIndexReaderTest, ReportsBasicMetadata) {
     IndexReaderFixture fx;
     fx.Build({{"alpha", 0, 0}, {"alpha", 1, 0}, {"beta", 2, 0}}, /*max_doc=*/3);
     auto reader = fx.Make();
@@ -83,7 +83,7 @@ TEST(SpimiCLuceneIndexReaderTest, ReportsBasicMetadata) {
     EXPECT_NE(reader->getFieldInfos(), nullptr);
 }
 
-TEST(SpimiCLuceneIndexReaderTest, DocFreqLookup) {
+TEST(SpimiQueryIndexReaderTest, DocFreqLookup) {
     IndexReaderFixture fx;
     fx.Build({{"alpha", 0, 0}, {"alpha", 1, 0}, {"alpha", 2, 0}, {"beta", 3, 0}}, /*max_doc=*/4);
     auto reader = fx.Make();
@@ -101,7 +101,7 @@ TEST(SpimiCLuceneIndexReaderTest, DocFreqLookup) {
     _CLDECDELETE(missing);
 }
 
-TEST(SpimiCLuceneIndexReaderTest, TermsEnumeratesEverything) {
+TEST(SpimiQueryIndexReaderTest, TermsEnumeratesEverything) {
     IndexReaderFixture fx;
     fx.Build({{"alpha", 0, 0}, {"beta", 1, 0}, {"gamma", 2, 0}}, /*max_doc=*/3);
     auto reader = fx.Make();
@@ -118,7 +118,7 @@ TEST(SpimiCLuceneIndexReaderTest, TermsEnumeratesEverything) {
     EXPECT_EQ(got, (std::vector<std::wstring> {L"alpha", L"beta", L"gamma"}));
 }
 
-TEST(SpimiCLuceneIndexReaderTest, TermsTargetSkipsForward) {
+TEST(SpimiQueryIndexReaderTest, TermsTargetSkipsForward) {
     IndexReaderFixture fx;
     fx.Build({{"alpha", 0, 0}, {"beta", 1, 0}, {"gamma", 2, 0}, {"delta", 3, 0}}, /*max_doc=*/4);
     auto reader = fx.Make();
@@ -134,7 +134,7 @@ TEST(SpimiCLuceneIndexReaderTest, TermsTargetSkipsForward) {
     _CLDECDELETE(target);
 }
 
-TEST(SpimiCLuceneIndexReaderTest, TermDocsReturnsPostings) {
+TEST(SpimiQueryIndexReaderTest, TermDocsReturnsPostings) {
     IndexReaderFixture fx;
     fx.Build({{"x", 0, 0}, {"x", 5, 0}, {"x", 5, 3}, {"x", 9, 0}}, /*max_doc=*/10);
     auto reader = fx.Make();
@@ -157,7 +157,7 @@ TEST(SpimiCLuceneIndexReaderTest, TermDocsReturnsPostings) {
     _CLDECDELETE(term);
 }
 
-TEST(SpimiCLuceneIndexReaderTest, TermPositionsReturnsPositionsAndDocs) {
+TEST(SpimiQueryIndexReaderTest, TermPositionsReturnsPositionsAndDocs) {
     IndexReaderFixture fx;
     fx.Build({{"x", 0, 1}, {"x", 0, 4}, {"x", 1, 7}}, /*max_doc=*/2);
     auto reader = fx.Make();
@@ -178,7 +178,7 @@ TEST(SpimiCLuceneIndexReaderTest, TermPositionsReturnsPositionsAndDocs) {
     _CLDECDELETE(term);
 }
 
-TEST(SpimiCLuceneIndexReaderTest, NormsReturnsAll124sBuffer) {
+TEST(SpimiQueryIndexReaderTest, NormsReturnsAll124sBuffer) {
     IndexReaderFixture fx;
     fx.Build({{"x", 0, 0}}, /*max_doc=*/5);
     auto reader = fx.Make();
@@ -200,7 +200,7 @@ TEST(SpimiCLuceneIndexReaderTest, NormsReturnsAll124sBuffer) {
     }
 }
 
-TEST(SpimiCLuceneIndexReaderTest, WriteSideMethodsThrow) {
+TEST(SpimiQueryIndexReaderTest, WriteSideMethodsThrow) {
     IndexReaderFixture fx;
     fx.Build({{"x", 0, 0}}, /*max_doc=*/1);
     auto reader = fx.Make();

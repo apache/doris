@@ -21,7 +21,7 @@
 
 #include <string>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
@@ -98,7 +98,7 @@ void AppendUtf8(ByteReader& r, std::string& dst, int32_t length) {
 } // namespace
 
 TEST(SegmentWriterTest, EmptyBufferEmitsHeaderAndFooterOnly) {
-    MemoryLuceneOutput tis, tii, frq, prx;
+    MemoryByteOutput tis, tii, frq, prx;
     SegmentWriter w(&tis, &tii, &frq, &prx);
     SpimiPostingBuffer buffer;
     buffer.Sort();
@@ -116,7 +116,7 @@ TEST(SegmentWriterTest, EmptyBufferEmitsHeaderAndFooterOnly) {
 }
 
 TEST(SegmentWriterTest, SingleTermSingleDocRoundTrip) {
-    MemoryLuceneOutput tis, tii, frq, prx;
+    MemoryByteOutput tis, tii, frq, prx;
     SegmentWriter w(&tis, &tii, &frq, &prx);
     SpimiPostingBuffer buffer;
     buffer.Append("apple", /*doc=*/3, /*pos=*/0);
@@ -162,7 +162,7 @@ TEST(SegmentWriterTest, SingleTermSingleDocRoundTrip) {
 }
 
 TEST(SegmentWriterTest, MultipleTermsAreEmittedInSortedOrder) {
-    MemoryLuceneOutput tis, tii, frq, prx;
+    MemoryByteOutput tis, tii, frq, prx;
     SegmentWriter w(&tis, &tii, &frq, &prx);
     SpimiPostingBuffer buffer;
     // Append out of order to exercise the sort.
@@ -197,7 +197,7 @@ TEST(SegmentWriterTest, MultipleTermsAreEmittedInSortedOrder) {
 }
 
 TEST(SegmentWriterTest, MultiPositionDocsPreserveOrder) {
-    MemoryLuceneOutput tis, tii, frq, prx;
+    MemoryByteOutput tis, tii, frq, prx;
     SegmentWriter w(&tis, &tii, &frq, &prx);
     SpimiPostingBuffer buffer;
     // "the" appears multiple times in doc 5 (positions 0, 4, 9) and once in
@@ -232,7 +232,7 @@ TEST(SegmentWriterTest, MultiPositionDocsPreserveOrder) {
 }
 
 TEST(SegmentWriterTest, FrontCodingAcrossTermsUsesTermDict) {
-    MemoryLuceneOutput tis, tii, frq, prx;
+    MemoryByteOutput tis, tii, frq, prx;
     SegmentWriter w(&tis, &tii, &frq, &prx);
     SpimiPostingBuffer buffer;
     buffer.Append("apple", 0, 0);
@@ -269,7 +269,7 @@ TEST(SegmentWriterTest, FrontCodingAcrossTermsUsesTermDict) {
 }
 
 TEST(SegmentWriterTest, LargeTermEmitsSkipList) {
-    MemoryLuceneOutput tis, tii, frq, prx;
+    MemoryByteOutput tis, tii, frq, prx;
     SegmentWriter w(&tis, &tii, &frq, &prx,
                     /*index_interval=*/128,
                     /*skip_interval=*/4,
@@ -304,7 +304,7 @@ TEST(SegmentWriterTest, LargeTermEmitsSkipList) {
 }
 
 TEST(SegmentWriterTest, CloseIsIdempotent) {
-    MemoryLuceneOutput tis, tii, frq, prx;
+    MemoryByteOutput tis, tii, frq, prx;
     SegmentWriter w(&tis, &tii, &frq, &prx);
     SpimiPostingBuffer buffer;
     buffer.Append("x", 0, 0);

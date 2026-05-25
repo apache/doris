@@ -15,23 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
-void LuceneOutput::WriteInt(int32_t v) {
+void ByteOutput::WriteInt(int32_t v) {
     WriteByte(static_cast<uint8_t>(v >> 24));
     WriteByte(static_cast<uint8_t>(v >> 16));
     WriteByte(static_cast<uint8_t>(v >> 8));
     WriteByte(static_cast<uint8_t>(v));
 }
 
-void LuceneOutput::WriteLong(int64_t v) {
+void ByteOutput::WriteLong(int64_t v) {
     WriteInt(static_cast<int32_t>(v >> 32));
     WriteInt(static_cast<int32_t>(v));
 }
 
-void LuceneOutput::WriteVInt(int32_t v) {
+void ByteOutput::WriteVInt(int32_t v) {
     auto i = static_cast<uint32_t>(v);
     while ((i & ~0x7FU) != 0) {
         WriteByte(static_cast<uint8_t>((i & 0x7FU) | 0x80U));
@@ -40,7 +40,7 @@ void LuceneOutput::WriteVInt(int32_t v) {
     WriteByte(static_cast<uint8_t>(i));
 }
 
-void LuceneOutput::WriteVLong(int64_t v) {
+void ByteOutput::WriteVLong(int64_t v) {
     auto i = static_cast<uint64_t>(v);
     while ((i & ~static_cast<uint64_t>(0x7F)) != 0) {
         WriteByte(static_cast<uint8_t>((i & 0x7FU) | 0x80U));
@@ -49,7 +49,7 @@ void LuceneOutput::WriteVLong(int64_t v) {
     WriteByte(static_cast<uint8_t>(i));
 }
 
-void LuceneOutput::WriteSCharsFromWide(const wchar_t* s, int32_t length) {
+void ByteOutput::WriteSCharsFromWide(const wchar_t* s, int32_t length) {
     for (int32_t i = 0; i < length; ++i) {
         const auto code = static_cast<uint32_t>(s[i]);
         if (code <= 0x7FU) {

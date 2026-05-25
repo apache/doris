@@ -23,7 +23,7 @@
 #include <string>
 #include <vector>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -62,7 +62,7 @@ private:
 } // namespace
 
 TEST(FieldInfosWriterTest, EmptyFieldListIsJustZero) {
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     FieldInfosWriter writer(&out);
     writer.Write({});
 
@@ -72,7 +72,7 @@ TEST(FieldInfosWriterTest, EmptyFieldListIsJustZero) {
 }
 
 TEST(FieldInfosWriterTest, SingleAsciiFieldV0DefaultBits) {
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     FieldInfosWriter writer(&out);
 
     FieldInfoEntry fi;
@@ -95,7 +95,7 @@ TEST(FieldInfosWriterTest, SingleAsciiFieldV0DefaultBits) {
 }
 
 TEST(FieldInfosWriterTest, V4FieldAppendsVersionAndFlags) {
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     FieldInfosWriter writer(&out);
 
     FieldInfoEntry fi;
@@ -119,7 +119,7 @@ TEST(FieldInfosWriterTest, V4FieldAppendsVersionAndFlags) {
 }
 
 TEST(FieldInfosWriterTest, V1FieldEmitsVersionButNotFlags) {
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     FieldInfosWriter writer(&out);
 
     FieldInfoEntry fi;
@@ -138,7 +138,7 @@ TEST(FieldInfosWriterTest, V1FieldEmitsVersionButNotFlags) {
 }
 
 TEST(FieldInfosWriterTest, MultipleFieldsRoundTrip) {
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     FieldInfosWriter writer(&out);
 
     FieldInfoEntry a;
@@ -173,7 +173,7 @@ TEST(FieldInfosWriterTest, MultipleFieldsRoundTrip) {
 }
 
 TEST(FieldInfosWriterTest, CjkFieldNameUsesWideCharLength) {
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     FieldInfosWriter writer(&out);
 
     FieldInfoEntry fi;
@@ -194,7 +194,7 @@ TEST(FieldInfosWriterTest, CjkFieldNameUsesWideCharLength) {
 }
 
 TEST(FieldInfosWriterTest, BitsForBkdLikeNonProxField) {
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     FieldInfosWriter writer(&out);
 
     FieldInfoEntry fi;

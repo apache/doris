@@ -27,7 +27,7 @@
 #include <vector>
 
 #include "storage/index/inverted/spimi/field_infos_writer.h"
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/segment_writer.h"
 
@@ -41,11 +41,11 @@ namespace {
 // path (FieldInfos → TermDict → SpimiTermDocsReader) recovers the
 // exact (doc_id, freq) postings the writer accepted.
 struct SegmentFixture {
-    MemoryLuceneOutput tis;
-    MemoryLuceneOutput tii;
-    MemoryLuceneOutput frq;
-    MemoryLuceneOutput prx;
-    MemoryLuceneOutput fnm;
+    MemoryByteOutput tis;
+    MemoryByteOutput tii;
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
+    MemoryByteOutput fnm;
     int32_t skip_interval;
 
     explicit SegmentFixture(int32_t skip_iv = TermDictWriter::kDefaultSkipInterval,
@@ -82,7 +82,7 @@ TEST(FieldInfosReaderTest, ReadsBackRoundTrippedFields) {
     std::vector<FieldInfoEntry> input {
             {.name = "body", .is_indexed = true, .omit_norms = true, .has_prox = true},
             {.name = "tags", .is_indexed = true, .omit_norms = true, .has_prox = false}};
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     FieldInfosWriter w(&out);
     w.Write(input);
 
@@ -207,13 +207,13 @@ TEST(SpimiSegmentReaderTest, MultipleFieldsLookupByName) {
     // Build .fnm with two fields. Only field 0 has postings written
     // (SegmentWriter is per-field); we only verify name resolution
     // here.
-    MemoryLuceneOutput fnm;
+    MemoryByteOutput fnm;
     {
         FieldInfosWriter w(&fnm);
         w.Write({{.name = "body", .is_indexed = true, .omit_norms = true, .has_prox = true},
                  {.name = "title", .is_indexed = true, .omit_norms = true, .has_prox = true}});
     }
-    MemoryLuceneOutput tis, tii, frq, prx;
+    MemoryByteOutput tis, tii, frq, prx;
     SpimiPostingBuffer buf;
     buf.Append("hello", 0, 0);
     buf.Sort();

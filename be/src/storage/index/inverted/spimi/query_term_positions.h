@@ -28,21 +28,21 @@
 #include <cstdint>
 #include <vector>
 
-#include "storage/index/inverted/spimi/clucene_term_docs.h"
+#include "storage/index/inverted/spimi/query_term_docs.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
 // `lucene::index::TermPositions` subclass exposing positions
 // (`nextPosition()`) on top of the (doc, freq) stream from
-// `SpimiCLuceneTermDocs`. The CLucene query engine uses
+// `SpimiQueryTermDocs`. The CLucene query engine uses
 // TermPositions for PhraseQuery, MATCH_PHRASE_PREFIX, MATCH_REGEXP,
 // MATCH_PHRASE_EDGE — without this class those query types would
 // be unreachable on SPIMI segments.
 //
 // Diamond inheritance: `TermPositions` virtually inherits from
-// `TermDocs`, and `SpimiCLuceneTermDocs` is declared
+// `TermDocs`, and `SpimiQueryTermDocs` is declared
 // `public virtual TermDocs`. Multiply inheriting from both
-// `SpimiCLuceneTermDocs` and `TermPositions` shares the same
+// `SpimiQueryTermDocs` and `TermPositions` shares the same
 // `TermDocs` subobject — the standard CLucene pattern (see
 // `SegmentTermPositions : public SegmentTermDocs, public
 // TermPositions` in `_SegmentHeader.h:286`).
@@ -58,20 +58,20 @@ namespace doris::segment_v2::inverted_index::spimi {
 // Payloads: not supported. SPIMI does not write payloads, and the
 // production fulltext path does not consume them. The payload-API
 // virtuals return zero / nullptr / false.
-class SpimiCLuceneTermPositions final : public SpimiCLuceneTermDocs,
+class SpimiQueryTermPositions final : public SpimiQueryTermDocs,
                                         public lucene::index::TermPositions {
 public:
-    SpimiCLuceneTermPositions(const TermDictReader* term_dict, const uint8_t* frq_data,
+    SpimiQueryTermPositions(const TermDictReader* term_dict, const uint8_t* frq_data,
                               size_t frq_length, const uint8_t* prx_data, size_t prx_length,
                               const std::vector<FieldInfoEntry>* field_infos,
                               const std::vector<std::wstring>* field_names_wide);
 
-    ~SpimiCLuceneTermPositions() override;
+    ~SpimiQueryTermPositions() override;
 
-    SpimiCLuceneTermPositions(const SpimiCLuceneTermPositions&) = delete;
-    SpimiCLuceneTermPositions& operator=(const SpimiCLuceneTermPositions&) = delete;
+    SpimiQueryTermPositions(const SpimiQueryTermPositions&) = delete;
+    SpimiQueryTermPositions& operator=(const SpimiQueryTermPositions&) = delete;
 
-    // TermDocs overrides — forward to the SpimiCLuceneTermDocs base
+    // TermDocs overrides — forward to the SpimiQueryTermDocs base
     // and refresh per-term position state.
     void seek(lucene::index::Term* term) override;
     void seek(lucene::index::TermEnum* term_enum) override;
@@ -91,7 +91,7 @@ public:
     // TermPositions::read() is intentionally not a batch API for
     // (doc, freq) — CLucene's `SegmentTermPositions::read` throws
     // UnsupportedOperationException. We follow the same convention:
-    // the read overloads inherited from `SpimiCLuceneTermDocs` work
+    // the read overloads inherited from `SpimiQueryTermDocs` work
     // for (doc, freq) batch but ignore positions.
     int32_t read(int32_t* docs, int32_t* freqs, int32_t length) override;
     int32_t read(int32_t* docs, int32_t* freqs, int32_t* norms, int32_t length) override;
@@ -107,7 +107,7 @@ private:
 
     // [doc_index][pos_index] — positions for each doc in the term's
     // postings list, in the order the docs appear in
-    // `SpimiCLuceneTermDocs::_docs`.
+    // `SpimiQueryTermDocs::_docs`.
     std::vector<std::vector<int32_t>> _positions;
 
     // Index of the next position to consume within the current doc.

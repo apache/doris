@@ -23,7 +23,7 @@
 
 namespace doris::segment_v2::inverted_index::spimi {
 
-class LuceneOutput;
+class ByteOutput;
 
 // SPIMI PFOR (Patched Frame Of Reference) encoder for `.frq` / `.prx`
 // blocks of uint32_t deltas. The format is **NOT** byte-compatible with
@@ -74,11 +74,11 @@ public:
     // ≤ kBlockSize. `values` may be modified (the encoder may use it
     // as scratch). Returns bytes written (after the VInt + width
     // byte + bitpacked payload).
-    static size_t EncodeBlock(uint32_t* values, size_t count, LuceneOutput* out);
+    static size_t EncodeBlock(uint32_t* values, size_t count, ByteOutput* out);
 
-    // Test seam: encodes into a vector (bypasses LuceneOutput). The
+    // Test seam: encodes into a vector (bypasses ByteOutput). The
     // resulting bytes are exactly what `EncodeBlock` writes (modulo
-    // the LuceneOutput wrapping).
+    // the ByteOutput wrapping).
     static std::vector<uint8_t> EncodeBlockToBytes(const std::vector<uint32_t>& values);
 };
 

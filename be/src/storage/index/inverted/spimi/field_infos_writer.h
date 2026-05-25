@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -41,13 +41,13 @@ struct FieldInfoEntry {
 };
 
 // Reimplements CLucene's `FieldInfos::write(IndexOutput*)` byte-for-byte
-// against a Doris-owned LuceneOutput. Format (Lucene 2.x, FORMAT-tracked
+// against a Doris-owned ByteOutput. Format (Lucene 2.x, FORMAT-tracked
 // by the field bits):
 //
 //   vint   field_count
 //   per field:
 //     vint   name_length             (in wide chars)
-//     bytes  name                    (modified UTF-8 from LuceneOutput)
+//     bytes  name                    (modified UTF-8 from ByteOutput)
 //     byte   bits                    (IS_INDEXED|STORE_TERMVECTOR|...|
 //                                     TERM_FREQ_AND_POSITIONS|0x80 if V>V0)
 //     vint   index_version           (only if index_version > kV0)
@@ -77,7 +77,7 @@ public:
     static constexpr int32_t kIndexVersionV1 = 1;
     static constexpr int32_t kIndexVersionV3 = 3;
 
-    explicit FieldInfosWriter(LuceneOutput* out);
+    explicit FieldInfosWriter(ByteOutput* out);
 
     FieldInfosWriter(const FieldInfosWriter&) = delete;
     FieldInfosWriter& operator=(const FieldInfosWriter&) = delete;
@@ -88,7 +88,7 @@ public:
 private:
     static uint8_t ComputeBits(const FieldInfoEntry& fi);
 
-    LuceneOutput* _out;
+    ByteOutput* _out;
 };
 
 } // namespace doris::segment_v2::inverted_index::spimi

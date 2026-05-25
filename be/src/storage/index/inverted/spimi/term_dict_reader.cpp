@@ -17,23 +17,17 @@
 
 #include "storage/index/inverted/spimi/term_dict_reader.h"
 
-// `_CLTHROWA` (used for byte-parser hard-fail) is declared here.
-// StdHeader.h sets up the CLUCENE_EXPORT / CL_NS_DEF macros that
-// debug/error.h depends on — including error.h alone breaks the
-// build with "incomplete type 'class CLUCENE_EXPORT'".
-#include <CLucene/StdHeader.h>
-#include <CLucene/debug/error.h>
-
 #include <algorithm>
 
 #include "common/logging.h"
+#include "storage/index/inverted/spimi/byte_parser_error.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
 namespace {
 
 // Stateful cursor over a `.tis` / `.tii` byte buffer. Inverses the
-// `LuceneOutput::Write*` primitives byte-for-byte.
+// `ByteOutput::Write*` primitives byte-for-byte.
 class ByteCursor {
 public:
     ByteCursor(const uint8_t* data, size_t len, size_t pos = 0)
@@ -48,7 +42,7 @@ public:
         // `SpimiSearcherBuilder::build` which converts it to
         // `INVERTED_INDEX_FILE_CORRUPTED`.
         if (_pos >= _len) [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI .tis/.tii read past end of buffer");
+            SPIMI_THROW_CORRUPT("SPIMI .tis/.tii read past end of buffer");
         }
         return _data[_pos++];
     }
@@ -77,7 +71,7 @@ public:
             // Bound shift to defeat crafted-bytes UB. See
             // term_docs_reader.cpp ReadVInt comment.
             if (shift >= 32U) [[unlikely]] {
-                _CLTHROWA(CL_ERR_IO, "SPIMI .tis/.tii VInt: shift overflow on crafted input");
+                SPIMI_THROW_CORRUPT("SPIMI .tis/.tii VInt: shift overflow on crafted input");
             }
         }
         return static_cast<int32_t>(v);
@@ -96,16 +90,16 @@ public:
             // .tis with ≥10 continuation bytes would otherwise drive
             // shift past 64 (e.g. 70, 77) — bound here.
             if (shift >= 64U) [[unlikely]] {
-                _CLTHROWA(CL_ERR_IO, "SPIMI .tis/.tii VLong: shift overflow on crafted input");
+                SPIMI_THROW_CORRUPT("SPIMI .tis/.tii VLong: shift overflow on crafted input");
             }
         }
         return static_cast<int64_t>(v);
     }
-    // Inverse of `LuceneOutput::WriteSCharsFromWide`. Decodes
+    // Inverse of `ByteOutput::WriteSCharsFromWide`. Decodes
     // `length` schars from the stream into a wide string. The 4-byte
     // branch is the unusual modified form CLucene uses (lead byte
     // 0x80..0x84 with a high bit set rather than the 0xF0.. prefix
-    // standard UTF-8 expects); see `lucene_output.cpp:64` for the
+    // standard UTF-8 expects); see `byte_output.cpp:64` for the
     // writer side. The reader detects it by elimination: a byte with
     // the high bit set that is not 110xxxxx / 1110xxxx / 11110xxx
     // must be a modified-4-byte lead.
@@ -179,7 +173,7 @@ void DecodeEntry(ByteCursor& cur, int32_t skip_interval, EntryState& state) {
     // release builds.
     if (prefix < 0 || suffix < 0 || static_cast<size_t>(prefix) > state.term_wide.size())
             [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .tis: malformed term prefix/suffix length");
+        SPIMI_THROW_CORRUPT("SPIMI .tis: malformed term prefix/suffix length");
     }
     state.term_wide.resize(static_cast<size_t>(prefix));
     if (suffix > 0) {
@@ -190,7 +184,7 @@ void DecodeEntry(ByteCursor& cur, int32_t skip_interval, EntryState& state) {
     state.info.freq_pointer += cur.ReadVLong();
     state.info.prox_pointer += cur.ReadVLong();
     if (state.info.doc_freq < 0) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .tis: negative doc_freq");
+        SPIMI_THROW_CORRUPT("SPIMI .tis: negative doc_freq");
     }
     if (state.info.doc_freq >= skip_interval) {
         state.info.skip_offset = cur.ReadVInt();
@@ -219,12 +213,12 @@ size_t TermDictReader::DecodeHeader(const std::vector<uint8_t>& bytes, int32_t* 
                                     int32_t* skip_interval) {
     // Header must fit; untrusted-byte hard-fail.
     if (bytes.size() < 24U) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .tis/.tii header too short");
+        SPIMI_THROW_CORRUPT("SPIMI .tis/.tii header too short");
     }
     ByteCursor cur(bytes.data(), bytes.size());
     const int32_t format = cur.ReadInt32BE();
     if (format != TermDictWriter::kFormat) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .tis/.tii FORMAT mismatch");
+        SPIMI_THROW_CORRUPT("SPIMI .tis/.tii FORMAT mismatch");
     }
     [[maybe_unused]] const int64_t legacy_size = cur.ReadInt64BE(); // always -1
     *index_interval = cur.ReadInt32BE();
@@ -242,7 +236,7 @@ TermDictReader::TermDictReader(const std::vector<uint8_t>& tis_bytes,
     _tis_data_start = DecodeHeader(_tis_bytes, &_index_interval, &_skip_interval);
     if (tii_index_interval != _index_interval || tii_skip_interval != _skip_interval)
             [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .tii / .tis index/skip interval mismatch");
+        SPIMI_THROW_CORRUPT("SPIMI .tii / .tis index/skip interval mismatch");
     }
 
     // `LookupTerm` computes `_tis_bytes.size() - 8U` to find the .tis
@@ -252,12 +246,12 @@ TermDictReader::TermDictReader(const std::vector<uint8_t>& tis_bytes,
     // `size() - 8U` subtraction underflows `size_t` and the resulting
     // ByteCursor reads arbitrary heap until a fortuitous `_CLTHROWA`.
     if (_tis_bytes.size() < _tis_data_start + 8U) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .tis missing footer (size < header + 8)");
+        SPIMI_THROW_CORRUPT("SPIMI .tis missing footer (size < header + 8)");
     }
 
     // Read .tii footer (.tii has two trailing int64: tii_size, tis_size).
     if (tii_bytes.size() < 16U) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .tii footer underflow");
+        SPIMI_THROW_CORRUPT("SPIMI .tii footer underflow");
     }
     {
         ByteCursor footer(tii_bytes.data(), tii_bytes.size(), tii_bytes.size() - 16U);
@@ -267,7 +261,7 @@ TermDictReader::TermDictReader(const std::vector<uint8_t>& tis_bytes,
             // tii_size == 0 (or negative) would leave `_tii_entries`
             // empty; `LookupTerm` then OOBs on the sentinel-must-
             // exist invariant. Huge tii_size DOS'd via reserve().
-            _CLTHROWA(CL_ERR_IO, "SPIMI .tii size invalid (must be >= 1 and bounded)");
+            SPIMI_THROW_CORRUPT("SPIMI .tii size invalid (must be >= 1 and bounded)");
         }
         _tii_entries.reserve(static_cast<size_t>(tii_size));
     }
@@ -298,13 +292,13 @@ TermDictReader::TermDictReader(const std::vector<uint8_t>& tis_bytes,
     // `LowerBoundTiiEntry` returns `lo - 1 = SIZE_MAX` and
     // `_tii_entries[SIZE_MAX]` is heap OOB read in release.
     if (_tii_entries.empty()) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .tii decoded no entries — sentinel missing");
+        SPIMI_THROW_CORRUPT("SPIMI .tii decoded no entries — sentinel missing");
     }
     // Sentinel invariant: the first entry MUST be the writer's
     // sentinel (field=-1, term=""). Without this, the lo-1
     // underflow on a smaller-than-anything lookup is unguarded.
     if (_tii_entries[0].field_number != -1 || !_tii_entries[0].term_wide.empty()) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .tii sentinel entry malformed");
+        SPIMI_THROW_CORRUPT("SPIMI .tii sentinel entry malformed");
     }
 }
 

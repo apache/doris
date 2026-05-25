@@ -18,12 +18,11 @@
 #include "storage/index/inverted/spimi/term_docs_reader.h"
 
 // `_CLTHROWA` for byte-parser hard-fail on untrusted .frq bytes.
-#include <CLucene/StdHeader.h>
-#include <CLucene/debug/error.h>
 
 #include <algorithm>
 
 #include "common/logging.h"
+#include "storage/index/inverted/spimi/byte_parser_error.h"
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
 #include "storage/index/inverted/spimi/pfor_encoder.h"
 
@@ -31,8 +30,8 @@ namespace doris::segment_v2::inverted_index::spimi {
 
 namespace {
 
-// Tiny byte-stream cursor mirroring what `LuceneOutput` writes.
-// `LuceneOutput::WriteVInt` uses 7-bit groups with continuation bit
+// Tiny byte-stream cursor mirroring what `ByteOutput` writes.
+// `ByteOutput::WriteVInt` uses 7-bit groups with continuation bit
 // 0x80, which matches `IndexInput::readVInt` byte-for-byte.
 class ByteStream {
 public:
@@ -40,7 +39,7 @@ public:
 
     uint8_t ReadByte() {
         if (_pos >= _len) [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI .frq read past end of buffer");
+            SPIMI_THROW_CORRUPT("SPIMI .frq read past end of buffer");
         }
         return _data[_pos++];
     }
@@ -60,14 +59,14 @@ public:
             // BMI `shlx` which masks the count, silently truncating the
             // decoded value. Hard-fail instead.
             if (shift >= 32U) [[unlikely]] {
-                _CLTHROWA(CL_ERR_IO, "SPIMI .frq VInt: shift overflow on crafted input");
+                SPIMI_THROW_CORRUPT("SPIMI .frq VInt: shift overflow on crafted input");
             }
         }
         return static_cast<int32_t>(v);
     }
     void ReadInto(std::vector<uint8_t>* out, size_t n) {
         if (_pos + n > _len || _pos + n < _pos /*overflow*/) [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI .frq ReadInto bounds violation");
+            SPIMI_THROW_CORRUPT("SPIMI .frq ReadInto bounds violation");
         }
         out->insert(out->end(), _data + _pos, _data + _pos + n);
         _pos += n;
@@ -105,14 +104,14 @@ std::vector<uint32_t> DecodePforRun(ByteStream& cur, int32_t count) {
         // which the upper layer already validated as a sensible
         // bound (≤ max_doc per the segment manifest).
         if (n <= 0 || n > count - collected) [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI .frq PFOR sub-block count out of range");
+            SPIMI_THROW_CORRUPT("SPIMI .frq PFOR sub-block count out of range");
         }
         const uint8_t width = cur.ReadByte() & 0x3FU;
         // Validate width BEFORE the reserve so a crafted width=63 +
         // n=16M can't allocate ~126 MB before rejection. Encoder
         // emits width ∈ [1, 32]; decoder accepts the same range.
         if (width == 0 || width > 32U) [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI .frq invalid PFOR bit width");
+            SPIMI_THROW_CORRUPT("SPIMI .frq invalid PFOR bit width");
         }
         const size_t bit_bytes = (static_cast<size_t>(n) * width + 7U) / 8U;
         std::vector<uint8_t> block;
@@ -138,13 +137,13 @@ std::vector<uint32_t> DecodePforRun(ByteStream& cur, int32_t count) {
         std::vector<uint32_t> sub;
         SpimiPforDecoder::DecodeBlockFromBytes(block, &sub);
         if (sub.size() != static_cast<size_t>(n)) [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI .frq PFOR sub-block decoded count mismatch");
+            SPIMI_THROW_CORRUPT("SPIMI .frq PFOR sub-block decoded count mismatch");
         }
         values.insert(values.end(), sub.begin(), sub.end());
         collected += n;
     }
     if (collected != count) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .frq PFOR run total mismatch");
+        SPIMI_THROW_CORRUPT("SPIMI .frq PFOR run total mismatch");
     }
     return values;
 }
@@ -165,7 +164,7 @@ std::vector<SpimiTermDocsReader::DocFreq> SpimiTermDocsReader::ReadTerm(const ui
     // (`ByteStream::ReadByte`, `DecodePforRun`) will catch a truly
     // truncated buffer.
     if (doc_freq <= 0 || frq_length == 0U) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .frq ReadTerm: bad doc_freq / buffer length");
+        SPIMI_THROW_CORRUPT("SPIMI .frq ReadTerm: bad doc_freq / buffer length");
     }
 
     ByteStream cur(frq_data, frq_length);
@@ -184,8 +183,8 @@ std::vector<SpimiTermDocsReader::DocFreq> SpimiTermDocsReader::ReadTerm(const ui
         // can't silently corrupt the read.
         const int32_t recorded = cur.ReadVInt();
         if (recorded != doc_freq) [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO,
-                      "SPIMI .frq kDefault VInt(docCount) disagrees with .tis docFreq");
+            SPIMI_THROW_CORRUPT(
+                    "SPIMI .frq kDefault VInt(docCount) disagrees with .tis docFreq");
         }
         int32_t last_doc = 0;
         for (int32_t i = 0; i < doc_freq; ++i) {
@@ -224,7 +223,7 @@ std::vector<SpimiTermDocsReader::DocFreq> SpimiTermDocsReader::ReadTerm(const ui
     // Unknown CodeMode byte on a corrupt segment must not crash the
     // BE process. Hard-throw so the search-path catch surfaces it
     // as `INVERTED_INDEX_FILE_CORRUPTED`.
-    _CLTHROWA(CL_ERR_IO, "SPIMI .frq unknown CodeMode byte");
+    SPIMI_THROW_CORRUPT("SPIMI .frq unknown CodeMode byte");
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

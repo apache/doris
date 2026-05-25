@@ -22,16 +22,16 @@
 
 #include "common/status.h"
 #include "io/fs/file_writer.h"
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
-// LuceneOutput backed by an io::FileWriter. Buffers writes in memory and
+// ByteOutput backed by an io::FileWriter. Buffers writes in memory and
 // flushes in 64 KB chunks (matching CLucene's IndexOutput buffer size) so
 // the integration layer can write directly into Doris segment file writers
 // without round-tripping through std::vector first.
 //
-// The LuceneOutput interface does not return Status from each call (it
+// The ByteOutput interface does not return Status from each call (it
 // mirrors CLucene's signature), so write errors are captured in `_status`
 // and made available via `status()` / `Finish()`. Once an error is seen,
 // subsequent WriteByte / WriteBytes calls are no-ops (the test harness can
@@ -40,15 +40,15 @@ namespace doris::segment_v2::inverted_index::spimi {
 // the buffer and returns the accumulated status.
 //
 // Ownership: this class does not own the FileWriter; the caller is
-// responsible for keeping it alive for the lifetime of the FileLuceneOutput
+// responsible for keeping it alive for the lifetime of the FileByteOutput
 // and for calling FileWriter::close() after Finish().
-class FileLuceneOutput final : public LuceneOutput {
+class FileByteOutput final : public ByteOutput {
 public:
     static constexpr size_t kDefaultBufferSize = 64 * 1024;
 
-    FileLuceneOutput(io::FileWriter* file_writer, size_t buffer_size = kDefaultBufferSize);
+    FileByteOutput(io::FileWriter* file_writer, size_t buffer_size = kDefaultBufferSize);
 
-    ~FileLuceneOutput() override = default;
+    ~FileByteOutput() override = default;
 
     void WriteByte(uint8_t b) override;
     void WriteBytes(const uint8_t* b, size_t len) override;

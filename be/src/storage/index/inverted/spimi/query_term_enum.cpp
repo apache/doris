@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/spimi/clucene_term_enum.h"
+#include "storage/index/inverted/spimi/query_term_enum.h"
 
 #include "common/logging.h"
 
@@ -122,7 +122,7 @@ private:
 
 } // namespace
 
-SpimiCLuceneTermEnum::SpimiCLuceneTermEnum(const uint8_t* tis_data, size_t tis_length,
+SpimiQueryTermEnum::SpimiQueryTermEnum(const uint8_t* tis_data, size_t tis_length,
                                            int32_t skip_interval,
                                            std::vector<std::wstring> field_names_by_number)
         : _tis_data(tis_data),
@@ -140,14 +140,14 @@ SpimiCLuceneTermEnum::SpimiCLuceneTermEnum(const uint8_t* tis_data, size_t tis_l
     Init();
 }
 
-SpimiCLuceneTermEnum::~SpimiCLuceneTermEnum() {
+SpimiQueryTermEnum::~SpimiQueryTermEnum() {
     if (_current_term != nullptr) {
         _CLDECDELETE(_current_term);
         _current_term = nullptr;
     }
 }
 
-void SpimiCLuceneTermEnum::Init() {
+void SpimiQueryTermEnum::Init() {
     Cursor cur(_tis_data, _tis_length, _pos);
     const int32_t format = cur.ReadInt32BE();
     if (format != TermDictWriter::kFormat) [[unlikely]] {
@@ -166,7 +166,7 @@ void SpimiCLuceneTermEnum::Init() {
     _data_start = _pos;
 }
 
-bool SpimiCLuceneTermEnum::next() {
+bool SpimiQueryTermEnum::next() {
     if (_exhausted) {
         return false;
     }
@@ -178,7 +178,7 @@ bool SpimiCLuceneTermEnum::next() {
     return true;
 }
 
-void SpimiCLuceneTermEnum::DecodeOne() {
+void SpimiQueryTermEnum::DecodeOne() {
     Cursor cur(_tis_data, _tis_length, _pos);
     const int32_t prefix = cur.ReadVInt();
     const int32_t suffix = cur.ReadVInt();
@@ -222,7 +222,7 @@ void SpimiCLuceneTermEnum::DecodeOne() {
     _current_term = _CLNEW lucene::index::Term(field_name, _current_term_text.c_str());
 }
 
-lucene::index::Term* SpimiCLuceneTermEnum::term(bool pointer) {
+lucene::index::Term* SpimiQueryTermEnum::term(bool pointer) {
     if (_current_term == nullptr) {
         return nullptr;
     }
@@ -232,11 +232,11 @@ lucene::index::Term* SpimiCLuceneTermEnum::term(bool pointer) {
     return _current_term;
 }
 
-int32_t SpimiCLuceneTermEnum::docFreq() const {
+int32_t SpimiQueryTermEnum::docFreq() const {
     return _current_info.doc_freq;
 }
 
-void SpimiCLuceneTermEnum::close() {
+void SpimiQueryTermEnum::close() {
     if (_current_term != nullptr) {
         _CLDECDELETE(_current_term);
         _current_term = nullptr;

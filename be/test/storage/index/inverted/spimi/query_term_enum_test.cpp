@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/spimi/clucene_term_enum.h"
+#include "storage/index/inverted/spimi/query_term_enum.h"
 
 #include <CLucene/index/Term.h>
 #include <gtest/gtest.h>
@@ -23,7 +23,7 @@
 #include <string>
 #include <vector>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/segment_writer.h"
 #include "storage/index/inverted/spimi/term_dict_writer.h"
@@ -33,14 +33,14 @@ namespace doris::segment_v2::inverted_index::spimi {
 namespace {
 
 // Builds a real `.tis` byte buffer via `SegmentWriter` and constructs
-// `SpimiCLuceneTermEnum` over it. Any byte-format drift between
+// `SpimiQueryTermEnum` over it. Any byte-format drift between
 // writer and enum would surface here because we never hand-craft
 // bytes.
 struct EnumFixture {
-    MemoryLuceneOutput tis;
-    MemoryLuceneOutput tii;
-    MemoryLuceneOutput frq;
-    MemoryLuceneOutput prx;
+    MemoryByteOutput tis;
+    MemoryByteOutput tii;
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
     int32_t skip_interval;
 
     explicit EnumFixture(int32_t skip_iv = TermDictWriter::kDefaultSkipInterval)
@@ -58,8 +58,8 @@ struct EnumFixture {
         w.Close();
     }
 
-    std::unique_ptr<SpimiCLuceneTermEnum> MakeEnum() {
-        return std::make_unique<SpimiCLuceneTermEnum>(tis.bytes().data(), tis.bytes().size(),
+    std::unique_ptr<SpimiQueryTermEnum> MakeEnum() {
+        return std::make_unique<SpimiQueryTermEnum>(tis.bytes().data(), tis.bytes().size(),
                                                       skip_interval,
                                                       std::vector<std::wstring> {L"body"});
     }
@@ -81,7 +81,7 @@ struct EnumFixture {
 
 } // namespace
 
-TEST(SpimiCLuceneTermEnumTest, IteratesSingleTerm) {
+TEST(SpimiQueryTermEnumTest, IteratesSingleTerm) {
     EnumFixture fx;
     fx.Write({{"alpha", 0, 0}});
     auto enumerator = fx.MakeEnum();
@@ -97,7 +97,7 @@ TEST(SpimiCLuceneTermEnumTest, IteratesSingleTerm) {
     EXPECT_FALSE(enumerator->next()); // idempotent past-end
 }
 
-TEST(SpimiCLuceneTermEnumTest, IteratesMultipleTermsInOrder) {
+TEST(SpimiQueryTermEnumTest, IteratesMultipleTermsInOrder) {
     EnumFixture fx;
     fx.Write({{"alpha", 0, 0}, {"beta", 1, 0}, {"gamma", 2, 0}, {"gamma", 3, 0}});
     auto enumerator = fx.MakeEnum();
@@ -117,8 +117,8 @@ TEST(SpimiCLuceneTermEnumTest, IteratesMultipleTermsInOrder) {
     EXPECT_FALSE(enumerator->next());
 }
 
-TEST(SpimiCLuceneTermEnumTest, ExposesTermInfoForDownstreamReaders) {
-    // `term_info()` is the bridge for `SpimiCLuceneTermDocs::seek` to
+TEST(SpimiQueryTermEnumTest, ExposesTermInfoForDownstreamReaders) {
+    // `term_info()` is the bridge for `SpimiQueryTermDocs::seek` to
     // get freq_pointer/prox_pointer without re-binary-searching .tis.
     EnumFixture fx;
     fx.Write({{"alpha", 0, 0}, {"beta", 1, 0}});
@@ -135,7 +135,7 @@ TEST(SpimiCLuceneTermEnumTest, ExposesTermInfoForDownstreamReaders) {
     EXPECT_GT(enumerator->term_info().freq_pointer, 0);
 }
 
-TEST(SpimiCLuceneTermEnumTest, TermPointerBumpsRefcount) {
+TEST(SpimiQueryTermEnumTest, TermPointerBumpsRefcount) {
     EnumFixture fx;
     fx.Write({{"alpha", 0, 0}});
     auto enumerator = fx.MakeEnum();
@@ -150,7 +150,7 @@ TEST(SpimiCLuceneTermEnumTest, TermPointerBumpsRefcount) {
     enumerator->close();
 }
 
-TEST(SpimiCLuceneTermEnumTest, HandlesUtf8MultiByteTerms) {
+TEST(SpimiQueryTermEnumTest, HandlesUtf8MultiByteTerms) {
     EnumFixture fx;
     // Sort is by wide-char codepoint, ASCII-first:
     //   "café"   = c(0x63) ...

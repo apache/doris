@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/spimi/index_output_lucene_output.h"
+#include "storage/index/inverted/spimi/index_output_byte_output.h"
 
 #include <CLucene.h>
 #include <CLucene/store/IndexInput.h>
@@ -25,7 +25,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/segment_writer.h"
 
@@ -52,11 +52,11 @@ std::vector<uint8_t> SlurpRamFile(lucene::store::RAMDirectory* dir, const char* 
 
 } // namespace
 
-TEST(IndexOutputLuceneOutputTest, ForwardsPrimitivesToCLuceneIndexOutput) {
+TEST(IndexOutputByteOutputTest, ForwardsPrimitivesToCLuceneIndexOutput) {
     lucene::store::RAMDirectory ram;
     auto* out = ram.createOutput("primitives.bin");
     {
-        IndexOutputLuceneOutput adapter(out);
+        IndexOutputByteOutput adapter(out);
         adapter.WriteInt(0x01020304);
         adapter.WriteLong(-1);
         adapter.WriteVInt(300);
@@ -66,8 +66,8 @@ TEST(IndexOutputLuceneOutputTest, ForwardsPrimitivesToCLuceneIndexOutput) {
     out->close();
     _CLDELETE(out);
 
-    // Reference: same primitives through MemoryLuceneOutput.
-    MemoryLuceneOutput mem;
+    // Reference: same primitives through MemoryByteOutput.
+    MemoryByteOutput mem;
     mem.WriteInt(0x01020304);
     mem.WriteLong(-1);
     mem.WriteVInt(300);
@@ -76,17 +76,17 @@ TEST(IndexOutputLuceneOutputTest, ForwardsPrimitivesToCLuceneIndexOutput) {
     EXPECT_EQ(SlurpRamFile(&ram, "primitives.bin"), mem.bytes());
 }
 
-TEST(IndexOutputLuceneOutputTest, SegmentWriterEmitsThroughCLuceneDirectory) {
+TEST(IndexOutputByteOutputTest, SegmentWriterEmitsThroughCLuceneDirectory) {
     lucene::store::RAMDirectory ram;
     auto* tis = ram.createOutput("_0.tis");
     auto* tii = ram.createOutput("_0.tii");
     auto* frq = ram.createOutput("_0.frq");
     auto* prx = ram.createOutput("_0.prx");
     {
-        IndexOutputLuceneOutput tis_out(tis);
-        IndexOutputLuceneOutput tii_out(tii);
-        IndexOutputLuceneOutput frq_out(frq);
-        IndexOutputLuceneOutput prx_out(prx);
+        IndexOutputByteOutput tis_out(tis);
+        IndexOutputByteOutput tii_out(tii);
+        IndexOutputByteOutput frq_out(frq);
+        IndexOutputByteOutput prx_out(prx);
         SegmentWriter w(&tis_out, &tii_out, &frq_out, &prx_out);
 
         SpimiPostingBuffer buffer;
@@ -102,8 +102,8 @@ TEST(IndexOutputLuceneOutputTest, SegmentWriterEmitsThroughCLuceneDirectory) {
         _CLDELETE(o);
     }
 
-    // Reference: same buffer through MemoryLuceneOutputs.
-    MemoryLuceneOutput m_tis, m_tii, m_frq, m_prx;
+    // Reference: same buffer through MemoryByteOutputs.
+    MemoryByteOutput m_tis, m_tii, m_frq, m_prx;
     SegmentWriter mw(&m_tis, &m_tii, &m_frq, &m_prx);
     SpimiPostingBuffer buffer;
     buffer.Append("apple", 0, 0);

@@ -33,7 +33,7 @@
 #include <tuple>
 #include <vector>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/pfor_encoder.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/segment_writer.h"
@@ -108,7 +108,7 @@ private:
 };
 
 // Decodes one wide char using the same modified-UTF-8 rule the writer uses
-// (LuceneOutput::WriteSCharsFromWide).
+// (ByteOutput::WriteSCharsFromWide).
 wchar_t DecodeWideChar(ByteReader& r) {
     const uint8_t b0 = r.Byte();
     if ((b0 & 0x80U) == 0) {
@@ -324,7 +324,7 @@ std::vector<ReconstructedTerm> ReconstructSegment(const std::vector<uint8_t>& ti
 } // namespace
 
 TEST(SegmentRoundtripTest, ReconstructsHandCraftedInputExactly) {
-    MemoryLuceneOutput tis, tii, frq, prx;
+    MemoryByteOutput tis, tii, frq, prx;
     SegmentWriter w(&tis, &tii, &frq, &prx);
 
     SpimiPostingBuffer buffer;
@@ -393,7 +393,7 @@ TEST(SegmentRoundtripTest, RandomisedInputReconstructsBitForBit) {
         }
     }
 
-    MemoryLuceneOutput tis, tii, frq, prx;
+    MemoryByteOutput tis, tii, frq, prx;
     // Use a small skip interval to exercise the skip-list code path with
     // realistic doc counts.
     SegmentWriter w(&tis, &tii, &frq, &prx,
@@ -424,7 +424,7 @@ TEST(SegmentRoundtripTest, RandomisedInputReconstructsBitForBit) {
 }
 
 TEST(SegmentRoundtripTest, FilePointersInTermDictMatchByteOffsets) {
-    MemoryLuceneOutput tis, tii, frq, prx;
+    MemoryByteOutput tis, tii, frq, prx;
     SegmentWriter w(&tis, &tii, &frq, &prx);
     SpimiPostingBuffer buffer;
     buffer.Append("a", 0, 0);

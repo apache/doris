@@ -52,7 +52,7 @@ int32_t CompareTermsByField(int32_t prev_field, const std::wstring& prev_term, i
 
 } // namespace
 
-TermDictWriter::TermDictWriter(LuceneOutput* tis_out, LuceneOutput* tii_out, int32_t index_interval,
+TermDictWriter::TermDictWriter(ByteOutput* tis_out, ByteOutput* tii_out, int32_t index_interval,
                                int32_t skip_interval)
         : _tis_out(tis_out),
           _tii_out(tii_out),
@@ -69,7 +69,7 @@ TermDictWriter::TermDictWriter(LuceneOutput* tis_out, LuceneOutput* tii_out, int
     WriteHeader(_tii_out);
 }
 
-void TermDictWriter::WriteHeader(LuceneOutput* out) const {
+void TermDictWriter::WriteHeader(ByteOutput* out) const {
     out->WriteInt(kFormat);
     out->WriteLong(-1);
     out->WriteInt(_index_interval);
@@ -107,7 +107,7 @@ void TermDictWriter::Add(int32_t field_number, std::string_view term_utf8, const
 
 void TermDictWriter::WriteEntry(Stream stream, int32_t field_number, const std::wstring& term_wide,
                                 const TermInfo& info) {
-    LuceneOutput* out = (stream == Stream::Tis) ? _tis_out : _tii_out;
+    ByteOutput* out = (stream == Stream::Tis) ? _tis_out : _tii_out;
     const std::wstring& last_term = (stream == Stream::Tis) ? _last_tis_term : _last_tii_term;
     const TermInfo& last_info = (stream == Stream::Tis) ? _last_tis_info : _last_tii_info;
 
@@ -139,7 +139,7 @@ void TermDictWriter::WriteEntry(Stream stream, int32_t field_number, const std::
     }
 }
 
-void TermDictWriter::WriteTerm(LuceneOutput* out, const std::wstring& term_wide,
+void TermDictWriter::WriteTerm(ByteOutput* out, const std::wstring& term_wide,
                                const std::wstring& last_term_wide, int32_t field_number) {
     const int32_t start = SharedPrefixLength(term_wide, last_term_wide);
     const int32_t length = static_cast<int32_t>(term_wide.size()) - start;

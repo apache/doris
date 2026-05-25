@@ -34,7 +34,7 @@
 
 #include "common/exception.h" // Exception used by DORIS_CHECK
 #include "common/status.h"    // DORIS_CHECK macro
-#include "storage/index/inverted/spimi/clucene_term_enum.h"
+#include "storage/index/inverted/spimi/query_term_enum.h"
 #include "storage/index/inverted/spimi/field_infos_writer.h"
 #include "storage/index/inverted/spimi/term_dict_reader.h"
 #include "storage/index/inverted/spimi/term_docs_reader.h"
@@ -57,7 +57,7 @@ namespace doris::segment_v2::inverted_index::spimi {
 //   - `close()` — release resources.
 //   - `__asTermPositions()` — returns this if also a TermPositions
 //     subclass, else nullptr. (P37c-2d will override in
-//     `SpimiCLuceneTermPositions`.)
+//     `SpimiQueryTermPositions`.)
 //
 // Implementation strategy: at seek time, the term's full
 // `(doc_id, freq)` list is decoded into an internal vector via
@@ -68,18 +68,18 @@ namespace doris::segment_v2::inverted_index::spimi {
 // extended to cover the full term. P38 may switch to streaming
 // once the production path is wired and benchmarks identify hot
 // terms.
-class SpimiCLuceneTermDocs : public virtual lucene::index::TermDocs {
+class SpimiQueryTermDocs : public virtual lucene::index::TermDocs {
 public:
-    // All inputs are borrowed; the caller (`SpimiCLuceneIndexReader`)
+    // All inputs are borrowed; the caller (`SpimiQueryIndexReader`)
     // owns the underlying buffers and outlives this TermDocs.
-    SpimiCLuceneTermDocs(const TermDictReader* term_dict, const uint8_t* frq_data,
+    SpimiQueryTermDocs(const TermDictReader* term_dict, const uint8_t* frq_data,
                          size_t frq_length, const std::vector<FieldInfoEntry>* field_infos,
                          const std::vector<std::wstring>* field_names_wide);
 
-    ~SpimiCLuceneTermDocs() override;
+    ~SpimiQueryTermDocs() override;
 
-    SpimiCLuceneTermDocs(const SpimiCLuceneTermDocs&) = delete;
-    SpimiCLuceneTermDocs& operator=(const SpimiCLuceneTermDocs&) = delete;
+    SpimiQueryTermDocs(const SpimiQueryTermDocs&) = delete;
+    SpimiQueryTermDocs& operator=(const SpimiQueryTermDocs&) = delete;
 
     void seek(lucene::index::Term* term) override;
     void seek(lucene::index::TermEnum* term_enum) override;
@@ -113,7 +113,7 @@ protected:
     // Performs the byte-level seek: looks up `(field_number, text)`
     // in the term dictionary, decodes the term's posting list from
     // .frq into `_docs`. Pulled into a protected helper so
-    // `SpimiCLuceneTermPositions` can share the doc-side state
+    // `SpimiQueryTermPositions` can share the doc-side state
     // setup before adding its own positions setup.
     void SeekByFieldAndText(int32_t field_number, const wchar_t* text);
 
@@ -134,7 +134,7 @@ protected:
         return _docs[static_cast<size_t>(_index)].second;
     }
     // Returns the freq of the i-th doc in the seeked term's posting
-    // list. Used by `SpimiCLuceneTermPositions` at seek time to
+    // list. Used by `SpimiQueryTermPositions` at seek time to
     // build the per-doc freq budget for `SpimiProxReader`. Caller
     // must ensure `0 <= i < _doc_freq`; we DORIS_CHECK rather than
     // unchecked subscript so a desync between the .tis-declared

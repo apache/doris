@@ -20,7 +20,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/skip_list_writer.h"
 #include "storage/index/inverted/spimi/term_dict_writer.h"
 
@@ -70,7 +70,7 @@ public:
     static constexpr uint8_t kCodeModeDefault = 0x00;
     static constexpr uint8_t kCodeModeSpimiPfor = 0x05;
 
-    FreqProxEncoder(LuceneOutput* frq_out, LuceneOutput* prx_out,
+    FreqProxEncoder(ByteOutput* frq_out, ByteOutput* prx_out,
                     int32_t skip_interval = kDefaultSkipInterval,
                     int32_t max_skip_levels = kDefaultMaxSkipLevels,
                     bool omit_term_freq_and_positions = false);
@@ -105,8 +105,8 @@ public:
     TermInfo FinishTerm();
 
 private:
-    LuceneOutput* _frq_out;
-    LuceneOutput* _prx_out;
+    ByteOutput* _frq_out;
+    ByteOutput* _prx_out;
     int32_t _skip_interval;
     bool _omit_tfap; // when true: doc-id-only .frq, no .prx writes at all
     SkipListWriter _skip_list_writer;

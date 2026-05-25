@@ -21,7 +21,7 @@
 
 namespace doris::segment_v2::inverted_index::spimi {
 
-FieldInfosWriter::FieldInfosWriter(LuceneOutput* out) : _out(out) {
+FieldInfosWriter::FieldInfosWriter(ByteOutput* out) : _out(out) {
     DCHECK(_out != nullptr);
 }
 

@@ -21,8 +21,8 @@
 
 namespace doris::segment_v2::inverted_index::spimi {
 
-SegmentWriter::SegmentWriter(LuceneOutput* tis_out, LuceneOutput* tii_out, LuceneOutput* frq_out,
-                             LuceneOutput* prx_out, int32_t index_interval, int32_t skip_interval,
+SegmentWriter::SegmentWriter(ByteOutput* tis_out, ByteOutput* tii_out, ByteOutput* frq_out,
+                             ByteOutput* prx_out, int32_t index_interval, int32_t skip_interval,
                              int32_t max_skip_levels, bool omit_term_freq_and_positions)
         : _dict(tis_out, tii_out, index_interval, skip_interval),
           _encoder(frq_out, prx_out, skip_interval, max_skip_levels, omit_term_freq_and_positions) {}

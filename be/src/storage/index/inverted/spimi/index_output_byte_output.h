@@ -20,7 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace lucene::store {
 class IndexOutput;
@@ -28,7 +28,7 @@ class IndexOutput;
 
 namespace doris::segment_v2::inverted_index::spimi {
 
-// Bridges SPIMI's `LuceneOutput` interface to a CLucene
+// Bridges SPIMI's `ByteOutput` interface to a CLucene
 // `lucene::store::IndexOutput`. The SPIMI writer stack stays portable
 // (no link-time dependency on CLucene's writer-side classes) by going
 // through this adapter when the segment-emit phase needs to land bytes
@@ -39,9 +39,9 @@ namespace doris::segment_v2::inverted_index::spimi {
 // IndexOutput. Errors thrown by the CLucene write path propagate as
 // CLuceneError exceptions, matching how the existing writer reports
 // I/O failures.
-class IndexOutputLuceneOutput final : public LuceneOutput {
+class IndexOutputByteOutput final : public ByteOutput {
 public:
-    explicit IndexOutputLuceneOutput(lucene::store::IndexOutput* out);
+    explicit IndexOutputByteOutput(lucene::store::IndexOutput* out);
 
     void WriteByte(uint8_t b) override;
     void WriteBytes(const uint8_t* b, size_t len) override;

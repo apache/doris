@@ -23,7 +23,7 @@
 #include <string>
 #include <vector>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -122,7 +122,7 @@ struct TermEntry {
     int32_t skip_offset; // -1 if not written
 };
 
-// Decodes one modified-UTF-8 wide-char as written by LuceneOutput.
+// Decodes one modified-UTF-8 wide-char as written by ByteOutput.
 wchar_t DecodeWideChar(ByteReader& r) {
     const uint8_t b0 = r.Byte();
     if ((b0 & 0x80) == 0) {
@@ -194,8 +194,8 @@ TermInfo Info(int32_t doc_freq, int64_t fp, int64_t pp, int32_t skip = 0) {
 } // namespace
 
 TEST(TermDictWriterTest, HeaderMatchesLuceneFormat) {
-    MemoryLuceneOutput tis;
-    MemoryLuceneOutput tii;
+    MemoryByteOutput tis;
+    MemoryByteOutput tii;
     TermDictWriter w(&tis, &tii, /*index_interval=*/128, /*skip_interval=*/16);
     w.Close();
 
@@ -234,8 +234,8 @@ TEST(TermDictWriterTest, HeaderMatchesLuceneFormat) {
 }
 
 TEST(TermDictWriterTest, SingleTermRoundTrip) {
-    MemoryLuceneOutput tis;
-    MemoryLuceneOutput tii;
+    MemoryByteOutput tis;
+    MemoryByteOutput tii;
     TermDictWriter w(&tis, &tii, 128, 16);
     w.Add(/*field=*/0, "apple", Info(/*df=*/3, /*fp=*/10, /*pp=*/20));
     w.Close();
@@ -259,8 +259,8 @@ TEST(TermDictWriterTest, SingleTermRoundTrip) {
 }
 
 TEST(TermDictWriterTest, SkipOffsetWrittenWhenDocFreqMeetsInterval) {
-    MemoryLuceneOutput tis;
-    MemoryLuceneOutput tii;
+    MemoryByteOutput tis;
+    MemoryByteOutput tii;
     TermDictWriter w(&tis, &tii, 128, 16);
     w.Add(0, "banana", Info(/*df=*/16, 100, 200, /*skip=*/42));
     w.Close();
@@ -273,8 +273,8 @@ TEST(TermDictWriterTest, SkipOffsetWrittenWhenDocFreqMeetsInterval) {
 }
 
 TEST(TermDictWriterTest, FrontCodingSharesPrefix) {
-    MemoryLuceneOutput tis;
-    MemoryLuceneOutput tii;
+    MemoryByteOutput tis;
+    MemoryByteOutput tii;
     TermDictWriter w(&tis, &tii, 128, 16);
     w.Add(0, "apple", Info(1, 0, 0));
     w.Add(0, "apply", Info(1, 10, 10));
@@ -326,8 +326,8 @@ TEST(TermDictWriterTest, FrontCodingSharesPrefix) {
 }
 
 TEST(TermDictWriterTest, FrontCodingPrefixIsInWideCharsForCjk) {
-    MemoryLuceneOutput tis;
-    MemoryLuceneOutput tii;
+    MemoryByteOutput tis;
+    MemoryByteOutput tii;
     TermDictWriter w(&tis, &tii, 128, 16);
     // "中华" (0x534E) and "中国" (0x56FD) share one wide character "中".
     // 华 (0x534E) < 国 (0x56FD), so 中华 comes first in wide-char order.
@@ -362,8 +362,8 @@ TEST(TermDictWriterTest, FrontCodingPrefixIsInWideCharsForCjk) {
 }
 
 TEST(TermDictWriterTest, IndexEntryEveryInterval) {
-    MemoryLuceneOutput tis;
-    MemoryLuceneOutput tii;
+    MemoryByteOutput tis;
+    MemoryByteOutput tii;
     // Tiny indexInterval so the test runs fast.
     TermDictWriter w(&tis, &tii, /*index_interval=*/2, /*skip_interval=*/16);
     for (int i = 0; i < 6; ++i) {
@@ -411,8 +411,8 @@ TEST(TermDictWriterTest, IndexEntryEveryInterval) {
 }
 
 TEST(TermDictWriterTest, CloseIsIdempotent) {
-    MemoryLuceneOutput tis;
-    MemoryLuceneOutput tii;
+    MemoryByteOutput tis;
+    MemoryByteOutput tii;
     TermDictWriter w(&tis, &tii);
     w.Close();
     const auto bytes_first = tis.bytes();

@@ -15,24 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/spimi/index_output_lucene_output.h"
+#include "storage/index/inverted/spimi/index_output_byte_output.h"
 
 #include <CLucene.h> // IWYU pragma: keep
 #include <CLucene/store/IndexOutput.h>
 
 namespace doris::segment_v2::inverted_index::spimi {
 
-IndexOutputLuceneOutput::IndexOutputLuceneOutput(lucene::store::IndexOutput* out) : _out(out) {}
+IndexOutputByteOutput::IndexOutputByteOutput(lucene::store::IndexOutput* out) : _out(out) {}
 
-void IndexOutputLuceneOutput::WriteByte(uint8_t b) {
+void IndexOutputByteOutput::WriteByte(uint8_t b) {
     _out->writeByte(b);
 }
 
-void IndexOutputLuceneOutput::WriteBytes(const uint8_t* b, size_t len) {
+void IndexOutputByteOutput::WriteBytes(const uint8_t* b, size_t len) {
     _out->writeBytes(b, static_cast<int32_t>(len));
 }
 
-int64_t IndexOutputLuceneOutput::FilePointer() const {
+int64_t IndexOutputByteOutput::FilePointer() const {
     return _out->getFilePointer();
 }
 

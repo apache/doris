@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/spimi/file_lucene_output.h"
+#include "storage/index/inverted/spimi/file_byte_output.h"
 
 #include <cstring>
 
@@ -24,13 +24,13 @@
 
 namespace doris::segment_v2::inverted_index::spimi {
 
-FileLuceneOutput::FileLuceneOutput(io::FileWriter* file_writer, size_t buffer_size)
+FileByteOutput::FileByteOutput(io::FileWriter* file_writer, size_t buffer_size)
         : _file_writer(file_writer), _buffer(buffer_size) {
     DCHECK(_file_writer != nullptr);
     DCHECK_GT(buffer_size, 0U);
 }
 
-void FileLuceneOutput::WriteByte(uint8_t b) {
+void FileByteOutput::WriteByte(uint8_t b) {
     if (!_status.ok()) {
         return;
     }
@@ -44,7 +44,7 @@ void FileLuceneOutput::WriteByte(uint8_t b) {
     ++_file_pointer;
 }
 
-void FileLuceneOutput::WriteBytes(const uint8_t* b, size_t len) {
+void FileByteOutput::WriteBytes(const uint8_t* b, size_t len) {
     if (!_status.ok() || len == 0) {
         return;
     }
@@ -67,7 +67,7 @@ void FileLuceneOutput::WriteBytes(const uint8_t* b, size_t len) {
     }
 }
 
-void FileLuceneOutput::FlushBuffer() {
+void FileByteOutput::FlushBuffer() {
     if (_buffer_pos == 0) {
         return;
     }
@@ -79,7 +79,7 @@ void FileLuceneOutput::FlushBuffer() {
     _buffer_pos = 0;
 }
 
-Status FileLuceneOutput::Finish() {
+Status FileByteOutput::Finish() {
     FlushBuffer();
     return _status;
 }

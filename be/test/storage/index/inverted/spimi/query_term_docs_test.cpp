@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/spimi/clucene_term_docs.h"
+#include "storage/index/inverted/spimi/query_term_docs.h"
 
 #include <gtest/gtest.h>
 
@@ -23,8 +23,8 @@
 #include <string>
 #include <vector>
 
-#include "storage/index/inverted/spimi/clucene_term_enum.h"
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/query_term_enum.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/segment_writer.h"
 #include "storage/index/inverted/spimi/term_dict_reader.h"
@@ -35,14 +35,14 @@ namespace {
 
 // End-to-end fixture: writes a SPIMI segment, owns the byte
 // buffers, exposes constructed TermDictReader + FieldInfos, and
-// makes it easy to construct SpimiCLuceneTermDocs over the same
+// makes it easy to construct SpimiQueryTermDocs over the same
 // data the writer produced. This catches both writer/reader
 // drift and CLucene contract regressions in one place.
 struct TermDocsFixture {
-    MemoryLuceneOutput tis;
-    MemoryLuceneOutput tii;
-    MemoryLuceneOutput frq;
-    MemoryLuceneOutput prx;
+    MemoryByteOutput tis;
+    MemoryByteOutput tii;
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
     int32_t skip_interval;
     std::vector<FieldInfoEntry> field_infos;
     std::vector<std::wstring> field_names_wide;
@@ -72,21 +72,21 @@ struct TermDocsFixture {
         dict = std::make_unique<TermDictReader>(tis.bytes(), tii.bytes());
     }
 
-    std::unique_ptr<SpimiCLuceneTermDocs> MakeTermDocs() {
-        return std::make_unique<SpimiCLuceneTermDocs>(dict.get(), frq.bytes().data(),
+    std::unique_ptr<SpimiQueryTermDocs> MakeTermDocs() {
+        return std::make_unique<SpimiQueryTermDocs>(dict.get(), frq.bytes().data(),
                                                       frq.bytes().size(), &field_infos,
                                                       &field_names_wide);
     }
 
-    std::unique_ptr<SpimiCLuceneTermEnum> MakeEnum() {
-        return std::make_unique<SpimiCLuceneTermEnum>(tis.bytes().data(), tis.bytes().size(),
+    std::unique_ptr<SpimiQueryTermEnum> MakeEnum() {
+        return std::make_unique<SpimiQueryTermEnum>(tis.bytes().data(), tis.bytes().size(),
                                                       skip_interval, field_names_wide);
     }
 };
 
 } // namespace
 
-TEST(SpimiCLuceneTermDocsTest, SeekByTermAndIterate) {
+TEST(SpimiQueryTermDocsTest, SeekByTermAndIterate) {
     TermDocsFixture fx;
     fx.Write({{"alpha", 0, 0}, {"alpha", 5, 0}, {"beta", 1, 0}});
     auto td = fx.MakeTermDocs();
@@ -105,7 +105,7 @@ TEST(SpimiCLuceneTermDocsTest, SeekByTermAndIterate) {
     _CLDECDELETE(term);
 }
 
-TEST(SpimiCLuceneTermDocsTest, SeekMissingTermYieldsZeroDocFreq) {
+TEST(SpimiQueryTermDocsTest, SeekMissingTermYieldsZeroDocFreq) {
     TermDocsFixture fx;
     fx.Write({{"alpha", 0, 0}});
     auto td = fx.MakeTermDocs();
@@ -117,7 +117,7 @@ TEST(SpimiCLuceneTermDocsTest, SeekMissingTermYieldsZeroDocFreq) {
     _CLDECDELETE(term);
 }
 
-TEST(SpimiCLuceneTermDocsTest, SeekUnknownFieldYieldsZeroDocFreq) {
+TEST(SpimiQueryTermDocsTest, SeekUnknownFieldYieldsZeroDocFreq) {
     TermDocsFixture fx;
     fx.Write({{"alpha", 0, 0}});
     auto td = fx.MakeTermDocs();
@@ -129,8 +129,8 @@ TEST(SpimiCLuceneTermDocsTest, SeekUnknownFieldYieldsZeroDocFreq) {
     _CLDECDELETE(term);
 }
 
-TEST(SpimiCLuceneTermDocsTest, SeekByTermEnumFastPath) {
-    // When the TermEnum is our own SpimiCLuceneTermEnum, seek skips
+TEST(SpimiQueryTermDocsTest, SeekByTermEnumFastPath) {
+    // When the TermEnum is our own SpimiQueryTermEnum, seek skips
     // the .tis lookup and uses the cached TermInfo.
     TermDocsFixture fx;
     fx.Write({{"alpha", 0, 0}, {"alpha", 7, 0}, {"alpha", 7, 1}, {"beta", 2, 0}});
@@ -155,7 +155,7 @@ TEST(SpimiCLuceneTermDocsTest, SeekByTermEnumFastPath) {
     EXPECT_EQ(td->doc(), 2);
 }
 
-TEST(SpimiCLuceneTermDocsTest, BatchReadAndSkipTo) {
+TEST(SpimiQueryTermDocsTest, BatchReadAndSkipTo) {
     TermDocsFixture fx;
     // Multiple docs containing "x" — exercise both batch read and
     // skipTo (binary-search-like fast forward).
@@ -191,10 +191,10 @@ TEST(SpimiCLuceneTermDocsTest, BatchReadAndSkipTo) {
     _CLDECDELETE(term);
 }
 
-TEST(SpimiCLuceneTermDocsTest, HighDfTermRoutesThroughPforPath) {
+TEST(SpimiQueryTermDocsTest, HighDfTermRoutesThroughPforPath) {
     // skip_interval=8 ⇒ encoder switches to kCodeModeSpimiPfor at
     // df >= 8. End-to-end recovery via TermDocs validates the full
-    // SpimiTermDocsReader → SpimiCLuceneTermDocs chain across the
+    // SpimiTermDocsReader → SpimiQueryTermDocs chain across the
     // SPIMI PFOR format.
     TermDocsFixture fx(/*skip_iv=*/8);
     std::vector<std::tuple<std::string, uint32_t, uint32_t>> posts;
@@ -215,7 +215,7 @@ TEST(SpimiCLuceneTermDocsTest, HighDfTermRoutesThroughPforPath) {
     _CLDECDELETE(term);
 }
 
-TEST(SpimiCLuceneTermDocsTest, ResetsStateBetweenSeeks) {
+TEST(SpimiQueryTermDocsTest, ResetsStateBetweenSeeks) {
     TermDocsFixture fx;
     fx.Write({{"alpha", 0, 0}, {"alpha", 3, 0}, {"beta", 5, 0}, {"beta", 7, 0}, {"beta", 9, 0}});
     auto td = fx.MakeTermDocs();

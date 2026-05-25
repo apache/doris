@@ -21,7 +21,7 @@
 
 #include <cstdint>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -79,7 +79,7 @@ TEST(SkipListWriterTest, ZeroDfWritesNothing) {
     w.Reset(0, /*freq=*/100, /*prox=*/200);
     EXPECT_EQ(w.NumberOfSkipLevels(), 0);
 
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     const int64_t skip_ptr = w.WriteSkip(&out);
     EXPECT_EQ(skip_ptr, 0);
     EXPECT_TRUE(out.bytes().empty());
@@ -99,7 +99,7 @@ TEST(SkipListWriterTest, SingleLevelEmitsOneEntryPerBoundary) {
     w.SetSkipData(7, /*freq=*/120, /*prox=*/240);
     w.BufferSkip(8);
 
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     const int64_t skip_ptr = w.WriteSkip(&out);
     EXPECT_EQ(skip_ptr, 0);
 
@@ -127,7 +127,7 @@ TEST(SkipListWriterTest, TwoLevelsWritesLengthPrefixAndChildPointer) {
     w.SetSkipData(3, /*freq=*/24, /*prox=*/48);
     w.BufferSkip(4);
 
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     w.WriteSkip(&out);
 
     ByteReader r(out.bytes());
@@ -162,7 +162,7 @@ TEST(SkipListWriterTest, ResetReusesLevelBuffers) {
     EXPECT_EQ(w.NumberOfSkipLevels(), 1);
     w.SetSkipData(1, 4, 8);
     w.BufferSkip(2);
-    MemoryLuceneOutput out1;
+    MemoryByteOutput out1;
     w.WriteSkip(&out1);
     EXPECT_FALSE(out1.bytes().empty());
 
@@ -173,7 +173,7 @@ TEST(SkipListWriterTest, ResetReusesLevelBuffers) {
     w.BufferSkip(2);
     w.SetSkipData(3, 124, 248);
     w.BufferSkip(4);
-    MemoryLuceneOutput out2;
+    MemoryByteOutput out2;
     w.WriteSkip(&out2);
 
     ByteReader r(out2.bytes());
@@ -202,7 +202,7 @@ TEST(SkipListWriterTest, SkipPointerReflectsOutputOffset) {
     SkipListWriter w(4, 10);
     w.Reset(8, 0, 0);
 
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     // Pretend the output already has 17 bytes of "frq" data.
     const std::vector<uint8_t> filler(17, 0xAB);
     out.WriteBytes(filler.data(), filler.size());
@@ -243,7 +243,7 @@ TEST(SkipListWriterTest, DfBelowSkipIntervalProducesZeroLevels) {
 
     // WriteSkip on an empty multi-level structure returns the current
     // output pointer (which is 0) and writes nothing.
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     const int64_t skip_ptr = w.WriteSkip(&out);
     EXPECT_EQ(skip_ptr, 0);
     EXPECT_EQ(out.bytes().size(), 0U) << "no skip data for df below skipInterval";

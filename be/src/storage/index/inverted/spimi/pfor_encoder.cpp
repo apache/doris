@@ -20,15 +20,14 @@
 // `_CLTHROWA` for byte-parser hard-fail on untrusted PFOR
 // sub-blocks. StdHeader.h sets up CLUCENE_EXPORT / CL_NS_DEF
 // macros that debug/error.h depends on.
-#include <CLucene/StdHeader.h>
-#include <CLucene/debug/error.h>
 #include <arrow/util/bit_stream_utils.h>
 
 #include <algorithm>
 #include <cstring>
 
 #include "common/logging.h"
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_parser_error.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -48,7 +47,7 @@ inline uint8_t bit_width_for(uint32_t max_value) {
 
 } // namespace
 
-size_t SpimiPforEncoder::EncodeBlock(uint32_t* values, size_t count, LuceneOutput* out) {
+size_t SpimiPforEncoder::EncodeBlock(uint32_t* values, size_t count, ByteOutput* out) {
     DCHECK(out != nullptr);
     DCHECK_LE(count, kBlockSize);
     DCHECK_GT(count, 0U);
@@ -69,7 +68,7 @@ size_t SpimiPforEncoder::EncodeBlock(uint32_t* values, size_t count, LuceneOutpu
     out->WriteByte(width);
 
     // Buffer the bitpacked payload via Arrow's BitWriter, then copy
-    // into the LuceneOutput in one go. Arrow's BitWriter is the same
+    // into the ByteOutput in one go. Arrow's BitWriter is the same
     // primitive Parquet (and downstream: Snowflake / BigQuery / Athena
     // / ClickHouse via Parquet) uses for bit-packed integers.
     const size_t max_bytes = ((count * width) + 7U) / 8U + 8U; // +8 slack for Flush alignment
@@ -89,7 +88,7 @@ size_t SpimiPforEncoder::EncodeBlock(uint32_t* values, size_t count, LuceneOutpu
 }
 
 std::vector<uint8_t> SpimiPforEncoder::EncodeBlockToBytes(const std::vector<uint32_t>& values) {
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     std::vector<uint32_t> scratch = values;
     if (!scratch.empty()) {
         (void)EncodeBlock(scratch.data(), scratch.size(), &out);
@@ -107,7 +106,7 @@ public:
     ByteCursor(const uint8_t* data, size_t len) : _data(data), _len(len) {}
     uint8_t ReadByte() {
         if (_pos >= _len) [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI .frq PFOR sub-block cursor underflow");
+            SPIMI_THROW_CORRUPT("SPIMI .frq PFOR sub-block cursor underflow");
         }
         return _data[_pos++];
     }
@@ -117,7 +116,7 @@ public:
         while (true) {
             const uint8_t b = ReadByte();
             if (shift >= 32U) [[unlikely]] {
-                _CLTHROWA(CL_ERR_IO, "SPIMI .frq PFOR VInt: shift overflow on crafted input");
+                SPIMI_THROW_CORRUPT("SPIMI .frq PFOR VInt: shift overflow on crafted input");
             }
             v |= static_cast<uint32_t>(b & 0x7FU) << shift;
             if ((b & 0x80U) == 0) {
@@ -154,10 +153,10 @@ size_t SpimiPforDecoder::DecodeBlockFromBytes(const std::vector<uint8_t>& in,
     // bad_alloc, or pass an out-of-range bit width that
     // Arrow's BitReader UB-shifts past `sizeof(uint32_t)*8`.
     if (count == 0U || count > SpimiPforEncoder::kBlockSize) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .frq PFOR sub-block count out of range");
+        SPIMI_THROW_CORRUPT("SPIMI .frq PFOR sub-block count out of range");
     }
     if (width == 0U || width > 32U) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .frq PFOR sub-block width out of range");
+        SPIMI_THROW_CORRUPT("SPIMI .frq PFOR sub-block width out of range");
     }
 
     out->resize(count);
@@ -166,7 +165,7 @@ size_t SpimiPforDecoder::DecodeBlockFromBytes(const std::vector<uint8_t>& in,
         uint32_t v = 0;
         const bool ok = br.GetValue(width, &v);
         if (!ok) [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI .frq PFOR sub-block: BitReader underflow");
+            SPIMI_THROW_CORRUPT("SPIMI .frq PFOR sub-block: BitReader underflow");
         }
         (*out)[i] = v;
     }

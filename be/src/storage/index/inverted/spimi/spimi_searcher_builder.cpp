@@ -28,8 +28,9 @@
 
 #include <vector>
 
+#include "common/exception.h"
 #include "common/logging.h"
-#include "storage/index/inverted/spimi/clucene_index_reader.h"
+#include "storage/index/inverted/spimi/query_index_reader.h"
 #include "storage/index/inverted/spimi/segment_infos_reader.h"
 
 namespace doris::segment_v2 {
@@ -92,11 +93,13 @@ Status SpimiSearcherBuilder::build(lucene::store::Directory* directory,
     inverted_index::spimi::SegmentInfosReader::Manifest manifest;
     try {
         manifest = inverted_index::spimi::SegmentInfosReader::Read(segs);
+    } catch (const ::doris::Exception& e) {
+        // Pure SPIMI readers throw `doris::Exception` with
+        // `INVERTED_INDEX_FILE_CORRUPTED` on malformed bytes — no
+        // longer `CLuceneError`. Preserve the message.
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
+                "SPIMI segments_1 parse failed: {}", e.what());
     } catch (const CLuceneError& e) {
-        // Round-2 hardening produces specific CLucene errors
-        // (FORMAT mismatch, segment_count range, etc.). Preserve
-        // the message instead of collapsing to a generic
-        // "parse failed".
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
                 "SPIMI segments_1 parse failed: {}", e.what());
     } catch (...) {
@@ -111,12 +114,15 @@ Status SpimiSearcherBuilder::build(lucene::store::Directory* directory,
 
     std::unique_ptr<lucene::index::IndexReader> spimi_reader;
     try {
-        spimi_reader = std::make_unique<inverted_index::spimi::SpimiCLuceneIndexReader>(
+        spimi_reader = std::make_unique<inverted_index::spimi::SpimiQueryIndexReader>(
                 std::move(tis), std::move(tii), std::move(frq), std::move(prx), std::move(fnm),
                 max_doc);
+    } catch (const ::doris::Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
+                "SpimiQueryIndexReader build error: {}", e.what());
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "SpimiCLuceneIndexReader build error: {}", e.what());
+                "SpimiQueryIndexReader build error: {}", e.what());
     }
     reader_size = static_cast<size_t>(spimi_reader->getTermInfosRAMUsed());
     // `std::make_shared` either returns a valid pointer or throws

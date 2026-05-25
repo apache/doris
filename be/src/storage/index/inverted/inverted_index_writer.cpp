@@ -21,7 +21,7 @@
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/index/inverted/spimi/fulltext_writer.h"
-#include "storage/index/inverted/spimi/index_output_lucene_output.h"
+#include "storage/index/inverted/spimi/index_output_byte_output.h"
 #include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/faststring.h"
@@ -945,15 +945,16 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
                             _dir->createOutput(seg_n_name));
                     std::unique_ptr<lucene::store::IndexOutput> spimi_segments_gen(
                             _dir->createOutput(seg_gen_name));
+                    spimi::EmittedSegmentByteCounts byte_counts;
                     {
-                        spimi::IndexOutputLuceneOutput a_tis(spimi_tis.get());
-                        spimi::IndexOutputLuceneOutput a_tii(spimi_tii.get());
-                        spimi::IndexOutputLuceneOutput a_frq(spimi_frq.get());
-                        spimi::IndexOutputLuceneOutput a_prx(spimi_prx.get());
-                        spimi::IndexOutputLuceneOutput a_fnm(spimi_fnm.get());
-                        spimi::IndexOutputLuceneOutput a_nrm(spimi_nrm.get());
-                        spimi::IndexOutputLuceneOutput a_sn(spimi_segments_n.get());
-                        spimi::IndexOutputLuceneOutput a_sg(spimi_segments_gen.get());
+                        spimi::IndexOutputByteOutput a_tis(spimi_tis.get());
+                        spimi::IndexOutputByteOutput a_tii(spimi_tii.get());
+                        spimi::IndexOutputByteOutput a_frq(spimi_frq.get());
+                        spimi::IndexOutputByteOutput a_prx(spimi_prx.get());
+                        spimi::IndexOutputByteOutput a_fnm(spimi_fnm.get());
+                        spimi::IndexOutputByteOutput a_nrm(spimi_nrm.get());
+                        spimi::IndexOutputByteOutput a_sn(spimi_segments_n.get());
+                        spimi::IndexOutputByteOutput a_sg(spimi_segments_gen.get());
                         spimi::SpimiSegmentSink sink {.tis = &a_tis,
                                                       .tii = &a_tii,
                                                       .frq = &a_frq,
@@ -977,7 +978,7 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
                         const char* segment_name = _is_v4 ? "_0" : "_spimi_0";
                         // V4 = pure SPIMI: emit with `omit_norms=true`
                         // because the SPIMI read side
-                        // (`SpimiCLuceneIndexReader::norms()`) synthesizes
+                        // (`SpimiQueryIndexReader::norms()`) synthesizes
                         // a default-norm array rather than parsing
                         // `.nrm`, and V4 today does not support
                         // BM25-style scoring. Shadow mode (V1/V2/V3
@@ -988,7 +989,7 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
                         spimi::SpimiFulltextWriter::EmitSegment(
                                 *_spimi_buffer, sink, segment_name, field_name_utf8,
                                 _spimi_doc_count, spimi::FieldInfosWriter::kIndexVersionV1,
-                                omit_tfap, omit_norms);
+                                omit_tfap, omit_norms, &byte_counts);
                     }
                     FINALLY_CLOSE(spimi_tis);
                     FINALLY_CLOSE(spimi_tii);
@@ -998,6 +999,25 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
                     FINALLY_CLOSE(spimi_nrm);
                     FINALLY_CLOSE(spimi_segments_n);
                     FINALLY_CLOSE(spimi_segments_gen);
+                    // Validate on-disk lengths against what SPIMI fed through
+                    // the ByteOutputs. Catches partial flushes — most
+                    // importantly the cloud async-S3 case where the
+                    // underlying FileWriter buffers writes and a later
+                    // close() failure could leave a segment file silently
+                    // truncated (the P44–P46 pattern caught by cloud
+                    // regression only). Throws INVERTED_INDEX_FILE_CORRUPTED
+                    // and is funnelled through the doris::Exception catch
+                    // below for the standard error_context cleanup.
+                    spimi::SpimiSegmentFileNames seg_names {
+                            .tis = tis_name,
+                            .tii = tii_name,
+                            .frq = frq_name,
+                            .prx = prx_name,
+                            .fnm = fnm_name,
+                            .nrm = nrm_name,
+                            .segments_n = seg_n_name,
+                            .segments_gen = seg_gen_name};
+                    spimi::ValidateClosedSegmentByteCounts(_dir.get(), seg_names, byte_counts);
                     _spimi_buffer.reset();
                 }
             }

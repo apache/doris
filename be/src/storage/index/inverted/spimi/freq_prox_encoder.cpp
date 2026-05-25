@@ -26,7 +26,7 @@
 
 namespace doris::segment_v2::inverted_index::spimi {
 
-FreqProxEncoder::FreqProxEncoder(LuceneOutput* frq_out, LuceneOutput* prx_out,
+FreqProxEncoder::FreqProxEncoder(ByteOutput* frq_out, ByteOutput* prx_out,
                                  int32_t skip_interval, int32_t max_skip_levels,
                                  bool omit_term_freq_and_positions)
         : _frq_out(frq_out),

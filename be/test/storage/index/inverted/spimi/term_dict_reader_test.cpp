@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/term_dict_writer.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
@@ -35,8 +35,8 @@ namespace {
 // driving the real `TermDictWriter`. Avoids any byte-level mocks so
 // any writer/reader byte-format drift is caught.
 struct InMemoryDictionary {
-    MemoryLuceneOutput tis;
-    MemoryLuceneOutput tii;
+    MemoryByteOutput tis;
+    MemoryByteOutput tii;
     std::unique_ptr<TermDictWriter> writer;
     int32_t index_interval;
     int32_t skip_interval;

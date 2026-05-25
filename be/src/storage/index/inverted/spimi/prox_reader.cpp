@@ -20,12 +20,11 @@
 // `_CLTHROWA` for byte-parser hard-fail on untrusted .prx bytes.
 // StdHeader.h sets up the CLUCENE_EXPORT / CL_NS_DEF macros that
 // debug/error.h depends on.
-#include <CLucene/StdHeader.h>
-#include <CLucene/debug/error.h>
 
 #include <algorithm>
 
 #include "common/logging.h"
+#include "storage/index/inverted/spimi/byte_parser_error.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -41,7 +40,7 @@ int32_t ReadVInt(const uint8_t* data, size_t len, size_t* pos) {
     uint32_t shift = 0;
     while (true) {
         if (*pos >= len) [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI .prx VInt underflow");
+            SPIMI_THROW_CORRUPT("SPIMI .prx VInt underflow");
         }
         const uint8_t b = data[(*pos)++];
         v |= static_cast<uint32_t>(b & 0x7FU) << shift;
@@ -50,7 +49,7 @@ int32_t ReadVInt(const uint8_t* data, size_t len, size_t* pos) {
         }
         shift += 7;
         if (shift >= 32U) [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI .prx VInt: shift overflow on crafted input");
+            SPIMI_THROW_CORRUPT("SPIMI .prx VInt: shift overflow on crafted input");
         }
     }
     return static_cast<int32_t>(v);
@@ -65,7 +64,7 @@ std::vector<std::vector<int32_t>> SpimiProxReader::ReadPositions(
     size_t pos = 0;
     for (const int32_t freq : freqs_per_doc) {
         if (freq <= 0) [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI .prx: non-positive freq in freqs_per_doc");
+            SPIMI_THROW_CORRUPT("SPIMI .prx: non-positive freq in freqs_per_doc");
         }
         std::vector<int32_t> positions;
         // Cap reserve against the same DoS-bounding limit as

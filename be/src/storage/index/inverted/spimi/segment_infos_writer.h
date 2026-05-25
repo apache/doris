@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -81,16 +81,16 @@ public:
     // Writes a `segments_N` payload to `out`. `version` advances on every
     // write; `counter` is CLucene's "next segment id" — for our single-
     // segment SPIMI flush it equals `segments.size()`.
-    void WriteSegmentsN(LuceneOutput* out, int64_t version, int32_t counter,
+    void WriteSegmentsN(ByteOutput* out, int64_t version, int32_t counter,
                         const std::vector<SegmentInfoEntry>& segments) const;
 
     // Writes a `segments.gen` payload to `out`. `generation` is the
     // "_N" suffix of the latest `segments_N`.
-    void WriteSegmentsGen(LuceneOutput* out, int64_t generation) const;
+    void WriteSegmentsGen(ByteOutput* out, int64_t generation) const;
 
 private:
-    static void WriteWideString(LuceneOutput* out, const std::string& utf8);
-    static void WriteSegment(LuceneOutput* out, const SegmentInfoEntry& seg);
+    static void WriteWideString(ByteOutput* out, const std::string& utf8);
+    static void WriteSegment(ByteOutput* out, const SegmentInfoEntry& seg);
 };
 
 } // namespace doris::segment_v2::inverted_index::spimi

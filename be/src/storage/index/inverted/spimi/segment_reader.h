@@ -47,7 +47,7 @@ public:
 //   - `SpimiTermDocsReader::ReadTerm` over `.frq` bytes at freq_pointer
 //
 // Construction takes byte buffers as input rather than file paths so
-// the class is testable with `MemoryLuceneOutput` without touching
+// the class is testable with `MemoryByteOutput` without touching
 // the filesystem. The `SpimiFulltextIndexReader` adapter (P37c) will
 // wrap a Doris `lucene::store::Directory*` and load the buffers
 // using `openInput()`.

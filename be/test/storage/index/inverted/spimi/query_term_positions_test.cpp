@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/spimi/clucene_term_positions.h"
+#include "storage/index/inverted/spimi/query_term_positions.h"
 
 #include <gtest/gtest.h>
 
 #include <memory>
 #include <vector>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/segment_writer.h"
 #include "storage/index/inverted/spimi/term_dict_reader.h"
@@ -33,13 +33,13 @@ namespace {
 
 // End-to-end fixture: writes a SPIMI segment, holds the byte
 // buffers, exposes TermDictReader + field info needed by
-// SpimiCLuceneTermPositions. Tests assert that the (doc, freq,
+// SpimiQueryTermPositions. Tests assert that the (doc, freq,
 // position*) tuples the writer accepted are recoverable.
 struct PositionsFixture {
-    MemoryLuceneOutput tis;
-    MemoryLuceneOutput tii;
-    MemoryLuceneOutput frq;
-    MemoryLuceneOutput prx;
+    MemoryByteOutput tis;
+    MemoryByteOutput tii;
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
     int32_t skip_interval;
     std::vector<FieldInfoEntry> field_infos;
     std::vector<std::wstring> field_names_wide;
@@ -66,8 +66,8 @@ struct PositionsFixture {
         dict = std::make_unique<TermDictReader>(tis.bytes(), tii.bytes());
     }
 
-    std::unique_ptr<SpimiCLuceneTermPositions> Make() {
-        return std::make_unique<SpimiCLuceneTermPositions>(
+    std::unique_ptr<SpimiQueryTermPositions> Make() {
+        return std::make_unique<SpimiQueryTermPositions>(
                 dict.get(), frq.bytes().data(), frq.bytes().size(), prx.bytes().data(),
                 prx.bytes().size(), &field_infos, &field_names_wide);
     }
@@ -75,7 +75,7 @@ struct PositionsFixture {
 
 } // namespace
 
-TEST(SpimiCLuceneTermPositionsTest, SingleDocSinglePosition) {
+TEST(SpimiQueryTermPositionsTest, SingleDocSinglePosition) {
     PositionsFixture fx;
     fx.Write({{"alpha", 0, 0}});
     auto tp = fx.Make();
@@ -89,7 +89,7 @@ TEST(SpimiCLuceneTermPositionsTest, SingleDocSinglePosition) {
     _CLDECDELETE(term);
 }
 
-TEST(SpimiCLuceneTermPositionsTest, MultiplePositionsInSingleDoc) {
+TEST(SpimiQueryTermPositionsTest, MultiplePositionsInSingleDoc) {
     // Delta-encoded on the wire. Reader must accumulate.
     PositionsFixture fx;
     fx.Write({{"x", 0, 3}, {"x", 0, 8}, {"x", 0, 17}});
@@ -105,7 +105,7 @@ TEST(SpimiCLuceneTermPositionsTest, MultiplePositionsInSingleDoc) {
     _CLDECDELETE(term);
 }
 
-TEST(SpimiCLuceneTermPositionsTest, ResetsPositionsAcrossDocs) {
+TEST(SpimiQueryTermPositionsTest, ResetsPositionsAcrossDocs) {
     PositionsFixture fx;
     // Doc 0: [3, 8]; doc 1: [2]; doc 2: [11, 13]. Reader must reset
     // the per-doc position cursor when advancing docs.
@@ -132,7 +132,7 @@ TEST(SpimiCLuceneTermPositionsTest, ResetsPositionsAcrossDocs) {
     _CLDECDELETE(term);
 }
 
-TEST(SpimiCLuceneTermPositionsTest, OmitTfapFieldRejectsNextPosition) {
+TEST(SpimiQueryTermPositionsTest, OmitTfapFieldRejectsNextPosition) {
     PositionsFixture fx(/*skip_iv=*/16, /*has_prox=*/false);
     fx.Write({{"x", 0, 0}, {"x", 1, 0}});
     auto tp = fx.Make();
@@ -148,7 +148,7 @@ TEST(SpimiCLuceneTermPositionsTest, OmitTfapFieldRejectsNextPosition) {
     _CLDECDELETE(term);
 }
 
-TEST(SpimiCLuceneTermPositionsTest, PayloadVirtualsReturnDefaults) {
+TEST(SpimiQueryTermPositionsTest, PayloadVirtualsReturnDefaults) {
     PositionsFixture fx;
     fx.Write({{"x", 0, 0}});
     auto tp = fx.Make();
@@ -162,7 +162,7 @@ TEST(SpimiCLuceneTermPositionsTest, PayloadVirtualsReturnDefaults) {
     _CLDECDELETE(term);
 }
 
-TEST(SpimiCLuceneTermPositionsTest, DiamondDowncastHelpers) {
+TEST(SpimiQueryTermPositionsTest, DiamondDowncastHelpers) {
     // The __asTermDocs / __asTermPositions hooks let the CLucene
     // query engine recover the right base pointer without dynamic
     // RTTI. Verify both return the same `this` pointer.
@@ -182,7 +182,7 @@ TEST(SpimiCLuceneTermPositionsTest, DiamondDowncastHelpers) {
     _CLDECDELETE(term);
 }
 
-TEST(SpimiCLuceneTermPositionsTest, HighDfTermRoutesThroughPforPath) {
+TEST(SpimiQueryTermPositionsTest, HighDfTermRoutesThroughPforPath) {
     // skip_interval=8 ⇒ encoder uses kCodeModeSpimiPfor at df ≥ 8.
     // Both .frq (via SpimiTermDocsReader inside parent) and .prx
     // (via SpimiProxReader) must recover correctly.

@@ -23,7 +23,7 @@
 #include <vector>
 
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -35,8 +35,8 @@ namespace {
 // reader is validated against bytes the real writer produced, so
 // any drift between writer/reader would surface here.
 struct OneTermProxFixture {
-    MemoryLuceneOutput frq;
-    MemoryLuceneOutput prx;
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
     std::vector<int32_t> freqs;
 
     void WriteTerm(const std::vector<std::vector<int32_t>>& docs_positions) {

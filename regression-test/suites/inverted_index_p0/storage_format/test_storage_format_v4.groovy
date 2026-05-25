@@ -202,4 +202,57 @@ suite("test_storage_format_v4", "p0") {
 
     sql "DROP TABLE IF EXISTS ${v2Table}"
     sql "DROP TABLE IF EXISTS ${v4Table}"
+
+    // ===== omit_tfap (no-prox) path — V4 with support_phrase=false =====
+    //
+    // When the column index has `support_phrase=false`, V4's writer emits
+    // .frq without per-doc positions (`omit_term_freq_and_positions=true`
+    // in EmitSegment) and `.fnm` sets `has_prox=false`. The read side
+    // (`SpimiQueryTermDocs::seek`) MUST pick the no-prox decoder branch
+    // — without it MATCH_ANY / MATCH_ALL silently return wrong results
+    // (typically 0 rows). The pre-rename test surface only exercised
+    // the with-prox path; this section covers the no-prox writer→reader
+    // contract end-to-end on a real V4 segment.
+    def v4NoProxTable = "test_v4_no_prox"
+    def v2NoProxTable = "test_v2_no_prox_baseline"
+    sql "DROP TABLE IF EXISTS ${v4NoProxTable}"
+    sql "DROP TABLE IF EXISTS ${v2NoProxTable}"
+    def noProxSchema = { fmt, tbl -> """
+        CREATE TABLE ${tbl} (
+            id int NULL, body string NULL,
+            INDEX body_idx (body) USING INVERTED
+                PROPERTIES("parser"="english", "lower_case"="true",
+                           "support_phrase"="false")
+        ) ENGINE=OLAP DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation"="tag.location.default: 1",
+                    "inverted_index_storage_format"="${fmt}",
+                    "disable_auto_compaction"="true")
+    """ }
+    sql noProxSchema('V2', v2NoProxTable)
+    sql noProxSchema('V4', v4NoProxTable)
+    def fillNoProxSql = { tbl -> """
+        INSERT INTO ${tbl} VALUES
+        (1, 'the quick brown fox'), (2, 'jumps over the lazy dog'),
+        (3, 'quick brown rabbit hops'), (4, 'the dog barks loudly'),
+        (5, 'fox and rabbit are mammals'), (6, 'mammals run quickly'),
+        (7, 'the the the lazy programmer'), (8, 'apache doris fulltext search')
+    """ }
+    sql fillNoProxSql(v2NoProxTable)
+    sql fillNoProxSql(v4NoProxTable)
+
+    // MATCH_ANY / MATCH_ALL must agree byte-for-byte between V2 and V4
+    // on the same no-prox column. MATCH_PHRASE is illegal here
+    // (support_phrase=false), so we don't query it.
+    [["noprox_any_fox", "MATCH_ANY 'fox'"],
+     ["noprox_any_dog_rabbit", "MATCH_ANY 'dog rabbit'"],
+     ["noprox_all_the_dog", "MATCH_ALL 'the dog'"],
+     ["noprox_all_quick_brown", "MATCH_ALL 'quick brown'"]].each { entry ->
+        def tag = entry[0]
+        def pred = entry[1]
+        "order_qt_v2v4_${tag}_v2"("SELECT id FROM ${v2NoProxTable} WHERE body ${pred} ORDER BY id")
+        "order_qt_v2v4_${tag}_v4"("SELECT id FROM ${v4NoProxTable} WHERE body ${pred} ORDER BY id")
+    }
+
+    sql "DROP TABLE IF EXISTS ${v2NoProxTable}"
+    sql "DROP TABLE IF EXISTS ${v4NoProxTable}"
 }

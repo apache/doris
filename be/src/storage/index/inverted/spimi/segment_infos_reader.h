@@ -29,7 +29,7 @@ namespace doris::segment_v2::inverted_index::spimi {
 // `SegmentInfosWriter::WriteSegmentsN`. Used by the upcoming
 // `SpimiFulltextIndexReader` (P37c-2f) to discover the segment's
 // `doc_count`, which serves as the `max_doc` parameter for
-// `SpimiCLuceneIndexReader`.
+// `SpimiQueryIndexReader`.
 //
 // Format inverse of `SegmentInfosWriter::WriteSegment`:
 //   int  -4 (kFormatSharedDocStore)

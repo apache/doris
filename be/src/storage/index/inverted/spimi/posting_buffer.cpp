@@ -276,7 +276,7 @@ inline void PushByteUnchecked(std::vector<uint8_t>* buf, uint8_t b) {
     buf->push_back(b);
 }
 
-// VInt writer matching `LuceneOutput::WriteVInt` byte layout. Used by
+// VInt writer matching `ByteOutput::WriteVInt` byte layout. Used by
 // the compact-mode posting streams so the encoding is consistent
 // with how the rest of SPIMI handles variable-length ints.
 // A uint32 VInt is at most 5 bytes; reserve all 5 upfront so the

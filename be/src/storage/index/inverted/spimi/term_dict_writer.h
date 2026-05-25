@@ -21,7 +21,7 @@
 #include <string>
 #include <string_view>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -54,7 +54,7 @@ struct TermInfo {
 //     entries : repeat for each term in (field_number, term) order
 //               vint   prefix_len        (wide-char positions shared with prev term)
 //               vint   suffix_len        (wide-char positions appended)
-//               schars suffix            (modified UTF-8, see LuceneOutput)
+//               schars suffix            (modified UTF-8, see ByteOutput)
 //               vint   field_number
 //               vint   doc_freq
 //               vlong  freq_pointer_delta
@@ -88,7 +88,7 @@ public:
     // Both outputs must be empty (no header written yet). The TermDictWriter
     // does not own the outputs; the caller is responsible for their lifetime
     // and for flushing/closing the underlying files after Close() returns.
-    TermDictWriter(LuceneOutput* tis_out, LuceneOutput* tii_out,
+    TermDictWriter(ByteOutput* tis_out, ByteOutput* tii_out,
                    int32_t index_interval = kDefaultIndexInterval,
                    int32_t skip_interval = kDefaultSkipInterval);
 
@@ -111,7 +111,7 @@ public:
 private:
     enum class Stream { Tis, Tii };
 
-    void WriteHeader(LuceneOutput* out) const;
+    void WriteHeader(ByteOutput* out) const;
 
     // Writes a single entry to `out`. Updates `_last_<stream>_*` state in
     // place. For .tis entries, also adds an index entry to .tii when the
@@ -121,11 +121,11 @@ private:
 
     // Writes the front-coded term portion (prefix_vint, suffix_vint,
     // suffix_schars, field_vint).
-    void WriteTerm(LuceneOutput* out, const std::wstring& term_wide,
+    void WriteTerm(ByteOutput* out, const std::wstring& term_wide,
                    const std::wstring& last_term_wide, int32_t field_number);
 
-    LuceneOutput* _tis_out;
-    LuceneOutput* _tii_out;
+    ByteOutput* _tis_out;
+    ByteOutput* _tii_out;
     int32_t _index_interval;
     int32_t _skip_interval;
 

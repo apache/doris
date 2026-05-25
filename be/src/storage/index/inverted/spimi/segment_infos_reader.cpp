@@ -18,11 +18,10 @@
 #include "storage/index/inverted/spimi/segment_infos_reader.h"
 
 // `_CLTHROWA` for byte-parser hard-fail on untrusted segments_N bytes.
-#include <CLucene/StdHeader.h>
-#include <CLucene/debug/error.h>
 
 #include "common/logging.h"
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_parser_error.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -34,7 +33,7 @@ public:
 
     uint8_t ReadByte() {
         if (_p >= _n) [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI segments_N read past end of buffer");
+            SPIMI_THROW_CORRUPT("SPIMI segments_N read past end of buffer");
         }
         return _d[_p++];
     }
@@ -56,8 +55,8 @@ public:
         while (true) {
             const uint8_t b = ReadByte();
             if (shift >= 32U) [[unlikely]] {
-                _CLTHROWA(CL_ERR_IO,
-                          "SPIMI segments_N VInt: shift overflow on crafted input");
+                SPIMI_THROW_CORRUPT(
+                        "SPIMI segments_N VInt: shift overflow on crafted input");
             }
             v |= static_cast<uint32_t>(b & 0x7FU) << shift;
             if ((b & 0x80U) == 0) {
@@ -127,12 +126,12 @@ private:
 
 SegmentInfosReader::Manifest SegmentInfosReader::Read(const std::vector<uint8_t>& bytes) {
     if (bytes.empty()) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI segments_N is empty");
+        SPIMI_THROW_CORRUPT("SPIMI segments_N is empty");
     }
     Cursor cur(bytes.data(), bytes.size());
     const int32_t format = cur.ReadInt32BE();
     if (format != SegmentInfosWriter::kFormatSharedDocStore) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI segments_N FORMAT mismatch");
+        SPIMI_THROW_CORRUPT("SPIMI segments_N FORMAT mismatch");
     }
     Manifest m;
     m.version = cur.ReadInt64BE();
@@ -143,7 +142,7 @@ SegmentInfosReader::Manifest SegmentInfosReader::Read(const std::vector<uint8_t>
     // size is impossible without buffer overrun. Without the bound
     // a crafted segments_N could request a multi-gigabyte reserve.
     if (segment_count < 0 || static_cast<uint64_t>(segment_count) > bytes.size()) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI segments_N segment_count out of range");
+        SPIMI_THROW_CORRUPT("SPIMI segments_N segment_count out of range");
     }
     m.segments.reserve(static_cast<size_t>(segment_count));
     for (int32_t i = 0; i < segment_count; ++i) {
@@ -158,7 +157,7 @@ SegmentInfosReader::Manifest SegmentInfosReader::Read(const std::vector<uint8_t>
         // sane element type.
         constexpr int32_t kMaxDocsPerSegment = 1 << 28;
         if (e.doc_count < 0 || e.doc_count > kMaxDocsPerSegment) [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI segments_N doc_count out of range");
+            SPIMI_THROW_CORRUPT("SPIMI segments_N doc_count out of range");
         }
         e.del_gen = cur.ReadInt64BE();
         e.doc_store_offset = cur.ReadInt32BE();
@@ -172,7 +171,7 @@ SegmentInfosReader::Manifest SegmentInfosReader::Read(const std::vector<uint8_t>
             // SPIMI segments do not carry per-field norm gens; a
             // value other than the NO sentinel would desync the
             // subsequent `is_compound_file` byte.
-            _CLTHROWA(CL_ERR_IO, "SPIMI segments_N norm_gen_len not NO sentinel");
+            SPIMI_THROW_CORRUPT("SPIMI segments_N norm_gen_len not NO sentinel");
         }
         e.is_compound_file = static_cast<int8_t>(cur.ReadByte());
         m.segments.push_back(std::move(e));

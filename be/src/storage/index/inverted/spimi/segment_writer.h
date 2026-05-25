@@ -20,7 +20,7 @@
 #include <cstdint>
 
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/term_dict_writer.h"
 
@@ -31,17 +31,17 @@ namespace doris::segment_v2::inverted_index::spimi {
 // `.tii` / `.tis`, FreqProxEncoder for `.frq` / `.prx`) into a single
 // `Emit()` call.
 //
-// Inputs (LuceneOutputs) are owned by the caller; this class only writes to
+// Inputs (ByteOutputs) are owned by the caller; this class only writes to
 // them. Typical wiring at the integration layer (Phase 7) is:
 //
 //   io::FileWriter file_tis, file_tii, file_frq, file_prx;
-//   FileBackedLuceneOutput out_tis(&file_tis), out_tii(&file_tii), ...;
+//   FileByteOutput out_tis(&file_tis), out_tii(&file_tii), ...;
 //   SegmentWriter writer(&out_tis, &out_tii, &out_frq, &out_prx);
 //   buffer.Sort();
 //   writer.Emit(buffer, /*field_number=*/0);
 //   writer.Close();
 //
-// For unit tests the LuceneOutputs are typically `MemoryLuceneOutput`.
+// For unit tests the ByteOutputs are typically `MemoryByteOutput`.
 //
 // Iteration assumes the records in `buffer` are already sorted by
 // (term, doc, position) — i.e., the caller has invoked
@@ -50,8 +50,8 @@ namespace doris::segment_v2::inverted_index::spimi {
 // and the comparator orders distinct `text_ref` blocks by term bytes.
 class SegmentWriter {
 public:
-    SegmentWriter(LuceneOutput* tis_out, LuceneOutput* tii_out, LuceneOutput* frq_out,
-                  LuceneOutput* prx_out,
+    SegmentWriter(ByteOutput* tis_out, ByteOutput* tii_out, ByteOutput* frq_out,
+                  ByteOutput* prx_out,
                   int32_t index_interval = TermDictWriter::kDefaultIndexInterval,
                   int32_t skip_interval = TermDictWriter::kDefaultSkipInterval,
                   int32_t max_skip_levels = TermDictWriter::kMaxSkipLevels,

@@ -15,18 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/spimi/clucene_index_reader.h"
+#include "storage/index/inverted/spimi/query_index_reader.h"
 
 #include "common/logging.h"
-#include "storage/index/inverted/spimi/clucene_term_docs.h"
-#include "storage/index/inverted/spimi/clucene_term_enum.h"
-#include "storage/index/inverted/spimi/clucene_term_positions.h"
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/query_term_docs.h"
+#include "storage/index/inverted/spimi/query_term_enum.h"
+#include "storage/index/inverted/spimi/query_term_positions.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/segment_reader.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
-SpimiCLuceneIndexReader::SpimiCLuceneIndexReader(std::vector<uint8_t> tis_bytes,
+SpimiQueryIndexReader::SpimiQueryIndexReader(std::vector<uint8_t> tis_bytes,
                                                  std::vector<uint8_t> tii_bytes,
                                                  std::vector<uint8_t> frq_bytes,
                                                  std::vector<uint8_t> prx_bytes,
@@ -47,9 +47,9 @@ SpimiCLuceneIndexReader::SpimiCLuceneIndexReader(std::vector<uint8_t> tis_bytes,
     BuildCLuceneFieldInfos();
 }
 
-SpimiCLuceneIndexReader::~SpimiCLuceneIndexReader() = default;
+SpimiQueryIndexReader::~SpimiQueryIndexReader() = default;
 
-void SpimiCLuceneIndexReader::BuildCLuceneFieldInfos() {
+void SpimiQueryIndexReader::BuildCLuceneFieldInfos() {
     // Take ownership of the FieldInfos* BEFORE the populating loop
     // so a CLuceneError or bad_alloc inside `fi->add()` still gets
     // cleaned up by the unique_ptr's destructor. Previously the
@@ -73,12 +73,12 @@ void SpimiCLuceneIndexReader::BuildCLuceneFieldInfos() {
     }
 }
 
-lucene::index::TermEnum* SpimiCLuceneIndexReader::terms(const void* /*io_ctx*/) {
-    return new SpimiCLuceneTermEnum(_tis_bytes.data(), _tis_bytes.size(),
+lucene::index::TermEnum* SpimiQueryIndexReader::terms(const void* /*io_ctx*/) {
+    return new SpimiQueryTermEnum(_tis_bytes.data(), _tis_bytes.size(),
                                     _term_dict->SkipInterval(), _field_names_wide);
 }
 
-lucene::index::TermEnum* SpimiCLuceneIndexReader::terms(const lucene::index::Term* t,
+lucene::index::TermEnum* SpimiQueryIndexReader::terms(const lucene::index::Term* t,
                                                         const void* io_ctx) {
     auto* en = terms(io_ctx);
     if (t == nullptr) {
@@ -91,20 +91,20 @@ lucene::index::TermEnum* SpimiCLuceneIndexReader::terms(const lucene::index::Ter
     return en;
 }
 
-lucene::index::TermDocs* SpimiCLuceneIndexReader::termDocs(bool /*load_stats*/,
+lucene::index::TermDocs* SpimiQueryIndexReader::termDocs(bool /*load_stats*/,
                                                            const void* /*io_ctx*/) {
-    return new SpimiCLuceneTermDocs(_term_dict.get(), _frq_bytes.data(), _frq_bytes.size(),
+    return new SpimiQueryTermDocs(_term_dict.get(), _frq_bytes.data(), _frq_bytes.size(),
                                     &_field_infos_entries, &_field_names_wide);
 }
 
-lucene::index::TermPositions* SpimiCLuceneIndexReader::termPositions(bool /*load_stats*/,
+lucene::index::TermPositions* SpimiQueryIndexReader::termPositions(bool /*load_stats*/,
                                                                      const void* /*io_ctx*/) {
-    return new SpimiCLuceneTermPositions(_term_dict.get(), _frq_bytes.data(), _frq_bytes.size(),
+    return new SpimiQueryTermPositions(_term_dict.get(), _frq_bytes.data(), _frq_bytes.size(),
                                          _prx_bytes.data(), _prx_bytes.size(),
                                          &_field_infos_entries, &_field_names_wide);
 }
 
-int32_t SpimiCLuceneIndexReader::docFreq(const lucene::index::Term* t) {
+int32_t SpimiQueryIndexReader::docFreq(const lucene::index::Term* t) {
     if (t == nullptr) {
         return 0;
     }
@@ -146,7 +146,7 @@ int32_t SpimiCLuceneIndexReader::docFreq(const lucene::index::Term* t) {
     return info.has_value() ? info->doc_freq : 0;
 }
 
-uint8_t* SpimiCLuceneIndexReader::GetOrAllocateNormsForField(const wchar_t* field) {
+uint8_t* SpimiQueryIndexReader::GetOrAllocateNormsForField(const wchar_t* field) {
     if (field == nullptr) {
         return nullptr;
     }
@@ -171,11 +171,11 @@ uint8_t* SpimiCLuceneIndexReader::GetOrAllocateNormsForField(const wchar_t* fiel
     return _norms_cache.back().second.data();
 }
 
-uint8_t* SpimiCLuceneIndexReader::norms(const wchar_t* field) {
+uint8_t* SpimiQueryIndexReader::norms(const wchar_t* field) {
     return GetOrAllocateNormsForField(field);
 }
 
-void SpimiCLuceneIndexReader::norms(const wchar_t* field, uint8_t* bytes) {
+void SpimiQueryIndexReader::norms(const wchar_t* field, uint8_t* bytes) {
     if (bytes == nullptr) {
         return;
     }
@@ -186,7 +186,7 @@ void SpimiCLuceneIndexReader::norms(const wchar_t* field, uint8_t* bytes) {
     std::memcpy(bytes, src, static_cast<size_t>(_max_doc));
 }
 
-void SpimiCLuceneIndexReader::getFieldNames(FieldOption fld_option,
+void SpimiQueryIndexReader::getFieldNames(FieldOption fld_option,
                                             StringArrayWithDeletor& retarray) {
     for (const auto& entry : _field_infos_entries) {
         bool include = false;

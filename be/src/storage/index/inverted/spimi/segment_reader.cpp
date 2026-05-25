@@ -18,17 +18,16 @@
 #include "storage/index/inverted/spimi/segment_reader.h"
 
 // `_CLTHROWA` for byte-parser hard-fail on untrusted .fnm bytes.
-#include <CLucene/StdHeader.h>
-#include <CLucene/debug/error.h>
 
 #include "common/logging.h"
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_parser_error.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
 namespace {
 
-// Inverse of `LuceneOutput::Write*` over a byte buffer, scoped to
+// Inverse of `ByteOutput::Write*` over a byte buffer, scoped to
 // `.fnm` parsing. The shared pattern matches `term_dict_reader.cpp`
 // — we keep a separate copy here so neither file pulls in the
 // other's internals.
@@ -38,7 +37,7 @@ public:
 
     uint8_t ReadByte() {
         if (_pos >= _len) [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI .fnm read past end of buffer");
+            SPIMI_THROW_CORRUPT("SPIMI .fnm read past end of buffer");
         }
         return _data[_pos++];
     }
@@ -57,7 +56,7 @@ public:
     }
     std::wstring ReadSChars(int32_t length) {
         // Same logic as `term_dict_reader.cpp::ByteCursor::ReadSChars`.
-        // See lucene_output.cpp:64 for the writer's "modified 4-byte"
+        // See byte_output.cpp:64 for the writer's "modified 4-byte"
         // form (lead = `0x80 | (code >> 18)`).
         std::wstring out;
         out.reserve(static_cast<size_t>(length));
@@ -135,13 +134,13 @@ std::string WideToUtf8(const std::wstring& wide) {
 
 std::vector<FieldInfoEntry> FieldInfosReader::Read(const std::vector<uint8_t>& fnm_bytes) {
     if (fnm_bytes.empty()) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .fnm is empty");
+        SPIMI_THROW_CORRUPT("SPIMI .fnm is empty");
     }
     FnmCursor cur(fnm_bytes.data(), fnm_bytes.size());
 
     const int32_t field_count = cur.ReadVInt();
     if (field_count < 0 || static_cast<size_t>(field_count) > fnm_bytes.size()) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .fnm: field_count out of range");
+        SPIMI_THROW_CORRUPT("SPIMI .fnm: field_count out of range");
     }
     std::vector<FieldInfoEntry> out;
     out.reserve(static_cast<size_t>(field_count));
@@ -150,7 +149,7 @@ std::vector<FieldInfoEntry> FieldInfosReader::Read(const std::vector<uint8_t>& f
         FieldInfoEntry fi;
         const int32_t name_wlen = cur.ReadVInt();
         if (name_wlen < 0 || static_cast<size_t>(name_wlen) > fnm_bytes.size()) [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI .fnm: name_wlen out of range");
+            SPIMI_THROW_CORRUPT("SPIMI .fnm: name_wlen out of range");
         }
         const std::wstring wide_name = cur.ReadSChars(name_wlen);
         fi.name = WideToUtf8(wide_name);
@@ -178,7 +177,7 @@ std::vector<FieldInfoEntry> FieldInfosReader::Read(const std::vector<uint8_t>& f
         out.push_back(std::move(fi));
     }
     if (!cur.AtEnd()) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .fnm: trailing bytes after declared field count");
+        SPIMI_THROW_CORRUPT("SPIMI .fnm: trailing bytes after declared field count");
     }
     return out;
 }
@@ -218,17 +217,17 @@ std::vector<SpimiSegmentReader::DocFreq> SpimiSegmentReader::Search(
     if (!term_info.has_value()) {
         return {};
     }
-    // Mirror the byte-safety checks `SpimiCLuceneTermDocs` does on
+    // Mirror the byte-safety checks `SpimiQueryTermDocs` does on
     // the production query path. SpimiSegmentReader is test-only
     // today but the same untrusted-byte invariants apply on a
     // corrupt `.tis` — without these the pointer arithmetic below
     // is UB and `_frq_bytes.size() - fp` underflows.
     if (term_info->doc_freq <= 0) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .tis: non-positive doc_freq");
+        SPIMI_THROW_CORRUPT("SPIMI .tis: non-positive doc_freq");
     }
     if (term_info->freq_pointer < 0 ||
         static_cast<uint64_t>(term_info->freq_pointer) > _frq_bytes.size()) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .tis freq_pointer out of .frq bounds");
+        SPIMI_THROW_CORRUPT("SPIMI .tis freq_pointer out of .frq bounds");
     }
     const auto fp = static_cast<size_t>(term_info->freq_pointer);
     return SpimiTermDocsReader::ReadTerm(_frq_bytes.data() + fp, _frq_bytes.size() - fp,

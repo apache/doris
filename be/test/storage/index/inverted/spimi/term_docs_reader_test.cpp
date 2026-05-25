@@ -23,19 +23,19 @@
 #include <vector>
 
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
 namespace {
 
 // End-to-end fixture: drives `FreqProxEncoder` to write one term's
-// `.frq` block into a MemoryLuceneOutput, then hands the bytes to
+// `.frq` block into a MemoryByteOutput, then hands the bytes to
 // `SpimiTermDocsReader::ReadTerm` and asserts the reconstructed
 // (doc_id, freq) pairs.
 struct WriteThenReadOneTerm {
-    MemoryLuceneOutput frq;
-    MemoryLuceneOutput prx;
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
     std::unique_ptr<FreqProxEncoder> enc;
 
     explicit WriteThenReadOneTerm(int32_t skip_interval = 16, bool omit_tfap = false) {

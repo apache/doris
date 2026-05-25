@@ -48,9 +48,9 @@ namespace doris::segment_v2::inverted_index::spimi {
 // the CLucene query engine. Composes the four previously-built
 // pieces:
 //   - `TermDictReader` for `.tis`/`.tii`
-//   - `SpimiCLuceneTermEnum` for `terms()` / `terms(Term*)`
-//   - `SpimiCLuceneTermDocs` for `termDocs()`
-//   - `SpimiCLuceneTermPositions` for `termPositions()`
+//   - `SpimiQueryTermEnum` for `terms()` / `terms(Term*)`
+//   - `SpimiQueryTermDocs` for `termDocs()`
+//   - `SpimiQueryTermPositions` for `termPositions()`
 //
 // Once instantiated and wrapped in `lucene::search::IndexSearcher`,
 // the standard CLucene query engine drives ALL 16 Doris query types
@@ -63,7 +63,7 @@ namespace doris::segment_v2::inverted_index::spimi {
 // for the reader's lifetime. The internal sub-readers (term_dict,
 // the CLucene FieldInfos*, norms array) live as long as the reader.
 //
-// Thread-safety: a `SpimiCLuceneIndexReader` is logically read-only
+// Thread-safety: a `SpimiQueryIndexReader` is logically read-only
 // but the sub-class objects it returns (TermEnum / TermDocs /
 // TermPositions) are not thread-safe — match CLucene's standard
 // convention. Callers create a new sub-reader per query thread.
@@ -77,16 +77,16 @@ namespace doris::segment_v2::inverted_index::spimi {
 // final" diagnostic surfaces the gap immediately instead of
 // throwing `CL_ERR_UnsupportedOperation` at query time (which
 // was the exact failure mode P40 caught for `getTermInfosRAMUsed`).
-class SpimiCLuceneIndexReader final : public lucene::index::IndexReader {
+class SpimiQueryIndexReader final : public lucene::index::IndexReader {
 public:
-    SpimiCLuceneIndexReader(std::vector<uint8_t> tis_bytes, std::vector<uint8_t> tii_bytes,
+    SpimiQueryIndexReader(std::vector<uint8_t> tis_bytes, std::vector<uint8_t> tii_bytes,
                             std::vector<uint8_t> frq_bytes, std::vector<uint8_t> prx_bytes,
                             std::vector<uint8_t> fnm_bytes, int32_t max_doc);
 
-    ~SpimiCLuceneIndexReader() override;
+    ~SpimiQueryIndexReader() override;
 
-    SpimiCLuceneIndexReader(const SpimiCLuceneIndexReader&) = delete;
-    SpimiCLuceneIndexReader& operator=(const SpimiCLuceneIndexReader&) = delete;
+    SpimiQueryIndexReader(const SpimiQueryIndexReader&) = delete;
+    SpimiQueryIndexReader& operator=(const SpimiQueryIndexReader&) = delete;
 
     // -- read-side critical (drive the query engine) --
     int32_t numDocs() override { return _max_doc; }
@@ -166,21 +166,21 @@ public:
     void doClose() override {}
     void doSetNorm(int32_t /*doc*/, const wchar_t* /*field*/, uint8_t /*value*/) override {
         _CLTHROWA(CL_ERR_UnsupportedOperation,
-                  "SpimiCLuceneIndexReader: setNorm not supported (immutable segment)");
+                  "SpimiQueryIndexReader: setNorm not supported (immutable segment)");
     }
     void doUndeleteAll() override {
         _CLTHROWA(CL_ERR_UnsupportedOperation,
-                  "SpimiCLuceneIndexReader: undeleteAll not supported (immutable segment)");
+                  "SpimiQueryIndexReader: undeleteAll not supported (immutable segment)");
     }
     void doDelete(int32_t /*docNum*/) override {
         _CLTHROWA(CL_ERR_UnsupportedOperation,
-                  "SpimiCLuceneIndexReader: delete not supported (immutable segment)");
+                  "SpimiQueryIndexReader: delete not supported (immutable segment)");
     }
     void doCommit() override {}
 
     // CLucene's `NamedObject` base requires a polymorphic name —
     // used for RTTI-free downcasts in the search engine.
-    const char* getObjectName() const override { return "SpimiCLuceneIndexReader"; }
+    const char* getObjectName() const override { return "SpimiQueryIndexReader"; }
 
     // Accessor for tests that want to verify the parsed field table.
     const std::vector<FieldInfoEntry>& field_infos_entries() const { return _field_infos_entries; }
@@ -227,7 +227,7 @@ private:
     //
     // `_norms_cache_mu` guards both `_norms_cache.emplace_back` (the
     // realloc race that would invalidate prior `data()` pointers) and
-    // the linear-scan lookup. SpimiCLuceneIndexReader instances are
+    // the linear-scan lookup. SpimiQueryIndexReader instances are
     // shared across query threads via the searcher cache; concurrent
     // first-time `norms("field_X")` calls would race without this.
     mutable std::mutex _norms_cache_mu;

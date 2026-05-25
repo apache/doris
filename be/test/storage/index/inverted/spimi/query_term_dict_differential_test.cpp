@@ -34,7 +34,7 @@
 #include <string>
 #include <vector>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/term_dict_writer.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
@@ -86,7 +86,7 @@ void DriveCLuceneWriter(lucene::store::RAMDirectory* dir, const char* segment,
     _CLDELETE(writer);
 }
 
-void DriveSpimiWriter(MemoryLuceneOutput* tis, MemoryLuceneOutput* tii,
+void DriveSpimiWriter(MemoryByteOutput* tis, MemoryByteOutput* tii,
                       const std::vector<TermFixture>& fixtures) {
     TermDictWriter writer(tis, tii);
     for (const auto& f : fixtures) {
@@ -126,7 +126,7 @@ TEST_F(CLuceneSetup, TisTiiAreByteEqualForSingleTerm) {
     const auto clucene_tis = ReadAllFromRamDir(&ram, "_diff_a.tis");
     const auto clucene_tii = ReadAllFromRamDir(&ram, "_diff_a.tii");
 
-    MemoryLuceneOutput tis, tii;
+    MemoryByteOutput tis, tii;
     DriveSpimiWriter(&tis, &tii, fixtures);
     EXPECT_EQ(tis.bytes(), clucene_tis);
     EXPECT_EQ(tii.bytes(), clucene_tii);
@@ -142,7 +142,7 @@ TEST_F(CLuceneSetup, TisTiiAreByteEqualForAsciiTerms) {
     const auto clucene_tis = ReadAllFromRamDir(&ram, "_diff_b.tis");
     const auto clucene_tii = ReadAllFromRamDir(&ram, "_diff_b.tii");
 
-    MemoryLuceneOutput tis, tii;
+    MemoryByteOutput tis, tii;
     DriveSpimiWriter(&tis, &tii, fixtures);
     EXPECT_EQ(tis.bytes(), clucene_tis) << "front-coded prefix + suffix encoding must match";
     EXPECT_EQ(tii.bytes(), clucene_tii);
@@ -158,7 +158,7 @@ TEST_F(CLuceneSetup, TisTiiAreByteEqualWithSkipOffset) {
     const auto clucene_tis = ReadAllFromRamDir(&ram, "_diff_c.tis");
     const auto clucene_tii = ReadAllFromRamDir(&ram, "_diff_c.tii");
 
-    MemoryLuceneOutput tis, tii;
+    MemoryByteOutput tis, tii;
     DriveSpimiWriter(&tis, &tii, fixtures);
     EXPECT_EQ(tis.bytes(), clucene_tis) << "skip_offset path must match";
     EXPECT_EQ(tii.bytes(), clucene_tii);
@@ -175,7 +175,7 @@ TEST_F(CLuceneSetup, TisTiiAreByteEqualForCjkTerms) {
     const auto clucene_tis = ReadAllFromRamDir(&ram, "_diff_d.tis");
     const auto clucene_tii = ReadAllFromRamDir(&ram, "_diff_d.tii");
 
-    MemoryLuceneOutput tis, tii;
+    MemoryByteOutput tis, tii;
     DriveSpimiWriter(&tis, &tii, fixtures);
     EXPECT_EQ(tis.bytes(), clucene_tis) << "modified UTF-8 wide-char encoding must match for CJK";
     EXPECT_EQ(tii.bytes(), clucene_tii);
@@ -197,7 +197,7 @@ TEST_F(CLuceneSetup, TisTiiAreByteEqualWithIndexIntervalBoundaries) {
     const auto clucene_tis = ReadAllFromRamDir(&ram, "_diff_e.tis");
     const auto clucene_tii = ReadAllFromRamDir(&ram, "_diff_e.tii");
 
-    MemoryLuceneOutput tis, tii;
+    MemoryByteOutput tis, tii;
     DriveSpimiWriter(&tis, &tii, fixtures);
     EXPECT_EQ(tis.bytes(), clucene_tis);
     EXPECT_EQ(tii.bytes(), clucene_tii);

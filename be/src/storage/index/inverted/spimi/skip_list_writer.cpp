@@ -59,7 +59,7 @@ void SkipListWriter::EnsureLevels(int32_t levels) {
     if (static_cast<int32_t>(_skip_buffers.size()) < levels) {
         _skip_buffers.reserve(levels);
         while (static_cast<int32_t>(_skip_buffers.size()) < levels) {
-            _skip_buffers.emplace_back(std::make_unique<MemoryLuceneOutput>());
+            _skip_buffers.emplace_back(std::make_unique<MemoryByteOutput>());
         }
     }
     if (static_cast<int32_t>(_last_skip_doc.size()) < levels) {
@@ -91,7 +91,7 @@ void SkipListWriter::SetSkipData(int32_t doc, int64_t freq_pointer, int64_t prox
     _cur_prox_pointer = prox_pointer;
 }
 
-void SkipListWriter::WriteSkipEntry(int32_t level, MemoryLuceneOutput* level_buf) {
+void SkipListWriter::WriteSkipEntry(int32_t level, MemoryByteOutput* level_buf) {
     // CLucene's skip-list format uses VInt for freq/prox pointer deltas (the
     // reader's `DefaultSkipListReader::readSkipData` calls `readVInt` and
     // implicitly assumes the delta fits in a signed 32-bit value). A delta
@@ -143,7 +143,7 @@ void SkipListWriter::BufferSkip(int32_t df) {
     }
 }
 
-int64_t SkipListWriter::WriteSkip(LuceneOutput* out) {
+int64_t SkipListWriter::WriteSkip(ByteOutput* out) {
     const int64_t skip_pointer = out->FilePointer();
     if (_number_of_skip_levels == 0) {
         return skip_pointer;

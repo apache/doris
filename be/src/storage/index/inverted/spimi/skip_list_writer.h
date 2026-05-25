@@ -21,7 +21,7 @@
 #include <memory>
 #include <vector>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -90,7 +90,7 @@ public:
     // Flushes all buffered skip levels into `out`. Returns the file offset
     // of the first byte written (CLucene's "skipPointer"); callers compute
     // the per-term `skip_offset` as `skip_pointer - term_frq_start`.
-    int64_t WriteSkip(LuceneOutput* out);
+    int64_t WriteSkip(ByteOutput* out);
 
     int32_t NumberOfSkipLevels() const { return _number_of_skip_levels; }
     int32_t SkipInterval() const { return _skip_interval; }
@@ -98,7 +98,7 @@ public:
 private:
     // Writes one skip entry at `level` into `level_buf`. Does not write the
     // child pointer (caller appends it for level > 0).
-    void WriteSkipEntry(int32_t level, MemoryLuceneOutput* level_buf);
+    void WriteSkipEntry(int32_t level, MemoryByteOutput* level_buf);
 
     void EnsureLevels(int32_t levels);
 
@@ -113,7 +113,7 @@ private:
     std::vector<int32_t> _last_skip_doc;
     std::vector<int64_t> _last_skip_freq_pointer;
     std::vector<int64_t> _last_skip_prox_pointer;
-    std::vector<std::unique_ptr<MemoryLuceneOutput>> _skip_buffers;
+    std::vector<std::unique_ptr<MemoryByteOutput>> _skip_buffers;
 };
 
 } // namespace doris::segment_v2::inverted_index::spimi

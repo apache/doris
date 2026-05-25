@@ -17,6 +17,9 @@
 
 #include "storage/index/inverted/spimi/fulltext_writer.h"
 
+#include <CLucene.h> // IWYU pragma: keep
+#include <CLucene/store/Directory.h>
+
 #include <limits>
 #include <utility>
 
@@ -122,7 +125,7 @@ std::vector<int32_t> ComputeDocLengths(const SpimiPostingBuffer& buffer, int32_t
 // field (null docs / docs missing the field).
 constexpr uint8_t kDefaultNorm = 1;
 
-void WriteNormsForField(LuceneOutput* out, const SpimiPostingBuffer& buffer, int32_t doc_count) {
+void WriteNormsForField(ByteOutput* out, const SpimiPostingBuffer& buffer, int32_t doc_count) {
     out->WriteBytes(kNormsHeader, sizeof(kNormsHeader));
     const std::vector<int32_t> lengths = ComputeDocLengths(buffer, doc_count);
     // CLucene emits `writeLong(total_term_count)` between the
@@ -147,7 +150,8 @@ int64_t SpimiFulltextWriter::EmitSegment(SpimiPostingBuffer& buffer, const Spimi
                                          const std::string& segment_name,
                                          const std::string& field_name, int32_t doc_count,
                                          int32_t index_version, bool omit_term_freq_and_positions,
-                                         bool omit_norms) {
+                                         bool omit_norms,
+                                         EmittedSegmentByteCounts* out_byte_counts) {
     DCHECK(sink.tis != nullptr);
     DCHECK(sink.tii != nullptr);
     DCHECK(sink.frq != nullptr);
@@ -205,7 +209,66 @@ int64_t SpimiFulltextWriter::EmitSegment(SpimiPostingBuffer& buffer, const Spimi
     SegmentInfosWriter manifest_writer;
     manifest_writer.WriteSegmentsN(sink.segments_n, /*version=*/1, /*counter=*/1, {seg});
     manifest_writer.WriteSegmentsGen(sink.segments_gen, /*generation=*/1);
+
+    // Capture per-stream byte counts at the moment EmitSegment finished
+    // writing. `FilePointer()` is the running count of bytes fed through
+    // each ByteOutput; the caller can re-query the Directory for the
+    // on-disk file length after close() and compare via
+    // `ValidateClosedSegmentByteCounts` to catch async partial flushes.
+    // .nrm is left at 0 when omit_norms=true so the validator skips it.
+    if (out_byte_counts != nullptr) {
+        out_byte_counts->tis = sink.tis->FilePointer();
+        out_byte_counts->tii = sink.tii->FilePointer();
+        out_byte_counts->frq = sink.frq->FilePointer();
+        out_byte_counts->prx = sink.prx->FilePointer();
+        out_byte_counts->fnm = sink.fnm->FilePointer();
+        out_byte_counts->nrm = (sink.nrm != nullptr && !omit_norms) ? sink.nrm->FilePointer() : 0;
+        out_byte_counts->segments_n = sink.segments_n->FilePointer();
+        out_byte_counts->segments_gen = sink.segments_gen->FilePointer();
+    }
     return term_count;
+}
+
+namespace {
+
+void CheckLengthOrThrow(lucene::store::Directory* dir, const char* name, int64_t expected) {
+    if (name == nullptr || expected <= 0) {
+        return;
+    }
+    if (!dir->fileExists(name)) {
+        throw doris::Exception(
+                doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "SPIMI segment file '{}' missing after close (expected {} bytes)", name,
+                        expected));
+    }
+    const int64_t actual = dir->fileLength(name);
+    if (actual != expected) {
+        throw doris::Exception(
+                doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "SPIMI segment file '{}' size mismatch: wrote {} bytes, on-disk {} bytes "
+                        "(partial flush or truncation suspected)",
+                        name, expected, actual));
+    }
+}
+
+} // namespace
+
+void ValidateClosedSegmentByteCounts(lucene::store::Directory* dir,
+                                     const SpimiSegmentFileNames& names,
+                                     const EmittedSegmentByteCounts& expected) {
+    DCHECK(dir != nullptr);
+    CheckLengthOrThrow(dir, names.tis, expected.tis);
+    CheckLengthOrThrow(dir, names.tii, expected.tii);
+    CheckLengthOrThrow(dir, names.frq, expected.frq);
+    CheckLengthOrThrow(dir, names.prx, expected.prx);
+    CheckLengthOrThrow(dir, names.fnm, expected.fnm);
+    // .nrm is conditional — only check when EmitSegment recorded a non-zero
+    // byte count (omit_norms=false path).
+    if (expected.nrm > 0) {
+        CheckLengthOrThrow(dir, names.nrm, expected.nrm);
+    }
+    CheckLengthOrThrow(dir, names.segments_n, expected.segments_n);
+    CheckLengthOrThrow(dir, names.segments_gen, expected.segments_gen);
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

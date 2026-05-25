@@ -21,13 +21,13 @@
 
 #include <vector>
 
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/segment_infos_writer.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
 TEST(SegmentInfosReaderTest, RoundTripsSingleSegment) {
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     SegmentInfoEntry seg;
     seg.name = "_0";
     seg.doc_count = 42;
@@ -52,7 +52,7 @@ TEST(SegmentInfosReaderTest, RoundTripsSingleSegment) {
 }
 
 TEST(SegmentInfosReaderTest, RoundTripsMultipleSegments) {
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     std::vector<SegmentInfoEntry> segs;
     for (int i = 0; i < 5; ++i) {
         SegmentInfoEntry s;
@@ -80,7 +80,7 @@ TEST(SegmentInfosReaderTest, RoundTripsMultipleSegments) {
 TEST(SegmentInfosReaderTest, RoundTripsHandcraftedSpimiSegmentName) {
     // Matches the exact entry that `SpimiFulltextWriter::EmitSegment`
     // writes (segment_name="_spimi_0", doc_count from caller).
-    MemoryLuceneOutput out;
+    MemoryByteOutput out;
     SegmentInfoEntry seg;
     seg.name = "_spimi_0";
     seg.doc_count = 123;

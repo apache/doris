@@ -21,28 +21,73 @@
 #include <string>
 
 #include "storage/index/inverted/spimi/field_infos_writer.h"
-#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/segment_infos_writer.h"
 #include "storage/index/inverted/spimi/segment_writer.h"
 
+namespace lucene::store {
+class Directory;
+}
+
 namespace doris::segment_v2::inverted_index::spimi {
 
-// Bundle of LuceneOutputs that together form one Lucene 2.x fulltext
+// Per-stream byte counts captured at the moment EmitSegment returns.
+// Used by `ValidateClosedSegmentByteCounts` to detect partial flushes —
+// most importantly the cloud-mode async-S3 case where the underlying
+// FileWriter buffers writes and a later close() failure could leave the
+// segment silently truncated (matches the P44–P46 cloud bug pattern that
+// single-node tests had passed clean).
+struct EmittedSegmentByteCounts {
+    int64_t tis = 0;
+    int64_t tii = 0;
+    int64_t frq = 0;
+    int64_t prx = 0;
+    int64_t fnm = 0;
+    int64_t nrm = 0;
+    int64_t segments_n = 0;
+    int64_t segments_gen = 0;
+};
+
+// Names of the eight segment files as they were created in the Directory.
+// Pointers are non-owning; the caller keeps them alive across validation.
+struct SpimiSegmentFileNames {
+    const char* tis = nullptr;
+    const char* tii = nullptr;
+    const char* frq = nullptr;
+    const char* prx = nullptr;
+    const char* fnm = nullptr;
+    const char* nrm = nullptr;
+    const char* segments_n = nullptr;
+    const char* segments_gen = nullptr;
+};
+
+// Post-close validator. Asks `dir` for the on-disk length of each segment
+// file and compares to the byte count fed through the corresponding
+// ByteOutput at write time. Throws `doris::Exception` with
+// `INVERTED_INDEX_FILE_CORRUPTED` on any mismatch — covers truncation,
+// missing file, and the cloud-mode partial-async-flush case. When
+// `expected.nrm == 0` the .nrm stream was not emitted (omit_norms=true on
+// V4); in that case the .nrm file is not checked for existence.
+void ValidateClosedSegmentByteCounts(lucene::store::Directory* dir,
+                                     const SpimiSegmentFileNames& names,
+                                     const EmittedSegmentByteCounts& expected);
+
+// Bundle of ByteOutputs that together form one Lucene 2.x fulltext
 // segment as the existing CLucene reader expects. The seven streams are
 // the minimum set for a SPIMI segment with `omit_norms=true` and no
 // compound packing — Doris's IndexFileWriter handles the optional .cfs
 // bundling separately.
 struct SpimiSegmentSink {
-    LuceneOutput* tis = nullptr;          // term dictionary
-    LuceneOutput* tii = nullptr;          // term dictionary sparse index
-    LuceneOutput* frq = nullptr;          // doc-and-freq stream
-    LuceneOutput* prx = nullptr;          // position stream
-    LuceneOutput* fnm = nullptr;          // field info
-    LuceneOutput* nrm = nullptr;          // norms (optional; only written
+    ByteOutput* tis = nullptr;          // term dictionary
+    ByteOutput* tii = nullptr;          // term dictionary sparse index
+    ByteOutput* frq = nullptr;          // doc-and-freq stream
+    ByteOutput* prx = nullptr;          // position stream
+    ByteOutput* fnm = nullptr;          // field info
+    ByteOutput* nrm = nullptr;          // norms (optional; only written
                                           // when fi.omit_norms = false)
-    LuceneOutput* segments_n = nullptr;   // segments manifest (segments_<N>)
-    LuceneOutput* segments_gen = nullptr; // redundancy generation pointer
+    ByteOutput* segments_n = nullptr;   // segments manifest (segments_<N>)
+    ByteOutput* segments_gen = nullptr; // redundancy generation pointer
 };
 
 // High-level facade orchestrating the SPIMI write path. Owns the in-memory
@@ -76,12 +121,18 @@ public:
     // a synthesizer that ignores `.nrm` anyway). Shadow / debug
     // modes that compare byte-for-byte against CLucene leave it
     // false so the SPIMI `.fnm` flag bits match CLucene's emit.
+    // `out_byte_counts` (optional, non-owning): populated with the byte
+    // count each stream's ByteOutput reported via `FilePointer()` at the
+    // moment EmitSegment returns. The caller can pass these to
+    // `ValidateClosedSegmentByteCounts` after close() to confirm the
+    // on-disk segment matches what SPIMI intended to write.
     static int64_t EmitSegment(SpimiPostingBuffer& buffer, const SpimiSegmentSink& sink,
                                const std::string& segment_name, const std::string& field_name,
                                int32_t doc_count,
                                int32_t index_version = FieldInfosWriter::kIndexVersionV0,
                                bool omit_term_freq_and_positions = false,
-                               bool omit_norms = false);
+                               bool omit_norms = false,
+                               EmittedSegmentByteCounts* out_byte_counts = nullptr);
 
     // Records one token occurrence. `doc_id` must be non-decreasing across
     // calls; `position` must be non-decreasing within the same doc_id.

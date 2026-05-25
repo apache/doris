@@ -41,12 +41,12 @@ namespace doris::segment_v2::inverted_index::spimi {
 //
 // Subclasses implement WriteByte / WriteBytes / FilePointer; everything else
 // is composed on top.
-class LuceneOutput {
+class ByteOutput {
 public:
-    virtual ~LuceneOutput() = default;
+    virtual ~ByteOutput() = default;
 
-    LuceneOutput(const LuceneOutput&) = delete;
-    LuceneOutput& operator=(const LuceneOutput&) = delete;
+    ByteOutput(const ByteOutput&) = delete;
+    ByteOutput& operator=(const ByteOutput&) = delete;
 
     virtual void WriteByte(uint8_t b) = 0;
     virtual void WriteBytes(const uint8_t* b, size_t len) = 0;
@@ -62,14 +62,14 @@ public:
     void WriteSCharsFromWide(const wchar_t* s, int32_t length);
 
 protected:
-    LuceneOutput() = default;
+    ByteOutput() = default;
 };
 
 // In-memory backing — owns a byte vector. Convenient for tests and for
 // computing index entries before writing them to a file.
-class MemoryLuceneOutput final : public LuceneOutput {
+class MemoryByteOutput final : public ByteOutput {
 public:
-    MemoryLuceneOutput() = default;
+    MemoryByteOutput() = default;
 
     void WriteByte(uint8_t b) override { _bytes.push_back(b); }
     void WriteBytes(const uint8_t* b, size_t len) override {
