@@ -91,6 +91,6 @@ suite("test_audit_log_behavior","nonConcurrent") {
         assertEquals(tuple2[1].toString(), res[0][0].toString())
     }
 
-  }
+  })
 
 }
