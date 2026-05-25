@@ -225,6 +225,17 @@ class LiteralExprEqualsTest {
             Assertions.assertNotEquals(mapped, loopback);
             Assertions.assertNotEquals(mapped.hashCode(), loopback.hashCode());
         }
+
+        @Test
+        void ipv4MappedDottedAndCompressedFormsEqual() throws AnalysisException {
+            // The dotted-decimal mapped form (::ffff:0.0.0.1) and the
+            // colon-only compressed form (::ffff:0:1) are the same 128-bit
+            // address, so they must hash and compare-equal.
+            IPv6Literal dotted = new IPv6Literal("::ffff:0.0.0.1");
+            IPv6Literal compressed = new IPv6Literal("::ffff:0:1");
+            Assertions.assertEquals(dotted, compressed);
+            Assertions.assertEquals(dotted.hashCode(), compressed.hashCode());
+        }
     }
 
     @Nested
