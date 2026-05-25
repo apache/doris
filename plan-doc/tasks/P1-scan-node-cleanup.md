@@ -7,14 +7,14 @@
 
 ## 元信息
 
-- **状态**：🚧 启动中
+- **状态**：✅ 完成（in-scope: T3+T4+T5；T1 推迟 P8；T2 推迟 P4/P5）
 - **启动日期**：2026-05-25
 - **目标完成**：2026-06-01（1 周）
-- **实际完成**：—
-- **阻塞**：无（P0 已合入 `branch-catalog-spi`，PR #63582 / `c6f056fa5bd`）
-- **阻塞下游**：P2-P7 所有连接器迁移依赖 P1 把 scan-node 收口 + 旧路径删除
+- **实际完成**：2026-05-25（提前；scope 大幅收窄）
+- **阻塞**：无
+- **阻塞下游**：P2 (trino-connector) 可启动；批 A scan-node 收口已就位
 - **主 owner**：@me
-- **分支**：`catalog-spi-02`（基于 `upstream-apache/branch-catalog-spi`）
+- **分支**：`catalog-spi-02`（基于 `upstream-apache/branch-catalog-spi`；批 A 已 commit 43a12a05ffe，待 push + PR）
 
 ---
 
@@ -34,16 +34,16 @@
 
 ## 验收标准
 
-从 master plan §3.2 同步：
+从 master plan §3.2 同步（**两项推迟**已在状态前置标注）：
 
-- [ ] 13 个 `datasource/jdbc/client/Jdbc*Client.java` + `JdbcFieldSchema.java` 全部删除（约 2730 LOC）
-- [ ] fe-core 重复的 `PaimonPredicateConverter` + `McStructureHelper` 处理完毕（见 T2 决议）
-- [ ] `PhysicalPlanTranslator.visitPhysicalFileScan` 优先走 `PluginDrivenExternalTable` 分支
-- [ ] `visitPhysicalHudiScan` 通过 `PluginDrivenScanNode` 处理增量场景
-- [ ] `LogicalFileScan.computeOutput` 不再 `instanceof IcebergExternalTable / HMSExternalTable`
-- [ ] `PhysicalPlanTranslator` 不再 `import` 任何具体 `*ExternalTable` 类（除迁移期 fallback）
-- [ ] fe-core 全编译 + checkstyle 0
-- [ ] PR CI 全绿（JDBC + ES regression-test 仍通过；其他连接器走 fallback 通过）
+- 🚫 ~~13 个 `datasource/jdbc/client/Jdbc*Client.java` + `JdbcFieldSchema.java` 全部删除~~ — **推迟到 P8**（2026-05-25 决议：3 个 fe-core caller 是活的 CDC streaming 代码，删除需 SPI 扩展，不属 P1 surgical scope。详见任务清单 T1 备注）
+- 🚫 ~~fe-core 重复的 `PaimonPredicateConverter` + `McStructureHelper` 处理完毕~~ — **推迟到 P4/P5**（用户决议 Q2，2026-05-25）
+- [x] `PhysicalPlanTranslator.visitPhysicalFileScan` 优先走 `PluginDrivenExternalTable` 分支 — 批 A T3
+- [x] `visitPhysicalHudiScan` 通过 `PluginDrivenScanNode` 处理增量场景（分支已就位，P3 Hudi 迁移时激活） — 批 A T4
+- [x] `LogicalFileScan.computeOutput` 不再 `instanceof IcebergExternalTable / HMSExternalTable` —— **部分达成**：新增 `PluginDrivenExternalTable` 分支前置；Iceberg 分支保留作 P6 fallback —— 批 A T5
+- 🟡 `PhysicalPlanTranslator` 不再 `import` 任何具体 `*ExternalTable` 类（除迁移期 fallback） — **迁移期保留**（用户决议 Q3）；7 个连接器特定分支在 P3-P7 各自迁移完成时随主任务删除
+- [x] fe-core 全编译 + checkstyle 0
+- [ ] PR CI 全绿（待批 A push + PR 创建后由 CI 报告）
 
 ---
 
@@ -53,7 +53,7 @@
 
 | ID | 任务 | 批次 | Owner | 状态 | PR | 启动 | 完成 | 备注 |
 |---|---|---|---|---|---|---|---|---|
-| P1-T01 | 删除 13 个 `Jdbc*Client.java` + `JdbcFieldSchema.java` | **批 B** | @me | ⏳ | — | — | — | 先解耦 3 个外部 caller（PostgresResourceValidator / StreamingJobUtils / CdcStreamTableValuedFunction）+ 处理 3 个测试 |
+| P1-T01 | 删除 13 个 `Jdbc*Client.java` + `JdbcFieldSchema.java` | **🚫 推迟到 P8** | — | 🚫 | — | — | — | 2026-05-25 recon 结论：3 个 fe-core caller（PostgresResourceValidator / StreamingJobUtils / CdcStreamTableValuedFunction）均为活的 CDC streaming 代码（非 dead code），删除需在 ConnectorPlugin/ConnectorMetadata 上为 CDC 暴露 `getPrimaryKeys`/`getColumnsFromJdbc`/`listTables` 等 capability。用户决议（Q4）：不在 P1 阶段做 SPI 扩展，T1 推迟到 P8 收尾，届时与 streaming CDC 重构一起做 |
 | P1-T02 | 重复 `PaimonPredicateConverter` + `McStructureHelper` 处理 | **🚫 推迟到 P4/P5** | — | 🚫 | — | — | — | 2026-05-25 用户决议（Q2）：fe-core caller 本身是 P4/P5 要删的 legacy；本阶段不动 |
 | P1-T03 | `PhysicalPlanTranslator.visitPhysicalFileScan` 收口（**保留 fallback**） | **批 A** | @me | ✅ | TBD | 2026-05-25 | 2026-05-25 | `PluginDrivenExternalTable` 分支提到 if-else 链最前；7 个老分支原地保留作 P3-P7 迁移期 fallback |
 | P1-T04 | `visitPhysicalHudiScan` 委托给 `PluginDrivenScanNode` | **批 A** | @me | ✅ | TBD | 2026-05-25 | 2026-05-25 | 新分支前置；`scanParams` + `tableSnapshot` 经 `FileQueryScanNode` setters 透传；`incrementalRelation` 待 P3 Hudi 迁移时 SPI 扩展（TODO 注释已落） |
@@ -64,6 +64,23 @@
 ---
 
 ## 阶段日志（倒序）
+
+### 2026-05-25（白天 ④）— P1 收尾：T1 推迟到 P8
+
+批 B (T1) 启动前 recon 结论：13 个 legacy JDBC client + JdbcFieldSchema 的 3 个 fe-core caller **均为活的 CDC streaming 代码**：
+
+- `PostgresResourceValidator.java`（`job/extensions/insert/streaming/`）：CREATE JOB 时校验 PG 复制槽 / 发布，被 `StreamingJobUtils.validateSource` → `StreamingInsertJob.validateTvfSource` → `CreateJobCommand`/`AlterJobCommand` 链路使用
+- `StreamingJobUtils.java`（`job/util/`）：`getJdbcClient()` + `jdbcClient.getPrimaryKeys()` / `getColumnsFromJdbc()` / `getTablesNameList()`，CDC 表枚举 + DDL 生成
+- `CdcStreamTableValuedFunction.java`（`tablefunction/`）：`cdc_stream` TVF，被 `CdcStream.java:46` 调，streaming 作业执行链路
+
+测试侧：`StreamingJobUtilsTest` 需重写；`JdbcFieldSchemaTest`/`JdbcClickHouseClientTest`/`JdbcClientExceptionTest` 测 legacy 本身（随源删除）。fe-connector 侧 SPI 替换 `Jdbc*ConnectorClient` 已就位，但 **fe-core 不能直接 import**（会破坏 `tools/check-connector-imports.sh` 守门）。
+
+**用户决议（Q4，2026-05-25）**：推迟 T1 到 P8 收尾。理由：
+- 删 T1 需要在 ConnectorPlugin/ConnectorMetadata 上为 CDC use case 暴露新 capability（getPrimaryKeys / getColumnsFromJdbc / listTables），是 SPI 扩展工作，超出 Master Plan §3.2 P1 scope
+- 现状无 runtime 风险——legacy JDBC client 仍在原位，CDC 功能正常
+- P8 收尾阶段与 streaming CDC 重构一起做，避免 P1 阶段引入 1-2 天计划外 SPI 设计工作
+
+**P1 in-scope 完成度**：T3+T4+T5 ✅；T1 推迟 P8；T2 推迟 P4/P5。P1 阶段关闭，准备 batch A push + PR，进入 P2 (trino-connector)。
 
 ### 2026-05-25（白天 ③）— 批 A 编码完成（T3 + T4 + T5）
 
@@ -117,4 +134,4 @@
 
 ## 当前阻塞项
 
-无。批次方案已确认；新 session 直接开始批 A 编码。
+无。P1 阶段关闭，剩余动作仅为 batch A push + PR 创建（待用户授权）。下一阶段 P2 (trino-connector) 可启动。
