@@ -17,6 +17,15 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.TableIndexes;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -28,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -229,7 +239,7 @@ public class RewriteSearchToSlotsTest {
     @Test
     public void testRewriteSearchHandlesCaseInsensitiveField() throws Exception {
         LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(),
-                PlanConstructor.student, ImmutableList.of("db"));
+                buildStudentWithInvertedIndexOnName(100L), ImmutableList.of("db"));
         Search searchFunc = new Search(new StringLiteral("NAME:alice"));
 
         Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
@@ -265,5 +275,62 @@ public class RewriteSearchToSlotsTest {
         Assertions.assertNotNull(thrown.getCause());
         Assertions.assertInstanceOf(AnalysisException.class, thrown.getCause());
         Assertions.assertTrue(thrown.getCause().getMessage().contains("unknown_field"));
+    }
+
+    @Test
+    public void testRewriteSearchThrowsWhenColumnHasNoInvertedIndex() throws Exception {
+        // PlanConstructor.student has the 'name' column but no inverted index on it. The rewrite
+        // must surface a clear error instead of letting BE silently return an empty bitmap.
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(),
+                PlanConstructor.student, ImmutableList.of("db"));
+        Search searchFunc = new Search(new StringLiteral("name:alice"));
+
+        Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
+                "rewriteSearch", Search.class, LogicalOlapScan.class);
+        rewriteMethod.setAccessible(true);
+
+        InvocationTargetException thrown = Assertions.assertThrows(InvocationTargetException.class,
+                () -> rewriteMethod.invoke(rewriteRule, searchFunc, scan));
+        Assertions.assertNotNull(thrown.getCause());
+        Assertions.assertInstanceOf(AnalysisException.class, thrown.getCause());
+        Assertions.assertTrue(thrown.getCause().getMessage().contains("inverted index"),
+                "Error message should mention inverted index, got: " + thrown.getCause().getMessage());
+        Assertions.assertTrue(thrown.getCause().getMessage().contains("name"));
+    }
+
+    @Test
+    public void testRewriteSearchSucceedsWhenColumnHasInvertedIndex() throws Exception {
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(),
+                buildStudentWithInvertedIndexOnName(101L), ImmutableList.of("db"));
+        Search searchFunc = new Search(new StringLiteral("name:alice"));
+
+        Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
+                "rewriteSearch", Search.class, LogicalOlapScan.class);
+        rewriteMethod.setAccessible(true);
+
+        Object rewritten = rewriteMethod.invoke(rewriteRule, searchFunc, scan);
+        Assertions.assertInstanceOf(SearchExpression.class, rewritten);
+
+        SearchExpression searchExpression = (SearchExpression) rewritten;
+        Assertions.assertEquals(1, searchExpression.getSlotChildren().size());
+        Assertions.assertTrue(searchExpression.getSlotChildren().get(0) instanceof SlotReference);
+        Assertions.assertEquals("name",
+                ((SlotReference) searchExpression.getSlotChildren().get(0)).getName());
+    }
+
+    private static OlapTable buildStudentWithInvertedIndexOnName(long tableId) {
+        List<Column> columns = ImmutableList.of(
+                new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
+                new Column("gender", Type.INT, false, AggregateType.NONE, "0", ""),
+                new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
+                new Column("age", Type.INT, true, AggregateType.NONE, "", ""));
+        Index invertedOnName = new Index(1L, "idx_name", ImmutableList.of("name"),
+                IndexType.INVERTED, null, "");
+        OlapTable table = new OlapTable(tableId, "student_with_inverted_index", false, columns,
+                KeysType.PRIMARY_KEYS, new PartitionInfo(), null,
+                new TableIndexes(ImmutableList.of(invertedOnName)));
+        table.setIndexMeta(-1, "student_with_inverted_index", table.getFullSchema(),
+                0, 0, (short) 0, TStorageType.COLUMN, KeysType.PRIMARY_KEYS);
+        return table;
     }
 }
