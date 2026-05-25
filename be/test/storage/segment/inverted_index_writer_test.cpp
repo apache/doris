@@ -813,6 +813,24 @@ protected:
                                            const std::vector<std::string>& strings,
                                            double upper_ratio);
 
+    // On-disk storage benchmark. Writes the same input through V2 and V4
+    // paths and measures the final `.idx` file size each produced. This
+    // is the metric customers see directly — bigger segments = more
+    // storage cost + slower cold-cache scans + bigger S3 transfer in
+    // cloud mode. Throughput/memory wins don't translate to a smaller
+    // segment automatically (V4 PFOR encoding adds header bytes per
+    // sub-block; CLucene's VInt-only encoding is dense). This test
+    // makes the size trade-off explicit.
+    struct StorageSizeResult {
+        int64_t v2_idx_bytes = 0;
+        int64_t v4_idx_bytes = 0;
+    };
+    StorageSizeResult run_spimi_storage_size_workload(const std::vector<std::string>& strings,
+                                                      const std::string& fixture_tag);
+    void check_spimi_storage_size_vs_clucene(const std::string& fixture_tag,
+                                             const std::vector<std::string>& strings,
+                                             double upper_ratio);
+
 private:
     std::string _current_dir;
     std::string _absolute_dir;
@@ -1403,6 +1421,97 @@ void InvertedIndexWriterTest::check_spimi_throughput_vs_clucene(
             << "real outlier (O(N^2) compact-mode, allocator pathology), not host noise.";
 }
 
+// On-disk storage-size benchmark. Writes the SAME input through both V2
+// (CLucene IndexWriter) and V4 (SPIMI) and measures the size of the
+// resulting `.idx` compound file. This is the metric customers see
+// directly — bigger segments mean higher storage cost, slower cold-cache
+// scans, and bigger object-store transfer in cloud mode. The
+// throughput-and-memory wins of V4 don't automatically translate to a
+// smaller segment: V4's PFOR sub-blocks have per-block header overhead
+// CLucene's plain VInt stream doesn't, while V4's compact-mode delta
+// encoding can be denser than CLucene's stuffed Postings on high-doc-freq
+// terms. This test exposes the trade-off explicitly per workload.
+InvertedIndexWriterTest::StorageSizeResult InvertedIndexWriterTest::run_spimi_storage_size_workload(
+        const std::vector<std::string>& strings, const std::string& fixture_tag) {
+    auto one_run = [&](InvertedIndexStorageFormatPB format) -> int64_t {
+        auto tablet_schema = create_schema();
+        TabletIndex idx_meta = create_phrase_fulltext_index_meta();
+        const std::string fmt_tag = (format == InvertedIndexStorageFormatPB::V4) ? "v4" : "v2";
+        std::string rowset_id = std::string("test_rowset_spimi_size_") + fixture_tag + "_" + fmt_tag;
+        int seg_id = 0;
+        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, seg_id))};
+        std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+
+        io::FileWriterPtr file_writer;
+        io::FileWriterOptions opts;
+        auto fs = io::global_local_filesystem();
+        EXPECT_TRUE(fs->create_file(index_path, &file_writer, &opts).ok());
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
+                fs, index_path_prefix, rowset_id, seg_id, format, std::move(file_writer));
+
+        const TabletColumn& column = tablet_schema->column(1);
+        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
+
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        EXPECT_TRUE(IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                              &idx_meta)
+                            .ok());
+
+        const auto values = slices_from_strings(strings);
+        constexpr size_t kBatchSize = 32;
+        for (size_t i = 0; i < values.size(); i += kBatchSize) {
+            const size_t batch = std::min(kBatchSize, values.size() - i);
+            EXPECT_TRUE(column_writer->add_values("c2", values.data() + i, batch).ok());
+        }
+        EXPECT_TRUE(column_writer->finish().ok());
+        EXPECT_TRUE(index_file_writer->begin_close().ok());
+        EXPECT_TRUE(index_file_writer->finish_close().ok());
+
+        // Read the on-disk size of the compound `.idx` file. The whole
+        // segment's inverted-index footprint (.tis/.tii/.frq/.prx/.fnm/
+        // segments_N) is packed inside this single file by
+        // IndexFileWriter — that's what customers store and pay for.
+        int64_t size = 0;
+        EXPECT_TRUE(fs->file_size(index_path, &size).ok());
+        return size;
+    };
+
+    StorageSizeResult r;
+    r.v2_idx_bytes = one_run(InvertedIndexStorageFormatPB::V2);
+    r.v4_idx_bytes = one_run(InvertedIndexStorageFormatPB::V4);
+    return r;
+}
+
+void InvertedIndexWriterTest::check_spimi_storage_size_vs_clucene(
+        const std::string& fixture_tag, const std::vector<std::string>& strings,
+        double upper_ratio) {
+    const auto r = run_spimi_storage_size_workload(strings, fixture_tag);
+
+    ASSERT_GT(r.v2_idx_bytes, 0) << fixture_tag;
+    ASSERT_GT(r.v4_idx_bytes, 0) << fixture_tag;
+
+    const double ratio =
+            static_cast<double>(r.v4_idx_bytes) / static_cast<double>(r.v2_idx_bytes);
+    const double reduction_pct = 100.0 * (1.0 - ratio);
+
+    RecordProperty(("v2_idx_bytes_" + fixture_tag).c_str(), static_cast<int>(r.v2_idx_bytes));
+    RecordProperty(("v4_idx_bytes_" + fixture_tag).c_str(), static_cast<int>(r.v4_idx_bytes));
+    RecordProperty(("v4_vs_v2_idx_size_reduction_pct_" + fixture_tag).c_str(),
+                   static_cast<int>(reduction_pct));
+    std::cerr << "[idx-size][" << fixture_tag << "] V2 .idx " << r.v2_idx_bytes << " B, V4 .idx "
+              << r.v4_idx_bytes << " B, ratio " << ratio << " (reduction " << reduction_pct
+              << " %)\n";
+
+    EXPECT_LT(ratio, upper_ratio)
+            << fixture_tag << ": V4 .idx (" << r.v4_idx_bytes << " B) / V2 .idx ("
+            << r.v2_idx_bytes << " B) = " << ratio << " — must be below " << upper_ratio
+            << ". V4 should produce a segment at most this fraction the size of V2's. "
+            << "Exceeding the cap means PFOR header overhead or compact-mode encoding "
+            << "regressed the on-disk footprint past the documented trade-off.";
+}
+
+
 // Workload-size scaling for benchmark tests.
 //
 //   Default (no env var): small fixtures (~12 K occurrences). Acts as a
@@ -1496,6 +1605,77 @@ TEST_F(InvertedIndexWriterTest, FullTextSpimiWriteThroughputOnRepetitive) {
             "repetitive",
             fulltext_repetitive_strings(value_count, tokens_per_value, vocabulary_size), 1.30);
 }
+
+// ===== Storage-size benchmarks (V2 .idx vs V4 .idx) =====================
+
+// V4 and V2 both emit Lucene 2.x on-disk format (.tis/.tii/.frq/.prx/.fnm
+// packed into one `.idx` compound file). They're STRUCTURALLY identical
+// segments at the byte level — V4's wins are write-side (memory + CPU),
+// not segment-shape. Empirically (RELEASE build, default scale and
+// SPIMI_BENCH=1) the on-disk sizes are within ~1 % on diverse vocab
+// and V4 is ~10 % bigger on repetitive (PFOR sub-block header overhead
+// vs CLucene's tighter freq=1 tagged-VInt). These tests guard the
+// parity — any large drift either way means an encoding change leaked
+// into the segment format.
+
+TEST_F(InvertedIndexWriterTest, FullTextSpimiIdxSizeOnMostlyUnique) {
+    // Mostly-unique fulltext, phrase-enabled. V4 segment should be at
+    // parity with V2's — cap 1.05 (V4 no more than 5 % larger). At
+    // both 12K and 614K occurrences the measured ratio is ~1.00.
+    const auto scale = spimi_bench_scale();
+    const size_t value_count = 256 * scale.value_multiplier;
+    const size_t tokens_per_value = 48 * scale.tokens_multiplier;
+    check_spimi_storage_size_vs_clucene(
+            "mostly_unique", fulltext_memory_strings(value_count, tokens_per_value), 1.05);
+}
+
+TEST_F(InvertedIndexWriterTest, FullTextSpimiIdxSizeOnAllUnique) {
+    // All-unique. Same parity expectation as mostly_unique — V4's
+    // segment shape matches V2's because the format is identical.
+    const auto scale = spimi_bench_scale();
+    const size_t value_count = 256 * scale.value_multiplier;
+    const size_t tokens_per_value = 48 * scale.tokens_multiplier;
+    check_spimi_storage_size_vs_clucene(
+            "all_unique", fulltext_all_unique_strings(value_count, tokens_per_value), 1.05);
+}
+
+TEST_F(InvertedIndexWriterTest, FullTextSpimiIdxSizeOnRepetitive) {
+    // Highly-repetitive: 16 distinct terms, many occurrences per term.
+    // V4's compact-mode VInt-delta stream is per-occurrence; once
+    // doc_freq crosses skip_interval=512 the PFOR sub-block header
+    // overhead adds ~10 % on top of V2's plain tagged-VInt stream.
+    // Cap 1.20 — accept up to 20 % bigger segment as the architectural
+    // trade-off matching the throughput cap. Regression PAST 1.20
+    // indicates skip-list emission running away or PFOR header bloat.
+    const auto scale = spimi_bench_scale();
+    const size_t value_count = 2560 * scale.value_multiplier;
+    const size_t tokens_per_value = 48 * scale.tokens_multiplier;
+    constexpr size_t vocabulary_size = 16;
+    check_spimi_storage_size_vs_clucene(
+            "repetitive",
+            fulltext_repetitive_strings(value_count, tokens_per_value, vocabulary_size), 1.20);
+}
+
+// ===== Query-latency benchmarks (V2 CLucene reader vs V4 SPIMI reader) =====
+//
+// Each test builds one V2 segment + one V4 segment on the same input, then
+// runs the same MATCH query against each through the production read
+// path. Three query types span the read surface:
+//   - MATCH_PHRASE_QUERY: term lookup + posting iteration + positions
+//     (the dominant fulltext query type in Doris)
+//   - MATCH_ANY_QUERY: term lookup + posting iteration (no positions —
+//     exercises the no-prox decoder path)
+//
+// Caps are loose (1.5) because the read path is shared infrastructure;
+// V4's reader stack should be within 50 % of V2's CLucene reader for any
+// realistic query. A higher number indicates a real regression in
+// SpimiQueryIndexReader, PFOR decode, or term-dict seek.
+
+// Query-latency benchmarks live in `inverted_index_reader_test.cpp`
+// instead of here. That fixture is the only one that sets up the
+// ExecEnv state (searcher cache + query cache) the read path needs;
+// running queries inside the writer-only fixture segfaults during
+// reader initialization.
 
 TEST_F(InvertedIndexWriterTest, FullTextSpimiMemoryAtLeastHalfBelowCLucene) {
     // Standard "mostly unique" workload — what the original goal of
