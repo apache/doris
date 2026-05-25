@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
@@ -216,6 +217,12 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             return cachedOutputs.get();
         }
 
+        if (table instanceof PluginDrivenExternalTable) {
+            // SPI-driven tables: schema is fetched via ConnectorMetadata.getTableSchema()
+            // (see PluginDrivenExternalTable.initSchema). Use getFullSchema() so any
+            // hidden/metadata columns the connector exposes are reachable.
+            return computePluginDrivenOutput();
+        }
         if (table instanceof IcebergExternalTable) {
             // iceberg v3 need append row lineage columns
             return computeIcebergOutput((IcebergExternalTable) table);
@@ -238,6 +245,19 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return slots.build();
     }
 
+    private List<Slot> computePluginDrivenOutput() {
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
+        Builder<Slot> slots = ImmutableList.builder();
+        table.getFullSchema()
+                .stream()
+                .map(col -> SlotReference.fromColumn(exprIdGenerator.getNextId(), table, col, qualified()))
+                .forEach(slots::add);
+        for (NamedExpression virtualColumn : virtualColumns) {
+            slots.add(virtualColumn.toSlot());
+        }
+        return slots.build();
+    }
+
     @Override
     public List<Slot> computeAsteriskOutput() {
         return super.computeAsteriskOutput();
@@ -246,6 +266,11 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     @Override
     public boolean supportPruneNestedColumn() {
         ExternalTable table = getTable();
+        if (table instanceof PluginDrivenExternalTable) {
+            // No SPI capability for nested-column prune yet; default to off.
+            // Future ConnectorCapability flag will refine this.
+            return false;
+        }
         if (table instanceof IcebergExternalTable) {
             return true;
         } else if (table instanceof IcebergSysExternalTable) {
