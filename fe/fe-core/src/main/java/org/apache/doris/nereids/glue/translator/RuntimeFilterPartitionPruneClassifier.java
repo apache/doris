@@ -190,14 +190,15 @@ final class RuntimeFilterPartitionPruneClassifier {
     private static Map<Long, TTargetExprMonotonicity> classifyLocalMonotonicity(
             Expression nereidsTargetExpr, OlapScanNode scanNode, PartitionInfo partitionInfo, SlotRef leafSlot) {
         Map<Long, TTargetExprMonotonicity> result = new HashMap<>();
-        if (!(nereidsTargetExpr instanceof Monotonic) || nereidsTargetExpr.getInputSlots().size() != 1) {
+        if (!(nereidsTargetExpr instanceof Monotonic)) {
             return result;
         }
 
         Monotonic monotonic = (Monotonic) nereidsTargetExpr;
         int childIndex = monotonic.getMonotonicFunctionChildIndex();
         if (childIndex < 0 || childIndex >= nereidsTargetExpr.arity()
-                || !(nereidsTargetExpr.child(childIndex) instanceof Slot)) {
+                || !(nereidsTargetExpr.child(childIndex) instanceof Slot)
+                || !hasInputSlotOnlyInMonotonicChild(nereidsTargetExpr, childIndex)) {
             return result;
         }
 
@@ -229,6 +230,15 @@ final class RuntimeFilterPartitionPruneClassifier {
             }
         }
         return result;
+    }
+
+    static boolean hasInputSlotOnlyInMonotonicChild(Expression expression, int monotonicChildIndex) {
+        for (int i = 0; i < expression.arity(); i++) {
+            if (i != monotonicChildIndex && !expression.child(i).getInputSlots().isEmpty()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static Map<Long, TTargetExprMonotonicity> allSelectedPartitionsIncreasing(

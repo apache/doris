@@ -19,8 +19,10 @@ package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -213,7 +215,7 @@ public class RuntimeFilterTranslator {
                 targetTupleIdMapList.add(ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)));
                 targetAdjustedAfterNonIdentityList.add(adjustedAfterNonIdentity);
                 int scanNodeId = scanNode.getId().asInt();
-                String targetExprSql = targetExpr.debugString();
+                String targetExprSql = targetExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
                 String existingTargetExprSql = scanNodeTargetExprSql.putIfAbsent(scanNodeId, targetExprSql);
                 if (existingTargetExprSql != null && !existingTargetExprSql.equals(targetExprSql)) {
                     scanNodeHasDifferentTargets.put(scanNodeId, true);
