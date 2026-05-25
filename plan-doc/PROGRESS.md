@@ -1,6 +1,6 @@
 # 📊 项目进度仪表盘
 
-> 最后更新：**2026-05-25** | 当前阶段：**P1 已收口**（in-scope T3+T4+T5 完成；T1 推迟 P8、T2 推迟 P4/P5；待 batch A push + PR）→ **P2 trino-connector 准备启动** | 项目总进度：**20%**
+> 最后更新：**2026-05-25**（晚 ②）| 当前阶段：**P2 trino-connector 已启动**（分支 `catalog-spi-03`；recon 完成；task 划分敲定 13 tasks / 5 批次） | 项目总进度：**20%**
 > [README](./README.md) · [Master Plan](./00-connector-migration-master-plan.md) · [SPI RFC](./01-spi-extensions-rfc.md) · [Decisions](./decisions-log.md) · [Deviations](./deviations-log.md) · [Risks](./risks.md) · [Agent Playbook](./AGENT-PLAYBOOK.md) · [Handoff](./HANDOFF.md)
 
 ---
@@ -10,8 +10,8 @@
 | 阶段 | 范围 | 估时 | 进度 | 状态 | 任务文档 |
 |---|---|---|---|---|---|
 | **P0** | SPI 缺口补齐 | 2 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 完成（PR #63582 squash-merge `c6f056fa5bd`，T24-T25 流水线全绿）| [tasks/P0](./tasks/P0-spi-foundation.md) |
-| **P1** | scan-node 收口 + 重复清理 | 1 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 完成（in-scope T3+T4+T5 ✅；T1 推迟 P8；T2 推迟 P4/P5；commit `43a12a05ffe` 待 push + PR）| [tasks/P1](./tasks/P1-scan-node-cleanup.md) |
-| **P2** | trino-connector 迁移 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | 🚧 准备启动 | — |
+| **P1** | scan-node 收口 + 重复清理 | 1 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 完成（PR [#63641](https://github.com/apache/doris/pull/63641) squash-merged `778c5dd610f`；T1 推迟 P8；T2 推迟 P4/P5）| [tasks/P1](./tasks/P1-scan-node-cleanup.md) |
+| **P2** | trino-connector 迁移 | 2 周 | ▰▱▱▱▱▱▱▱▱▱ 10% | 🚧 进行中（recon ✅ / task 划分 ✅ / 编码待启动） | [tasks/P2](./tasks/P2-trino-connector-migration.md) |
 | P3 | hudi 迁移 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P4 | maxcompute 迁移 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P5 | paimon 迁移 | 3 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
@@ -43,6 +43,25 @@
 ## 三、当前活跃 task
 
 > 状态非 ✅ 的项，按阶段聚合。详细见各阶段 task 文件。
+
+### P2 — trino-connector 迁移（🚧 进行中）
+| ID | Task | 批次 | Owner | 状态 | 启动 | 备注 |
+|---|---|---|---|---|---|---|
+| P2-T01 | `TrinoConnectorProvider.validateProperties` + `TrinoDorisConnector.preCreateValidation` | 批 A | @me | ⏳ | — | port 自 fe-core legacy；~30 LOC |
+| P2-T02 | `ConnectorPushdownOps.applyFilter` + `applyProjection`（桥接 Trino 原生下推） | 批 A | @me | ⏳ | — | 用户决议 Q1 纳入 P2；~150-200 LOC + 单测 |
+| P2-T03 | `GsonUtils` 加 3 行 string-name redirect | 批 B | @me | ⏳ | — | mirror ES/JDBC 范式 |
+| P2-T04 | `PluginDrivenExternalCatalog.gsonPostProcess` 加 trinoconnector logType migration | 批 B | @me | ⏳ | — | ~5-10 LOC |
+| P2-T05 | `ExternalCatalog.registerCompatibleSubtype` 注册 Trino → PluginDriven | 批 B | @me | ⏳ | — | — |
+| P2-T06 | `PluginDrivenExternalTable.getEngine() / getEngineTableTypeName()` 加 trino-connector 分支 | 批 B | @me | ⏳ | — | — |
+| P2-T07 | `CatalogFactory.SPI_READY_TYPES` 加 `"trino-connector"` | 批 C | @me | ⏳ | — | 翻闸点；批 A+B 完成后操作 |
+| P2-T08 | `PhysicalPlanTranslator` 删 `instanceof TrinoConnectorExternalTable` 分支 | 批 D | @me | ⏳ | — | P1 fallback 让位 |
+| P2-T09 | `CatalogFactory` 删 `case "trino-connector"` + 删 factory 类 | 批 D | @me | ⏳ | — | — |
+| P2-T10 | 删 `datasource/trinoconnector/` 整目录 + 删 `GsonUtils` 3 个 class-token 注册 | 批 D | @me | ⏳ | — | 用户决议 Q2 |
+| P2-T11 | fe-connector-trino 单元测试（schema / predicate / type-map / json） | 批 E | @me | ⏳ | — | 0 → ≥ 4 个 test class |
+| P2-T12 | regression-test `trino_connector_migration_compat`（image 兼容） | 批 E | @me | ⏳ | — | — |
+| P2-T13 | docs-next 插件安装文档 + 看板 + PROGRESS 同步 | 批 E | @me | ⏳ | — | 看板 30% → 100% |
+
+详细任务说明、阶段日志见 [tasks/P2-trino-connector-migration.md](./tasks/P2-trino-connector-migration.md)
 
 ### P1 — scan-node 收口 + 重复清理（✅ 已完成）
 | ID | Task | 批次 | Owner | 状态 | 启动 | 备注 |
@@ -94,6 +113,8 @@
 
 > 倒序，新内容置顶；超过 14 天的条目移除（git log 保留历史）。
 
+- **2026-05-25（晚 ②）** 🚧 **P2 (trino-connector) 启动 + recon 完成**：用 3 路 Explore subagent 并行调研，输出代码侧 facts —— fe-core 旧目录 10 个 .java / ~1760 LOC、5 个 live external caller（全部机械路由，无 P1-T01 那种"活业务逻辑"问题）；fe-connector-trino 13 类 / 2162 LOC / 0 测试，SPI 表面 ~95% 已覆盖（真缺 validateProperties / preCreateValidation / pushdown ops）；反向 instanceof 实测 1 处（PhysicalPlanTranslator:779）；SPI_READY 翻闸点定位 `CatalogFactory.java:53`；Gson 兼容路径与 ES/JDBC 同 pattern 可复用。**用户决议**：Q1 pushdown ops 纳入 P2 批 A；Q2 fe-core 目录删除时 GsonUtils 三个 class-token 注册同步清。**task 划分定**：13 tasks / 5 批次（A SPI 补齐 / B fe-core 桥接 / C 翻闸 / D 清旧 / E 测试+文档）。P2 task 文件 [tasks/P2-trino-connector-migration.md](./tasks/P2-trino-connector-migration.md) 已建
+- **2026-05-25（晚）** ✅ **P1 PR 合入**：PR [#63641](https://github.com/apache/doris/pull/63641) `[P1-T03-T05] route plugin-driven scans first in nereids translator` 流水线全绿，squash-merged 到 `apache/doris:branch-catalog-spi`，hash `778c5dd610f`。本地新分支 `catalog-spi-03` 已建立，承载 P2 工作
 - **2026-05-25（白天 ④）** ✅ **P1 阶段关闭**：批 B (T1) recon 揭示 3 个 fe-core JDBC client caller（PostgresResourceValidator / StreamingJobUtils / CdcStreamTableValuedFunction）均为活的 CDC streaming 代码（非 dead code），删除需要在 ConnectorPlugin/ConnectorMetadata 上为 CDC 暴露新 capability（getPrimaryKeys / getColumnsFromJdbc / listTables）。用户决议（Q4）：**推迟 T1 到 P8 收尾**（与 streaming CDC 重构一起做）。P1 in-scope（T3+T4+T5）100% 完成；剩余动作：batch A push + PR
 - **2026-05-25（白天 ③）** ✅ **P1 批 A 完成**（T03+T04+T05 scan-node SPI 收口）：`PhysicalPlanTranslator.visitPhysicalFileScan` `PluginDrivenExternalTable` 分支前置（T3）；`visitPhysicalHudiScan` 加 SPI 分支并通过 `FileQueryScanNode` setters 透传 `scanParams`/`tableSnapshot`，`incrementalRelation` 记 P3 TODO（T4）；`LogicalFileScan.computeOutput` 新增 `computePluginDrivenOutput()` helper + 显式 `supportPruneNestedColumn → false` 分支（T5）。fe-core BUILD SUCCESS + checkstyle 0；对当前 SPI 表（JDBC/ES）行为等价；7 个连接器特定分支原地保留作 P3-P7 fallback
 - **2026-05-25** ✅ **P0 全阶段完成**：PR [#63582](https://github.com/apache/doris/pull/63582) squash-merge 到 `apache/doris:branch-catalog-spi`（hash `c6f056fa5bd`）；T24/T25 流水线全绿；P0 阶段进度 100%。新本地分支 `catalog-spi-02` 基于最新 base 创建，**P1 启动**（scan-node 收口 + 重复清理，1 周）
@@ -141,8 +162,8 @@
 
 > 当本项目通过 Claude Code 这类 LLM agent 推进时，跟踪当前 session 状态、handoff 状况和 context 健康度。
 
-- **本 session 已完成**：P1 批 A (T3+T4+T5) commit `43a12a05ffe`（local，未 push）→ 批 B (T1) recon 揭示 callers 非 dead code → 用户决议 T1 推迟 P8 → P1 阶段关闭 → 跟踪文档（P1 task / PROGRESS / HANDOFF）全部同步
-- **下一个 session 应做**：（1）push `catalog-spi-02` 到 morningman fork；（2）`gh pr create --repo apache/doris --base branch-catalog-spi --head morningman:catalog-spi-02`；（3）启动 P2 (trino-connector) recon
+- **本 session 已完成**：P2 recon（3 路 Explore subagent 并行） → 综合 facts → 用户敲定 Q1/Q2 → 写 [P2 task 文件](./tasks/P2-trino-connector-migration.md)（13 tasks / 5 批次） → 同步 PROGRESS / connectors/trino-connector.md / HANDOFF
+- **下一个 session 应做**：启动 P2 批 A —— P2-T01（validateProperties + preCreateValidation）+ P2-T02（pushdown ops）；建议 T01 单独 commit、T02 单独 commit（pushdown 改动更大）；批 A 完成本地编译 + import gate 通过后再启动批 B
 - **是否需要 handoff**：是，已写新 [HANDOFF.md](./HANDOFF.md)
 - **协作规范**：[AGENT-PLAYBOOK.md](./AGENT-PLAYBOOK.md)（context 预算、subagent 使用、handoff 触发条件）
 
