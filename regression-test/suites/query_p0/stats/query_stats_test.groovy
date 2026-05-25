@@ -62,15 +62,24 @@ suite("query_stats_test") {
         assertEquals(0, row[2] as int)
     }
 
+    // Counts may exceed 1 in multi-FE clusters; verify right columns hit, wrong ones stay 0.
     sql "select k1 from ${tbName} where k0 = 1"
     sql "select k4 from ${tbName} where k2 = 1991"
     def stats1 = sql "show query stats from ${tbName}"
-    assertTrue((stats1.find { it[0] == "k1" }?.[1] as int) >= 1)
-    assertTrue((stats1.find { it[0] == "k0" }?.[2] as int) >= 1)
-    assertTrue((stats1.find { it[0] == "k4" }?.[1] as int) >= 1)
-    assertTrue((stats1.find { it[0] == "k2" }?.[2] as int) >= 1)
-    assertEquals(0, stats1.find { it[0] == "k1" }?.[2] as int)
-    assertEquals(0, stats1.find { it[0] == "k0" }?.[1] as int)
+    def s1k1 = stats1.find { it[0] == "k1" }
+    def s1k0 = stats1.find { it[0] == "k0" }
+    def s1k4 = stats1.find { it[0] == "k4" }
+    def s1k2 = stats1.find { it[0] == "k2" }
+    assertNotNull(s1k1)
+    assertNotNull(s1k0)
+    assertNotNull(s1k4)
+    assertNotNull(s1k2)
+    assertTrue((s1k1[1] as int) >= 1)
+    assertTrue((s1k0[2] as int) >= 1)
+    assertTrue((s1k4[1] as int) >= 1)
+    assertTrue((s1k2[2] as int) >= 1)
+    assertEquals(0, s1k1[2] as int)
+    assertEquals(0, s1k0[1] as int)
     for (col in ["k3", "k5", "k6", "k10", "k11", "k7", "k8", "k9", "k12", "k13"]) {
         def row = stats1.find { it[0] == col }
         assertNotNull(row)
@@ -85,10 +94,14 @@ suite("query_stats_test") {
     sql "clean all query stats"
     sql "select k3 from ${tbName} where k5 = 1.0"
     def stats2 = sql "show query stats from ${tbName}"
-    assertTrue((stats2.find { it[0] == "k3" }?.[1] as int) >= 1)
-    assertTrue((stats2.find { it[0] == "k5" }?.[2] as int) >= 1)
-    assertEquals(0, stats2.find { it[0] == "k3" }?.[2] as int)
-    assertEquals(0, stats2.find { it[0] == "k5" }?.[1] as int)
+    def s2k3 = stats2.find { it[0] == "k3" }
+    def s2k5 = stats2.find { it[0] == "k5" }
+    assertNotNull(s2k3)
+    assertNotNull(s2k5)
+    assertTrue((s2k3[1] as int) >= 1)
+    assertTrue((s2k5[2] as int) >= 1)
+    assertEquals(0, s2k3[2] as int)
+    assertEquals(0, s2k5[1] as int)
     for (col in ["k0", "k1", "k2", "k4", "k6", "k10", "k11", "k7", "k8", "k9", "k12", "k13"]) {
         def row = stats2.find { it[0] == col }
         assertNotNull(row)
@@ -98,11 +111,14 @@ suite("query_stats_test") {
     def allStats2 = sql "show query stats from ${tbName} all"
     assertTrue((allStats2[0][1] as int) >= 1)
 
+    // Column in both SELECT and WHERE.
     sql "clean all query stats"
     sql "select k1 from ${tbName} where k1 = 1"
     def stats3 = sql "show query stats from ${tbName}"
-    assertTrue((stats3.find { it[0] == "k1" }?.[1] as int) >= 1)
-    assertTrue((stats3.find { it[0] == "k1" }?.[2] as int) >= 1)
+    def s3k1 = stats3.find { it[0] == "k1" }
+    assertNotNull(s3k1)
+    assertTrue((s3k1[1] as int) >= 1)
+    assertTrue((s3k1[2] as int) >= 1)
     for (col in ["k0", "k2", "k3", "k4", "k5", "k6", "k10", "k11", "k7", "k8", "k9", "k12", "k13"]) {
         def row = stats3.find { it[0] == col }
         assertNotNull(row)
@@ -110,6 +126,7 @@ suite("query_stats_test") {
         assertEquals(0, row[2] as int)
     }
 
+    // INSERT INTO ... SELECT must not record stats.
     sql "clean all query stats"
     sql "insert into ${tbName} select * from ${tbName} where k1 > 0"
     def insertStats = sql "show query stats from ${tbName}"
@@ -118,12 +135,18 @@ suite("query_stats_test") {
         assertEquals(0, row[2] as int)
     }
 
+    // Alias gap: k1.queryHit = 0 until Part 2 walks Project nodes.
     sql "clean all query stats"
     sql "select k1 as x from ${tbName} where k2 = 1"
     def aliasResult = sql "show query stats from ${tbName}"
-    assertEquals(0, aliasResult.find { it[0] == "k1" }?.[1] as int)
-    assertTrue((aliasResult.find { it[0] == "k2" }?.[2] as int) >= 1)
+    def arK1 = aliasResult.find { it[0] == "k1" }
+    def arK2 = aliasResult.find { it[0] == "k2" }
+    assertNotNull(arK1)
+    assertNotNull(arK2)
+    assertEquals(0, arK1[1] as int)
+    assertTrue((arK2[2] as int) >= 1)
 
+    // Self-join: StatsDelta dedup keeps table count = 1 per FE.
     sql "clean all query stats"
     sql "select a.k1 from ${tbName} a, ${tbName} b where a.k1 = b.k1"
     def joinResult = sql "show query stats from ${tbName} all"
