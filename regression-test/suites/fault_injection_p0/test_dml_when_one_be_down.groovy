@@ -28,6 +28,7 @@ suite("test_dml_when_one_be_down", "docker") {
     options.cloudMode = false
     options.feNum = 1
     options.beNum = 4
+    options.feConfigs += ["disable_tablet_scheduler=true"]
 
     docker(options) {
         // All 4 BEs are alive at the start.
@@ -43,7 +44,7 @@ suite("test_dml_when_one_be_down", "docker") {
                 `v` int NOT NULL
             )
             UNIQUE KEY(`k`)
-            DISTRIBUTED BY HASH(`k`) BUCKETS 4
+            DISTRIBUTED BY HASH(`k`) BUCKETS 1
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 3",
                 "enable_unique_key_merge_on_write" = "true"
@@ -53,22 +54,33 @@ suite("test_dml_when_one_be_down", "docker") {
         def initCount = sql """ SELECT COUNT(*) FROM ${tbl} """
         assertEquals(4L, initCount[0][0])
 
-        // Stop BE 1. stopBackends() internally waits ~7s for the FE
-        // heartbeat to mark the BE as dead.
-        cluster.stopBackends(1)
-        cluster.checkBeIsAlive(1, false)
+        def oldTableReplicas = sql_return_maparray("SHOW TABLETS FROM ${tbl}")
+        def oldTabletId = oldTableReplicas[0].TabletId
+        assertTrue(oldTableReplicas.every { it.TabletId == oldTabletId })
+        def oldTableBackendIds = oldTableReplicas.collect { it.BackendId.toString() }.toSet()
+        assertEquals(3, oldTableBackendIds.size())
+
+        // Stop one BE that holds a replica of the single-bucket table. Then
+        // every DML below must hit the tablet with only 2 alive replicas.
+        def stoppedBackendId = oldTableBackendIds.iterator().next().toLong()
+        def stoppedBackend = cluster.getBeByBackendId(stoppedBackendId)
+        assertNotNull(stoppedBackend)
+        cluster.stopBackends(stoppedBackend.index)
+        cluster.checkBeIsAlive(stoppedBackend.index, false)
 
         // Poll SHOW BACKENDS to make sure FE sees only 3 alive BEs.
-        def alive = 0
+        def aliveBackendIds = []
         for (int i = 0; i < 60; i++) {
-            alive = sql_return_maparray("SHOW BACKENDS")
-                    .count { it.Alive.toString().equalsIgnoreCase("true") }
-            if (alive == 3) {
+            aliveBackendIds = sql_return_maparray("SHOW BACKENDS")
+                    .findAll { it.Alive.toString().equalsIgnoreCase("true") }
+                    .collect { it.BackendId.toString() }
+            if (aliveBackendIds.size() == 3) {
                 break
             }
             sleep(1000)
         }
-        assertEquals(3, alive)
+        assertEquals(3, aliveBackendIds.size())
+        assertEquals(2, oldTableBackendIds.count { aliveBackendIds.contains(it) })
 
         // ---- 1. update / delete / truncate on the 3-replica table
         //         (only 2 replicas alive per tablet) ----
