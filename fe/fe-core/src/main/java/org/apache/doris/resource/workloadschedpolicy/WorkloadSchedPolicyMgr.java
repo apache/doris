@@ -39,6 +39,7 @@ import org.apache.doris.thrift.TWorkloadActionType;
 import org.apache.doris.thrift.TWorkloadMetricType;
 import org.apache.doris.thrift.TopicInfo;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -412,7 +413,8 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
         return ret;
     }
 
-    private void checkProperties(Map<String, String> properties, List<Long> wgIdList) throws UserException {
+    @VisibleForTesting
+    void checkProperties(Map<String, String> properties, List<Long> wgIdList) throws UserException {
         Set<String> allInputPropKeySet = new HashSet<>();
         allInputPropKeySet.addAll(properties.keySet());
 
@@ -443,20 +445,57 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
 
         String workloadGroupNameStr = properties.get(WorkloadSchedPolicy.WORKLOAD_GROUP);
         if (workloadGroupNameStr != null && !workloadGroupNameStr.isEmpty()) {
-            String cg = Config.isCloudMode() ? Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME : Tag.VALUE_DEFAULT_TAG;
-            String wg = "";
-            String[] ss = workloadGroupNameStr.split("\\.");
-            if (ss.length == 1) {
-                wg = ss[0];
-            } else if (ss.length == 2) {
+            // Use limit=-1 so trailing empty segments are preserved; otherwise inputs like
+            // "wg." would silently collapse to ["wg"] and slip past the length check, and
+            // ".wg" would pass the length==2 check with an empty compute-group component.
+            String[] ss = workloadGroupNameStr.split("\\.", -1);
+            String cg;
+            String wg;
+            if (Config.isCloudMode()) {
+                // Cloud mode requires the fully-qualified "<compute_group>.<workload_group>" form
+                // so the binding is unambiguous across multiple compute groups.
+                if (ss.length != 2 || ss[0].isEmpty() || ss[1].isEmpty()) {
+                    throw new UserException("workload_group must be '<compute_group>.<workload_group>' "
+                            + "in cloud mode, got: " + workloadGroupNameStr);
+                }
                 cg = ss[0];
                 wg = ss[1];
             } else {
-                throw new UserException("invalid workload group format: " + workloadGroupNameStr);
+                // Non-cloud mode also accepts the '<compute_group>.<workload_group>' form for
+                // grammar consistency with cloud mode, but the prefix here actually refers to
+                // a resource group (Tag), not a real compute group. The bare '<workload_group>'
+                // form is also accepted and defaults the resource group to Tag.VALUE_DEFAULT_TAG.
+                if (ss.length == 1) {
+                    if (ss[0].isEmpty()) {
+                        throw new UserException("workload_group must be '<workload_group>' or "
+                                + "'<resource_group>.<workload_group>' in non-cloud mode, got: "
+                                + workloadGroupNameStr);
+                    }
+                    cg = Tag.VALUE_DEFAULT_TAG;
+                    wg = ss[0];
+                } else if (ss.length == 2) {
+                    if (ss[0].isEmpty() || ss[1].isEmpty()) {
+                        throw new UserException("workload_group must be '<workload_group>' or "
+                                + "'<resource_group>.<workload_group>' in non-cloud mode, got: "
+                                + workloadGroupNameStr);
+                    }
+                    cg = ss[0];
+                    wg = ss[1];
+                } else {
+                    throw new UserException("workload_group must be '<workload_group>' or "
+                            + "'<resource_group>.<workload_group>' in non-cloud mode, got: "
+                            + workloadGroupNameStr);
+                }
             }
             ConnectContext tmpCtx = new ConnectContext();
             tmpCtx.setComputeGroup(
                     Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(cg));
+            // In cloud mode ConnectContext#getComputeGroup() re-resolves the compute group via
+            // getCloudCluster() and ignores setComputeGroup(), so propagate the name through the
+            // session variable as well to make sure the downstream lookup uses the chosen cg.
+            if (Config.isCloudMode()) {
+                tmpCtx.getSessionVariable().setCloudCluster(cg);
+            }
             tmpCtx.getSessionVariable().setWorkloadGroup(wg);
             tmpCtx.setCurrentUserIdentity(UserIdentity.ROOT);
             Long wgId = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpCtx)
