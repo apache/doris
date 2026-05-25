@@ -72,6 +72,26 @@ class UdfVolatilityTest {
         Assertions.assertFalse(udf.containsVolatileExpression());
     }
 
+    @Test
+    void testPythonUdafVolatility() {
+        PythonUdaf immutable = pythonUdaf(FunctionVolatility.IMMUTABLE);
+        PythonUdaf stable = pythonUdaf(FunctionVolatility.STABLE);
+
+        Assertions.assertTrue(immutable.isDeterministic());
+        Assertions.assertFalse(stable.isDeterministic());
+        Assertions.assertEquals(FunctionVolatility.STABLE, stable.getCatalogFunction().getVolatility());
+    }
+
+    @Test
+    void testPythonUdtfVolatility() {
+        PythonUdtf immutable = pythonUdtf(FunctionVolatility.IMMUTABLE);
+        PythonUdtf volatileUdtf = pythonUdtf(FunctionVolatility.VOLATILE);
+
+        Assertions.assertTrue(immutable.isDeterministic());
+        Assertions.assertFalse(volatileUdtf.isDeterministic());
+        Assertions.assertEquals(FunctionVolatility.VOLATILE, volatileUdtf.getCatalogFunction().getVolatility());
+    }
+
     private PythonUdf pythonUdf(FunctionVolatility volatility, VolatileIdentity volatileIdentity) {
         return new PythonUdf("py_fn", 1, "db1", Function.BinaryType.PYTHON_UDF, signature(),
                 NullableMode.ALWAYS_NULLABLE, volatility, volatileIdentity,
@@ -83,6 +103,19 @@ class UdfVolatilityTest {
         return new JavaUdf("java_fn", 1, "db1", Function.BinaryType.JAVA_UDF, signature(),
                 NullableMode.ALWAYS_NULLABLE, volatility, volatileIdentity,
                 null, "evaluate", null, null, "", false, 360, new IntegerLiteral(1));
+    }
+
+    private PythonUdaf pythonUdaf(FunctionVolatility volatility) {
+        return new PythonUdaf("py_agg", 1, "db1", Function.BinaryType.PYTHON_UDF, signature(),
+                IntegerType.INSTANCE, NullableMode.ALWAYS_NULLABLE, volatility,
+                null, "Agg", null, null, null, null, null, null, null, false, "", false, 360,
+                "3.10.2", "", new IntegerLiteral(1));
+    }
+
+    private PythonUdtf pythonUdtf(FunctionVolatility volatility) {
+        return new PythonUdtf("py_table", 1, "db1", Function.BinaryType.PYTHON_UDF, signature(),
+                NullableMode.ALWAYS_NULLABLE, volatility,
+                null, "evaluate", null, null, "", false, 360, "3.10.2", "", new IntegerLiteral(1));
     }
 
     private FunctionSignature signature() {

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -50,6 +51,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     private final FunctionSignature signature;
     private final DataType intermediateType;
     private final NullableMode nullableMode;
+    private final FunctionVolatility volatility;
     private final String objectFile;
     private final String symbol;
     private final String initFn;
@@ -69,7 +71,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     public JavaUdaf(String name, long functionId, String dbName, Function.BinaryType binaryType,
             FunctionSignature signature,
             DataType intermediateType, NullableMode nullableMode,
-            String objectFile, String symbol,
+            FunctionVolatility volatility, String objectFile, String symbol,
             String initFn, String updateFn, String mergeFn,
             String serializeFn, String finalizeFn, String getValueFn, String removeFn,
             boolean isDistinct, String checkSum, boolean isStaticLoad, long expirationTime, Expression... args) {
@@ -80,6 +82,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
         this.signature = signature;
         this.intermediateType = intermediateType == null ? signature.returnType : intermediateType;
         this.nullableMode = nullableMode;
+        this.volatility = volatility;
         this.objectFile = objectFile;
         this.symbol = symbol;
         this.initFn = initFn;
@@ -121,8 +124,13 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     public JavaUdaf withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == this.children.size());
         return new JavaUdaf(getName(), functionId, dbName, binaryType, signature, intermediateType, nullableMode,
-                objectFile, symbol, initFn, updateFn, mergeFn, serializeFn, finalizeFn, getValueFn, removeFn,
-                isDistinct, checkSum, isStaticLoad, expirationTime, children.toArray(new Expression[0]));
+                volatility, objectFile, symbol, initFn, updateFn, mergeFn, serializeFn, finalizeFn, getValueFn,
+                removeFn, isDistinct, checkSum, isStaticLoad, expirationTime, children.toArray(new Expression[0]));
+    }
+
+    @Override
+    public boolean isDeterministic() {
+        return volatility == FunctionVolatility.IMMUTABLE;
     }
 
     /**
@@ -152,6 +160,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
         JavaUdaf udaf = new JavaUdaf(fnName, aggregate.getId(), dbName, aggregate.getBinaryType(), sig,
                 intermediateType,
                 aggregate.getNullableMode(),
+                aggregate.getVolatility(),
                 aggregate.getLocation() == null ? null : aggregate.getLocation().getLocation(),
                 aggregate.getSymbolName(),
                 aggregate.getInitFnSymbol(),
@@ -201,6 +210,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
             expr.setId(functionId);
             expr.setStaticLoad(isStaticLoad);
             expr.setExpirationTime(expirationTime);
+            expr.setVolatility(volatility);
             return expr;
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());

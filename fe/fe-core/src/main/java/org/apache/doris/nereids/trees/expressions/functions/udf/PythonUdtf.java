@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -49,6 +50,7 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
     private final Function.BinaryType binaryType;
     private final FunctionSignature signature;
     private final NullableMode nullableMode;
+    private final FunctionVolatility volatility;
     private final String objectFile;
     private final String symbol;
     private final String prepareFn;
@@ -64,7 +66,8 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
      */
     public PythonUdtf(String name, long functionId, String dbName, Function.BinaryType binaryType,
             FunctionSignature signature,
-            NullableMode nullableMode, String objectFile, String symbol, String prepareFn, String closeFn,
+            NullableMode nullableMode, FunctionVolatility volatility, String objectFile, String symbol,
+            String prepareFn, String closeFn,
             String checkSum, boolean isStaticLoad, long expirationTime,
             String runtimeVersion, String functionCode, Expression... args) {
         super(name, args);
@@ -73,6 +76,7 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
         this.binaryType = binaryType;
         this.signature = signature;
         this.nullableMode = nullableMode;
+        this.volatility = volatility;
         this.objectFile = objectFile;
         this.symbol = symbol;
         this.prepareFn = prepareFn;
@@ -91,8 +95,13 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
     public PythonUdtf withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == this.children.size());
         return new PythonUdtf(getName(), functionId, dbName, binaryType, signature, nullableMode,
-                objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad, expirationTime,
+                volatility, objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad, expirationTime,
                 runtimeVersion, functionCode, children.toArray(new Expression[0]));
+    }
+
+    @Override
+    public boolean isDeterministic() {
+        return volatility == FunctionVolatility.IMMUTABLE;
     }
 
     @Override
@@ -132,6 +141,7 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
             expr.setUDTFunction(true);
             expr.setRuntimeVersion(runtimeVersion);
             expr.setFunctionCode(functionCode);
+            expr.setVolatility(volatility);
             return expr;
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
@@ -159,6 +169,7 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
 
         PythonUdtf udtf = new PythonUdtf(fnName, scalar.getId(), dbName, scalar.getBinaryType(), sig,
                 scalar.getNullableMode(),
+                scalar.getVolatility(),
                 scalar.getLocation() == null ? null : scalar.getLocation().getLocation(),
                 scalar.getSymbolName(),
                 scalar.getPrepareFnSymbol(),
