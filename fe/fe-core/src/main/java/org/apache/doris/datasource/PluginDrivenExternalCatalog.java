@@ -17,7 +17,9 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorSessionBuilder;
 import org.apache.doris.connector.DefaultConnectorContext;
@@ -25,7 +27,11 @@ import org.apache.doris.connector.DefaultConnectorValidationContext;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTestResult;
+import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
 
@@ -230,6 +236,44 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public Connector getConnector() {
         makeSureInitialized();
         return connector;
+    }
+
+    /**
+     * Routes {@code CREATE TABLE} through the SPI's
+     * {@code ConnectorTableOps.createTable(session, request)} instead of the
+     * legacy {@code metadataOps} path used by other {@link ExternalCatalog}
+     * subclasses.
+     *
+     * <p>Connectors that have not overridden the new SPI default fall through
+     * to the SPI's "CREATE TABLE not supported" exception, which is wrapped
+     * here as a {@link DdlException} to match the existing caller contract.</p>
+     *
+     * <p>The SPI signature is {@code void}: it does not distinguish
+     * "newly created" from "already existed (IF NOT EXISTS)". This override
+     * conservatively assumes creation happened and writes the edit log, matching
+     * the more common branch of the legacy path. Refining this when a connector
+     * actually needs the distinction is left to P5/P6/P7 connector migrations.</p>
+     */
+    @Override
+    public boolean createTable(CreateTableInfo createTableInfo) throws UserException {
+        makeSureInitialized();
+        ConnectorSession session = buildConnectorSession();
+        ConnectorCreateTableRequest request = CreateTableInfoToConnectorRequestConverter
+                .convert(createTableInfo, createTableInfo.getDbName());
+        try {
+            connector.getMetadata(session).createTable(session, request);
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        org.apache.doris.persist.CreateTableInfo persistInfo =
+                new org.apache.doris.persist.CreateTableInfo(
+                        getName(),
+                        createTableInfo.getDbName(),
+                        createTableInfo.getTableName());
+        Env.getCurrentEnv().getEditLog().logCreateTable(persistInfo);
+        LOG.info("finished to create table {}.{}.{}", getName(),
+                createTableInfo.getDbName(), createTableInfo.getTableName());
+        return false;
     }
 
     @Override
