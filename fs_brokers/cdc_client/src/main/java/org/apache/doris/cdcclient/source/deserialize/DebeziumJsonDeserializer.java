@@ -307,15 +307,25 @@ public class DebeziumJsonDeserializer
                 case Timestamp.SCHEMA_NAME:
                     return TimestampData.fromEpochMillis((Long) dbzObj).toTimestamp().toString();
                 case MicroTimestamp.SCHEMA_NAME:
-                    long micro = (long) dbzObj;
-                    return TimestampData.fromEpochMillis(micro / 1000, (int) (micro % 1000 * 1000))
-                            .toTimestamp()
-                            .toString();
+                    {
+                        // floorDiv/floorMod keep nanoOfMillisecond non-negative for pre-1970
+                        // values.
+                        long micro = (long) dbzObj;
+                        long millis = Math.floorDiv(micro, 1000L);
+                        int nanos = (int) Math.floorMod(micro, 1000L) * 1000;
+                        return TimestampData.fromEpochMillis(millis, nanos)
+                                .toTimestamp()
+                                .toString();
+                    }
                 case NanoTimestamp.SCHEMA_NAME:
-                    long nano = (long) dbzObj;
-                    return TimestampData.fromEpochMillis(nano / 1000_000, (int) (nano % 1000_000))
-                            .toTimestamp()
-                            .toString();
+                    {
+                        long nano = (long) dbzObj;
+                        long millis = Math.floorDiv(nano, 1_000_000L);
+                        int nanos = (int) Math.floorMod(nano, 1_000_000L);
+                        return TimestampData.fromEpochMillis(millis, nanos)
+                                .toTimestamp()
+                                .toString();
+                    }
             }
         }
         LocalDateTime localDateTime = TemporalConversions.toLocalDateTime(dbzObj, serverTimeZone);
