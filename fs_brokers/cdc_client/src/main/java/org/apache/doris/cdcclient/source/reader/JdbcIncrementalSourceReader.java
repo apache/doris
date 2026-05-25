@@ -629,8 +629,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         }
 
         SourceRecords sourceRecords = dataIt.next();
-        SplitRecords splitRecords =
-                new SplitRecords(split.splitId(), sourceRecords.iterator());
+        SplitRecords splitRecords = new SplitRecords(split.splitId(), sourceRecords.iterator());
 
         if (!sourceRecords.getSourceRecordList().isEmpty()) {
             LOG.info("{} Records received from stream", sourceRecords.getSourceRecordList().size());

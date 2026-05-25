@@ -642,8 +642,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         }
 
         SourceRecords sourceRecords = dataIt.next();
-        SplitRecords splitRecords =
-                new SplitRecords(split.splitId(), sourceRecords.iterator());
+        SplitRecords splitRecords = new SplitRecords(split.splitId(), sourceRecords.iterator());
 
         if (!sourceRecords.getSourceRecordList().isEmpty()) {
             LOG.info("{} Records received from binlog", sourceRecords.getSourceRecordList().size());
