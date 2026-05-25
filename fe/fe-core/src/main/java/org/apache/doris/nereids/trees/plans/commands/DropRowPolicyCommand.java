@@ -32,6 +32,8 @@ import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import org.apache.commons.lang3.StringUtils;
+
 /**
  * DropRowPolicyCommand
  **/
@@ -73,6 +75,14 @@ public class DropRowPolicyCommand extends DropCommand {
         tableNameInfo.analyze(ctx.getNameSpaceContext());
         if (user != null) {
             user.analyze();
+            if (!Env.getCurrentEnv().getAuth().doesUserExist(user)) {
+                throw new AnalysisException("user not exist: " + user);
+            }
+        }
+        if (!StringUtils.isEmpty(roleName)) {
+            if (!Env.getCurrentEnv().getAuth().doesRoleExist(roleName)) {
+                throw new AnalysisException("role not exist: " + roleName);
+            }
         }
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
