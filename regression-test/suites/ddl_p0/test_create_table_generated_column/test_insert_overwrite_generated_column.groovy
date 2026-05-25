@@ -121,6 +121,10 @@ suite("test_insert_overwrite_generated_column") {
         exception "The value specified for generated column 'c3' in table 'gen_col_insert_overwrite_par' is not allowed."
     }
     test {
+        sql "insert into gen_col_insert_overwrite_par select a,b,c from gen_col_insert_overwrite_src_three_cols union all select a,b,c from gen_col_insert_overwrite_src_three_cols"
+        exception "The value specified for generated column 'c3' in table 'gen_col_insert_overwrite_par' is not allowed."
+    }
+    test {
         sql "insert into gen_col_insert_overwrite_par(c1,c2,c3) select * from gen_col_insert_overwrite_src;"
         exception "The value specified for generated column 'c3' in table 'gen_col_insert_overwrite_par' is not allowed."
     }

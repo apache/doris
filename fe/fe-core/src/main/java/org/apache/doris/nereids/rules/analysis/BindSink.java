@@ -346,7 +346,7 @@ public class BindSink implements AnalysisRuleFactory {
             OlapTable table, UnboundTableSink<?> sink, LogicalPlan child, List<Column> bindColumns) {
         if (sink.getDMLCommandType() != DMLCommandType.INSERT
                 || child instanceof InlineTable
-                || child instanceof LogicalUnion) {
+                || isConstantExprsOnlyLogicalUnion(child)) {
             return;
         }
         int outputColumnSize = Math.min(child.getOutput().size(), bindColumns.size());
@@ -366,6 +366,22 @@ public class BindSink implements AnalysisRuleFactory {
             return ((LogicalOneRowRelation) child).getProjects().get(index);
         }
         return child.getOutput().get(index);
+    }
+
+    private static boolean isConstantExprsOnlyLogicalUnion(LogicalPlan child) {
+        if (!(child instanceof LogicalUnion)) {
+            return false;
+        }
+        LogicalUnion union = (LogicalUnion) child;
+        return (!union.getConstantExprsList().isEmpty() || union.arity() > 0)
+                && union.children().stream().allMatch(BindSink::isConstantOneRowPlan);
+    }
+
+    private static boolean isConstantOneRowPlan(Plan plan) {
+        if (plan instanceof LogicalProject) {
+            return isConstantOneRowPlan(((LogicalProject<?>) plan).child());
+        }
+        return plan instanceof LogicalOneRowRelation || plan instanceof LogicalEmptyRelation;
     }
 
     private static boolean isDefaultValueExpr(Expression expr) {
