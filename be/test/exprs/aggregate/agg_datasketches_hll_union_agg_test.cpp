@@ -337,8 +337,9 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
     DataTypePtr input_type = std::make_shared<DataTypeString>();
     DataTypes argument_types = {std::make_shared<DataTypeString>(-1, TYPE_VARCHAR)};
 
-    using AggFunc = AggregateFunctionDataSketchesHllUnionAgg<
-            TYPE_VARCHAR, AggregateFunctionHllSketchData<TYPE_VARCHAR>>;
+    using AggFunc =
+            AggregateFunctionDataSketchesHllUnionAgg<TYPE_VARCHAR,
+                                                     AggregateFunctionHllSketchData<TYPE_VARCHAR>>;
     auto agg_func = std::make_shared<AggFunc>(argument_types);
 
     datasketches::hll_sketch sketch1(8, datasketches::HLL_8);
