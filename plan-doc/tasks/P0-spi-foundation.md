@@ -52,13 +52,13 @@
 | ID | 任务 | 设计参考 | Owner | 状态 | PR | 启动 | 完成 | 备注 |
 |---|---|---|---|---|---|---|---|---|
 | P0-T01 | RFC §16.2 决策点闭环（U1-U6） | RFC §16 | @me | ✅ | n/a | 2026-05-24 | 2026-05-24 | D-013..D-018 |
-| P0-T02 | 项目跟踪机制建立 | README/PROGRESS/...| @me | 🚧 | n/a | 2026-05-24 | — | 本文件等 |
-| P0-T03 | E3：`ConnectorMetaInvalidator` 接口（fe-connector-spi）| RFC §6.2 | — | ⏳ | — | — | — | 5 个 invalidate 方法 |
-| P0-T04 | E3：`ConnectorContext.getMetaInvalidator()` default | RFC §6.3 | — | ⏳ | — | — | — | spi 包 |
-| P0-T05 | E4：`ConnectorTransaction` 继承 `ConnectorTransactionHandle` | RFC §7.2 | — | ⏳ | — | — | — | 替换占位 |
-| P0-T06 | E4：`ConnectorWriteOps.beginTransaction` default | RFC §7.3 | — | ⏳ | — | — | — | |
-| P0-T07 | E4：`ConnectorSession.getCurrentTransaction` default | RFC §7.6 | — | ⏳ | — | — | — | optional |
-| P0-T08 | E5：`ConnectorMvccSnapshot` 类型 + 3 个 default 方法 | RFC §8.2-8.3 | — | ⏳ | — | — | — | mvcc 包 |
+| P0-T02 | 项目跟踪机制建立 | README/PROGRESS/...| @me | ✅ | 63159837043 | 2026-05-24 | 2026-05-24 | 本文件等 |
+| P0-T03 | E3：`ConnectorMetaInvalidator` 接口（fe-connector-spi）| RFC §6.2 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | 5 个 invalidate 方法 |
+| P0-T04 | E3：`ConnectorContext.getMetaInvalidator()` default | RFC §6.3 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | spi 包 |
+| P0-T05 | E4：`ConnectorTransaction` 继承 `ConnectorTransactionHandle` | RFC §7.2 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | 新增不替换 handle |
+| P0-T06 | E4：`ConnectorWriteOps.beginTransaction` default | RFC §7.3 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | throws unsupported |
+| P0-T07 | E4：`ConnectorSession.getCurrentTransaction` default | RFC §7.6 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | Optional.empty() |
+| P0-T08 | E5：`ConnectorMvccSnapshot` 类型 + 3 个 default 方法 | RFC §8.2-8.3 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | mvcc 包 + 3 默认在 ConnectorMetadata |
 
 ### 批 0：fe-core 桥接（W0 D5 - W1 D1）
 
@@ -98,8 +98,18 @@
 
 ## 阶段日志（倒序）
 
-### 2026-05-24
-- 创建本文件（task #11，跟踪机制建立的一部分）
+### 2026-05-24（晚）— 批 0 基础三件套完成
+- P0-T02 ✅ 闭环：跟踪机制 17 个文件已落 commit 63159837043（早场 session 完成正文，本场 session 翻状态）
+- P0-T03 ✅：新增 `connector.spi.ConnectorMetaInvalidator`（5 个 invalidate 方法 + `NOOP` 常量）
+- P0-T04 ✅：`ConnectorContext.getMetaInvalidator()` default → `NOOP`
+- P0-T05 ✅：新增 `connector.api.handle.ConnectorTransaction extends ConnectorTransactionHandle, Closeable`（保留旧 24 行 marker 不破坏现有引用）
+- P0-T06 ✅：`ConnectorWriteOps.beginTransaction(session)` default 抛 `DorisConnectorException("Transactions not supported")`
+- P0-T07 ✅：`ConnectorSession.getCurrentTransaction()` default 返回 `Optional.empty()`
+- P0-T08 ✅：新增 `connector.api.mvcc.ConnectorMvccSnapshot`（final value class + Builder），`ConnectorMetadata` 上 3 个 default：`beginQuerySnapshot` / `getSnapshotAt` / `getSnapshotById`
+- 验证：`mvn -pl fe-connector/fe-connector-api,spi -am clean compile` 全绿；JDBC + ES 下游 connector clean compile 通过（无修改）；checkstyle 0 violations
+
+### 2026-05-24（早）
+- 创建本文件（跟踪机制建立的一部分）
 - P0-T01 ✅ 完成：master plan §5（D1-D12）+ RFC §16.2（U1-U6）全部决策闭环 → decisions-log D-001..D-018
 - P0-T02 🚧 进行中：跟踪机制文件建立（README/PROGRESS/decisions-log/deviations-log/risks/tasks/_template/本文件 已成；待完成 connectors/× 8 + 00-master-plan cross-link）
 

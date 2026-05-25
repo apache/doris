@@ -1,6 +1,6 @@
 # 📊 项目进度仪表盘
 
-> 最后更新：**2026-05-24** | 当前阶段：**P0 SPI 缺口补齐** | 项目总进度：**5%**
+> 最后更新：**2026-05-24（晚）** | 当前阶段：**P0 SPI 缺口补齐**（批 0 SPI 接口完成，待 fe-core 桥接） | 项目总进度：**8%**
 > [README](./README.md) · [Master Plan](./00-connector-migration-master-plan.md) · [SPI RFC](./01-spi-extensions-rfc.md) · [Decisions](./decisions-log.md) · [Deviations](./deviations-log.md) · [Risks](./risks.md) · [Agent Playbook](./AGENT-PLAYBOOK.md) · [Handoff](./HANDOFF.md)
 
 ---
@@ -9,7 +9,7 @@
 
 | 阶段 | 范围 | 估时 | 进度 | 状态 | 任务文档 |
 |---|---|---|---|---|---|
-| **P0** | SPI 缺口补齐 | 2 周 | ▰▱▱▱▱▱▱▱▱▱ 10% | 🚧 进行中（2026-05-24 启动） | [tasks/P0](./tasks/P0-spi-foundation.md) |
+| **P0** | SPI 缺口补齐 | 2 周 | ▰▰▰▱▱▱▱▱▱▱ 30% | 🚧 进行中（批 0 SPI 接口完成；待 fe-core 桥接 T09-T12） | [tasks/P0](./tasks/P0-spi-foundation.md) |
 | P1 | scan-node 收口 + 重复清理 | 1 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动（被 P0 阻塞）| — |
 | P2 | trino-connector 迁移 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P3 | hudi 迁移 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
@@ -48,17 +48,21 @@
 | ID | Task | Owner | 状态 | 启动 | 备注 |
 |---|---|---|---|---|---|
 | P0-T01 | RFC §16.2 决策点闭环 | @me | ✅ | 2026-05-24 | 全部 18 条决策已敲定 |
-| P0-T02 | 项目跟踪机制建立 | @me | 🚧 | 2026-05-24 | 本仪表盘 / README / decisions-log 等 |
-| P0-T03 | E3 实现：`ConnectorMetaInvalidator` 接口 | — | ⏳ | — | 批 0 / spi 包 |
-| P0-T04 | E4 实现：`ConnectorTransaction` 替换占位 | — | ⏳ | — | 批 0 / handle 包 |
-| P0-T05 | E5 实现：`ConnectorMvccSnapshot` 类型 | — | ⏳ | — | 批 0 / mvcc 包 |
-| P0-T06 | `ConnectorContext.getMetaInvalidator()` default | — | ⏳ | — | 批 0 |
-| P0-T07 | `DefaultConnectorContext` impl + fe-core invalidator | — | ⏳ | — | 批 0 |
-| P0-T08 | `PluginDrivenTransactionManager` 通用化 | — | ⏳ | — | 批 0 |
-| P0-T09 | E1 实现：DDL request POJO + converter | — | ⏳ | — | 批 1 |
-| P0-T10 | E10 实现：partition 列举 SPI | — | ⏳ | — | 批 1 |
-| P0-T11 | CI grep 守门 + maven enforcer | — | ⏳ | — | 批 1 |
-| P0-T12 | FakeConnectorPlugin + 回归测试 | — | ⏳ | — | 批 1 |
+| P0-T02 | 项目跟踪机制建立 | @me | ✅ | 2026-05-24 | commit 63159837043 |
+| P0-T03 | E3：`ConnectorMetaInvalidator` 接口 | @me | ✅ | 2026-05-24 | spi 包 / 5 invalidate 方法 |
+| P0-T04 | E3：`ConnectorContext.getMetaInvalidator()` default | @me | ✅ | 2026-05-24 | 返回 NOOP |
+| P0-T05 | E4：`ConnectorTransaction` 继承 `ConnectorTransactionHandle` | @me | ✅ | 2026-05-24 | 新增不替换 |
+| P0-T06 | E4：`ConnectorWriteOps.beginTransaction` default | @me | ✅ | 2026-05-24 | throws unsupported |
+| P0-T07 | E4：`ConnectorSession.getCurrentTransaction` default | @me | ✅ | 2026-05-24 | Optional.empty() |
+| P0-T08 | E5：`ConnectorMvccSnapshot` 类型 + 3 default 方法 | @me | ✅ | 2026-05-24 | mvcc 包 + ConnectorMetadata 3 default |
+| **批 0 fe-core 桥接（next session）** | | | | | |
+| P0-T09 | `DefaultConnectorContext.getMetaInvalidator()` impl | — | ⏳ | — | fe-core 侧 |
+| P0-T10 | `ExternalMetaCacheInvalidator`（fe-core 新类） | — | ⏳ | — | 包装 ExternalMetaCacheMgr |
+| P0-T11 | `PluginDrivenTransactionManager` 通用化 | — | ⏳ | — | 删 type-specific 分支 |
+| P0-T12 | `ConnectorMvccSnapshotAdapter`（fe-core 新类） | — | ⏳ | — | impl MvccSnapshot |
+| **批 1 DDL + Partition SPI** | | | | | |
+| P0-T13..T20 | E1 CreateTableRequest + E10 listPartitions | — | ⏳ | — | 见 tasks/P0 |
+| P0-T21..T27 | 守门脚本 + 回归测试 | — | ⏳ | — | 见 tasks/P0 |
 
 完整 P0 任务清单：[tasks/P0-spi-foundation.md](./tasks/P0-spi-foundation.md)
 
@@ -68,6 +72,7 @@
 
 > 倒序，新内容置顶；超过 14 天的条目移除（git log 保留历史）。
 
+- **2026-05-24（晚）** ✅ **P0 批 0 SPI 接口三件套完成**（T03-T08）：`ConnectorMetaInvalidator`、`ConnectorTransaction`、`ConnectorMvccSnapshot` 共 3 个新类型 + 4 个 default 方法；JDBC/ES clean compile 通过，零下游修改
 - **2026-05-24** ✅ 项目跟踪机制建立（README、PROGRESS、decisions-log、deviations-log、risks、tasks/、connectors/、AGENT-PLAYBOOK、HANDOFF）
 - **2026-05-24** ✅ SPI RFC §16.2 6 个未决问题（U1-U6）全部决议（D-013..D-018）
 - **2026-05-24** ✅ SPI RFC v1 落地（[01-spi-extensions-rfc.md](./01-spi-extensions-rfc.md)）
@@ -108,9 +113,9 @@
 
 > 当本项目通过 Claude Code 这类 LLM agent 推进时，跟踪当前 session 状态、handoff 状况和 context 健康度。
 
-- **本 session 已完成**：跟踪机制建立（README / PROGRESS / 各类 log / 模板）
-- **下一个 session 应做**：执行 P0 批 0 第一个 task（P0-T03 实现 `ConnectorMetaInvalidator`）
-- **是否需要 handoff**：当前 session 工作正在收尾，预计本次 session 结束时填写 [HANDOFF.md](./HANDOFF.md)
+- **本 session 已完成**：P0 批 0 SPI 接口三件套（T02 闭环 + T03..T08 实现），clean compile + 下游 connector 兼容性验证通过
+- **下一个 session 应做**：fe-core 侧桥接（P0-T09..T12）—— 把新 SPI 接通现有 fe-core 实现（`DefaultConnectorContext`、`ExternalMetaCacheInvalidator`、`PluginDrivenTransactionManager` 通用化、`ConnectorMvccSnapshotAdapter`）；**先让用户 review 本次 SPI 改动再开始**（见 tasks/P0 注意事项 #1）
+- **是否需要 handoff**：是，已写新 [HANDOFF.md](./HANDOFF.md)
 - **协作规范**：[AGENT-PLAYBOOK.md](./AGENT-PLAYBOOK.md)（context 预算、subagent 使用、handoff 触发条件）
 
 ---
