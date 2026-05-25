@@ -534,8 +534,7 @@ Status PointQueryExecutor::_lookup_row_data() {
             if (!_reusable->runtime_state()->enable_short_circuit_query_access_column_store()) {
                 std::string missing_columns;
                 for (int cid : _reusable->missing_col_uids()) {
-                    missing_columns +=
-                            _tablet->tablet_schema()->column_by_uid(cid).name() + ",";
+                    missing_columns += _tablet->tablet_schema()->column_by_uid(cid).name() + ",";
                 }
                 return Status::InternalError(
                         "Not support column store, set store_row_column=true or "
@@ -544,8 +543,8 @@ Status PointQueryExecutor::_lookup_row_data() {
             }
             // fill missing columns by column store
             RowLocation row_loc = _row_read_ctxs[i]._row_location.value();
-            BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(
-                    _tablet->get_rowset(row_loc.rowset_id));
+            BetaRowsetSharedPtr rowset =
+                    std::static_pointer_cast<BetaRowset>(_tablet->get_rowset(row_loc.rowset_id));
             SegmentCacheHandle segment_cache;
             {
                 SCOPED_TIMER(&_profile_metrics.load_segment_data_stage_ns);
@@ -570,9 +569,8 @@ Status PointQueryExecutor::_lookup_row_data() {
                 StorageReadOptions storage_read_options;
                 storage_read_options.stats = &_read_stats;
                 storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
-                auto st = segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
-                                                          row_ids, column, storage_read_options,
-                                                          iter);
+                auto st = segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot, row_ids,
+                                                          column, storage_read_options, iter);
                 if (st.ok() && _tablet->tablet_schema()
                                        ->column_by_uid(slot->col_unique_id())
                                        .has_char_type()) {
@@ -597,7 +595,8 @@ Status PointQueryExecutor::_lookup_row_data() {
                 column->insert_many_defaults(padding_rows);
             }
         }
-    // filter rows by delete sign
+    }
+    // filter rows by delete sign, must run outside of padding branch
     if (_row_hits > 0 && _reusable->delete_sign_idx() != -1) {
         size_t filtered = 0;
         size_t total = 0;
