@@ -40,6 +40,15 @@ under the License.
             <artifactId>fe-filesystem-spi</artifactId>
             <version>${revision}</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-foundation</artifactId>
+            <version>${revision}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+        </dependency>
         <!-- Alibaba Cloud OSS native SDK (presigned URL + transitively includes aliyun-java-sdk-core/sts) -->
         <dependency>
             <groupId>com.aliyun.oss</groupId>

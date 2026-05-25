@@ -18,7 +18,6 @@
 package org.apache.doris.filesystem.azure;
 
 import org.apache.doris.filesystem.FileSystem;
-import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
@@ -35,7 +34,16 @@ import java.util.Map;
  * or an endpoint that contains a known Azure Blob Storage host suffix from one of the
  * sovereign clouds.
  */
-public class AzureFileSystemProvider implements FileSystemProvider<FileSystemProperties> {
+public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSystemProperties> {
+
+    private static final String STORAGE_TYPE_KEY = "_STORAGE_TYPE_";
+    private static final String STORAGE_TYPE_AZURE = "AZURE";
+    private static final String PROVIDER_KEY = "provider";
+    private static final String[] ACCOUNT_NAME_KEYS = {
+            AzureFileSystemProperties.ACCOUNT_NAME, "azure.access_key", "AZURE_ACCOUNT_NAME"};
+    private static final String[] ENDPOINT_KEYS = {
+            AzureFileSystemProperties.ENDPOINT, "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
+            "AZURE_ENDPOINT"};
 
     /**
      * Recognised Azure Blob Storage host suffixes across sovereign clouds.
@@ -50,16 +58,13 @@ public class AzureFileSystemProvider implements FileSystemProvider<FileSystemPro
 
     @Override
     public boolean supports(Map<String, String> properties) {
-        if (properties.containsKey(AzureObjStorage.PROP_ACCOUNT_NAME)) {
+        if (isExplicitAzure(properties)) {
             return true;
         }
-        if (properties.containsKey(AzureObjStorage.PROP_ACCOUNT_NAME_ALT)) {
+        if (firstPresent(properties, ACCOUNT_NAME_KEYS) != null) {
             return true;
         }
-        String endpoint = properties.get(AzureObjStorage.PROP_ENDPOINT);
-        if (endpoint == null) {
-            endpoint = properties.get(AzureObjStorage.PROP_ENDPOINT_ALT);
-        }
+        String endpoint = firstPresent(properties, ENDPOINT_KEYS);
         if (endpoint == null) {
             return false;
         }
@@ -72,12 +77,37 @@ public class AzureFileSystemProvider implements FileSystemProvider<FileSystemPro
     }
 
     @Override
-    public FileSystem create(Map<String, String> properties) throws IOException {
+    public AzureFileSystemProperties bind(Map<String, String> properties) {
+        return AzureFileSystemProperties.of(properties);
+    }
+
+    @Override
+    public FileSystem create(AzureFileSystemProperties properties) throws IOException {
         return new AzureFileSystem(new AzureObjStorage(properties));
+    }
+
+    @Override
+    public FileSystem create(Map<String, String> properties) throws IOException {
+        return create(bind(properties));
     }
 
     @Override
     public String name() {
         return "AZURE";
+    }
+
+    private boolean isExplicitAzure(Map<String, String> properties) {
+        return STORAGE_TYPE_AZURE.equalsIgnoreCase(properties.get(STORAGE_TYPE_KEY))
+                || "azure".equalsIgnoreCase(properties.get(PROVIDER_KEY));
+    }
+
+    private String firstPresent(Map<String, String> properties, String[] names) {
+        for (String name : names) {
+            String value = properties.get(name);
+            if (value != null && !value.isEmpty()) {
+                return value;
+            }
+        }
+        return null;
     }
 }

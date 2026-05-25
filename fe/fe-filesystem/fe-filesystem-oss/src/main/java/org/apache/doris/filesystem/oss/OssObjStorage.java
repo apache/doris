@@ -61,17 +61,17 @@ import java.io.InputStream;
 import java.net.URL;
 import java.util.Collections;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
  * Alibaba Cloud OSS implementation backed by the native OSS SDK.
+ *
+ * <p>This class consumes typed OSS properties. Raw key aliases are resolved by
+ * {@link OssFileSystemProperties}; client construction and authentication do not
+ * translate through AWS-compatible keys.
  */
 public class OssObjStorage implements ObjStorage<OSS> {
 
@@ -79,47 +79,17 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     private static final int SESSION_EXPIRE_SECONDS = 3600;
     private static final int DELETE_BATCH_SIZE = 1000;
-    private static final Pattern STANDARD_ENDPOINT_PATTERN =
-            Pattern.compile("^(?:https?://)?(?:s3\\.)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$");
 
-    private final Map<String, String> ossProperties;
+    private final OssFileSystemProperties properties;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private volatile OSS ossClient;
 
     public OssObjStorage(Map<String, String> properties) {
-        this.ossProperties = new HashMap<>(properties);
-        normalizeEndpointAndRegion();
+        this(OssFileSystemProperties.of(properties));
     }
 
-    /**
-     * Translates OSS-specific property keys to AWS-compatible keys for legacy callers.
-     * If both forms are present, the AWS_* key takes precedence.
-     */
-    static Map<String, String> toS3Props(Map<String, String> ossProps) {
-        Map<String, String> s3Props = new HashMap<>(ossProps);
-        if (ossProps.containsKey("OSS_ENDPOINT") && !ossProps.containsKey("AWS_ENDPOINT")) {
-            s3Props.put("AWS_ENDPOINT", ossProps.get("OSS_ENDPOINT"));
-        }
-        if (ossProps.containsKey("OSS_ACCESS_KEY") && !ossProps.containsKey("AWS_ACCESS_KEY")) {
-            s3Props.put("AWS_ACCESS_KEY", ossProps.get("OSS_ACCESS_KEY"));
-        }
-        if (ossProps.containsKey("OSS_SECRET_KEY") && !ossProps.containsKey("AWS_SECRET_KEY")) {
-            s3Props.put("AWS_SECRET_KEY", ossProps.get("OSS_SECRET_KEY"));
-        }
-        if (ossProps.containsKey("OSS_TOKEN") && !ossProps.containsKey("AWS_TOKEN")) {
-            s3Props.put("AWS_TOKEN", ossProps.get("OSS_TOKEN"));
-        }
-        if (ossProps.containsKey("OSS_BUCKET") && !ossProps.containsKey("AWS_BUCKET")) {
-            s3Props.put("AWS_BUCKET", ossProps.get("OSS_BUCKET"));
-        }
-        if (ossProps.containsKey("OSS_REGION") && !ossProps.containsKey("AWS_REGION")) {
-            s3Props.put("AWS_REGION", ossProps.get("OSS_REGION"));
-        }
-        if (ossProps.containsKey("OSS_ROLE_ARN") && !ossProps.containsKey("AWS_ROLE_ARN")) {
-            s3Props.put("AWS_ROLE_ARN", ossProps.get("OSS_ROLE_ARN"));
-        }
-        s3Props.put("use_path_style", "false");
-        return s3Props;
+    public OssObjStorage(OssFileSystemProperties properties) {
+        this.properties = properties;
     }
 
     @Override
@@ -138,10 +108,10 @@ public class OssObjStorage implements ObjStorage<OSS> {
     }
 
     protected OSS buildOssClient() throws IOException {
-        String endpoint = resolveRequired("OSS_ENDPOINT", "AWS_ENDPOINT", "OSS endpoint");
-        String accessKey = resolveRequired("OSS_ACCESS_KEY", "AWS_ACCESS_KEY", "OSS access key");
-        String secretKey = resolveRequired("OSS_SECRET_KEY", "AWS_SECRET_KEY", "OSS secret key");
-        String token = resolveOpt("OSS_TOKEN", "AWS_TOKEN");
+        String endpoint = requireProperty(properties.getEndpoint(), "OSS_ENDPOINT", "OSS endpoint");
+        String accessKey = requireProperty(properties.getAccessKey(), "OSS_ACCESS_KEY", "OSS access key");
+        String secretKey = requireProperty(properties.getSecretKey(), "OSS_SECRET_KEY", "OSS secret key");
+        String token = properties.getSessionToken();
         if (hasText(token)) {
             return new OSSClientBuilder().build(endpoint, accessKey, secretKey, token);
         }
@@ -330,10 +300,10 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public StsCredentials getStsToken() throws IOException {
-        String region = resolveRequired("OSS_REGION", "AWS_REGION", "OSS region for STS");
-        String accessKey = resolveRequired("OSS_ACCESS_KEY", "AWS_ACCESS_KEY", "OSS access key");
-        String secretKey = resolveRequired("OSS_SECRET_KEY", "AWS_SECRET_KEY", "OSS secret key");
-        String roleArn = resolveRequired("OSS_ROLE_ARN", "AWS_ROLE_ARN", "OSS role ARN");
+        String region = requireProperty(properties.getRegion(), "OSS_REGION", "OSS region for STS");
+        String accessKey = requireProperty(properties.getAccessKey(), "OSS_ACCESS_KEY", "OSS access key");
+        String secretKey = requireProperty(properties.getSecretKey(), "OSS_SECRET_KEY", "OSS secret key");
+        String roleArn = requireProperty(properties.getRoleArn(), "OSS_ROLE_ARN", "OSS role ARN");
         try {
             DefaultProfile profile = DefaultProfile.getProfile(region);
             BasicCredentials basicCredentials = new BasicCredentials(accessKey, secretKey);
@@ -350,7 +320,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
                     credentials.getAccessKeySecret(),
                     credentials.getSecurityToken());
         } catch (Exception e) {
-            LOG.warn("Failed to get OSS STS token, roleArn={}", resolveOpt("OSS_ROLE_ARN", "AWS_ROLE_ARN"), e);
+            LOG.warn("Failed to get OSS STS token, roleArn={}", properties.getRoleArn(), e);
             throw new IOException("Failed to get OSS STS token: " + e.getMessage(), e);
         }
     }
@@ -358,14 +328,14 @@ public class OssObjStorage implements ObjStorage<OSS> {
     @Override
     public RemoteObjects listObjectsWithPrefix(String prefix, String subPrefix,
             String continuationToken) throws IOException {
-        String bucket = resolveRequired("OSS_BUCKET", "AWS_BUCKET", "OSS bucket");
+        String bucket = requireProperty(properties.getBucket(), "OSS_BUCKET", "OSS bucket");
         String fullPrefix = normalizeAndCombinePrefix(prefix, subPrefix);
         return listObjects("oss://" + bucket + "/" + fullPrefix, continuationToken);
     }
 
     @Override
     public RemoteObjects headObjectWithMeta(String prefix, String subKey) throws IOException {
-        String bucket = resolveRequired("OSS_BUCKET", "AWS_BUCKET", "OSS bucket");
+        String bucket = requireProperty(properties.getBucket(), "OSS_BUCKET", "OSS bucket");
         String fullKey = normalizeAndCombinePrefix(prefix, subKey);
         try {
             RemoteObject object = headObject("oss://" + bucket + "/" + fullKey);
@@ -379,7 +349,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public String getPresignedUrl(String objectKey) throws IOException {
-        String bucket = resolveRequired("OSS_BUCKET", "AWS_BUCKET", "OSS bucket for presigned URL");
+        String bucket = requireProperty(properties.getBucket(), "OSS_BUCKET", "OSS bucket for presigned URL");
         try {
             Date expiration = new Date(System.currentTimeMillis() + (long) SESSION_EXPIRE_SECONDS * 1000);
             GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(bucket, objectKey, HttpMethod.PUT);
@@ -425,19 +395,9 @@ public class OssObjStorage implements ObjStorage<OSS> {
                 lastModifiedMs(object.getLastModified()));
     }
 
-    private String resolveOpt(String primaryKey, String fallbackKey) {
-        String value = ossProperties.get(primaryKey);
-        if (hasText(value)) {
-            return value;
-        }
-        return fallbackKey == null ? null : ossProperties.get(fallbackKey);
-    }
-
-    private String resolveRequired(String primaryKey, String fallbackKey, String description)
-            throws IOException {
-        String value = resolveOpt(primaryKey, fallbackKey);
+    private static String requireProperty(String value, String key, String description) throws IOException {
         if (!hasText(value)) {
-            throw new IOException(description + " is required; set " + primaryKey + " in properties");
+            throw new IOException(description + " is required; set " + key + " in properties");
         }
         return value;
     }
@@ -471,24 +431,5 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     private static boolean hasText(String value) {
         return value != null && !value.isEmpty();
-    }
-
-    private void normalizeEndpointAndRegion() {
-        String region = resolveOpt("OSS_REGION", "AWS_REGION");
-        String endpoint = resolveOpt("OSS_ENDPOINT", "AWS_ENDPOINT");
-        if (!hasText(region) && hasText(endpoint)) {
-            region = extractRegionFromEndpoint(endpoint);
-            if (hasText(region)) {
-                ossProperties.put("OSS_REGION", region);
-            }
-        }
-        if (!hasText(endpoint) && hasText(region)) {
-            ossProperties.put("OSS_ENDPOINT", "oss-" + region + "-internal.aliyuncs.com");
-        }
-    }
-
-    private static String extractRegionFromEndpoint(String endpoint) {
-        Matcher matcher = STANDARD_ENDPOINT_PATTERN.matcher(endpoint.toLowerCase(Locale.ROOT));
-        return matcher.matches() ? matcher.group(1) : null;
     }
 }

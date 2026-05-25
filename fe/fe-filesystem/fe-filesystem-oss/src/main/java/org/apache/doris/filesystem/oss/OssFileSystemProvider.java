@@ -18,8 +18,9 @@
 package org.apache.doris.filesystem.oss;
 
 import org.apache.doris.filesystem.FileSystem;
-import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 import java.util.Map;
@@ -32,27 +33,57 @@ import java.util.Map;
  * <p>Identified by an endpoint containing {@code aliyuncs.com}. OSS-specific property
  * keys are consumed by {@link OssObjStorage}, which uses the Alibaba Cloud native SDK.
  */
-public class OssFileSystemProvider implements FileSystemProvider<FileSystemProperties> {
+public class OssFileSystemProvider implements FileSystemProvider<OssFileSystemProperties> {
+
+    private static final String STORAGE_TYPE_KEY = "_STORAGE_TYPE_";
+    private static final String STORAGE_TYPE_OSS = "OSS";
+    private static final String PROVIDER_KEY = "provider";
+    private static final String FS_OSS_SUPPORT = "fs.oss.support";
+    private static final String[] ENDPOINT_NAMES = {
+            OssFileSystemProperties.ENDPOINT, "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
+            "dlf.endpoint", "dlf.catalog.endpoint", "fs.oss.endpoint", "OSS_ENDPOINT"};
 
     @Override
     public boolean supports(Map<String, String> properties) {
-        if ("OSS".equals(properties.get("_STORAGE_TYPE_"))) {
+        if (isExplicitOss(properties)) {
             return true;
         }
-        String endpoint = properties.get("OSS_ENDPOINT");
-        if (endpoint == null) {
-            endpoint = properties.get("AWS_ENDPOINT");
-        }
+        String endpoint = firstPresent(properties, ENDPOINT_NAMES);
         return endpoint != null && endpoint.contains("aliyuncs.com");
     }
 
     @Override
-    public FileSystem create(Map<String, String> properties) throws IOException {
+    public OssFileSystemProperties bind(Map<String, String> properties) {
+        return OssFileSystemProperties.of(properties);
+    }
+
+    @Override
+    public FileSystem create(OssFileSystemProperties properties) throws IOException {
         return new OssFileSystem(new OssObjStorage(properties));
+    }
+
+    @Override
+    public FileSystem create(Map<String, String> properties) throws IOException {
+        return create(bind(properties));
     }
 
     @Override
     public String name() {
         return "OSS";
+    }
+
+    private boolean isExplicitOss(Map<String, String> properties) {
+        return STORAGE_TYPE_OSS.equalsIgnoreCase(properties.get(STORAGE_TYPE_KEY))
+                || STORAGE_TYPE_OSS.equalsIgnoreCase(properties.get(PROVIDER_KEY))
+                || Boolean.parseBoolean(properties.getOrDefault(FS_OSS_SUPPORT, "false"));
+    }
+
+    private String firstPresent(Map<String, String> properties, String[] names) {
+        for (String name : names) {
+            if (StringUtils.isNotBlank(properties.get(name))) {
+                return properties.get(name);
+            }
+        }
+        return null;
     }
 }
