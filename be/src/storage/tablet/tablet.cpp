@@ -1608,8 +1608,7 @@ void Tablet::get_compaction_status(std::string* json_result) {
     FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last base success time",
                                     _last_base_compaction_success_millis)
     FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last full success time",
-                                    _last_full_compaction_success_millis)
-    {
+                                    _last_full_compaction_success_millis) {
         int64_t last_binlog_success_millis = 0;
         for (int8_t level = 0; level < BinlogCompactionPolicy::kBinlogCompactionMaxLevel; ++level) {
             last_binlog_success_millis =

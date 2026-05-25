@@ -229,10 +229,9 @@ bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, L
     // `_use_insert_order_when_same` is enabled, read from lower to higher.
     // for UNIQUE_KEYS just read the highest version and no need agg_update.
     // for AGG_KEYS if a version is deleted, the lower version no need to agg_update
-    bool lower = (cmp_res != 0)
-                         ? (cmp_res < 0)
-                         : (_use_insert_order_when_same ? (lhs->version() > rhs->version())
-                                                        : (lhs->version() < rhs->version()));
+    bool lower = (cmp_res != 0) ? (cmp_res < 0)
+                                : (_use_insert_order_when_same ? (lhs->version() > rhs->version())
+                                                               : (lhs->version() < rhs->version()));
     lower ? lhs->set_same(true) : rhs->set_same(true);
 
     return lower;

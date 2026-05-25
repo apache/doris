@@ -651,10 +651,9 @@ Status VerticalFifoMergeIterator::next_batch(Block* block) {
                  cur_order++) {
                 auto& next_iter = _origin_iters[cur_order];
                 std::unique_ptr<VerticalMergeIteratorContext> next_ctx(
-                        new VerticalMergeIteratorContext(std::move(next_iter),
-                                                         _rowset_ids[cur_order], _ori_return_cols,
-                                                         cur_order, _seq_col_idx,
-                                                         _opts.use_insert_order_when_same));
+                        new VerticalMergeIteratorContext(
+                                std::move(next_iter), _rowset_ids[cur_order], _ori_return_cols,
+                                cur_order, _seq_col_idx, _opts.use_insert_order_when_same));
                 RETURN_IF_ERROR(next_ctx->init(_opts));
                 if (next_ctx->valid()) {
                     _cur_iter_ctx.swap(next_ctx);
@@ -692,10 +691,9 @@ Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts,
     // will not be pushed into heap, we should init next one util we find a valid iter
     // so this rowset can work in heap
     for (auto& iter : _origin_iters) {
-        std::unique_ptr<VerticalMergeIteratorContext> ctx(
-                new VerticalMergeIteratorContext(std::move(iter), _rowset_ids[seg_order],
-                                                 _ori_return_cols, seg_order, _seq_col_idx,
-                                                 opts.use_insert_order_when_same));
+        std::unique_ptr<VerticalMergeIteratorContext> ctx(new VerticalMergeIteratorContext(
+                std::move(iter), _rowset_ids[seg_order], _ori_return_cols, seg_order, _seq_col_idx,
+                opts.use_insert_order_when_same));
         RETURN_IF_ERROR(ctx->init(opts, sample_info));
         if (!ctx->valid()) {
             ++seg_order;

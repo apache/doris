@@ -137,10 +137,9 @@ bool VMergeIteratorContext::compare(const VMergeIteratorContext& rhs) const {
         col_cmp_res = _block->compare_column_at(_index_in_block, rhs._index_in_block,
                                                 _sequence_id_idx, *rhs._block, -1);
     }
-    auto result = col_cmp_res == 0
-                          ? (_use_insert_order_when_same ? (data_id() > rhs.data_id())
-                                                         : (data_id() < rhs.data_id()))
-                          : col_cmp_res < 0;
+    auto result = col_cmp_res == 0 ? (_use_insert_order_when_same ? (data_id() > rhs.data_id())
+                                                                  : (data_id() < rhs.data_id()))
+                                   : col_cmp_res < 0;
 
     if (_is_unique) {
         result ? set_skip(true) : rhs.set_skip(true);

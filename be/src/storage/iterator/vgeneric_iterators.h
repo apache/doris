@@ -85,8 +85,7 @@ class VMergeIteratorContext {
 public:
     VMergeIteratorContext(RowwiseIteratorUPtr&& iter, int sequence_id_idx, bool is_unique,
                           bool is_reverse, bool use_insert_order_when_same,
-                          std::vector<uint32_t>* read_orderby_key_columns,
-                          SchemaSPtr output_schema)
+                          std::vector<uint32_t>* read_orderby_key_columns, SchemaSPtr output_schema)
             : _iter(std::move(iter)),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
