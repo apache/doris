@@ -17,10 +17,14 @@
 
 package org.apache.doris.connector.api;
 
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Central metadata interface that a connector must implement.
@@ -42,6 +46,34 @@ public interface ConnectorMetadata extends
     /** Returns connector-level properties. */
     default Map<String, String> getProperties() {
         return Collections.emptyMap();
+    }
+
+    // ──────────────────── MVCC Snapshots ────────────────────
+
+    /**
+     * Returns the current snapshot at query begin time, used as the MVCC pin
+     * for all subsequent reads of {@code handle}.
+     *
+     * <p>Returning {@link Optional#empty()} means the connector does not
+     * support MVCC and reads see whatever is current.</p>
+     */
+    default Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        return Optional.empty();
+    }
+
+    /** Returns the snapshot at the given wall-clock time, or empty if none. */
+    default Optional<ConnectorMvccSnapshot> getSnapshotAt(
+            ConnectorSession session, ConnectorTableHandle handle,
+            long timestampMillis) {
+        return Optional.empty();
+    }
+
+    /** Returns the snapshot with the given id, or empty if none. */
+    default Optional<ConnectorMvccSnapshot> getSnapshotById(
+            ConnectorSession session, ConnectorTableHandle handle,
+            long snapshotId) {
+        return Optional.empty();
     }
 
     @Override
