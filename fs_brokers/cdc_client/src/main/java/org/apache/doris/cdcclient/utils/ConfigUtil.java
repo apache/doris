@@ -52,8 +52,10 @@ public class ConfigUtil {
         if (userRange != null) {
             if (userRange.getNumberOfServerIds() < snapshotParallelism) {
                 throw new IllegalArgumentException(
-                        "server_id range size " + userRange.getNumberOfServerIds()
-                                + " must be >= snapshot_parallelism " + snapshotParallelism);
+                        "server_id range size "
+                                + userRange.getNumberOfServerIds()
+                                + " must be >= snapshot_parallelism "
+                                + snapshotParallelism);
             }
             return userRange;
         }
