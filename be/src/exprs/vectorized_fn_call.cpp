@@ -557,7 +557,10 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-        bool enable_result_cache) {
+        bool enable_result_cache, AnnRangeSearchEvaluationResult* evaluation_result) {
+    if (evaluation_result != nullptr) {
+        *evaluation_result = {};
+    }
     if (range_search_runtime.is_ann_range_search == false) {
         return Status::OK();
     }
@@ -566,8 +569,8 @@ Status VectorizedFnCall::evaluate_ann_range_search(
                               range_search_runtime.to_string());
     size_t origin_num = row_bitmap.cardinality();
 
-    int idx_in_block = static_cast<int>(range_search_runtime.src_col_idx);
-    DCHECK(idx_in_block < idx_to_cid.size())
+    const auto idx_in_block = range_search_runtime.src_col_idx;
+    DCHECK_LT(idx_in_block, idx_to_cid.size())
             << "idx_in_block: " << idx_in_block << ", idx_to_cid.size(): " << idx_to_cid.size();
 
     ColumnId src_col_cid = idx_to_cid[idx_in_block];
@@ -649,6 +652,7 @@ Status VectorizedFnCall::evaluate_ann_range_search(
     row_bitmap = *result.roaring;
 
     // Process virtual column
+    bool dist_fulfilled = false;
     if (range_search_runtime.dst_col_idx >= 0) {
         // Prepare materialization if we can use result from index.
         // Typical situation: range search and operator is LE or LT.
@@ -672,7 +676,7 @@ Status VectorizedFnCall::evaluate_ann_range_search(
             }
             virtual_column_iterator->prepare_materialization(std::move(distance_col),
                                                              std::move(result.row_ids));
-            _virtual_column_is_fulfilled = true;
+            dist_fulfilled = true;
         } else {
             // Whether the ANN index should have produced distance depends on metric and operator:
             //  - L2: distance is produced for LE/LT; not produced for GE/GT
@@ -686,17 +690,19 @@ Status VectorizedFnCall::evaluate_ann_range_search(
             // If we expected distance but didn't get it, assert in debug to catch logic errors.
             DCHECK(!should_have_distance) << "Expected distance from ANN index but got none";
 #endif
-            _virtual_column_is_fulfilled = false;
         }
     } else {
         // Dest is not virtual column.
-        _virtual_column_is_fulfilled = true;
+        dist_fulfilled = true;
     }
 
-    _has_been_executed = true;
+    if (evaluation_result != nullptr) {
+        evaluation_result->executed = true;
+        evaluation_result->dist_fulfilled = dist_fulfilled;
+    }
     VLOG_DEBUG << fmt::format(
             "Ann range search filtered {} rows, origin {} rows, virtual column is full-filled: {}",
-            origin_num - row_bitmap.cardinality(), origin_num, _virtual_column_is_fulfilled);
+            origin_num - row_bitmap.cardinality(), origin_num, dist_fulfilled);
 
     ann_index_stats = *stats;
     return Status::OK();

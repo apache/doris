@@ -235,11 +235,9 @@ Status VirtualSlotRef::evaluate_ann_range_search(
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-        bool enable_result_cache) {
+        bool enable_result_cache, AnnRangeSearchEvaluationResult* result) {
     return _virtual_column_expr->evaluate_ann_range_search(
             range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators, row_bitmap,
-            ann_index_stats, enable_result_cache);
-
-    return Status::OK();
+            ann_index_stats, enable_result_cache, result);
 }
 } // namespace doris

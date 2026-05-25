@@ -29,6 +29,7 @@
 #include "core/block/columns_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
+#include "exec/common/util.hpp"
 #include "exprs/function_context.h"
 #include "exprs/vexpr.h"
 #include "runtime/runtime_state.h"
@@ -440,41 +441,57 @@ Status VExprContext::evaluate_ann_range_search(
         const std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>&
                 common_expr_to_slotref_map,
         roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-        bool enable_result_cache) {
+        bool enable_result_cache, bool* ann_range_search_executed) {
+    if (ann_range_search_executed != nullptr) {
+        *ann_range_search_executed = false;
+    }
     if (_root == nullptr) {
         return Status::OK();
     }
 
+    AnnRangeSearchEvaluationResult evaluation_result;
     RETURN_IF_ERROR(_root->evaluate_ann_range_search(
             _ann_range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators,
-            row_bitmap, ann_index_stats, enable_result_cache));
+            row_bitmap, ann_index_stats, enable_result_cache, &evaluation_result));
 
-    if (!_root->ann_range_search_executedd()) {
+    if (!evaluation_result.executed) {
         return Status::OK();
     }
+    if (ann_range_search_executed != nullptr) {
+        *ann_range_search_executed = true;
+    }
 
-    if (!_root->ann_dist_is_fulfilled()) {
+    DCHECK(_index_context != nullptr);
+    _index_context->set_index_result_for_expr(
+            _root.get(),
+            segment_v2::InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(row_bitmap),
+                                                  std::make_shared<roaring::Roaring>()));
+
+    if (!evaluation_result.dist_fulfilled) {
         // Do not perform index scan in this case.
         return Status::OK();
     }
 
-    auto src_col_idx = _ann_range_search_runtime.src_col_idx;
+    DCHECK_LT(_ann_range_search_runtime.src_col_idx, idx_to_cid.size());
+    const auto src_col_idx = cast_set<int>(_ann_range_search_runtime.src_col_idx);
+    const auto src_col_key = cast_set<ColumnId>(_ann_range_search_runtime.src_col_idx);
     auto slot_ref_map_it = common_expr_to_slotref_map.find(this);
     if (slot_ref_map_it == common_expr_to_slotref_map.end()) {
         return Status::OK();
     }
     auto& slot_ref_map = slot_ref_map_it->second;
-    ColumnId cid = idx_to_cid[src_col_idx];
-    if (slot_ref_map.find(cid) == slot_ref_map.end()) {
+    auto slot_ref_it = slot_ref_map.find(src_col_key);
+    if (slot_ref_it == slot_ref_map.end()) {
         return Status::OK();
     }
-    const VExpr* slot_ref_expr_addr = slot_ref_map.find(cid)->second;
-    _index_context->set_true_for_index_status(slot_ref_expr_addr, idx_to_cid[cid]);
+    const VExpr* slot_ref_expr_addr = slot_ref_it->second;
+    _index_context->set_true_for_index_status(slot_ref_expr_addr, src_col_idx);
 
     VLOG_DEBUG << fmt::format(
             "Evaluate ann range search for expr {}, src_col_idx {}, cid {}, row_bitmap "
             "cardinality {}",
-            _root->debug_string(), src_col_idx, cid, row_bitmap.cardinality());
+            _root->debug_string(), src_col_idx, idx_to_cid[_ann_range_search_runtime.src_col_idx],
+            row_bitmap.cardinality());
     return Status::OK();
 }
 
