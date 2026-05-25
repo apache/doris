@@ -297,6 +297,9 @@ Status ParquetReader::close() {
 
 void ParquetReader::_close_internal() {
     if (!_closed) {
+        _current_group_reader.reset();
+        _tracing_file_reader.reset();
+        _file_reader.reset();
         _closed = true;
     }
 }

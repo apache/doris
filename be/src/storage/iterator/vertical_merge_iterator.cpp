@@ -332,7 +332,7 @@ Status VerticalMergeIteratorContext::copy_rows(Block* block, size_t count) {
             ColumnPtr& s_cp = s_col.column;
             ColumnPtr& d_cp = d_col.column;
 
-            d_cp->assume_mutable()->insert_range_from(*s_cp, start, count);
+            d_cp->assert_mutable()->insert_range_from(*s_cp, start, count);
         }
     });
     return Status::OK();
@@ -355,7 +355,7 @@ Status VerticalMergeIteratorContext::copy_rows(Block* block, bool advanced) {
             ColumnPtr& s_cp = s_col.column;
             ColumnPtr& d_cp = d_col.column;
 
-            d_cp->assume_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
+            d_cp->assert_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
         }
     });
     _cur_batch_num = 0;

@@ -180,8 +180,8 @@ public:
         }
 
         ColumnPtr rhs_column = nullptr;
-        uint8_t* __restrict rhs_data_column = nullptr;
-        uint8_t* __restrict rhs_null_map = nullptr;
+        const uint8_t* __restrict rhs_data_column = nullptr;
+        const uint8_t* __restrict rhs_null_map = nullptr;
         bool rhs_is_nullable = false;
         bool rhs_all_true = false;
         bool rhs_all_false = false;
@@ -216,31 +216,36 @@ public:
         };
 
         auto create_null_map_column = [&](ColumnPtr& null_map_column,
-                                          uint8_t* __restrict null_map_data) {
+                                          const uint8_t* __restrict null_map_data) {
             if (null_map_data == nullptr) {
                 null_map_column = ColumnUInt8::create(size, 0);
-                null_map_data = assert_cast<ColumnUInt8*>(null_map_column->assume_mutable().get())
-                                        ->get_data()
-                                        .data();
+                null_map_data =
+                        assert_cast<const ColumnUInt8*>(null_map_column.get())->get_data().data();
             }
             return null_map_data;
         };
 
         auto vector_vector = [&]<bool is_and_op>() {
+            MutableColumnPtr mutable_result_column;
+            uint8_t* __restrict result_data_column = nullptr;
+            const uint8_t* __restrict other_data_column = rhs_data_column;
             if (lhs_column->use_count() == 1) {
-                result_column = lhs_column;
+                mutable_result_column = IColumn::mutate(std::move(lhs_column));
+                result_data_column =
+                        assert_cast<ColumnUInt8*>(mutable_result_column.get())->get_data().data();
             } else if (rhs_column->use_count() == 1) {
-                result_column = rhs_column;
-                auto tmp_column = rhs_data_column;
-                rhs_data_column = lhs_data_column;
-                lhs_data_column = tmp_column;
+                mutable_result_column = IColumn::mutate(std::move(rhs_column));
+                result_data_column =
+                        assert_cast<ColumnUInt8*>(mutable_result_column.get())->get_data().data();
+                other_data_column = lhs_data_column;
             } else {
-                auto col_res = lhs_column->clone_resized(size);
-                lhs_data_column = assert_cast<ColumnUInt8*>(col_res.get())->get_data().data();
-                result_column = std::move(col_res);
+                mutable_result_column = lhs_column->clone_resized(size);
+                result_data_column =
+                        assert_cast<ColumnUInt8*>(mutable_result_column.get())->get_data().data();
             }
 
-            do_not_null_pred<is_and_op>(lhs_data_column, rhs_data_column, size);
+            do_not_null_pred<is_and_op>(result_data_column, other_data_column, size);
+            result_column = std::move(mutable_result_column);
         };
         auto vector_vector_null = [&]<bool is_and_op>() {
             auto col_res = ColumnUInt8::create(size);
@@ -347,7 +352,8 @@ private:
     }
 
     template <bool is_and>
-    void static do_not_null_pred(uint8_t* __restrict lhs, uint8_t* __restrict rhs, size_t size) {
+    void static do_not_null_pred(uint8_t* __restrict lhs, const uint8_t* __restrict rhs,
+                                 size_t size) {
 #ifdef NDEBUG
 #if defined(__clang__)
 #pragma clang loop vectorize(enable)
@@ -365,8 +371,8 @@ private:
     }
 
     template <bool is_and>
-    void static do_null_pred(uint8_t* __restrict lhs_data, uint8_t* __restrict lhs_null,
-                             uint8_t* __restrict rhs_data, uint8_t* __restrict rhs_null,
+    void static do_null_pred(const uint8_t* __restrict lhs_data, const uint8_t* __restrict lhs_null,
+                             const uint8_t* __restrict rhs_data, const uint8_t* __restrict rhs_null,
                              uint8_t* __restrict res_data, uint8_t* __restrict res_null,
                              size_t size) {
 #ifdef NDEBUG
@@ -392,22 +398,21 @@ private:
                                    [](const VExprSPtr& arg) -> bool { return arg->is_constant(); });
     }
 
-    std::pair<uint8_t*, uint8_t*> _get_raw_data_and_null_map(ColumnPtr column,
-                                                             bool has_nullable_column) const {
+    std::pair<const uint8_t*, const uint8_t*> _get_raw_data_and_null_map(
+            const ColumnPtr& column, bool has_nullable_column) const {
         if (has_nullable_column) {
-            auto* nullable_column = assert_cast<ColumnNullable*>(column->assume_mutable().get());
+            const auto* nullable_column = assert_cast<const ColumnNullable*>(column.get());
             auto* data_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_nested_column_ptr().get())
+                    assert_cast<const ColumnUInt8*>(nullable_column->get_nested_column_ptr().get())
                             ->get_data()
                             .data();
-            auto* null_map =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get())
-                            ->get_data()
-                            .data();
+            auto* null_map = assert_cast<const ColumnUInt8*>(
+                                     nullable_column->get_null_map_column_ptr().get())
+                                     ->get_data()
+                                     .data();
             return std::make_pair(data_column, null_map);
         } else {
-            auto* data_column =
-                    assert_cast<ColumnUInt8*>(column->assume_mutable().get())->get_data().data();
+            auto* data_column = assert_cast<const ColumnUInt8*>(column.get())->get_data().data();
             return std::make_pair(data_column, nullptr);
         }
     }
