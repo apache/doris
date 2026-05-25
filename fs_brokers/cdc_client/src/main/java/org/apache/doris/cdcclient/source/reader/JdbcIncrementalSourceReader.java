@@ -556,30 +556,30 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
      *     data
      */
     private PollResult waitForAnyCompletion() throws Exception {
-        while (!activePollFutures.isEmpty()) {
-            // Wait for any future to complete
+        List<CompletableFuture<PollResult>> snapshot = activePollFutures;
+        while (snapshot != null && !snapshot.isEmpty()) {
             CompletableFuture<Object> anyOf =
-                    CompletableFuture.anyOf(activePollFutures.toArray(new CompletableFuture[0]));
+                    CompletableFuture.anyOf(snapshot.toArray(new CompletableFuture[0]));
 
             anyOf.join(); // Wait for at least one to complete
 
             // Find and process completed futures
-            for (CompletableFuture<PollResult> future : activePollFutures) {
+            for (CompletableFuture<PollResult> future : snapshot) {
                 if (future.isDone()) {
-                    activePollFutures.remove(future);
+                    snapshot.remove(future);
                     PollResult result = future.get();
                     if (result != null) {
-                        // Found a reader with data, return immediately
                         LOG.info(
                                 "Got result from reader {}, {} futures remaining",
                                 result.context.getSplit().splitId(),
-                                activePollFutures.size());
+                                snapshot.size());
                         completedSplitIds.add(result.context.getSplit().splitId());
                         return result;
                     }
                     // If result is null (no data), continue checking other futures
                 }
             }
+            snapshot = activePollFutures;
         }
         // All futures completed but none had data
         return null;
