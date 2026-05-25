@@ -72,7 +72,8 @@ std::unique_ptr<Block> make_source_block(size_t n_rows, int64_t key_value) {
 // struct of the source block, pre-filled with `n_rows` default rows so that
 // non-variable-length agg columns can be written via replace_column_data.
 MutableColumns make_stored_columns(const Block& src_block, size_t n_rows) {
-    return src_block.create_same_struct_block(n_rows)->mutate_columns();
+    auto block = src_block.create_same_struct_block(n_rows);
+    return std::move(*block).mutate_columns();
 }
 
 MutableColumns make_target_columns() {

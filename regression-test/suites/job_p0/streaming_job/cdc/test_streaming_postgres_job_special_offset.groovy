@@ -76,10 +76,21 @@ suite("test_streaming_postgres_job_special_offset", "p0,external,pg,external_doc
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (3, 'charlie')"""
         }
+        // Mode-gate check: only the post-CREATE INSERT must arrive; pre-existing (1, 2) are skipped.
         Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
-            def result = sql """SELECT count(*) FROM ${currentDb}.${table1}"""
-            return result[0][0] >= 1
+            def result = sql """SELECT count(*) FROM ${currentDb}.${table1} WHERE id = 3"""
+            return result[0][0] == 1
         })
+        def preCount = sql """SELECT count(*) FROM ${currentDb}.${table1} WHERE id IN (1, 2)"""
+        assert preCount.get(0).get(0) == 0 :
+                "offset=latest should skip pre-existing rows, but found ${preCount.get(0).get(0)} of them"
+        def loadStat = parseJson(sql("""
+            select loadStatistic from jobs("type"="insert") where Name='${jobName}'
+        """).get(0).get(0))
+        log.info("loadStat: ${loadStat}")
+        assert loadStat.scannedRows == 1 :
+                "expected scannedRows=1 (only the binlog INSERT), got ${loadStat.scannedRows}"
+
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         sql """drop table if exists ${currentDb}.${table1} force"""
 

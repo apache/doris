@@ -27,7 +27,7 @@ public abstract class RoutineLoadProgress {
         this.loadDataSourceType = loadDataSourceType;
     }
 
-    abstract void update(RLTaskTxnCommitAttachment attachment);
+    public abstract void update(RLTaskTxnCommitAttachment attachment);
 
     public abstract String toJsonString();
 }

@@ -376,6 +376,26 @@ suite("test_backup_restore_colocate_with_partition", "backup_restore") {
         assertTrue(result.ColocateMismatchNum as int == 0)
     }
 
+    // Wait until the colocate group of `db_name`.`group_name` becomes stable.
+    // After RESTORE creates a brand-new colocate group in a new db, the group
+    // is unstable until ColocateTableCheckerAndBalancer scans it (default every
+    // tablet_checker_interval_ms = 20s). Nereids skips colocate join while the
+    // group is unstable, so EXPLAIN right after RESTORE FINISHED can miss COLOCATE.
+    def waitColocateGroupStable = { db_name, group_name ->
+        def fullName = "${db_name}.${group_name}".toString()
+        def deadline = System.currentTimeMillis() + 60_000
+        while (System.currentTimeMillis() < deadline) {
+            def groups = sql_return_maparray("SHOW PROC '/colocation_group'")
+            def g = groups.find { it.GroupName == fullName }
+            if (g != null && g.IsStable == "true") {
+                log.info("colocate group ${fullName} is stable")
+                return
+            }
+            sleep(1000)
+        }
+        log.warn("colocate group ${fullName} did not become stable within 60s")
+    }
+
     def syncer = getSyncer()
     syncer.createS3Repository(repoName)
 
@@ -623,6 +643,11 @@ suite("test_backup_restore_colocate_with_partition", "backup_restore") {
     assertEquals(res.size(), insert_num)
 
     query = "select * from ${newDbName}.${tableName1} as t1, ${newDbName}.${tableName2} as t2 where t1.id=t2.id;"
+
+    // RESTORE to a brand-new db creates a new colocate group that is initially
+    // unstable; wait for ColocateTableCheckerAndBalancer to mark it stable, otherwise
+    // EXPLAIN below may fall back to BROADCAST/SHUFFLE.
+    waitColocateGroupStable(newDbName, groupName)
 
     explain {
         sql("${query}")

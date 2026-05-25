@@ -20,7 +20,6 @@
 
 #pragma once
 
-#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -56,16 +55,17 @@ private:
     friend class COWHelper<IColumn, ColumnNullable>;
 
     ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnPtr&& null_map_);
+    struct SharedTag {};
+    ColumnNullable(SharedTag, ColumnPtr nested_column_, ColumnPtr null_map_);
     ColumnNullable(const ColumnNullable&) = default;
 
 public:
-    /** Create immutable column using immutable arguments. This arguments may be shared with other columns.
-      * Use IColumn::mutate in order to make mutable column and mutate shared nested columns.
+    /** Create a column from immutable/shared subcolumns without cloning them.
+      * Call IColumn::mutate before modifying the returned column tree.
       */
     using Base = COWHelper<IColumn, ColumnNullable>;
     static MutablePtr create(const ColumnPtr& nested_column_, const ColumnPtr& null_map_) {
-        return ColumnNullable::create(nested_column_->assume_mutable(),
-                                      null_map_->assume_mutable());
+        return Base::create(SharedTag {}, nested_column_, null_map_);
     }
 
     template <typename... Args>
@@ -92,9 +92,7 @@ public:
     std::string get_name() const override { return "Nullable(" + _nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return get_null_map_column().size(); }
-    PURE bool is_null_at(size_t n) const override {
-        return get_null_map_column().get_data()[n] != 0;
-    }
+    bool is_null_at(size_t n) const override { return get_null_map_column().get_data()[n] != 0; }
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     bool get_bool(size_t n) const override {
@@ -272,13 +270,15 @@ public:
     // used in schema change
     void change_nested_column(ColumnPtr& other) { ((ColumnPtr&)_nested_column) = other; }
 
+    void replace_columns(ColumnPtr nested_column, ColumnPtr null_map);
+
     /// Return the column that represents values.
     IColumn& get_nested_column() { return *_nested_column; }
     const IColumn& get_nested_column() const { return *_nested_column; }
 
     const ColumnPtr& get_nested_column_ptr() const { return _nested_column; }
 
-    MutableColumnPtr get_nested_column_ptr() { return _nested_column->assume_mutable(); }
+    MutableColumnPtr get_nested_column_ptr() { return _nested_column->assert_mutable(); }
 
     void clear() override {
         _null_map->clear();
@@ -386,7 +386,7 @@ public:
     }
     const NullMap& get_null_map_data() const { return get_null_map_column().get_data(); }
 
-    MutableColumnPtr get_null_map_column_ptr() { return _null_map->assume_mutable(); }
+    MutableColumnPtr get_null_map_column_ptr() { return _null_map->assert_mutable(); }
     ColumnUInt8& get_null_map_column() {
         return assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*_null_map);
     }

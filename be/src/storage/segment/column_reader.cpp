@@ -77,6 +77,7 @@
 #include "util/bitmap.h"
 #include "util/block_compression.h"
 #include "util/concurrency_stats.h"
+#include "util/defer_op.h"
 #include "util/rle_encoding.h" // for RleDecoder
 #include "util/slice.h"
 
@@ -996,7 +997,8 @@ Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool*
 
     auto& column_map = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(
             dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
-    auto column_offsets_ptr = column_map.get_offsets_column().assume_mutable();
+    auto column_offsets_ptr = IColumn::mutate(std::move(column_map.get_offsets_ptr()));
+    Defer defer_offsets {[&] { column_map.get_offsets_ptr() = std::move(column_offsets_ptr); }};
     bool offsets_has_null = false;
     ssize_t start = column_offsets_ptr->size();
     RETURN_IF_ERROR(_offsets_iterator->next_batch(n, column_offsets_ptr, &offsets_has_null));
@@ -1008,10 +1010,12 @@ Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool*
     DCHECK(column_offsets.get_data().back() >= column_offsets.get_data()[start - 1]);
     size_t num_items =
             column_offsets.get_data().back() - column_offsets.get_data()[start - 1]; // -1 is valid
-    auto key_ptr = column_map.get_keys().assume_mutable();
-    auto val_ptr = column_map.get_values().assume_mutable();
 
     if (num_items > 0) {
+        auto key_ptr = IColumn::mutate(std::move(column_map.get_keys_ptr()));
+        auto val_ptr = IColumn::mutate(std::move(column_map.get_values_ptr()));
+        Defer defer_keys {[&] { column_map.get_keys_ptr() = std::move(key_ptr); }};
+        Defer defer_values {[&] { column_map.get_values_ptr() = std::move(val_ptr); }};
         if (read_offset_only()) {
             // OFFSET_ONLY mode: skip reading actual key/value data, fill with defaults
             key_ptr->insert_many_defaults(num_items);
@@ -1024,9 +1028,6 @@ Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool*
             RETURN_IF_ERROR(_val_iterator->next_batch(&num_read, val_ptr, &val_has_null));
             DCHECK(num_read == num_items);
         }
-
-        column_map.get_keys_ptr() = std::move(key_ptr);
-        column_map.get_values_ptr() = std::move(val_ptr);
     }
 
     if (dst->is_nullable()) {
@@ -1081,9 +1082,10 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
         return Status::OK();
     }
     // resolve ColumnMap and nullable wrapper
-    const auto& column_map = assert_cast<const ColumnMap&>(
+    auto& column_map = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(
             dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
-    auto offsets_ptr = column_map.get_offsets_column().assume_mutable();
+    auto offsets_ptr = IColumn::mutate(std::move(column_map.get_offsets_ptr()));
+    Defer defer_offsets {[&] { column_map.get_offsets_ptr() = std::move(offsets_ptr); }};
     auto& offsets = static_cast<ColumnArray::ColumnOffsets&>(*offsets_ptr);
     size_t base = offsets.get_data().empty() ? 0 : offsets.get_data().back();
 
@@ -1167,8 +1169,10 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     }
 
     // 6. read key/value elements for non-empty sizes
-    auto keys_ptr = column_map.get_keys().assume_mutable();
-    auto vals_ptr = column_map.get_values().assume_mutable();
+    auto keys_ptr = IColumn::mutate(std::move(column_map.get_keys_ptr()));
+    auto vals_ptr = IColumn::mutate(std::move(column_map.get_values_ptr()));
+    Defer defer_keys {[&] { column_map.get_keys_ptr() = std::move(keys_ptr); }};
+    Defer defer_values {[&] { column_map.get_values_ptr() = std::move(vals_ptr); }};
 
     size_t this_run = sizes[0];
     auto start_idx = starts_data[0];
@@ -1413,12 +1417,13 @@ Status StructFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bo
             dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
     for (size_t i = 0; i < column_struct.tuple_size(); i++) {
         size_t num_read = *n;
-        auto sub_column_ptr = column_struct.get_column(i).assume_mutable();
+        auto sub_column_ptr = IColumn::mutate(std::move(column_struct.get_column_ptr(i)));
+        Defer defer_sub_column {
+                [&] { column_struct.get_column_ptr(i) = std::move(sub_column_ptr); }};
         bool column_has_null = false;
         RETURN_IF_ERROR(
                 _sub_column_iterators[i]->next_batch(&num_read, sub_column_ptr, &column_has_null));
         DCHECK(num_read == *n);
-        column_struct.get_column_ptr(i) = std::move(sub_column_ptr);
     }
 
     if (dst->is_nullable()) {
@@ -1773,11 +1778,12 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, boo
         return Status::OK();
     }
 
-    const auto& column_array = assert_cast<const ColumnArray&>(
+    auto& column_array = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(
             dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
 
     bool offsets_has_null = false;
-    auto column_offsets_ptr = column_array.get_offsets_column().assume_mutable();
+    auto column_offsets_ptr = IColumn::mutate(std::move(column_array.get_offsets_ptr()));
+    Defer defer_offsets {[&] { column_array.get_offsets_ptr() = std::move(column_offsets_ptr); }};
     ssize_t start = column_offsets_ptr->size();
     RETURN_IF_ERROR(_offset_iterator->next_batch(n, column_offsets_ptr, &offsets_has_null));
     if (*n == 0) {
@@ -1787,8 +1793,9 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, boo
     RETURN_IF_ERROR(_offset_iterator->_calculate_offsets(start, column_offsets));
     size_t num_items =
             column_offsets.get_data().back() - column_offsets.get_data()[start - 1]; // -1 is valid
-    auto column_items_ptr = column_array.get_data().assume_mutable();
     if (num_items > 0) {
+        auto column_items_ptr = IColumn::mutate(std::move(column_array.get_data_ptr()));
+        Defer defer_items {[&] { column_array.get_data_ptr() = std::move(column_items_ptr); }};
         if (read_offset_only()) {
             // OFFSET_ONLY mode: skip reading actual item data, fill with defaults
             column_items_ptr->insert_many_defaults(num_items);

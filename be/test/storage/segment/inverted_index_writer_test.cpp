@@ -31,12 +31,12 @@
 #include <string>
 #include <vector>
 
+#include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
-#include "storage/field.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
@@ -44,6 +44,7 @@
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/types.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
@@ -402,13 +403,13 @@ public:
         // Get field for column c2
         const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
         ASSERT_NE(&column, nullptr);
-        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
-        ASSERT_NE(field.get(), nullptr);
+        const TabletColumn* field = &(column);
+        ASSERT_NE(field, nullptr);
 
         // Create column writer
         std::unique_ptr<IndexColumnWriter> column_writer;
-        auto status = IndexColumnWriter::create(field.get(), &column_writer,
-                                                index_file_writer.get(), &idx_meta);
+        auto status = IndexColumnWriter::create(field, &column_writer, index_file_writer.get(),
+                                                &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add some string values
@@ -458,13 +459,13 @@ public:
         // Get field for column c2
         const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
         ASSERT_NE(&column, nullptr);
-        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
-        ASSERT_NE(field.get(), nullptr);
+        const TabletColumn* field = &(column);
+        ASSERT_NE(field, nullptr);
 
         // Create column writer
         std::unique_ptr<IndexColumnWriter> column_writer;
-        auto status = IndexColumnWriter::create(field.get(), &column_writer,
-                                                index_file_writer.get(), &idx_meta);
+        auto status = IndexColumnWriter::create(field, &column_writer, index_file_writer.get(),
+                                                &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add string values
@@ -522,13 +523,13 @@ public:
         // Get field for column c2
         const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
         ASSERT_NE(&column, nullptr);
-        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
-        ASSERT_NE(field.get(), nullptr);
+        const TabletColumn* field = &(column);
+        ASSERT_NE(field, nullptr);
 
         // Create column writer
         std::unique_ptr<IndexColumnWriter> column_writer;
-        auto status = IndexColumnWriter::create(field.get(), &column_writer,
-                                                index_file_writer.get(), &idx_meta);
+        auto status = IndexColumnWriter::create(field, &column_writer, index_file_writer.get(),
+                                                &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add null values
@@ -598,13 +599,13 @@ public:
         // Get field for column c1
         const TabletColumn& column = tablet_schema->column(0);
         ASSERT_NE(&column, nullptr);
-        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
-        ASSERT_NE(field.get(), nullptr);
+        const TabletColumn* field = &(column);
+        ASSERT_NE(field, nullptr);
 
         // Create column writer
         std::unique_ptr<IndexColumnWriter> column_writer;
-        auto status = IndexColumnWriter::create(field.get(), &column_writer,
-                                                index_file_writer.get(), &idx_meta);
+        auto status = IndexColumnWriter::create(field, &column_writer, index_file_writer.get(),
+                                                &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add integer values
@@ -661,8 +662,8 @@ public:
         // Get field for column c2
         const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
         ASSERT_NE(&column, nullptr);
-        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
-        ASSERT_NE(field.get(), nullptr);
+        const TabletColumn* field = &(column);
+        ASSERT_NE(field, nullptr);
 
         // Save original config value
         bool original_config_value = config::enable_inverted_index_correct_term_write;
@@ -672,8 +673,8 @@ public:
 
         // Create column writer
         std::unique_ptr<IndexColumnWriter> column_writer;
-        auto status = IndexColumnWriter::create(field.get(), &column_writer,
-                                                index_file_writer.get(), &idx_meta);
+        auto status = IndexColumnWriter::create(field, &column_writer, index_file_writer.get(),
+                                                &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add string values with Unicode characters above 0xFFFF
@@ -846,8 +847,8 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     // Get field for column c2
     const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
     ASSERT_NE(&column, nullptr);
-    std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
-    ASSERT_NE(field.get(), nullptr);
+    const TabletColumn* field = &(column);
+    ASSERT_NE(field, nullptr);
 
     // Save original config value
     bool original_config_value = config::enable_inverted_index_correct_term_write;
@@ -857,13 +858,13 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
 
     // Set config to enabled for first writer
     config::enable_inverted_index_correct_term_write = true;
-    auto status = IndexColumnWriter::create(field.get(), &column_writer_enabled,
+    auto status = IndexColumnWriter::create(field, &column_writer_enabled,
                                             index_file_writer_enabled.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Set config to disabled for second writer
     config::enable_inverted_index_correct_term_write = false;
-    status = IndexColumnWriter::create(field.get(), &column_writer_disabled,
+    status = IndexColumnWriter::create(field, &column_writer_disabled,
                                        index_file_writer_disabled.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
@@ -1009,13 +1010,13 @@ TEST_F(InvertedIndexWriterTest, ErrorHandlingInFileWriter) {
     // Get field for column c2
     const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
     ASSERT_NE(&column, nullptr);
-    std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
-    ASSERT_NE(field.get(), nullptr);
+    const TabletColumn* field = &(column);
+    ASSERT_NE(field, nullptr);
 
     // Create column writer
     std::unique_ptr<IndexColumnWriter> column_writer;
-    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
-                                            &idx_meta);
+    auto status =
+            IndexColumnWriter::create(field, &column_writer, index_file_writer.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Test with empty values array to trigger certain error paths
@@ -1088,13 +1089,13 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
             std::move(file_writer));
 
     // Get field for array column
-    std::unique_ptr<StorageField> field(StorageFieldFactory::create(array_column));
-    ASSERT_NE(field.get(), nullptr);
+    const TabletColumn* field = &(array_column);
+    ASSERT_NE(field, nullptr);
 
     // Create column writer
     std::unique_ptr<IndexColumnWriter> column_writer;
-    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
-                                            &idx_meta);
+    auto status =
+            IndexColumnWriter::create(field, &column_writer, index_file_writer.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Construct arrays with mixed null and non-null elements (reference inverted_index_array_test.cpp)
@@ -1143,7 +1144,7 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
     const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
 
     // Get the length of the subfield
-    auto field_size = field->get_sub_field(0)->size();
+    auto field_size = field_type_size(field->get_sub_column(0).type());
 
     // Call the inverted index writing interface
     status = column_writer->add_array_values(field_size, item_data, item_nullmap, offsets_ptr,
@@ -1217,13 +1218,13 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
             std::move(file_writer));
 
     // Get field for array column
-    std::unique_ptr<StorageField> field(StorageFieldFactory::create(array_column));
-    ASSERT_NE(field.get(), nullptr);
+    const TabletColumn* field = &(array_column);
+    ASSERT_NE(field, nullptr);
 
     // Create column writer
     std::unique_ptr<IndexColumnWriter> column_writer;
-    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
-                                            &idx_meta);
+    auto status =
+            IndexColumnWriter::create(field, &column_writer, index_file_writer.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Construct numeric arrays (reference inverted_index_array_test.cpp)
@@ -1274,7 +1275,7 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
     const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
 
     // Get the length of the subfield
-    auto field_size = field->get_sub_field(0)->size();
+    auto field_size = field_type_size(field->get_sub_column(0).type());
 
     // Call the inverted index writing interface
     status = column_writer->add_array_values(field_size, item_data, item_nullmap, offsets_ptr,
@@ -1332,89 +1333,18 @@ TEST_F(InvertedIndexWriterTest, CopyFileErrorHandling) {
     // Get field for column c2
     const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
     ASSERT_NE(&column, nullptr);
-    std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
-    ASSERT_NE(field.get(), nullptr);
+    const TabletColumn* field = &(column);
+    ASSERT_NE(field, nullptr);
 
     // Create column writer
     std::unique_ptr<IndexColumnWriter> column_writer;
-    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
-                                            &idx_meta);
+    auto status =
+            IndexColumnWriter::create(field, &column_writer, index_file_writer.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Add some values to create index files
     std::vector<Slice> values = {Slice("test1"), Slice("test2"), Slice("test3")};
     status = column_writer->add_values("c2", values.data(), values.size());
-    EXPECT_TRUE(status.ok()) << status;
-
-    // Finish and write
-    status = column_writer->finish();
-    EXPECT_TRUE(status.ok()) << status;
-
-    status = index_file_writer->begin_close();
-    EXPECT_TRUE(status.ok()) << status;
-    status = index_file_writer->finish_close();
-    EXPECT_TRUE(status.ok()) << status;
-}
-
-// Test case for Collection value processing
-TEST_F(InvertedIndexWriterTest, CollectionValueProcessing) {
-    auto tablet_schema = create_schema();
-
-    // Create index meta
-    auto index_meta_pb = std::make_unique<TabletIndexPB>();
-    index_meta_pb->set_index_type(IndexType::INVERTED);
-    index_meta_pb->set_index_id(1);
-    index_meta_pb->set_index_name("test");
-    index_meta_pb->clear_col_unique_id();
-    index_meta_pb->add_col_unique_id(1); // c2 column id
-
-    TabletIndex idx_meta;
-    idx_meta.init_from_pb(*index_meta_pb.get());
-
-    std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
-            local_segment_path(kTestDir, "test_collection", 0))};
-    std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
-
-    io::FileWriterPtr file_writer;
-    io::FileWriterOptions opts;
-    auto fs = io::global_local_filesystem();
-    Status sts = fs->create_file(index_path, &file_writer, &opts);
-    ASSERT_TRUE(sts.ok()) << sts;
-
-    auto index_file_writer = std::make_unique<IndexFileWriter>(
-            fs, index_path_prefix, "test_collection", 0, InvertedIndexStorageFormatPB::V2,
-            std::move(file_writer));
-
-    // Get field for column c2
-    const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
-    ASSERT_NE(&column, nullptr);
-    std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
-    ASSERT_NE(field.get(), nullptr);
-
-    // Create column writer
-    std::unique_ptr<IndexColumnWriter> column_writer;
-    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
-                                            &idx_meta);
-    EXPECT_TRUE(status.ok()) << status;
-
-    // Create collection values for testing
-    std::vector<std::string> test_strings = {"apple", "banana", "cherry"};
-    std::vector<Slice> slices;
-    for (const auto& s : test_strings) {
-        slices.emplace_back(s);
-    }
-
-    // Create CollectionValue instances
-    std::vector<CollectionValue> collections;
-    CollectionValue collection1;
-    collection1.set_data(reinterpret_cast<uint8_t*>(slices.data()));
-    collection1.set_length(3);
-    bool null_signs[] = {false, false, false};
-    collection1.set_null_signs(null_signs);
-    collections.push_back(collection1);
-
-    // Test add_array_values with CollectionValue
-    status = column_writer->add_array_values(sizeof(Slice), collections.data(), 1);
     EXPECT_TRUE(status.ok()) << status;
 
     // Finish and write
@@ -1463,13 +1393,13 @@ TEST_F(InvertedIndexWriterTest, BKDWriterErrorConditions) {
     // Get field for column c1
     const TabletColumn& column = tablet_schema->column(0);
     ASSERT_NE(&column, nullptr);
-    std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
-    ASSERT_NE(field.get(), nullptr);
+    const TabletColumn* field = &(column);
+    ASSERT_NE(field, nullptr);
 
     // Create column writer
     std::unique_ptr<IndexColumnWriter> column_writer;
-    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
-                                            &idx_meta);
+    auto status =
+            IndexColumnWriter::create(field, &column_writer, index_file_writer.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Add some numeric values with edge cases
@@ -1525,13 +1455,13 @@ TEST_F(InvertedIndexWriterTest, FileCreationAndOutputErrorHandling) {
     // Get field for column c2
     const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
     ASSERT_NE(&column, nullptr);
-    std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
-    ASSERT_NE(field.get(), nullptr);
+    const TabletColumn* field = &(column);
+    ASSERT_NE(field, nullptr);
 
     // Create column writer
     std::unique_ptr<IndexColumnWriter> column_writer;
-    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
-                                            &idx_meta);
+    auto status =
+            IndexColumnWriter::create(field, &column_writer, index_file_writer.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Add some values to ensure files are created

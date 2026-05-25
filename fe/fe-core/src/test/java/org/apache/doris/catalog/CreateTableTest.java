@@ -225,6 +225,18 @@ public class CreateTableTest extends TestWithFeService {
                         + "'function_column.sequence_col' = 'v1');"));
 
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable rowBinlogNormal = (OlapTable) db.getTableOrDdlException("row_binlog_normal");
+        Assert.assertTrue(rowBinlogNormal.needRowBinlog());
+        Assert.assertNotNull(rowBinlogNormal.getAutoIncrementGenerator());
+        Assert.assertEquals((long) Column.BINLOG_LSN_AUTO_INC_ID,
+                rowBinlogNormal.getAutoIncrementGenerator().getColumnId());
+
+        OlapTable rowBinlogUnique = (OlapTable) db.getTableOrDdlException("row_binlog_unique");
+        Assert.assertTrue(rowBinlogUnique.needRowBinlog());
+        Assert.assertNotNull(rowBinlogUnique.getAutoIncrementGenerator());
+        Assert.assertEquals((long) Column.BINLOG_LSN_AUTO_INC_ID,
+                rowBinlogUnique.getAutoIncrementGenerator().getColumnId());
+
         OlapTable tbl6 = (OlapTable) db.getTableOrDdlException("tbl6");
         Assert.assertTrue(tbl6.getColumn("k1").isKey());
         Assert.assertTrue(tbl6.getColumn("k2").isKey());
@@ -261,12 +273,6 @@ public class CreateTableTest extends TestWithFeService {
 
     @Test
     public void testAbnormal() throws DdlException, ConfigException {
-        Exception exception = Assert.assertThrows(Exception.class,
-                () -> createTable("CREATE TABLE test.row_binlog_agg (k1 INT, v1 INT SUM) "
-                        + "AGGREGATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
-                        + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
-        Assert.assertTrue(exception.getMessage(), exception.getMessage().contains("binlog<Row>"));
-
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Unknown properties: {aa=bb}",
                 () -> createTable("create table test.atbl1\n" + "(k1 int, k2 float)\n" + "duplicate key(k1)\n"
@@ -602,6 +608,11 @@ public class CreateTableTest extends TestWithFeService {
                     + "PROPERTIES (\n"
                     + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
                     + ");"));
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "binlog<Row>",
+                () -> createTable("CREATE TABLE test.row_binlog_agg (k1 INT, v1 INT SUM) "
+                        + "AGGREGATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                        + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
     }
 
     @Test

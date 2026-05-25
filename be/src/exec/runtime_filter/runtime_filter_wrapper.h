@@ -27,8 +27,8 @@
 
 namespace doris {
 class BloomFilterFuncBase;
-class VRuntimeFilterWrapper;
-using VRuntimeFilterPtr = std::shared_ptr<VRuntimeFilterWrapper>;
+class RuntimeFilterExpr;
+using RuntimeFilterExprPtr = std::shared_ptr<RuntimeFilterExpr>;
 
 // This class is a wrapper of runtime predicate function
 class RuntimeFilterWrapper {

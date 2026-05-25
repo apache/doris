@@ -67,6 +67,7 @@
 #include "storage/rowset/segment_creator.h"
 #include "storage/segment/column_writer.h" // ColumnWriter
 #include "storage/segment/external_col_meta_util.h"
+#include "storage/segment/historical_row_retriever.h"
 #include "storage/segment/page_io.h"
 #include "storage/segment/page_pointer.h"
 #include "storage/segment/segment_loader.h"
@@ -84,11 +85,19 @@ namespace doris::segment_v2 {
 using namespace ErrorCode;
 using namespace KeyConsts;
 
-static const char* k_segment_magic = "D0R1";
-static const uint32_t k_segment_magic_length = 4;
+static constexpr const char* k_segment_magic = "D0R1";
+static constexpr uint32_t k_segment_magic_length = 4;
 
 inline std::string vertical_segment_writer_mem_tracker_name(uint32_t segment_id) {
     return "VerticalSegmentWriter:Segment-" + std::to_string(segment_id);
+}
+
+static ColumnBitmap* get_mutable_skip_bitmap_column(Block* block, size_t skip_bitmap_col_idx) {
+    auto skip_bitmap_column =
+            IColumn::mutate(std::move(block->get_by_position(skip_bitmap_col_idx).column));
+    auto* skip_bitmap_column_ptr = assert_cast<ColumnBitmap*>(skip_bitmap_column.get());
+    block->replace_by_position(skip_bitmap_col_idx, std::move(skip_bitmap_column));
+    return skip_bitmap_column_ptr;
 }
 
 VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
@@ -293,6 +302,12 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         auto page_size = _tablet_schema->row_store_page_size();
         opts.data_page_size =
                 (page_size > 0) ? page_size : segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+        // Row store data is already serialized as a single blob. Keep it on plain pages
+        // to avoid introducing dictionary pages for the hidden row store column.
+        opts.meta->set_encoding(_tablet_schema->binary_plain_encoding_default_impl() ==
+                                                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
+                                        ? PLAIN_ENCODING_V2
+                                        : PLAIN_ENCODING);
     }
 
     opts.rowset_ctx = _opts.rowset_ctx;
@@ -355,7 +370,7 @@ void VerticalSegmentWriter::_maybe_invalid_row_cache(const std::string& key) con
     }
 }
 
-void VerticalSegmentWriter::_serialize_block_to_row_column(const Block& block) {
+void VerticalSegmentWriter::_serialize_block_to_row_column(Block& block) {
     if (block.rows() == 0) {
         return;
     }
@@ -364,15 +379,15 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(const Block& block) {
     int row_column_id = 0;
     for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
         if (_tablet_schema->column(i).is_row_store_column()) {
-            auto* row_store_column = static_cast<ColumnString*>(
-                    block.get_by_position(i).column->assume_mutable_ref().assume_mutable().get());
-            row_store_column->clear();
+            auto row_store_column_ptr = block.get_by_position(i).column->clone_empty();
+            auto* row_store_column = static_cast<ColumnString*>(row_store_column_ptr.get());
             DataTypeSerDeSPtrs serdes = create_data_type_serdes(block.get_data_types());
             std::unordered_set<int> row_store_cids_set(_tablet_schema->row_columns_uids().begin(),
                                                        _tablet_schema->row_columns_uids().end());
             JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
                                                cast_set<int>(_tablet_schema->num_columns()), serdes,
                                                row_store_cids_set);
+            block.replace_by_position(i, std::move(row_store_column_ptr));
             break;
         }
     }
@@ -631,8 +646,9 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
 
     // read to fill full_block
     RETURN_IF_ERROR(read_plan.fill_missing_columns(
-            _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
-            use_default_or_null_flag, has_default_or_nullable, segment_start_pos, data.block));
+            _opts.rowset_ctx->make_historical_row_retriever_context(), _rsid_to_rowset,
+            *_tablet_schema, full_block, use_default_or_null_flag, has_default_or_nullable,
+            segment_start_pos, data.block));
 
     if (_tablet_schema->num_variant_columns() > 0) {
         RETURN_IF_ERROR(variant_util::parse_and_materialize_variant_columns(
@@ -758,10 +774,9 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
     RETURN_IF_ERROR(_block_aggregator.convert_seq_column(const_cast<Block*>(data.block),
                                                          data.row_pos, data.num_rows, seq_column));
 
-    std::vector<BitmapValue>* skip_bitmaps = &(
-            assert_cast<ColumnBitmap*>(
-                    data.block->get_by_position(skip_bitmap_col_idx).column->assume_mutable().get())
-                    ->get_data());
+    auto* mutable_block = const_cast<Block*>(data.block);
+    std::vector<BitmapValue>* skip_bitmaps =
+            &get_mutable_skip_bitmap_column(mutable_block, skip_bitmap_col_idx)->get_data();
     const auto* delete_signs =
             BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
     DCHECK(delete_signs != nullptr);
@@ -796,9 +811,9 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
 
     // 6. read according plan to fill full_block
     RETURN_IF_ERROR(read_plan.fill_non_primary_key_columns(
-            _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
-            use_default_or_null_flag, has_default_or_nullable, segment_start_pos,
-            cast_set<uint32_t>(data.row_pos), data.block, skip_bitmaps));
+            _opts.rowset_ctx->make_historical_row_retriever_context(), _rsid_to_rowset,
+            *_tablet_schema, full_block, use_default_or_null_flag, has_default_or_nullable,
+            segment_start_pos, cast_set<uint32_t>(data.row_pos), data.block, skip_bitmaps));
 
     // TODO(bobhan1): should we replace the skip bitmap column with empty bitmaps to reduce storage occupation?
     // this column is not needed in read path for merge-on-write table
@@ -876,10 +891,10 @@ Status VerticalSegmentWriter::_generate_encoded_default_seq_value(const TabletSc
         const auto& default_value = info.default_values[idx];
         StringRef str {default_value};
         RETURN_IF_ERROR(block.get_by_position(0).type->get_serde()->default_from_string(
-                str, *block.get_by_position(0).column->assume_mutable().get()));
+                str, *block.get_by_position(0).column->assert_mutable().get()));
 
     } else {
-        block.get_by_position(0).column->assume_mutable()->insert_default();
+        block.get_by_position(0).column->assert_mutable()->insert_default();
     }
     DCHECK_EQ(block.rows(), 1);
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
@@ -1002,7 +1017,7 @@ Status VerticalSegmentWriter::write_batch() {
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
         for (auto& data : _batched_blocks) {
             // TODO: maybe we should pass range to this method
-            _serialize_block_to_row_column(*data.block);
+            _serialize_block_to_row_column(*const_cast<Block*>(data.block));
         }
     }
 
