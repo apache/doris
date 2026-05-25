@@ -226,10 +226,14 @@ public:
     }
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
-                               size_t num, uint32_t /*dict_num*/) override {
+                               size_t num, uint32_t dict_num) override {
         if constexpr (std::is_same_v<T, StringRef>) {
-            for (size_t end_index = start_index + num; start_index < end_index; ++start_index) {
-                int32_t codeword = data_array[start_index];
+            const size_t end_index = start_index + num;
+            for (size_t i = start_index; i < end_index; ++i) {
+                check_dict_codeword(data_array[i], dict_num);
+            }
+            for (size_t i = start_index; i < end_index; ++i) {
+                int32_t codeword = data_array[i];
                 insert_string_value(dict[codeword].data, dict[codeword].size);
             }
         }

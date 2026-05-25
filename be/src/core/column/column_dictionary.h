@@ -188,6 +188,9 @@ public:
     void insert_many_dict_data(const int32_t* data_array, size_t start_index,
                                const StringRef* dict_array, size_t data_num,
                                uint32_t dict_num) override {
+        for (size_t i = 0; i < data_num; ++i) {
+            check_dict_codeword(data_array[start_index + i], dict_num);
+        }
         if (_dict.empty()) {
             _dict.reserve(dict_num);
             for (uint32_t i = 0; i < dict_num; ++i) {

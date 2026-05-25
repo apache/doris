@@ -24,6 +24,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "common/exception.h"
 #include "core/block/block.h"
 #include "core/column/column_vector.h"
 #include "core/column/common_column_test.h"
@@ -701,6 +702,34 @@ TEST_F(ColumnStringTest, insert_many_dict_data) {
     test_func(0, ColumnString64(), column_str64_json);
     test_func(10, ColumnString64(), column_str64_json);
 }
+
+TEST_F(ColumnStringTest, insert_many_dict_data_rejects_invalid_codeword) {
+    StringRef dict[] = {StringRef("a", 1), StringRef("bb", 2)};
+    auto expect_corruption = [](auto& column, const int32_t* codewords, size_t num,
+                                const StringRef* dict, uint32_t dict_num) {
+        bool thrown = false;
+        try {
+            column.insert_many_dict_data(codewords, 0, dict, num, dict_num);
+        } catch (const Exception& e) {
+            thrown = true;
+            EXPECT_EQ(e.code(), ErrorCode::CORRUPTION);
+        }
+        EXPECT_TRUE(thrown);
+        EXPECT_EQ(column.size(), 0);
+    };
+
+    {
+        ColumnString column;
+        int32_t codewords[] = {0, 2};
+        expect_corruption(column, codewords, 2, dict, 2);
+    }
+    {
+        ColumnString64 column;
+        int32_t codewords[] = {-1};
+        expect_corruption(column, codewords, 1, dict, 2);
+    }
+}
+
 TEST_F(ColumnStringTest, pop_back_test) {
     column_string_common_test(assert_column_vector_pop_back_callback, false);
 }

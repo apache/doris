@@ -288,6 +288,25 @@ TEST_F(ColumnDictionaryTest, insert_many_dict_data) {
         EXPECT_EQ(tmp_column_dict->get_value(i), dict_array[i]);
     }
 }
+
+TEST_F(ColumnDictionaryTest, insert_many_dict_data_rejects_invalid_codeword) {
+    ColumnDictI32::MutablePtr tmp_column_dict =
+            ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_CHAR);
+    int32_t codewords[] = {0, static_cast<int32_t>(dict_array.size())};
+
+    bool thrown = false;
+    try {
+        tmp_column_dict->insert_many_dict_data(codewords, 0, dict_array.data(), 2,
+                                               dict_array.size());
+    } catch (const Exception& e) {
+        thrown = true;
+        EXPECT_EQ(e.code(), ErrorCode::CORRUPTION);
+    }
+    EXPECT_TRUE(thrown);
+    EXPECT_EQ(tmp_column_dict->size(), 0);
+    EXPECT_TRUE(tmp_column_dict->is_dict_empty());
+}
+
 TEST_F(ColumnDictionaryTest, convert_dict_codes_if_necessary) {
     {
         ColumnDictI32::MutablePtr tmp_column_dict =

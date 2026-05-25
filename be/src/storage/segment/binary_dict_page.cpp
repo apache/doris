@@ -302,6 +302,9 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, MutableColumnPtr& dst) {
         _buffer.resize(max_fetch);
         for (size_t i = 0; i < max_fetch; ++i) {
             int32_t codeword = data_array[start_index + i];
+            if (UNLIKELY(!is_valid_dict_codeword(codeword, _num_dict_items))) {
+                return invalid_dict_codeword_status(codeword, _num_dict_items);
+            }
             _buffer[i] = static_cast<int32_t>(_dict_word_info[codeword].size);
         }
         dst->insert_offsets_from_lengths(reinterpret_cast<const uint32_t*>(_buffer.data()),
@@ -310,8 +313,8 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, MutableColumnPtr& dst) {
         const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
         size_t start_index = _bit_shuffle_ptr->_cur_index;
 
-        dst->insert_many_dict_data(data_array, start_index, _dict_word_info, max_fetch,
-                                   _num_dict_items);
+        RETURN_IF_CATCH_EXCEPTION(dst->insert_many_dict_data(
+                data_array, start_index, _dict_word_info, max_fetch, _num_dict_items));
     }
 
     _bit_shuffle_ptr->_cur_index += max_fetch;
@@ -350,6 +353,9 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
                 break;
             }
             int32_t codeword = data_array[ord];
+            if (UNLIKELY(!is_valid_dict_codeword(codeword, _num_dict_items))) {
+                return invalid_dict_codeword_status(codeword, _num_dict_items);
+            }
             _buffer[read_count] = static_cast<int32_t>(_dict_word_info[codeword].size);
             read_count++;
         }
@@ -374,7 +380,8 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     }
 
     if (LIKELY(read_count > 0)) {
-        dst->insert_many_dict_data(_buffer.data(), 0, _dict_word_info, read_count, _num_dict_items);
+        RETURN_IF_CATCH_EXCEPTION(dst->insert_many_dict_data(_buffer.data(), 0, _dict_word_info,
+                                                             read_count, _num_dict_items));
     }
     *n = read_count;
     return Status::OK();

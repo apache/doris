@@ -50,6 +50,21 @@ namespace doris {
 class Arena;
 class ColumnSorter;
 
+inline bool is_valid_dict_codeword(int32_t codeword, uint32_t dict_num) {
+    return codeword >= 0 && static_cast<uint32_t>(codeword) < dict_num;
+}
+
+inline Status invalid_dict_codeword_status(int32_t codeword, uint32_t dict_num) {
+    return Status::Corruption("invalid dictionary codeword {} for dictionary size {}", codeword,
+                              dict_num);
+}
+
+inline void check_dict_codeword(int32_t codeword, uint32_t dict_num) {
+    if (UNLIKELY(!is_valid_dict_codeword(codeword, dict_num))) {
+        throw Exception(invalid_dict_codeword_status(codeword, dict_num));
+    }
+}
+
 /** Column for String values.
   * Note: In string functions, we assume that ColumnStr contains valid UTF-8 encoded data.
   * However, ColumnStr is not guaranteed to always hold valid UTF-8, since it is also used
@@ -368,16 +383,15 @@ public:
     }
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
-                               size_t num, uint32_t /*dict_num*/) override {
+                               size_t num, uint32_t dict_num) override {
         size_t offset_size = offsets.size();
         size_t old_size = chars.size();
         size_t new_size = old_size;
-        offsets.resize(offsets.size() + num);
 
         for (size_t i = 0; i < num; i++) {
             int32_t codeword = data_array[i + start_index];
+            check_dict_codeword(codeword, dict_num);
             new_size += dict[codeword].size;
-            offsets[offset_size + i] = static_cast<T>(new_size);
         }
 
         if (new_size > std::numeric_limits<T>::max()) {
@@ -386,7 +400,14 @@ public:
                                    typeid(T).name(), std::numeric_limits<T>::min(),
                                    std::numeric_limits<T>::max());
         }
-        check_chars_length(new_size, offsets.size());
+        check_chars_length(new_size, offset_size + num);
+        offsets.resize(offset_size + num);
+        size_t current_size = old_size;
+        for (size_t i = 0; i < num; i++) {
+            int32_t codeword = data_array[i + start_index];
+            current_size += dict[codeword].size;
+            offsets[offset_size + i] = static_cast<T>(current_size);
+        }
         chars.resize(new_size);
 
         for (size_t i = start_index; i < start_index + num; i++) {

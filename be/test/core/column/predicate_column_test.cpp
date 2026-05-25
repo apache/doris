@@ -21,6 +21,7 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
@@ -628,6 +629,22 @@ TEST(PredicateColumnTest, InsertManyDictDataVarchar) {
     EXPECT_EQ(std::string(col->get_data()[0].data, col->get_data()[0].size), "x");
     EXPECT_EQ(std::string(col->get_data()[1].data, col->get_data()[1].size), "yy");
     EXPECT_EQ(std::string(col->get_data()[2].data, col->get_data()[2].size), "x");
+}
+
+TEST(PredicateColumnTest, InsertManyDictDataRejectsInvalidCodeword) {
+    auto col = PredicateColumnType<TYPE_STRING>::create();
+    StringRef dict[] = {StringRef("x", 1), StringRef("yy", 2)};
+    int32_t codewords[] = {0, 2};
+
+    bool thrown = false;
+    try {
+        col->insert_many_dict_data(codewords, 0, dict, 2, 2);
+    } catch (const Exception& e) {
+        thrown = true;
+        EXPECT_EQ(e.code(), ErrorCode::CORRUPTION);
+    }
+    EXPECT_TRUE(thrown);
+    EXPECT_EQ(col->size(), 0);
 }
 
 // ============================================================================

@@ -36,6 +36,7 @@
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
 #include "storage/types.h"
+#include "util/coding.h"
 #include "util/debug_util.h"
 
 namespace doris {
@@ -554,6 +555,32 @@ public:
         }
     }
 
+    Status build_dict_codeword_page(const std::vector<int32_t>& codewords, OwnedSlice* page) {
+        PageBuilderOptions options;
+        options.data_page_size = 1024;
+        const EncodingInfo* encoding_info = nullptr;
+        RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_INT, BIT_SHUFFLE,
+                                          EncodingPreference(), &encoding_info));
+        std::unique_ptr<PageBuilder> page_builder;
+        RETURN_IF_ERROR(encoding_info->create_page_builder(options, page_builder));
+        size_t count = codewords.size();
+        RETURN_IF_ERROR(
+                page_builder->add(reinterpret_cast<const uint8_t*>(codewords.data()), &count));
+        if (count != codewords.size()) {
+            return Status::InternalError("failed to add all dict codewords, added {}, expected {}",
+                                         count, codewords.size());
+        }
+
+        OwnedSlice codeword_slice;
+        RETURN_IF_ERROR(page_builder->finish(&codeword_slice));
+        faststring buffer;
+        buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
+        encode_fixed32_le(&buffer[0], DICT_ENCODING);
+        buffer.append(codeword_slice.slice().data, codeword_slice.slice().size);
+        *page = buffer.build();
+        return Status::OK();
+    }
+
 private:
     std::unique_ptr<segment_v2::EncodingInfoResolver> _resolver;
 };
@@ -587,6 +614,55 @@ TEST_F(BinaryDictPageTest, TestConfigSwitchBetweenEncodings) {
 
     // Test with config = true
     test_encoding_type(true, slices, PLAIN_ENCODING_V2);
+}
+
+TEST_F(BinaryDictPageTest, TestRejectInvalidDictCodeword) {
+    OwnedSlice page;
+    ASSERT_TRUE(build_dict_codeword_page({0, 1}, &page).ok());
+
+    Slice page_slice = page.slice();
+    std::unique_ptr<DataPage> decoded_page;
+    ASSERT_TRUE(apply_pre_decode(page_slice, decoded_page).ok());
+
+    PageDecoderOptions decoder_options;
+    BinaryDictPageDecoder page_decoder(page_slice, decoder_options);
+    ASSERT_TRUE(page_decoder.init().ok());
+
+    StringRef dict[] = {StringRef("a", 1)};
+    page_decoder.set_dict_decoder(1, dict);
+    MutableColumnPtr column = ColumnString::create();
+    size_t size = 2;
+    Status status = page_decoder.next_batch(&size, column);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_EQ(column->size(), 0);
+}
+
+TEST_F(BinaryDictPageTest, TestRejectInvalidDictCodewordOnlyReadOffsets) {
+    OwnedSlice page;
+    ASSERT_TRUE(build_dict_codeword_page({0, 1}, &page).ok());
+
+    Slice page_slice = page.slice();
+    std::unique_ptr<DataPage> decoded_page;
+    ASSERT_TRUE(apply_pre_decode(page_slice, decoded_page).ok());
+
+    PageDecoderOptions decoder_options;
+    decoder_options.only_read_offsets = true;
+    BinaryDictPageDecoder page_decoder(page_slice, decoder_options);
+    ASSERT_TRUE(page_decoder.init().ok());
+
+    StringRef dict[] = {StringRef("a", 1)};
+    page_decoder.set_dict_decoder(1, dict);
+    MutableColumnPtr column = ColumnString::create();
+    size_t size = 2;
+    Status status = page_decoder.next_batch(&size, column);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_EQ(column->size(), 0);
+
+    ASSERT_TRUE(page_decoder.seek_to_position_in_page(0).ok());
+    rowid_t rowids[] = {1};
+    size = 1;
+    status = page_decoder.read_by_rowids(rowids, 0, &size, column);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
 }
 
 // Test that encoding preference affects the dictionary page encoding type
