@@ -84,7 +84,6 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .rs_splits {},
                                  .return_columns {},
                                  .output_columns {},
-                                 .remaining_conjunct_roots {},
                                  .common_expr_ctxs_push_down {},
                                  .topn_filter_source_node_ids {},
                                  .filter_block_conjuncts {},
@@ -308,17 +307,6 @@ Status OlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.reader_type = ReaderType::READER_QUERY;
     _tablet_reader_params.push_down_agg_type_opt = _local_state->get_push_down_agg_type();
-
-    // TODO: If a new runtime filter arrives after `_conjuncts` move to `_common_expr_ctxs_push_down`,
-    if (_common_expr_ctxs_push_down.empty()) {
-        for (auto& conjunct : _conjuncts) {
-            _tablet_reader_params.remaining_conjunct_roots.emplace_back(conjunct->root());
-        }
-    } else {
-        for (auto& ctx : _common_expr_ctxs_push_down) {
-            _tablet_reader_params.remaining_conjunct_roots.emplace_back(ctx->root());
-        }
-    }
 
     _tablet_reader_params.common_expr_ctxs_push_down = _common_expr_ctxs_push_down;
     _tablet_reader_params.virtual_column_exprs = _virtual_column_exprs;
