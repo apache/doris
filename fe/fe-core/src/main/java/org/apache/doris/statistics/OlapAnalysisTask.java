@@ -124,13 +124,23 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 ? tbl.getRowCount()
                 : ((OlapTable) tbl).getRowCountForIndex(info.indexId, false);
         getSampleParams(params, tableRowCount);
+        String template;
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        String sql;
+        boolean collectHotValue = shouldCollectHotValue();
         if (useLinearAnalyzeTemplate()) {
-            sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);
+            if (collectHotValue) {
+                template = LINEAR_ANALYZE_TEMPLATE;
+            } else {
+                template = LINEAR_ANALYZE_WITHOUT_HOT_VALUE_TEMPLATE;
+            }
         } else {
-            sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
+            if (collectHotValue) {
+                template = DUJ1_ANALYZE_TEMPLATE;
+            } else {
+                template = DUJ1_ANALYZE_WITHOUT_HOT_VALUE_TEMPLATE;
+            }
         }
+        String sql = stringSubstitutor.replace(template);
         LOG.info("Analyze param: scanFullTable {}, partitionColumnTooMany {}, keyColumnTooMany {}",
                 scanFullTable, partitionColumnSampleTooManyRows, keyColumnSampleTooManyRows);
         LOG.debug(sql);
@@ -330,12 +340,20 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             doPartitionTable();
         } else {
             Map<String, String> params = buildSqlParams();
-            params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
-            params.put("subStringColName", getStringTypeColName(col));
-            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-            runQuery(stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE));
+            if (shouldCollectHotValue()) {
+                params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
+                params.put("subStringColName", getStringTypeColName(col));
+                params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
+                runQuery(stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE));
+            } else {
+                runQuery(stringSubstitutor.replace(FULL_ANALYZE_WITHOUT_HOT_VALUE_TEMPLATE));
+            }
         }
+    }
+
+    protected boolean shouldCollectHotValue() {
+        return info.collectHotValue == null || info.collectHotValue;
     }
 
     @Override

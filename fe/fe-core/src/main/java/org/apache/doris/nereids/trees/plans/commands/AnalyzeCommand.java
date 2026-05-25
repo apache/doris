@@ -138,6 +138,17 @@ public abstract class AnalyzeCommand extends Command implements ForwardWithSync 
         return analyzeProperties.usingSqlForExternalTable();
     }
 
+    public boolean hasCollectHotValue() {
+        return analyzeProperties.hasCollectHotValue();
+    }
+
+    public Boolean collectHotValue() {
+        if (analyzeProperties.hasCollectHotValue()) {
+            return analyzeProperties.collectHotValue();
+        }
+        return getAnalysisMethod() == AnalysisInfo.AnalysisMethod.SAMPLE;
+    }
+
     public void validate(ConnectContext ctx) throws UserException {
         if (analyzeProperties != null) {
             analyzeProperties.check();

@@ -37,6 +37,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public class AnalyzeTableCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
@@ -97,5 +100,48 @@ public class AnalyzeTableCommandTest {
                 () -> analyzeTableCommand.checkAnalyzePrivilege(tableNameInfo2),
                 "ANALYZE command denied to user 'null'@'null' for table 'test_db: test_tbl2'");
     }
-}
 
+    @Test
+    void testCollectHotValueDefaultAndOverride() {
+        TableNameInfo tableNameInfo = new TableNameInfo(internalCtl,
+                CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME);
+
+        AnalyzeTableCommand fullAnalyzeCommand = new AnalyzeTableCommand(tableNameInfo,
+                null, null, new AnalyzeProperties(defaultAnalyzeProperties()));
+        Assertions.assertFalse(fullAnalyzeCommand.collectHotValue());
+
+        Map<String, String> sampleProperties = defaultAnalyzeProperties();
+        sampleProperties.put(AnalyzeProperties.PROPERTY_SAMPLE_ROWS, "100");
+        AnalyzeTableCommand sampleAnalyzeCommand = new AnalyzeTableCommand(tableNameInfo,
+                null, null, new AnalyzeProperties(sampleProperties));
+        Assertions.assertTrue(sampleAnalyzeCommand.collectHotValue());
+
+        Map<String, String> forcedFullHotValueProperties = defaultAnalyzeProperties();
+        forcedFullHotValueProperties.put(AnalyzeProperties.PROPERTY_COLLECT_HOT_VALUE, "true");
+        AnalyzeTableCommand forcedFullHotValueCommand = new AnalyzeTableCommand(tableNameInfo,
+                null, null, new AnalyzeProperties(forcedFullHotValueProperties));
+        Assertions.assertTrue(forcedFullHotValueCommand.collectHotValue());
+
+        Map<String, String> disabledSampleHotValueProperties = defaultAnalyzeProperties();
+        disabledSampleHotValueProperties.put(AnalyzeProperties.PROPERTY_SAMPLE_ROWS, "100");
+        disabledSampleHotValueProperties.put(AnalyzeProperties.PROPERTY_COLLECT_HOT_VALUE, "false");
+        AnalyzeTableCommand disabledSampleHotValueCommand = new AnalyzeTableCommand(tableNameInfo,
+                null, null, new AnalyzeProperties(disabledSampleHotValueProperties));
+        Assertions.assertFalse(disabledSampleHotValueCommand.collectHotValue());
+    }
+
+    @Test
+    void testCollectHotValuePropertyValidation() {
+        Map<String, String> properties = defaultAnalyzeProperties();
+        properties.put(AnalyzeProperties.PROPERTY_COLLECT_HOT_VALUE, "invalid");
+        AnalyzeProperties analyzeProperties = new AnalyzeProperties(properties);
+        Assertions.assertThrows(AnalysisException.class, analyzeProperties::check);
+    }
+
+    private Map<String, String> defaultAnalyzeProperties() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(AnalyzeProperties.PROPERTY_SYNC, "false");
+        properties.put(AnalyzeProperties.PROPERTY_ANALYSIS_TYPE, "FUNDAMENTALS");
+        return properties;
+    }
+}

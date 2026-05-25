@@ -409,6 +409,10 @@ class StatisticsUtilTest {
 
     @Test
     void testGetHotValues() {
+        Assertions.assertNull(StatisticsUtil.getHotValues(null, Type.INT));
+        Assertions.assertNull(StatisticsUtil.getHotValues("null", Type.INT));
+        Assertions.assertTrue(StatisticsUtil.getHotValues("", Type.INT).isEmpty());
+
         String value1 = "1234 :0.35 ;222 :0.34";
         Map<Literal, Float> hotValues = StatisticsUtil.getHotValues(value1, Type.INT);
         Map<Literal, Float> hotValuesAfterFilter = StatisticsUtil.getHotValuesWithOriginalThreshold(hotValues, 100);

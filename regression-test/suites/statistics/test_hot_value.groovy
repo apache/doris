@@ -80,7 +80,7 @@ suite("test_hot_value") {
     sql """insert into test2 select number, " : ;a" from numbers("number"="10000")"""
     wait_row_count_reported("test_hot_value", "test1", 0, 4, "10000")
     wait_row_count_reported("test_hot_value", "test2", 0, 4, "10000")
-    sql """analyze table test1 with sync"""
+    sql """analyze table test1 with sync PROPERTIES("collect.hot.value"="true")"""
     explain {
         sql("memo plan select * from test1")
         contains "hotValues=("

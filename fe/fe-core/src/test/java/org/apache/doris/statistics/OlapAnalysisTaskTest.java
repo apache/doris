@@ -39,6 +39,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -84,6 +85,30 @@ public class OlapAnalysisTaskTest {
         tableSample = olapAnalysisTask.getTableSample();
         Assertions.assertEquals(10, tableSample.getSampleValue());
         Assertions.assertFalse(tableSample.isPercent());
+    }
+
+    @Test
+    public void testShouldCollectHotValue() {
+        OlapAnalysisTask olapAnalysisTask = new OlapAnalysisTask();
+        olapAnalysisTask.info = new AnalysisInfoBuilder().build();
+        Assertions.assertTrue(olapAnalysisTask.shouldCollectHotValue());
+
+        olapAnalysisTask.info = new AnalysisInfoBuilder().setCollectHotValue(true).build();
+        Assertions.assertTrue(olapAnalysisTask.shouldCollectHotValue());
+
+        olapAnalysisTask.info = new AnalysisInfoBuilder().setCollectHotValue(false).build();
+        Assertions.assertFalse(olapAnalysisTask.shouldCollectHotValue());
+    }
+
+    @Test
+    public void testCollectHotValueUseShortSerializedName() {
+        AnalysisInfo info = new AnalysisInfoBuilder().setCollectHotValue(false).build();
+        String json = GsonUtils.GSON.toJson(info);
+        Assertions.assertTrue(json.contains("\"chv\":false"));
+        Assertions.assertFalse(json.contains("collectHotValue"));
+
+        AnalysisInfo deserialized = GsonUtils.GSON.fromJson(json, AnalysisInfo.class);
+        Assertions.assertFalse(deserialized.collectHotValue);
     }
 
     // test auto small table
@@ -800,6 +825,91 @@ public class OlapAnalysisTaskTest {
             task.db = databaseIf;
             task.doFull();
         }
+    }
+
+    @Test
+    public void testDoFullWithoutHotValue() throws Exception {
+        CatalogIf catalogIf = Mockito.mock(CatalogIf.class);
+        DatabaseIf databaseIf = Mockito.mock(DatabaseIf.class);
+        OlapTable tableIf = Mockito.mock(OlapTable.class);
+        Mockito.when(tableIf.getId()).thenReturn(30001L);
+        Mockito.when(tableIf.getName()).thenReturn("testTbl");
+        Mockito.when(catalogIf.getId()).thenReturn(10001L);
+        Mockito.when(catalogIf.getName()).thenReturn("catalogName");
+        Mockito.when(databaseIf.getId()).thenReturn(20001L);
+        Mockito.when(databaseIf.getFullName()).thenReturn("testDb");
+
+        try (MockedStatic<StatisticsUtil> mockedStatisticsUtil = Mockito.mockStatic(
+                StatisticsUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedStatisticsUtil.when(StatisticsUtil::enablePartitionAnalyze).thenReturn(false);
+
+            OlapAnalysisTask task = Mockito.spy(new OlapAnalysisTask());
+            Mockito.doAnswer(invocation -> {
+                String sql = invocation.getArgument(0);
+                Assertions.assertTrue(sql.startsWith("SELECT CONCAT(30001, '-', -1, '-', 'testCol') AS `id`"), sql);
+                Assertions.assertTrue(sql.contains("null as `hot_value`"), sql);
+                Assertions.assertTrue(sql.contains(
+                        "FROM (SELECT `testCol` FROM `catalogName`.`testDb`.`testTbl` ) __lc_t"), sql);
+                Assertions.assertFalse(sql.contains("CROSS JOIN cte3"), sql);
+                Assertions.assertFalse(sql.contains("GROUP BY `hash_value`"), sql);
+                return null;
+            }).when(task).runQuery(Mockito.anyString());
+
+            task.col = new Column("testCol", Type.fromPrimitiveType(PrimitiveType.INT),
+                true, null, null, null);
+            task.tbl = tableIf;
+            AnalysisInfoBuilder builder = new AnalysisInfoBuilder();
+            builder.setJobType(AnalysisInfo.JobType.MANUAL);
+            builder.setColName("testCol");
+            builder.setCollectHotValue(false);
+            task.info = builder.build();
+            task.catalog = catalogIf;
+            task.db = databaseIf;
+            task.doFull();
+        }
+    }
+
+    @Test
+    public void testDoSampleWithoutHotValue() throws Exception {
+        CatalogIf catalogIf = Mockito.mock(CatalogIf.class);
+        DatabaseIf databaseIf = Mockito.mock(DatabaseIf.class);
+        OlapTable tableIf = Mockito.mock(OlapTable.class);
+        Mockito.when(tableIf.getId()).thenReturn(30001L);
+        Mockito.when(tableIf.getName()).thenReturn("testTbl");
+        Mockito.when(tableIf.getRowCount()).thenReturn(1000L);
+        Mockito.when(catalogIf.getId()).thenReturn(10001L);
+        Mockito.when(catalogIf.getName()).thenReturn("catalogName");
+        Mockito.when(databaseIf.getId()).thenReturn(20001L);
+        Mockito.when(databaseIf.getFullName()).thenReturn("testDb");
+
+        OlapAnalysisTask task = Mockito.spy(new OlapAnalysisTask());
+        Mockito.doReturn(new ResultRow(Lists.newArrayList("1", "2"))).when(task).collectMinMax();
+        Mockito.doNothing().when(task).getSampleParams(ArgumentMatchers.any(), ArgumentMatchers.anyLong());
+        Mockito.doAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            Assertions.assertTrue(sql.contains("null as `hot_value`"), sql);
+            Assertions.assertFalse(sql.contains("cte3"), sql);
+            Assertions.assertFalse(sql.contains("CROSS JOIN"), sql);
+            Assertions.assertFalse(sql.contains("GROUP BY `hash_value`"), sql);
+            return null;
+        }).when(task).runQuery(Mockito.anyString());
+
+        task.col = new Column("testCol", Type.fromPrimitiveType(PrimitiveType.INT),
+                true, null, null, null);
+        task.tbl = tableIf;
+        AnalysisInfoBuilder builder = new AnalysisInfoBuilder();
+        builder.setJobType(AnalysisInfo.JobType.MANUAL);
+        builder.setColName("testCol");
+        builder.setCollectHotValue(false);
+        task.info = builder.build();
+        task.catalog = catalogIf;
+        task.db = databaseIf;
+        task.tableSample = new TableSample(false, 100L);
+
+        Mockito.doReturn(true).when(task).useLinearAnalyzeTemplate();
+        task.doSample();
+        Mockito.doReturn(false).when(task).useLinearAnalyzeTemplate();
+        task.doSample();
     }
 
     @Test
