@@ -167,9 +167,4 @@ suite("test_datasketches_hll_union_agg") {
         sql """SELECT datasketches_hll_union_agg(sk) FROM ${badTableName}"""
         exception "CORRUPTION"
     }
-
-    sql "DROP TABLE IF EXISTS ${tableName}"
-    sql "DROP TABLE IF EXISTS ${varcharTableName}"
-    sql "DROP TABLE IF EXISTS ${emptyTableName}"
-    sql "DROP TABLE IF EXISTS ${badTableName}"
 }
