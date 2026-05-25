@@ -1409,6 +1409,10 @@ void CloudTablet::agg_delete_bitmap_for_compaction(
 }
 
 Status CloudTablet::sync_meta() {
+    // Keep tablet metadata refresh serialized with rowset sync and apply local metadata updates
+    // under _meta_lock. The lock order must stay _sync_meta_lock -> _meta_lock.
+    std::unique_lock lock(_sync_meta_lock);
+
     TabletMetaSharedPtr tablet_meta;
     auto st = _engine.meta_mgr().get_tablet_meta(tablet_id(), &tablet_meta);
     if (!st.ok()) {
@@ -1419,61 +1423,64 @@ Status CloudTablet::sync_meta() {
     }
 
     auto new_compaction_policy = tablet_meta->compaction_policy();
-    if (_tablet_meta->compaction_policy() != new_compaction_policy) {
-        _tablet_meta->set_compaction_policy(new_compaction_policy);
-    }
     auto new_ttl_seconds = tablet_meta->ttl_seconds();
-    if (_tablet_meta->ttl_seconds() != new_ttl_seconds) {
-        _tablet_meta->set_ttl_seconds(new_ttl_seconds);
-    }
     auto new_time_series_compaction_goal_size_mbytes =
             tablet_meta->time_series_compaction_goal_size_mbytes();
-    if (_tablet_meta->time_series_compaction_goal_size_mbytes() !=
-        new_time_series_compaction_goal_size_mbytes) {
-        _tablet_meta->set_time_series_compaction_goal_size_mbytes(
-                new_time_series_compaction_goal_size_mbytes);
-    }
     auto new_time_series_compaction_file_count_threshold =
             tablet_meta->time_series_compaction_file_count_threshold();
-    if (_tablet_meta->time_series_compaction_file_count_threshold() !=
-        new_time_series_compaction_file_count_threshold) {
-        _tablet_meta->set_time_series_compaction_file_count_threshold(
-                new_time_series_compaction_file_count_threshold);
-    }
     auto new_time_series_compaction_time_threshold_seconds =
             tablet_meta->time_series_compaction_time_threshold_seconds();
-    if (_tablet_meta->time_series_compaction_time_threshold_seconds() !=
-        new_time_series_compaction_time_threshold_seconds) {
-        _tablet_meta->set_time_series_compaction_time_threshold_seconds(
-                new_time_series_compaction_time_threshold_seconds);
-    }
     auto new_time_series_compaction_empty_rowsets_threshold =
             tablet_meta->time_series_compaction_empty_rowsets_threshold();
-    if (_tablet_meta->time_series_compaction_empty_rowsets_threshold() !=
-        new_time_series_compaction_empty_rowsets_threshold) {
-        _tablet_meta->set_time_series_compaction_empty_rowsets_threshold(
-                new_time_series_compaction_empty_rowsets_threshold);
-    }
     auto new_time_series_compaction_level_threshold =
             tablet_meta->time_series_compaction_level_threshold();
-    if (_tablet_meta->time_series_compaction_level_threshold() !=
-        new_time_series_compaction_level_threshold) {
-        _tablet_meta->set_time_series_compaction_level_threshold(
-                new_time_series_compaction_level_threshold);
-    }
-    // Sync disable_auto_compaction (stored in tablet_schema)
     auto new_disable_auto_compaction = tablet_meta->tablet_schema()->disable_auto_compaction();
-    if (_tablet_meta->tablet_schema()->disable_auto_compaction() != new_disable_auto_compaction) {
-        _tablet_meta->mutable_tablet_schema()->set_disable_auto_compaction(
-                new_disable_auto_compaction);
-    }
-    // Sync vertical_compaction_num_columns_per_group
     auto new_vertical_compaction_num_columns_per_group =
             tablet_meta->vertical_compaction_num_columns_per_group();
-    if (_tablet_meta->vertical_compaction_num_columns_per_group() !=
-        new_vertical_compaction_num_columns_per_group) {
-        _tablet_meta->set_vertical_compaction_num_columns_per_group(
-                new_vertical_compaction_num_columns_per_group);
+
+    {
+        std::unique_lock wlock(_meta_lock);
+        if (_tablet_meta->compaction_policy() != new_compaction_policy) {
+            _tablet_meta->set_compaction_policy(new_compaction_policy);
+        }
+        if (_tablet_meta->ttl_seconds() != new_ttl_seconds) {
+            _tablet_meta->set_ttl_seconds(new_ttl_seconds);
+        }
+        if (_tablet_meta->time_series_compaction_goal_size_mbytes() !=
+            new_time_series_compaction_goal_size_mbytes) {
+            _tablet_meta->set_time_series_compaction_goal_size_mbytes(
+                    new_time_series_compaction_goal_size_mbytes);
+        }
+        if (_tablet_meta->time_series_compaction_file_count_threshold() !=
+            new_time_series_compaction_file_count_threshold) {
+            _tablet_meta->set_time_series_compaction_file_count_threshold(
+                    new_time_series_compaction_file_count_threshold);
+        }
+        if (_tablet_meta->time_series_compaction_time_threshold_seconds() !=
+            new_time_series_compaction_time_threshold_seconds) {
+            _tablet_meta->set_time_series_compaction_time_threshold_seconds(
+                    new_time_series_compaction_time_threshold_seconds);
+        }
+        if (_tablet_meta->time_series_compaction_empty_rowsets_threshold() !=
+            new_time_series_compaction_empty_rowsets_threshold) {
+            _tablet_meta->set_time_series_compaction_empty_rowsets_threshold(
+                    new_time_series_compaction_empty_rowsets_threshold);
+        }
+        if (_tablet_meta->time_series_compaction_level_threshold() !=
+            new_time_series_compaction_level_threshold) {
+            _tablet_meta->set_time_series_compaction_level_threshold(
+                    new_time_series_compaction_level_threshold);
+        }
+        if (_tablet_meta->tablet_schema()->disable_auto_compaction() !=
+            new_disable_auto_compaction) {
+            _tablet_meta->mutable_tablet_schema()->set_disable_auto_compaction(
+                    new_disable_auto_compaction);
+        }
+        if (_tablet_meta->vertical_compaction_num_columns_per_group() !=
+            new_vertical_compaction_num_columns_per_group) {
+            _tablet_meta->set_vertical_compaction_num_columns_per_group(
+                    new_vertical_compaction_num_columns_per_group);
+        }
     }
 
     return Status::OK();
