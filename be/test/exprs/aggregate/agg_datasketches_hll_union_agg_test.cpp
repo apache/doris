@@ -314,7 +314,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testResetThenAddReinitializ
 
     auto column_string = ColumnString::create();
     column_string->insert_data((const char*)ser1.data(), ser1.size());
-column_string->insert_data((const char*)ser2.data(), ser2.size());
+    column_string->insert_data((const char*)ser2.data(), ser2.size());
     const IColumn* columns[1] = {column_string.get()};
 
     AggregateDataPtr place =
