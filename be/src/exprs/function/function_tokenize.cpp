@@ -205,8 +205,7 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
 
             if (left_const) {
                 block.replace_by_position(
-                        result,
-                        ColumnConst::create(std::move(dest_column_ptr), input_rows_count));
+                        result, ColumnConst::create(std::move(dest_column_ptr), input_rows_count));
             } else {
                 block.replace_by_position(result, std::move(dest_column_ptr));
             }
