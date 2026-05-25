@@ -307,7 +307,10 @@ public class Predicates {
             }
         }
 
-        // Try to detect whole-bucket ranges
+        // Try to detect whole-bucket ranges across all date_trunc slots
+        Map<Expression, ExpressionInfo> syntheticResults = new HashMap<>();
+        Set<Expression> allConsumedPredicates = new HashSet<>();
+
         for (Map.Entry<Expression, List<Expression>> entry : slotToPredicates.entrySet()) {
             if (!(entry.getKey() instanceof SlotReference)) {
                 continue;
@@ -315,9 +318,6 @@ public class Predicates {
             SlotReference slot = (SlotReference) entry.getKey();
 
             // Only apply to DATE/DATEV2 types, not DATETIME/DATETIMEV2
-            // Reason: Boundary conversion (dt > '2024-12-31' → dt >= '2025-01-01') is only
-            // valid for DATE types. For DATETIME, dt <= '2025-01-31 00:00:00' does not cover
-            // the full day of Jan 31, so whole-bucket detection would be semantically incorrect.
             if (!slot.getDataType().isDateType() && !slot.getDataType().isDateV2Type()) {
                 continue;
             }
@@ -328,6 +328,8 @@ public class Predicates {
             }
 
             List<Expression> predicates = entry.getValue();
+            // Only supports exactly one closed range (lower + upper bound) forming a single bucket.
+            // Multi-bucket ranges, single-sided ranges, or 3+ predicates on the same slot are not handled.
             if (predicates.size() != 2) {
                 continue;
             }
@@ -340,7 +342,6 @@ public class Predicates {
                     continue;
                 }
                 ComparisonPredicate cp = (ComparisonPredicate) pred;
-                // Exclude DateTimeLiteral (which extends DateLiteral) because DATETIME semantics differ
                 if (cp.right() instanceof DateTimeLiteral || !(cp.right() instanceof DateLiteral)) {
                     continue;
                 }
@@ -348,12 +349,10 @@ public class Predicates {
                 if (cp instanceof GreaterThanEqual) {
                     lowerBound = literal;
                 } else if (cp instanceof GreaterThan) {
-                    // dt > '2024-12-31' is equivalent to dt >= '2025-01-01' for DATE type only
                     lowerBound = (DateLiteral) literal.plusDays(1);
                 } else if (cp instanceof LessThanEqual) {
                     upperBound = literal;
                 } else if (cp instanceof LessThan) {
-                    // dt < '2025-02-01' is equivalent to dt <= '2025-01-31' for DATE type only
                     upperBound = (DateLiteral) literal.plusDays(-1);
                 }
             }
@@ -365,51 +364,49 @@ public class Predicates {
                 continue;
             }
 
-            // Detect whole bucket
             java.util.Optional<DateTruncRangeDetector.BucketInfo> bucketInfo =
                     DateTruncRangeDetector.detectWholeBucket(lowerBound, upperBound);
             if (!bucketInfo.isPresent()) {
                 continue;
             }
 
-            // Check if bucket unit matches view date_trunc unit
             String bucketUnit = bucketInfo.get().unit;
             String viewUnit = extractDateTruncUnit(viewDateTrunc);
             if (viewUnit == null || !viewUnit.equalsIgnoreCase(bucketUnit)) {
                 continue;
             }
 
-            // Synthesize date_trunc(slot, unit) = bucket_start
             DateLiteral bucketStart = bucketInfo.get().bucketStart;
             Expression syntheticPredicate = new EqualTo(
                     rebuildDateTruncOnQuerySlot(viewDateTrunc, slot),
                     bucketStart
             );
-
-            // Build result map with synthetic predicate and remaining non-date predicates
-            Map<Expression, ExpressionInfo> result = new HashMap<>();
-            result.put(syntheticPredicate, new ExpressionInfo(bucketStart, true));
-
-            // Add remaining predicates that are not part of the detected date range
-            Set<Expression> consumedPredicates = new HashSet<>(predicates);
-            for (Expression expr : normalizedExpressions) {
-                if (!consumedPredicates.contains(expr)) {
-                    Set<Literal> literalSet = expr.collect(e -> e instanceof Literal);
-                    if (expr.anyMatch(AggregateFunction.class::isInstance)) {
-                        return null;
-                    }
-                    if (literalSet.size() == 1 && expr instanceof ComparisonPredicate
-                            && !(expr instanceof GreaterThan || expr instanceof LessThanEqual)) {
-                        result.put(expr, new ExpressionInfo(literalSet.iterator().next()));
-                    } else {
-                        result.put(expr, ExpressionInfo.EMPTY);
-                    }
-                }
-            }
-            return result;
+            syntheticResults.put(syntheticPredicate, new ExpressionInfo(bucketStart, true));
+            allConsumedPredicates.addAll(predicates);
         }
 
-        return null;
+        if (syntheticResults.isEmpty()) {
+            return null;
+        }
+
+        // Build result: synthetic predicates + remaining non-consumed predicates
+        Map<Expression, ExpressionInfo> result = new HashMap<>(syntheticResults);
+        for (Expression expr : normalizedExpressions) {
+            if (allConsumedPredicates.contains(expr)) {
+                continue;
+            }
+            Set<Literal> literalSet = expr.collect(e -> e instanceof Literal);
+            if (expr.anyMatch(AggregateFunction.class::isInstance)) {
+                return null;
+            }
+            if (literalSet.size() == 1 && expr instanceof ComparisonPredicate
+                    && !(expr instanceof GreaterThan || expr instanceof LessThanEqual)) {
+                result.put(expr, new ExpressionInfo(literalSet.iterator().next()));
+            } else {
+                result.put(expr, ExpressionInfo.EMPTY);
+            }
+        }
+        return result;
     }
 
     /**

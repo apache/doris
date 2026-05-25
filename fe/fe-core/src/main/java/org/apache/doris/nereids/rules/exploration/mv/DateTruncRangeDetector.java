@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.types.DateV2Type;
 
@@ -36,6 +37,11 @@ public class DateTruncRangeDetector {
      */
     public static Optional<BucketInfo> detectWholeBucket(DateLiteral lower, DateLiteral upper) {
         if (lower == null || upper == null) {
+            return Optional.empty();
+        }
+        // DateTimeLiteral extends DateLiteral but has time-of-day semantics that make
+        // whole-bucket detection incorrect (e.g. dt <= '2025-01-31 00:00:00' misses most of Jan 31)
+        if (lower instanceof DateTimeLiteral || upper instanceof DateTimeLiteral) {
             return Optional.empty();
         }
 
