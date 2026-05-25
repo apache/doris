@@ -54,43 +54,42 @@ bool SpillIcebergTableSinkLocalState::is_blockable() const {
 }
 
 size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) {
-    if (!_writer || !_writer->current_writer()) {
+    if (!_writer) {
+        return 0;
+    }
+    auto current_writer = _writer->current_writer();
+    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
+    if (!sort_writer) {
         return 0;
     }
 
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
-    if (!sort_writer || !sort_writer->sorter()) {
-        return 0;
-    }
-
-    return sort_writer->sorter()->get_reserve_mem_size(state, eos);
+    return sort_writer->get_reserve_mem_size(state, eos);
 }
 
 size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* state) const {
-    if (!_writer || !_writer->current_writer()) {
+    if (!_writer) {
+        return 0;
+    }
+    auto current_writer = _writer->current_writer();
+    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
+    if (!sort_writer) {
         return 0;
     }
 
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
-    if (!sort_writer || !sort_writer->sorter()) {
-        return 0;
-    }
-
-    return sort_writer->sorter()->data_size();
+    return sort_writer->data_size();
 }
 
 Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
-    if (!_writer || !_writer->current_writer()) {
+    if (!_writer) {
+        return Status::OK();
+    }
+    auto current_writer = _writer->current_writer();
+    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
+    if (!sort_writer) {
         return Status::OK();
     }
 
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
-
-    if (!sort_writer || !sort_writer->sorter()) {
-        return Status::OK();
-    }
-
-    auto exception_catch_func = [sort_writer]() {
+    auto exception_catch_func = [current_writer, sort_writer]() {
         auto status = [&]() {
             RETURN_IF_CATCH_EXCEPTION({ return sort_writer->trigger_spill(); });
         }();
