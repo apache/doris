@@ -166,7 +166,7 @@
 
 - **本 session 已完成**：P2 批 A（T01+T02 fe-connector SPI 补齐 commit `31fb91c5bd3`）+ 批 B（T03+T04+T05+T06 fe-core 桥接；含三处 HANDOFF 描述校正）。本地 fe-connector + fe-core 全绿
 - **下一个 session 应做**：批 C T07（`CatalogFactory.SPI_READY_TYPES` 加 `"trino-connector"`）；翻闸后 smoke 验证（CREATE CATALOG ... TYPE 'trino-connector' 走 SPI 路径成功）；连续启动批 D（T08+T09+T10 清旧代码）
-- **是否需要 handoff**：暂未触发（同 session 内推进；用户在场决定下一步是否继续）
+- **是否需要 handoff**：**是**——用户准备开新 session 跑批 C；本场已 rewrite [HANDOFF.md](./HANDOFF.md)（含 batch B→C regression window 警告 + T07/T08/T09/T10 详细 step-by-step）
 - **协作规范**：[AGENT-PLAYBOOK.md](./AGENT-PLAYBOOK.md)（context 预算、subagent 使用、handoff 触发条件）
 
 ---
