@@ -101,6 +101,14 @@ class TimestampTzLiteralTest {
     }
 
     @Test
+    void testGetStringValueKeepsUtcSuffix() {
+        TimestampTzLiteral literal = new TimestampTzLiteral(TimeStampTzType.of(6),
+                "2024-01-15 12:00:00 +00:00");
+
+        Assertions.assertEquals("2024-01-15 12:00:00.000000+00:00", literal.getStringValue());
+    }
+
+    @Test
     void testBasicArithmetic() {
         TimestampTzLiteral base1 = new TimestampTzLiteral("2025-12-31 23:59:59.999999");
         TimestampTzLiteral base2 = new TimestampTzLiteral("2024-2-29 0:0:0");

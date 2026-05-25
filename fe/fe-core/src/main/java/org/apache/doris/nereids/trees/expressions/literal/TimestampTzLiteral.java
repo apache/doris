@@ -129,72 +129,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
 
     @Override
     public String getStringValue() {
-        int scale = getDataType().getScale();
-        if (scale <= 0) {
-            return super.getStringValue();
-        }
-
-        if (0 <= year && year <= 9999 && 0 <= month && month <= 99 && 0 <= day && day <= 99
-                && 0 <= hour && hour <= 99 && 0 <= minute && minute <= 99 && 0 <= second && second <= 99
-                && 0 <= microSecond && microSecond <= MAX_MICROSECOND) {
-            char[] format = new char[] {
-                    '0', '0', '0', '0', '-', '0', '0', '-', '0', '0', ' ', '0', '0', ':', '0', '0', ':', '0', '0',
-                    '.', '0', '0', '0', '0', '0', '0'};
-            int offset = 3;
-            long year = this.year;
-            while (year > 0) {
-                format[offset--] = (char) ('0' + (year % 10));
-                year /= 10;
-            }
-
-            offset = 6;
-            long month = this.month;
-            while (month > 0) {
-                format[offset--] = (char) ('0' + (month % 10));
-                month /= 10;
-            }
-
-            offset = 9;
-            long day = this.day;
-            while (day > 0) {
-                format[offset--] = (char) ('0' + (day % 10));
-                day /= 10;
-            }
-
-            offset = 12;
-            long hour = this.hour;
-            while (hour > 0) {
-                format[offset--] = (char) ('0' + (hour % 10));
-                hour /= 10;
-            }
-
-            offset = 15;
-            long minute = this.minute;
-            while (minute > 0) {
-                format[offset--] = (char) ('0' + (minute % 10));
-                minute /= 10;
-            }
-
-            offset = 18;
-            long second = this.second;
-            while (second > 0) {
-                format[offset--] = (char) ('0' + (second % 10));
-                second /= 10;
-            }
-
-            offset = 19 + scale;
-            long microSecond = (int) (this.microSecond / Math.pow(10, TimeStampTzType.MAX_SCALE - scale));
-            while (microSecond > 0) {
-                format[offset--] = (char) ('0' + (microSecond % 10));
-                microSecond /= 10;
-            }
-            return String.valueOf(format, 0, 20 + scale);
-        }
-
-        return String.format("%04d-%02d-%02d %02d:%02d:%02d"
-                        + (scale > 0 ? ".%0" + scale + "d" : ""),
-                year, month, day, hour, minute, second,
-                (int) (microSecond / Math.pow(10, TimeStampTzType.MAX_SCALE - scale)));
+        return toLegacyLiteral().getStringValue();
     }
 
     @Override
