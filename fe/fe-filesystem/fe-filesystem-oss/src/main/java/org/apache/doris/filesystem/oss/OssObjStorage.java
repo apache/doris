@@ -26,11 +26,17 @@ import org.apache.doris.filesystem.spi.RequestBody;
 import org.apache.doris.filesystem.spi.StsCredentials;
 import org.apache.doris.filesystem.spi.UploadPartResult;
 
+import com.aliyun.oss.ClientBuilderConfiguration;
 import com.aliyun.oss.ClientException;
 import com.aliyun.oss.HttpMethod;
 import com.aliyun.oss.OSS;
 import com.aliyun.oss.OSSClientBuilder;
 import com.aliyun.oss.OSSException;
+import com.aliyun.oss.common.auth.Credentials;
+import com.aliyun.oss.common.auth.CredentialsProvider;
+import com.aliyun.oss.common.auth.DefaultCredentials;
+import com.aliyun.oss.common.utils.HttpHeaders;
+import com.aliyun.oss.internal.OSSHeaders;
 import com.aliyun.oss.model.AbortMultipartUploadRequest;
 import com.aliyun.oss.model.CompleteMultipartUploadRequest;
 import com.aliyun.oss.model.CopyObjectRequest;
@@ -79,6 +85,8 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     private static final int SESSION_EXPIRE_SECONDS = 3600;
     private static final int DELETE_BATCH_SIZE = 1000;
+    private static final Credentials ANONYMOUS_CREDENTIALS =
+            new DefaultCredentials("anonymous", "anonymous");
 
     private final OssFileSystemProperties properties;
     private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -109,8 +117,12 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     protected OSS buildOssClient() throws IOException {
         String endpoint = requireProperty(properties.getEndpoint(), "OSS_ENDPOINT", "OSS endpoint");
-        String accessKey = requireProperty(properties.getAccessKey(), "OSS_ACCESS_KEY", "OSS access key");
-        String secretKey = requireProperty(properties.getSecretKey(), "OSS_SECRET_KEY", "OSS secret key");
+        String accessKey = properties.getAccessKey();
+        String secretKey = properties.getSecretKey();
+        if (!hasText(accessKey)) {
+            return new OSSClientBuilder().build(endpoint, anonymousCredentialsProvider(),
+                    anonymousClientConfiguration());
+        }
         String token = properties.getSessionToken();
         if (hasText(token)) {
             return new OSSClientBuilder().build(endpoint, accessKey, secretKey, token);
@@ -431,5 +443,27 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     private static boolean hasText(String value) {
         return value != null && !value.isEmpty();
+    }
+
+    private static CredentialsProvider anonymousCredentialsProvider() {
+        return new CredentialsProvider() {
+            @Override
+            public void setCredentials(Credentials credentials) {
+            }
+
+            @Override
+            public Credentials getCredentials() {
+                return ANONYMOUS_CREDENTIALS;
+            }
+        };
+    }
+
+    static ClientBuilderConfiguration anonymousClientConfiguration() {
+        ClientBuilderConfiguration config = new ClientBuilderConfiguration();
+        config.setSignerHandlers(Collections.singletonList(request -> {
+            request.getHeaders().remove(HttpHeaders.AUTHORIZATION);
+            request.getHeaders().remove(OSSHeaders.OSS_SECURITY_TOKEN);
+        }));
+        return config;
     }
 }

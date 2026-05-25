@@ -21,7 +21,11 @@ import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
 
+import com.aliyun.oss.ClientBuilderConfiguration;
 import com.aliyun.oss.OSS;
+import com.aliyun.oss.common.comm.RequestMessage;
+import com.aliyun.oss.common.utils.HttpHeaders;
+import com.aliyun.oss.internal.OSSHeaders;
 import com.aliyun.oss.model.CopyObjectRequest;
 import com.aliyun.oss.model.DeleteObjectsRequest;
 import com.aliyun.oss.model.DeleteObjectsResult;
@@ -114,6 +118,30 @@ class OssObjStorageTest {
         OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
 
         Assertions.assertSame(mockOss, storage.getClient());
+    }
+
+    @Test
+    void buildOssClient_allowsAnonymousCredentials() throws Exception {
+        InspectableOssObjStorage storage = new InspectableOssObjStorage(Map.of(
+                "OSS_ENDPOINT", "https://oss-cn-hongkong-internal.aliyuncs.com"));
+
+        OSS client = storage.createClient();
+
+        Assertions.assertNotNull(client);
+        client.shutdown();
+    }
+
+    @Test
+    void anonymousClientConfiguration_removesAuthHeaders() throws Exception {
+        ClientBuilderConfiguration config = OssObjStorage.anonymousClientConfiguration();
+        RequestMessage request = new RequestMessage("bucket", "key");
+        request.getHeaders().put(HttpHeaders.AUTHORIZATION, "OSS anonymous:signature");
+        request.getHeaders().put(OSSHeaders.OSS_SECURITY_TOKEN, "token");
+
+        config.getSignerHandlers().get(0).sign(request);
+
+        Assertions.assertFalse(request.getHeaders().containsKey(HttpHeaders.AUTHORIZATION));
+        Assertions.assertFalse(request.getHeaders().containsKey(OSSHeaders.OSS_SECURITY_TOKEN));
     }
 
     @Test
@@ -244,6 +272,16 @@ class OssObjStorageTest {
         @Override
         protected OSS buildOssClient() {
             return mockOss;
+        }
+    }
+
+    private static class InspectableOssObjStorage extends OssObjStorage {
+        InspectableOssObjStorage(Map<String, String> props) {
+            super(props);
+        }
+
+        OSS createClient() throws IOException {
+            return buildOssClient();
         }
     }
 }
