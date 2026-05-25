@@ -19,21 +19,33 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Transaction manager for plugin-driven external catalogs.
  *
- * <p>This is a lightweight implementation that generates transaction IDs via
- * {@link Env#getNextId()} and tracks them in a local map. The actual commit
- * and rollback logic is handled by the connector's {@code ConnectorWriteOps}
- * through the insert executor — this manager simply provides the transaction
- * lifecycle bookkeeping required by {@link org.apache.doris.nereids.trees.plans
- * .commands.insert.BaseExternalTableInsertExecutor}.</p>
+ * <p>Two entry points:</p>
+ * <ul>
+ *   <li>{@link #begin()} — legacy auto-commit path used by
+ *       {@code BaseExternalTableInsertExecutor}. The manager allocates a txn id via
+ *       {@link Env#getNextId()} and stores a no-op transaction; the actual write side
+ *       effects are produced by {@code ConnectorWriteOps.finishInsert/abortInsert}.
+ *       This path is used by connectors that do not implement SPI transactions
+ *       (e.g. JDBC, ES).</li>
+ *   <li>{@link #begin(ConnectorTransaction)} — SPI path for connectors that return a
+ *       real {@link ConnectorTransaction} from {@code ConnectorWriteOps.beginTransaction}.
+ *       The manager uses {@link ConnectorTransaction#getTransactionId()} as the txn id
+ *       and delegates commit/rollback/close to the connector.</li>
+ * </ul>
+ *
+ * <p>Both paths share the same {@link #commit(long)} / {@link #rollback(long)} surface
+ * required by {@link TransactionManager}.</p>
  */
 public class PluginDrivenTransactionManager implements TransactionManager {
 
@@ -45,9 +57,22 @@ public class PluginDrivenTransactionManager implements TransactionManager {
     @Override
     public long begin() {
         long txnId = Env.getCurrentEnv().getNextId();
-        PluginDrivenTransaction txn = new PluginDrivenTransaction(txnId);
-        transactions.put(txnId, txn);
+        transactions.put(txnId, new PluginDrivenTransaction(txnId, null));
         LOG.debug("Plugin-driven transaction begun: {}", txnId);
+        return txnId;
+    }
+
+    /**
+     * Registers a connector-provided {@link ConnectorTransaction}. Commit / rollback
+     * lifecycle is delegated to it (including {@code close()}).
+     *
+     * @return the txn id, taken from {@code connectorTx.getTransactionId()}
+     */
+    public long begin(ConnectorTransaction connectorTx) {
+        Objects.requireNonNull(connectorTx, "connectorTx");
+        long txnId = connectorTx.getTransactionId();
+        transactions.put(txnId, new PluginDrivenTransaction(txnId, connectorTx));
+        LOG.debug("Plugin-driven transaction begun with SPI ConnectorTransaction: {}", txnId);
         return txnId;
     }
 
@@ -79,24 +104,50 @@ public class PluginDrivenTransactionManager implements TransactionManager {
     }
 
     /**
-     * Simple transaction that tracks state. Actual connector-level commit/rollback
-     * is performed by the insert executor via ConnectorWriteOps.
+     * Internal transaction record. When {@code connectorTx} is non-null the SPI is
+     * the source of truth and commit/rollback delegate to it; close() always runs
+     * after delegation. When null, this is the legacy no-op marker (the executor
+     * drives write side effects via {@code ConnectorWriteOps} directly).
      */
-    private static class PluginDrivenTransaction implements Transaction {
+    private static final class PluginDrivenTransaction implements Transaction {
         private final long id;
+        private final ConnectorTransaction connectorTx;
 
-        PluginDrivenTransaction(long id) {
+        PluginDrivenTransaction(long id, ConnectorTransaction connectorTx) {
             this.id = id;
+            this.connectorTx = connectorTx;
         }
 
         @Override
         public void commit() {
-            // No-op: actual commit is done via ConnectorWriteOps.finishInsert()
+            if (connectorTx == null) {
+                return;
+            }
+            try {
+                connectorTx.commit();
+            } finally {
+                closeQuietly();
+            }
         }
 
         @Override
         public void rollback() {
-            // No-op: actual rollback is done via ConnectorWriteOps.abortInsert()
+            if (connectorTx == null) {
+                return;
+            }
+            try {
+                connectorTx.rollback();
+            } finally {
+                closeQuietly();
+            }
+        }
+
+        private void closeQuietly() {
+            try {
+                connectorTx.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close ConnectorTransaction {}: {}", id, e.getMessage());
+            }
         }
     }
 }
