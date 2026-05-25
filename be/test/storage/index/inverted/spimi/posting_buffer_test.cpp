@@ -569,9 +569,8 @@ TEST(SpimiPostingBufferTest, MaybeCompactPreservesDistinctTermsAcrossMigration) 
         distinct_text_refs.insert(rec.text_ref);
     }
     EXPECT_EQ(distinct_text_refs.size(), static_cast<size_t>(kTerms))
-            << "MaybeCompact must preserve all " << kTerms
-            << " distinct terms; got " << distinct_text_refs.size()
-            << ". Pre-fix collapsed all terms onto a single term_id.";
+            << "MaybeCompact must preserve all " << kTerms << " distinct terms; got "
+            << distinct_text_refs.size() << ". Pre-fix collapsed all terms onto a single term_id.";
     EXPECT_EQ(buf.records().size(), static_cast<size_t>(kTerms * kOccPerTerm));
 }
 

@@ -159,8 +159,8 @@ void SpimiPostingBuffer::GrowSlots(size_t new_capacity) {
     std::vector<uint32_t> new_slots(new_capacity, kEmpty);
     // Only sized when compact mode is active; otherwise stays empty
     // and `_slot_term_ids.swap(new_slot_term_ids)` swaps two empties.
-    std::vector<uint32_t> new_slot_term_ids(
-            _slot_term_ids.empty() ? 0 : new_capacity, kInvalidTermId);
+    std::vector<uint32_t> new_slot_term_ids(_slot_term_ids.empty() ? 0 : new_capacity,
+                                            kInvalidTermId);
     const size_t mask = new_capacity - 1;
     for (size_t old_slot = 0; old_slot < _slots.size(); ++old_slot) {
         const uint32_t text_ref = _slots[old_slot];
@@ -261,8 +261,7 @@ namespace {
 inline void EnsureCapacity(std::vector<uint8_t>* buf, size_t additional) {
     const size_t needed = buf->size() + additional;
     if (needed > buf->capacity()) [[unlikely]] {
-        const size_t grown =
-                std::max(needed, buf->capacity() + buf->capacity() / 4 + 16);
+        const size_t grown = std::max(needed, buf->capacity() + buf->capacity() / 4 + 16);
         buf->reserve(grown);
     }
 }
@@ -323,8 +322,7 @@ uint32_t SpimiPostingBuffer::GetOrAssignTermId(uint32_t text_ref) {
     // so `_last_intern_slot` points at the last-Append'd term, not the
     // record's term; (b) any future caller that forgets the implicit
     // "you must Intern with this exact text_ref first" contract.
-    if (_last_intern_slot != static_cast<size_t>(-1) &&
-        _last_intern_slot < _slot_term_ids.size() &&
+    if (_last_intern_slot != static_cast<size_t>(-1) && _last_intern_slot < _slot_term_ids.size() &&
         _slots[_last_intern_slot] == text_ref) [[likely]] {
         uint32_t id = _slot_term_ids[_last_intern_slot];
         if (id == kInvalidTermId) {

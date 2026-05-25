@@ -20,8 +20,8 @@
 // `_CLTHROWA` for byte-parser hard-fail on untrusted segments_N bytes.
 
 #include "common/logging.h"
-#include "storage/index/inverted/spimi/byte_parser_error.h"
 #include "storage/index/inverted/spimi/byte_output.h"
+#include "storage/index/inverted/spimi/byte_parser_error.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -55,8 +55,7 @@ public:
         while (true) {
             const uint8_t b = ReadByte();
             if (shift >= 32U) [[unlikely]] {
-                SPIMI_THROW_CORRUPT(
-                        "SPIMI segments_N VInt: shift overflow on crafted input");
+                SPIMI_THROW_CORRUPT("SPIMI segments_N VInt: shift overflow on crafted input");
             }
             v |= static_cast<uint32_t>(b & 0x7FU) << shift;
             if ((b & 0x80U) == 0) {

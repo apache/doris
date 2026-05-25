@@ -22,8 +22,8 @@
 #include <random>
 #include <vector>
 
-#include "storage/index/inverted/spimi/freq_prox_encoder.h"
 #include "storage/index/inverted/spimi/byte_output.h"
+#include "storage/index/inverted/spimi/freq_prox_encoder.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 

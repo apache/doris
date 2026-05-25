@@ -22,8 +22,8 @@
 #include <memory>
 #include <vector>
 
-#include "storage/index/inverted/spimi/field_infos_writer.h"
 #include "storage/index/inverted/spimi/byte_output.h"
+#include "storage/index/inverted/spimi/field_infos_writer.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/segment_writer.h"
 
@@ -63,7 +63,7 @@ struct IndexReaderFixture {
 
     std::unique_ptr<SpimiQueryIndexReader> Make() {
         return std::make_unique<SpimiQueryIndexReader>(tis.bytes(), tii.bytes(), frq.bytes(),
-                                                         prx.bytes(), fnm.bytes(), _max_doc);
+                                                       prx.bytes(), fnm.bytes(), _max_doc);
     }
 
     int32_t _max_doc = 0;

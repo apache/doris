@@ -22,8 +22,8 @@
 #include <cstdint>
 #include <vector>
 
-#include "storage/index/inverted/spimi/field_infos_writer.h"
 #include "storage/index/inverted/spimi/byte_output.h"
+#include "storage/index/inverted/spimi/field_infos_writer.h"
 #include "storage/index/inverted/spimi/segment_infos_writer.h"
 
 namespace doris::segment_v2::inverted_index::spimi {

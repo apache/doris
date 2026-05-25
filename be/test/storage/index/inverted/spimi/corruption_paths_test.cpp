@@ -168,7 +168,7 @@ TEST(SpimiCorruptionPathsTest, TermDocs_PforSubBlockBadWidth) {
     // kSpimiPfor mode + VInt(n=1) + width byte 0x00 (width must be ≥1).
     std::vector<uint8_t> bytes;
     bytes.push_back(FreqProxEncoder::kCodeModeSpimiPfor);
-    EmitVInt(&bytes, 1);  // n=1
+    EmitVInt(&bytes, 1);   // n=1
     bytes.push_back(0x00); // width=0 → invalid
     EXPECT_THROW(SpimiTermDocsReader::ReadTerm(bytes, /*doc_freq=*/1, /*has_prox=*/false),
                  doris::Exception);
@@ -191,24 +191,20 @@ TEST(SpimiCorruptionPathsTest, TermDocs_PforSubBlockCountOutOfRange) {
 TEST(SpimiCorruptionPathsTest, Prox_NonPositiveFreq) {
     // freqs_per_doc[i] <= 0 is rejected before any byte parsing.
     std::vector<uint8_t> bytes {0x00, 0x00};
-    EXPECT_THROW(SpimiProxReader::ReadPositions(bytes, /*freqs_per_doc=*/{0}),
-                 doris::Exception);
-    EXPECT_THROW(SpimiProxReader::ReadPositions(bytes, /*freqs_per_doc=*/{-1}),
-                 doris::Exception);
+    EXPECT_THROW(SpimiProxReader::ReadPositions(bytes, /*freqs_per_doc=*/ {0}), doris::Exception);
+    EXPECT_THROW(SpimiProxReader::ReadPositions(bytes, /*freqs_per_doc=*/ {-1}), doris::Exception);
 }
 
 TEST(SpimiCorruptionPathsTest, Prox_VIntUnderflowOnTruncatedBuffer) {
     // freq=2 means 2 VInts expected, but the buffer is empty.
     std::vector<uint8_t> empty;
-    EXPECT_THROW(SpimiProxReader::ReadPositions(empty, /*freqs_per_doc=*/{2}),
-                 doris::Exception);
+    EXPECT_THROW(SpimiProxReader::ReadPositions(empty, /*freqs_per_doc=*/ {2}), doris::Exception);
 }
 
 TEST(SpimiCorruptionPathsTest, Prox_VIntShiftOverflow) {
     // freq=1 + a VInt with 6 continuation bytes → shift overflow guard.
     std::vector<uint8_t> bytes {0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01};
-    EXPECT_THROW(SpimiProxReader::ReadPositions(bytes, /*freqs_per_doc=*/{1}),
-                 doris::Exception);
+    EXPECT_THROW(SpimiProxReader::ReadPositions(bytes, /*freqs_per_doc=*/ {1}), doris::Exception);
 }
 
 // ===== SpimiPforDecoder ====================================================

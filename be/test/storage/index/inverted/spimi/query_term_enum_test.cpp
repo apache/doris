@@ -60,8 +60,8 @@ struct EnumFixture {
 
     std::unique_ptr<SpimiQueryTermEnum> MakeEnum() {
         return std::make_unique<SpimiQueryTermEnum>(tis.bytes().data(), tis.bytes().size(),
-                                                      skip_interval,
-                                                      std::vector<std::wstring> {L"body"});
+                                                    skip_interval,
+                                                    std::vector<std::wstring> {L"body"});
     }
 };
 

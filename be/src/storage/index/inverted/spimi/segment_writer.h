@@ -19,8 +19,8 @@
 
 #include <cstdint>
 
-#include "storage/index/inverted/spimi/freq_prox_encoder.h"
 #include "storage/index/inverted/spimi/byte_output.h"
+#include "storage/index/inverted/spimi/freq_prox_encoder.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/term_dict_writer.h"
 

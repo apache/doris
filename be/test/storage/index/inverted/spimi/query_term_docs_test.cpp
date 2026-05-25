@@ -23,9 +23,9 @@
 #include <string>
 #include <vector>
 
-#include "storage/index/inverted/spimi/query_term_enum.h"
 #include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
+#include "storage/index/inverted/spimi/query_term_enum.h"
 #include "storage/index/inverted/spimi/segment_writer.h"
 #include "storage/index/inverted/spimi/term_dict_reader.h"
 
@@ -74,13 +74,13 @@ struct TermDocsFixture {
 
     std::unique_ptr<SpimiQueryTermDocs> MakeTermDocs() {
         return std::make_unique<SpimiQueryTermDocs>(dict.get(), frq.bytes().data(),
-                                                      frq.bytes().size(), &field_infos,
-                                                      &field_names_wide);
+                                                    frq.bytes().size(), &field_infos,
+                                                    &field_names_wide);
     }
 
     std::unique_ptr<SpimiQueryTermEnum> MakeEnum() {
         return std::make_unique<SpimiQueryTermEnum>(tis.bytes().data(), tis.bytes().size(),
-                                                      skip_interval, field_names_wide);
+                                                    skip_interval, field_names_wide);
     }
 };
 

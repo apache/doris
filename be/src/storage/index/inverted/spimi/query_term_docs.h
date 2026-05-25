@@ -34,8 +34,8 @@
 
 #include "common/exception.h" // Exception used by DORIS_CHECK
 #include "common/status.h"    // DORIS_CHECK macro
-#include "storage/index/inverted/spimi/query_term_enum.h"
 #include "storage/index/inverted/spimi/field_infos_writer.h"
+#include "storage/index/inverted/spimi/query_term_enum.h"
 #include "storage/index/inverted/spimi/term_dict_reader.h"
 #include "storage/index/inverted/spimi/term_docs_reader.h"
 
@@ -72,9 +72,9 @@ class SpimiQueryTermDocs : public virtual lucene::index::TermDocs {
 public:
     // All inputs are borrowed; the caller (`SpimiQueryIndexReader`)
     // owns the underlying buffers and outlives this TermDocs.
-    SpimiQueryTermDocs(const TermDictReader* term_dict, const uint8_t* frq_data,
-                         size_t frq_length, const std::vector<FieldInfoEntry>* field_infos,
-                         const std::vector<std::wstring>* field_names_wide);
+    SpimiQueryTermDocs(const TermDictReader* term_dict, const uint8_t* frq_data, size_t frq_length,
+                       const std::vector<FieldInfoEntry>* field_infos,
+                       const std::vector<std::wstring>* field_names_wide);
 
     ~SpimiQueryTermDocs() override;
 

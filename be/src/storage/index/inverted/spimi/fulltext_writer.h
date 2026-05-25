@@ -20,8 +20,8 @@
 #include <cstdint>
 #include <string>
 
-#include "storage/index/inverted/spimi/field_infos_writer.h"
 #include "storage/index/inverted/spimi/byte_output.h"
+#include "storage/index/inverted/spimi/field_infos_writer.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/segment_infos_writer.h"
 #include "storage/index/inverted/spimi/segment_writer.h"
@@ -85,7 +85,7 @@ struct SpimiSegmentSink {
     ByteOutput* prx = nullptr;          // position stream
     ByteOutput* fnm = nullptr;          // field info
     ByteOutput* nrm = nullptr;          // norms (optional; only written
-                                          // when fi.omit_norms = false)
+                                        // when fi.omit_norms = false)
     ByteOutput* segments_n = nullptr;   // segments manifest (segments_<N>)
     ByteOutput* segments_gen = nullptr; // redundancy generation pointer
 };
@@ -130,8 +130,7 @@ public:
                                const std::string& segment_name, const std::string& field_name,
                                int32_t doc_count,
                                int32_t index_version = FieldInfosWriter::kIndexVersionV0,
-                               bool omit_term_freq_and_positions = false,
-                               bool omit_norms = false,
+                               bool omit_term_freq_and_positions = false, bool omit_norms = false,
                                EmittedSegmentByteCounts* out_byte_counts = nullptr);
 
     // Records one token occurrence. `doc_id` must be non-decreasing across

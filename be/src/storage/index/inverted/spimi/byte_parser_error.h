@@ -35,16 +35,16 @@
 #include "common/exception.h"
 #include "common/status.h"
 
-#define SPIMI_THROW_CORRUPT(msg)                                                                   \
-    do {                                                                                           \
-        throw ::doris::Exception(                                                                  \
-                ::doris::Status::Error<::doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(  \
-                        (msg)));                                                                   \
+#define SPIMI_THROW_CORRUPT(msg)                                                                  \
+    do {                                                                                          \
+        throw ::doris::Exception(                                                                 \
+                ::doris::Status::Error<::doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>( \
+                        (msg)));                                                                  \
     } while (false)
 
-#define SPIMI_THROW_CORRUPT_FMT(fmt_str, ...)                                                      \
-    do {                                                                                           \
-        throw ::doris::Exception(                                                                  \
-                ::doris::Status::Error<::doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(  \
-                        (fmt_str), ##__VA_ARGS__));                                                \
+#define SPIMI_THROW_CORRUPT_FMT(fmt_str, ...)                                                     \
+    do {                                                                                          \
+        throw ::doris::Exception(                                                                 \
+                ::doris::Status::Error<::doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>( \
+                        (fmt_str), ##__VA_ARGS__));                                               \
     } while (false)

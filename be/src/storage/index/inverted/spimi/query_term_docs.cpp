@@ -28,9 +28,9 @@
 namespace doris::segment_v2::inverted_index::spimi {
 
 SpimiQueryTermDocs::SpimiQueryTermDocs(const TermDictReader* term_dict, const uint8_t* frq_data,
-                                           size_t frq_length,
-                                           const std::vector<FieldInfoEntry>* field_infos,
-                                           const std::vector<std::wstring>* field_names_wide)
+                                       size_t frq_length,
+                                       const std::vector<FieldInfoEntry>* field_infos,
+                                       const std::vector<std::wstring>* field_names_wide)
         : _term_dict(term_dict),
           _frq_data(frq_data),
           _frq_length(frq_length),
@@ -113,8 +113,8 @@ void SpimiQueryTermDocs::SeekByFieldAndText(int32_t field_number, const wchar_t*
 
         const auto& fi = (*_field_infos)[static_cast<size_t>(field_number)];
         // Hard-bound `freq_pointer` BEFORE the pointer arithmetic.
-        if (info->freq_pointer < 0 ||
-            static_cast<uint64_t>(info->freq_pointer) > _frq_length) [[unlikely]] {
+        if (info->freq_pointer < 0 || static_cast<uint64_t>(info->freq_pointer) > _frq_length)
+                [[unlikely]] {
             _CLTHROWA(CL_ERR_IO, "SPIMI .tis freq_pointer out of .frq bounds");
         }
         const auto fp = static_cast<size_t>(info->freq_pointer);
@@ -161,8 +161,8 @@ void SpimiQueryTermDocs::seek(lucene::index::TermEnum* term_enum) {
 
         const auto& fi = (*_field_infos)[static_cast<size_t>(field_number)];
         // Same untrusted-byte bounds check as in SeekByFieldAndText.
-        if (info.freq_pointer < 0 ||
-            static_cast<uint64_t>(info.freq_pointer) > _frq_length) [[unlikely]] {
+        if (info.freq_pointer < 0 || static_cast<uint64_t>(info.freq_pointer) > _frq_length)
+                [[unlikely]] {
             _CLTHROWA(CL_ERR_IO, "SPIMI .tis freq_pointer out of .frq bounds");
         }
         const auto fp = static_cast<size_t>(info.freq_pointer);

@@ -263,15 +263,9 @@ Status InvertedIndexColumnWriter<field_type>::init_fulltext_index() {
                 "V4 inverted index storage format only supports analyzed fulltext columns "
                 "(parser != 'none' / 'unknown'); use V1/V2/V3 for keyword columns.");
     }
-    if (_is_v4 || config::inverted_index_fulltext_spimi_shadow) {
+    if (_is_v4) {
         _spimi_buffer = std::make_unique<segment_v2::inverted_index::spimi::SpimiPostingBuffer>();
-        if (_is_v4) {
-            LOG_FIRST_N(INFO, 1) << "V4 storage format: pure SPIMI write path (no CLucene)";
-        } else {
-            LOG_FIRST_N(INFO, 1)
-                    << "inverted_index_fulltext_spimi_shadow is enabled: shadowing the "
-                       "CLucene write path with a parallel SPIMI accumulator.";
-        }
+        LOG_FIRST_N(INFO, 1) << "V4 storage format: pure SPIMI write path (no CLucene)";
     }
     _analyzer_config.analyzer_name = get_analyzer_name_from_properties(_index_meta->properties());
     _analyzer_config.parser_type = get_inverted_index_parser_type_from_string(
@@ -477,97 +471,98 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
             try {
                 const auto* v = (Slice*)values;
                 for (size_t i = 0; i < count; ++i) {
-                if ((!_should_analyzer && v->get_size() > _ignore_above) ||
-                    (_should_analyzer && v->empty())) {
-                    // Empty / over-limit value → no tokens to index,
-                    // but the ROW IS NOT NULL. `_null_bitmap` must
-                    // mirror only true upstream nulls (added by
-                    // `add_nulls`); empty strings have a non-null
-                    // column value of "" and `IS NULL` must return
-                    // false for them. Mirrors V2's behavior at
-                    // `add_values:615` which calls `add_null_document`
-                    // (a CLucene "null-doc" marker that does NOT
-                    // touch `_null_bitmap`). The earlier V4 impl
-                    // added these to `_null_bitmap`, causing
-                    // `WHERE body IS NULL` to incorrectly return
-                    // empty-string rows.
-                } else if (_should_analyzer) {
-                    // Tokenize. Mirror TeeTokenStream::next: position
-                    // accumulator clamped to 0 on first token to
-                    // handle the synonym-overlay-as-first-token edge
-                    // case CLucene's DocumentsWriter normalises.
-                    _char_string_reader->init(v->get_data(), cast_set<int32_t>(v->get_size()),
-                                              false);
-                    auto* stream = _analyzer->reusableTokenStream(_field_name.c_str(),
-                                                                  _char_string_reader);
-                    // `reusableTokenStream` returning null means the
-                    // analyzer is mis-configured at init time — a
-                    // programmer error, not a runtime input. Per
-                    // CLAUDE.md's "assert correctness, no defensive
-                    // if" rule, crash via DORIS_CHECK rather than
-                    // silently dropping the row's tokens.
-                    DORIS_CHECK(stream != nullptr);
-                    stream->reset();
-                    lucene::analysis::Token tok;
-                    int32_t pos = -1;
-                    bool first_token = true;
-                    while (stream->next(&tok) != nullptr) {
-                        pos += tok.getPositionIncrement();
-                        if (first_token && pos < 0) {
-                            pos = 0;
-                        }
-                        first_token = false;
-                        const char* term_buf = tok.template termBuffer<char>();
-                        const size_t term_len = tok.template termLength<char>();
-                        // Skip zero-length tokens (legitimate output of
-                        // some filters). `term_buf` is non-null by
-                        // analyzer contract when term_len > 0 — no
-                        // defensive guard.
-                        if (term_len > 0) {
-                            _spimi_buffer->Append(std::string_view(term_buf, term_len),
-                                                  static_cast<uint32_t>(_rid),
-                                                  static_cast<uint32_t>(pos));
-                            // Mid-row saturation check. The buffer's
-                            // `Append` is silently no-op once
-                            // saturated; without polling here the
-                            // remaining tokens of THIS row would be
-                            // silently dropped before the outer row-
-                            // boundary poll catches it. Throw inside
-                            // the try so the existing catch records
-                            // context + calls close_on_error.
-                            if (_spimi_buffer->Saturated()) [[unlikely]] {
-                                _CLTHROWA(CL_ERR_IO,
-                                          "V4 SPIMI buffer saturated mid-row: "
-                                          "subsequent tokens would be dropped");
+                    if ((!_should_analyzer && v->get_size() > _ignore_above) ||
+                        (_should_analyzer && v->empty())) {
+                        // Empty / over-limit value → no tokens to index,
+                        // but the ROW IS NOT NULL. `_null_bitmap` must
+                        // mirror only true upstream nulls (added by
+                        // `add_nulls`); empty strings have a non-null
+                        // column value of "" and `IS NULL` must return
+                        // false for them. Mirrors V2's behavior at
+                        // `add_values:615` which calls `add_null_document`
+                        // (a CLucene "null-doc" marker that does NOT
+                        // touch `_null_bitmap`). The earlier V4 impl
+                        // added these to `_null_bitmap`, causing
+                        // `WHERE body IS NULL` to incorrectly return
+                        // empty-string rows.
+                    } else if (_should_analyzer) {
+                        // Tokenize. Mirror TeeTokenStream::next: position
+                        // accumulator clamped to 0 on first token to
+                        // handle the synonym-overlay-as-first-token edge
+                        // case CLucene's DocumentsWriter normalises.
+                        _char_string_reader->init(v->get_data(), cast_set<int32_t>(v->get_size()),
+                                                  false);
+                        auto* stream = _analyzer->reusableTokenStream(_field_name.c_str(),
+                                                                      _char_string_reader);
+                        // `reusableTokenStream` returning null means the
+                        // analyzer is mis-configured at init time — a
+                        // programmer error, not a runtime input. Per
+                        // CLAUDE.md's "assert correctness, no defensive
+                        // if" rule, crash via DORIS_CHECK rather than
+                        // silently dropping the row's tokens.
+                        DORIS_CHECK(stream != nullptr);
+                        stream->reset();
+                        lucene::analysis::Token tok;
+                        int32_t pos = -1;
+                        bool first_token = true;
+                        while (stream->next(&tok) != nullptr) {
+                            pos += tok.getPositionIncrement();
+                            if (first_token && pos < 0) {
+                                pos = 0;
+                            }
+                            first_token = false;
+                            const char* term_buf = tok.template termBuffer<char>();
+                            const size_t term_len = tok.template termLength<char>();
+                            // Skip zero-length tokens (legitimate output of
+                            // some filters). `term_buf` is non-null by
+                            // analyzer contract when term_len > 0 — no
+                            // defensive guard.
+                            if (term_len > 0) {
+                                _spimi_buffer->Append(std::string_view(term_buf, term_len),
+                                                      static_cast<uint32_t>(_rid),
+                                                      static_cast<uint32_t>(pos));
+                                // Mid-row saturation check. The buffer's
+                                // `Append` is silently no-op once
+                                // saturated; without polling here the
+                                // remaining tokens of THIS row would be
+                                // silently dropped before the outer row-
+                                // boundary poll catches it. Throw inside
+                                // the try so the existing catch records
+                                // context + calls close_on_error.
+                                if (_spimi_buffer->Saturated()) [[unlikely]] {
+                                    _CLTHROWA(CL_ERR_IO,
+                                              "V4 SPIMI buffer saturated mid-row: "
+                                              "subsequent tokens would be dropped");
+                                }
                             }
                         }
+                    } else {
+                        // Non-analyzed (keyword) string: append whole
+                        // value at position 0 — same semantics CLucene's
+                        // setValue(char*, len) produces.
+                        _spimi_buffer->Append(std::string_view(v->get_data(), v->get_size()),
+                                              static_cast<uint32_t>(_rid), 0);
                     }
-                } else {
-                    // Non-analyzed (keyword) string: append whole
-                    // value at position 0 — same semantics CLucene's
-                    // setValue(char*, len) produces.
-                    _spimi_buffer->Append(std::string_view(v->get_data(), v->get_size()),
-                                          static_cast<uint32_t>(_rid), 0);
-                }
-                // Poll saturation after each row's worth of Appends.
-                // The buffer's `Append` is void / silent on
-                // saturation — under V4 we must surface the error
-                // immediately instead of letting subsequent rows
-                // silently drop their tokens before `finish()`
-                // ultimately fails. Shadow mode (V1/V2/V3) keeps the
-                // existing silent-drop behaviour: CLucene is the
-                // primary, the shadow buffer is best-effort.
-                if (_spimi_buffer->Saturated()) [[unlikely]] {
-                    return Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
-                            "V4 SPIMI buffer saturated mid-batch for field {}: subsequent tokens "
-                            "would be dropped silently",
-                            std::string(_field_name.begin(), _field_name.end()));
-                }
-                if (static_cast<int32_t>(_rid) + 1 > _spimi_doc_count) {
-                    _spimi_doc_count = static_cast<int32_t>(_rid) + 1;
-                }
-                ++v;
-                _rid++;
+                    // Poll saturation after each row's worth of Appends.
+                    // The buffer's `Append` is void / silent on
+                    // saturation — under V4 we must surface the error
+                    // immediately instead of letting subsequent rows
+                    // silently drop their tokens before `finish()`
+                    // ultimately fails. Shadow mode (V1/V2/V3) keeps the
+                    // existing silent-drop behaviour: CLucene is the
+                    // primary, the shadow buffer is best-effort.
+                    if (_spimi_buffer->Saturated()) [[unlikely]] {
+                        return Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
+                                "V4 SPIMI buffer saturated mid-batch for field {}: subsequent "
+                                "tokens "
+                                "would be dropped silently",
+                                std::string(_field_name.begin(), _field_name.end()));
+                    }
+                    if (static_cast<int32_t>(_rid) + 1 > _spimi_doc_count) {
+                        _spimi_doc_count = static_cast<int32_t>(_rid) + 1;
+                    }
+                    ++v;
+                    _rid++;
                 }
             } catch (const CLuceneError& e) {
                 close_on_error();
@@ -577,8 +572,8 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
                 // doris::Exception from DORIS_CHECK or downstream
                 // (e.g. SpimiPostingBuffer's DCHECK paths).
                 close_on_error();
-                return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "V4 SPIMI add_values error: {}", e.what());
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("V4 SPIMI add_values error: {}",
+                                                                e.what());
             }
             return Status::OK();
         }
@@ -642,13 +637,6 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
                     "V4 storage format does not yet support ARRAY<string> inverted index "
                     "columns; use V1/V2/V3 for arrays.");
         }
-    }
-    // C2 — release the shadow buffer at the very first array call,
-    // *before* the count==0 early return and before the nullptr-check
-    // for `_index_writer`. See `release_spimi_shadow_for_array_path()`
-    // for the contract.
-    if constexpr (field_is_slice_type(field_type)) {
-        release_spimi_shadow_for_array_path();
     }
     if (count == 0) {
         // no values to add inverted index
@@ -816,20 +804,18 @@ Status InvertedIndexColumnWriter<field_type>::add_value(const CppType& value) {
 
 template <FieldType field_type>
 int64_t InvertedIndexColumnWriter<field_type>::size() const {
-    int64_t size = cast_set<int64_t>(_null_bitmap.getSizeInBytes(false));
+    // V4 path reports the SPIMI posting buffer's resident bytes; this is
+    // where the segment memory estimate sees the V4 writer's working
+    // set. V1/V2/V3 keep master's "TODO 0" behaviour — the CLucene-side
+    // memory accounting + cap is the precursor PR's job, not this one.
     if constexpr (field_is_slice_type(field_type)) {
         if (_is_v4) {
-            // V4: memory is the compact SPIMI buffer, no CLucene
-            // IndexWriter to account for. This is where the 50%+
-            // RAM saving shows up vs V1/V2/V3.
-            size += static_cast<int64_t>(_spimi_buffer != nullptr ? _spimi_buffer->MemoryUsage()
-                                                                  : 0);
-        } else if (_should_analyzer) {
-            size += index_writer_memory_size(_index_writer);
+            return static_cast<int64_t>(_spimi_buffer != nullptr ? _spimi_buffer->MemoryUsage()
+                                                                 : 0);
         }
     }
-    size += ram_directory_memory_size(_dir);
-    return size;
+    //TODO: get memory size of inverted index
+    return 0;
 }
 
 template <FieldType field_type>
@@ -1008,15 +994,14 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
                     // regression only). Throws INVERTED_INDEX_FILE_CORRUPTED
                     // and is funnelled through the doris::Exception catch
                     // below for the standard error_context cleanup.
-                    spimi::SpimiSegmentFileNames seg_names {
-                            .tis = tis_name,
-                            .tii = tii_name,
-                            .frq = frq_name,
-                            .prx = prx_name,
-                            .fnm = fnm_name,
-                            .nrm = nrm_name,
-                            .segments_n = seg_n_name,
-                            .segments_gen = seg_gen_name};
+                    spimi::SpimiSegmentFileNames seg_names {.tis = tis_name,
+                                                            .tii = tii_name,
+                                                            .frq = frq_name,
+                                                            .prx = prx_name,
+                                                            .fnm = fnm_name,
+                                                            .nrm = nrm_name,
+                                                            .segments_n = seg_n_name,
+                                                            .segments_gen = seg_gen_name};
                     spimi::ValidateClosedSegmentByteCounts(_dir.get(), seg_names, byte_counts);
                     _spimi_buffer.reset();
                 }
@@ -1082,17 +1067,6 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
 // reference (which would silently rely on a later implicit instantiation
 // from the call sites, a build-fragility landmine if the call sites ever
 // move to another TU).
-template <FieldType field_type>
-void InvertedIndexColumnWriter<field_type>::release_spimi_shadow_for_array_path() {
-    if (_spimi_buffer == nullptr) {
-        return;
-    }
-    LOG_FIRST_N(WARNING, 1) << "SPIMI shadow accumulator is not supported for "
-                               "array<string> full-text columns; releasing buffer for field "
-                            << std::string(_field_name.begin(), _field_name.end());
-    _spimi_buffer.reset();
-}
-
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_CHAR>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_STRING>;

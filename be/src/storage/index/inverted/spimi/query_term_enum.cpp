@@ -123,8 +123,8 @@ private:
 } // namespace
 
 SpimiQueryTermEnum::SpimiQueryTermEnum(const uint8_t* tis_data, size_t tis_length,
-                                           int32_t skip_interval,
-                                           std::vector<std::wstring> field_names_by_number)
+                                       int32_t skip_interval,
+                                       std::vector<std::wstring> field_names_by_number)
         : _tis_data(tis_data),
           _skip_interval(skip_interval),
           _field_names_by_number(std::move(field_names_by_number)),

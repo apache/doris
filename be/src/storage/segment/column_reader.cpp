@@ -52,10 +52,10 @@
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/bloom_filter/bloom_filter_index_reader.h"
 #include "storage/index/index_file_reader.h"
-#include "storage/index/inverted/spimi/spimi_fulltext_index_reader.h"
 #include "storage/index/index_reader.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/inverted/spimi/spimi_fulltext_index_reader.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
@@ -657,10 +657,9 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
                 // the existing CLucene-backed FullTextIndexReader.
                 // Format flows from the FE CREATE TABLE PROPERTIES
                 // through the tablet schema PB into IndexFileReader.
-                if (index_file_reader->get_storage_format() ==
-                    InvertedIndexStorageFormatPB::V4) {
-                    index_reader = SpimiFulltextIndexReader::create_shared(index_meta,
-                                                                           index_file_reader);
+                if (index_file_reader->get_storage_format() == InvertedIndexStorageFormatPB::V4) {
+                    index_reader =
+                            SpimiFulltextIndexReader::create_shared(index_meta, index_file_reader);
                 } else {
                     index_reader =
                             FullTextIndexReader::create_shared(index_meta, index_file_reader);

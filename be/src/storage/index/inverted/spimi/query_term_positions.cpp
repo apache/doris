@@ -23,10 +23,11 @@
 
 namespace doris::segment_v2::inverted_index::spimi {
 
-SpimiQueryTermPositions::SpimiQueryTermPositions(
-        const TermDictReader* term_dict, const uint8_t* frq_data, size_t frq_length,
-        const uint8_t* prx_data, size_t prx_length, const std::vector<FieldInfoEntry>* field_infos,
-        const std::vector<std::wstring>* field_names_wide)
+SpimiQueryTermPositions::SpimiQueryTermPositions(const TermDictReader* term_dict,
+                                                 const uint8_t* frq_data, size_t frq_length,
+                                                 const uint8_t* prx_data, size_t prx_length,
+                                                 const std::vector<FieldInfoEntry>* field_infos,
+                                                 const std::vector<std::wstring>* field_names_wide)
         : SpimiQueryTermDocs(term_dict, frq_data, frq_length, field_infos, field_names_wide),
           _prx_data(prx_data),
           _prx_length(prx_length) {
@@ -72,8 +73,8 @@ void SpimiQueryTermPositions::LoadPositionsForCurrentTerm() {
     // Same untrusted-byte bounds check as for freq_pointer in the
     // TermDocs base. `ti->prox_pointer` is a VLong sum from `.tis`;
     // unchecked pointer arithmetic on a corrupt segment is UB.
-    if (ti->prox_pointer < 0 ||
-        static_cast<uint64_t>(ti->prox_pointer) > _prx_length) [[unlikely]] {
+    if (ti->prox_pointer < 0 || static_cast<uint64_t>(ti->prox_pointer) > _prx_length)
+            [[unlikely]] {
         _CLTHROWA(CL_ERR_IO, "SPIMI .tis prox_pointer out of .prx bounds");
     }
     const auto fp = static_cast<size_t>(ti->prox_pointer);
@@ -82,8 +83,8 @@ void SpimiQueryTermPositions::LoadPositionsForCurrentTerm() {
     // (INVERTED_INDEX_FILE_CORRUPTED) on malformed `.prx` bytes;
     // the CLucene query engine only catches CLuceneError.
     try {
-        _positions = SpimiProxReader::ReadPositions(_prx_data + fp, _prx_length - fp,
-                                                    freqs_per_doc);
+        _positions =
+                SpimiProxReader::ReadPositions(_prx_data + fp, _prx_length - fp, freqs_per_doc);
     } catch (const ::doris::Exception& e) {
         _CLTHROWA(CL_ERR_IO, e.what());
     }
@@ -158,8 +159,7 @@ int32_t SpimiQueryTermPositions::nextPosition() {
     return doc_positions[static_cast<size_t>(_pos_index++)];
 }
 
-int32_t SpimiQueryTermPositions::read(int32_t* /*docs*/, int32_t* /*freqs*/,
-                                        int32_t /*length*/) {
+int32_t SpimiQueryTermPositions::read(int32_t* /*docs*/, int32_t* /*freqs*/, int32_t /*length*/) {
     // Match `SegmentTermPositions::read` semantics: throw rather
     // than silently return 0. Doris's current query paths use
     // `readRange` / `next` / `nextPosition`; a future composition
@@ -170,7 +170,7 @@ int32_t SpimiQueryTermPositions::read(int32_t* /*docs*/, int32_t* /*freqs*/,
 }
 
 int32_t SpimiQueryTermPositions::read(int32_t* /*docs*/, int32_t* /*freqs*/, int32_t* /*norms*/,
-                                        int32_t /*length*/) {
+                                      int32_t /*length*/) {
     _CLTHROWA(CL_ERR_UnsupportedOperation,
               "SpimiQueryTermPositions::read is unsupported; use next() + nextPosition()");
 }

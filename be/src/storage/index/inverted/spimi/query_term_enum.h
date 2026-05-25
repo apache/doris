@@ -60,7 +60,7 @@ namespace doris::segment_v2::inverted_index::spimi {
 class SpimiQueryTermEnum final : public lucene::index::TermEnum {
 public:
     SpimiQueryTermEnum(const uint8_t* tis_data, size_t tis_length, int32_t skip_interval,
-                         std::vector<std::wstring> field_names_by_number);
+                       std::vector<std::wstring> field_names_by_number);
 
     ~SpimiQueryTermEnum() override;
 

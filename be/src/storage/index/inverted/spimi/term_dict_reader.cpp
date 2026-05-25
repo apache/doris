@@ -234,8 +234,7 @@ TermDictReader::TermDictReader(const std::vector<uint8_t>& tis_bytes,
     int32_t tii_skip_interval = 0;
     const size_t tii_data_start = DecodeHeader(tii_bytes, &tii_index_interval, &tii_skip_interval);
     _tis_data_start = DecodeHeader(_tis_bytes, &_index_interval, &_skip_interval);
-    if (tii_index_interval != _index_interval || tii_skip_interval != _skip_interval)
-            [[unlikely]] {
+    if (tii_index_interval != _index_interval || tii_skip_interval != _skip_interval) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .tii / .tis index/skip interval mismatch");
     }
 

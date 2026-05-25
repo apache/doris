@@ -18,19 +18,19 @@
 #include "storage/index/inverted/spimi/query_index_reader.h"
 
 #include "common/logging.h"
+#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/query_term_docs.h"
 #include "storage/index/inverted/spimi/query_term_enum.h"
 #include "storage/index/inverted/spimi/query_term_positions.h"
-#include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/segment_reader.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
 SpimiQueryIndexReader::SpimiQueryIndexReader(std::vector<uint8_t> tis_bytes,
-                                                 std::vector<uint8_t> tii_bytes,
-                                                 std::vector<uint8_t> frq_bytes,
-                                                 std::vector<uint8_t> prx_bytes,
-                                                 std::vector<uint8_t> fnm_bytes, int32_t max_doc)
+                                             std::vector<uint8_t> tii_bytes,
+                                             std::vector<uint8_t> frq_bytes,
+                                             std::vector<uint8_t> prx_bytes,
+                                             std::vector<uint8_t> fnm_bytes, int32_t max_doc)
         : _tis_bytes(std::move(tis_bytes)),
           _tii_bytes(std::move(tii_bytes)),
           _frq_bytes(std::move(frq_bytes)),
@@ -74,12 +74,12 @@ void SpimiQueryIndexReader::BuildCLuceneFieldInfos() {
 }
 
 lucene::index::TermEnum* SpimiQueryIndexReader::terms(const void* /*io_ctx*/) {
-    return new SpimiQueryTermEnum(_tis_bytes.data(), _tis_bytes.size(),
-                                    _term_dict->SkipInterval(), _field_names_wide);
+    return new SpimiQueryTermEnum(_tis_bytes.data(), _tis_bytes.size(), _term_dict->SkipInterval(),
+                                  _field_names_wide);
 }
 
 lucene::index::TermEnum* SpimiQueryIndexReader::terms(const lucene::index::Term* t,
-                                                        const void* io_ctx) {
+                                                      const void* io_ctx) {
     auto* en = terms(io_ctx);
     if (t == nullptr) {
         return en;
@@ -92,16 +92,16 @@ lucene::index::TermEnum* SpimiQueryIndexReader::terms(const lucene::index::Term*
 }
 
 lucene::index::TermDocs* SpimiQueryIndexReader::termDocs(bool /*load_stats*/,
-                                                           const void* /*io_ctx*/) {
+                                                         const void* /*io_ctx*/) {
     return new SpimiQueryTermDocs(_term_dict.get(), _frq_bytes.data(), _frq_bytes.size(),
-                                    &_field_infos_entries, &_field_names_wide);
+                                  &_field_infos_entries, &_field_names_wide);
 }
 
 lucene::index::TermPositions* SpimiQueryIndexReader::termPositions(bool /*load_stats*/,
-                                                                     const void* /*io_ctx*/) {
+                                                                   const void* /*io_ctx*/) {
     return new SpimiQueryTermPositions(_term_dict.get(), _frq_bytes.data(), _frq_bytes.size(),
-                                         _prx_bytes.data(), _prx_bytes.size(),
-                                         &_field_infos_entries, &_field_names_wide);
+                                       _prx_bytes.data(), _prx_bytes.size(), &_field_infos_entries,
+                                       &_field_names_wide);
 }
 
 int32_t SpimiQueryIndexReader::docFreq(const lucene::index::Term* t) {
@@ -187,7 +187,7 @@ void SpimiQueryIndexReader::norms(const wchar_t* field, uint8_t* bytes) {
 }
 
 void SpimiQueryIndexReader::getFieldNames(FieldOption fld_option,
-                                            StringArrayWithDeletor& retarray) {
+                                          StringArrayWithDeletor& retarray) {
     for (const auto& entry : _field_infos_entries) {
         bool include = false;
         switch (fld_option) {

@@ -26,8 +26,8 @@
 #include <string>
 #include <vector>
 
-#include "storage/index/inverted/spimi/field_infos_writer.h"
 #include "storage/index/inverted/spimi/byte_output.h"
+#include "storage/index/inverted/spimi/field_infos_writer.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/segment_writer.h"
 

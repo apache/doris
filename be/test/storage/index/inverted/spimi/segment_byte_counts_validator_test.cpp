@@ -132,8 +132,7 @@ EmittedSegmentByteCounts EmitSampleSegment(lucene::store::RAMDirectory* dir, boo
                                .segments_n = &a_sn,
                                .segments_gen = &a_sg};
         SpimiFulltextWriter::EmitSegment(buffer, sink, "_0", "body",
-                                         /*doc_count=*/3,
-                                         FieldInfosWriter::kIndexVersionV0,
+                                         /*doc_count=*/3, FieldInfosWriter::kIndexVersionV0,
                                          /*omit_term_freq_and_positions=*/false, omit_norms,
                                          &counts);
     }

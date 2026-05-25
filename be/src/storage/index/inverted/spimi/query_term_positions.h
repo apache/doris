@@ -59,12 +59,12 @@ namespace doris::segment_v2::inverted_index::spimi {
 // production fulltext path does not consume them. The payload-API
 // virtuals return zero / nullptr / false.
 class SpimiQueryTermPositions final : public SpimiQueryTermDocs,
-                                        public lucene::index::TermPositions {
+                                      public lucene::index::TermPositions {
 public:
     SpimiQueryTermPositions(const TermDictReader* term_dict, const uint8_t* frq_data,
-                              size_t frq_length, const uint8_t* prx_data, size_t prx_length,
-                              const std::vector<FieldInfoEntry>* field_infos,
-                              const std::vector<std::wstring>* field_names_wide);
+                            size_t frq_length, const uint8_t* prx_data, size_t prx_length,
+                            const std::vector<FieldInfoEntry>* field_infos,
+                            const std::vector<std::wstring>* field_names_wide);
 
     ~SpimiQueryTermPositions() override;
 

@@ -183,8 +183,7 @@ std::vector<SpimiTermDocsReader::DocFreq> SpimiTermDocsReader::ReadTerm(const ui
         // can't silently corrupt the read.
         const int32_t recorded = cur.ReadVInt();
         if (recorded != doc_freq) [[unlikely]] {
-            SPIMI_THROW_CORRUPT(
-                    "SPIMI .frq kDefault VInt(docCount) disagrees with .tis docFreq");
+            SPIMI_THROW_CORRUPT("SPIMI .frq kDefault VInt(docCount) disagrees with .tis docFreq");
         }
         int32_t last_doc = 0;
         for (int32_t i = 0; i < doc_freq; ++i) {

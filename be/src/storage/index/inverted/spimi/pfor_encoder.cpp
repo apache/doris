@@ -26,8 +26,8 @@
 #include <cstring>
 
 #include "common/logging.h"
-#include "storage/index/inverted/spimi/byte_parser_error.h"
 #include "storage/index/inverted/spimi/byte_output.h"
+#include "storage/index/inverted/spimi/byte_parser_error.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 

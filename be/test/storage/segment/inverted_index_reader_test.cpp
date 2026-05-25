@@ -4388,9 +4388,8 @@ TEST_F(InvertedIndexReaderTest, SpimiV4SingleQueryProbe) {
     q_opts.enable_inverted_index_searcher_cache = false;
     runtime_state.set_query_options(q_opts);
 
-    auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
-                                                    index_path_prefix,
-                                                    InvertedIndexStorageFormatPB::V4);
+    auto reader = std::make_shared<IndexFileReader>(
+            io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V4);
     ASSERT_TRUE(reader->init().ok());
 
     // Critical: V4 segments need `SpimiFulltextIndexReader`, NOT the
@@ -4406,10 +4405,10 @@ TEST_F(InvertedIndexReaderTest, SpimiV4SingleQueryProbe) {
     ctx->runtime_state = &runtime_state;
 
     std::string query_term = "common_term";
-    StringRef qref(query_term.c_str(), query_term.length());
+    Field qfield = Field::create_field<TYPE_STRING>(query_term);
     auto bitmap = std::make_shared<roaring::Roaring>();
-    auto st = str_reader->query(ctx, "1", &qref, InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                                bitmap);
+    auto st =
+            str_reader->query(ctx, "1", qfield, InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
     EXPECT_TRUE(st.ok()) << st;
     EXPECT_EQ(bitmap->cardinality(), 600) << "V4 query on 'common_term' should match 600 docs";
 }
@@ -4471,8 +4470,7 @@ TEST_F(InvertedIndexReaderTest, SpimiV2V4QueryLatencyBenchmark) {
         q_opts.enable_inverted_index_searcher_cache = false;
         runtime_state.set_query_options(q_opts);
 
-        auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix,
-                                                        fmt);
+        auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix, fmt);
         EXPECT_TRUE(reader->init().ok());
 
         // Production-correct dispatch: V4 needs SpimiFulltextIndexReader
@@ -4491,10 +4489,10 @@ TEST_F(InvertedIndexReaderTest, SpimiV2V4QueryLatencyBenchmark) {
         ctx->stats = &stats;
         ctx->runtime_state = &runtime_state;
 
-        StringRef qref(term.c_str(), term.length());
+        Field qfield = Field::create_field<TYPE_STRING>(term);
         auto bitmap = std::make_shared<roaring::Roaring>();
         const auto t0 = std::chrono::steady_clock::now();
-        auto st = str_reader->query(ctx, "1", &qref, qtype, bitmap);
+        auto st = str_reader->query(ctx, "1", qfield, qtype, bitmap);
         const auto t1 = std::chrono::steady_clock::now();
         EXPECT_TRUE(st.ok()) << st;
         *out_matches = bitmap->cardinality();
@@ -4531,8 +4529,8 @@ TEST_F(InvertedIndexReaderTest, SpimiV2V4QueryLatencyBenchmark) {
                 << tag << " '" << term << "': V2 matched " << v2_matches << " docs, V4 matched "
                 << v4_matches << " — V4 read path returns different result set";
         ASSERT_EQ(v2_matches, expected_matches)
-                << tag << " '" << term << "': matched " << v2_matches
-                << " docs, expected " << expected_matches;
+                << tag << " '" << term << "': matched " << v2_matches << " docs, expected "
+                << expected_matches;
 
         auto summarize = [](std::vector<double> s) {
             s.erase(s.begin(), s.begin() + 2); // drop warmups
@@ -4553,9 +4551,9 @@ TEST_F(InvertedIndexReaderTest, SpimiV2V4QueryLatencyBenchmark) {
         const double ratio = v4[2] / v2[2];
         std::cerr << "[query-bench][" << tag << " '" << term << "'] matches=" << v2_matches
                   << "; V2 min/p25/median/p75/max = " << us(v2[0]) << "/" << us(v2[1]) << "/"
-                  << us(v2[2]) << "/" << us(v2[3]) << "/" << us(v2[4])
-                  << " us; V4 = " << us(v4[0]) << "/" << us(v4[1]) << "/" << us(v4[2]) << "/"
-                  << us(v4[3]) << "/" << us(v4[4]) << " us; ratio(median) " << ratio << "\n";
+                  << us(v2[2]) << "/" << us(v2[3]) << "/" << us(v2[4]) << " us; V4 = " << us(v4[0])
+                  << "/" << us(v4[1]) << "/" << us(v4[2]) << "/" << us(v4[3]) << "/" << us(v4[4])
+                  << " us; ratio(median) " << ratio << "\n";
 
         // V4's reader goes through one extra layer of indirection
         // (SpimiQueryIndexReader wrapping CLucene-shaped APIs). >2x

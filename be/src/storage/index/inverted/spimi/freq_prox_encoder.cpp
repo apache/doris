@@ -26,9 +26,8 @@
 
 namespace doris::segment_v2::inverted_index::spimi {
 
-FreqProxEncoder::FreqProxEncoder(ByteOutput* frq_out, ByteOutput* prx_out,
-                                 int32_t skip_interval, int32_t max_skip_levels,
-                                 bool omit_term_freq_and_positions)
+FreqProxEncoder::FreqProxEncoder(ByteOutput* frq_out, ByteOutput* prx_out, int32_t skip_interval,
+                                 int32_t max_skip_levels, bool omit_term_freq_and_positions)
         : _frq_out(frq_out),
           _prx_out(prx_out),
           _skip_interval(skip_interval),

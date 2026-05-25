@@ -68,9 +68,11 @@ public:
     // identifies V4/SPIMI to the user. Without this, the message
     // says "FullTextIndexReader not support try_query" which
     // misattributes the operation to the CLucene path in profiling
-    // and user-facing diagnostics.
+    // and user-facing diagnostics. Signature mirrors the base
+    // class — note `const Field&` (master refactor changed from
+    // `const void*` to a typed reference).
     Status try_query(const IndexQueryContextPtr& /*context*/, const std::string& /*column_name*/,
-                     const void* /*query_value*/, InvertedIndexQueryType /*query_type*/,
+                     const Field& /*query_value*/, InvertedIndexQueryType /*query_type*/,
                      size_t* /*count*/) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "SpimiFulltextIndexReader (V4) does not support try_query");

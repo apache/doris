@@ -80,8 +80,8 @@ namespace doris::segment_v2::inverted_index::spimi {
 class SpimiQueryIndexReader final : public lucene::index::IndexReader {
 public:
     SpimiQueryIndexReader(std::vector<uint8_t> tis_bytes, std::vector<uint8_t> tii_bytes,
-                            std::vector<uint8_t> frq_bytes, std::vector<uint8_t> prx_bytes,
-                            std::vector<uint8_t> fnm_bytes, int32_t max_doc);
+                          std::vector<uint8_t> frq_bytes, std::vector<uint8_t> prx_bytes,
+                          std::vector<uint8_t> fnm_bytes, int32_t max_doc);
 
     ~SpimiQueryIndexReader() override;
 
