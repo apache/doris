@@ -31,15 +31,19 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Unit tests for the strict workload_group property format enforced by
+ * Unit tests for the workload_group property format enforced by
  * {@link WorkloadSchedPolicyMgr#checkProperties(Map, List)}.
  *
- * Regression coverage for CIR-20210 / CIR-20211. The new contract:
+ * The contract:
  *
  *   - Cloud mode    : workload_group must be '<compute_group>.<workload_group>'.
- *   - Non-cloud mode: workload_group must be '<workload_group>' (no prefix).
+ *   - Non-cloud mode: workload_group may be '<workload_group>' (defaulting the
+ *                     resource group to Tag.VALUE_DEFAULT_TAG) or the
+ *                     '<resource_group>.<workload_group>' form — the dotted
+ *                     prefix is a resource group (Tag) here, sharing the cloud-mode
+ *                     grammar purely for consistency.
  *
- * Both invalid forms must be rejected BEFORE any compute-group lookup, so the
+ * Invalid forms must be rejected BEFORE any compute-group lookup, so the
  * rejection is exercisable here without bootstrapping the full Env.
  */
 public class WorkloadSchedPolicyMgrTest {
@@ -98,16 +102,19 @@ public class WorkloadSchedPolicyMgrTest {
     }
 
     @Test
-    public void testNonCloudModeRejectsQualifiedWorkloadGroup() {
+    public void testNonCloudModeRejectsTooManyDotsInWorkloadGroup() {
+        // The '<resource_group>.<workload_group>' form is allowed in non-cloud mode, but
+        // anything with more than one dot is still ambiguous and must be rejected before
+        // any lookup.
         Config.deploy_mode = "share_nothing";
         Config.cloud_unique_id = "";
         Assert.assertFalse(Config.isCloudMode());
 
         try {
-            mgr.checkProperties(propsWith("etl.superset"), new ArrayList<>());
-            Assert.fail("expected UserException for qualified workload_group in non-cloud mode");
+            mgr.checkProperties(propsWith("etl.superset.extra"), new ArrayList<>());
+            Assert.fail("expected UserException for over-qualified workload_group in non-cloud mode");
         } catch (UserException e) {
-            Assert.assertTrue("message should mention single-name form; got: " + e.getMessage(),
+            Assert.assertTrue("message should mention the allowed forms; got: " + e.getMessage(),
                     e.getMessage().contains("<workload_group>"));
             Assert.assertTrue("message should mention non-cloud mode; got: " + e.getMessage(),
                     e.getMessage().contains("non-cloud mode"));
@@ -165,12 +172,32 @@ public class WorkloadSchedPolicyMgrTest {
         Assert.assertFalse(Config.isCloudMode());
 
         // "wg." splits to ["wg", ""]; previously split("\\.") would drop the trailing
-        // empty segment and let this pass, but the contract forbids any qualifier.
+        // empty segment and let this pass. With split(..., -1) the empty workload-group
+        // component is detected and rejected before lookup.
         try {
             mgr.checkProperties(propsWith("wg."), new ArrayList<>());
             Assert.fail("expected UserException for trailing-dot workload_group in non-cloud mode");
         } catch (UserException e) {
-            Assert.assertTrue("message should mention single-name form; got: " + e.getMessage(),
+            Assert.assertTrue("message should mention the allowed forms; got: " + e.getMessage(),
+                    e.getMessage().contains("<workload_group>"));
+            Assert.assertTrue("message should mention non-cloud mode; got: " + e.getMessage(),
+                    e.getMessage().contains("non-cloud mode"));
+        }
+    }
+
+    @Test
+    public void testNonCloudModeRejectsLeadingDotInWorkloadGroup() {
+        Config.deploy_mode = "share_nothing";
+        Config.cloud_unique_id = "";
+        Assert.assertFalse(Config.isCloudMode());
+
+        // ".wg" splits to ["", "wg"]; the empty resource-group component must be
+        // rejected rather than falling through with an empty cg name.
+        try {
+            mgr.checkProperties(propsWith(".wg"), new ArrayList<>());
+            Assert.fail("expected UserException for leading-dot workload_group in non-cloud mode");
+        } catch (UserException e) {
+            Assert.assertTrue("message should mention the allowed forms; got: " + e.getMessage(),
                     e.getMessage().contains("<workload_group>"));
             Assert.assertTrue("message should mention non-cloud mode; got: " + e.getMessage(),
                     e.getMessage().contains("non-cloud mode"));

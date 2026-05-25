@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -107,10 +108,20 @@ public class CreateWorkloadGroupCommand extends Command implements ForwardWithSy
                 throw new UserException("Can not find compute group " + originStr + ".");
             }
         } else {
-            if (!StringUtils.isEmpty(computeGroup)) {
-                throw new UserException("'FOR <compute_group>' is not supported in non-cloud mode.");
+            // In non-cloud mode, 'FOR <compute_group>' is also supported syntactically, but
+            // the value here actually refers to a resource group (Tag) — there are no real
+            // compute groups in non-cloud mode. The grammar is shared with cloud mode purely
+            // for consistency. When the clause is omitted, fall back to the default resource
+            // group Tag.VALUE_DEFAULT_TAG.
+            if (StringUtils.isEmpty(computeGroup)) {
+                computeGroup = Tag.VALUE_DEFAULT_TAG;
+            } else {
+                try {
+                    FeNameFormat.checkCommonName("Workload group's compute group", computeGroup);
+                } catch (AnalysisException e) {
+                    throw new DdlException("Compute group's format is illegal: " + computeGroup);
+                }
             }
-            computeGroup = Tag.VALUE_DEFAULT_TAG;
         }
 
         // Create workload group

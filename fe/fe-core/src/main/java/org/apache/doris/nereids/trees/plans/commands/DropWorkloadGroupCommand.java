@@ -81,10 +81,14 @@ public class DropWorkloadGroupCommand extends DropCommand {
                 computeGroup = clusterId;
             }
         } else {
-            if (!StringUtils.isEmpty(computeGroup)) {
-                throw new UserException("'FOR <compute_group>' is not supported in non-cloud mode.");
+            // In non-cloud mode, 'FOR <compute_group>' is also supported syntactically, but
+            // the value here actually refers to a resource group (Tag) — there are no real
+            // compute groups in non-cloud mode. The grammar is shared with cloud mode purely
+            // for consistency. When the clause is omitted, fall back to the default resource
+            // group Tag.VALUE_DEFAULT_TAG.
+            if (StringUtils.isEmpty(computeGroup)) {
+                computeGroup = Tag.VALUE_DEFAULT_TAG;
             }
-            computeGroup = Tag.VALUE_DEFAULT_TAG;
         }
         Env.getCurrentEnv().getWorkloadGroupMgr().dropWorkloadGroup(computeGroup, workloadGroupName, ifExists);
     }

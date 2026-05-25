@@ -461,14 +461,31 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
                 cg = ss[0];
                 wg = ss[1];
             } else {
-                // Non-cloud mode has a single implicit compute group; only the workload group
-                // name is allowed.
-                if (ss.length != 1 || ss[0].isEmpty()) {
-                    throw new UserException("workload_group must be '<workload_group>' "
-                            + "(no compute group prefix) in non-cloud mode, got: " + workloadGroupNameStr);
+                // Non-cloud mode also accepts the '<compute_group>.<workload_group>' form for
+                // grammar consistency with cloud mode, but the prefix here actually refers to
+                // a resource group (Tag), not a real compute group. The bare '<workload_group>'
+                // form is also accepted and defaults the resource group to Tag.VALUE_DEFAULT_TAG.
+                if (ss.length == 1) {
+                    if (ss[0].isEmpty()) {
+                        throw new UserException("workload_group must be '<workload_group>' or "
+                                + "'<resource_group>.<workload_group>' in non-cloud mode, got: "
+                                + workloadGroupNameStr);
+                    }
+                    cg = Tag.VALUE_DEFAULT_TAG;
+                    wg = ss[0];
+                } else if (ss.length == 2) {
+                    if (ss[0].isEmpty() || ss[1].isEmpty()) {
+                        throw new UserException("workload_group must be '<workload_group>' or "
+                                + "'<resource_group>.<workload_group>' in non-cloud mode, got: "
+                                + workloadGroupNameStr);
+                    }
+                    cg = ss[0];
+                    wg = ss[1];
+                } else {
+                    throw new UserException("workload_group must be '<workload_group>' or "
+                            + "'<resource_group>.<workload_group>' in non-cloud mode, got: "
+                            + workloadGroupNameStr);
                 }
-                cg = Tag.VALUE_DEFAULT_TAG;
-                wg = ss[0];
             }
             ConnectContext tmpCtx = new ConnectContext();
             tmpCtx.setComputeGroup(
