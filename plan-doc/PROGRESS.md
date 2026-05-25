@@ -1,6 +1,6 @@
 # 📊 项目进度仪表盘
 
-> 最后更新：**2026-05-24（晚）** | 当前阶段：**P0 SPI 缺口补齐**（批 0 SPI 接口完成，待 fe-core 桥接） | 项目总进度：**8%**
+> 最后更新：**2026-05-24（深夜）** | 当前阶段：**P0 SPI 缺口补齐**（批 0 完成，下一步批 1 DDL+Partition） | 项目总进度：**10%**
 > [README](./README.md) · [Master Plan](./00-connector-migration-master-plan.md) · [SPI RFC](./01-spi-extensions-rfc.md) · [Decisions](./decisions-log.md) · [Deviations](./deviations-log.md) · [Risks](./risks.md) · [Agent Playbook](./AGENT-PLAYBOOK.md) · [Handoff](./HANDOFF.md)
 
 ---
@@ -9,7 +9,7 @@
 
 | 阶段 | 范围 | 估时 | 进度 | 状态 | 任务文档 |
 |---|---|---|---|---|---|
-| **P0** | SPI 缺口补齐 | 2 周 | ▰▰▰▱▱▱▱▱▱▱ 30% | 🚧 进行中（批 0 SPI 接口完成；待 fe-core 桥接 T09-T12） | [tasks/P0](./tasks/P0-spi-foundation.md) |
+| **P0** | SPI 缺口补齐 | 2 周 | ▰▰▰▰▱▱▱▱▱▱ 44% | 🚧 进行中（批 0 完成 T03-T12；下一步批 1 DDL+Partition T13-T20） | [tasks/P0](./tasks/P0-spi-foundation.md) |
 | P1 | scan-node 收口 + 重复清理 | 1 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动（被 P0 阻塞）| — |
 | P2 | trino-connector 迁移 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P3 | hudi 迁移 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
@@ -55,11 +55,10 @@
 | P0-T06 | E4：`ConnectorWriteOps.beginTransaction` default | @me | ✅ | 2026-05-24 | throws unsupported |
 | P0-T07 | E4：`ConnectorSession.getCurrentTransaction` default | @me | ✅ | 2026-05-24 | Optional.empty() |
 | P0-T08 | E5：`ConnectorMvccSnapshot` 类型 + 3 default 方法 | @me | ✅ | 2026-05-24 | mvcc 包 + ConnectorMetadata 3 default |
-| **批 0 fe-core 桥接（next session）** | | | | | |
-| P0-T09 | `DefaultConnectorContext.getMetaInvalidator()` impl | — | ⏳ | — | fe-core 侧 |
-| P0-T10 | `ExternalMetaCacheInvalidator`（fe-core 新类） | — | ⏳ | — | 包装 ExternalMetaCacheMgr |
-| P0-T11 | `PluginDrivenTransactionManager` 通用化 | — | ⏳ | — | 删 type-specific 分支 |
-| P0-T12 | `ConnectorMvccSnapshotAdapter`（fe-core 新类） | — | ⏳ | — | impl MvccSnapshot |
+| P0-T09 | `DefaultConnectorContext.getMetaInvalidator()` impl | @me | ✅ | 2026-05-24 | 返回新建 invalidator |
+| P0-T10 | `ExternalMetaCacheInvalidator`（fe-core 新类） | @me | ✅ | 2026-05-24 | 包装 `ExternalMetaCacheMgr`；2 个 no-op 限制留 TODO |
+| P0-T11 | `PluginDrivenTransactionManager` 通用化 | @me | ✅ | 2026-05-24 | 新增 `begin(ConnectorTransaction)` 重载；legacy 不变 |
+| P0-T12 | `ConnectorMvccSnapshotAdapter`（fe-core 新类） | @me | ✅ | 2026-05-24 | impl `MvccSnapshot` |
 | **批 1 DDL + Partition SPI** | | | | | |
 | P0-T13..T20 | E1 CreateTableRequest + E10 listPartitions | — | ⏳ | — | 见 tasks/P0 |
 | P0-T21..T27 | 守门脚本 + 回归测试 | — | ⏳ | — | 见 tasks/P0 |
@@ -72,6 +71,7 @@
 
 > 倒序，新内容置顶；超过 14 天的条目移除（git log 保留历史）。
 
+- **2026-05-24（深夜）** ✅ **P0 批 0 fe-core 桥接完成**（T09-T12）：`ExternalMetaCacheInvalidator` + `ConnectorMvccSnapshotAdapter` 新类、`DefaultConnectorContext.getMetaInvalidator()` override、`PluginDrivenTransactionManager` 加 SPI `ConnectorTransaction` 重载（legacy auto-commit 不变）；fe-core 全编译通过 + checkstyle 0 violations；JDBC/ES 下游 zero-impact
 - **2026-05-24（晚）** ✅ **P0 批 0 SPI 接口三件套完成**（T03-T08）：`ConnectorMetaInvalidator`、`ConnectorTransaction`、`ConnectorMvccSnapshot` 共 3 个新类型 + 4 个 default 方法；JDBC/ES clean compile 通过，零下游修改
 - **2026-05-24** ✅ 项目跟踪机制建立（README、PROGRESS、decisions-log、deviations-log、risks、tasks/、connectors/、AGENT-PLAYBOOK、HANDOFF）
 - **2026-05-24** ✅ SPI RFC §16.2 6 个未决问题（U1-U6）全部决议（D-013..D-018）
@@ -113,8 +113,8 @@
 
 > 当本项目通过 Claude Code 这类 LLM agent 推进时，跟踪当前 session 状态、handoff 状况和 context 健康度。
 
-- **本 session 已完成**：P0 批 0 SPI 接口三件套（T02 闭环 + T03..T08 实现），clean compile + 下游 connector 兼容性验证通过
-- **下一个 session 应做**：fe-core 侧桥接（P0-T09..T12）—— 把新 SPI 接通现有 fe-core 实现（`DefaultConnectorContext`、`ExternalMetaCacheInvalidator`、`PluginDrivenTransactionManager` 通用化、`ConnectorMvccSnapshotAdapter`）；**先让用户 review 本次 SPI 改动再开始**（见 tasks/P0 注意事项 #1）
+- **本 session 已完成**：P0 批 0 fe-core 桥接（T09-T12）—— 2 个新类（`ExternalMetaCacheInvalidator`、`ConnectorMvccSnapshotAdapter`）+ 2 个 surgical edits（`DefaultConnectorContext.getMetaInvalidator()` override、`PluginDrivenTransactionManager` 加 SPI `ConnectorTransaction` 重载）；fe-core clean compile + checkstyle 0；JDBC/ES 零回归
+- **下一个 session 应做**：批 1 DDL + Partition SPI（P0-T13..T20）—— `ConnectorCreateTableRequest` + `Partition/Bucket Spec` POJO、`ConnectorTableOps.createTable(request)` default、`CreateTableInfoToConnectorRequestConverter`（fe-core），以及 `listPartitionNames` / `listPartitions(handle, filter)` / `listPartitionValues` 三个 default 方法
 - **是否需要 handoff**：是，已写新 [HANDOFF.md](./HANDOFF.md)
 - **协作规范**：[AGENT-PLAYBOOK.md](./AGENT-PLAYBOOK.md)（context 预算、subagent 使用、handoff 触发条件）
 

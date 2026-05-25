@@ -64,10 +64,10 @@
 
 | ID | 任务 | 设计参考 | Owner | 状态 | PR | 启动 | 完成 | 备注 |
 |---|---|---|---|---|---|---|---|---|
-| P0-T09 | `DefaultConnectorContext.getMetaInvalidator()` impl | RFC §6.4 | — | ⏳ | — | — | — | |
-| P0-T10 | `ExternalMetaCacheInvalidator`（fe-core 新类） | RFC §6.4 | — | ⏳ | — | — | — | 包装 `ExternalMetaCacheMgr` |
-| P0-T11 | `PluginDrivenTransactionManager` 通用化 | RFC §7.4 | — | ⏳ | — | — | — | 删 type-specific 分支 |
-| P0-T12 | `ConnectorMvccSnapshotAdapter`（fe-core 新类） | RFC §8.4 | — | ⏳ | — | — | — | impl `MvccSnapshot` |
+| P0-T09 | `DefaultConnectorContext.getMetaInvalidator()` impl | RFC §6.4 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | 返回新建 invalidator |
+| P0-T10 | `ExternalMetaCacheInvalidator`（fe-core 新类） | RFC §6.4 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | 包装 `ExternalMetaCacheMgr`；2 个 no-op 限制留 TODO |
+| P0-T11 | `PluginDrivenTransactionManager` 通用化 | RFC §7.4 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | 新增 `begin(ConnectorTransaction)` 重载；legacy `begin()` 不变 |
+| P0-T12 | `ConnectorMvccSnapshotAdapter`（fe-core 新类） | RFC §8.4 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | impl `MvccSnapshot` 标记接口 |
 
 ### 批 1：DDL + Partition SPI（W1 D1-3）
 
@@ -97,6 +97,14 @@
 ---
 
 ## 阶段日志（倒序）
+
+### 2026-05-24（深夜）— 批 0 fe-core 桥接完成（T09-T12）
+
+- P0-T09 ✅：`DefaultConnectorContext.getMetaInvalidator()` override → `new ExternalMetaCacheInvalidator(catalogId)`
+- P0-T10 ✅：新增 `fe-core/.../connector/ExternalMetaCacheInvalidator`（5 个方法：3 个直接代理 `ExternalMetaCacheMgr` 的 invalidateCatalog/Db/Table；`invalidatePartition` 暂回退到 `invalidateTable`（SPI 未携带 partition column 名）；`invalidateStatistics` 暂 no-op（fe-core 暂无 stats-only invalidation 入口））
+- P0-T11 ✅：`PluginDrivenTransactionManager` 加 `begin(ConnectorTransaction)` 重载，inner `PluginDrivenTransaction` 加 nullable `connectorTx` 字段；legacy `long begin()` 路径完全不变 → JDBC/ES auto-commit 零回归
+- P0-T12 ✅：新增 `fe-core/.../connector/ConnectorMvccSnapshotAdapter`，包装 `ConnectorMvccSnapshot` 并 implements 标记接口 `MvccSnapshot`
+- 验证：`mvn -pl fe-core -am compile -Dmaven.build.cache.enabled=false` → BUILD SUCCESS；checkstyle 0 violations；JDBC + ES 下游 connector clean compile 通过
 
 ### 2026-05-24（晚）— 批 0 基础三件套完成
 - P0-T02 ✅ 闭环：跟踪机制 17 个文件已落 commit 63159837043（早场 session 完成正文，本场 session 翻状态）
