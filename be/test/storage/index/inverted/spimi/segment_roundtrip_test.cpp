@@ -1,0 +1,453 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// Round-trip differential test: drive randomised (term, doc, pos) input
+// through the SPIMI SegmentWriter, then decode the four output files
+// (.tis / .tii / .frq / .prx) with a hand-written Lucene 2.x format reader
+// embedded in the test, and confirm the reconstructed records equal the
+// input. This is the safety net while the SPIMI write path is being
+// integrated into InvertedIndexColumnWriter (Phase 7b); a regression in
+// the byte format is caught here before it reaches the integration test.
+
+#include <gtest/gtest.h>
+
+#include <algorithm>
+#include <cstdint>
+#include <map>
+#include <random>
+#include <string>
+#include <tuple>
+#include <vector>
+
+#include "storage/index/inverted/spimi/lucene_output.h"
+#include "storage/index/inverted/spimi/pfor_encoder.h"
+#include "storage/index/inverted/spimi/posting_buffer.h"
+#include "storage/index/inverted/spimi/segment_writer.h"
+#include "storage/index/inverted/spimi/term_dict_writer.h"
+
+namespace doris::segment_v2::inverted_index::spimi {
+
+namespace {
+
+class ByteReader {
+public:
+    explicit ByteReader(const std::vector<uint8_t>& bytes) : _bytes(bytes) {}
+
+    uint8_t Byte() {
+        EXPECT_LT(_pos, _bytes.size());
+        return _bytes[_pos++];
+    }
+
+    int32_t ReadInt() {
+        int32_t v = (Byte() << 24);
+        v |= (Byte() << 16);
+        v |= (Byte() << 8);
+        v |= Byte();
+        return v;
+    }
+
+    int64_t ReadLong() {
+        const auto hi = static_cast<int64_t>(static_cast<uint32_t>(ReadInt()));
+        const auto lo = static_cast<int64_t>(static_cast<uint32_t>(ReadInt()));
+        return (hi << 32) | lo;
+    }
+
+    int32_t ReadVInt() {
+        uint32_t v = 0;
+        uint32_t shift = 0;
+        while (true) {
+            const uint8_t b = Byte();
+            v |= static_cast<uint32_t>(b & 0x7FU) << shift;
+            if ((b & 0x80U) == 0) {
+                break;
+            }
+            shift += 7;
+        }
+        return static_cast<int32_t>(v);
+    }
+
+    int64_t ReadVLong() {
+        uint64_t v = 0;
+        uint64_t shift = 0;
+        while (true) {
+            const uint8_t b = Byte();
+            v |= static_cast<uint64_t>(b & 0x7FU) << shift;
+            if ((b & 0x80U) == 0) {
+                break;
+            }
+            shift += 7;
+        }
+        return static_cast<int64_t>(v);
+    }
+
+    size_t pos() const { return _pos; }
+
+    // Random byte access without advancing the cursor.
+    uint8_t byte_at(size_t i) const { return _bytes[i]; }
+
+    // Seek absolute position.
+    void Seek(size_t p) { _pos = p; }
+
+private:
+    const std::vector<uint8_t>& _bytes;
+    size_t _pos = 0;
+};
+
+// Decodes one wide char using the same modified-UTF-8 rule the writer uses
+// (LuceneOutput::WriteSCharsFromWide).
+wchar_t DecodeWideChar(ByteReader& r) {
+    const uint8_t b0 = r.Byte();
+    if ((b0 & 0x80U) == 0) {
+        return static_cast<wchar_t>(b0);
+    }
+    if ((b0 & 0xE0U) == 0xC0U) {
+        const uint8_t b1 = r.Byte();
+        return static_cast<wchar_t>(((b0 & 0x1FU) << 6) | (b1 & 0x3FU));
+    }
+    if ((b0 & 0xF0U) == 0xE0U) {
+        const uint8_t b1 = r.Byte();
+        const uint8_t b2 = r.Byte();
+        return static_cast<wchar_t>(((b0 & 0x0FU) << 12) | ((b1 & 0x3FU) << 6) | (b2 & 0x3FU));
+    }
+    // 4-byte modified path: leading byte has high bit set.
+    const uint8_t b1 = r.Byte();
+    const uint8_t b2 = r.Byte();
+    const uint8_t b3 = r.Byte();
+    return static_cast<wchar_t>(((b0 & 0x07U) << 18) | ((b1 & 0x3FU) << 12) | ((b2 & 0x3FU) << 6) |
+                                (b3 & 0x3FU));
+}
+
+struct DecodedTermEntry {
+    std::wstring term_wide;
+    int32_t field_number = 0;
+    int32_t doc_freq = 0;
+    int64_t freq_pointer = 0; // absolute
+    int64_t prox_pointer = 0; // absolute
+    int32_t skip_offset = 0;
+};
+
+// Walks `.tis` end-to-end (header + entries + footer) and yields one
+// DecodedTermEntry per entry. Validates the front-coded encoding.
+std::vector<DecodedTermEntry> DecodeTis(const std::vector<uint8_t>& tis_bytes,
+                                        int32_t skip_interval) {
+    ByteReader r(tis_bytes);
+    EXPECT_EQ(r.ReadInt(), TermDictWriter::kFormat);
+    EXPECT_EQ(r.ReadLong(), -1);
+    (void)r.ReadInt(); // index_interval (varies by test)
+    EXPECT_EQ(r.ReadInt(), skip_interval);
+    EXPECT_EQ(r.ReadInt(), TermDictWriter::kMaxSkipLevels);
+
+    std::vector<DecodedTermEntry> entries;
+    std::wstring prev_term;
+    int64_t cum_freq = 0;
+    int64_t cum_prox = 0;
+
+    // We can't tell from the format alone where entries end; the footer is
+    // a single Long at the very end (term count). Track expected end as
+    // `tis_bytes.size() - 8`.
+    const size_t footer_offset = tis_bytes.size() - 8;
+    while (r.pos() < footer_offset) {
+        DecodedTermEntry entry;
+        const int32_t prefix = r.ReadVInt();
+        const int32_t suffix = r.ReadVInt();
+        std::wstring term;
+        term.reserve(static_cast<size_t>(prefix + suffix));
+        if (prefix > 0) {
+            term.append(prev_term, 0, static_cast<size_t>(prefix));
+        }
+        for (int32_t i = 0; i < suffix; ++i) {
+            term.push_back(DecodeWideChar(r));
+        }
+        entry.term_wide = term;
+        entry.field_number = r.ReadVInt();
+        entry.doc_freq = r.ReadVInt();
+        cum_freq += r.ReadVLong();
+        cum_prox += r.ReadVLong();
+        entry.freq_pointer = cum_freq;
+        entry.prox_pointer = cum_prox;
+        if (entry.doc_freq >= skip_interval) {
+            entry.skip_offset = r.ReadVInt();
+        }
+        entries.push_back(entry);
+        prev_term = term;
+    }
+    // Footer: term count.
+    const int64_t size = r.ReadLong();
+    EXPECT_EQ(size, static_cast<int64_t>(entries.size()));
+    return entries;
+}
+
+struct DecodedDoc {
+    int32_t doc_id;
+    std::vector<int32_t> positions;
+};
+
+// Decodes `term_count` consecutive docs from `.frq` starting at the term's
+// freq_pointer. Each term's `.frq` payload opens with a CodeMode byte:
+//   - 0x00 = kDefault: `VInt(doc_count) + per-doc (deltaDoc<<1|freq_bit)`
+//   - 0x05 = kSpimiPfor (Phase 35): one or more `SpimiPforEncoder` blocks
+//     covering all doc_deltas, followed by (if has_prox) the same number
+//     of blocks for freqs.
+// Returns the reconstructed (doc_id, freq) pairs.
+std::vector<std::pair<int32_t, int32_t>> DecodeFrqDocs(ByteReader& fr, int32_t doc_freq) {
+    const uint8_t code_mode = fr.Byte();
+    std::vector<std::pair<int32_t, int32_t>> docs;
+    docs.reserve(doc_freq);
+    if (code_mode == 0x00) {
+        const int32_t recorded_doc_count = fr.ReadVInt();
+        EXPECT_EQ(recorded_doc_count, doc_freq)
+                << "prefix doc count must match the .tis docFreq for the term";
+        int32_t last_doc = 0;
+        for (int32_t i = 0; i < doc_freq; ++i) {
+            const int32_t code = fr.ReadVInt();
+            const auto delta = static_cast<int32_t>(static_cast<uint32_t>(code) >> 1U);
+            const int32_t doc_id = last_doc + delta;
+            last_doc = doc_id;
+            int32_t freq = ((code & 1) != 0) ? 1 : fr.ReadVInt();
+            docs.emplace_back(doc_id, freq);
+        }
+        return docs;
+    }
+    EXPECT_EQ(code_mode, 0x05U) << "unknown CodeMode in .frq";
+    // Phase 35 PFOR mode: decode N doc-delta sub-blocks then (with
+    // prox) N freq sub-blocks. Each sub-block starts with VInt(n) +
+    // byte(width) + bitpacked payload — same shape SpimiPforEncoder
+    // emits.
+    auto decode_chunks = [&fr](int32_t total) {
+        std::vector<uint32_t> values;
+        values.reserve(total);
+        int32_t collected = 0;
+        while (collected < total) {
+            // Reconstruct one sub-block by reading raw bytes starting
+            // at the cursor and handing them to SpimiPforDecoder. The
+            // decoder needs to know how many bytes to consume; here
+            // we feed it the rest of the buffer and rely on it to
+            // advance its internal cursor — but ByteReader is not
+            // shared with the decoder, so we peek the count + width
+            // ourselves and let Arrow's BitReader read the rest.
+            const size_t mark = fr.pos();
+            const int32_t n = fr.ReadVInt();
+            const uint8_t width = fr.Byte() & 0x3FU;
+            const size_t bit_bytes = (static_cast<size_t>(n) * width + 7U) / 8U;
+            // Slice [mark, fr.pos() + bit_bytes) is one sub-block.
+            std::vector<uint8_t> slice;
+            slice.reserve(fr.pos() - mark + bit_bytes);
+            for (size_t i = mark; i < fr.pos() + bit_bytes; ++i) {
+                slice.push_back(fr.byte_at(i));
+            }
+            std::vector<uint32_t> sub;
+            SpimiPforDecoder::DecodeBlockFromBytes(slice, &sub);
+            for (uint32_t v : sub) {
+                values.push_back(v);
+            }
+            collected += static_cast<int32_t>(sub.size());
+            // Advance cursor past the bitpacked payload (the VInt + byte
+            // already consumed by fr above).
+            for (size_t i = 0; i < bit_bytes; ++i) {
+                (void)fr.Byte();
+            }
+        }
+        return values;
+    };
+    const auto doc_deltas = decode_chunks(doc_freq);
+    const auto freqs = decode_chunks(doc_freq);
+    int32_t last_doc = 0;
+    for (int32_t i = 0; i < doc_freq; ++i) {
+        last_doc += static_cast<int32_t>(doc_deltas[i]);
+        docs.emplace_back(last_doc, static_cast<int32_t>(freqs[i]));
+    }
+    return docs;
+}
+
+// Decodes the positions for a single doc with `freq` positions, starting at
+// `pr`'s current cursor.
+std::vector<int32_t> DecodeProxPositions(ByteReader& pr, int32_t freq) {
+    std::vector<int32_t> positions;
+    positions.reserve(freq);
+    int32_t last_pos = 0;
+    for (int32_t i = 0; i < freq; ++i) {
+        const int32_t delta = pr.ReadVInt();
+        last_pos += delta;
+        positions.push_back(last_pos);
+    }
+    return positions;
+}
+
+// Reconstructs the per-term doc-and-position set from the four segment
+// streams.
+struct ReconstructedTerm {
+    std::wstring term_wide;
+    std::vector<DecodedDoc> docs;
+};
+
+std::vector<ReconstructedTerm> ReconstructSegment(const std::vector<uint8_t>& tis,
+                                                  const std::vector<uint8_t>& frq,
+                                                  const std::vector<uint8_t>& prx,
+                                                  int32_t skip_interval) {
+    const std::vector<DecodedTermEntry> entries = DecodeTis(tis, skip_interval);
+    std::vector<ReconstructedTerm> result;
+    result.reserve(entries.size());
+    ByteReader fr(frq);
+    ByteReader pr(prx);
+    for (const auto& entry : entries) {
+        fr.Seek(static_cast<size_t>(entry.freq_pointer));
+        pr.Seek(static_cast<size_t>(entry.prox_pointer));
+        const auto doc_freqs = DecodeFrqDocs(fr, entry.doc_freq);
+        ReconstructedTerm rt;
+        rt.term_wide = entry.term_wide;
+        rt.docs.reserve(doc_freqs.size());
+        for (const auto& [doc_id, freq] : doc_freqs) {
+            DecodedDoc dd;
+            dd.doc_id = doc_id;
+            dd.positions = DecodeProxPositions(pr, freq);
+            rt.docs.push_back(std::move(dd));
+        }
+        result.push_back(std::move(rt));
+    }
+    return result;
+}
+
+} // namespace
+
+TEST(SegmentRoundtripTest, ReconstructsHandCraftedInputExactly) {
+    MemoryLuceneOutput tis, tii, frq, prx;
+    SegmentWriter w(&tis, &tii, &frq, &prx);
+
+    SpimiPostingBuffer buffer;
+    buffer.Append("alpha", 0, 0);
+    buffer.Append("alpha", 0, 5);
+    buffer.Append("alpha", 1, 2);
+    buffer.Append("beta", 0, 1);
+    buffer.Append("beta", 2, 3);
+    buffer.Append("beta", 2, 9);
+    buffer.Append("gamma", 1, 0);
+    buffer.Append("gamma", 3, 7);
+    buffer.Sort();
+    w.Emit(buffer, /*field=*/0);
+    w.Close();
+
+    const auto reconstructed = ReconstructSegment(tis.bytes(), frq.bytes(), prx.bytes(),
+                                                  TermDictWriter::kDefaultSkipInterval);
+
+    ASSERT_EQ(reconstructed.size(), 3U);
+    EXPECT_EQ(reconstructed[0].term_wide, std::wstring(L"alpha"));
+    ASSERT_EQ(reconstructed[0].docs.size(), 2U);
+    EXPECT_EQ(reconstructed[0].docs[0].doc_id, 0);
+    EXPECT_EQ(reconstructed[0].docs[0].positions, (std::vector<int32_t> {0, 5}));
+    EXPECT_EQ(reconstructed[0].docs[1].doc_id, 1);
+    EXPECT_EQ(reconstructed[0].docs[1].positions, (std::vector<int32_t> {2}));
+
+    EXPECT_EQ(reconstructed[1].term_wide, std::wstring(L"beta"));
+    ASSERT_EQ(reconstructed[1].docs.size(), 2U);
+    EXPECT_EQ(reconstructed[1].docs[0].doc_id, 0);
+    EXPECT_EQ(reconstructed[1].docs[0].positions, (std::vector<int32_t> {1}));
+    EXPECT_EQ(reconstructed[1].docs[1].doc_id, 2);
+    EXPECT_EQ(reconstructed[1].docs[1].positions, (std::vector<int32_t> {3, 9}));
+
+    EXPECT_EQ(reconstructed[2].term_wide, std::wstring(L"gamma"));
+    ASSERT_EQ(reconstructed[2].docs.size(), 2U);
+}
+
+TEST(SegmentRoundtripTest, RandomisedInputReconstructsBitForBit) {
+    // Deterministic seed so failures reproduce.
+    std::mt19937 rng(0xA5A5A5A5U);
+    std::uniform_int_distribution<int32_t> doc_dist(0, 999);
+    std::uniform_int_distribution<int32_t> pos_dist(0, 10000);
+    std::uniform_int_distribution<int32_t> term_dist(0, 49);
+
+    // Build a "ground truth" map: term -> doc -> positions[].
+    std::map<std::string, std::map<int32_t, std::vector<int32_t>>> truth;
+
+    SpimiPostingBuffer buffer;
+    constexpr int kRecordCount = 5000;
+    for (int i = 0; i < kRecordCount; ++i) {
+        char term[16];
+        std::snprintf(term, sizeof(term), "t%04d", term_dist(rng));
+        const int32_t doc = doc_dist(rng);
+        const int32_t pos = pos_dist(rng);
+        buffer.Append(term, static_cast<uint32_t>(doc), static_cast<uint32_t>(pos));
+        truth[term][doc].push_back(pos);
+    }
+    buffer.Sort();
+
+    // Normalise truth: dedupe identical positions per doc and sort.
+    for (auto& [term, docs] : truth) {
+        for (auto& [doc, positions] : docs) {
+            std::sort(positions.begin(), positions.end());
+            // We keep duplicates: the SPIMI buffer stores every occurrence,
+            // including duplicate positions at the same doc.
+        }
+    }
+
+    MemoryLuceneOutput tis, tii, frq, prx;
+    // Use a small skip interval to exercise the skip-list code path with
+    // realistic doc counts.
+    SegmentWriter w(&tis, &tii, &frq, &prx,
+                    /*index_interval=*/64,
+                    /*skip_interval=*/16,
+                    /*max_skip_levels=*/4);
+    w.Emit(buffer, 0);
+    w.Close();
+
+    const auto reconstructed = ReconstructSegment(tis.bytes(), frq.bytes(), prx.bytes(),
+                                                  /*skip_interval=*/16);
+
+    ASSERT_EQ(reconstructed.size(), truth.size());
+    size_t i = 0;
+    for (const auto& [term, docs] : truth) {
+        EXPECT_EQ(reconstructed[i].term_wide, Utf8ToWide(term)) << "term mismatch at index " << i;
+        ASSERT_EQ(reconstructed[i].docs.size(), docs.size())
+                << "doc-count mismatch for term " << term;
+        size_t j = 0;
+        for (const auto& [doc, positions] : docs) {
+            EXPECT_EQ(reconstructed[i].docs[j].doc_id, doc);
+            EXPECT_EQ(reconstructed[i].docs[j].positions, positions)
+                    << "positions mismatch for term " << term << " doc " << doc;
+            ++j;
+        }
+        ++i;
+    }
+}
+
+TEST(SegmentRoundtripTest, FilePointersInTermDictMatchByteOffsets) {
+    MemoryLuceneOutput tis, tii, frq, prx;
+    SegmentWriter w(&tis, &tii, &frq, &prx);
+    SpimiPostingBuffer buffer;
+    buffer.Append("a", 0, 0);
+    buffer.Append("b", 1, 0);
+    buffer.Append("c", 2, 0);
+    buffer.Sort();
+    w.Emit(buffer, 0);
+    w.Close();
+
+    const auto entries = DecodeTis(tis.bytes(), TermDictWriter::kDefaultSkipInterval);
+    ASSERT_EQ(entries.size(), 3U);
+    EXPECT_EQ(entries[0].freq_pointer, 0);
+    EXPECT_EQ(entries[0].prox_pointer, 0);
+
+    // Each term's .frq block now opens with the Doris-CLucene codec
+    // prefix `[CodeMode byte][VInt doc_count]` = 2 bytes for docFreq=1,
+    // followed by 1 byte of doc-encoding ⇒ 3 bytes per term. The .prx
+    // is still 1 byte per term (single VInt 0 position).
+    EXPECT_EQ(entries[1].freq_pointer, 3);
+    EXPECT_EQ(entries[2].freq_pointer, 6);
+
+    EXPECT_EQ(entries[1].prox_pointer, 1);
+    EXPECT_EQ(entries[2].prox_pointer, 2);
+}
+
+} // namespace doris::segment_v2::inverted_index::spimi
