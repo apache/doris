@@ -314,7 +314,7 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testResetThenAddReinitializ
 
     auto column_string = ColumnString::create();
     column_string->insert_data((const char*)ser1.data(), ser1.size());
-    column_string->insert_data((const char*)ser2.data(), ser2.size());
+column_string->insert_data((const char*)ser2.data(), ser2.size());
     const IColumn* columns[1] = {column_string.get()};
 
     AggregateDataPtr place =
@@ -541,6 +541,109 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testVarbinaryInput) {
     EXPECT_DOUBLE_EQ(result.get_data()[0], sketch.get_estimate());
 
     fn->destroy(place);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testVarbinaryAddEmptyStringThrows) {
+    DataTypes argument_types = {std::make_shared<DataTypeVarbinary>()};
+    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
+            TYPE_VARBINARY, AggregateFunctionHllSketchData<TYPE_VARBINARY>>>(argument_types);
+
+    auto column_varbinary = ColumnVarbinary::create();
+    column_varbinary->insert_data("", 0);
+
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+
+    const IColumn* columns[1] = {column_varbinary.get()};
+
+    try {
+        agg_func->add(place, columns, 0, *arena);
+        FAIL() << "Expected doris::Exception";
+    } catch (const doris::Exception& e) {
+        EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
+    }
+
+    agg_func->destroy(place);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testVarbinaryCorruptedInputThrows) {
+    DataTypes argument_types = {std::make_shared<DataTypeVarbinary>()};
+    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
+            TYPE_VARBINARY, AggregateFunctionHllSketchData<TYPE_VARBINARY>>>(argument_types);
+
+    auto column_varbinary = ColumnVarbinary::create();
+    column_varbinary->insert_data("x", 1);
+    const IColumn* columns[1] = {column_varbinary.get()};
+
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+
+    try {
+        agg_func->add(place, columns, 0, *arena);
+        FAIL() << "Expected doris::Exception";
+    } catch (const doris::Exception& e) {
+        EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
+    }
+
+    auto corrupt_buf = ColumnString::create();
+    BufferWritable corrupt_w(*corrupt_buf);
+    StringRef corrupted("x", 1);
+    corrupt_w.write_binary(corrupted);
+    corrupt_w.commit();
+
+    BufferReadable r(corrupt_buf->get_data_at(0));
+    try {
+        agg_func->deserialize(place, r, *arena);
+        FAIL() << "Expected doris::Exception";
+    } catch (const doris::Exception& e) {
+        EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
+    }
+
+    agg_func->destroy(place);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testVarbinarySerializeDeserialize) {
+    DataTypes argument_types = {std::make_shared<DataTypeVarbinary>()};
+    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
+            TYPE_VARBINARY, AggregateFunctionHllSketchData<TYPE_VARBINARY>>>(argument_types);
+
+    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
+    for (int i = 0; i < 100; ++i) {
+        sketch.update(i);
+    }
+    const auto ser = sketch.serialize_compact();
+
+    auto column_varbinary = ColumnVarbinary::create();
+    column_varbinary->insert_data((const char*)ser.data(), ser.size());
+    const IColumn* columns[1] = {column_varbinary.get()};
+
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+    agg_func->add(place, columns, 0, *arena);
+
+    auto buffer = ColumnString::create();
+    BufferWritable w(*buffer);
+    agg_func->serialize(place, w);
+    w.commit();
+
+    AggregateDataPtr new_place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(new_place);
+
+    BufferReadable r(buffer->get_data_at(0));
+    agg_func->deserialize(new_place, r, *arena);
+
+    ColumnFloat64 result1, result2;
+    agg_func->insert_result_into(place, result1);
+    agg_func->insert_result_into(new_place, result2);
+
+    EXPECT_DOUBLE_EQ(result1.get_data()[0], result2.get_data()[0]);
+
+    agg_func->destroy(place);
+    agg_func->destroy(new_place);
 }
 
 TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testSerializeDeserializeEmptyState) {
