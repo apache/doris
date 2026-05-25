@@ -1,6 +1,6 @@
 # 📊 项目进度仪表盘
 
-> 最后更新：**2026-05-24（深夜）** | 当前阶段：**P0 SPI 缺口补齐**（批 0 完成，下一步批 1 DDL+Partition） | 项目总进度：**10%**
+> 最后更新：**2026-05-24（夜 ②）** | 当前阶段：**P0 SPI 缺口补齐**（批 0 + 批 1 完成，下一步批 2 守门 + 回归 T21-T27） | 项目总进度：**12%**
 > [README](./README.md) · [Master Plan](./00-connector-migration-master-plan.md) · [SPI RFC](./01-spi-extensions-rfc.md) · [Decisions](./decisions-log.md) · [Deviations](./deviations-log.md) · [Risks](./risks.md) · [Agent Playbook](./AGENT-PLAYBOOK.md) · [Handoff](./HANDOFF.md)
 
 ---
@@ -9,7 +9,7 @@
 
 | 阶段 | 范围 | 估时 | 进度 | 状态 | 任务文档 |
 |---|---|---|---|---|---|
-| **P0** | SPI 缺口补齐 | 2 周 | ▰▰▰▰▱▱▱▱▱▱ 44% | 🚧 进行中（批 0 完成 T03-T12；下一步批 1 DDL+Partition T13-T20） | [tasks/P0](./tasks/P0-spi-foundation.md) |
+| **P0** | SPI 缺口补齐 | 2 周 | ▰▰▰▰▰▰▰▱▱▱ 74% | 🚧 进行中（批 0 + 批 1 完成 T03-T20；下一步批 2 守门 + 回归 T21-T27） | [tasks/P0](./tasks/P0-spi-foundation.md) |
 | P1 | scan-node 收口 + 重复清理 | 1 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动（被 P0 阻塞）| — |
 | P2 | trino-connector 迁移 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P3 | hudi 迁移 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
@@ -19,7 +19,7 @@
 | P7 | hive (+HMS) 迁移 | 6 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P8 | 收尾清理 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 
-**全局进度：5%**（25 周计划中处于第 1 周）
+**全局进度：6%**（25 周计划中处于第 1 周）
 
 ---
 
@@ -60,7 +60,14 @@
 | P0-T11 | `PluginDrivenTransactionManager` 通用化 | @me | ✅ | 2026-05-24 | 新增 `begin(ConnectorTransaction)` 重载；legacy 不变 |
 | P0-T12 | `ConnectorMvccSnapshotAdapter`（fe-core 新类） | @me | ✅ | 2026-05-24 | impl `MvccSnapshot` |
 | **批 1 DDL + Partition SPI** | | | | | |
-| P0-T13..T20 | E1 CreateTableRequest + E10 listPartitions | — | ⏳ | — | 见 tasks/P0 |
+| P0-T13 | `ConnectorCreateTableRequest` + 4 spec POJO（ddl 包） | @me | ✅ | 2026-05-24 | 5 个新 final 类 |
+| P0-T14 | `ConnectorTableOps.createTable(request)` default | @me | ✅ | 2026-05-24 | 退化到 legacy createTable |
+| P0-T15 | `CreateTableInfoToConnectorRequestConverter`（fe-core） | @me | ✅ | 2026-05-24 | 覆盖 4 种 partition + hash/random bucket |
+| P0-T16 | `PluginDrivenExternalCatalog.createTable(stmt)` 接通 SPI | @me | ✅ | 2026-05-24 | override + edit log |
+| P0-T17 | `listPartitionNames` default | @me | ✅ | 2026-05-24 | emptyList |
+| P0-T18 | `listPartitions(handle, filter)` default | @me | ✅ | 2026-05-24 | filter 用 Optional&lt;ConnectorExpression&gt; |
+| P0-T19 | `listPartitionValues` default | @me | ✅ | 2026-05-24 | emptyList |
+| P0-T20 | `ConnectorPartitionInfo` 追加 rowCount/sizeBytes/lastModifiedMillis | @me | ✅ | 2026-05-24 | UNKNOWN=-1L；3-arg 委托到 6-arg |
 | P0-T21..T27 | 守门脚本 + 回归测试 | — | ⏳ | — | 见 tasks/P0 |
 
 完整 P0 任务清单：[tasks/P0-spi-foundation.md](./tasks/P0-spi-foundation.md)
@@ -71,6 +78,7 @@
 
 > 倒序，新内容置顶；超过 14 天的条目移除（git log 保留历史）。
 
+- **2026-05-24（夜 ②）** ✅ **P0 批 1 DDL + Partition SPI 完成**（T13-T20）：新增 `connector.api.ddl` 包 5 个 POJO（CreateTableRequest + 4 spec）；`ConnectorTableOps` 加 4 个 default（createTable(request) + listPartitionNames/listPartitions/listPartitionValues）；`ConnectorPartitionInfo` 追加 rowCount/sizeBytes/lastModifiedMillis；fe-core 新 `CreateTableInfoToConnectorRequestConverter` 覆盖 IDENTITY/TRANSFORM/LIST/RANGE 四种 partition + hash/random bucket；`PluginDrivenExternalCatalog.createTable` 路由到 SPI；fe-core BUILD SUCCESS + checkstyle 0；JDBC/ES 下游 zero-impact
 - **2026-05-24（深夜）** ✅ **P0 批 0 fe-core 桥接完成**（T09-T12）：`ExternalMetaCacheInvalidator` + `ConnectorMvccSnapshotAdapter` 新类、`DefaultConnectorContext.getMetaInvalidator()` override、`PluginDrivenTransactionManager` 加 SPI `ConnectorTransaction` 重载（legacy auto-commit 不变）；fe-core 全编译通过 + checkstyle 0 violations；JDBC/ES 下游 zero-impact
 - **2026-05-24（晚）** ✅ **P0 批 0 SPI 接口三件套完成**（T03-T08）：`ConnectorMetaInvalidator`、`ConnectorTransaction`、`ConnectorMvccSnapshot` 共 3 个新类型 + 4 个 default 方法；JDBC/ES clean compile 通过，零下游修改
 - **2026-05-24** ✅ 项目跟踪机制建立（README、PROGRESS、decisions-log、deviations-log、risks、tasks/、connectors/、AGENT-PLAYBOOK、HANDOFF）
@@ -113,8 +121,8 @@
 
 > 当本项目通过 Claude Code 这类 LLM agent 推进时，跟踪当前 session 状态、handoff 状况和 context 健康度。
 
-- **本 session 已完成**：P0 批 0 fe-core 桥接（T09-T12）—— 2 个新类（`ExternalMetaCacheInvalidator`、`ConnectorMvccSnapshotAdapter`）+ 2 个 surgical edits（`DefaultConnectorContext.getMetaInvalidator()` override、`PluginDrivenTransactionManager` 加 SPI `ConnectorTransaction` 重载）；fe-core clean compile + checkstyle 0；JDBC/ES 零回归
-- **下一个 session 应做**：批 1 DDL + Partition SPI（P0-T13..T20）—— `ConnectorCreateTableRequest` + `Partition/Bucket Spec` POJO、`ConnectorTableOps.createTable(request)` default、`CreateTableInfoToConnectorRequestConverter`（fe-core），以及 `listPartitionNames` / `listPartitions(handle, filter)` / `listPartitionValues` 三个 default 方法
+- **本 session 已完成**：P0 批 1 DDL + Partition SPI（T13-T20）—— 6 个新文件（5 ddl 包 POJO + 1 fe-core converter）+ 3 个 surgical edits（`ConnectorTableOps` 加 4 个 default、`ConnectorPartitionInfo` 加 3 字段、`PluginDrivenExternalCatalog` 加 createTable override）；fe-core BUILD SUCCESS + checkstyle 0；JDBC/ES 下游零回归
+- **下一个 session 应做**：批 2 守门 + 测试（P0-T21..T27）—— `tools/check-connector-imports.sh` 守门脚本 + maven enforcer 接入、`FakeConnectorPlugin` 覆盖所有 default 行为、JDBC/ES 全 regression-test、`ConnectorMetaInvalidator` 路由测试、`CreateTableInfoToConnectorRequestConverter` 单测（4 种 partition 风格 + bucket）
 - **是否需要 handoff**：是，已写新 [HANDOFF.md](./HANDOFF.md)
 - **协作规范**：[AGENT-PLAYBOOK.md](./AGENT-PLAYBOOK.md)（context 预算、subagent 使用、handoff 触发条件）
 

@@ -8,138 +8,139 @@
 
 ## 📅 最后一次 handoff
 
-- **日期 / 时间**：2026-05-24（深夜）
+- **日期 / 时间**：2026-05-24（夜 ②，含 commit）
 - **本 session 主导者**：Claude Opus 4.7（1M context）
-- **本 session 主题**：P0 批 0 fe-core 桥接（T09-T12）—— 把新 SPI 接通到现有 fe-core 实现
-- **预估 context 使用**：~40%（健康范围）
+- **本 session 主题**：P0 批 1 DDL + Partition SPI（T13-T20）—— `ConnectorCreateTableRequest` + 4 spec POJO + 4 个 default 方法 + 1 fe-core converter + PluginDrivenExternalCatalog 路由；**已 commit**（用户人工 review 通过；hash 见 `git log --oneline -3`，subject `[feat](connector) add P0 batch 1 SPI: CreateTableRequest + listPartitions (T13-T20)`）
+- **预估 context 使用**：~55%（健康）
 
 ---
 
 ## ✅ 本 session 完成项
 
-### 1. P0 批 0：fe-core 桥接（T09-T12）
+### 1. P0 批 1：DDL + Partition SPI（T13-T20）
 
 | ID | 任务 | 文件 | 备注 |
 |---|---|---|---|
-| T09 ✅ | `DefaultConnectorContext.getMetaInvalidator()` override | edit `fe-core/.../connector/DefaultConnectorContext.java` | 返回 `new ExternalMetaCacheInvalidator(catalogId)` |
-| T10 ✅ | `ExternalMetaCacheInvalidator`（fe-core 新类）| **新** `fe-core/.../connector/ExternalMetaCacheInvalidator.java` | 3 个方法直接代理 `ExternalMetaCacheMgr.invalidateCatalog/Db/Table`；`invalidatePartition` 暂回退到 `invalidateTable`；`invalidateStatistics` 暂 no-op |
-| T11 ✅ | `PluginDrivenTransactionManager` 通用化 | edit `fe-core/.../transaction/PluginDrivenTransactionManager.java` | 新增 `begin(ConnectorTransaction)` 重载 + inner class 加 nullable `connectorTx` 字段，承接 SPI tx commit/rollback/close；legacy `long begin()` 路径行为完全不变 → JDBC/ES auto-commit 零回归 |
-| T12 ✅ | `ConnectorMvccSnapshotAdapter`（fe-core 新类）| **新** `fe-core/.../connector/ConnectorMvccSnapshotAdapter.java` | 包装 `ConnectorMvccSnapshot` + implements `MvccSnapshot`（marker 接口） |
+| T13 ✅ | `ConnectorCreateTableRequest` + 4 spec POJO | **新** 5 个文件 在 `fe-connector-api/.../connector/api/ddl/` | Request 带 Builder；PartitionSpec 含 4 个 Style（IDENTITY/TRANSFORM/LIST/RANGE） |
+| T14 ✅ | `ConnectorTableOps.createTable(session, request)` default | edit `fe-connector-api/.../ConnectorTableOps.java` | 退化到 legacy `createTable(session, schema, props)` |
+| T15 ✅ | `CreateTableInfoToConnectorRequestConverter`（fe-core） | **新** `fe-core/.../connector/ddl/CreateTableInfoToConnectorRequestConverter.java` | 4 种 partition style + hash/random bucket；DataType→ConnectorType 复用 `ConnectorColumnConverter.toConnectorType()` |
+| T16 ✅ | `PluginDrivenExternalCatalog.createTable` 路由 SPI | edit `fe-core/.../datasource/PluginDrivenExternalCatalog.java` | override `createTable(CreateTableInfo)`；wrap `DorisConnectorException` → `DdlException`；写 edit log；总返回 false（=新建） |
+| T17 ✅ | `ConnectorTableOps.listPartitionNames` default | edit `ConnectorTableOps.java` | `Collections.emptyList()` |
+| T18 ✅ | `ConnectorTableOps.listPartitions(handle, filter)` default | edit `ConnectorTableOps.java` | filter 用 `Optional<ConnectorExpression>` |
+| T19 ✅ | `ConnectorTableOps.listPartitionValues` default | edit `ConnectorTableOps.java` | `Collections.emptyList()` |
+| T20 ✅ | `ConnectorPartitionInfo` 追加 3 字段 | edit `fe-connector-api/.../ConnectorPartitionInfo.java` | rowCount/sizeBytes/lastModifiedMillis（`UNKNOWN = -1L`）；3-arg 旧构造器委托到 6-arg；equals/hashCode/toString 同步更新 |
 
 ### 2. 验证
 
-- `mvn -pl fe-core -am compile -Dmaven.build.cache.enabled=false` → **BUILD SUCCESS**
+- `mvn -pl fe-connector/fe-connector-api -am compile` → **BUILD SUCCESS**
+- `mvn -pl fe-core -am compile -Dmaven.build.cache.enabled=false` → **BUILD SUCCESS**（1 次因 unused import checkstyle 失败 → fix → green）
 - `mvn -pl fe-core checkstyle:check` → **0 violations**
-- `mvn -pl fe-connector/fe-connector-jdbc,fe-connector-es -am compile` → **BUILD SUCCESS**（下游 connector 零影响）
+- `mvn -pl fe-connector/fe-connector-jdbc,fe-connector/fe-connector-es -am compile` → **BUILD SUCCESS**（下游连接器零修改）
 
 ### 3. 文档同步（§5.1 五步纪律）
 
-- ✅ `tasks/P0-spi-foundation.md`：T09-T12 状态翻 ✅，新增 2026-05-24（深夜）日志条目
-- ✅ `PROGRESS.md`：§一 P0 进度条 30% → 44%（12/27 任务）；§三 P0 表更新；§四加 2026-05-24（深夜）条目；§七 session 状态滚动
+- ✅ `tasks/P0-spi-foundation.md`：T13-T20 状态翻 ✅，新增 2026-05-24（夜 ②）日志条目（含 4 项 trade-off 说明）
+- ✅ `PROGRESS.md`：§一 P0 进度条 44% → 74%（20/27 任务）；§三 P0 表追加 T13-T20 行；§四加 2026-05-24（夜 ②）条目；§七 session 状态滚动
 - ✅ 本 HANDOFF.md 覆写
 - N/A `connectors/<name>.md`（本次工作不属任何具体连接器）
-- N/A `decisions-log.md` / `deviations-log.md`（本次完全遵循 RFC §6.4 / §7.4 / §8.4，未产生新决策或偏差）
+- N/A `decisions-log.md` / `deviations-log.md`（trade-off 在 RFC 范围内，未升 DV——见下"开放问题"）
+
+### 4. Commit（用户人工 review 通过后）
+
+- ✅ `[feat](connector) add P0 batch 1 SPI: CreateTableRequest + listPartitions (T13-T20)`（hash 见 `git log --oneline -3`）
+- 12 files changed：6 新文件（5 ddl POJO + 1 fe-core converter）+ 3 surgical edits（ConnectorTableOps / ConnectorPartitionInfo / PluginDrivenExternalCatalog）+ 3 plan-doc 更新
+- 工作树 clean
 
 ---
 
 ## 🚧 本 session 进行中 / 未完成
 
-**无**。批 0 全部 10 项任务（T03-T12）+ 编译验证 + 文档同步全部收尾。
+**无**。批 1 全部 8 项任务（T13-T20）+ 编译验证 + 文档同步 + commit 全部收尾。
 
 ---
 
 ## 📝 关键认知 / 临时发现
 
-继承上版 HANDOFF 认知不变。**本场新增**：
+继承上版认知不变。**本场新增**：
 
-1. **`ConnectorMetaInvalidator.invalidatePartition(values)` 与 fe-core `ExternalMetaCacheMgr.invalidatePartitions(names)` 语义不对齐**——SPI 给的是 partition column VALUES（如 `["2024", "01"]`），engine 缓存按 partition NAMES（如 `"year=2024/month=01"`）键控。重构 partition name 需要 partition column names，SPI 目前没带。**本场决策**：fallback 到 `invalidateTable`（正确但过粗），等 SPI 后续补 partition column metadata 时再做精确路由。**待评估是否走 DV 流程**——目前是 RFC §6.4 的实现 trade-off 而非偏差，先列为开放问题。
-2. **`ConnectorMetaInvalidator.invalidateStatistics(db, t)` 当前 no-op**——SPI 契约要求"不能 drop schema cache"，但 fe-core `ExternalMetaCacheMgr` 没有 per-table stats-only invalidation 入口（`ExternalRowCountCache` 按 id 键控，与 SPI 的 name-based 调用不匹配）。先 no-op + 注释解释；待 P7 hive ACID 统计场景出现时再补。
-3. **`PluginDrivenTransactionManager` 通用化策略**——RFC §7.4 的设计示例（`ConnectorTransaction begin(Connector, ConnectorSession)`）与现有 `TransactionManager.begin() -> long` 接口签名冲突。**本场决策**：surgical 路径——保留 legacy `long begin()`（JDBC/ES auto-commit 必需），新增 `long begin(ConnectorTransaction)` 重载。inner class 加 nullable `connectorTx` 字段。无 caller 现在调用新方法（是 forward-compat plumbing，等 P5/P6/P7 连接器迁移时接通）。
-4. **`MvccSnapshot` 是 marker 接口**（fe-core 侧），所以 `ConnectorMvccSnapshotAdapter` 极简——只一个 `getSnapshot()` 暴露 SPI 类型。Iceberg / Paimon / Hudi 各自的 `*MvccSnapshot` 实现也都只是 wrapper。
-5. **跨模块依赖方向重新确认**：`fe-core` → `fe-connector-api`（imports `org.apache.doris.connector.api.*`）；`fe-core` → `fe-connector-spi`（imports `org.apache.doris.connector.spi.*`）。**无循环**。本场 `ExternalMetaCacheInvalidator` 放 fe-core 是对的（因为它要 import `Env` + `ExternalMetaCacheMgr`，反向是禁止的）。
+1. **`ColumnDefinition.defaultValue` 没有 public getter**——字段是 private `Optional<DefaultValue>`，只有 `hasDefaultValue()`。converter 当前传 `null`，等 SPI 在 `ConnectorColumn` 上增加 typed default-value carrier 时再补。这是 SPI 设计层面的 follow-up，不是 fe-core 侧补丁。
+2. **`PartitionTableInfo` 的 partition style 判别**：discriminator 不是单字段，需要两步——
+   - `getPartitionType()` 等于 `LIST` / `RANGE` → Doris 自有风格
+   - `getPartitionType() == UNPARTITIONED` 但 `getPartitionList()` 非空 → 进一步看 expressions：全 `UnboundSlot` → IDENTITY（Hive 风格）；含 `UnboundFunction` → TRANSFORM（Iceberg 风格）
+3. **LIST/RANGE 的 `initialValues` 暂未下沉**——`PartitionDefinition` 子类（InPartition/LessThanPartition/FixedRangePartition/StepPartition）携带 nereids `Expression`，需要完整 analyzer 才能 flatten 到 `List<List<String>>`。目前 Iceberg/Hive 走 TRANSFORM/IDENTITY 路径不依赖此，先返回空 list 延迟到具体连接器需要时再补。
+4. **`DistributionDescriptor` 的 `bucketNum` 字段是 private 且无 public getter**——只能通过 `translateToCatalogStyle().getBuckets()` 间接读取。converter 已封装为 `readBucketNum()` 私有 helper，未来 DistributionDescriptor 加 getter 可一行替换。
+5. **`PluginDrivenExternalCatalog.createTable` 的返回值语义**：SPI 的 `createTable(session, request)` 是 void，不区分"已存在 + IF NOT EXISTS"与"新建"。当前 override 总返回 false（=新建）并写 edit log。这是保守选择——对 P0 forward-compat plumbing 够用；真正需要"存在判定"的连接器（P5/P6/P7）可扩展 SPI 返回 boolean。
+6. **bucket 算法名硬编码为 `"doris_default"` / `"doris_random"`**——RFC §4.2 列了 `hive_hash` / `iceberg_bucket` 等真实算法，但 Doris 内部 `DistributionDescriptor` 只携带 `isHash` 布尔。真实算法名由 Hive/Iceberg 连接器在自己的 metadata.createTable 里根据 properties 推导（P7/P6）。
+7. **fe-core 编译验证的 cwd 是 `fe/`**，不是 workspace 根目录——`mvn -pl fe-core` 要从 `fe/` 跑。沿用上版认知。
 
 ---
 
 ## 🎯 下一个 session 第一件事
 
-### 强烈建议先 review 本场 4 文件改动再开始 P0-T13+
+### Track A 已收尾（batch 1 commit 已合入 catalog-spi-00）
 
-理由：T09-T12 是"SPI ↔ fe-core 互通"的实际胶水层。错了影响范围是 P0 之后所有连接器（每个都会读这层桥接）。
+无需再开 Track A。新 session 直接进 Track B（批 2）。
 
-→ 新 session 第一步：用户人工/agent 评审本场 4 文件：
-- `fe-core/.../connector/ExternalMetaCacheInvalidator.java` (新)
-- `fe-core/.../connector/ConnectorMvccSnapshotAdapter.java` (新)
-- `fe-core/.../connector/DefaultConnectorContext.java` (edit)
-- `fe-core/.../transaction/PluginDrivenTransactionManager.java` (edit)
-
-如有调整建议，走 DV 流程登记（特别是上面"关键认知 #1"的 `invalidatePartition` trade-off 是否要做精确路由）。
-
-### Track A：本场 4 文件 commit
+### Track B：P0 批 2（守门 + 测试，T21-T27）
 
 ```
-1. cd /Users/morningman/workspace/git/wt-fs-spi
-2. git status
-3. git add fe/fe-core/src/main/java/org/apache/doris/connector/ExternalMetaCacheInvalidator.java \
-           fe/fe-core/src/main/java/org/apache/doris/connector/ConnectorMvccSnapshotAdapter.java \
-           fe/fe-core/src/main/java/org/apache/doris/connector/DefaultConnectorContext.java \
-           fe/fe-core/src/main/java/org/apache/doris/transaction/PluginDrivenTransactionManager.java \
-           plan-doc/PROGRESS.md plan-doc/HANDOFF.md plan-doc/tasks/P0-spi-foundation.md
-4. git commit -m "[P0-T09..T12][fe-core] wire MetaInvalidator / Transaction / MvccSnapshot into fe-core"
+1. git branch --show-current  → 确认仍在 catalog-spi-00
+2. Read plan-doc/PROGRESS.md + plan-doc/HANDOFF.md（本文件）
+3. Read plan-doc/01-spi-extensions-rfc.md §15 (Testing) + §17 (Acceptance)
+4. T21: tools/check-connector-imports.sh —— 禁用 import 守门脚本（grep 禁词如 fe-core 包名出现在 fe-connector 模块内）
+5. T22: 在 fe-connector pom 接 maven-enforcer-plugin 调用 T21 脚本
+6. T23: FakeConnectorPlugin（fe-core test 包）—— 覆盖所有 default 行为路径（不实现任何 SPI 方法也应跑通基本 SHOW DATABASES / CREATE TABLE / listPartitions 调用，验证 fallback）
+7. T24-T25: JDBC + ES 全套 regression-test
+8. T26: ConnectorMetaInvalidator 路由测试（mock ExternalMetaCacheMgr）
+9. T27: CreateTableInfoToConnectorRequestConverter 单元测试（覆盖 IDENTITY / TRANSFORM / LIST / RANGE 四种 partition + hash/random bucket）
+10. 更新 tasks / PROGRESS / HANDOFF + commit
 ```
 
-### Track B：P0 批 1（DDL + Partition SPI，T13-T20）
+预计 context 用量 ~55%（T23 FakeConnectorPlugin 与 T27 converter 单测较重；其余偏脚本/regression-driver）。
 
-仅在 Track A commit + review 后启动：
+### Track C（可选，仅在 P0 全部收尾后）：批 2 同步评估开放问题 #1-#3
 
-```
-1. Read plan-doc/PROGRESS.md + plan-doc/HANDOFF.md
-2. Read plan-doc/01-spi-extensions-rfc.md §4 (E1 CreateTableRequest) + §13 (E10 listPartitions)
-3. 新增 8 个任务（T13-T20）：
-   - T13: `ConnectorCreateTableRequest` + Partition/Bucket Spec POJO（5 个类）放 ddl 包
-   - T14: `ConnectorTableOps.createTable(request)` default → 退化到旧 createTable
-   - T15: `CreateTableInfoToConnectorRequestConverter`（fe-core 新类）
-   - T16: `PluginDrivenExternalCatalog.createTable(stmt)` 接通 SPI
-   - T17-T19: `ConnectorTableOps.listPartitionNames / listPartitions / listPartitionValues` default
-   - T20: `ConnectorPartitionInfo` 追加字段（rowCount/sizeBytes/lastModifiedMillis）+ 向后兼容构造器
-4. mvn -pl fe-connector -am compile + JDBC/ES 回归
-5. 更新 tasks / PROGRESS / HANDOFF
-```
-
-预计 context 用量 ~50-60%（批 1 主要在 fe-connector-api 侧，文件相对独立）。
+如果在写 FakeConnectorPlugin / converter 单测过程中触发了"开放问题 #1 default 值 / #2 LIST initialValues / #3 createTable 返回值"中的实际需求，**走 DV 流程登记** 再调整 SPI，不要 silent edit。
 
 ---
 
 ## ⚠️ 开放问题 / 风险提示
 
-继承上版 5 项不变。**本场新增 / 更新**：
+继承上版 6 项不变。**本场新增 / 更新**（删除了"未 commit"项；batch 1 commit 已收尾）：
 
-1. **`invalidatePartition` 的 SPI 设计 trade-off**（新）：当前 fallback 到 `invalidateTable`。是否要给 SPI `ConnectorMetaInvalidator.invalidatePartition` 加 `List<String> partitionColumnNames` 参数？若加，则 fe-core adapter 能精确路由到 `mgr.invalidatePartitions(...)`。**先收集 Hive/Iceberg 实际使用频率再决定**（P7 评估），目前的过粗 invalidation 在正确性上无问题，只是缓存命中率会差。
-2. **`invalidateStatistics` no-op**（新）：fe-core `ExternalMetaCacheMgr` 缺 stats-only invalidation 入口。**可能需要**在 P7 hive ACID 写路径完工时补一个 `mgr.invalidateTableStats(catalogId, db, t)` 方法。**记到 R-014 之后**作为新风险？暂不加，先 no-op + 注释，等具体场景出现。
-3. **Maven build cache 误导问题**（沿用上版）：所有 SPI 改动验证步骤强制加 `-Dmaven.build.cache.enabled=false` 或 `clean`。
-4. **本次 7 文件改动尚未 commit**——见 Track A。
-5. **`PluginDrivenTransactionManager.begin(ConnectorTransaction)` 暂无 caller**（forward-compat plumbing）。当 P5/P6/P7 连接器开始实现 `ConnectorWriteOps.beginTransaction` 时，`BaseExternalTableInsertExecutor`（或同等位置）需要改为 if-else：连接器实现了 → 调新方法；否则 → 走 legacy `begin()`。**这一步留在 P5/P6/P7**，不在 P0 范围。
-6. （沿用）`PluginDrivenTransactionManager` 通用化对 JDBC auto-commit 的回归——本场已通过 fe-connector-jdbc clean compile 验证语法层无回归；**行为层回归留 P0-T24 跑全套 JDBC regression test**。
+1. **`ColumnDefinition.defaultValue` 在 SPI 层缺位**：converter 当前传 null。是否在 `ConnectorColumn` 上加 typed default-value carrier？建议 P5/P6 Hive/Iceberg 真正用到 CREATE TABLE 时再评估——如必要可走 DV 流程。
+2. **LIST/RANGE `initialValues` flatten 缺位**：当前 converter 返回空。是否在 `PartitionDefinition` 上加 `toFlatValues(): List<List<String>>` helper？建议同上：P5 Paimon / P7 Hive 真正用到时再评估。
+3. **`PluginDrivenExternalCatalog.createTable` 返回值丢失"已存在"信息**：是否扩展 SPI `createTable(session, request)` 返回 boolean 或 `CreateTableResult`？建议留到 P5/P6/P7 连接器迁移时再决定——目前 forward-compat plumbing 不影响。
+4. **bucket 算法名占位**：`"doris_default"` / `"doris_random"`。Hive/Iceberg 连接器侧需在自己的 metadata.createTable 里根据 properties 推导真实算法。
+5. （沿用）Maven build cache 误导问题：所有 SPI 改动验证步骤强制加 `-Dmaven.build.cache.enabled=false` 或 `clean`；并且 `mvn -pl fe-core` 的 cwd 必须是 `fe/`，不是 workspace 根。
+6. （沿用）`PluginDrivenTransactionManager.begin(ConnectorTransaction)` 暂无 caller（P5/P6/P7 接通）。
+7. （沿用）`invalidatePartition` fallback 到 `invalidateTable`；`invalidateStatistics` no-op——P7 hive ACID 场景再评估。
 
 ---
 
 ## 📂 当前关键文件清单
 
-### 本场新增 / 修改
+### 本场新增 / 修改（已 commit）
 
 ```
-NEW  fe/fe-core/src/main/java/org/apache/doris/connector/ExternalMetaCacheInvalidator.java
-NEW  fe/fe-core/src/main/java/org/apache/doris/connector/ConnectorMvccSnapshotAdapter.java
-MOD  fe/fe-core/src/main/java/org/apache/doris/connector/DefaultConnectorContext.java
-MOD  fe/fe-core/src/main/java/org/apache/doris/transaction/PluginDrivenTransactionManager.java
+NEW  fe/fe-connector/fe-connector-api/src/main/java/org/apache/doris/connector/api/ddl/ConnectorCreateTableRequest.java
+NEW  fe/fe-connector/fe-connector-api/src/main/java/org/apache/doris/connector/api/ddl/ConnectorPartitionSpec.java
+NEW  fe/fe-connector/fe-connector-api/src/main/java/org/apache/doris/connector/api/ddl/ConnectorPartitionField.java
+NEW  fe/fe-connector/fe-connector-api/src/main/java/org/apache/doris/connector/api/ddl/ConnectorPartitionValueDef.java
+NEW  fe/fe-connector/fe-connector-api/src/main/java/org/apache/doris/connector/api/ddl/ConnectorBucketSpec.java
+NEW  fe/fe-core/src/main/java/org/apache/doris/connector/ddl/CreateTableInfoToConnectorRequestConverter.java
+MOD  fe/fe-connector/fe-connector-api/src/main/java/org/apache/doris/connector/api/ConnectorTableOps.java
+MOD  fe/fe-connector/fe-connector-api/src/main/java/org/apache/doris/connector/api/ConnectorPartitionInfo.java
+MOD  fe/fe-core/src/main/java/org/apache/doris/datasource/PluginDrivenExternalCatalog.java
 MOD  plan-doc/PROGRESS.md
 MOD  plan-doc/tasks/P0-spi-foundation.md
-MOD  plan-doc/HANDOFF.md（本文件）
+MOD  plan-doc/HANDOFF.md（本文件——post-commit roll 通过 git amend 与 batch 1 同 commit 落盘）
 ```
 
 ### 跟踪体系（沿用不变）
 
 ```
-plan-doc/  (~220K, 17 文件)
+plan-doc/  (~225K, 17 文件)
 ├── 00-connector-migration-master-plan.md / 01-spi-extensions-rfc.md
 ├── README.md / PROGRESS.md / AGENT-PLAYBOOK.md / HANDOFF.md
 ├── decisions-log.md (18) / deviations-log.md (0) / risks.md (14)
@@ -152,8 +153,10 @@ plan-doc/  (~220K, 17 文件)
 ## 🧠 给下一个 agent 的 meta 建议
 
 - **当前分支是 `catalog-spi-00`**。新 session 开场 `git branch --show-current` 确认。
-- 接 Track B（批 1 DDL+Partition SPI）前**强烈建议人工 review 本场 4 文件改动**——它们是 SPI ↔ fe-core 胶水层，错了影响所有后续连接器。
-- 上版 meta 建议#3 仍然成立："scope 判定以 tasks/Pn-*.md 为准，HANDOFF 只是建议起点"。批 0 在 tasks 表中明确划分为"SPI 接口三件套（T03-T08）"+"fe-core 桥接（T09-T12）"两个子批，本场补完后者，整批 0 收尾。下一 session 进入批 1（T13-T20）。
-- 本场没动 RFC 一个字，无新 decision / deviation。沿用 meta 建议 "不要重新打开 D-001..D-018"。
-- **本场对 `PluginDrivenTransactionManager` 的改造方式是个值得学习的 surgical change 模板**：保持接口签名 + 加重载 + nullable 字段 + 文档化两条路径——避免了对 `TransactionManager` 接口、`BaseExternalTableInsertExecutor` 调用方、JDBC/ES auto-commit 的任何破坏。批 1+ 的迁移如果遇到类似"老路径不能动 / 新功能要加"的情况，可参照此 pattern。
+- **批 1（T13-T20）已合入 `catalog-spi-00`**（subject `[feat](connector) add P0 batch 1 SPI: CreateTableRequest + listPartitions (T13-T20)`），无需 review 老代码；直接读最新源即可。如果对 6 个新/改文件有调整建议，走 DV 流程登记后再改，不要 silent edit。
+- **Maven build 的 cwd 必须是 `fe/`**，不是 workspace 根。`mvn -pl fe-core -am compile` 从根目录跑会报"Could not find the selected project in the reactor"。
+- 本场无 RFC 修改、无新 decision / deviation——所有 trade-off 都在 RFC §4 / §13 设计范围内，由代码注释 + 本 HANDOFF "开放问题" 列出。沿用 meta 建议 "不要重新打开 D-001..D-018"。
+- **本场对 `CreateTableInfoToConnectorRequestConverter` 的写法值得参考**：先 `convert(info, dbName)` 顶层 → 4 个 private helper（convertColumns/convertPartition/convertBucket/convertField + convertTransformField）。Helper 之间互相不调用、各自处理一种维度，方便后续 T27 单测分别覆盖。
 - **必读 AGENT-PLAYBOOK §六 anti-patterns** 再开始动手。
+- 本场用 Explore subagent 调研了 nereids `CreateTableInfo` / `ColumnDefinition` / `PartitionTableInfo` / `DistributionDescriptor` 4 个文件，把整源代码读取摊到 subagent，节省主 context（CreateTableInfo 单文件 1714 行）——批 2 如果要写 FakeConnectorPlugin 也建议同样套路。
+- **本 HANDOFF roll 已通过 git amend 与 batch 1 代码同 commit 落盘**（HANDOFF 不内嵌 commit hash——hash 在 amend 后会变；用 `git log --oneline -3` 或 `git log --grep="P0 batch 1"` 即可定位）。下一个 session 不需要再处理 HANDOFF 落盘。

@@ -73,14 +73,14 @@
 
 | ID | 任务 | 设计参考 | Owner | 状态 | PR | 启动 | 完成 | 备注 |
 |---|---|---|---|---|---|---|---|---|
-| P0-T13 | E1：`ConnectorCreateTableRequest` + `Partition/Bucket Spec` POJO（ddl 包） | RFC §4.2 | — | ⏳ | — | — | — | 5 个类 |
-| P0-T14 | E1：`ConnectorTableOps.createTable(request)` default | RFC §4.3 | — | ⏳ | — | — | — | 退化到旧 createTable |
-| P0-T15 | E1：`CreateTableInfoToConnectorRequestConverter`（fe-core） | RFC §4.4 | — | ⏳ | — | — | — | |
-| P0-T16 | E1：`PluginDrivenExternalCatalog.createTable(stmt)` 接通 SPI | RFC §4.4 | — | ⏳ | — | — | — | |
-| P0-T17 | E10：`ConnectorTableOps.listPartitionNames` default | RFC §13.2 | — | ⏳ | — | — | — | |
-| P0-T18 | E10：`ConnectorTableOps.listPartitions(handle, filter)` default | RFC §13.2 | — | ⏳ | — | — | — | |
-| P0-T19 | E10：`ConnectorTableOps.listPartitionValues` default | RFC §13.2 | — | ⏳ | — | — | — | |
-| P0-T20 | E10：`ConnectorPartitionInfo` 追加字段（rowCount/sizeBytes/lastModifiedMillis） | RFC §13.3 | — | ⏳ | — | — | — | 向后兼容构造器 |
+| P0-T13 | E1：`ConnectorCreateTableRequest` + `Partition/Bucket Spec` POJO（ddl 包） | RFC §4.2 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | 5 个类（Request + PartitionSpec/Field/ValueDef + BucketSpec） |
+| P0-T14 | E1：`ConnectorTableOps.createTable(request)` default | RFC §4.3 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | 退化到旧 `createTable(schema, props)` |
+| P0-T15 | E1：`CreateTableInfoToConnectorRequestConverter`（fe-core） | RFC §4.4 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | 覆盖 IDENTITY / TRANSFORM / LIST / RANGE 四种 partition + hash/random bucket |
+| P0-T16 | E1：`PluginDrivenExternalCatalog.createTable(stmt)` 接通 SPI | RFC §4.4 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | override `createTable(CreateTableInfo)`；包 DorisConnectorException → DdlException |
+| P0-T17 | E10：`ConnectorTableOps.listPartitionNames` default | RFC §13.2 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | 返回 `Collections.emptyList()` |
+| P0-T18 | E10：`ConnectorTableOps.listPartitions(handle, filter)` default | RFC §13.2 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | filter 用 `Optional<ConnectorExpression>` |
+| P0-T19 | E10：`ConnectorTableOps.listPartitionValues` default | RFC §13.2 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | 返回 `Collections.emptyList()` |
+| P0-T20 | E10：`ConnectorPartitionInfo` 追加字段（rowCount/sizeBytes/lastModifiedMillis） | RFC §13.3 | @me | ✅ | — | 2026-05-24 | 2026-05-24 | 3 个 long 字段（UNKNOWN=-1）；3-arg 构造器委托到 6-arg；equals/hashCode 更新 |
 
 ### 批 1：守门 + 测试（W1 D4-5）
 
@@ -97,6 +97,27 @@
 ---
 
 ## 阶段日志（倒序）
+
+### 2026-05-24（夜 ②）— 批 1 DDL + Partition SPI 完成（T13-T20）
+
+- P0-T13 ✅：新增 `connector.api.ddl` 包 5 个 POJO：`ConnectorCreateTableRequest`（带 Builder）、`ConnectorPartitionSpec`（Style enum：IDENTITY/TRANSFORM/LIST/RANGE）、`ConnectorPartitionField`、`ConnectorPartitionValueDef`、`ConnectorBucketSpec`
+- P0-T14 ✅：`ConnectorTableOps.createTable(session, request)` default 退化到 legacy `createTable(session, schema, props)`（丢弃 partition / bucket / external / ifNotExists）
+- P0-T15 ✅：新增 `fe-core/.../connector/ddl/CreateTableInfoToConnectorRequestConverter`。覆盖：（1）columns 经 `ConnectorColumnConverter.toConnectorType()`；（2）partition 通过 `PartitionTableInfo.getPartitionType()` + `getPartitionList()` 判别四种 style；（3）TRANSFORM 解析 `UnboundFunction.getName()` + children 提取 `IntegerLikeLiteral` 参数；（4）bucket 通过 `DistributionDescriptor.translateToCatalogStyle().getBuckets()` 读取桶数
+- P0-T16 ✅：`PluginDrivenExternalCatalog` 新加 `createTable(CreateTableInfo)` override：build session → converter → `connector.getMetadata(s).createTable(s, req)` → wrap `DorisConnectorException` 为 `DdlException` → 写 edit log
+- P0-T17 ✅：`listPartitionNames(session, handle)` default 返回 `Collections.emptyList()`
+- P0-T18 ✅：`listPartitions(session, handle, Optional<ConnectorExpression> filter)` default 返回 `Collections.emptyList()`
+- P0-T19 ✅：`listPartitionValues(session, handle, List<String> partitionColumns)` default 返回 `Collections.emptyList()`
+- P0-T20 ✅：`ConnectorPartitionInfo` 新增 3 个 long 字段（rowCount / sizeBytes / lastModifiedMillis），`UNKNOWN = -1L` 常量；3-arg 旧构造器委托到 6-arg 新构造器；equals/hashCode/toString 同步更新
+- 验证：
+  - `mvn -pl fe-connector/fe-connector-api -am compile` → BUILD SUCCESS
+  - `mvn -pl fe-core -am compile -Dmaven.build.cache.enabled=false` → BUILD SUCCESS
+  - `mvn -pl fe-core checkstyle:check` → **0 violations**
+  - `mvn -pl fe-connector/fe-connector-jdbc,fe-connector/fe-connector-es -am compile` → BUILD SUCCESS（下游连接器零修改）
+- 已知 trade-off（**未升 DV**，是 RFC 范围内的实现取舍）：
+  1. `ColumnDefinition.defaultValue` 是 private `Optional<DefaultValue>` 且无 public getter——converter 暂传 `null`。等 SPI 在 ConnectorColumn 上增加 typed default-value carrier 时再补
+  2. LIST/RANGE 的 `initialValues` 暂不下沉到 `List<List<String>>`——`PartitionDefinition` 子类（InPartition/LessThanPartition/FixedRangePartition/StepPartition）含 nereids `Expression`，需要完整分析才能 flatten；先返回空列表，未来 Iceberg/Hive 走 TRANSFORM/IDENTITY 路径不依赖此
+  3. `PluginDrivenExternalCatalog.createTable` 总返回 `false`（=新建并写 edit log）——SPI 的 `createTable(session, request)` 是 void，不区分"已存在 + IF NOT EXISTS"与"新建"。留待 P5/P6/P7 真正实现连接器 createTable 时细化
+  4. bucket 算法名硬编码为 `"doris_default"` / `"doris_random"`——RFC §4.2 列了 `hive_hash` / `iceberg_bucket`，但 Doris 内部 `DistributionDescriptor` 只携带 isHash 布尔。由 Hive/Iceberg 连接器实现时根据 properties 推导真实算法
 
 ### 2026-05-24（深夜）— 批 0 fe-core 桥接完成（T09-T12）
 
