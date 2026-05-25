@@ -1,6 +1,6 @@
 # 📊 项目进度仪表盘
 
-> 最后更新：**2026-05-25**（晚 ③）| 当前阶段：**P2 trino-connector 批 A 已完成**（T01+T02；下一步批 B fe-core 桥接） | 项目总进度：**22%**
+> 最后更新：**2026-05-25**（晚 ④）| 当前阶段：**P2 trino-connector 批 A+B 已完成**（T01-T06；下一步批 C 翻闸） | 项目总进度：**25%**
 > [README](./README.md) · [Master Plan](./00-connector-migration-master-plan.md) · [SPI RFC](./01-spi-extensions-rfc.md) · [Decisions](./decisions-log.md) · [Deviations](./deviations-log.md) · [Risks](./risks.md) · [Agent Playbook](./AGENT-PLAYBOOK.md) · [Handoff](./HANDOFF.md)
 
 ---
@@ -11,7 +11,7 @@
 |---|---|---|---|---|---|
 | **P0** | SPI 缺口补齐 | 2 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 完成（PR #63582 squash-merge `c6f056fa5bd`，T24-T25 流水线全绿）| [tasks/P0](./tasks/P0-spi-foundation.md) |
 | **P1** | scan-node 收口 + 重复清理 | 1 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 完成（PR [#63641](https://github.com/apache/doris/pull/63641) squash-merged `778c5dd610f`；T1 推迟 P8；T2 推迟 P4/P5）| [tasks/P1](./tasks/P1-scan-node-cleanup.md) |
-| **P2** | trino-connector 迁移 | 2 周 | ▰▰▱▱▱▱▱▱▱▱ 25% | 🚧 进行中（批 A ✅ T01+T02；批 B fe-core 桥接待启动） | [tasks/P2](./tasks/P2-trino-connector-migration.md) |
+| **P2** | trino-connector 迁移 | 2 周 | ▰▰▰▰▱▱▱▱▱▱ 40% | 🚧 进行中（批 A+B ✅ T01-T06；批 C 翻闸点待操作） | [tasks/P2](./tasks/P2-trino-connector-migration.md) |
 | P3 | hudi 迁移 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P4 | maxcompute 迁移 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P5 | paimon 迁移 | 3 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
@@ -49,10 +49,10 @@
 |---|---|---|---|---|---|---|
 | P2-T01 | `TrinoConnectorProvider.validateProperties` + `TrinoDorisConnector.preCreateValidation` | 批 A | @me | ✅ | 2026-05-25 | required-property check + preCreateValidation 触发 plugin loading；+20 LOC |
 | P2-T02 | `ConnectorPushdownOps.applyFilter` + `applyProjection`（桥接 Trino 原生下推） | 批 A | @me | ✅ | 2026-05-25 | `TrinoConnectorDorisMetadata` 复用 `TrinoPredicateConverter`；+125 LOC；单测推 P2-T11 |
-| P2-T03 | `GsonUtils` 加 3 行 string-name redirect | 批 B | @me | ⏳ | — | mirror ES/JDBC 范式 |
-| P2-T04 | `PluginDrivenExternalCatalog.gsonPostProcess` 加 trinoconnector logType migration | 批 B | @me | ⏳ | — | ~5-10 LOC |
-| P2-T05 | `ExternalCatalog.registerCompatibleSubtype` 注册 Trino → PluginDriven | 批 B | @me | ⏳ | — | — |
-| P2-T06 | `PluginDrivenExternalTable.getEngine() / getEngineTableTypeName()` 加 trino-connector 分支 | 批 B | @me | ⏳ | — | — |
+| P2-T03 | `GsonUtils` Trino 三处 `registerSubtype` 替换为 `registerCompatibleSubtype` | 批 B | @me | ✅ | 2026-05-25 | **scope 校正**：必须 atomic replace（避免 RuntimeTypeAdapterFactory 撞名 IAE） |
+| P2-T04 | `PluginDrivenExternalCatalog.gsonPostProcess` 加 trinoconnector logType migration | 批 B | @me | ✅ | 2026-05-25 | 新 helper `legacyLogTypeToCatalogType`；`name().toLowerCase()` 不通用 |
+| P2-T05 | ~~`ExternalCatalog.registerCompatibleSubtype` 注册~~ | 批 B | @me | ✅ | 2026-05-25 | duplicate of T03，自动满足 |
+| P2-T06 | `PluginDrivenExternalTable.getEngine() / getEngineTableTypeName()` 加 trino-connector 分支 | 批 B | @me | ✅ | 2026-05-25 | toEngineName 返 null（保留 legacy 行为） |
 | P2-T07 | `CatalogFactory.SPI_READY_TYPES` 加 `"trino-connector"` | 批 C | @me | ⏳ | — | 翻闸点；批 A+B 完成后操作 |
 | P2-T08 | `PhysicalPlanTranslator` 删 `instanceof TrinoConnectorExternalTable` 分支 | 批 D | @me | ⏳ | — | P1 fallback 让位 |
 | P2-T09 | `CatalogFactory` 删 `case "trino-connector"` + 删 factory 类 | 批 D | @me | ⏳ | — | — |
@@ -113,6 +113,7 @@
 
 > 倒序，新内容置顶；超过 14 天的条目移除（git log 保留历史）。
 
+- **2026-05-25（晚 ④）** ✅ **P2 批 B 完成**（T03+T04+T05+T06 fe-core 桥接）：recon 揭示 HANDOFF 三处描述误差并校正——(1) T03 不能"只加 redirect 不删旧"，必须 atomic replace 否则 `RuntimeTypeAdapterFactory.labelToSubtype` 撞名抛 IAE → FE 起不来；(2) T05 是 duplicate of T03，没有独立的 `ExternalCatalog.registerCompatibleSubtype` API；(3) T04 `name().toLowerCase()` 不通用——`Type.TRINO_CONNECTOR.name().toLowerCase()` 出 "trino_connector" 但 CatalogFactory 期望 "trino-connector"，新增 `legacyLogTypeToCatalogType` helper 做显式 case 映射；(4) T06 `TRINO_CONNECTOR_EXTERNAL_TABLE.toEngineName()` 返 null（switch 没 case，legacy 也是 null），保留此行为不修。3 files / +29 LOC 全在 fe-core。守门：fe-core compile + checkstyle + import gate 全绿。**重要**：批 B 后到批 C T07 翻闸前，新建 trino 目录无法序列化（registerSubtype 已删但 CatalogFactory 仍走 legacy）；不要在中间状态部署
 - **2026-05-25（晚 ③）** ✅ **P2 批 A 完成**（T01+T02 fe-connector-trino SPI 补齐）：`TrinoConnectorProvider.validateProperties` 校验 `trino.connector.name` 必填；`TrinoDorisConnector.preCreateValidation` 在 CREATE CATALOG 时触发 `ensureInitialized()` 完成 plugin 加载 + connector factory 解析，把延迟到首次查询的失败前移到 catalog 创建期。`TrinoConnectorDorisMetadata.applyFilter / applyProjection` 桥接 Trino 原生 push-down：复用现有 `TrinoPredicateConverter` 把 `ConnectorExpression` 转 `TupleDomain<ColumnHandle>`，调 Trino `metadata.applyFilter / applyProjection`，把回来的 trino-side `ConnectorTableHandle` 包成新的 `TrinoTableHandle`（保留 column maps）；`remainingFilter` 保守返回原表达式，匹配 legacy fe-core 行为（BE 端继续 re-evaluate）。+143 LOC 跨 3 文件，全部 `fe-connector-trino` 侧（**未触碰 fe-core**，严格守批 A 边界）；import gate + compile + checkstyle 全绿。单元测试推迟到 P2-T11 批 E 一起做
 - **2026-05-25（晚 ②）** 🚧 **P2 (trino-connector) 启动 + recon 完成**：用 3 路 Explore subagent 并行调研，输出代码侧 facts —— fe-core 旧目录 10 个 .java / ~1760 LOC、5 个 live external caller（全部机械路由，无 P1-T01 那种"活业务逻辑"问题）；fe-connector-trino 13 类 / 2162 LOC / 0 测试，SPI 表面 ~95% 已覆盖（真缺 validateProperties / preCreateValidation / pushdown ops）；反向 instanceof 实测 1 处（PhysicalPlanTranslator:779）；SPI_READY 翻闸点定位 `CatalogFactory.java:53`；Gson 兼容路径与 ES/JDBC 同 pattern 可复用。**用户决议**：Q1 pushdown ops 纳入 P2 批 A；Q2 fe-core 目录删除时 GsonUtils 三个 class-token 注册同步清。**task 划分定**：13 tasks / 5 批次（A SPI 补齐 / B fe-core 桥接 / C 翻闸 / D 清旧 / E 测试+文档）。P2 task 文件 [tasks/P2-trino-connector-migration.md](./tasks/P2-trino-connector-migration.md) 已建
 - **2026-05-25（晚）** ✅ **P1 PR 合入**：PR [#63641](https://github.com/apache/doris/pull/63641) `[P1-T03-T05] route plugin-driven scans first in nereids translator` 流水线全绿，squash-merged 到 `apache/doris:branch-catalog-spi`，hash `778c5dd610f`。本地新分支 `catalog-spi-03` 已建立，承载 P2 工作
@@ -163,9 +164,9 @@
 
 > 当本项目通过 Claude Code 这类 LLM agent 推进时，跟踪当前 session 状态、handoff 状况和 context 健康度。
 
-- **本 session 已完成**：P2 批 A 编码（T01 validateProperties + preCreateValidation；T02 applyFilter + applyProjection 复用 TrinoPredicateConverter）；本地 import gate + compile + checkstyle 全绿；plan-doc 跟踪文件先单独 commit 后批 A 代码合一个 commit（T01+T02 同属 fe-connector-trino SPI 补齐）
-- **下一个 session 应做**：启动 P2 批 B —— T03 GsonUtils string-name redirect / T04 PluginDrivenExternalCatalog.gsonPostProcess logType 迁移 / T05 registerCompatibleSubtype / T06 PluginDrivenExternalTable 加 trino 分支。**注意**：批 B 之后批 D 的 T10 必须和 T03 在同一 PR
-- **是否需要 handoff**：批 A 完成时未触发 handoff（同 session 内推进）
+- **本 session 已完成**：P2 批 A（T01+T02 fe-connector SPI 补齐 commit `31fb91c5bd3`）+ 批 B（T03+T04+T05+T06 fe-core 桥接；含三处 HANDOFF 描述校正）。本地 fe-connector + fe-core 全绿
+- **下一个 session 应做**：批 C T07（`CatalogFactory.SPI_READY_TYPES` 加 `"trino-connector"`）；翻闸后 smoke 验证（CREATE CATALOG ... TYPE 'trino-connector' 走 SPI 路径成功）；连续启动批 D（T08+T09+T10 清旧代码）
+- **是否需要 handoff**：暂未触发（同 session 内推进；用户在场决定下一步是否继续）
 - **协作规范**：[AGENT-PLAYBOOK.md](./AGENT-PLAYBOOK.md)（context 预算、subagent 使用、handoff 触发条件）
 
 ---

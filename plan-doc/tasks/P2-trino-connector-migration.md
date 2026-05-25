@@ -8,7 +8,7 @@
 
 ## 元信息
 
-- **状态**：🚧 进行中（批 A ✅ 完成；批 B fe-core 桥接待启动）
+- **状态**：🚧 进行中（批 A ✅ + 批 B ✅；批 C 翻闸点待操作）
 - **启动日期**：2026-05-25
 - **目标完成**：2026-06-08（2 周，master plan §3.3 估算）
 - **实际完成**：—
@@ -74,10 +74,10 @@
 |---|---|---|---|---|---|---|---|---|
 | P2-T01 | `TrinoConnectorProvider.validateProperties` + `TrinoDorisConnector.preCreateValidation` | **批 A** | @me | ✅ | — | 2026-05-25 | 2026-05-25 | required-property `trino.connector.name` 校验；preCreateValidation 调 `ensureInitialized()` 触发 plugin 加载 + factory 解析。+20 LOC |
 | P2-T02 | `ConnectorPushdownOps.applyFilter` + `applyProjection`（桥接 Trino 原生下推） | **批 A** | @me | ✅ | — | 2026-05-25 | 2026-05-25 | `TrinoConnectorDorisMetadata` 复用 `TrinoPredicateConverter`：`ConnectorExpression` → Trino `TupleDomain`，调 Trino native applyFilter/applyProjection，包装新 `TrinoTableHandle`。`remainingFilter` 保守=原表达式，匹配 legacy 行为。+125 LOC；单测推 P2-T11 |
-| P2-T03 | `GsonUtils` 加 3 行 string-name redirect（Trino*ExternalCatalog/Database/Table → PluginDriven*） | **批 B** | @me | ⏳ | — | — | — | 在 `GsonUtils.java:414` 后插入（ES/JDBC redirect 之后），用 `.registerSubtype(PluginDrivenExternalCatalog.class, "TrinoConnectorExternalCatalog")` 同 pattern。**注意**：本 task 只加 redirect；删旧 class-token 注册在 T10 |
-| P2-T04 | `PluginDrivenExternalCatalog.gsonPostProcess` 加 `trinoconnector → plugin` logType 迁移 | **批 B** | @me | ⏳ | — | — | — | 参照 ES/JDBC 已有分支（lines 318-341）；backfill `"type"` 属性。预估 ~5-10 LOC |
-| P2-T05 | `ExternalCatalog.registerCompatibleSubtype` 注册 `TrinoConnectorExternalCatalog → PluginDrivenExternalCatalog` | **批 B** | @me | ⏳ | — | — | — | 找 fe-core 中 ES/JDBC 已有注册位置 mirror 一下 |
-| P2-T06 | `PluginDrivenExternalTable.getEngine()` + `getEngineTableTypeName()` 加 `case "trino-connector":` 分支 | **批 B** | @me | ⏳ | — | — | — | 当前覆盖 `"jdbc"` / `"es"`（lines 196-225）；返回 `TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.toEngineName()` 与 `.name()` |
+| P2-T03 | `GsonUtils` Trino Catalog/Database/Table 注册替换为 `registerCompatibleSubtype` | **批 B** | @me | ✅ | — | 2026-05-25 | 2026-05-25 | **scope 校正**：必须 atomic replace（delete 旧 `registerSubtype` + add `registerCompatibleSubtype` 同一 commit），否则 `RuntimeTypeAdapterFactory` 在 labelToSubtype 撞名抛 IAE。原 HANDOFF "只加不删" 描述错误。同时移除 3 个 import |
+| P2-T04 | `PluginDrivenExternalCatalog.gsonPostProcess` 加 `trinoconnector → plugin` logType 迁移 | **批 B** | @me | ✅ | — | 2026-05-25 | 2026-05-25 | 新增 `legacyLogTypeToCatalogType()` helper；`Type.TRINO_CONNECTOR.name().toLowerCase()` = `"trino_connector"` 不匹配 CatalogFactory 的 `"trino-connector"`，需要显式 case 映射。+15 LOC |
+| P2-T05 | ~~`ExternalCatalog.registerCompatibleSubtype` 注册~~（**duplicate of T03**） | **批 B** | @me | ✅ | — | 2026-05-25 | 2026-05-25 | recon 发现 `registerCompatibleSubtype` 只在 `GsonUtils` 上存在（`RuntimeTypeAdapterFactory` 方法），没有 `ExternalCatalog.registerCompatibleSubtype` 这种 API。原任务描述误解；T03 完成时本任务自动满足 |
+| P2-T06 | `PluginDrivenExternalTable.getEngine()` + `getEngineTableTypeName()` 加 `case "trino-connector":` 分支 | **批 B** | @me | ✅ | — | 2026-05-25 | 2026-05-25 | **caveat**：`TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.toEngineName()` 因 switch 没有 case 返回 null（legacy 也是 null）；保留此 legacy 行为。`getEngineTableTypeName` 返回 `.name()` 正常。+6 LOC |
 | P2-T07 | `CatalogFactory.SPI_READY_TYPES` 加 `"trino-connector"` | **批 C** | @me | ⏳ | — | — | — | `CatalogFactory.java:53`，把 `ImmutableSet.of("jdbc", "es")` 改 `("jdbc", "es", "trino-connector")`。**翻闸点**——必须在批 A/B 全部完成且本地 smoke pass 之后操作 |
 | P2-T08 | `PhysicalPlanTranslator.visitPhysicalFileScan` 删 `instanceof TrinoConnectorExternalTable` 分支 | **批 D** | @me | ⏳ | — | — | — | 文件 `nereids/glue/translator/PhysicalPlanTranslator.java:779`；P1 批 A 已加 `PluginDrivenExternalTable` 前置分支，trino 翻闸后这里成死代码 |
 | P2-T09 | `CatalogFactory` 删 `case "trino-connector":` + 删 `TrinoConnectorExternalCatalogFactory.java` 整文件 | **批 D** | @me | ⏳ | — | — | — | `CatalogFactory.java:147-150`；factory 文件 30 LOC，整删 |
@@ -91,6 +91,39 @@
 ---
 
 ## 阶段日志（倒序）
+
+### 2026-05-25（晚 ④）— 批 B 完成（T03 + T04 + T05 + T06 fe-core 桥接）
+
+**recon 校正**（HANDOFF 描述误差）：
+
+- **T03 不能"只加不删"**：`RuntimeTypeAdapterFactory.registerSubtype`（fe-common line 237）和 `registerCompatibleSubtype`（line 279）都做 `labelToSubtype.containsKey(label) → throw IAE`。如果保留 `registerSubtype(TrinoConnectorExternalCatalog.class, "TrinoConnectorExternalCatalog")` 同时加 `registerCompatibleSubtype(PluginDrivenExternalCatalog.class, "TrinoConnectorExternalCatalog")`，static init 阶段直接 IAE，FE 起不来。**正确做法**：atomic replace — 一个 commit 内 delete 旧的 + add 新的，对 Catalog/Database/Table 三处都如此。ES/JDBC 在历史 commit `5c325655b8b` 就是这么干的。**T10 在批 D 不再需要碰 GsonUtils**，只删 `datasource/trinoconnector/` 目录 + `CatalogFactory` 相关 case 即可。
+- **T05 是 duplicate of T03**：`registerCompatibleSubtype` 只在 `RuntimeTypeAdapterFactory` 上存在，由 `GsonUtils` 调用；没有 `ExternalCatalog.registerCompatibleSubtype` 这种 API。原任务描述基于错误假设。T03 完成 = T05 自动完成。
+- **T04 `name().toLowerCase()` 不通用**：`Type.TRINO_CONNECTOR.name().toLowerCase()` 产出 `"trino_connector"`（下划线），但 `CatalogFactory.java:147` 期望 `"trino-connector"`（连字符）。ES（"es"）和 JDBC（"jdbc"）刚好匹配，纯属巧合。必须做显式 case 映射；提取 `legacyLogTypeToCatalogType()` helper 方便未来 MaxCompute 等加 case。
+- **T06 `toEngineName()` 返 null**：`TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.toEngineName()` 在 `TableIf.java:225-273` switch 没有 case，落到 default 返 null。legacy `TrinoConnectorExternalTable` 也没 override `getEngine`，因此 legacy 用户看到的就是 null。保留此行为（不修 toEngineName）。
+
+**实施细节**：
+
+- **T03** `GsonUtils.java`：
+  - delete `registerSubtype(TrinoConnectorExternalCatalog.class, ...)` line 401-402（Catalog adapter factory）
+  - delete `registerSubtype(TrinoConnectorExternalDatabase.class, ...)` line 457（Database adapter factory）
+  - delete `registerSubtype(TrinoConnectorExternalTable.class, ...)` line 476（Table adapter factory）
+  - add `.registerCompatibleSubtype(PluginDrivenExternalCatalog.class, "TrinoConnectorExternalCatalog")` 紧接 JDBC redirect 之后
+  - add `.registerCompatibleSubtype(PluginDrivenExternalDatabase.class, "TrinoConnectorExternalDatabase")` 紧接 JDBC database redirect 之后
+  - add `.registerCompatibleSubtype(PluginDrivenExternalTable.class, "TrinoConnectorExternalTable")` 紧接 JDBC table redirect 之后
+  - remove 3 个 import（`org.apache.doris.datasource.trinoconnector.{TrinoConnectorExternalCatalog,Database,Table}`）
+- **T04** `PluginDrivenExternalCatalog.java`：
+  - `gsonPostProcess` 把 `logType.name().toLowerCase(Locale.ROOT)` 替换为 `legacyLogTypeToCatalogType(logType)`
+  - 新增 private static helper `legacyLogTypeToCatalogType(Type) → String`，case TRINO_CONNECTOR 返 `"trino-connector"`，default 走原 `name().toLowerCase()` 路径
+- **T06** `PluginDrivenExternalTable.java`：`getEngine()` 和 `getEngineTableTypeName()` 各加一个 `case "trino-connector":` 分支。getEngine 返 `TRINO_CONNECTOR_EXTERNAL_TABLE.toEngineName()` (null) — 保留 legacy 行为；getEngineTableTypeName 返 `.name()` — 正常。
+
+工作树 diff：3 files / +29 LOC，全部 fe-core。
+
+守门：
+- `mvn -pl fe-core -am compile -Dmaven.build.cache.enabled=false` ✅（cwd=`fe/`；首次冷编译 ~2:44；4646 源文件 SUCCESS）
+- `mvn -pl fe-core checkstyle:check -Dmaven.build.cache.enabled=false` ✅（0 violations）
+- `mvn -pl fe-connector validate -Dmaven.build.cache.enabled=false` ✅（import gate + checkstyle）
+
+下一步：批 C T07（`CatalogFactory.SPI_READY_TYPES` 加 `"trino-connector"`）。**重要**：批 B → 批 C 必须连续操作，中间窗口"新建 trino 目录无法序列化"（registerSubtype 已删，但 CatalogFactory 还在走 legacy factory）。
 
 ### 2026-05-25（晚 ③）— 批 A 完成（T01 + T02）
 
