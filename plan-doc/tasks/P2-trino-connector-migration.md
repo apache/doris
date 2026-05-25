@@ -8,7 +8,7 @@
 
 ## 元信息
 
-- **状态**：🚧 进行中（recon 完成，task 划分已确认；待启动批 A）
+- **状态**：🚧 进行中（批 A ✅ 完成；批 B fe-core 桥接待启动）
 - **启动日期**：2026-05-25
 - **目标完成**：2026-06-08（2 周，master plan §3.3 估算）
 - **实际完成**：—
@@ -72,8 +72,8 @@
 
 | ID | 任务 | 批次 | Owner | 状态 | PR | 启动 | 完成 | 备注 |
 |---|---|---|---|---|---|---|---|---|
-| P2-T01 | `TrinoConnectorProvider.validateProperties` + `TrinoDorisConnector.preCreateValidation` | **批 A** | @me | ⏳ | — | — | — | Port 自 fe-core `TrinoConnectorExternalCatalog`；把 `trino.connector.name` 等运行时校验 lift 到 CREATE CATALOG 阶段。预估 ~30 LOC |
-| P2-T02 | `ConnectorPushdownOps.applyFilter` + `applyProjection`（桥接 Trino 原生下推） | **批 A** | @me | ⏳ | — | — | — | 用户决议 Q1（2026-05-25）：纳入 P2。Trino 自身有 push-down，需要把 Doris `ConnectorExpression` → Trino `TupleDomain` 转换、把 SPI projection list → Trino `ConnectorTableHandle` 投影。复用现有 `TrinoPredicateConverter`。预估 ~150-200 LOC + 单测 |
+| P2-T01 | `TrinoConnectorProvider.validateProperties` + `TrinoDorisConnector.preCreateValidation` | **批 A** | @me | ✅ | — | 2026-05-25 | 2026-05-25 | required-property `trino.connector.name` 校验；preCreateValidation 调 `ensureInitialized()` 触发 plugin 加载 + factory 解析。+20 LOC |
+| P2-T02 | `ConnectorPushdownOps.applyFilter` + `applyProjection`（桥接 Trino 原生下推） | **批 A** | @me | ✅ | — | 2026-05-25 | 2026-05-25 | `TrinoConnectorDorisMetadata` 复用 `TrinoPredicateConverter`：`ConnectorExpression` → Trino `TupleDomain`，调 Trino native applyFilter/applyProjection，包装新 `TrinoTableHandle`。`remainingFilter` 保守=原表达式，匹配 legacy 行为。+125 LOC；单测推 P2-T11 |
 | P2-T03 | `GsonUtils` 加 3 行 string-name redirect（Trino*ExternalCatalog/Database/Table → PluginDriven*） | **批 B** | @me | ⏳ | — | — | — | 在 `GsonUtils.java:414` 后插入（ES/JDBC redirect 之后），用 `.registerSubtype(PluginDrivenExternalCatalog.class, "TrinoConnectorExternalCatalog")` 同 pattern。**注意**：本 task 只加 redirect；删旧 class-token 注册在 T10 |
 | P2-T04 | `PluginDrivenExternalCatalog.gsonPostProcess` 加 `trinoconnector → plugin` logType 迁移 | **批 B** | @me | ⏳ | — | — | — | 参照 ES/JDBC 已有分支（lines 318-341）；backfill `"type"` 属性。预估 ~5-10 LOC |
 | P2-T05 | `ExternalCatalog.registerCompatibleSubtype` 注册 `TrinoConnectorExternalCatalog → PluginDrivenExternalCatalog` | **批 B** | @me | ⏳ | — | — | — | 找 fe-core 中 ES/JDBC 已有注册位置 mirror 一下 |
@@ -91,6 +91,25 @@
 ---
 
 ## 阶段日志（倒序）
+
+### 2026-05-25（晚 ③）— 批 A 完成（T01 + T02）
+
+实施细节（落到代码）：
+
+- **T01 `TrinoConnectorProvider.validateProperties`**：单一 required-check `trino.connector.name`（ES pattern；JDBC 的多属性校验更重，不适用 trino）。
+- **T01 `TrinoDorisConnector.preCreateValidation(ConnectorValidationContext)`**：直接调用 `ensureInitialized()`。第一次 catalog 创建时触发 `TrinoBootstrap.getInstance(pluginDir)` 单例（包含 plugin 加载）+ 按 `connector.name` 解析 ConnectorFactory + 构造 per-catalog Trino services。把原本延迟到首次 SELECT 的失败（"找不到 plugin"、"connector.name 不存在"）前移到 CREATE CATALOG 时报错。
+- **T02 `TrinoConnectorDorisMetadata.applyFilter`**：构造 `TrinoPredicateConverter(columnHandleMap, columnMetadataMap)` 把 `ConnectorFilterConstraint.expression` 转 `TupleDomain<ColumnHandle>`；若 `tupleDomain.isAll()` 早返回 empty；否则开 Trino 事务调 `metadata.applyFilter(connSession, trinoTableHandle, new Constraint(tupleDomain))`，把回来的 trino-side handle 重新包装成新的 `TrinoTableHandle`（保留原 columnHandleMap / columnMetadataMap）。**`remainingFilter` 保守返回原 expression**——legacy fe-core scan-node 不剥 conjuncts，BE 端全部 re-evaluate；保留此语义。
+- **T02 `TrinoConnectorDorisMetadata.applyProjection`**：从 `List<ConnectorColumnHandle>` 构造 `Map<String, ColumnHandle> assignments` + `List<Variable> trinoProjections`；调 Trino native applyProjection；包装新 handle；返回 `ProjectionApplicationResult(handle, List<ConnectorColumnRef>, List<ConnectorColumnAssignment>)`。SPI 调用方（`PluginDrivenScanNode.tryPushDownProjection`）目前只读 handle，但 projections/assignments 已正确填充以备未来使用。
+
+工作树 diff：3 files / +143 LOC，全部在 `fe-connector/fe-connector-trino/src/main/java/`，**未触碰 fe-core**（严守批 A 边界）。
+
+守门：
+- `mvn -pl fe-connector validate -Dmaven.build.cache.enabled=false` ✅（import gate + checkstyle）
+- `mvn -pl fe-connector/fe-connector-trino -am compile -Dmaven.build.cache.enabled=false` ✅
+- `mvn -pl fe-connector/fe-connector-trino checkstyle:check` ✅（0 violations）
+- `mvn -pl fe-connector/fe-connector-trino -am test -DfailIfNoTests=false` ✅（"No sources to compile" — module 当前 0 测试，T11 批 E 补齐）
+
+下一步：批 B（T03+T04+T05+T06 fe-core 桥接）。批 D T10 删 GsonUtils 三个 class-token 注册必须与 T03 加新 string-name redirect **同一个 PR**（image compat 强约束）。
 
 ### 2026-05-25（晚 ②）— P2 启动 + recon 完成
 

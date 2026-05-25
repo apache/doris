@@ -20,6 +20,7 @@ package org.apache.doris.connector.trino;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.ConnectorContext;
 
@@ -71,6 +72,14 @@ public class TrinoDorisConnector implements Connector {
     public ConnectorScanPlanProvider getScanPlanProvider() {
         ensureInitialized();
         return new TrinoScanPlanProvider(this);
+    }
+
+    @Override
+    public void preCreateValidation(ConnectorValidationContext context) {
+        // Lift plugin loading + connector-factory resolution from first-query
+        // to CREATE CATALOG time, so misconfigured plugin dir / connector name
+        // surfaces immediately instead of on the first SELECT.
+        ensureInitialized();
     }
 
     @Override
