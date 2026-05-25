@@ -267,7 +267,7 @@ private:
                         &block->get_by_position(block_cid).column));
             } else {
                 MutableColumnPtr output_column =
-                        block->get_by_position(block_cid).column->assume_mutable();
+                        block->get_by_position(block_cid).column->assert_mutable();
                 RETURN_IF_ERROR(copy_column_data_by_selector(_current_return_columns[cid].get(),
                                                              output_column, sel_rowid_idx,
                                                              select_size, _opts.block_row_max));
