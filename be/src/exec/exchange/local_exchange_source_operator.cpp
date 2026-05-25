@@ -95,6 +95,9 @@ Status LocalExchangeSourceOperatorX::get_block(RuntimeState* state, Block* block
     RETURN_IF_ERROR(local_state._exchanger->get_block(
             state, block, eos, {nullptr, nullptr, local_state._copy_data_timer},
             {local_state._channel_id, &local_state}));
+    if (UNLIKELY(limit() == -1 && *eos)) {
+        RETURN_IF_ERROR(local_state._exchanger->check_no_data_left(local_state._channel_id));
+    }
     local_state.reached_limit(block, eos);
     return Status::OK();
 }

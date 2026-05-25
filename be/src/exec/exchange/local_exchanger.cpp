@@ -111,6 +111,44 @@ bool Exchanger<BlockType>::_dequeue_data(BlockType& block, bool* eos, Block* dat
     return false;
 }
 
+template <typename BlockType>
+Status Exchanger<BlockType>::check_no_data_left(int channel_id) {
+    DCHECK_GE(channel_id, 0);
+    DCHECK_LT(static_cast<size_t>(channel_id), _data_queue.size());
+
+    std::unique_lock l(*_m[channel_id]);
+    BlockType block;
+    if (_data_queue[channel_id].try_dequeue(block)) {
+        auto queue_info = data_queue_debug_string(channel_id);
+        std::string unread_block_info;
+        if constexpr (std::is_same_v<PartitionedBlock, BlockType>) {
+            unread_block_info = fmt::format(
+                    "rows={}, bytes={}, allocated_bytes={}, offset_start={}, length={}, "
+                    "has_row_idxs={}",
+                    block.first ? block.first->_data_block.rows() : 0,
+                    block.first ? block.first->_data_block.bytes() : 0,
+                    block.first ? block.first->_allocated_bytes : 0, block.second.offset_start,
+                    block.second.length, block.second.row_idxs != nullptr);
+        } else if constexpr (std::is_same_v<BroadcastBlock, BlockType>) {
+            unread_block_info =
+                    fmt::format("rows={}, bytes={}, allocated_bytes={}, offset_start={}, length={}",
+                                block.first ? block.first->_data_block.rows() : 0,
+                                block.first ? block.first->_data_block.bytes() : 0,
+                                block.first ? block.first->_allocated_bytes : 0,
+                                block.second.offset_start, block.second.length);
+        } else {
+            unread_block_info = fmt::format(
+                    "rows={}, bytes={}, allocated_bytes={}", block ? block->_data_block.rows() : 0,
+                    block ? block->_data_block.bytes() : 0, block ? block->_allocated_bytes : 0);
+        }
+        return Status::InternalError(
+                "Local exchange returned eos with unread data left in channel {}. type={}, "
+                "queue_info={}, unread_block_info=[{}]",
+                channel_id, get_exchange_type_name(get_type()), queue_info, unread_block_info);
+    }
+    return Status::OK();
+}
+
 Status ShuffleExchanger::sink(RuntimeState* state, Block* in_block, bool eos, Profile&& profile,
                               SinkInfo& sink_info) {
     if (in_block->empty()) {
@@ -563,6 +601,19 @@ Status AdaptivePassthroughExchanger::get_block(RuntimeState* state, Block* block
         } while (mutable_block.rows() < state->batch_size() && !*eos &&
                  _dequeue_data(source_info.local_state, partitioned_block, eos, block,
                                source_info.channel_id));
+    }
+    return Status::OK();
+}
+
+Status AdaptivePassthroughExchanger::check_no_data_left(int channel_id) {
+    RETURN_IF_ERROR(Exchanger<PartitionedBlock>::check_no_data_left(channel_id));
+    if (!_tmp_block[channel_id].empty()) {
+        return Status::InternalError(
+                "Local exchange returned eos with unread passthrough block left in channel {}. "
+                "type={}, tmp_block_info=[rows={}, bytes={}, allocated_bytes={}], tmp_eos={}",
+                channel_id, get_exchange_type_name(get_type()), _tmp_block[channel_id].rows(),
+                _tmp_block[channel_id].bytes(), _tmp_block[channel_id].allocated_bytes(),
+                _tmp_eos[channel_id]);
     }
     return Status::OK();
 }

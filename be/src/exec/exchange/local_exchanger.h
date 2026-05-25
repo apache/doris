@@ -143,6 +143,7 @@ public:
     virtual Status sink(RuntimeState* state, Block* in_block, bool eos, Profile&& profile,
                         SinkInfo& sink_info) = 0;
     virtual ExchangeType get_type() const = 0;
+    virtual Status check_no_data_left(int channel_id) = 0;
     // Called if a local exchanger source operator are closed. Free the unused data block in data_queue.
     virtual void close(SourceInfo&& source_info) = 0;
     // Called if all local exchanger source operators are closed. We free the memory in
@@ -248,6 +249,7 @@ public:
         return fmt::format("Data Queue {}: [size approx = {}, eos = {}]", i,
                            _data_queue[i].data_queue.size_approx(), _data_queue[i].eos);
     }
+    Status check_no_data_left(int channel_id) override;
 
 protected:
     // Enqueue data block and set downstream source operator to read.
@@ -369,6 +371,7 @@ public:
     Status get_block(RuntimeState* state, Block* block, bool* eos, Profile&& profile,
                      SourceInfo&& source_info) override;
     ExchangeType get_type() const override { return ExchangeType::ADAPTIVE_PASSTHROUGH; }
+    Status check_no_data_left(int channel_id) override;
 
     void close(SourceInfo&& source_info) override;
 
