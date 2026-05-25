@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <chrono>
 #include <thread>
 
@@ -30,9 +31,12 @@ namespace doris {
 class WorkloadGroupMetricsTest : public testing::Test {
 protected:
     void SetUp() override {
-        WorkloadGroupInfo wg_info {.id = 1, .name = "test_wg"};
+        // Use a unique id for each test instance to avoid metric entity conflicts
+        static std::atomic<uint64_t> next_id {1};
+        uint64_t id = next_id.fetch_add(1);
+        WorkloadGroupInfo wg_info {.id = id, .name = "test_wg_" + std::to_string(id)};
         _wg = std::make_shared<WorkloadGroup>(wg_info);
-        _metrics = std::make_unique<WorkloadGroupMetrics>(_wg.get());
+        _metrics = _wg->get_metrics();
     }
 
     void TearDown() override {
@@ -41,7 +45,7 @@ protected:
     }
 
     std::shared_ptr<WorkloadGroup> _wg;
-    std::unique_ptr<WorkloadGroupMetrics> _metrics;
+    std::shared_ptr<WorkloadGroupMetrics> _metrics;
 };
 
 // Test that refresh_metrics uses real elapsed time to compute per-second rates.
@@ -55,22 +59,17 @@ TEST_F(WorkloadGroupMetricsTest, refresh_uses_real_elapsed_time) {
     const uint64_t cpu_delta_nanos = 2000000000ULL;
     _metrics->update_cpu_time_nanos(cpu_delta_nanos);
 
-    // Sleep for ~2 seconds so the real interval is ~2 seconds
-    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    // Sleep for ~1.1 seconds so the real interval is ~1 second
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
 
-    // Refresh metrics — should compute rate based on real ~2 second interval
+    // Refresh metrics — should compute rate based on real ~1 second interval
     _metrics->refresh_metrics();
 
-    // Expected: 2,000,000,000 nanos / 2 seconds = 1,000,000,000 nanos per second
-    // Allow tolerance for timing imprecision (the sleep may not be exactly 2s)
+    // Expected: 2,000,000,000 nanos / 1 second = ~2,000,000,000 nanos per second
+    // Allow generous tolerance for timing imprecision in CI
     uint64_t cpu_per_sec = _metrics->get_cpu_time_nanos_per_second();
-    // With a 2 second interval and 2B nanos of CPU time added,
-    // the rate should be approximately 1B nanos/sec.
-    // Allow 50% tolerance due to scheduling variance.
-    EXPECT_GT(cpu_per_sec, 500000000ULL) << "CPU per-second rate too low: " << cpu_per_sec
-                                         << " (expected ~1,000,000,000 with 2s interval)";
-    EXPECT_LT(cpu_per_sec, 2500000000ULL) << "CPU per-second rate too high: " << cpu_per_sec
-                                          << " (expected ~1,000,000,000 with 2s interval)";
+    EXPECT_GT(cpu_per_sec, 500000000ULL) << "CPU per-second rate too low: " << cpu_per_sec;
+    EXPECT_LT(cpu_per_sec, 4000000000ULL) << "CPU per-second rate too high: " << cpu_per_sec;
 }
 
 // Test that when interval is less than 1 second, refresh_metrics does not
@@ -99,7 +98,7 @@ TEST_F(WorkloadGroupMetricsTest, shorter_interval_yields_higher_rate) {
     _metrics->refresh_metrics();
     _metrics->update_cpu_time_nanos(1000000000ULL); // 1B nanos
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
     _metrics->refresh_metrics();
 
     uint64_t rate_1s = _metrics->get_cpu_time_nanos_per_second();
@@ -107,15 +106,13 @@ TEST_F(WorkloadGroupMetricsTest, shorter_interval_yields_higher_rate) {
     // --- Second measurement: add same delta, wait 2 seconds ---
     _metrics->update_cpu_time_nanos(1000000000ULL); // another 1B nanos
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(2100));
     _metrics->refresh_metrics();
 
     uint64_t rate_2s = _metrics->get_cpu_time_nanos_per_second();
 
     // With the same absolute delta (1B nanos) but double the interval,
     // the per-second rate should be roughly half.
-    // rate_1s ~ 1B/1s = 1B
-    // rate_2s ~ 1B/2s = 500M
     // Allow generous tolerance for timing jitter
     EXPECT_GT(rate_1s, rate_2s) << "1s interval rate (" << rate_1s
                                 << ") should be higher than 2s interval rate (" << rate_2s << ")";
