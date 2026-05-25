@@ -495,6 +495,9 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     case TInvertedIndexFileStorageFormat::V3:
         tablet_schema_pb->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
         break;
+    case TInvertedIndexFileStorageFormat::V4:
+        tablet_schema_pb->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V4);
+        break;
     default:
         tablet_schema_pb->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
         break;

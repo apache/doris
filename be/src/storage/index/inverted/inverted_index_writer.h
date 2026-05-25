@@ -26,6 +26,8 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/spimi/posting_buffer.h"
+#include "storage/index/inverted/spimi/tee_token_stream.h"
 #include "storage/index/inverted/util/reader.h"
 #include "storage/olap_common.h"
 #include "storage/segment/common.h"
@@ -74,11 +76,35 @@ public:
                             size_t count) override;
     Status add_numeric_values(const void* values, size_t count);
     Status add_value(const CppType& value);
+
     int64_t size() const override;
+
+    // For tests: returns the resident bytes of the SPIMI shadow buffer
+    // (12 B/record + arena + intern slots) when the flag is on, or 0
+    // when the buffer was never allocated.
+    size_t spimi_buffer_memory_usage() const override {
+        return _spimi_buffer == nullptr ? 0 : _spimi_buffer->MemoryUsage();
+    }
+    bool has_spimi_buffer() const override { return _spimi_buffer != nullptr; }
     void write_null_bitmap(lucene::store::IndexOutput* null_bitmap_out);
     Status finish() override;
 
 private:
+    // C2 — release the SPIMI shadow buffer at the entry of any array
+    // overload. Array<string> joins per-element strings into one
+    // tokenized stream (CollectionValue overload) or wraps each element
+    // in its own non-reusable TokenStream (void-ptr overload); in both
+    // cases the SPIMI tee is NOT installed for the per-element stream
+    // and a live buffer would emit an empty/wrong-position shadow
+    // segment alongside the full CLucene segment. The helper centralises
+    // the latch (was duplicated as inline comments across both overloads,
+    // and the second site missed the "release before the nullptr check"
+    // requirement that the first site implements).
+    //
+    // Idempotent: a second call after `_spimi_buffer == nullptr` is a
+    // no-op. Logs at most once per writer instance via LOG_FIRST_N.
+    void release_spimi_shadow_for_array_path();
+
     rowid_t _rid = 0;
     uint32_t _row_ids_seen_for_bkd = 0;
     roaring::Roaring _null_bitmap;
@@ -102,6 +128,26 @@ private:
     IndexFileWriter* _index_file_writer;
     uint32_t _ignore_above;
     bool _should_analyzer = false;
+
+    // SPIMI shadow-mode accumulator. Populated alongside the CLucene
+    // IndexWriter path when `config::inverted_index_fulltext_spimi` is true
+    // at init_fulltext_index() time. At finish() the buffer is emitted into
+    // a sibling segment (`_spimi_0.tis` / `.tii` / `.frq` / `.prx` / `.fnm`
+    // + `spimi_segments_1` + `spimi_segments.gen`) so the segment can be
+    // compared against CLucene's primary output without disrupting the
+    // existing write path. `nullptr` when the flag is off.
+    std::unique_ptr<segment_v2::inverted_index::spimi::SpimiPostingBuffer> _spimi_buffer = nullptr;
+    segment_v2::inverted_index::spimi::TeeTokenStream _spimi_tee;
+    int32_t _spimi_doc_count = 0;
+
+    // V4 storage format = pure SPIMI write path. When true, the
+    // writer does NOT create a CLucene IndexWriter / Document /
+    // Field; tokens flow directly from the analyzer's
+    // reusableTokenStream into `_spimi_buffer`. This is what
+    // delivers the SPIMI project's 50%+ memory savings target —
+    // running CLucene alongside (the legacy shadow mode) doubles
+    // RAM. V4 makes SPIMI standalone.
+    bool _is_v4 = false;
 };
 
 } // namespace segment_v2

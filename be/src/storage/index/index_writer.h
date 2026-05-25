@@ -63,6 +63,21 @@ public:
 
     virtual int64_t size() const = 0;
 
+    // For tests: returns the SPIMI shadow buffer's resident bytes when the
+    // `inverted_index_fulltext_spimi_shadow` flag is on, or 0 otherwise.
+    // Overridden by `InvertedIndexColumnWriter` for the fulltext (slice)
+    // field types.
+    virtual size_t spimi_buffer_memory_usage() const { return 0; }
+
+    // For tests: returns true if a SPIMI shadow buffer is currently
+    // allocated for this writer. A freshly-allocated buffer has
+    // `spimi_buffer_memory_usage() == 0` (its vectors carry no capacity
+    // yet), so the memory accessor alone cannot tell apart "buffer
+    // released by the array path" from "buffer never appended to". This
+    // accessor is the canonical way to verify the C2 array-path latch
+    // dropped the buffer.
+    virtual bool has_spimi_buffer() const { return false; }
+
     virtual void close_on_error() = 0;
 
     // check if the column is valid for inverted index, some columns

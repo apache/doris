@@ -77,6 +77,10 @@ public:
     // open file v2, init _stream
     int64_t get_inverted_file_size() const { return _stream == nullptr ? 0 : _stream->length(); }
     const std::string& get_index_path_prefix() const { return _index_path_prefix; }
+    // V4 = SPIMI; readers downstream of the column factory branch
+    // on this to decide whether to build SpimiFulltextIndexReader
+    // (P37c-2g dispatch) or the existing CLucene-backed readers.
+    InvertedIndexStorageFormatPB get_storage_format() const { return _storage_format; }
     friend IndexFileWriter;
 
 protected:

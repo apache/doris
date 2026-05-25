@@ -1336,6 +1336,16 @@ DECLARE_mBool(inverted_index_compaction_enable);
 DECLARE_mBool(debug_inverted_index_compaction);
 // index by RAM directory
 DECLARE_mBool(inverted_index_ram_dir_enable);
+// Run the SPIMI full-text accumulator (be/src/storage/index/inverted/spimi/)
+// in SHADOW mode alongside the CLucene IndexWriter. Both writers accumulate
+// the same token stream during indexing, so peak memory is HIGHER than the
+// CLucene-only baseline (≈ 150 % at peak on the standard fulltext workload).
+// This is intentional: shadow mode is for differential validation, NOT a
+// memory-reduction switch. Do NOT enable in production without sufficient
+// headroom (recommended only in test/canary clusters until the differential
+// gate test in be/test/storage/segment/inverted_index_writer_test.cpp:
+// FullTextSpimiShadowSegmentTisTailMatchesCLucene flips on).
+DECLARE_mBool(inverted_index_fulltext_spimi_shadow);
 // wheather index by RAM directory when base compaction
 DECLARE_mBool(inverted_index_ram_dir_enable_when_base_compaction);
 // use num_broadcast_buffer blocks as buffer to do broadcast

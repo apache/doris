@@ -130,7 +130,8 @@ enum TInvertedIndexFileStorageFormat {
     DEFAULT = 0, // Default format, unspecified storage method.
     V1 = 1,      // Index per idx: Each index is stored separately based on its identifier.
     V2 = 2,      // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
-    V3 = 3       // Position and dictionary compression
+    V3 = 3,      // Position and dictionary compression
+    V4 = 4       // SPIMI segment writer/reader (Phase 37c). In-house implementation; no CLucene primary.
 }
 
 struct TScalarType {

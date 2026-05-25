@@ -1242,6 +1242,8 @@ public class PropertyAnalyzer {
                 return TInvertedIndexFileStorageFormat.V1;
             } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
                 return TInvertedIndexFileStorageFormat.V2;
+            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V4")) {
+                return TInvertedIndexFileStorageFormat.V4;
             } else {
                 return TInvertedIndexFileStorageFormat.V3;
             }
@@ -1253,11 +1255,15 @@ public class PropertyAnalyzer {
             return TInvertedIndexFileStorageFormat.V2;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v3")) {
             return TInvertedIndexFileStorageFormat.V3;
+        } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v4")) {
+            return TInvertedIndexFileStorageFormat.V4;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("default")) {
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
                 return TInvertedIndexFileStorageFormat.V1;
             } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
                 return TInvertedIndexFileStorageFormat.V2;
+            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V4")) {
+                return TInvertedIndexFileStorageFormat.V4;
             } else {
                 return TInvertedIndexFileStorageFormat.V3;
             }

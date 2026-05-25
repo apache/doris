@@ -26,6 +26,10 @@ enum class InvertedIndexReaderType {
     FULLTEXT = 0,
     STRING_TYPE = 1,
     BKD = 2,
+    // V4 SPIMI fulltext. Distinct from FULLTEXT so the searcher
+    // builder dispatch can route SPIMI segments through
+    // `SpimiSearcherBuilder` instead of `FulltextIndexSearcherBuilder`.
+    SPIMI_FULLTEXT = 3,
 };
 
 template <InvertedIndexReaderType T>
@@ -51,6 +55,11 @@ constexpr const char* InvertedIndexReaderTypeToString<InvertedIndexReaderType::B
     return "BKD";
 }
 
+template <>
+constexpr const char* InvertedIndexReaderTypeToString<InvertedIndexReaderType::SPIMI_FULLTEXT>() {
+    return "SPIMI_FULLTEXT";
+}
+
 inline std::string reader_type_to_string(InvertedIndexReaderType query_type) {
     switch (query_type) {
     case InvertedIndexReaderType::UNKNOWN:
@@ -61,6 +70,8 @@ inline std::string reader_type_to_string(InvertedIndexReaderType query_type) {
         return InvertedIndexReaderTypeToString<InvertedIndexReaderType::STRING_TYPE>();
     case InvertedIndexReaderType::BKD:
         return InvertedIndexReaderTypeToString<InvertedIndexReaderType::BKD>();
+    case InvertedIndexReaderType::SPIMI_FULLTEXT:
+        return InvertedIndexReaderTypeToString<InvertedIndexReaderType::SPIMI_FULLTEXT>();
     }
     return ""; // Explicitly handle all cases
 }
