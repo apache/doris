@@ -72,6 +72,12 @@ public class DropRowPolicyCommand extends DropCommand {
      * validate
      */
     public void validate(ConnectContext ctx) throws AnalysisException {
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                    PrivPredicate.GRANT.getPrivs().toString());
+        }
         tableNameInfo.analyze(ctx.getNameSpaceContext());
         if (user != null) {
             user.analyze();
@@ -83,12 +89,6 @@ public class DropRowPolicyCommand extends DropCommand {
             if (!Env.getCurrentEnv().getAuth().doesRoleExist(roleName)) {
                 throw new AnalysisException("role not exist: " + roleName);
             }
-        }
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                    PrivPredicate.GRANT.getPrivs().toString());
         }
     }
 
