@@ -339,5 +339,17 @@ class LiteralExprEqualsTest {
             Assertions.assertEquals(new TimeV2Literal(1, 2, 3, 0, 0, false).hashCode(),
                     new TimeV2Literal(1, 2, 3, 0, 0, false).hashCode());
         }
+
+        @Test
+        void sameValueDifferentScaleEqualAndHashAlike() {
+            // equals() compares only getValue(); two TIMEV2 literals with the same
+            // logical time but different declared scales (TIMEV2(0) vs TIMEV2(6))
+            // must therefore also share a hashCode, otherwise predicate dedup
+            // buckets them apart and violates the Object.equals/hashCode contract.
+            TimeV2Literal scale0 = new TimeV2Literal(1, 2, 3, 0, 0, false);
+            TimeV2Literal scale6 = new TimeV2Literal(1, 2, 3, 0, 6, false);
+            Assertions.assertEquals(scale0, scale6);
+            Assertions.assertEquals(scale0.hashCode(), scale6.hashCode());
+        }
     }
 }

@@ -101,7 +101,11 @@ public class TimeV2Literal extends LiteralExpr {
 
     @Override
     public int hashCode() {
-        return 31 * super.hashCode() + Double.hashCode(getValue());
+        // Must mirror equals(), which only compares getValue(). super.hashCode()
+        // mixes in the ScalarType, so TIMEV2(0) and TIMEV2(6) would otherwise
+        // produce different hashes for the same logical time value and break the
+        // equals/hashCode contract — predicate dedup would bucket them apart.
+        return Double.hashCode(getValue());
     }
 
     @Override
