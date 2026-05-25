@@ -1111,6 +1111,76 @@ public class Auth implements Writable {
         dropRoleInternal(role, ignoreIfNonExists, false);
     }
 
+    public void onDropCatalog(String ctl, boolean isReplay) {
+        writeLock();
+        try {
+            List<PrivInfo> removed = roleManager.removeCatalogPrivs(ctl);
+            if (!isReplay) {
+                for (PrivInfo info : removed) {
+                    Env.getCurrentEnv().getEditLog().logRevokePriv(info);
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void onDropDatabase(String ctl, String db, boolean isReplay) {
+        writeLock();
+        try {
+            List<PrivInfo> removed = roleManager.removeDbPrivs(ctl, db);
+            if (!isReplay) {
+                for (PrivInfo info : removed) {
+                    Env.getCurrentEnv().getEditLog().logRevokePriv(info);
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void onDropTable(String ctl, String db, String tbl, boolean isReplay) {
+        writeLock();
+        try {
+            List<PrivInfo> removed = roleManager.removeTablePrivs(ctl, db, tbl);
+            if (!isReplay) {
+                for (PrivInfo info : removed) {
+                    Env.getCurrentEnv().getEditLog().logRevokePriv(info);
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void onDropResource(String resourceName, boolean isReplay) {
+        writeLock();
+        try {
+            List<PrivInfo> removed = roleManager.removeResourcePrivs(resourceName);
+            if (!isReplay) {
+                for (PrivInfo info : removed) {
+                    Env.getCurrentEnv().getEditLog().logRevokePriv(info);
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void onDropWorkloadGroup(String workloadGroupName, boolean isReplay) {
+        writeLock();
+        try {
+            List<PrivInfo> removed = roleManager.removeWorkloadGroupPrivs(workloadGroupName);
+            if (!isReplay) {
+                for (PrivInfo info : removed) {
+                    Env.getCurrentEnv().getEditLog().logRevokePriv(info);
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
     public void replayDropRole(PrivInfo info) {
         try {
             dropRoleInternal(info.getRole(), false, true);

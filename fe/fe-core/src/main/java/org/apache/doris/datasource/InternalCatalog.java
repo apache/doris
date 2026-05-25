@@ -544,6 +544,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             DropDbInfo info = new DropDbInfo(dbName, force, recycleTime);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId());
             Env.getCurrentEnv().getDictionaryManager().dropDbDictionaries(dbName);
+            Env.getCurrentEnv().getAuth().onDropDatabase(INTERNAL_CATALOG_NAME, dbName, false);
             Env.getCurrentEnv().getEditLog().logDropDb(info);
         } finally {
             unlock();
@@ -600,6 +601,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             fullNameToDb.remove(dbName);
             idToDb.remove(db.getId());
             Env.getCurrentEnv().getFunctionRegistry().dropUdfByDb(dbName);
+            Env.getCurrentEnv().getAuth().onDropDatabase(INTERNAL_CATALOG_NAME, dbName, true);
         } finally {
             unlock();
         }
@@ -1056,6 +1058,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Env.getCurrentEnv().getConstraintManager().checkAndDropTableConstraints(
                 TableNameInfoUtils.fromDb(db, table.getName()),
                 !isForceDrop && !isReplay);
+        Env.getCurrentEnv().getAuth().onDropTable(INTERNAL_CATALOG_NAME, db.getFullName(), table.getName(), isReplay);
         db.unregisterTable(table.getId());
         StopWatch watch = StopWatch.createStarted();
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);

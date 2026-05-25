@@ -1032,6 +1032,7 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.dropDb(dbName, ifExists, force);
+            Env.getCurrentEnv().getAuth().onDropDatabase(getName(), dbName, false);
             DropDbInfo info = new DropDbInfo(getName(), dbName);
             Env.getCurrentEnv().getEditLog().logDropDb(info);
         } catch (Exception e) {
@@ -1120,6 +1121,7 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.dropTable(dorisTable, ifExists);
+            Env.getCurrentEnv().getAuth().onDropTable(getName(), dbName, tableName, false);
             DropInfo info = new DropInfo(getName(), dbName, tableName);
             Env.getCurrentEnv().getEditLog().logDropTable(info);
         } catch (Exception e) {
@@ -1132,6 +1134,7 @@ public abstract class ExternalCatalog
         if (metadataOps != null) {
             metadataOps.afterDropTable(dbName, tblName);
         }
+        Env.getCurrentEnv().getAuth().onDropTable(getName(), dbName, tblName, true);
     }
 
     /**
