@@ -17,8 +17,10 @@
 
 package org.apache.doris.connector.api;
 
+import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 
 import java.util.Collections;
 import java.util.List;
@@ -63,6 +65,27 @@ public interface ConnectorTableOps {
             Map<String, String> properties) {
         throw new DorisConnectorException(
                 "CREATE TABLE not supported");
+    }
+
+    /**
+     * Creates a table with full DDL semantics (partition, bucket, external,
+     * {@code IF NOT EXISTS}).
+     *
+     * <p>Connectors should override this when they support advanced
+     * {@code CREATE TABLE} options. The default degrades to the legacy
+     * {@link #createTable(ConnectorSession, ConnectorTableSchema, Map)},
+     * dropping partition / bucket / external / {@code ifNotExists} info.</p>
+     *
+     * @throws DorisConnectorException if the connector cannot honor the request
+     */
+    default void createTable(ConnectorSession session,
+            ConnectorCreateTableRequest request) {
+        ConnectorTableSchema schema = new ConnectorTableSchema(
+                request.getTableName(),
+                request.getColumns(),
+                null,
+                request.getProperties());
+        createTable(session, schema, request.getProperties());
     }
 
     /** Drops the specified table. */
@@ -125,5 +148,39 @@ public interface ConnectorTableOps {
             long tableId, String tableName, String dbName,
             String remoteName, int numCols, long catalogId) {
         return null;
+    }
+
+    /**
+     * Lists all partition display names (e.g., {@code "year=2024/month=01"}).
+     *
+     * <p>Should be cheap and avoid loading per-partition metadata.</p>
+     */
+    default List<String> listPartitionNames(ConnectorSession session,
+            ConnectorTableHandle handle) {
+        return Collections.emptyList();
+    }
+
+    /**
+     * Lists partitions matching the optional filter, with full metadata.
+     *
+     * <p>Connectors should push the filter into the metastore / catalog when
+     * possible. {@code filter} is empty when the caller wants the full list.</p>
+     */
+    default List<ConnectorPartitionInfo> listPartitions(ConnectorSession session,
+            ConnectorTableHandle handle,
+            Optional<ConnectorExpression> filter) {
+        return Collections.emptyList();
+    }
+
+    /**
+     * Lists distinct partition column value combinations for the given columns.
+     *
+     * <p>Used by the {@code partition_values()} TVF and by column-distinct-value
+     * optimizations. Inner list order matches {@code partitionColumns}.</p>
+     */
+    default List<List<String>> listPartitionValues(ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<String> partitionColumns) {
+        return Collections.emptyList();
     }
 }
