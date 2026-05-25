@@ -26,13 +26,31 @@ import java.util.Objects;
  */
 public final class ConnectorPartitionInfo {
 
+    /** Sentinel for "unknown" on the numeric stats fields. */
+    public static final long UNKNOWN = -1L;
+
     private final String partitionName;
     private final Map<String, String> partitionValues;
     private final Map<String, String> properties;
+    private final long rowCount;
+    private final long sizeBytes;
+    private final long lastModifiedMillis;
 
+    /**
+     * Backward-compatible constructor. Numeric stats fields are set to
+     * {@link #UNKNOWN}.
+     */
     public ConnectorPartitionInfo(String partitionName,
             Map<String, String> partitionValues,
             Map<String, String> properties) {
+        this(partitionName, partitionValues, properties,
+                UNKNOWN, UNKNOWN, UNKNOWN);
+    }
+
+    public ConnectorPartitionInfo(String partitionName,
+            Map<String, String> partitionValues,
+            Map<String, String> properties,
+            long rowCount, long sizeBytes, long lastModifiedMillis) {
         this.partitionName = Objects.requireNonNull(
                 partitionName, "partitionName");
         this.partitionValues = partitionValues == null
@@ -41,6 +59,9 @@ public final class ConnectorPartitionInfo {
         this.properties = properties == null
                 ? Collections.emptyMap()
                 : Collections.unmodifiableMap(properties);
+        this.rowCount = rowCount;
+        this.sizeBytes = sizeBytes;
+        this.lastModifiedMillis = lastModifiedMillis;
     }
 
     public String getPartitionName() {
@@ -55,6 +76,21 @@ public final class ConnectorPartitionInfo {
         return properties;
     }
 
+    /** @return row count, or {@link #UNKNOWN} when not collected. */
+    public long getRowCount() {
+        return rowCount;
+    }
+
+    /** @return on-disk size in bytes, or {@link #UNKNOWN}. */
+    public long getSizeBytes() {
+        return sizeBytes;
+    }
+
+    /** @return last-modified epoch millis, or {@link #UNKNOWN}. */
+    public long getLastModifiedMillis() {
+        return lastModifiedMillis;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -64,19 +100,25 @@ public final class ConnectorPartitionInfo {
             return false;
         }
         ConnectorPartitionInfo that = (ConnectorPartitionInfo) o;
-        return partitionName.equals(that.partitionName)
+        return rowCount == that.rowCount
+                && sizeBytes == that.sizeBytes
+                && lastModifiedMillis == that.lastModifiedMillis
+                && partitionName.equals(that.partitionName)
                 && partitionValues.equals(that.partitionValues)
                 && properties.equals(that.properties);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(partitionName, partitionValues, properties);
+        return Objects.hash(partitionName, partitionValues, properties,
+                rowCount, sizeBytes, lastModifiedMillis);
     }
 
     @Override
     public String toString() {
         return "ConnectorPartitionInfo{name='" + partitionName
-                + "', values=" + partitionValues + "}";
+                + "', values=" + partitionValues
+                + ", rowCount=" + rowCount
+                + ", sizeBytes=" + sizeBytes + "}";
     }
 }

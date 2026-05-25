@@ -92,4 +92,15 @@ public interface ConnectorContext {
     default <T> T executeAuthenticated(Callable<T> task) throws Exception {
         return task.call();
     }
+
+    /**
+     * Returns the meta invalidator the connector can call to notify the engine
+     * of external metadata changes (e.g. from HMS notification events).
+     *
+     * <p>Connectors that have no external change notifications can ignore this;
+     * the default returns {@link ConnectorMetaInvalidator#NOOP}.</p>
+     */
+    default ConnectorMetaInvalidator getMetaInvalidator() {
+        return ConnectorMetaInvalidator.NOOP;
+    }
 }
