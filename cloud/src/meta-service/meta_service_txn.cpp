@@ -2804,6 +2804,9 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             continue;
         }
 
+        record_txn_commit_stats(txn.get(), instance_id, partition_indexes.size(), tablet_ids.size(),
+                                txn_id);
+
         CommitTxnLogPB commit_txn_log;
         commit_txn_log.set_txn_id(txn_id);
         commit_txn_log.set_db_id(db_id);
