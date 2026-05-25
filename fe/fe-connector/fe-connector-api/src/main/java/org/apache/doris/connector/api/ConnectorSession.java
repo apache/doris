@@ -17,7 +17,10 @@
 
 package org.apache.doris.connector.api;
 
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
+
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Session context passed to every connector operation.
@@ -59,5 +62,18 @@ public interface ConnectorSession {
      */
     default Map<String, String> getSessionProperties() {
         return java.util.Collections.emptyMap();
+    }
+
+    /**
+     * Returns the transaction this session is currently bound to, if any.
+     *
+     * <p>Used by connectors whose {@code begin*} write operations need to
+     * attach work to an outer transaction opened by
+     * {@link ConnectorWriteOps#beginTransaction(ConnectorSession)}.
+     * Connectors with statement-scoped writes (e.g. JDBC auto-commit) can
+     * ignore this and the default empty value.</p>
+     */
+    default Optional<ConnectorTransaction> getCurrentTransaction() {
+        return Optional.empty();
     }
 }
