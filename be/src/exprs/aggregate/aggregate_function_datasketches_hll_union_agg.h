@@ -130,19 +130,23 @@ struct AggregateFunctionHllSketchData {
     void read(BufferReadable& buf) {
         StringRef d;
         buf.read_binary(d);
-        try {
-            auto cache = Sketch::deserialize(d.data, d.size, Alloc());
-            merge(cache);
-        } catch (const doris::Exception& e) {
-            throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when read: {}",
-                            e.to_string());
-        } catch (const std::exception& e) {
-            throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when read: {}",
-                            e.what());
-        } catch (...) {
-            throw Exception(ErrorCode::CORRUPTION,
-                            "HLL sketch data corrupted when read: unknown exception.");
-        }
+
+        auto cache = [&]() -> Sketch {
+            try {
+                return Sketch::deserialize(d.data, d.size, Alloc());
+            } catch (const doris::Exception& e) {
+                throw Exception(e.code(), "Failed to deserialize HLL sketch when read: {}",
+                                e.to_string());
+            } catch (const std::exception& e) {
+                throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when read: {}",
+                                e.what());
+            } catch (...) {
+                throw Exception(ErrorCode::CORRUPTION,
+                                "HLL sketch data corrupted when read: unknown exception.");
+            }
+        }();
+
+        merge(cache);
     }
     double get_result() const {
         if (hll_union_data.has_value()) {
@@ -213,21 +217,26 @@ private:
                 throw Exception(ErrorCode::CORRUPTION,
                                 "HLL sketch data corrupted when add: empty input.");
             }
-            try {
-                using Sketch = typename Data::Sketch;
-                using Alloc = typename Data::Alloc;
-                Sketch sketch_data = Sketch::deserialize(value.begin(), value.size, Alloc());
-                data.merge(sketch_data);
-            } catch (const doris::Exception& e) {
-                throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when add: {}",
-                                e.to_string());
-            } catch (const std::exception& e) {
-                throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when add: {}",
-                                e.what());
-            } catch (...) {
-                throw Exception(ErrorCode::CORRUPTION,
-                                "HLL sketch data corrupted when add: unknown exception.");
-            }
+
+            using Sketch = typename Data::Sketch;
+            using Alloc = typename Data::Alloc;
+
+            auto sketch_data = [&]() -> Sketch {
+                try {
+                    return Sketch::deserialize(value.begin(), value.size, Alloc());
+                } catch (const doris::Exception& e) {
+                    throw Exception(e.code(), "Failed to deserialize HLL sketch when add: {}",
+                                    e.to_string());
+                } catch (const std::exception& e) {
+                    throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when add: {}",
+                                    e.what());
+                } catch (...) {
+                    throw Exception(ErrorCode::CORRUPTION,
+                                    "HLL sketch data corrupted when add: unknown exception.");
+                }
+            }();
+
+            data.merge(sketch_data);
         }
     }
 };
