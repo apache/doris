@@ -23,6 +23,7 @@ import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -88,6 +89,11 @@ public class DefaultConnectorContext implements ConnectorContext {
     @Override
     public ConnectorHttpSecurityHook getHttpSecurityHook() {
         return httpSecurityHook;
+    }
+
+    @Override
+    public ConnectorMetaInvalidator getMetaInvalidator() {
+        return new ExternalMetaCacheInvalidator(catalogId);
     }
 
     @Override
