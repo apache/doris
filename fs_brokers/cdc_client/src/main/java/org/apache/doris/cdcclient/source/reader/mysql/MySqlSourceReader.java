@@ -625,24 +625,31 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
 
     /** Poll records from binlog reader */
     private Iterator<SourceRecord> pollRecordsFromBinlogReader() throws InterruptedException {
+        BinlogSplitReader reader = binlogReader;
+        MySqlBinlogSplit split = binlogSplit;
+        MySqlBinlogSplitState state = binlogSplitState;
+        if (reader == null || split == null || state == null) {
+            LOG.info("Binlog reader is null at poll start, returning empty");
+            return Collections.emptyIterator();
+        }
 
-        Preconditions.checkState(binlogReader != null, "binlogReader is null");
-        Preconditions.checkNotNull(binlogSplitState, "binlogSplitState is null");
-
-        Iterator<SourceRecords> dataIt = binlogReader.pollSplitRecords();
+        Iterator<SourceRecords> dataIt = reader.pollSplitRecords();
         if (dataIt == null || !dataIt.hasNext()) {
+            if (binlogReader == null) {
+                LOG.info("Binlog reader is null after poll, returning empty");
+            }
             return Collections.emptyIterator();
         }
 
         SourceRecords sourceRecords = dataIt.next();
         SplitRecords splitRecords =
-                new SplitRecords(binlogSplit.splitId(), sourceRecords.iterator());
+                new SplitRecords(split.splitId(), sourceRecords.iterator());
 
         if (!sourceRecords.getSourceRecordList().isEmpty()) {
             LOG.info("{} Records received from binlog", sourceRecords.getSourceRecordList().size());
         }
 
-        return new FilteredRecordIterator(splitRecords, binlogSplitState);
+        return new FilteredRecordIterator(splitRecords, state);
     }
 
     /**

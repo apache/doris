@@ -612,24 +612,31 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
 
     /** Poll records from stream reader */
     private Iterator<SourceRecord> pollRecordsFromStreamReader() throws InterruptedException {
+        Fetcher<SourceRecords, SourceSplitBase> reader = streamReader;
+        StreamSplit split = streamSplit;
+        StreamSplitState state = streamSplitState;
+        if (reader == null || split == null || state == null) {
+            LOG.info("Stream reader is null at poll start, returning empty");
+            return Collections.emptyIterator();
+        }
 
-        Preconditions.checkState(streamReader != null, "streamReader is null");
-        Preconditions.checkNotNull(streamSplitState, "streamSplitState is null");
-
-        Iterator<SourceRecords> dataIt = streamReader.pollSplitRecords();
+        Iterator<SourceRecords> dataIt = reader.pollSplitRecords();
         if (dataIt == null || !dataIt.hasNext()) {
+            if (streamReader == null) {
+                LOG.info("Stream reader is null after poll, returning empty");
+            }
             return Collections.emptyIterator();
         }
 
         SourceRecords sourceRecords = dataIt.next();
         SplitRecords splitRecords =
-                new SplitRecords(streamSplit.splitId(), sourceRecords.iterator());
+                new SplitRecords(split.splitId(), sourceRecords.iterator());
 
         if (!sourceRecords.getSourceRecordList().isEmpty()) {
             LOG.info("{} Records received from stream", sourceRecords.getSourceRecordList().size());
         }
 
-        return new FilteredRecordIterator(splitRecords, streamSplitState);
+        return new FilteredRecordIterator(splitRecords, state);
     }
 
     protected abstract DataType fromDbzColumn(Column splitColumn);
