@@ -96,11 +96,11 @@ ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_
           _state(state),
           _context(state->get_query_ctx()),
           _exchange_sink_num(sender_ins_ids.size()),
-          _send_multi_blocks_byte_size(state->query_options().__isset.exchange_multi_blocks_byte_size &&
-                                       state->query_options().exchange_multi_blocks_byte_size > 0
-                                               ? state->query_options().exchange_multi_blocks_byte_size
-                                               : -1) {
-}
+          _send_multi_blocks_byte_size(
+                  state->query_options().__isset.exchange_multi_blocks_byte_size &&
+                                  state->query_options().exchange_multi_blocks_byte_size > 0
+                          ? state->query_options().exchange_multi_blocks_byte_size
+                          : -1) {}
 
 void ExchangeSinkBuffer::close() {
     // Could not clear the queue here, because there maybe a running rpc want to
@@ -373,7 +373,8 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
     } else if (broadcast_q_ptr && !broadcast_q_ptr->empty()) {
         auto& broadcast_q = *broadcast_q_ptr;
         // If we have data to shuffle which is broadcasted
-        std::vector<BroadcastTransmitInfo> requests(_send_multi_blocks_byte_size > 0 ? broadcast_q.size() : 1);
+        std::vector<BroadcastTransmitInfo> requests(
+                _send_multi_blocks_byte_size > 0 ? broadcast_q.size() : 1);
         for (int i = 0; i < requests.size(); i++) {
             requests[i] = broadcast_q.front();
             broadcast_q.pop();
