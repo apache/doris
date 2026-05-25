@@ -120,29 +120,6 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
         _is_rowsets_overlapping = _rowsets_not_mono_asc_disjoint(read_params);
         _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
                             read_params.read_orderby_key_reverse);
-        // [BINLOG_DIAG]
-        if (read_params.reader_type == ReaderType::READER_BINLOG ||
-            read_params.reader_type == ReaderType::READER_BINLOG_COMPACTION) {
-            std::stringstream ss;
-            ss << "[BINLOG_DIAG][BlockReader] tablet=" << read_params.tablet->tablet_id()
-               << ", reader_type=" << int(read_params.reader_type)
-               << ", keys_type=" << int(_tablet_schema->keys_type())
-               << ", is_rowsets_overlapping=" << _is_rowsets_overlapping
-               << ", vcollect_merge=" << _vcollect_iter.is_merge()
-               << ", use_insert_order_when_same="
-               << _reader_context.use_insert_order_when_same
-               << ", need_ordered_result=" << _reader_context.need_ordered_result
-               << ", rs_splits=[";
-            for (const auto& split : read_params.rs_splits) {
-                auto rs = split.rs_reader->rowset();
-                ss << "{v=" << rs->start_version() << "-" << rs->end_version()
-                   << ",rows=" << rs->num_rows()
-                   << ",segs=" << rs->num_segments()
-                   << ",overlap=" << rs->is_segments_overlapping() << "} ";
-            }
-            ss << "]";
-            LOG(INFO) << ss.str();
-        }
     }
 
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;

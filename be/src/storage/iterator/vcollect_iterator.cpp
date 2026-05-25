@@ -233,19 +233,6 @@ bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, L
                          ? (cmp_res < 0)
                          : (_use_insert_order_when_same ? (lhs->version() > rhs->version())
                                                         : (lhs->version() < rhs->version()));
-    // [BINLOG_DIAG] sample the first ~50 same-key tie-breaks
-    {
-        static thread_local int s_diag_count = 0;
-        if (cmp_res == 0 && s_diag_count < 50) {
-            s_diag_count++;
-            LOG(INFO) << "[BINLOG_DIAG][LevelIterCmp tie-break] lhs_v=" << lhs->version()
-                      << ", rhs_v=" << rhs->version()
-                      << ", use_insert_order_when_same=" << _use_insert_order_when_same
-                      << ", is_reverse=" << _is_reverse
-                      << ", lower(returned)=" << lower
-                      << " => (lower=true means rhs pops first)";
-        }
-    }
     lower ? lhs->set_same(true) : rhs->set_same(true);
 
     return lower;
@@ -696,27 +683,6 @@ int64_t VCollectIterator::Level1Iterator::version() const {
 Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
     if (_children.empty()) {
         return Status::OK();
-    }
-
-    // [BINLOG_DIAG]
-    if (_reader != nullptr &&
-        (_reader->_reader_type == ReaderType::READER_BINLOG ||
-         _reader->_reader_type == ReaderType::READER_BINLOG_COMPACTION)) {
-        std::stringstream ss;
-        ss << "[BINLOG_DIAG][Level1Iterator::init] tablet="
-           << _reader->_tablet->tablet_id()
-           << ", reader_type=" << int(_reader->_reader_type)
-           << ", merge=" << _merge << ", is_reverse=" << _is_reverse
-           << ", skip_same=" << _skip_same
-           << ", children=" << _children.size()
-           << ", use_insert_order_when_same="
-           << _reader->_reader_context.use_insert_order_when_same
-           << ", child_versions=[";
-        for (auto& c : _children) {
-            ss << c->version() << " ";
-        }
-        ss << "]";
-        LOG(INFO) << ss.str();
     }
 
     // Only when there are multiple children that need to be merged

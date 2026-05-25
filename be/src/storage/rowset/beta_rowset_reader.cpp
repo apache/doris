@@ -321,23 +321,6 @@ Status BetaRowsetReader::_init_iterator() {
     if (_read_context->merged_rows == nullptr) {
         _read_context->merged_rows = &_merged_rows;
     }
-    // [BINLOG_DIAG]
-    if (_read_context->reader_type == ReaderType::READER_BINLOG ||
-        _read_context->reader_type == ReaderType::READER_BINLOG_COMPACTION) {
-        LOG(INFO) << "[BINLOG_DIAG][BetaRowsetReader::_init_iterator] rowset="
-                  << _rowset->rowset_id().to_string()
-                  << ", v=" << _rowset->start_version() << "-" << _rowset->end_version()
-                  << ", segs=" << _rowset->num_segments()
-                  << ", segments_overlapping=" << _rowset->is_segments_overlapping()
-                  << ", iters_after_filter=" << iterators.size()
-                  << ", is_merge_iterator=" << is_merge_iterator()
-                  << ", read_ctx.need_ordered_result=" << _read_context->need_ordered_result
-                  << ", read_ctx.use_insert_order_when_same="
-                  << _read_context->use_insert_order_when_same
-                  << ", read_opts.use_insert_order_when_same="
-                  << _read_options.use_insert_order_when_same
-                  << ", read_orderby_key_reverse=" << _read_context->read_orderby_key_reverse;
-    }
     // merge or union segment iterator
     if (is_merge_iterator()) {
         auto sequence_loc = -1;

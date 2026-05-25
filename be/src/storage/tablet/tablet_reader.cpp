@@ -160,22 +160,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
             read_params.use_insert_order_when_same ||
             read_params.reader_type == ReaderType::READER_BINLOG ||
             read_params.reader_type == ReaderType::READER_BINLOG_COMPACTION;
-    // [BINLOG_DIAG]
-    if (read_params.reader_type == ReaderType::READER_BINLOG ||
-        read_params.reader_type == ReaderType::READER_BINLOG_COMPACTION) {
-        LOG(INFO) << "[BINLOG_DIAG][TabletReader::_capture_rs_readers] tablet="
-                  << _tablet->tablet_id()
-                  << ", reader_type=" << int(read_params.reader_type)
-                  << ", keys_type=" << int(_tablet_schema->keys_type())
-                  << ", direct_mode=" << _direct_mode
-                  << ", aggregation=" << _aggregation
-                  << ", read_orderby_key=" << read_params.read_orderby_key
-                  << ", need_ordered_result(computed)=" << need_ordered_result
-                  << ", read_params.use_insert_order_when_same="
-                  << read_params.use_insert_order_when_same
-                  << ", final use_insert_order_when_same="
-                  << _reader_context.use_insert_order_when_same;
-    }
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =

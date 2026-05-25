@@ -93,21 +93,6 @@ Status BinlogCompaction::execute_compact() {
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
-    // [BINLOG_DIAG]
-    {
-        std::stringstream ss;
-        ss << "[BINLOG_DIAG][BinlogCompaction::execute_compact] tablet="
-           << tablet()->tablet_id() << ", level=" << int(_compaction_level)
-           << ", input_rowsets=[";
-        for (auto& rs : _input_rowsets) {
-            ss << "{v=" << rs->start_version() << "-" << rs->end_version()
-               << ",rows=" << rs->num_rows() << ",segs=" << rs->num_segments()
-               << ",overlap=" << rs->is_segments_overlapping() << "} ";
-        }
-        ss << "]";
-        LOG(INFO) << ss.str();
-    }
-
     st = CompactionMixin::execute_compact();
     RETURN_IF_ERROR(st);
 
