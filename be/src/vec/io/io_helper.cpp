@@ -34,12 +34,12 @@ bool read_datetime_text_impl(VecDateTimeValue& x, const StringRef& buf) {
 }
 
 bool read_date_v2_text_impl(DateV2Value<DateV2ValueType>& x, const StringRef& buf) {
-    return x.from_date_str(buf.data, (int)buf.size, config::allow_zero_date);
+    return x.from_date_str(buf.data, (int)buf.size, -1, config::allow_zero_date);
 }
 
 bool read_date_v2_text_impl(DateV2Value<DateV2ValueType>& x, const StringRef& buf,
                             const cctz::time_zone& local_time_zone) {
-    return x.from_date_str(buf.data, buf.size, local_time_zone, config::allow_zero_date);
+    return x.from_date_str(buf.data, buf.size, local_time_zone, -1, config::allow_zero_date);
 }
 
 bool read_datetime_v2_text_impl(DateV2Value<DateTimeV2ValueType>& x, const StringRef& buf,

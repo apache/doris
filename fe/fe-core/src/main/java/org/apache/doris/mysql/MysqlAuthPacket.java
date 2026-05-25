@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import com.google.common.collect.Maps;
 
 import java.nio.ByteBuffer;
+import java.util.Collections;
 import java.util.Map;
 
 // MySQL protocol handshake response packet, which contain authenticate information.
@@ -64,6 +65,10 @@ public class MysqlAuthPacket extends MysqlPacket {
         return pluginName;
     }
 
+    public Map<String, String> getConnectAttributes() {
+        return connectAttributes == null ? Collections.emptyMap() : connectAttributes;
+    }
+
     @Override
     public boolean readFrom(ByteBuffer buffer) {
         // read capability four byte, which CLIENT_PROTOCOL_41 must be set
@@ -101,7 +106,7 @@ public class MysqlAuthPacket extends MysqlPacket {
         if (buffer.remaining() > 0 && capability.isPluginAuth()) {
             pluginName = new String(MysqlProto.readNulTerminateString(buffer));
         }
-        // attribute map, no use now.
+        // connection attributes (e.g. scheduleInfo for lineage tracking)
         if (buffer.remaining() > 0 && capability.isConnectAttrs()) {
             connectAttributes = Maps.newHashMap();
             long attrsLength = MysqlProto.readVInt(buffer);

@@ -28,7 +28,6 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
-#include "olap/schema_cache.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"

@@ -284,7 +284,17 @@ public class CloudGlobalTransactionMgrTest {
 
     @Test
     public void testAbortTransaction() throws UserException {
+        long transactionId = 123533;
         new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
+            @Mock
+            public Cloud.GetTxnResponse getTxn(Cloud.GetTxnRequest request) {
+                return Cloud.GetTxnResponse.newBuilder()
+                        .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                .setCode(MetaServiceCode.OK).setMsg("OK"))
+                        .setTxnInfo(buildTxnInfo(transactionId))
+                        .build();
+            }
+
             @Mock
             public Cloud.AbortTxnResponse abortTxn(Cloud.AbortTxnRequest request) {
                 AbortTxnResponse.Builder abortTxnResponseBuilder = AbortTxnResponse.newBuilder();
@@ -293,7 +303,6 @@ public class CloudGlobalTransactionMgrTest {
                 return abortTxnResponseBuilder.build();
             }
         };
-        long transactionId = 123533;
         masterTransMgr.abortTransaction(CatalogTestUtil.testDbId1, transactionId, "User Cancelled");
     }
 
@@ -313,8 +322,19 @@ public class CloudGlobalTransactionMgrTest {
 
     @Test
     public void testAbortTransactionConflict() throws UserException {
+        long transactionId = 123533;
         new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
             int times = 1;
+
+            @Mock
+            public Cloud.GetTxnResponse getTxn(Cloud.GetTxnRequest request) {
+                return Cloud.GetTxnResponse.newBuilder()
+                        .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                .setCode(MetaServiceCode.OK).setMsg("OK"))
+                        .setTxnInfo(buildTxnInfo(transactionId))
+                        .build();
+            }
+
             @Mock
             public Cloud.AbortTxnResponse abortTxn(Cloud.AbortTxnRequest request) {
                 AbortTxnResponse.Builder abortTxnResponseBuilder = AbortTxnResponse.newBuilder();
@@ -330,7 +350,6 @@ public class CloudGlobalTransactionMgrTest {
                 return abortTxnResponseBuilder.build();
             }
         };
-        long transactionId = 123533;
         masterTransMgr.abortTransaction(CatalogTestUtil.testDbId1, transactionId, "User Cancelled");
     }
 
@@ -404,5 +423,16 @@ public class CloudGlobalTransactionMgrTest {
         };
         long result = masterTransMgr.getNextTransactionId();
         Assert.assertEquals(1000, result);
+    }
+
+    private TxnInfoPB buildTxnInfo(long transactionId) {
+        return TxnInfoPB.newBuilder()
+                .setDbId(CatalogTestUtil.testDbId1)
+                .addAllTableIds(Lists.newArrayList(CatalogTestUtil.testTableId1))
+                .setTxnId(transactionId)
+                .setLabel(CatalogTestUtil.testTxnLabel1)
+                .setListenerId(0L)
+                .setStatus(Cloud.TxnStatusPB.TXN_STATUS_PREPARED)
+                .build();
     }
 }

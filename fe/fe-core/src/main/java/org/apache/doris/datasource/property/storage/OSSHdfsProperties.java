@@ -174,8 +174,8 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
         config.put("fs.oss.accessKeyId", accessKey);
         config.put("fs.oss.accessKeySecret", secretKey);
         config.put("fs.oss.region", region);
-        config.put("fs.oss.impl", "com.aliyun.jindodata.oss.JindoOssFileSystem");
-        config.put("fs.AbstractFileSystem.oss.impl", "com.aliyun.jindodata.oss.JindoOSS");
+        config.put("fs.oss.impl", OSSProperties.JINDO_OSS_FILE_SYSTEM_IMPL);
+        config.put("fs.AbstractFileSystem.oss.impl", OSSProperties.JINDO_OSS_ABSTRACT_FILE_SYSTEM_IMPL);
         if (StringUtils.isNotBlank(fsDefaultFS)) {
             config.put(HDFS_DEFAULT_FS_NAME, fsDefaultFS);
         }

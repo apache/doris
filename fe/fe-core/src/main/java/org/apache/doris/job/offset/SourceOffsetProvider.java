@@ -110,5 +110,13 @@ public interface SourceOffsetProvider {
         return null;
     }
 
+    /**
+     * Restore offset from persisted string during image load (gsonPostProcess).
+     * Called immediately after the provider is created so that even PAUSED jobs
+     * have the correct offset state.
+     */
+    default void restoreFromPersistInfo(String persistInfo) {
+    }
+
 }
 

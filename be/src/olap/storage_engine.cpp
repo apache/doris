@@ -64,7 +64,6 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
-#include "olap/schema_cache.h"
 #include "olap/single_replica_compaction.h"
 #include "olap/snapshot_manager.h"
 #include "olap/tablet_manager.h"

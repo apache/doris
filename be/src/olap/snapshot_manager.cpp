@@ -106,7 +106,7 @@ SnapshotManager::~SnapshotManager() = default;
 
 Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* snapshot_path,
                                       bool* allow_incremental_clone) {
-    SCOPED_ATTACH_TASK(_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     Status res = Status::OK();
     if (snapshot_path == nullptr) {
         return Status::Error<INVALID_ARGUMENT>("output parameter cannot be null");
@@ -152,7 +152,7 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 
     // If the requested snapshot_path is located in the root/snapshot folder, it is considered legal and can be deleted.
     // Otherwise, it is considered an illegal request and returns an error result.
-    SCOPED_ATTACH_TASK(_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     auto stores = _engine.get_stores();
     for (auto* store : stores) {
         std::string abs_path;
@@ -710,7 +710,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             break;
         }
 
-        if (!is_copy_binlog) {
+        if (!is_copy_binlog || !target_tablet->is_enable_binlog()) {
             break;
         }
 

@@ -352,7 +352,7 @@ static std::string debug_info(const Request& req) {
     } else if constexpr (is_any_v<Request, GetTabletRequest>) {
         return fmt::format(" tablet_id={}", req.tablet_id());
     } else if constexpr (is_any_v<Request, GetObjStoreInfoRequest, ListSnapshotRequest,
-                                  GetInstanceRequest>) {
+                                  GetInstanceRequest, GetClusterStatusRequest>) {
         return "";
     } else if constexpr (is_any_v<Request, CreateRowsetRequest>) {
         return fmt::format(" tablet_id={}", req.rowset_meta().tablet_id());
@@ -590,7 +590,14 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         idx->set_index_id(index_id);
         idx->set_partition_id(tablet->partition_id());
         {
+            auto lock_start = std::chrono::steady_clock::now();
             std::shared_lock rlock(tablet->get_header_lock());
+            if (sync_stats) {
+                sync_stats->meta_lock_wait_ns +=
+                        std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                std::chrono::steady_clock::now() - lock_start)
+                                .count();
+            }
             if (options.full_sync) {
                 req.set_start_version(0);
             } else {
@@ -693,7 +700,14 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         });
         {
             const auto& stats = resp.stats();
+            auto lock_start = std::chrono::steady_clock::now();
             std::unique_lock wlock(tablet->get_header_lock());
+            if (sync_stats) {
+                sync_stats->meta_lock_wait_ns +=
+                        std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                std::chrono::steady_clock::now() - lock_start)
+                                .count();
+            }
 
             // ATTN: we are facing following data race
             //
@@ -775,6 +789,12 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             tablet->set_cumulative_layer_point(stats.cumulative_point());
             tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                             stats.num_rows(), stats.data_size());
+
+            // Sync last active cluster info for compaction read-write separation
+            if (config::enable_compaction_rw_separation && stats.has_last_active_cluster_id()) {
+                tablet->set_last_active_cluster_info(stats.last_active_cluster_id(),
+                                                     stats.last_active_time_ms());
+            }
         }
         return Status::OK();
     }
@@ -1333,7 +1353,7 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
         const double speed_mbps = 100.0; // 100MB/s
         const double safety_factor = 2.0;
         timeout_ms = std::min(
-                std::max(static_cast<int64_t>(static_cast<double>(rs_meta.data_disk_size()) /
+                std::max(static_cast<int64_t>(static_cast<double>(rs_meta.total_disk_size()) /
                                               (speed_mbps * 1024 * 1024) * safety_factor * 1000),
                          config::warm_up_rowset_sync_wait_min_timeout_ms),
                 config::warm_up_rowset_sync_wait_max_timeout_ms);
@@ -1369,15 +1389,18 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
 
 // async send TableStats(in res) to FE coz we are in streamload ctx, response to the user ASAP
 static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
-                                   const std::string& label, CommitTxnResponse& res) {
+                                   const std::string& label, CommitTxnResponse& res,
+                                   const std::vector<int64_t>& tablet_ids) {
     std::string protobufBytes;
-    res.SerializeToString(&protobufBytes);
+    if (txn_id != -1) {
+        res.SerializeToString(&protobufBytes);
+    }
     auto st = ExecEnv::GetInstance()->send_table_stats_thread_pool()->submit_func(
-            [db_id, txn_id, label, protobufBytes]() -> Status {
+            [db_id, txn_id, label, protobufBytes, tablet_ids]() -> Status {
                 TReportCommitTxnResultRequest request;
                 TStatus result;
 
-                if (protobufBytes.length() <= 0) {
+                if (txn_id != -1 && protobufBytes.length() <= 0) {
                     LOG(WARNING) << "protobufBytes: " << protobufBytes.length();
                     return Status::OK(); // nobody cares the return status
                 }
@@ -1386,6 +1409,7 @@ static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
                 request.__set_txnId(txn_id);
                 request.__set_label(label);
                 request.__set_payload(protobufBytes);
+                request.__set_tabletIds(tablet_ids);
 
                 Status status;
                 int64_t duration_ns = 0;
@@ -1439,7 +1463,11 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     auto st = retry_rpc("commit txn", req, &res, &MetaService_Stub::commit_txn);
 
     if (st.ok()) {
-        send_stats_to_fe_async(ctx.db_id, ctx.txn_id, ctx.label, res);
+        std::vector<int64_t> tablet_ids;
+        for (auto& commit_info : ctx.commit_infos) {
+            tablet_ids.emplace_back(commit_info.tabletId);
+        }
+        send_stats_to_fe_async(ctx.db_id, ctx.txn_id, ctx.label, res, tablet_ids);
     }
 
     return st;
@@ -1598,11 +1626,19 @@ Status CloudMetaMgr::commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJ
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
                 "txn conflict when commit tablet job {}", job.ShortDebugString());
     }
+
+    if (st.ok() && !job.compaction().empty() && job.has_idx()) {
+        CommitTxnResponse commit_txn_resp;
+        std::vector<int64_t> tablet_ids = {job.idx().tablet_id()};
+        send_stats_to_fe_async(-1, -1, "", commit_txn_resp, tablet_ids);
+    }
+
     return st;
 }
 
 Status CloudMetaMgr::abort_tablet_job(const TabletJobInfoPB& job) {
     VLOG_DEBUG << "abort_tablet_job: " << job.ShortDebugString();
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::abort_tablet_job", Status::OK(), job);
     FinishTabletJobRequest req;
     FinishTabletJobResponse res;
     req.mutable_job()->CopyFrom(job);
@@ -2263,6 +2299,37 @@ Status CloudMetaMgr::update_packed_file_info(const std::string& packed_file_path
     // Make RPC call using retry pattern
     return retry_rpc("update packed file info", req, &resp,
                      &cloud::MetaService_Stub::update_packed_file_info);
+}
+
+Status CloudMetaMgr::get_cluster_status(
+        std::unordered_map<std::string, std::pair<int32_t, int64_t>>* result,
+        std::string* my_cluster_id) {
+    GetClusterStatusRequest req;
+    GetClusterStatusResponse resp;
+    req.add_cloud_unique_ids(config::cloud_unique_id);
+
+    Status s = retry_rpc("get cluster status", req, &resp, &MetaService_Stub::get_cluster_status);
+    if (!s.ok()) {
+        return s;
+    }
+
+    result->clear();
+    for (const auto& detail : resp.details()) {
+        for (const auto& cluster : detail.clusters()) {
+            // Store cluster status and mtime (mtime is in seconds from MS, convert to ms).
+            // If mtime is not set, use current time as a conservative default
+            // to avoid immediate takeover due to elapsed being huge.
+            int64_t mtime_ms = cluster.has_mtime() ? cluster.mtime() * 1000 : UnixMillis();
+            (*result)[cluster.cluster_id()] = {static_cast<int32_t>(cluster.cluster_status()),
+                                               mtime_ms};
+        }
+    }
+
+    if (my_cluster_id && resp.has_requester_cluster_id()) {
+        *my_cluster_id = resp.requester_cluster_id();
+    }
+
+    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

@@ -30,6 +30,7 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_cache_common.h"
+#include "olap/options.h"
 namespace doris {
 class TUniqueId;
 
@@ -48,6 +49,8 @@ public:
 
     Status create_file_cache(const std::string& cache_base_path,
                              FileCacheSettings file_cache_settings);
+
+    Status reload_file_cache(const std::vector<CachePath>& cache_base_paths);
 
     size_t try_release();
 

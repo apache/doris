@@ -138,6 +138,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(description = {"启用的数据血缘插件列表，需要填写 LineagePlugin.name() 返回的名称，",
+            "Active lineage plugins, need to fill in the name returned by LineagePlugin.name()"})
+    public static String[] activate_lineage_plugin = {};
+
     @ConfField(description = {"是否使用文件记录日志。当使用 --console 启动 FE 时，全部日志同时写入到标准输出和文件。"
             + "如果关闭这个选项，不再使用文件记录日志。",
             "Whether to use file to record log. When starting FE with --console, "
@@ -1670,7 +1674,7 @@ public class Config extends ConfigBase {
      * The number is determined by "start" and "end" in the dynamic partition parameters.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_dynamic_partition_num = 500;
+    public static int max_dynamic_partition_num = 20000;
 
     /**
      * Used to limit the maximum number of partitions that can be created when creating multi partition,
@@ -2724,6 +2728,23 @@ public class Config extends ConfigBase {
     @ConfField
     public static int auto_analyze_simultaneously_running_task_num = 1;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "统计信息收集时 string 列允许的最大字节长度。若列中存在长度超过该值的行，"
+                    + "该列的统计信息将被跳过收集（task 仍标记为 FINISHED，在 SHOW ANALYZE 中显示跳过原因）。"
+                    + "≤ 0 表示关闭此保护。默认 1024 (1KB)。"
+                    + "注意：此保护只覆盖 FULL / LINEAR / DUJ1 统计收集路径（即 analyze 全表和 sample 的主 SQL）。"
+                    + "当 enable_partition_analyze=true 时的 per-partition 路径（PARTITION_ANALYZE_TEMPLATE）"
+                    + "出于正确性考虑不启用该保护，详见 BaseAnalysisTask 中的 NOTE。",
+            "Max byte length allowed for a string column when collecting statistics. "
+                    + "If any row in a string column is longer than this value, the column's stats "
+                    + "collection is skipped (the task is still marked FINISHED, with the skip reason "
+                    + "shown in SHOW ANALYZE). A value <= 0 disables this protection. Default: 1024 (1KB). "
+                    + "Note: this protection applies to the FULL / LINEAR / DUJ1 collection paths "
+                    + "(i.e. the main SQL used by full-table and sample analyze). The per-partition path "
+                    + "(PARTITION_ANALYZE_TEMPLATE, used when enable_partition_analyze=true) is intentionally "
+                    + "not guarded for correctness reasons; see the NOTE in BaseAnalysisTask."})
+    public static long statistics_max_string_column_length = 1024;
+
     @Deprecated
     @ConfField
     public static final int period_analyze_simultaneously_running_task_num = 1;
@@ -2966,9 +2987,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {
             "对于自动分区表，防止用户意外创建大量分区，每个 OLAP 表允许的分区数量为`max_auto_partition_num`。默认 2000。",
             "For auto-partitioned tables to prevent users from accidentally creating a large number of partitions, "
-                    + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000."
-    })
-    public static int max_auto_partition_num = 2000;
+                    + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 20000."})
+    public static int max_auto_partition_num = 20000;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "Partition rebalance 方式下各个 BE 的 tablet 数最大差值，小于该值时，会诊断为已均衡",
@@ -3393,19 +3413,44 @@ public class Config extends ConfigBase {
             options = {"without_warmup", "async_warmup", "sync_warmup", "peer_read_async_warmup"})
     public static String cloud_warm_up_for_rebalance_type = "async_warmup";
 
-    @ConfField(mutable = true, masterOnly = true, description = {"云上 tablet 均衡时，"
-            + "同一个 host 内预热批次的最大 tablet 个数，默认 10", "The max number of tablets per host "
-            + "when batching warm-up requests during cloud tablet rebalancing, default 10"})
+    @ConfField(mutable = true, masterOnly = true, description = {"存算分离模式下tablet均衡时，"
+            + "同一个host内预热批次的最大tablet个数，默认10", "The max number of tablets per host "
+            + "when batching warm-up requests during tablet rebalancing in "
+            + "compute-storage separation mode, default 10"})
     public static int cloud_warm_up_batch_size = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"云上 tablet 均衡时，"
-            + "预热批次最长等待时间，单位毫秒，默认 50ms", "Maximum wait time in milliseconds before a "
+    @ConfField(mutable = true, masterOnly = true, description = {"存算分离模式下tablet均衡时，"
+            + "预热批次最长等待时间，单位毫秒，默认50ms", "Maximum wait time in milliseconds before a "
             + "pending warm-up batch is flushed, default 50ms"})
     public static int cloud_warm_up_batch_flush_interval_ms = 50;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"云上 tablet 均衡预热 rpc 异步线程池大小，默认 4",
-        "Thread pool size for asynchronous warm-up RPC dispatch during cloud tablet rebalancing, default 4"})
+    @ConfField(mutable = true, masterOnly = true, description = {"存算分离模式下tablet均衡预热rpc异步线程池大小，默认4",
+        "Thread pool size for asynchronous warm-up RPC dispatch during tablet "
+            + "rebalancing in compute-storage separation mode, default 4"})
     public static int cloud_warm_up_rpc_async_pool_size = 4;
+
+    @ConfField(masterOnly = true, description = {"存算分离模式下tablet均衡时，是否开启活跃tablet优先调度策略，默认打开"
+            + "When tablets are being balanced in compute-storage separation mode, "
+            + "is the active tablet priority scheduling strategy enabled?  (Default: Enabled)"})
+    public static boolean enable_cloud_active_tablet_priority_scheduling = false;
+
+    @ConfField(masterOnly = true, description = {"是否启用活跃tablet滑动窗口访问统计功能，默认打开",
+            "Whether to enable active tablet sliding window access statistics feature, default true"})
+    public static boolean enable_active_tablet_sliding_window_access_stats = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"活跃tablet滑动窗口访问统计的时间窗口大小（秒），默认3600秒（1小时）",
+            "Time window size in seconds for active tablet sliding window access statistics, "
+                + "default 3600 seconds (1 hour)"})
+    public static long active_tablet_sliding_window_time_window_second = 3600L;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "活跃 tablet 优先调度开启时：partition 级调度将优先处理 TopN 的活跃 partition，"
+                    + "再处理其余活跃 partition、非活跃 partition，最后处理 internal db。默认 10000，<=0 表示不做 TopN 分段。",
+            "When active tablet priority scheduling is enabled: partition-level scheduling processes TopN active "
+                    + "partitions first, then other active partitions,"
+                    + "then inactive partitions, and internal db at last. "
+                    + "Default 10000. <=0 disables TopN segmentation."})
+    public static int cloud_active_partition_scheduling_topn = 10000;
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
@@ -3492,6 +3537,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int audit_event_log_queue_size = 250000;
 
+    @ConfField(description = {"血缘事件队列最大长度，超过长度事件会被舍弃",
+            "Max size of lineage event queue， events will be discarded when exceeded"})
+    public static int lineage_event_queue_size = 50000;
+
     @ConfField(mutable = true, description = {
             "streamload 导入使用的转发策略，可选值为 public-private/public/private/direct/random-be/空",
             "streamload route policy, available options are "
@@ -3530,8 +3579,8 @@ public class Config extends ConfigBase {
             + "Default value is true." })
     public static boolean enable_commit_lock_for_all_tables = true;
 
-    @ConfField(mutable = true, description = {"存算分离模式下是否开启大事务提交，默认 false"})
-    public static boolean enable_cloud_txn_lazy_commit = false;
+    @ConfField(mutable = true, description = {"存算分离模式下是否开启大事务提交，默认 true"})
+    public static boolean enable_cloud_txn_lazy_commit = true;
 
     @ConfField(mutable = true, masterOnly = true,
             description = {"存算分离模式下，当 tablet 分布的 be 异常，是否立即映射 tablet 到新的 be 上，默认 false"})
@@ -3540,7 +3589,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false,
             description = { "存算分离模式下，一个 BE 挂掉多长时间后，它的 tablet 彻底转移到其他 BE 上" })
     public static int rehash_tablet_after_be_dead_seconds = 3600;
-
 
     @ConfField(mutable = true, description = {"存算分离模式下是否启用自动启停功能，默认 true",
         "Whether to enable the automatic start-stop feature in cloud model, default is true."})
@@ -3554,6 +3602,13 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Get tablet stat task 的最大并发数。",
         "Maximal concurrent num of get tablet stat job."})
     public static int max_get_tablet_stat_task_threads_num = 4;
+
+    @ConfField(mutable = true, description = {"Version of getting tablet stats in cloud mode. "
+            + "Version 1: get all tablets; Version 2: get active and interval expired tablets"})
+    public static int cloud_get_tablet_stats_version = 1;
+
+    @ConfField(description = {"Maximum concurrent number of get tablet stat jobs."})
+    public static int cloud_sync_tablet_stats_task_threads_num = 4;
 
     @ConfField(description = {"存算分离模式下同步 table 和 partition version 的间隔. 所有 frontend 都会检查",
             "Cloud table and partition version syncer interval. All frontends will perform the checking"})
@@ -3762,6 +3817,14 @@ public class Config extends ConfigBase {
     public static long cloud_auto_snapshot_max_reversed_num = 35;
     @ConfField(mutable = true)
     public static long cloud_auto_snapshot_min_interval_seconds = 3600;
+
+    @ConfField(mutable = true, description = {
+            "cluster snapshot 相关操作的最低权限要求。可选值：'root'（仅 root 用户可执行）或 'admin'（ADMIN 权限用户可执行）。默认值为 'root'。",
+            "The minimum privilege required for cluster snapshot operations. "
+                    + "Valid values: 'root' (only root user can execute)"
+                    + " or 'admin' (users with ADMIN privilege can execute). "
+                    + "Default is 'root'."})
+    public static String cluster_snapshot_min_privilege = "root";
 
     @ConfField(mutable = true)
     public static long multi_part_upload_part_size_in_bytes = 256 * 1024 * 1024L; // 256MB

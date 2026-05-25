@@ -181,6 +181,9 @@ private:
     RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_key_count = nullptr;
     RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_bytes = nullptr;
     RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_rpc_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_bthread_schedule_wait_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_meta_lock_wait_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_sync_meta_lock_wait_timer = nullptr;
     RuntimeProfile::Counter* _block_load_timer = nullptr;
     RuntimeProfile::Counter* _block_load_counter = nullptr;
     // Add more detail seek timer and counter profile
@@ -281,6 +284,7 @@ private:
     RuntimeProfile::Counter* _segment_iterator_init_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_return_column_iterators_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_index_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_segment_prefetchers_timer = nullptr;
 
     RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;

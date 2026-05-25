@@ -43,8 +43,11 @@ suite("test_jdbc_query_tvf", "p0,external,external_docker") {
         order_qt_sql """desc function query('catalog' = '${catalog_name}', 'query' = 'select * from doris_test.all_types') """
         order_qt_sql """select * from query('catalog' = '${catalog_name}', 'query' = 'select * from doris_test.all_types') """
         order_qt_sql """select * from query('catalog' = '${catalog_name}', 'query' = 'select count(*) as cnt from doris_test.all_types') """
+        order_qt_sql """desc function query('catalog' = '${catalog_name}',
+                'query' = 'select tinyint_u as alias_tinyint_u, smallint_u as alias_smallint_u from doris_test.all_types where tinyint_u is not null') """
+        order_qt_sql """select * from query('catalog' = '${catalog_name}',
+                'query' = 'select tinyint_u as alias_tinyint_u, smallint_u as alias_smallint_u from doris_test.all_types where tinyint_u is not null') where alias_tinyint_u = 203 """
 
 //         sql """drop catalog if exists ${catalog_name} """
     }
 }
-

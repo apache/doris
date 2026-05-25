@@ -248,7 +248,10 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 this.resultSetColumnMap = new HashMap<>();
                 int resultSetColumnCount = resultSetMetaData.getColumnCount();
                 for (int i = 1; i <= resultSetColumnCount; i++) {
-                    String columnName = resultSetMetaData.getColumnName(i).trim().toLowerCase();
+                    String columnLabel = resultSetMetaData.getColumnLabel(i);
+                    String columnName = (columnLabel == null || columnLabel.isEmpty()
+                            ? resultSetMetaData.getColumnName(i)
+                            : columnLabel).trim().toLowerCase();
                     resultSetColumnMap.put(columnName, i);
                 }
             }
@@ -835,6 +838,4 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         return hexString.toString();
     }
 }
-
-
 

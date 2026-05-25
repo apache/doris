@@ -122,7 +122,6 @@ class CdcClientMgr;
 class TabletSchemaCache;
 class TabletColumnObjectPool;
 class UserFunctionCache;
-class SchemaCache;
 class StoragePageCache;
 class SegmentLoader;
 class LookupConnectionCache;
@@ -253,6 +252,7 @@ public:
     ThreadPool* non_block_close_thread_pool();
     ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
     ThreadPool* udf_close_workers_pool() { return _udf_close_workers_thread_pool.get(); }
+    ThreadPool* segment_prefetch_thread_pool() { return _segment_prefetch_thread_pool.get(); }
 
     void init_file_cache_factory(std::vector<doris::CachePath>& cache_paths);
     io::FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
@@ -360,7 +360,6 @@ public:
 
     TabletSchemaCache* get_tablet_schema_cache() { return _tablet_schema_cache; }
     TabletColumnObjectPool* get_tablet_column_object_pool() { return _tablet_column_object_pool; }
-    SchemaCache* schema_cache() { return _schema_cache; }
     StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
     SegmentLoader* segment_loader() { return _segment_loader; }
     LookupConnectionCache* get_lookup_connection_cache() { return _lookup_connection_cache; }
@@ -475,6 +474,8 @@ private:
     std::unique_ptr<ThreadPool> _s3_file_system_thread_pool;
     // for java-udf to close
     std::unique_ptr<ThreadPool> _udf_close_workers_thread_pool;
+    // Threadpool used to prefetch segment file cache blocks
+    std::unique_ptr<ThreadPool> _segment_prefetch_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;
     WorkloadGroupMgr* _workload_group_manager = nullptr;
@@ -520,7 +521,6 @@ private:
     TabletSchemaCache* _tablet_schema_cache = nullptr;
     TabletColumnObjectPool* _tablet_column_object_pool = nullptr;
     std::unique_ptr<BaseStorageEngine> _storage_engine;
-    SchemaCache* _schema_cache = nullptr;
     StoragePageCache* _storage_page_cache = nullptr;
     SegmentLoader* _segment_loader = nullptr;
     LookupConnectionCache* _lookup_connection_cache = nullptr;

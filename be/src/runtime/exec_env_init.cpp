@@ -57,7 +57,6 @@
 #include "olap/page_cache.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
-#include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
@@ -266,6 +265,13 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(cast_set<int>(buffered_reader_max_threads))
                               .build(&_buffered_reader_prefetch_thread_pool));
 
+    static_cast<void>(ThreadPoolBuilder("SegmentPrefetchThreadPool")
+                              .set_min_threads(cast_set<int>(
+                                      config::segment_prefetch_thread_pool_thread_num_min))
+                              .set_max_threads(cast_set<int>(
+                                      config::segment_prefetch_thread_pool_thread_num_max))
+                              .build(&_segment_prefetch_thread_pool));
+
     static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")
                               .set_min_threads(8)
                               .set_max_threads(32)
@@ -421,6 +427,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     if (config::is_cloud_mode()) {
         RETURN_IF_ERROR(_packed_file_manager->init());
         _packed_file_manager->start_background_manager();
+
+        // Start cluster info background worker for compaction read-write separation
+        static_cast<CloudClusterInfo*>(_cluster_info)->start_bg_worker();
     }
 
     _index_policy_mgr = new IndexPolicyMgr();
@@ -615,8 +624,6 @@ Status ExecEnv::init_mem_env() {
               << " segment_cache_capacity: " << segment_cache_capacity
               << " min_segment_cache_mem_limit " << segment_cache_mem_limit;
 
-    _schema_cache = new SchemaCache(config::schema_cache_capacity);
-
     size_t block_file_cache_fd_cache_size =
             std::min((uint64_t)config::file_cache_max_file_reader_cache_size, fd_number / 3);
     LOG(INFO) << "max file reader cache size is: " << block_file_cache_fd_cache_size
@@ -692,7 +699,7 @@ void ExecEnv::init_mem_tracker() {
     _segcompaction_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, "SegCompaction");
     _tablets_no_cache_mem_tracker = MemTrackerLimiter::create_shared(
-            MemTrackerLimiter::Type::METADATA, "Tablets(not in SchemaCache, TabletSchemaCache)");
+            MemTrackerLimiter::Type::METADATA, "Tablets(not in TabletSchemaCache)");
     _segments_no_cache_mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::METADATA, "Segments(not in SegmentCache)");
     _rowsets_no_cache_mem_tracker =
@@ -822,6 +829,11 @@ void ExecEnv::destroy() {
     // _id_manager must be destoried before tablet schema cache
     SAFE_DELETE(_id_manager);
 
+    // Stop cluster info background worker before storage engine is destroyed
+    if (config::is_cloud_mode() && _cluster_info) {
+        static_cast<CloudClusterInfo*>(_cluster_info)->stop_bg_worker();
+    }
+
     // StorageEngine must be destoried before _cache_manager destory
     SAFE_STOP(_storage_engine);
     _storage_engine.reset();
@@ -831,6 +843,7 @@ void ExecEnv::destroy() {
         _runtime_query_statistics_mgr->stop_report_thread();
     }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
+    SAFE_SHUTDOWN(_segment_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
@@ -845,7 +858,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_inverted_index_searcher_cache);
     SAFE_DELETE(_encoding_info_resolver);
     SAFE_DELETE(_lookup_connection_cache);
-    SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
     SAFE_DELETE(_query_cache);
@@ -891,6 +903,7 @@ void ExecEnv::destroy() {
     _s3_file_system_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
+    _segment_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _udf_close_workers_thread_pool.reset(nullptr);

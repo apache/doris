@@ -213,7 +213,15 @@ public class GroupCommitManager {
             try {
                 long backendId = new MasterOpExecutor(context)
                         .getGroupCommitLoadBeId(tableId, clusterName);
-                return Env.getCurrentSystemInfo().getBackend(backendId);
+                Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("selectBackendForGroupCommit on non-master: tableId={}, clusterName={},"
+                            + " backendId={}, backend={}, backendCluster={}",
+                            tableId, clusterName, backendId,
+                            be != null ? be.getHost() + ":" + be.getBePort() : "null",
+                            be != null ? be.getCloudClusterName() : "null");
+                }
+                return be;
             } catch (Exception e) {
                 throw new LoadException(e.getMessage());
             }
@@ -349,8 +357,7 @@ public class GroupCommitManager {
                     return null;
                 }
                 Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
-                if (backend != null && backend.isAlive() && !backend.isDecommissioned()
-                        && (!Config.isCloudMode() || !backend.isDecommissioning())) {
+                if (isBackendAvailable(backend, cluster)) {
                     return backend.getId();
                 } else {
                     tableToBeMap.remove(encode(cluster, tableId));
@@ -362,13 +369,26 @@ public class GroupCommitManager {
         return null;
     }
 
+    private boolean isBackendAvailable(Backend backend, String cluster) {
+        if (backend == null || !backend.isAlive() || backend.isDecommissioned() || !backend.isLoadAvailable()) {
+            return false;
+        }
+        if (!Config.isCloudMode()) {
+            return true;
+        }
+        // for cloud mode
+        if (backend.isDecommissioning()) {
+            return false;
+        }
+        return cluster == null || cluster.equals(backend.getCloudClusterName());
+    }
+
     @Nullable
     private Long getRandomBackend(String cluster, long tableId, List<Backend> backends) {
         OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
         Collections.shuffle(backends);
         for (Backend backend : backends) {
-            if (backend.isAlive() && !backend.isDecommissioned() && (!Config.isCloudMode()
-                    || !backend.isDecommissioning())) {
+            if (isBackendAvailable(backend, cluster)) {
                 tableToBeMap.put(encode(cluster, tableId), backend.getId());
                 tableToPressureMap.put(tableId,
                         new SlidingWindowCounter(table.getGroupCommitIntervalMs() / 1000 + 1));

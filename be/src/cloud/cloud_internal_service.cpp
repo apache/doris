@@ -30,6 +30,7 @@
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "io/cache/file_cache_expiration.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "util/async_io.h"
@@ -425,7 +426,8 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                                    /* local_only = */ local_only);
         if (!res.has_value()) {
             LOG_WARNING("Warm up error ").tag("tablet_id", tablet_id).error(res.error());
-            if (res.error().msg().find("local_only=true") != std::string::npos) {
+            if (res.error().msg().find("local_only=true") != std::string::npos ||
+                res.error().msg().find("force_use_only_cached=true") != std::string::npos) {
                 res.error().set_code(ErrorCode::TABLE_NOT_FOUND);
             }
             res.error().to_protobuf(response->mutable_status());
@@ -446,13 +448,8 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                       << " us, tablet_id: " << rs_meta.tablet_id()
                       << ", rowset_id: " << rowset_id.to_string();
         }
-        int64_t expiration_time =
-                tablet_meta->ttl_seconds() == 0 || rs_meta.newest_write_timestamp() <= 0
-                        ? 0
-                        : rs_meta.newest_write_timestamp() + tablet_meta->ttl_seconds();
-        if (expiration_time <= UnixSeconds()) {
-            expiration_time = 0;
-        }
+        int64_t expiration_time = io::calc_file_cache_expiration_time(tablet_meta->creation_time(),
+                                                                      tablet_meta->ttl_seconds());
 
         if (!tablet->add_rowset_warmup_state(rs_meta, WarmUpTriggerSource::EVENT_DRIVEN)) {
             LOG(INFO) << "found duplicate warmup task for rowset " << rowset_id.to_string()

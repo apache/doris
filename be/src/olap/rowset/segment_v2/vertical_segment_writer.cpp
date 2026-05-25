@@ -77,6 +77,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h" // IWYU pragma: keep
+#include "vec/json/json_parser.h"
 #include "vec/json/path_in_data.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
@@ -92,6 +93,26 @@ static const uint32_t k_segment_magic_length = 4;
 inline std::string vertical_segment_writer_mem_tracker_name(uint32_t segment_id) {
     return "VerticalSegmentWriter:Segment-" + std::to_string(segment_id);
 }
+
+namespace {
+
+Status parse_variant_columns_in_block(vectorized::Block& block, const TabletSchema& tablet_schema) {
+    std::vector<int> variant_column_pos;
+    variant_column_pos.reserve(block.columns());
+    for (int i = 0; i < block.columns(); ++i) {
+        if (block.get_by_position(i).type->get_primitive_type() == TYPE_VARIANT) {
+            variant_column_pos.push_back(i);
+        }
+    }
+    if (variant_column_pos.empty()) {
+        return Status::OK();
+    }
+    vectorized::ParseConfig config;
+    config.enable_flatten_nested = tablet_schema.variant_flatten_nested();
+    return vectorized::schema_util::parse_variant_columns(block, variant_column_pos, config);
+}
+
+} // namespace
 
 VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
@@ -631,6 +652,10 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     RETURN_IF_ERROR(read_plan.fill_missing_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos, data.block));
+
+    if (_tablet_schema->num_variant_columns() > 0) {
+        RETURN_IF_ERROR(parse_variant_columns_in_block(full_block, *_tablet_schema));
+    }
 
     // row column should be filled here
     // convert block to row store format

@@ -244,6 +244,8 @@ public:
             : RecyclerMetricsContext("global_recycler", "recycle_segment") {}
 };
 
+struct OplogRecycleStats;
+
 class InstanceRecycler {
 public:
     struct PackedFileRecycleStats {
@@ -398,6 +400,8 @@ public:
 
     int scan_and_statistics_restore_jobs();
 
+    void scan_and_statistics_operation_logs();
+
     /**
      * Decode the key of a packed-file metadata record into the persisted object path.
      *
@@ -450,13 +454,19 @@ private:
     // Returns 0 for success, -1 for error.
     int decrement_packed_file_ref_counts(const doris::RowsetMetaCloudPB& rs_meta_pb);
 
-    // Decrement packed file ref count for delete bitmap if it's stored in packed file.
+    enum class DeleteBitmapStorageType {
+        NOT_FOUND,
+        IN_FDB,
+        STANDALONE_FILE,
+        PACKED_FILE,
+    };
+
+    // Process delete bitmap storage and decrement packed file ref count when needed.
     // Returns 0 for success, -1 for error.
-    // If delete bitmap is not stored in packed file, this function does nothing and returns 0.
-    // out_is_packed: if not null, will be set to true if delete bitmap is stored in packed file.
+    // out_storage_type: if not null, will be set to the delete bitmap storage type.
     int decrement_delete_bitmap_packed_file_ref_counts(int64_t tablet_id,
                                                        const std::string& rowset_id,
-                                                       bool* out_is_packed);
+                                                       DeleteBitmapStorageType* out_storage_type);
 
     int delete_packed_file_and_kv(const std::string& packed_file_path,
                                   const std::string& packed_key,
@@ -485,7 +495,8 @@ private:
     //
     // Both `operation_log` and `raw_keys` will be removed in the same transaction, to ensure atomicity.
     int recycle_operation_log(Versionstamp log_version, const std::vector<std::string>& raw_keys,
-                              OperationLogPB operation_log);
+                              OperationLogPB operation_log,
+                              OplogRecycleStats* oplog_stats = nullptr);
 
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
@@ -572,7 +583,8 @@ private:
     int abort_job_for_related_rowset(const RowsetMetaCloudPB& rowset_meta);
 
     template <typename T>
-    int abort_txn_or_job_for_recycle(T& rowset_meta_pb);
+    int batch_abort_txn_or_job_for_recycle(const std::vector<std::string>& keys,
+                                           bool skip_base_version);
 
 private:
     std::atomic_bool stopped_ {false};
@@ -611,6 +623,24 @@ struct OperationLogReferenceInfo {
     bool referenced_by_instance = false;
     bool referenced_by_snapshot = false;
     Versionstamp referenced_snapshot_timestamp;
+};
+
+struct OplogRecycleStats {
+    // Total oplog count scanned per round
+    std::atomic<int64_t> total_num {0};
+    // Oplogs not recycled this round (per round, written to mBvarStatus)
+    std::atomic<int64_t> not_recycled_num {0};
+    // Recycle failures (per round, accumulated to mBvarIntAdder at end)
+    std::atomic<int64_t> failed_num {0};
+    // Per-oplog-type recycled counts (incremented after successful commit)
+    std::atomic<int64_t> recycled_commit_partition {0};
+    std::atomic<int64_t> recycled_drop_partition {0};
+    std::atomic<int64_t> recycled_commit_index {0};
+    std::atomic<int64_t> recycled_drop_index {0};
+    std::atomic<int64_t> recycled_update_tablet {0};
+    std::atomic<int64_t> recycled_compaction {0};
+    std::atomic<int64_t> recycled_schema_change {0};
+    std::atomic<int64_t> recycled_commit_txn {0};
 };
 
 // Helper class to check if operation logs can be recycled based on snapshots and versionstamps

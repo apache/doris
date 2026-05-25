@@ -1288,6 +1288,53 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsWithNulls) {
     EXPECT_TRUE(result_column->is_nullable());
 }
 
+TEST_F(SchemaUtilTest, TestParseVariantColumnsAcrossMixedBlock) {
+    Block block;
+    auto variant_type = std::make_shared<DataTypeVariant>(10);
+
+    auto variant_column1 = ColumnVariant::create(10);
+    auto root_column1 = ColumnString::create();
+    root_column1->insert(vectorized::Field::create_field<PrimitiveType::TYPE_STRING>(
+            "{\"user\":{\"name\":\"alice\"},\"score\":7}"));
+    variant_column1->create_root(std::make_shared<DataTypeString>(), root_column1->get_ptr());
+    block.insert({variant_column1->get_ptr(), variant_type, "variant_col_1"});
+
+    auto int_column = ColumnInt32::create();
+    int_column->insert_value(42);
+    block.insert({int_column->get_ptr(), std::make_shared<DataTypeInt32>(), "plain_int_col"});
+
+    auto variant_column2 = ColumnVariant::create(10);
+    auto root_column2 = ColumnString::create();
+    root_column2->insert(vectorized::Field::create_field<PrimitiveType::TYPE_STRING>(
+            "{\"event\":{\"type\":\"click\"},\"flag\":true}"));
+    variant_column2->create_root(std::make_shared<DataTypeString>(), root_column2->get_ptr());
+    block.insert({variant_column2->get_ptr(), variant_type, "variant_col_2"});
+
+    std::vector<int> variant_pos;
+    for (int i = 0; i < block.columns(); ++i) {
+        if (block.get_by_position(i).type->get_primitive_type() == TYPE_VARIANT) {
+            variant_pos.push_back(i);
+        }
+    }
+
+    ASSERT_THAT(variant_pos, ::testing::ElementsAre(0, 2));
+
+    ParseConfig config;
+    config.enable_flatten_nested = true;
+    auto status = schema_util::parse_variant_columns(block, variant_pos, config);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& result_column1 =
+            assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
+    EXPECT_NE(result_column1.get_subcolumn(PathInData("user.name")), nullptr);
+    EXPECT_NE(result_column1.get_subcolumn(PathInData("score")), nullptr);
+
+    const auto& result_column2 =
+            assert_cast<const ColumnVariant&>(*block.get_by_position(2).column);
+    EXPECT_NE(result_column2.get_subcolumn(PathInData("event.type")), nullptr);
+    EXPECT_NE(result_column2.get_subcolumn(PathInData("flag")), nullptr);
+}
+
 TEST_F(SchemaUtilTest, get_compaction_typed_columns) {
     TabletColumn variant;
     variant.set_unique_id(10);

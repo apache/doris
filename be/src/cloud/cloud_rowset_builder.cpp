@@ -96,6 +96,8 @@ Status CloudRowsetBuilder::init() {
 
 Status CloudRowsetBuilder::check_tablet_version_count() {
     int64_t version_count = cloud_tablet()->fetch_add_approximate_num_rowsets(0);
+    DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
+                    { version_count = INT_MAX; });
     // TODO(plat1ko): load backoff algorithm
     int32_t max_version_config = cloud_tablet()->max_version_config();
     if (version_count > max_version_config) {

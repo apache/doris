@@ -2052,6 +2052,8 @@ class Suite implements GroovyInterceptable {
 
     void testFoldConst(String foldSql) {
         def sessionVarOrigValue = sql("select @@debug_skip_fold_constant")
+        def sqlCacheOrigValue = sql("select @@enable_sql_cache")
+        sql("set enable_sql_cache=false")
         String openFoldConstant = "set debug_skip_fold_constant=false";
         sql(openFoldConstant)
         // logger.info(foldSql)
@@ -2066,8 +2068,9 @@ class Suite implements GroovyInterceptable {
         List<List<Object>> resultExpected = tupleResult2.first
         logger.info("result expected: " + resultExpected.toString())
 
-        // restore debug_skip_fold_constant original value
+        // restore original session values
         sql("set debug_skip_fold_constant=${sessionVarOrigValue[0][0]}")
+        sql("set enable_sql_cache=${sqlCacheOrigValue[0][0]}")
 
         String errorMsg = null
         try {
@@ -2144,6 +2147,37 @@ class Suite implements GroovyInterceptable {
             actionSupplier()
         } finally {
             updateConfig oldConfig
+        }
+    }
+
+    /**
+     * Set the given global variables for the duration of {@code actionSupplier},
+     * restoring their original values on exit. The variable values are read via
+     * {@code SHOW GLOBAL VARIABLES} before being changed, so any kind of
+     * exception inside {@code actionSupplier} still triggers the restore.
+     */
+    void setGlobalVarTemporary(Map<String, Object> tempVars, Closure actionSupplier) {
+        def quote = { Object v ->
+            if (v == null) {
+                return "''"
+            }
+            if (v instanceof Boolean || v instanceof Number) {
+                return v.toString()
+            }
+            return "'" + v.toString().replace("'", "''") + "'"
+        }
+        Map<String, String> origin = [:]
+        tempVars.keySet().each { key ->
+            def rows = sql_return_maparray "show global variables like '${key}'"
+            if (!rows.isEmpty()) {
+                origin.put(key, rows[0].Value as String)
+            }
+        }
+        try {
+            tempVars.each { key, value -> sql "set global ${key} = ${quote(value)}" }
+            actionSupplier()
+        } finally {
+            origin.each { key, value -> sql "set global ${key} = ${quote(value)}" }
         }
     }
 

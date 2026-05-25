@@ -989,7 +989,16 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
                 PSlaveTabletNodes slave_tablet_nodes;
                 for (auto node_id : _slave_tablet_node.second) {
                     const auto* node = _parent->_nodes_info->find_node(node_id);
+                    DBUG_EXECUTE_IF("VNodeChannel.try_send_pending_block.slave_node_not_found", {
+                        LOG(WARNING) << "trigger "
+                                        "VNodeChannel.try_send_pending_block.slave_node_not_found "
+                                        "debug point will set node to nullptr";
+                        node = nullptr;
+                    });
                     if (node == nullptr) {
+                        LOG(WARNING) << "slave node not found, node_id=" << node_id;
+                        cancel(fmt::format("slave node not found, node_id={}", node_id));
+                        _send_block_callback->clear_in_flight();
                         return;
                     }
                     PNodeInfo* pnode = slave_tablet_nodes.add_slave_nodes();
@@ -1033,6 +1042,7 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             if (!status.ok()) {
                 LOG(WARNING) << "failed to get ip from host " << _node_info.host << ": "
                              << status.to_string();
+                cancel(fmt::format("failed to get ip from host {}", _node_info.host));
                 _send_block_callback->clear_in_flight();
                 return;
             }
@@ -1387,7 +1397,7 @@ void VTabletWriter::_send_batch_process() {
         // we must RECHECK opened_nodes below, after got closed signal, because it may changed. Think of this:
         //      checked opened_nodes = 0 ---> new block arrived ---> task finished, close() was called ---> we got _try_close here
         // if we don't check again, we may lose the last package.
-        if (_try_close) {
+        if (_try_close.load(std::memory_order_acquire)) {
             opened_nodes = 0;
             std::ranges::for_each(_channels,
                                   [&opened_nodes](const std::shared_ptr<IndexChannel>& ich) {
@@ -1777,7 +1787,7 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
         status = _send_new_partition_batch();
     }
 
-    _try_close = true; // will stop periodic thread
+    _try_close.store(true, std::memory_order_release); // will stop periodic thread
     if (status.ok()) {
         // BE id -> add_batch method counter
         std::unordered_map<int64_t, AddBatchCounter> node_add_batch_counter_map;
@@ -1858,7 +1868,6 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
     if (!status.ok()) {
         _cancel_all_channel(status);
         _close_status = status;
-        _close_wait = true;
     }
 }
 

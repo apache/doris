@@ -29,6 +29,7 @@
 #include "io/fs/file_system.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"
+#include "vec/common/pod_array.h"
 
 namespace doris::io {
 typedef struct OpenFileInfo {
@@ -60,7 +61,7 @@ private:
     // Returns OK on success with _range_supported set appropriately
     Status detect_range_support();
 
-    std::unique_ptr<char[]> _read_buffer;
+    vectorized::PODArray<char> _read_buffer;
     static constexpr size_t READ_BUFFER_SIZE = 1 << 20; // 1MB
     // Default maximum file size for servers that don't support Range requests
     static constexpr size_t DEFAULT_MAX_REQUEST_SIZE = 100 << 20; // 100MB

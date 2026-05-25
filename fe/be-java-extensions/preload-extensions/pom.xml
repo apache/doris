@@ -82,12 +82,11 @@ under the License.
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-s3</artifactId>
-            <version>${paimon.version}</version>
         </dependency>
+
         <dependency>
             <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-oss</artifactId>
-            <version>${paimon.version}</version>
+            <artifactId>paimon-jindo</artifactId>
         </dependency>
         <!-- For Avro and Hudi Scanner PreLoad -->
         <dependency>

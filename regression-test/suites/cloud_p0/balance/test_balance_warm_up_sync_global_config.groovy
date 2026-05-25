@@ -22,6 +22,11 @@ suite('test_balance_warm_up_sync_cache', 'docker') {
     if (!isCloudMode()) {
         return;
     }
+
+    // Randomly enable or disable packed_file to test both scenarios
+    def enablePackedFile = new Random().nextBoolean()
+    logger.info("Running test with enable_packed_file=${enablePackedFile}")
+
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
@@ -36,7 +41,8 @@ suite('test_balance_warm_up_sync_cache', 'docker') {
         'report_tablet_interval_seconds=1',
         'schedule_sync_tablets_interval_s=18000',
         'disable_auto_compaction=true',
-        'sys_log_verbose_modules=*'
+        'sys_log_verbose_modules=*',
+        "enable_packed_file=${enablePackedFile}",
     ]
     options.setFeNum(1)
     options.setBeNum(1)

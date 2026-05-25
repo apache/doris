@@ -65,6 +65,9 @@ struct TDescribeTablesParams {
   5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   6: optional bool show_hidden_columns = false
   7: optional string catalog
+  // Reserved for downstream field `current_roles` to keep thrift field ids
+  // wire-compatible across maintained branches. Do not reuse this id.
+  8: optional set<string> reserved_field_8
 }
 
 // Results of a call to describeTable()
@@ -95,6 +98,9 @@ struct TGetDbsParams {
   4: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   5: optional string catalog
   6: optional bool get_null_catalog  //if catalog is empty , get dbName ="NULL" and dbId = -1.
+  // Reserved for downstream field `current_roles` to keep thrift field ids
+  // wire-compatible across maintained branches. Do not reuse this id.
+  7: optional set<string> reserved_field_7
 }
 
 // getDbNames returns a list of database names , database ids and catalog names ,catalog ids
@@ -119,6 +125,9 @@ struct TGetTablesParams {
   6: optional string type
   7: optional string catalog
   8: optional string table
+  // Reserved for downstream field `current_roles` to keep thrift field ids
+  // wire-compatible across maintained branches. Do not reuse this id.
+  9: optional set<string> reserved_field_9
 }
 
 struct TTableStatus {
@@ -393,6 +402,12 @@ struct TMasterOpRequest {
     30: optional TGroupCommitInfo groupCommitInfo
     31: optional binary prepareExecuteBuffer
     32: optional bool moreResultExists // Server has more result to send
+    33: optional map<string, string> connect_attributes
+
+    // Reserved for downstream fields `current_roles` and `is_su_user` to keep
+    // thrift field ids wire-compatible across maintained branches. Do not reuse these ids.
+    34: optional set<string> reserved_field_34
+    35: optional bool reserved_field_35
 
     // selectdb cloud
     1000: optional string cloud_cluster
@@ -878,6 +893,9 @@ struct TMetadataTableRequestParams {
   12: optional PlanNodes.TMetaCacheStatsParams meta_cache_stats_params
   13: optional PlanNodes.TPartitionValuesMetadataParams partition_values_metadata_params
   14: optional PlanNodes.THudiMetadataParams hudi_metadata_params
+  // Reserved for downstream field `current_roles` to keep thrift field ids
+  // wire-compatible across maintained branches. Do not reuse this id.
+  15: optional set<string> reserved_field_15
 }
 
 struct TSchemaTableRequestParams {
@@ -889,6 +907,9 @@ struct TSchemaTableRequestParams {
     6: optional string time_zone // used for DATETIME field
     7: optional string frontend_conjuncts
     8: optional i64 thread_id // mysql connection id for fetching ConnectContext if needed
+    // Reserved for downstream field `current_roles` to keep thrift field ids
+    // wire-compatible across maintained branches. Do not reuse this id.
+    9: optional set<string> reserved_field_9
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -1558,6 +1579,9 @@ struct TShowProcessListRequest {
     1: optional bool show_full_sql
     2: optional Types.TUserIdentity current_user_ident
     3: optional string time_zone
+    // Reserved for downstream field `current_roles` to keep thrift field ids
+    // wire-compatible across maintained branches. Do not reuse this id.
+    4: optional set<string> reserved_field_4
 }
 
 struct TShowProcessListResult {
@@ -1576,6 +1600,8 @@ struct TReportCommitTxnResultRequest {
     2: optional i64 txnId
     3: optional string label
     4: optional binary payload
+    // tablets which need to update stats
+    5: optional list<i64> tabletIds
 }
 
 struct TQueryColumn {
@@ -1736,6 +1762,10 @@ struct TGetOlapTableMetaResult {
     4: optional list<i64> removed_partitions
 }
 
+struct TSyncCloudTabletStatsRequest {
+    1: optional binary tablet_stats_pb
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1846,4 +1876,6 @@ service FrontendService {
     TGetTableTDEInfoResult getTableTDEInfo(1: TGetTableTDEInfoRequest request)
 
     TGetOlapTableMetaResult getOlapTableMeta(1: TGetOlapTableMetaRequest request)
+
+    Status.TStatus syncCloudTabletStats(1: TSyncCloudTabletStatsRequest request)
 }

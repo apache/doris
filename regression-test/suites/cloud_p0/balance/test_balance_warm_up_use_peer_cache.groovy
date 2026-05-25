@@ -22,6 +22,11 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
     if (!isCloudMode()) {
         return;
     }
+
+    // Randomly enable or disable packed_file to test both scenarios
+    def enablePackedFile = new Random().nextBoolean()
+    logger.info("Running test with enable_packed_file=${enablePackedFile}")
+
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
@@ -40,7 +45,8 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
         'disable_auto_compaction=true',
         'sys_log_verbose_modules=*',
         'cache_read_from_peer_expired_seconds=100',
-        'enable_cache_read_from_peer=true'
+        'enable_cache_read_from_peer=true',
+        "enable_packed_file=${enablePackedFile}",
     ]
     options.setFeNum(1)
     options.setBeNum(1)

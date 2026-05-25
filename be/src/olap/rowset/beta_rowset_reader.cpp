@@ -30,6 +30,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/cache/file_cache_expiration.h"
 #include "io/io_common.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
@@ -41,7 +42,6 @@
 #include "olap/rowset/segment_v2/lazy_init_segment_iterator.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
-#include "olap/schema_cache.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
@@ -224,13 +224,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                 _read_context->runtime_state->query_options().disable_file_cache;
     }
 
-    _read_options.io_ctx.expiration_time =
-            read_context->ttl_seconds > 0 && _rowset->rowset_meta()->newest_write_timestamp() > 0
-                    ? _rowset->rowset_meta()->newest_write_timestamp() + read_context->ttl_seconds
-                    : 0;
-    if (_read_options.io_ctx.expiration_time <= UnixSeconds()) {
-        _read_options.io_ctx.expiration_time = 0;
-    }
+    _read_options.io_ctx.expiration_time = io::calc_file_cache_expiration_time(
+            read_context->file_cache_base_timestamp, read_context->ttl_seconds);
 
     bool enable_segment_cache = true;
     auto* state = read_context->runtime_state;

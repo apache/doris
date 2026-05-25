@@ -26,6 +26,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "runtime_filter/runtime_filter_selectivity.h"
 #include "util/runtime_profile.h"
 #include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr.h"
@@ -51,7 +52,8 @@ class VRuntimeFilterWrapper final : public VExpr {
 
 public:
     VRuntimeFilterWrapper(const TExprNode& node, VExprSPtr impl, double ignore_thredhold,
-                          bool null_aware, int filter_id);
+                          bool null_aware, int filter_id,
+                          int sampling_frequency = RuntimeFilterSelectivity::DISABLE_SAMPLING);
     ~VRuntimeFilterWrapper() override = default;
     Status execute_column(VExprContext* context, const Block* block, Selector* selector,
                           size_t count, ColumnPtr& result_column) const override;
@@ -115,6 +117,7 @@ private:
     double _ignore_thredhold;
     bool _null_aware;
     int _filter_id;
+    int _sampling_frequency;
 };
 
 using VRuntimeFilterPtr = std::shared_ptr<VRuntimeFilterWrapper>;

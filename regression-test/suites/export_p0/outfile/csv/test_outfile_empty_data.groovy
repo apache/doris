@@ -51,6 +51,21 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
     // broker
     String broker_name = "hdfs"
 
+    // check whether the broker named `hdfs` exists. If not, skip broker-related cases.
+    def brokerExists = {String name ->
+        def brokers = sql """ SHOW BROKER """
+        for (def row : brokers) {
+            if (row[0] == name) {
+                return true
+            }
+        }
+        return false
+    }
+    def has_broker = brokerExists(broker_name)
+    if (!has_broker) {
+        logger.info("broker `${broker_name}` does not exist, will skip broker-related cases.")
+    }
+
     def export_table_name = "outfile_empty_data_test"
 
     def create_table = {table_name, column_define ->
@@ -133,11 +148,9 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
         create_table(export_table_name, doris_column_define);
         // test outfile empty data to hdfs directly
         def outfile_to_hdfs_directly_url = outfile_to_HDFS_directly()
-        // test outfile empty data to hdfs with broker
-        def outfile_to_hdfs_with_broker_url= outfile_to_HDFS_with_broker()
         // test outfile empty data to s3 directly
         def outfile_to_s3_directly_url = outfile_to_S3_directly()
-        qt_select_base1 """ SELECT * FROM ${export_table_name} ORDER BY user_id; """ 
+        qt_select_base1 """ SELECT * FROM ${export_table_name} ORDER BY user_id; """
 
         qt_select_tvf1 """ select * from HDFS(
                     "uri" = "${outfile_to_hdfs_directly_url}0.csv",
@@ -145,11 +158,15 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
                     "format" = "${format}");
                     """
 
-        qt_select_tvf2 """ select * from HDFS(
-                    "uri" = "${outfile_to_hdfs_with_broker_url}0.csv",
-                    "hadoop.username" = "${hdfsUserName}",
-                    "format" = "${format}");
-                    """
+        if (has_broker) {
+            // test outfile empty data to hdfs with broker
+            def outfile_to_hdfs_with_broker_url= outfile_to_HDFS_with_broker()
+            qt_select_tvf2 """ select * from HDFS(
+                        "uri" = "${outfile_to_hdfs_with_broker_url}0.csv",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}");
+                        """
+        }
         
         qt_select_tvf3 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_to_s3_directly_url.substring(5 + bucket.length(), outfile_to_s3_directly_url.length())}0.csv",

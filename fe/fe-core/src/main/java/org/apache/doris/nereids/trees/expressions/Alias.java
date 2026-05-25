@@ -99,7 +99,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
                 slotReference != null ? ((SlotReference) child()).getOriginalTable().orElse(null) : null,
                 slotReference != null ? slotReference.getOriginalColumn().orElse(null) : null,
                 slotReference != null ? ((SlotReference) child()).getOneLevelTable().orElse(null) : null,
-                slotReference != null ? slotReference.getOriginalColumn().orElse(null) : null,
+                slotReference != null ? slotReference.getOneLevelColumn().orElse(null) : null,
                 slotReference != null ? slotReference.getSubPath() : ImmutableList.of(), Optional.empty()
         );
     }
@@ -168,6 +168,10 @@ public class Alias extends NamedExpression implements UnaryExpression {
     @Override
     public Alias withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
+        return new Alias(exprId, children, name, qualifier, nameFromChild);
+    }
+
+    public Alias withExprId(ExprId exprId) {
         return new Alias(exprId, children, name, qualifier, nameFromChild);
     }
 

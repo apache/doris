@@ -53,9 +53,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
- * rewrite CteAnchor consumer side and producer side recursively， all CteAnchor must at top of the plan
+ * rewrite CteAnchor consumer side and producer side recursively， all CteAnchor
+ * must at top of the plan
  */
-@DependsRules({PullUpCteAnchor.class, CTEInline.class})
+@DependsRules({ PullUpCteAnchor.class, CTEInline.class })
 public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> implements CustomRewriter {
 
     private final List<RewriteJob> jobs;
@@ -127,8 +128,8 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             Set<Slot> producerOutputs = cascadesContext.getStatementContext()
                     .getCteIdToOutputIds().get(cteProducer.getCteId());
             if (producerOutputs.size() < child.getOutput().size()) {
-                ImmutableList.Builder<NamedExpression> projectsBuilder
-                        = ImmutableList.builderWithExpectedSize(producerOutputs.size());
+                ImmutableList.Builder<NamedExpression> projectsBuilder = ImmutableList
+                        .builderWithExpectedSize(producerOutputs.size());
                 for (Slot slot : child.getOutput()) {
                     if (producerOutputs.contains(slot)) {
                         projectsBuilder.add(slot);
@@ -147,7 +148,10 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             cascadesContext.addPlanProcesses(rewrittenCtx.getPlanProcesses());
             cascadesContext.getStatementContext().getRewrittenCteProducer().put(cteProducer.getCteId(), child);
         }
-        return cteProducer.withChildren(child);
+        LogicalCTEProducer<? extends Plan> rewrittenProducer = (LogicalCTEProducer<? extends Plan>) cteProducer
+                .withChildren(child);
+        cascadesContext.getStatementContext().setCteProducer(rewrittenProducer.getCteId(), rewrittenProducer);
+        return rewrittenProducer;
     }
 
     private LogicalPlan pushPlanUnderAnchor(LogicalPlan plan) {
@@ -160,13 +164,16 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
     }
 
     /*
-     * An expression can only be pushed down if it has filter expressions on all consumers that reference the slot.
-     * For example, let's assume a producer has two consumers, consumer1 and consumer2:
+     * An expression can only be pushed down if it has filter expressions on all
+     * consumers that reference the slot.
+     * For example, let's assume a producer has two consumers, consumer1 and
+     * consumer2:
      *
      * filter(a > 5 and b < 1) -> consumer1
      * filter(a < 8) -> consumer2
      *
-     * In this case, the only expression that can be pushed down to the producer is filter(a > 5 or a < 8).
+     * In this case, the only expression that can be pushed down to the producer is
+     * filter(a > 5 or a < 8).
      */
     private LogicalPlan tryToConstructFilter(CascadesContext cascadesContext, CTEId cteId, LogicalPlan child) {
         Set<RelationId> consumerIds = cascadesContext.getCteIdToConsumers().get(cteId).stream()

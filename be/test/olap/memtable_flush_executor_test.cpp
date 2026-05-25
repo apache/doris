@@ -21,7 +21,9 @@
 #include <sys/file.h>
 
 #include <string>
+#include <thread>
 
+#include "common/config.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
@@ -81,6 +83,127 @@ Schema create_schema() {
                                            FieldType::OLAP_FIELD_TYPE_BIGINT, true));
     Schema schema(col_schemas, 2);
     return schema;
+}
+
+TEST(MemTableFlushExecutorTest, TestDynamicThreadPoolUpdate) {
+    // Setup
+    set_up();
+
+    auto* flush_executor = ExecEnv::GetInstance()->storage_engine().memtable_flush_executor();
+    ASSERT_NE(flush_executor, nullptr);
+
+    // Store original config values
+    int32_t original_flush_thread_num = config::flush_thread_num_per_store;
+    int32_t original_high_priority_flush_thread_num =
+            config::high_priority_flush_thread_num_per_store;
+    int32_t original_max_flush_thread_num = config::max_flush_thread_num_per_cpu;
+
+    // Test 1: Get initial thread pool sizes
+    int initial_max_threads = flush_executor->flush_pool()->max_threads();
+    int initial_min_threads = flush_executor->flush_pool()->min_threads();
+    EXPECT_GT(initial_max_threads, 0);
+    EXPECT_GT(initial_min_threads, 0);
+
+    // Test 2: Update flush_thread_num_per_store and verify thread pool updates
+    config::flush_thread_num_per_store = 10;
+    flush_executor->update_memtable_flush_threads();
+
+    int new_min_threads = flush_executor->flush_pool()->min_threads();
+    EXPECT_EQ(new_min_threads, 10);
+
+    // Test 3: Update max_flush_thread_num_per_cpu and verify thread pool updates
+    config::max_flush_thread_num_per_cpu = 2;
+    flush_executor->update_memtable_flush_threads();
+
+    int num_cpus = std::thread::hardware_concurrency();
+    if (num_cpus > 0) {
+        int expected_max = std::min(10 * 1, num_cpus * 2); // 1 disk, 10 threads per store
+        int actual_max = flush_executor->flush_pool()->max_threads();
+        EXPECT_EQ(actual_max, expected_max);
+    }
+
+    // Test 4: Update high_priority_flush_thread_num_per_store
+    config::high_priority_flush_thread_num_per_store = 8;
+    flush_executor->update_memtable_flush_threads();
+    // Note: We can't directly access _high_prio_flush_pool, but update should not crash
+
+    // Test 5: Set very small values
+    config::flush_thread_num_per_store = 0; // Should be adjusted to 1 by std::max
+    flush_executor->update_memtable_flush_threads();
+    EXPECT_GE(flush_executor->flush_pool()->min_threads(), 1);
+
+    // Test 6: Set large values
+    config::flush_thread_num_per_store = 100;
+    flush_executor->update_memtable_flush_threads();
+    EXPECT_GE(flush_executor->flush_pool()->min_threads(), 1);
+
+    // Restore original config values
+    config::flush_thread_num_per_store = original_flush_thread_num;
+    config::high_priority_flush_thread_num_per_store = original_high_priority_flush_thread_num;
+    config::max_flush_thread_num_per_cpu = original_max_flush_thread_num;
+    flush_executor->update_memtable_flush_threads();
+
+    // Cleanup
+    tear_down();
+}
+
+TEST(MemTableFlushExecutorTest, TestConfigUpdateTrigger) {
+    // Setup
+    set_up();
+
+    auto* flush_executor = ExecEnv::GetInstance()->storage_engine().memtable_flush_executor();
+    ASSERT_NE(flush_executor, nullptr);
+
+    // Store original config values
+    int32_t original_flush_thread_num = config::flush_thread_num_per_store;
+
+    // Get initial thread pool size
+    int initial_min_threads = flush_executor->flush_pool()->min_threads();
+
+    // Test: Simulate config update via set_config
+    config::flush_thread_num_per_store = 15;
+    config::update_config("flush_thread_num_per_store", "15");
+
+    // Verify thread pool was updated
+    int updated_min_threads = flush_executor->flush_pool()->min_threads();
+    EXPECT_EQ(updated_min_threads, 15);
+    EXPECT_NE(updated_min_threads, initial_min_threads);
+
+    // Restore original config value
+    config::flush_thread_num_per_store = original_flush_thread_num;
+    flush_executor->update_memtable_flush_threads();
+
+    // Cleanup
+    tear_down();
+}
+
+TEST(MemTableFlushExecutorTest, TestThreadPoolMinMaxRelationship) {
+    // Setup
+    set_up();
+
+    auto* flush_executor = ExecEnv::GetInstance()->storage_engine().memtable_flush_executor();
+    ASSERT_NE(flush_executor, nullptr);
+
+    // Store original config values
+    int32_t original_flush_thread_num = config::flush_thread_num_per_store;
+    int32_t original_max_flush_thread_num = config::max_flush_thread_num_per_cpu;
+
+    // Test: Ensure min_threads <= max_threads always
+    config::flush_thread_num_per_store = 20;
+    config::max_flush_thread_num_per_cpu = 1; // Very restrictive
+    flush_executor->update_memtable_flush_threads();
+
+    int min_threads = flush_executor->flush_pool()->min_threads();
+    int max_threads = flush_executor->flush_pool()->max_threads();
+    EXPECT_LE(min_threads, max_threads);
+
+    // Restore original config values
+    config::flush_thread_num_per_store = original_flush_thread_num;
+    config::max_flush_thread_num_per_cpu = original_max_flush_thread_num;
+    flush_executor->update_memtable_flush_threads();
+
+    // Cleanup
+    tear_down();
 }
 
 } // namespace doris

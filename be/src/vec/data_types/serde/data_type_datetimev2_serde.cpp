@@ -130,6 +130,7 @@ Status DataTypeDateTimeV2SerDe::from_olap_string(const std::string& str, Field& 
     std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
 
     if (!res.from_date_format_str(date_format.data(), date_format.size(), str.data(), str.size())) {
+        // On parse failure, fall back to MIN_DATETIME_V2, the packed lower-bound DateTimeV2 value.
         res = DateV2Value<DateTimeV2ValueType>(MIN_DATETIME_V2);
     }
     field = Field::create_field<TYPE_DATETIMEV2>(std::move(res));

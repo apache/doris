@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.rewrite.DistinctAggStrategySelector.DistinctSelectorContext;
-import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -61,8 +60,7 @@ public class SplitMultiDistinctStrategy {
         LogicalCTEProducer<Plan> producer = new LogicalCTEProducer<>(ctx.statementContext.getNextCTEId(),
                 cloneAgg.child());
         ctx.cteProducerList.add(producer);
-        StatsDerive derive = new StatsDerive(false);
-        producer.accept(derive, new DeriveContext());
+        ctx.statementContext.setCteProducer(producer.getCteId(), producer);
 
         Map<Slot, Slot> originToProducerSlot = new HashMap<>();
         for (int i = 0; i < agg.child().getOutput().size(); ++i) {

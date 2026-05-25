@@ -25,6 +25,21 @@ suite("test_broker_load_func", "p0,external,hive,external_docker,external_docker
 
             String database_name = "test_broker_load_func"
             String broker_name = "hdfs"
+
+            // check whether the broker named `hdfs` exists. If not, skip this case.
+            def brokers = sql """ SHOW BROKER """
+            def has_broker = false
+            for (def row : brokers) {
+                if (row[0] == broker_name) {
+                    has_broker = true
+                    break
+                }
+            }
+            if (!has_broker) {
+                logger.info("broker `${broker_name}` does not exist, skip test_broker_load_func.")
+                return
+            }
+
             def uuid = UUID.randomUUID().toString().replaceAll("-", "")
             def test_load_label="label_test_broker_load_func_${uuid}"
             String table_name="simple"

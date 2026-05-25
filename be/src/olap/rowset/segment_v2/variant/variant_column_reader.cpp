@@ -959,6 +959,13 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
             _statistics->subcolumns_non_null_size.emplace(relative_path.get_path(),
                                                           column_pb.none_null_size());
         }
+        // 3.1.2 may store a flat JSON key like {"a.b": 1} as a single PathInData part.
+        // New compaction schema and query path expect a dot-split multi-part shape.
+        // Rebuild via the string constructor when the path has neither typed
+        // nor nested metadata, so the tree matches the new shape.
+        if (!relative_path.get_is_typed() && !relative_path.has_nested_part()) {
+            relative_path = vectorized::PathInData(relative_path.get_path());
+        }
         _subcolumns_meta_info->add(
                 relative_path,
                 SubcolumnMeta {
@@ -1181,6 +1188,16 @@ Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const si
     RETURN_IF_ERROR(_inner_iter->read_by_rowids(rowids, count, root_column));
 
     return _process_root_column(dst, root_column, most_common_type);
+}
+
+Status VariantRootColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    return _inner_iter->init_prefetcher(params);
+}
+
+void VariantRootColumnIterator::collect_prefetchers(
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+        PrefetcherInitMethod init_method) {
+    _inner_iter->collect_prefetchers(prefetchers, init_method);
 }
 
 static void fill_nested_with_defaults(vectorized::MutableColumnPtr& dst,

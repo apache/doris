@@ -24,12 +24,15 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import java.util.List;
 
 public class BackendsProcDirTest {
     private Backend b1;
@@ -182,5 +185,40 @@ public class BackendsProcDirTest {
         result = dir.fetchResult();
         Assert.assertNotNull(result);
         Assert.assertTrue(result instanceof BaseProcResult);
+    }
+
+    @Test
+    public void testBackendInfoFieldOrder() throws AnalysisException {
+        b1.setCpuCores(192);
+        b1.setLastUpdateMs(System.currentTimeMillis());
+        b1.setRunningTasks(10L);
+
+        new Expectations() {
+            {
+                systemInfoService.getAllBackendIds(false);
+                minTimes = 0;
+                result = Lists.newArrayList(1000L);
+
+                systemInfoService.getTabletNumByBackendId(1000L);
+                minTimes = 0;
+                result = 10;
+            }
+        };
+
+        BackendsProcDir dir = new BackendsProcDir(systemInfoService);
+        ProcResult result = dir.fetchResult();
+
+        List<String> columnNames = result.getColumnNames();
+
+        int cpuCoresIdx = columnNames.indexOf("CpuCores");
+        int memoryIdx = columnNames.indexOf("Memory");
+        int liveSinceIdx = columnNames.indexOf("LiveSince");
+        int runningTasksIdx = columnNames.indexOf("RunningTasks");
+        int nodeRoleIdx = columnNames.indexOf("NodeRole");
+
+        Assert.assertTrue("CpuCores should be before Memory", cpuCoresIdx < memoryIdx);
+        Assert.assertTrue("Memory should be before LiveSince", memoryIdx < liveSinceIdx);
+        Assert.assertTrue("LiveSince should be before RunningTasks", liveSinceIdx < runningTasksIdx);
+        Assert.assertTrue("RunningTasks should be before NodeRole", runningTasksIdx < nodeRoleIdx);
     }
 }

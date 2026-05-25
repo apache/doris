@@ -211,7 +211,8 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
 
     _workers[TTaskType::ALTER] = std::make_unique<TaskWorkerPool>(
             "ALTER_TABLE", config::alter_tablet_worker_count,
-            [&engine](auto&& task) { return alter_cloud_tablet_callback(engine, task); });
+            [&engine](auto&& task) { return alter_cloud_tablet_callback(engine, task); },
+            [&engine](auto&& task) { set_alter_version_before_enqueue(engine, task); });
 
     _workers[TTaskType::CALCULATE_DELETE_BITMAP] = std::make_unique<TaskWorkerPool>(
             "CALC_DBM_TASK", config::calc_delete_bitmap_worker_count,

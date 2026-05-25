@@ -153,28 +153,37 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         Thread::set_thread_nice_value();
     }
 #endif
+
+    // we set and get counter according below order, to make sure the counter is updated before get_block, and the time of get_block is recorded in the counter.
+    // 1. update_wait_worker_timer to make sure the time of waiting for worker thread is recorded in the timer
+    // 2. start_scan_cpu_timer to make sure the cpu timer include the time of open and get_block, which is the real cpu time of scanner
+    // 3. update_scan_cpu_timer at exit (in the Defer below for the non-eos yield path,
+    //    in the explicit eos block at the end of this function for the eos / error path),
+    //    to make sure the cpu timer includes the time of open and get_block, which is the real cpu time of scanner
+    // 4. start_wait_worker_timer when defer, to make sure the time of waiting for worker thread is recorded in the timer
+
     MonotonicStopWatch max_run_time_watch;
     max_run_time_watch.start();
     scanner->update_wait_worker_timer();
     scanner->start_scan_cpu_timer();
 
-    // Counter update need prepare successfully, or it maybe core. For example, olap scanner
-    // will open tablet reader during prepare, if not prepare successfully, tablet reader == nullptr.
-    bool need_update_profile = scanner->has_prepared();
     auto update_scanner_profile = [&]() {
-        if (need_update_profile) {
-            scanner->update_scan_cpu_timer();
-            scanner->update_realtime_counters();
-            need_update_profile = false;
-        }
+        scanner->update_scan_cpu_timer();
+        scanner->update_realtime_counters();
     };
-    Defer defer_scanner([&] {
-        // WorkloadGroup Policy will check cputime realtime, so that should update the counter
-        // as soon as possible, could not update it on close.
-        update_scanner_profile();
-    });
+
     Status status = Status::OK();
     bool eos = false;
+    Defer defer_scanner([&] {
+        if (status.ok() && !eos) {
+            // Only start wait worker timer when the scanner will be re-submitted to the thread
+            // pool. When status is not ok or eos is true, the scanner is done and won't be
+            // re-scheduled, so there is no "waiting for worker" phase to track.
+            scanner->start_wait_worker_timer();
+            update_scanner_profile();
+        }
+    });
+
     ASSIGN_STATUS_IF_CATCH_EXCEPTION(
             RuntimeState* state = ctx->state(); DCHECK(nullptr != state);
             // scanner->open may alloc plenty amount of memory(read blocks of data),

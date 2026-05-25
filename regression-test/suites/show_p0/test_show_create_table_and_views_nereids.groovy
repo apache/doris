@@ -43,6 +43,10 @@ suite("test_show_create_table_and_views_nereids", "show") {
         return
     }
 
+    def backends = sql "SHOW BACKENDS"
+    int beNum = backends.size()
+    logger.info("backend num: ${beNum}")
+
     String suiteName = "show_create_table_and_views_nereids"
     String dbName = "${suiteName}_db"
     String tableName = "${suiteName}_table"
@@ -99,7 +103,11 @@ suite("test_show_create_table_and_views_nereids", "show") {
         (2, 200, 1111),
         (23, 900, 1)"""
 
-    qt_show "SHOW CREATE TABLE ${dbName}.${tableName}"
+    if (beNum == 1) {
+        qt_show_1be "SHOW CREATE TABLE ${dbName}.${tableName}"
+    } else {
+        qt_show_multi_be "SHOW CREATE TABLE ${dbName}.${tableName}"
+    }
     qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY user_id, good_id"
 
     sql "drop view if exists ${dbName}.${viewName};"
@@ -132,15 +140,27 @@ suite("test_show_create_table_and_views_nereids", "show") {
     }
 
     qt_select "SELECT user_id, SUM(cost) FROM ${dbName}.${tableName} GROUP BY user_id ORDER BY user_id"
-    qt_show "SHOW CREATE TABLE ${dbName}.${tableName}"
+    if (beNum == 1) {
+        qt_show_1be "SHOW CREATE TABLE ${dbName}.${tableName}"
+    } else {
+        qt_show_multi_be "SHOW CREATE TABLE ${dbName}.${tableName}"
+    }
 
     // create like
     sql "CREATE TABLE ${dbName}.${likeName} LIKE ${dbName}.${tableName}"
-    qt_show "SHOW CREATE TABLE ${dbName}.${likeName}"
+    if (beNum == 1) {
+        qt_show_1be "SHOW CREATE TABLE ${dbName}.${likeName}"
+    } else {
+        qt_show_multi_be "SHOW CREATE TABLE ${dbName}.${likeName}"
+    }
 
     // create like with rollup
     sql "CREATE TABLE ${dbName}.${likeName}_with_rollup LIKE ${dbName}.${tableName} WITH ROLLUP"
-    qt_show "SHOW CREATE TABLE ${dbName}.${likeName}_with_rollup"
+    if (beNum == 1) {
+        qt_show_1be "SHOW CREATE TABLE ${dbName}.${likeName}_with_rollup"
+    } else {
+        qt_show_multi_be "SHOW CREATE TABLE ${dbName}.${likeName}_with_rollup"
+    }
 
     sql "DROP TABLE IF EXISTS ${dbName}.${likeName}_with_rollup FORCE"
     sql "DROP TABLE ${dbName}.${likeName} FORCE"

@@ -32,12 +32,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 int StreamLoadForwardHandler::on_header(HttpRequest* req) {
-    std::ostringstream headers_info;
-    const auto& headers = req->headers();
-    for (const auto& header : headers) {
-        headers_info << header.first << ":" << header.second << " ";
-    }
-
     std::ostringstream params_info;
     const auto* params = req->params();
     for (const auto& param : *params) {
@@ -46,7 +40,7 @@ int StreamLoadForwardHandler::on_header(HttpRequest* req) {
 
     LOG(INFO) << "StreamLoadForward request started - "
               << "path: " << req->raw_path() << ", remote: " << req->remote_host() << ", headers: ["
-              << headers_info.str() << "]"
+              << req->get_all_headers() << "]"
               << ", params: [" << params_info.str() << "]";
 
     std::shared_ptr<StreamLoadForwardContext> ctx(new StreamLoadForwardContext());

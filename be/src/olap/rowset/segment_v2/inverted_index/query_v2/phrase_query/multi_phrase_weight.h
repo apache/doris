@@ -66,7 +66,7 @@ private:
             if (term_info.is_single_term()) {
                 auto posting =
                         create_position_posting(reader.get(), _field, term_info.get_single_term(),
-                                                _enable_scoring, _context->io_ctx);
+                                                _enable_scoring, _similarity, _context->io_ctx);
                 if (posting) {
                     if (posting->size_hint() > SPARSE_TERM_DOC_THRESHOLD) {
                         auto loaded_posting = LoadedPostings::load(*posting);
@@ -81,8 +81,9 @@ private:
                 const auto& terms = term_info.get_multi_terms();
                 std::vector<PostingsPtr> postings;
                 for (const auto& term : terms) {
-                    auto posting = create_position_posting(reader.get(), _field, term,
-                                                           _enable_scoring, _context->io_ctx);
+                    auto posting =
+                            create_position_posting(reader.get(), _field, term, _enable_scoring,
+                                                    _similarity, _context->io_ctx);
                     if (posting) {
                         if (posting->size_hint() <= SPARSE_TERM_DOC_THRESHOLD) {
                             postings.push_back(LoadedPostings::load(*posting));

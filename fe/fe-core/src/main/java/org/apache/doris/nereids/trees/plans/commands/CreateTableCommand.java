@@ -27,6 +27,7 @@ import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.lineage.LineageUtils;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -109,9 +110,15 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         query = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
         try {
+            InsertIntoTableCommand insertCommand = null;
             if (!FeConstants.runningUnitTest) {
-                new InsertIntoTableCommand(query, Optional.empty(), Optional.empty(),
-                        Optional.empty(), true, Optional.empty()).run(ctx, executor);
+                insertCommand = new InsertIntoTableCommand(query, Optional.empty(),
+                        Optional.empty(), Optional.empty(), true, Optional.empty());
+                insertCommand.run(ctx, executor);
+                if (ctx.getState().getStateType() == MysqlStateType.OK) {
+                    LineageUtils.submitLineageEventIfNeeded(executor, insertCommand.getLineagePlan(),
+                            insertCommand.getLogicalQuery(), getClass());
+                }
             }
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 handleFallbackFailedCtas(ctx);
@@ -261,4 +268,3 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         return !CreateTableInfo.ENGINE_OLAP.equalsIgnoreCase(createTableInfo.getEngineName());
     }
 }
-

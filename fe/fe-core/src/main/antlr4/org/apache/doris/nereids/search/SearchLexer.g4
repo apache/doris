@@ -32,6 +32,7 @@ fragment TERM_CHAR
     : TERM_START_CHAR
     | '-'
     | '+'
+    | '/'
     ;
 
 fragment QUOTED_CHAR

@@ -19,8 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
-import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
-import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -33,11 +31,9 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -56,16 +52,6 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
         super(PlanType.DROP_CONSTRAINT_COMMAND);
         this.name = name;
         this.plan = plan;
-    }
-
-    private static List<TableIf> getConstraintRelatedTables(Constraint constraint) {
-        List<TableIf> tables = Lists.newArrayList();
-        if (constraint instanceof PrimaryKeyConstraint) {
-            tables.addAll(((PrimaryKeyConstraint) constraint).getForeignTables());
-        } else if (constraint instanceof ForeignKeyConstraint) {
-            tables.add(((ForeignKeyConstraint) constraint).getReferencedTable());
-        }
-        return tables;
     }
 
     @Override

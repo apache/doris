@@ -341,6 +341,18 @@ public class MySqlSourceReader implements SourceReader {
             Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) throws Exception {
         Tuple2<MySqlSplit, Boolean> splitFlag = createBinlogSplit(offsetMeta, baseReq);
         this.binlogSplit = (MySqlBinlogSplit) splitFlag.f0;
+
+        // Close previous binlog reader to release resources before creating a new one.
+        // This prevents connection leaks when a cancelled task's reader is still active
+        // while a new task arrives.
+        if (this.binlogReader != null) {
+            LOG.info(
+                    "Closing previous binlog reader before creating new one for job {}",
+                    baseReq.getJobId());
+            this.binlogReader.close();
+            this.binlogReader = null;
+        }
+
         this.binlogReader = getBinlogSplitReader(baseReq);
 
         LOG.info("Prepare binlog split: {}", this.binlogSplit.toString());

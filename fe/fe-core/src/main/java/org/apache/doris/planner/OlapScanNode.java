@@ -574,7 +574,7 @@ public class OlapScanNode extends ScanNode {
                 Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
                 if (context.getSessionVariable().fallbackOtherReplicaWhenFixedCorrupt) {
                     long beId = replica.getBackendId();
-                    Backend backend = allBackends.get(replica.getBackendId());
+                    Backend backend = allBackends.get(beId);
                     // If the fixed replica is bad, then not clear the replicas using random replica
                     if (backend == null || !backend.isAlive()) {
                         if (LOG.isDebugEnabled()) {
@@ -1270,7 +1270,16 @@ public class OlapScanNode extends ScanNode {
                 .flatMap(tupleId -> normalizer.getDescriptorTable().getTupleDesc(tupleId).getSlots().stream())
                 .collect(Collectors.toList());
         List<Pair<SlotId, String>> selectColumns = slots.stream()
-                .map(slot -> Pair.of(slot.getId(), slot.getColumn().getName()))
+                .map(slot -> {
+                    // For variant subcolumns, use the materialized column name (e.g. "data.int_1")
+                    // to distinguish different subcolumns of the same variant column in cache digest.
+                    List<String> subColPath = slot.getSubColLables();
+                    String colName = slot.getColumn().getName();
+                    if (subColPath != null && !subColPath.isEmpty()) {
+                        colName = colName + "." + String.join(".", subColPath);
+                    }
+                    return Pair.of(slot.getId(), colName);
+                })
                 .collect(Collectors.toList());
         for (Column partitionColumn : olapTable.getPartitionInfo().getPartitionColumns()) {
             boolean selectPartitionColumn = false;

@@ -152,6 +152,8 @@
 -- !sql --
 0	1111111
 
+-- !sql_empty --
+
 -- !sql --
 10	20	aabc	value
 

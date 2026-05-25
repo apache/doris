@@ -17,10 +17,13 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.utframe.TestWithFeService;
 
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -80,5 +83,38 @@ public class SessionVariablesTest extends TestWithFeService {
         String sql = "insert into test_t1 select /*+ set_var(enable_nereids_dml_with_pipeline=false)*/ * from test_t1 where enable_nereids_dml_with_pipeline=true";
         new NereidsParser().parseSQL(sql);
         Assertions.assertEquals(false, connectContext.getSessionVariable().enableNereidsDmlWithPipeline);
+    }
+
+    @Test
+    public void testEnableStrictConsistencyDmlDefaultsToFalseInCloudMode() {
+        new MockUp<Config>() {
+            @Mock
+            public boolean isCloudMode() {
+                return true;
+            }
+        };
+        SessionVariable sv = new SessionVariable();
+        // In cloud mode, enable_strict_consistency_dml should always return false
+        // because store-compute separation has no multi-replica consistency concern.
+        Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
+        // Even if the field is set to true, cloud mode overrides it.
+        sv.enableStrictConsistencyDml = true;
+        Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
+    }
+
+    @Test
+    public void testEnableStrictConsistencyDmlDefaultsTrueInNonCloudMode() {
+        new MockUp<Config>() {
+            @Mock
+            public boolean isCloudMode() {
+                return false;
+            }
+        };
+        SessionVariable sv = new SessionVariable();
+        // In non-cloud mode, default is true (multi-replica consistency is needed).
+        Assertions.assertTrue(sv.isEnableStrictConsistencyDml());
+        // Users can disable it.
+        sv.enableStrictConsistencyDml = false;
+        Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
     }
 }

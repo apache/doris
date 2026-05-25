@@ -35,12 +35,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -251,31 +249,9 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         StringBuilder segmentCountBuilder = new StringBuilder();
         StringBuilder tableRowCountBuilder = new StringBuilder();
 
-        Collection<OlapTable.Statistics> values = tabletStatMgr.getCloudTableStatsMap().values();
-        // calc totalTableSize
-        long totalTableSize = 0;
+        Collection<OlapTable.Statistics> values = tabletStatMgr.getCloudTableStats();
+        long totalTableSize = tabletStatMgr.getTotalTableSize();
         for (OlapTable.Statistics stats : values) {
-            totalTableSize += stats.getDataSize();
-        }
-        // output top N metrics
-        if (values.size() > Config.prom_output_table_metrics_limit) {
-            // only copy elements if number of tables > prom_output_table_metrics_limit
-            PriorityQueue<OlapTable.Statistics> topStats = new PriorityQueue<>(
-                    Config.prom_output_table_metrics_limit,
-                    Comparator.comparingLong(OlapTable.Statistics::getDataSize));
-            for (OlapTable.Statistics stats : values) {
-                if (topStats.size() < Config.prom_output_table_metrics_limit) {
-                    topStats.offer(stats);
-                } else if (!topStats.isEmpty()
-                        && stats.getDataSize() > topStats.peek().getDataSize()) {
-                    topStats.poll();
-                    topStats.offer(stats);
-                }
-            }
-            values = topStats;
-        }
-        for (OlapTable.Statistics stats : values) {
-
             dataSizeBuilder.append("doris_fe_table_data_size{db_name=\"");
             dataSizeBuilder.append(stats.getDbName());
             dataSizeBuilder.append("\", table_name=\"");

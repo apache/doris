@@ -49,7 +49,8 @@ public class PushDownFilterThroughGenerate extends OneRewriteRuleFactory {
             Set<Expression> remainPredicates = Sets.newHashSet();
             filter.getConjuncts().forEach(conjunct -> {
                 Set<Slot> conjunctSlots = conjunct.getInputSlots();
-                if (!conjunctSlots.isEmpty() && childOutputs.containsAll(conjunctSlots)) {
+                if (!conjunctSlots.isEmpty() && childOutputs.containsAll(conjunctSlots)
+                        && !conjunct.containsUniqueFunction()) {
                     pushDownPredicates.add(conjunct);
                 } else {
                     remainPredicates.add(conjunct);
