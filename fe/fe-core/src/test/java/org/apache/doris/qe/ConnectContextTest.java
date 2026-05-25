@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -686,5 +687,77 @@ public class ConnectContextTest {
         ctx.setConnectAttributes(null);
         Assert.assertNotNull(ctx.getConnectAttributes());
         Assert.assertTrue(ctx.getConnectAttributes().isEmpty());
+    }
+
+    @Test
+    public void testSetQueryIdWithBDPAuthContext() {
+        // Test setQueryId method with BDPAuthContext integration
+        ConnectContext ctx = new ConnectContext();
+        // Create and set BDPAuthContext
+        BDPAuthContext bdpAuthContext = new BDPAuthContext("test_erp", "test_source", "test_user", "test_token");
+        ctx.setBdpAuthContext(bdpAuthContext);
+        // Test setting queryId - should propagate to BDPAuthContext
+        TUniqueId testQueryId = new TUniqueId(123L, 456L);
+        ctx.setQueryId(testQueryId);
+        // Verify queryId is set in both ConnectContext and BDPAuthContext
+        Assert.assertEquals(testQueryId, ctx.queryId());
+        Assert.assertEquals(testQueryId, bdpAuthContext.getQueryId());
+        Assert.assertEquals(DebugUtil.printId(testQueryId), bdpAuthContext.getQueryIdStr());
+        // Test setting null queryId
+        ctx.setQueryId(null);
+        Assert.assertNull(ctx.queryId());
+        Assert.assertNull(bdpAuthContext.getQueryId());
+        Assert.assertEquals("none", bdpAuthContext.getQueryIdStr());
+        // Test setting another queryId
+        TUniqueId anotherQueryId = new TUniqueId(789L, 101112L);
+        ctx.setQueryId(anotherQueryId);
+        Assert.assertEquals(anotherQueryId, ctx.queryId());
+        Assert.assertEquals(anotherQueryId, bdpAuthContext.getQueryId());
+        Assert.assertEquals(DebugUtil.printId(anotherQueryId), bdpAuthContext.getQueryIdStr());
+    }
+
+    @Test
+    public void testSetQueryIdWithNullBDPAuthContext() {
+        // Test setQueryId method when BDPAuthContext is null
+        ConnectContext ctx = new ConnectContext();
+        // BDPAuthContext should be null by default
+        Assert.assertNull(ctx.getBdpAuthContext());
+        // Setting queryId should not throw NPE even when BDPAuthContext is null
+        TUniqueId testQueryId = new TUniqueId(123L, 456L);
+        ctx.setQueryId(testQueryId);
+        // Should reach here without exception
+        Assert.assertEquals(testQueryId, ctx.queryId());
+        // Test with null queryId
+        ctx.setQueryId(null);
+        Assert.assertNull(ctx.queryId());
+    }
+
+    @Test
+    public void testSetQueryIdMultipleTimes() {
+        // Test setting queryId multiple times
+        ConnectContext ctx = new ConnectContext();
+        BDPAuthContext bdpAuthContext = new BDPAuthContext("test_erp", "test_source", "test_user", "test_token");
+        ctx.setBdpAuthContext(bdpAuthContext);
+        // Set initial queryId
+        TUniqueId queryId1 = new TUniqueId(111L, 222L);
+        ctx.setQueryId(queryId1);
+        Assert.assertEquals(queryId1, ctx.queryId());
+        Assert.assertEquals(queryId1, bdpAuthContext.getQueryId());
+        // Update queryId
+        TUniqueId queryId2 = new TUniqueId(333L, 444L);
+        ctx.setQueryId(queryId2);
+        Assert.assertEquals(queryId2, ctx.queryId());
+        Assert.assertEquals(queryId2, bdpAuthContext.getQueryId());
+        Assert.assertNotEquals(queryId1, ctx.queryId());
+        Assert.assertNotEquals(queryId1, bdpAuthContext.getQueryId());
+        // Set to null
+        ctx.setQueryId(null);
+        Assert.assertNull(ctx.queryId());
+        Assert.assertNull(bdpAuthContext.getQueryId());
+        // Set again after null
+        TUniqueId queryId3 = new TUniqueId(555L, 666L);
+        ctx.setQueryId(queryId3);
+        Assert.assertEquals(queryId3, ctx.queryId());
+        Assert.assertEquals(queryId3, bdpAuthContext.getQueryId());
     }
 }

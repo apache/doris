@@ -42,7 +42,7 @@ public class BDPAuthContext {
 
     public BDPAuthContext(TBDPAuthContext bdpAuthContext) {
         this(bdpAuthContext.erp, bdpAuthContext.source, bdpAuthContext.hadoopUserName, bdpAuthContext.userToken,
-                bdpAuthContext.viewBased, bdpAuthContext.userType, bdpAuthContext.businessLine);
+                bdpAuthContext.viewBased, bdpAuthContext.userType, bdpAuthContext.businessLine, bdpAuthContext.queryId);
     }
 
     public BDPAuthContext(String erp, String source, String hadoopUserName, String userToken) {
@@ -61,7 +61,7 @@ public class BDPAuthContext {
     }
 
     public BDPAuthContext(String erp, String source, String hadoopUserName, String userToken, boolean viewBased,
-                          String userType, String businessLine) {
+                          String userType, String businessLine, TUniqueId queryId) {
         this.erp = erp;
         this.source = source;
         this.hadoopUserName = hadoopUserName;
@@ -69,6 +69,7 @@ public class BDPAuthContext {
         this.viewBased = viewBased;
         this.userType = userType;
         this.businessLine = businessLine;
+        this.queryId = queryId;
     }
 
     public void setErpChanged(boolean erpChanged) {
@@ -97,6 +98,10 @@ public class BDPAuthContext {
 
     public void setViewBased(boolean viewBased) {
         this.viewBased = viewBased;
+    }
+
+    public void setQueryId(TUniqueId queryId) {
+        this.queryId = queryId;
     }
 
     public void setThreadLocalInfo() {
@@ -163,7 +168,7 @@ public class BDPAuthContext {
     }
 
     public String toString() {
-        return String.format("bdp_auth_context[erp: %s, source: %s, hadoop_user_name: %s, view_based: %s]",
-            erp, source, hadoopUserName, viewBased);
+        return String.format("bdp_auth_context[erp: %s, source: %s, hadoop_user_name: %s, view_based: %s,"
+                + " query_id: %s]", erp, source, hadoopUserName, viewBased, getQueryIdStr());
     }
 }

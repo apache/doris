@@ -68,6 +68,7 @@ public class HiveClientPool extends ClientPoolImpl<IMetaStoreClient, TException>
                     Preconditions.checkNotNull(bdpAuthContext.getSource(), "source cannot be null");
                     conf.set("BEE_SOURCE", bdpAuthContext.getSource());
                     conf.set("BEE_USER", bdpAuthContext.getErp());
+                    conf.set("BEE_SN", bdpAuthContext.getQueryIdStr());
                     conf.set("hive.jd.conf.keys", JD_CONF_KEYS);
                     conf.set("BEE_COMPUTE", "Doris");
                     UserGroupInformation ugi = UserGroupInformation.createRemoteUser(bdpAuthContext.getHadoopUserName(),

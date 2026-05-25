@@ -820,6 +820,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                         }
                         client.client.setMetaConf("BEE_SOURCE", bdpAuthContext.getSource());
                         client.client.setMetaConf("BEE_USER", bdpAuthContext.getErp());
+                        client.client.setMetaConf("BEE_SN", bdpAuthContext.getQueryIdStr());
                         return client;
                     }
                     Preconditions.checkNotNull(bdpAuthContext.getErp(), "erp cannot be null");
@@ -828,6 +829,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                     HiveConf conf = new HiveConf(hiveConf);
                     conf.set("BEE_SOURCE", bdpAuthContext.getSource());
                     conf.set("BEE_USER", bdpAuthContext.getErp());
+                    conf.set("BEE_SN", bdpAuthContext.getQueryIdStr());
                     conf.set("hive.jd.conf.keys", JD_CONF_KEYS);
                     conf.set("BEE_COMPUTE", "Doris");
                     client = new ThriftHMSClient(bdpAuthContext, hiveConf);

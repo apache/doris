@@ -184,6 +184,9 @@ public class DFSFileSystem extends RemoteFileSystem {
                             if (bdpAuthContext.getErp() != null) {
                                 confCopy.set("BEE_USER", bdpAuthContext.getErp());
                             }
+                            if (bdpAuthContext.getQueryIdStr() != null) {
+                                confCopy.set("BEE_SN", bdpAuthContext.getQueryIdStr());
+                            }
                             // Disable FileSystem caching to ensure a new instance is created every time
                             // Reason: We manage the lifecycle of FileSystem instances manually.
                             // Even if the caller doesn't explicitly close the instance, we will do so when needed.

@@ -965,6 +965,9 @@ public class ConnectContext {
             this.lastQueryId = this.queryId.deepCopy();
         }
         this.queryId = queryId;
+        if (bdpAuthContext != null) {
+            bdpAuthContext.setQueryId(queryId);
+        }
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
             connectScheduler.getConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
         }

@@ -18,6 +18,8 @@
 namespace cpp doris
 namespace java org.apache.doris.thrift
 
+include "Types.thrift"
+
 struct TBDPUserInfo {
    1: required string source
    2: required binary scrambledPassword
@@ -38,4 +40,5 @@ struct TBDPAuthContext {
    5: required bool viewBased
    6: optional string userType
    7: optional string businessLine
+   8: required Types.TUniqueId queryId
 }

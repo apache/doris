@@ -160,7 +160,8 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
         if (BDPAuthContext.get() != null) {
             BDPAuthContext bdpAuthContext = BDPAuthContext.get();
             TBDPAuthContext tbdpAuthContext = new TBDPAuthContext(bdpAuthContext.getSource(), bdpAuthContext.getErp(),
-                    bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken(), bdpAuthContext.isViewBased());
+                    bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken(), bdpAuthContext.isViewBased(),
+                    bdpAuthContext.getQueryId());
             if (bdpAuthContext.getUserType() != null && bdpAuthContext.getUserType().equalsIgnoreCase(
                     "dev_personal")) {
                 tbdpAuthContext.setUserType(bdpAuthContext.getUserType());
