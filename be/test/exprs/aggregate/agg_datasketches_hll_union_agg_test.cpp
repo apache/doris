@@ -332,6 +332,69 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testResetThenAddReinitializ
     agg_func->destroy(place);
 }
 
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
+       testVarcharResetThenAddAndMergeEmptyRhsDoesNotCrash) {
+    DataTypePtr input_type = std::make_shared<DataTypeString>();
+    DataTypes argument_types = {std::make_shared<DataTypeString>(-1, TYPE_VARCHAR)};
+
+    using AggFunc = AggregateFunctionDataSketchesHllUnionAgg<
+            TYPE_VARCHAR, AggregateFunctionHllSketchData<TYPE_VARCHAR>>;
+    auto agg_func = std::make_shared<AggFunc>(argument_types);
+
+    datasketches::hll_sketch sketch1(8, datasketches::HLL_8);
+    for (int i = 0; i < 7; ++i) {
+        sketch1.update(i);
+    }
+    const auto ser1 = sketch1.serialize_compact();
+
+    datasketches::hll_sketch sketch2(8, datasketches::HLL_8);
+    for (int i = 10; i < 17; ++i) {
+        sketch2.update(i);
+    }
+    const auto ser2 = sketch2.serialize_compact();
+
+    auto column_string = ColumnString::create();
+    column_string->insert_data((const char*)ser1.data(), ser1.size());
+    column_string->insert_data((const char*)ser2.data(), ser2.size());
+    const IColumn* columns[1] = {column_string.get()};
+
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+
+    agg_func->add(place, columns, 0, *arena);
+    agg_func->reset(place);
+    agg_func->add(place, columns, 1, *arena);
+
+    ColumnFloat64 after_reset;
+    agg_func->insert_result_into(place, after_reset);
+    EXPECT_DOUBLE_EQ(after_reset.get_data()[0], sketch2.get_estimate());
+
+    AggregateDataPtr empty_rhs_place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(empty_rhs_place);
+
+    EXPECT_NO_THROW(agg_func->merge(place, empty_rhs_place, *arena));
+
+    ColumnFloat64 after_merge;
+    agg_func->insert_result_into(place, after_merge);
+    EXPECT_DOUBLE_EQ(after_merge.get_data()[0], sketch2.get_estimate());
+
+    AggregateDataPtr empty_lhs_place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(empty_lhs_place);
+
+    EXPECT_NO_THROW(agg_func->merge(empty_lhs_place, empty_rhs_place, *arena));
+
+    ColumnFloat64 empty_merge_result;
+    agg_func->insert_result_into(empty_lhs_place, empty_merge_result);
+    EXPECT_DOUBLE_EQ(empty_merge_result.get_data()[0], 0.0);
+
+    agg_func->destroy(place);
+    agg_func->destroy(empty_rhs_place);
+    agg_func->destroy(empty_lhs_place);
+}
+
 TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testFactoryCreateAndAliases) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_datasketches_HLL_union_agg(factory);
@@ -855,6 +918,109 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
     }
 
     agg_func->destroy(place);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testVarcharAddEmptyStringThrows) {
+    DataTypes argument_types = {std::make_shared<DataTypeString>(-1, TYPE_VARCHAR)};
+    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
+            TYPE_VARCHAR, AggregateFunctionHllSketchData<TYPE_VARCHAR>>>(argument_types);
+
+    auto column_string = ColumnString::create();
+    column_string->insert_data("", 0);
+
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+
+    const IColumn* columns[1] = {column_string.get()};
+
+    try {
+        agg_func->add(place, columns, 0, *arena);
+        FAIL() << "Expected doris::Exception";
+    } catch (const doris::Exception& e) {
+        EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
+    }
+
+    agg_func->destroy(place);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testVarcharCorruptedInputThrows) {
+    DataTypes argument_types = {std::make_shared<DataTypeString>(-1, TYPE_VARCHAR)};
+    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
+            TYPE_VARCHAR, AggregateFunctionHllSketchData<TYPE_VARCHAR>>>(argument_types);
+
+    auto column_string = ColumnString::create();
+    column_string->insert_data("x", 1);
+    const IColumn* columns[1] = {column_string.get()};
+
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+
+    try {
+        agg_func->add(place, columns, 0, *arena);
+        FAIL() << "Expected doris::Exception";
+    } catch (const doris::Exception& e) {
+        EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
+    }
+
+    auto corrupt_buf = ColumnString::create();
+    BufferWritable corrupt_w(*corrupt_buf);
+    StringRef corrupted("x", 1);
+    corrupt_w.write_binary(corrupted);
+    corrupt_w.commit();
+
+    BufferReadable r(corrupt_buf->get_data_at(0));
+    try {
+        agg_func->deserialize(place, r, *arena);
+        FAIL() << "Expected doris::Exception";
+    } catch (const doris::Exception& e) {
+        EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
+    }
+
+    agg_func->destroy(place);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testVarcharSerializeDeserialize) {
+    DataTypes argument_types = {std::make_shared<DataTypeString>(-1, TYPE_VARCHAR)};
+    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
+            TYPE_VARCHAR, AggregateFunctionHllSketchData<TYPE_VARCHAR>>>(argument_types);
+
+    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
+    for (int i = 0; i < 100; i++) {
+        sketch.update(i);
+    }
+    const auto ser = sketch.serialize_compact();
+
+    auto column_string = ColumnString::create();
+    column_string->insert_data((const char*)ser.data(), ser.size());
+    const IColumn* columns[1] = {column_string.get()};
+
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+    agg_func->add(place, columns, 0, *arena);
+
+    auto buffer = ColumnString::create();
+    BufferWritable w(*buffer);
+    agg_func->serialize(place, w);
+    w.commit();
+
+    AggregateDataPtr new_place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(new_place);
+
+    BufferReadable r(buffer->get_data_at(0));
+    agg_func->deserialize(new_place, r, *arena);
+
+    ColumnFloat64 result1, result2;
+    agg_func->insert_result_into(place, result1);
+    agg_func->insert_result_into(new_place, result2);
+
+    EXPECT_DOUBLE_EQ(result1.get_data()[0], result2.get_data()[0]);
+
+    agg_func->destroy(place);
+    agg_func->destroy(new_place);
 }
 
 TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
