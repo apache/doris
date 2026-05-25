@@ -20,8 +20,10 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
@@ -36,6 +38,7 @@ public class DropRowPolicyCommandTest extends TestWithFeService {
     private ConnectContext connectContext;
     private Env env;
     private AccessControllerManager accessControllerManager;
+    private Auth auth;
     private UserIdentity user;
     private TableNameInfo tableNameInfo;
 
@@ -43,6 +46,7 @@ public class DropRowPolicyCommandTest extends TestWithFeService {
         connectContext = createDefaultCtx();
         env = Env.getCurrentEnv();
         accessControllerManager = env.getAccessManager();
+        auth = env.getAuth();
         user = new UserIdentity("jack", "127.0.0.1", true);
         tableNameInfo = new TableNameInfo("test_db", "test_tbl");
     }
@@ -54,7 +58,44 @@ public class DropRowPolicyCommandTest extends TestWithFeService {
         Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
                 Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.GRANT));
         Deencapsulation.setField(env, "accessManager", spyAcm);
+        Auth spyAuth = Mockito.spy(auth);
+        Mockito.doReturn(true).when(spyAuth).doesUserExist(Mockito.any(UserIdentity.class));
+        Mockito.doReturn(true).when(spyAuth).doesRoleExist(Mockito.anyString());
+        Deencapsulation.setField(env, "auth", spyAuth);
         DropRowPolicyCommand command = new DropRowPolicyCommand(false, "test_policy", tableNameInfo, user, "role1");
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+    }
+
+    @Test
+    public void testValidateUserNotExist() throws Exception {
+        runBefore();
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.GRANT));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
+        Auth spyAuth = Mockito.spy(auth);
+        Mockito.doReturn(false).when(spyAuth).doesUserExist(Mockito.any(UserIdentity.class));
+        Deencapsulation.setField(env, "auth", spyAuth);
+        DropRowPolicyCommand command = new DropRowPolicyCommand(false, "test_policy", tableNameInfo, user, null);
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> command.validate(connectContext));
+        Assertions.assertTrue(ex.getMessage().contains("user not exist"));
+    }
+
+    @Test
+    public void testValidateRoleNotExist() throws Exception {
+        runBefore();
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.GRANT));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
+        Auth spyAuth = Mockito.spy(auth);
+        Mockito.doReturn(true).when(spyAuth).doesUserExist(Mockito.any(UserIdentity.class));
+        Mockito.doReturn(false).when(spyAuth).doesRoleExist(Mockito.anyString());
+        Deencapsulation.setField(env, "auth", spyAuth);
+        DropRowPolicyCommand command = new DropRowPolicyCommand(false, "test_policy", tableNameInfo, user, "nonexist_role");
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> command.validate(connectContext));
+        Assertions.assertTrue(ex.getMessage().contains("role not exist"));
     }
 }
