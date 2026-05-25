@@ -731,7 +731,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         SessionVariable sv = ConnectContext.get().getSessionVariable();
         // TODO(cmy): determine the needCheckColumnPriv param
         ScanNode scanNode;
-        if (table instanceof HMSExternalTable) {
+        // Plugin-driven (SPI) tables are matched first; the connector-specific
+        // instanceof branches below are migration-period fallbacks that get removed
+        // as each connector lands on the SPI in P3-P7.
+        if (table instanceof PluginDrivenExternalTable) {
+            PluginDrivenExternalCatalog pluginCatalog =
+                    (PluginDrivenExternalCatalog) table.getCatalog();
+            scanNode = PluginDrivenScanNode.create(context.nextPlanNodeId(), tupleDescriptor,
+                    false, sv, context.getScanContext(), pluginCatalog,
+                    ((PluginDrivenExternalTable) table));
+        } else if (table instanceof HMSExternalTable) {
             if (directoryLister == null) {
                 this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(
                         Config.max_external_table_split_file_meta_cache_num).get(new FileSystemDirectoryLister());
@@ -779,12 +788,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else if (table instanceof RemoteDorisExternalTable) {
             scanNode = new RemoteDorisScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
                     context.getScanContext());
-        } else if (table instanceof PluginDrivenExternalTable) {
-            PluginDrivenExternalCatalog pluginCatalog =
-                    (PluginDrivenExternalCatalog) table.getCatalog();
-            scanNode = PluginDrivenScanNode.create(context.nextPlanNodeId(), tupleDescriptor,
-                    false, sv, context.getScanContext(), pluginCatalog,
-                    ((PluginDrivenExternalTable) table));
         } else {
             throw new RuntimeException("do not support table type " + table.getType());
         }
@@ -819,19 +822,35 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     @Override
     public PlanFragment visitPhysicalHudiScan(PhysicalHudiScan hudiScan, PlanTranslatorContext context) {
+        List<Slot> slots = hudiScan.getOutput();
+        ExternalTable table = hudiScan.getTable();
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
+        SessionVariable sv = ConnectContext.get().getSessionVariable();
+
+        // Plugin-driven (SPI) Hudi: route through PluginDrivenScanNode. Incremental scan
+        // (hudiScan.getIncrementalRelation) is not yet representable in the SPI; that
+        // gap is tracked for P3 when Hudi migrates to the connector framework.
+        if (table instanceof PluginDrivenExternalTable) {
+            PluginDrivenExternalCatalog pluginCatalog =
+                    (PluginDrivenExternalCatalog) table.getCatalog();
+            ScanNode scanNode = PluginDrivenScanNode.create(context.nextPlanNodeId(), tupleDescriptor,
+                    false, sv, context.getScanContext(), pluginCatalog,
+                    (PluginDrivenExternalTable) table);
+            FileQueryScanNode fileScan = (FileQueryScanNode) scanNode;
+            hudiScan.getTableSnapshot().ifPresent(fileScan::setQueryTableSnapshot);
+            hudiScan.getScanParams().ifPresent(fileScan::setScanParams);
+            return getPlanFragmentForPhysicalFileScan(hudiScan, context, scanNode);
+        }
+
         if (directoryLister == null) {
             this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(
                     Config.max_external_table_split_file_meta_cache_num).get(new FileSystemDirectoryLister());
         }
-        List<Slot> slots = hudiScan.getOutput();
-        ExternalTable table = hudiScan.getTable();
-        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
-
         if (!(table instanceof HMSExternalTable) || ((HMSExternalTable) table).getDlaType() != DLAType.HUDI) {
             throw new RuntimeException("Invalid table type for Hudi scan: " + table.getType());
         }
         HudiScanNode hudiScanNode = new HudiScanNode(context.nextPlanNodeId(), tupleDescriptor, false,
-                hudiScan.getScanParams(), hudiScan.getIncrementalRelation(), ConnectContext.get().getSessionVariable(),
+                hudiScan.getScanParams(), hudiScan.getIncrementalRelation(), sv,
                 directoryLister, context.getScanContext());
         if (hudiScan.getTableSnapshot().isPresent()) {
             hudiScanNode.setQueryTableSnapshot(hudiScan.getTableSnapshot().get());
