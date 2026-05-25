@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.table;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionGenTable;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -55,9 +56,24 @@ public abstract class TableValuedFunction extends BoundFunction
         } catch (AnalysisException e) {
             throw e;
         } catch (Throwable t) {
+            // Build complete exception chain for better error diagnosis
+            StringBuilder errorChain = new StringBuilder();
+            Throwable current = t;
+            int depth = 0;
+            int maxDepth = Config.max_exception_chain_depth;
+            while (current != null && depth < maxDepth) {
+                if (depth > 0) {
+                    errorChain.append("\n  Caused by: ");
+                }
+                errorChain.append(current.getClass().getSimpleName())
+                          .append(": ")
+                          .append(current.getMessage());
+                current = current.getCause();
+                depth++;
+            }
             // Do not print the whole stmt, it is too long and may contain sensitive information
             throw new AnalysisException(
-                    "Can not build FunctionGenTable '" + this.getName() + "'. error: " + t.getMessage(), t);
+                    "Can not build FunctionGenTable '" + this.getName() + "'. error: " + errorChain.toString(), t);
         }
     });
 

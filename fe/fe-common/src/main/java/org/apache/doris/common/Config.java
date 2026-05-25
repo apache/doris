@@ -4000,4 +4000,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = false)
     public static int max_hudi_client_cache_pool_size = 64;
+
+    /**
+     * Max depth of exception chain to print when building FunctionGenTable fails.
+     * This helps users see the complete error chain to identify the root cause.
+     */
+    @ConfField(mutable = true, description = {"构建FunctionGenTable失败时打印异常链的最大深度",
+            "Max depth of exception chain to print when building FunctionGenTable fails"})
+    public static int max_exception_chain_depth = 5;
 }
