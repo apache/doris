@@ -210,10 +210,10 @@ public class TableProperty implements GsonPostProcessable {
             // cluster. These properties (e.g., replication_num, replication_allocation, storage_policy)
             // are not applicable in cloud mode. If kept, they would cause dynamic partition scheduler
             // to create new partitions with incorrect settings, leading to write failures like:
-            // "alive replica num < 1 load required replica num 2"..
-            for (String unsupported : CloudDynamicPartitionProperty.UNSUPPORTED_PROPERTIES) {
-                properties.remove(unsupported);
-            }
+            // "alive replica num < 1 load required replica num 2".
+            properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
+            properties.remove(DynamicPartitionProperty.REPLICATION_ALLOCATION);
+            properties.remove(DynamicPartitionProperty.STORAGE_POLICY);
             executeBuildDynamicProperty();
         } else if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
             executeBuildDynamicProperty();
