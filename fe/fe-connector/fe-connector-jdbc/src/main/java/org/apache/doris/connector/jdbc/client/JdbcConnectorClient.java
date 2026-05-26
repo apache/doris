@@ -352,7 +352,7 @@ public abstract class JdbcConnectorClient implements Closeable {
                 String current = conn.getSchema();
                 names.add(current);
             } else {
-                rs = conn.getMetaData().getSchemas(conn.getCatalog(), null);
+                rs = conn.getMetaData().getSchemas(conn.getCatalog(), getSchemaPatternForDatabaseNameList());
                 while (rs.next()) {
                     names.add(rs.getString("TABLE_SCHEM"));
                 }
@@ -363,6 +363,18 @@ public abstract class JdbcConnectorClient implements Closeable {
             closeResources(rs, conn);
         }
         return filterDatabaseNames(names);
+    }
+
+    /**
+     * Schema pattern passed to {@link java.sql.DatabaseMetaData#getSchemas(String, String)} when listing
+     * remote database names.
+     *
+     * <p>The default {@code null} follows JDBC semantics of "schema name should not be used to narrow
+     * the search", preserving the existing generic behavior. Subclasses should override this only when
+     * a driver treats {@code null} specially and does not return the schemas Doris expects.
+     */
+    protected String getSchemaPatternForDatabaseNameList() {
+        return null;
     }
 
     public List<String> getTablesNameList(String remoteDbName) {
