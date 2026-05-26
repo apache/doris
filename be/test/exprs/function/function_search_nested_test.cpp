@@ -23,13 +23,18 @@
 
 #include <memory>
 #include <roaring/roaring.hh>
+#include <string>
 #include <unordered_map>
 
+#include "common/exception.h"
 #include "core/block/block.h"
 #include "exprs/function/function_search.h"
 #include "exprs/function/variant_inverted_index_search.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_query.h"
+#include "storage/index/inverted/query_v2/query.h"
+#include "storage/index/inverted/query_v2/weight.h"
 #include "storage/segment/variant/nested_group_provider.h"
+#include "storage/segment/variant/variant_column_reader.h"
 
 namespace doris {
 
@@ -80,6 +85,73 @@ public:
             parent_bitmap->add(doc / 2);
         }
         return Status::OK();
+    }
+};
+
+class ErrorNestedGroupReadProvider final : public segment_v2::NestedGroupReadProvider {
+public:
+    bool should_enable_nested_group_read_path() const override { return true; }
+
+    Status init_readers(const segment_v2::ColumnReaderOptions&,
+                        const std::shared_ptr<segment_v2::SegmentFooterPB>&,
+                        const std::shared_ptr<io::FileReader>&, segment_v2::ColumnMetaAccessor*,
+                        int32_t, uint64_t, segment_v2::NestedGroupReaders&) override {
+        return Status::NotSupported("not implemented");
+    }
+
+    bool try_build_read_plan(const TabletSchema*, const segment_v2::NestedGroupReaders&,
+                             const TabletColumn&, const StorageReadOptions*, int32_t,
+                             const PathInData&, bool*, DataTypePtr*, PathInData*, std::string*,
+                             std::string*, std::vector<const segment_v2::NestedGroupReader*>*,
+                             std::optional<segment_v2::NestedGroupPathFilter>*) const override {
+        return false;
+    }
+
+    Status create_nested_group_iterator(bool,
+                                        const std::vector<const segment_v2::NestedGroupReader*>&,
+                                        const std::string&, const std::string&,
+                                        const std::optional<segment_v2::NestedGroupPathFilter>&,
+                                        segment_v2::ColumnIteratorUPtr*, DataTypePtr*) override {
+        return Status::NotSupported("not implemented");
+    }
+
+    Status get_total_elements(const segment_v2::ColumnIteratorOptions&,
+                              const segment_v2::NestedGroupReader*, uint64_t*) const override {
+        return Status::NotSupported("not implemented");
+    }
+
+    Status create_root_merge_iterator(segment_v2::ColumnIteratorUPtr,
+                                      const segment_v2::NestedGroupReaders&,
+                                      const StorageReadOptions*,
+                                      segment_v2::ColumnIteratorUPtr*) override {
+        return Status::NotSupported("not implemented");
+    }
+
+    Status map_elements_to_parent_ords(const std::vector<const segment_v2::NestedGroupReader*>&,
+                                       const segment_v2::ColumnIteratorOptions&,
+                                       const roaring::Roaring&, roaring::Roaring*) const override {
+        return Status::InternalError("forced mapping failure");
+    }
+};
+
+class NullWeightQuery final : public inverted_index::query_v2::Query {
+public:
+    inverted_index::query_v2::WeightPtr weight(bool) override { return nullptr; }
+};
+
+class NullScorerWeight final : public inverted_index::query_v2::Weight {
+public:
+    inverted_index::query_v2::ScorerPtr scorer(
+            const inverted_index::query_v2::QueryExecutionContext&,
+            const std::string& = {}) override {
+        return nullptr;
+    }
+};
+
+class NullScorerQuery final : public inverted_index::query_v2::Query {
+public:
+    inverted_index::query_v2::WeightPtr weight(bool) override {
+        return std::make_shared<NullScorerWeight>();
     }
 };
 
@@ -185,6 +257,151 @@ TEST_F(FunctionSearchNestedTest, NestedDocMappingQueryMapsTruthAndNullBitmaps) {
     ASSERT_NE(nullptr, actual_null);
     EXPECT_TRUE(actual_null->contains(3));
     EXPECT_EQ(1, actual_null->cardinality());
+}
+
+TEST_F(FunctionSearchNestedTest, NestedDocMappingQueryReturnsChildWhenNoMappingChain) {
+    auto child_query = std::make_shared<inverted_index::query_v2::BitSetQuery>(roaring::Roaring());
+
+    auto mapped_query = make_variant_nested_doc_mapping_query(child_query, {}, nullptr,
+                                                              segment_v2::ColumnIteratorOptions {});
+
+    EXPECT_EQ(child_query, mapped_query);
+}
+
+TEST_F(FunctionSearchNestedTest, NestedDocMappingQueryHandlesNullChildWeight) {
+    segment_v2::NestedGroupReader nested_group;
+    std::vector<const segment_v2::NestedGroupReader*> chain {&nested_group};
+    FakeNestedGroupReadProvider read_provider;
+    auto mapped_query = make_variant_nested_doc_mapping_query(std::make_shared<NullWeightQuery>(),
+                                                              chain, &read_provider,
+                                                              segment_v2::ColumnIteratorOptions {});
+
+    auto weight = mapped_query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    inverted_index::query_v2::QueryExecutionContext exec_ctx;
+    auto scorer = weight->scorer(exec_ctx);
+    ASSERT_NE(nullptr, scorer);
+    EXPECT_EQ(inverted_index::query_v2::TERMINATED, scorer->doc());
+}
+
+TEST_F(FunctionSearchNestedTest, NestedDocMappingQueryHandlesNullChildScorer) {
+    segment_v2::NestedGroupReader nested_group;
+    std::vector<const segment_v2::NestedGroupReader*> chain {&nested_group};
+    FakeNestedGroupReadProvider read_provider;
+    auto mapped_query = make_variant_nested_doc_mapping_query(std::make_shared<NullScorerQuery>(),
+                                                              chain, &read_provider,
+                                                              segment_v2::ColumnIteratorOptions {});
+
+    auto weight = mapped_query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    inverted_index::query_v2::QueryExecutionContext exec_ctx;
+    auto scorer = weight->scorer(exec_ctx);
+    ASSERT_NE(nullptr, scorer);
+    EXPECT_EQ(inverted_index::query_v2::TERMINATED, scorer->doc());
+}
+
+TEST_F(FunctionSearchNestedTest, NestedDocMappingQueryDropsNullsCoveredByTrueHits) {
+    auto true_bitmap = std::make_shared<roaring::Roaring>();
+    true_bitmap->add(2); // maps to parent 1
+    auto null_bitmap = std::make_shared<roaring::Roaring>();
+    null_bitmap->add(3); // also maps to parent 1, then is removed from null bitmap
+    auto child_query =
+            std::make_shared<inverted_index::query_v2::BitSetQuery>(true_bitmap, null_bitmap);
+
+    FakeNestedGroupReadProvider read_provider;
+    segment_v2::NestedGroupReader nested_group;
+    std::vector<const segment_v2::NestedGroupReader*> chain {&nested_group};
+    auto mapped_query = make_variant_nested_doc_mapping_query(child_query, chain, &read_provider,
+                                                              segment_v2::ColumnIteratorOptions {});
+
+    auto weight = mapped_query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    inverted_index::query_v2::QueryExecutionContext exec_ctx;
+    auto scorer = weight->scorer(exec_ctx);
+    ASSERT_NE(nullptr, scorer);
+    EXPECT_EQ(1u, scorer->doc());
+    EXPECT_FALSE(scorer->has_null_bitmap());
+}
+
+TEST_F(FunctionSearchNestedTest, NestedDocMappingQueryReturnsEmptyForEmptyChildResult) {
+    auto child_query = std::make_shared<inverted_index::query_v2::BitSetQuery>(roaring::Roaring());
+
+    FakeNestedGroupReadProvider read_provider;
+    segment_v2::NestedGroupReader nested_group;
+    std::vector<const segment_v2::NestedGroupReader*> chain {&nested_group};
+    auto mapped_query = make_variant_nested_doc_mapping_query(child_query, chain, &read_provider,
+                                                              segment_v2::ColumnIteratorOptions {});
+
+    auto weight = mapped_query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    inverted_index::query_v2::QueryExecutionContext exec_ctx;
+    auto scorer = weight->scorer(exec_ctx);
+    ASSERT_NE(nullptr, scorer);
+    EXPECT_EQ(inverted_index::query_v2::TERMINATED, scorer->doc());
+}
+
+TEST_F(FunctionSearchNestedTest, NestedDocMappingQueryThrowsOnMappingError) {
+    auto true_bitmap = std::make_shared<roaring::Roaring>();
+    true_bitmap->add(2);
+    auto child_query = std::make_shared<inverted_index::query_v2::BitSetQuery>(true_bitmap);
+
+    ErrorNestedGroupReadProvider read_provider;
+    segment_v2::NestedGroupReader nested_group;
+    std::vector<const segment_v2::NestedGroupReader*> chain {&nested_group};
+    auto mapped_query = make_variant_nested_doc_mapping_query(child_query, chain, &read_provider,
+                                                              segment_v2::ColumnIteratorOptions {});
+
+    auto weight = mapped_query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    inverted_index::query_v2::QueryExecutionContext exec_ctx;
+    EXPECT_THROW((void)weight->scorer(exec_ctx), Exception);
+}
+
+TEST_F(FunctionSearchNestedTest, NestedDocMappingQueryThrowsOnNullBitmapMappingError) {
+    auto true_bitmap = std::make_shared<roaring::Roaring>();
+    auto null_bitmap = std::make_shared<roaring::Roaring>();
+    null_bitmap->add(3);
+    auto child_query =
+            std::make_shared<inverted_index::query_v2::BitSetQuery>(true_bitmap, null_bitmap);
+
+    ErrorNestedGroupReadProvider read_provider;
+    segment_v2::NestedGroupReader nested_group;
+    std::vector<const segment_v2::NestedGroupReader*> chain {&nested_group};
+    auto mapped_query = make_variant_nested_doc_mapping_query(child_query, chain, &read_provider,
+                                                              segment_v2::ColumnIteratorOptions {});
+
+    auto weight = mapped_query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    inverted_index::query_v2::QueryExecutionContext exec_ctx;
+    EXPECT_THROW((void)weight->scorer(exec_ctx), Exception);
+}
+
+TEST_F(FunctionSearchNestedTest, VariantNestedLeafMapperEarlyExitBranches) {
+    inverted_index::query_v2::QueryPtr query =
+            std::make_shared<inverted_index::query_v2::BitSetQuery>(roaring::Roaring());
+    auto original_query = query;
+    VariantNestedDocMapperContext mapper_context;
+
+    ASSERT_TRUE(
+            map_variant_nested_leaf_query_to_active_group(mapper_context, "data.items.msg", &query)
+                    .ok());
+    EXPECT_EQ(original_query, query);
+
+    segment_v2::NestedGroupReader nested_group;
+    FakeNestedGroupReadProvider read_provider;
+    segment_v2::VariantColumnReader variant_reader;
+    mapper_context.root_field = "data";
+    mapper_context.active_group_chain = {&nested_group};
+    mapper_context.read_provider = &read_provider;
+    mapper_context.variant_reader = &variant_reader;
+
+    ASSERT_TRUE(map_variant_nested_leaf_query_to_active_group(mapper_context, "metrics.items.msg",
+                                                              &query)
+                        .ok());
+    EXPECT_EQ(original_query, query);
+
+    ASSERT_TRUE(map_variant_nested_leaf_query_to_active_group(mapper_context, "data", &query).ok());
+    EXPECT_EQ(original_query, query);
 }
 
 // ===========================================================================

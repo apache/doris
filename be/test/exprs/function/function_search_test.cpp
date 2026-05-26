@@ -21,16 +21,21 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <map>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <unordered_map>
+#include <utility>
 
 #include "core/block/block.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/primitive_type.h"
+#include "storage/index/index_file_reader.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
+#include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_weight.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
@@ -115,6 +120,12 @@ public:
     explicit DummyInvertedIndexReader(const TabletIndex* index_meta)
             : segment_v2::InvertedIndexReader(index_meta, nullptr) {}
 
+    DummyInvertedIndexReader(const TabletIndex* index_meta,
+                             std::shared_ptr<segment_v2::IndexFileReader> index_file_reader,
+                             segment_v2::InvertedIndexReaderType reader_type)
+            : segment_v2::InvertedIndexReader(index_meta, std::move(index_file_reader)),
+              _reader_type(reader_type) {}
+
     Status new_iterator(std::unique_ptr<segment_v2::IndexIterator>* /*iterator*/) override {
         return Status::OK();
     }
@@ -134,10 +145,26 @@ public:
         return Status::OK();
     }
 
-    segment_v2::InvertedIndexReaderType type() override {
-        return segment_v2::InvertedIndexReaderType::BKD;
-    }
+    segment_v2::InvertedIndexReaderType type() override { return _reader_type; }
+
+private:
+    segment_v2::InvertedIndexReaderType _reader_type = segment_v2::InvertedIndexReaderType::BKD;
 };
+
+static TabletIndex make_test_inverted_index(
+        int64_t index_id, const std::map<std::string, std::string>& properties = {}) {
+    TabletIndex index_meta;
+    TabletIndexPB pb;
+    pb.set_index_type(IndexType::INVERTED);
+    pb.set_index_id(index_id);
+    pb.set_index_name("test_index_" + std::to_string(index_id));
+    pb.add_col_unique_id(1);
+    for (const auto& [key, value] : properties) {
+        (*pb.mutable_properties())[key] = value;
+    }
+    index_meta.init_from_pb(pb);
+    return index_meta;
+}
 
 TEST_F(FunctionSearchTest, TestGetName) {
     EXPECT_EQ("search", function_search->get_name());
@@ -1758,6 +1785,132 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryVariantMissingFieldReturnsUnknown) 
     const auto* null_bitmap = scorer->get_null_bitmap();
     ASSERT_NE(null_bitmap, nullptr);
     EXPECT_EQ(5u, null_bitmap->cardinality());
+}
+
+TEST_F(FunctionSearchTest, TestFieldReaderResolverVariantSubcolumnWithMissingIterator) {
+    auto context = std::make_shared<IndexQueryContext>();
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "var.items.level",
+            IndexFieldNameAndTypePair {"1.var.items.level", std::make_shared<DataTypeInt32>()});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+
+    TSearchFieldBinding field_binding;
+    field_binding.field_name = "var.items.level";
+    field_binding.is_variant_subcolumn = true;
+    field_binding.__isset.is_variant_subcolumn = true;
+
+    FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
+    FieldReaderBinding binding;
+    auto status =
+            resolver.resolve("var.items.level", InvertedIndexQueryType::EQUAL_QUERY, &binding);
+
+    ASSERT_TRUE(status.ok());
+    EXPECT_FALSE(binding.is_bound());
+    EXPECT_TRUE(resolver.binding_cache().empty());
+}
+
+TEST_F(FunctionSearchTest, TestFieldReaderResolverVariantSubcolumnWithReaderSelectionError) {
+    auto context = std::make_shared<IndexQueryContext>();
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "var.items.level",
+            IndexFieldNameAndTypePair {"1.var.items.level", std::make_shared<DataTypeInt32>()});
+
+    segment_v2::InvertedIndexIterator iterator;
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["var.items.level"] = &iterator;
+
+    TSearchFieldBinding field_binding;
+    field_binding.field_name = "var.items.level";
+    field_binding.is_variant_subcolumn = true;
+    field_binding.__isset.is_variant_subcolumn = true;
+
+    FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
+    FieldReaderBinding binding;
+    auto status =
+            resolver.resolve("var.items.level", InvertedIndexQueryType::EQUAL_QUERY, &binding);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(ErrorCode::INVERTED_INDEX_NO_TERMS, status.code());
+}
+
+TEST_F(FunctionSearchTest,
+       TestFieldReaderResolverVariantAnalyzerUpgradeWithMissingIndexFileReader) {
+    auto context = std::make_shared<IndexQueryContext>();
+
+    std::map<std::string, std::string> properties;
+    properties[INVERTED_INDEX_PARSER_KEY] = INVERTED_INDEX_PARSER_STANDARD;
+    auto index_meta = make_test_inverted_index(11, properties);
+    auto reader = std::make_shared<DummyInvertedIndexReader>(
+            &index_meta, nullptr, segment_v2::InvertedIndexReaderType::FULLTEXT);
+
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "var.items.msg",
+            IndexFieldNameAndTypePair {"1.var.items.msg", std::make_shared<DataTypeString>()});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["var.items.msg"] = &iterator;
+
+    TSearchFieldBinding field_binding;
+    field_binding.field_name = "var.items.msg";
+    field_binding.is_variant_subcolumn = true;
+    field_binding.index_properties = properties;
+    field_binding.__isset.is_variant_subcolumn = true;
+    field_binding.__isset.index_properties = true;
+
+    FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
+    FieldReaderBinding binding;
+    auto status = resolver.resolve("var.items.msg", InvertedIndexQueryType::EQUAL_QUERY, &binding);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND, status.code());
+}
+
+TEST_F(FunctionSearchTest, TestFieldReaderResolverVariantBkdDirectReader) {
+    auto context = std::make_shared<IndexQueryContext>();
+
+    auto index_meta = make_test_inverted_index(12);
+    auto index_file_reader = std::make_shared<segment_v2::IndexFileReader>(
+            nullptr, "/tmp/variant_direct_idx", InvertedIndexStorageFormatPB::V2);
+    auto reader = std::make_shared<DummyInvertedIndexReader>(
+            &index_meta, index_file_reader, segment_v2::InvertedIndexReaderType::BKD);
+
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::BKD, reader);
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "var.items.level",
+            IndexFieldNameAndTypePair {"1.var.items.level", std::make_shared<DataTypeInt32>()});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["var.items.level"] = &iterator;
+
+    TSearchFieldBinding field_binding;
+    field_binding.field_name = "var.items.level";
+    field_binding.is_variant_subcolumn = true;
+    field_binding.__isset.is_variant_subcolumn = true;
+
+    FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
+    FieldReaderBinding binding;
+    auto status =
+            resolver.resolve("var.items.level", InvertedIndexQueryType::EQUAL_QUERY, &binding);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(binding.use_direct_index_reader());
+    EXPECT_EQ(reader, binding.inverted_reader);
+    EXPECT_EQ("var.items.level", binding.logical_field_name);
+    EXPECT_EQ("1.var.items.level", binding.stored_field_name);
+    EXPECT_EQ(InvertedIndexQueryType::EQUAL_QUERY, binding.query_type);
+
+    const auto& cache = resolver.binding_cache();
+    ASSERT_EQ(1u, cache.size());
+    EXPECT_TRUE(cache.begin()->second.use_direct_index_reader());
 }
 
 TEST_F(FunctionSearchTest, TestBuildLeafQueryDirectUnknownClauseUsesLeafMapper) {
