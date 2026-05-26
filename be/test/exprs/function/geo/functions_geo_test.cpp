@@ -372,7 +372,7 @@ TEST(VGeoFunctionsTest, function_geo_st_geometries_invalid) {
     // Insert non-null but invalid data
     auto* nullable_input = assert_cast<ColumnNullable*>(input_col.get());
     nullable_input->get_nested_column_ptr()->insert_data(invalid_buf.data(), invalid_buf.size());
-    assert_cast<ColumnUInt8*>(nullable_input->get_null_map_column_ptr().get())->insert_value(0);
+    nullable_input->get_null_map_column_ptr()->insert_value(0);
     block.insert({std::move(input_col), input_type, "shape"});
 
     FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
