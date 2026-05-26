@@ -480,6 +480,7 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
             continue;
         }
         *eof = false;
+        // TODO: Compute _request->reader_expression_map to filter file_block
         return Status::OK();
     }
 }

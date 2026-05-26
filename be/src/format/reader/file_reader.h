@@ -98,8 +98,6 @@ struct FileScanRequest {
     std::vector<FileLocalFilter> local_filters;
     // fallback path if filters cannot be localized to file-local predicates. The expression can reference projected_file_columns and partition columns.
     std::vector<std::pair<ColumnId, VExprContextSPtr>> reader_expression_map;
-    // partition key -> value
-    std::map<std::string, Field> partition_values;
 };
 
 // 文件物理读取层通用接口。
