@@ -34,6 +34,11 @@ suite("test_streaming_postgres_job_special_offset_restart_fe",
     def jobName = "test_streaming_pg_special_offset_restart_fe"
     def options = new ClusterOptions()
     options.setFeNum(1)
+    // TODO: remove once cleanMeta targets the BE that owns the reader (binlog
+    // phase pinned to a single BE). Today selectBackend() round-robins across
+    // BEs, so /api/close can land on a BE that doesn't hold the PG replication
+    // connection — the real holder is never notified and the slot stays active.
+    options.setBeNum(1)
     options.cloudMode = null
 
     docker(options) {
