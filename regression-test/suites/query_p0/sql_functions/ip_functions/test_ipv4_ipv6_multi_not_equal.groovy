@@ -21,10 +21,9 @@
 // IPv4Literal/IPv6Literal.compareLiteral() always returned 0,
 // making every IP literal compare-equal in legacy expr deduplication.
 suite("test_ipv4_ipv6_multi_not_equal") {
-    def tbl = "test_ip_multi_not_equal"
-    sql "DROP TABLE IF EXISTS ${tbl}"
+    sql "DROP TABLE IF EXISTS test_ip_multi_not_equal"
     sql """
-        CREATE TABLE ${tbl} (
+        CREATE TABLE test_ip_multi_not_equal (
             id  INT,
             ip4 IPV4,
             ip6 IPV6
@@ -34,7 +33,7 @@ suite("test_ipv4_ipv6_multi_not_equal") {
     """
 
     sql """
-        INSERT INTO ${tbl} VALUES
+        INSERT INTO test_ip_multi_not_equal VALUES
           (1, '1.1.1.1',     '::1'),
           (2, '1.1.1.2',     '::2'),
           (3, '1.1.1.3',     '::3'),
@@ -49,28 +48,28 @@ suite("test_ipv4_ipv6_multi_not_equal") {
 
     // -- Case 1: multiple != on IPv4 -------------------------------------
     qt_ipv4_multi_ne """
-        SELECT id, ip4 FROM ${tbl}
+        SELECT id, ip4 FROM test_ip_multi_not_equal
          WHERE ip4 != '1.1.1.1' AND ip4 != '1.1.1.2'
          ORDER BY id
     """
     // EXPLAIN must retain BOTH literals; before the fix only "1.1.1.1"
     // survived because the second != predicate was dropped as duplicate.
     explain {
-        sql "SELECT id FROM ${tbl} WHERE ip4 != '1.1.1.1' AND ip4 != '1.1.1.2'"
+        sql "SELECT id FROM test_ip_multi_not_equal WHERE ip4 != '1.1.1.1' AND ip4 != '1.1.1.2'"
         contains "1.1.1.1"
         contains "1.1.1.2"
     }
 
     // -- Case 2: two NOT BETWEEN ranges on IPv4 --------------------------
     qt_ipv4_not_between """
-        SELECT id, ip4 FROM ${tbl}
+        SELECT id, ip4 FROM test_ip_multi_not_equal
          WHERE NOT (ip4 BETWEEN '1.1.1.1'  AND '1.1.1.10')
            AND NOT (ip4 BETWEEN '10.1.1.1' AND '10.1.1.10')
          ORDER BY id
     """
     explain {
         sql """
-            SELECT id FROM ${tbl}
+            SELECT id FROM test_ip_multi_not_equal
              WHERE NOT (ip4 BETWEEN '1.1.1.1'  AND '1.1.1.10')
                AND NOT (ip4 BETWEEN '10.1.1.1' AND '10.1.1.10')
         """
@@ -80,25 +79,25 @@ suite("test_ipv4_ipv6_multi_not_equal") {
 
     // -- Case 3: multiple != on IPv6 -------------------------------------
     qt_ipv6_multi_ne """
-        SELECT id, ip6 FROM ${tbl}
+        SELECT id, ip6 FROM test_ip_multi_not_equal
          WHERE ip6 != '::1' AND ip6 != '::2'
          ORDER BY id
     """
     explain {
-        sql "SELECT id FROM ${tbl} WHERE ip6 != '::1' AND ip6 != '::2'"
+        sql "SELECT id FROM test_ip_multi_not_equal WHERE ip6 != '::1' AND ip6 != '::2'"
         contains "::1"
         contains "::2"
     }
 
     // -- Case 4: NOT IN + != combined on IPv4 ----------------------------
     qt_ipv4_not_in_plus_ne """
-        SELECT id, ip4 FROM ${tbl}
+        SELECT id, ip4 FROM test_ip_multi_not_equal
          WHERE ip4 NOT IN ('1.1.1.1','1.1.1.2') AND ip4 != '1.1.1.3'
          ORDER BY id
     """
     explain {
         sql """
-            SELECT id FROM ${tbl}
+            SELECT id FROM test_ip_multi_not_equal
              WHERE ip4 NOT IN ('1.1.1.1','1.1.1.2') AND ip4 != '1.1.1.3'
         """
         contains "1.1.1.1"
