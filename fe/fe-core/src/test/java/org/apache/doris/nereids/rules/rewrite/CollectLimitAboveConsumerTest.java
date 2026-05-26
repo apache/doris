@@ -63,10 +63,25 @@ class CollectLimitAboveConsumerTest {
     }
 
     @Test
-    void testCollectLimitAboveProjectRowsNeeded() {
+    void testCollectLocalLimitRowsNeededWithoutAddingOffsetAgain() {
         LogicalOlapScan producerPlan = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
         LogicalCTEConsumer consumer = new LogicalCTEConsumer(
                 PlanConstructor.getNextRelationId(), new CTEId(2), "cte2", producerPlan);
+        LogicalLimit<LogicalCTEConsumer> limit = new LogicalLimit<>(15, 0, LimitPhase.LOCAL, consumer);
+
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(new ConnectContext(), limit);
+        Rule rule = new CollectLimitAboveConsumer().buildRules().get(0);
+        rule.transform(limit, cascadesContext);
+
+        Map<RelationId, Long> collected = cascadesContext.getStatementContext().getConsumerIdToLimitRows();
+        Assertions.assertEquals(15L, collected.get(consumer.getRelationId()));
+    }
+
+    @Test
+    void testCollectLimitAboveProjectRowsNeeded() {
+        LogicalOlapScan producerPlan = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+        LogicalCTEConsumer consumer = new LogicalCTEConsumer(
+                PlanConstructor.getNextRelationId(), new CTEId(3), "cte3", producerPlan);
         LogicalProject<LogicalCTEConsumer> project = new LogicalProject<>(
                 ImmutableList.copyOf(consumer.getOutput()), consumer);
         LogicalLimit<LogicalProject<LogicalCTEConsumer>> limit = new LogicalLimit<>(
@@ -82,9 +97,9 @@ class CollectLimitAboveConsumerTest {
 
     @Test
     void testSkipLimitAboveProjectWithUnnest() {
-        LogicalOlapScan producerPlan = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+        LogicalOlapScan producerPlan = PlanConstructor.newLogicalOlapScan(3, "t4", 0);
         LogicalCTEConsumer consumer = new LogicalCTEConsumer(
-                PlanConstructor.getNextRelationId(), new CTEId(3), "cte3", producerPlan);
+                PlanConstructor.getNextRelationId(), new CTEId(4), "cte4", producerPlan);
         SlotReference arr = new SlotReference("arr", ArrayType.of(IntegerType.INSTANCE));
         LogicalProject<LogicalCTEConsumer> project = new LogicalProject<>(
                 ImmutableList.of(new Alias(new Unnest(arr), "a")), consumer);
@@ -101,9 +116,9 @@ class CollectLimitAboveConsumerTest {
 
     @Test
     void testSkipLimitAboveDistinctProject() {
-        LogicalOlapScan producerPlan = PlanConstructor.newLogicalOlapScan(3, "t4", 0);
+        LogicalOlapScan producerPlan = PlanConstructor.newLogicalOlapScan(4, "t5", 0);
         LogicalCTEConsumer consumer = new LogicalCTEConsumer(
-                PlanConstructor.getNextRelationId(), new CTEId(4), "cte4", producerPlan);
+                PlanConstructor.getNextRelationId(), new CTEId(5), "cte5", producerPlan);
         LogicalProject<LogicalCTEConsumer> project = new LogicalProject<>(
                 ImmutableList.copyOf(consumer.getOutput()), true, consumer);
         LogicalLimit<LogicalProject<LogicalCTEConsumer>> limit = new LogicalLimit<>(

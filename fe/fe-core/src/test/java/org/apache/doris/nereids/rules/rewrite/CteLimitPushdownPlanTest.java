@@ -105,7 +105,52 @@ class CteLimitPushdownPlanTest extends TestWithFeService implements MemoPatternM
     @Test
     void testSkipProducerLimitWhenLimitIsAboveFilter() {
         String sql = "WITH cte AS (SELECT k1, k2 FROM cte_limit_pushdown_t) "
-                + "SELECT * FROM cte WHERE k1 > 1 LIMIT 10";
+                + "(SELECT * FROM cte WHERE k1 > 1 LIMIT 10) "
+                + "UNION ALL "
+                + "(SELECT * FROM cte LIMIT 3)";
+
+        assertNoProducerLimit(sql);
+    }
+
+    @Test
+    void testSkipProducerLimitWhenConsumerUsesTopN() {
+        String sql = "WITH cte AS (SELECT k1, k2 FROM cte_limit_pushdown_t) "
+                + "(SELECT * FROM (SELECT * FROM cte ORDER BY k1 LIMIT 10) topn_branch) "
+                + "UNION ALL "
+                + "(SELECT * FROM cte LIMIT 3)";
+
+        assertNoProducerLimit(sql);
+    }
+
+    @Test
+    void testSkipProducerLimitWhenLimitIsAboveJoin() {
+        String sql = "WITH cte AS (SELECT k1, k2 FROM cte_limit_pushdown_t) "
+                + "(SELECT c.k1, c.k2 FROM cte c "
+                + "JOIN cte_limit_pushdown_t t ON c.k1 = t.k1 LIMIT 10) "
+                + "UNION ALL "
+                + "(SELECT * FROM cte LIMIT 3)";
+
+        assertNoProducerLimit(sql);
+    }
+
+    @Test
+    void testSkipProducerLimitWhenLimitIsAboveAggregate() {
+        String sql = "WITH cte AS (SELECT k1, k2 FROM cte_limit_pushdown_t) "
+                + "(SELECT k1, COUNT(*) FROM cte GROUP BY k1 LIMIT 10) "
+                + "UNION ALL "
+                + "(SELECT * FROM cte LIMIT 3)";
+
+        assertNoProducerLimit(sql);
+    }
+
+    @Test
+    void testSkipProducerLimitWhenLimitIsAboveWindow() {
+        String sql = "WITH cte AS (SELECT k1, k2 FROM cte_limit_pushdown_t) "
+                + "(SELECT k1, rn FROM ("
+                + "SELECT k1, ROW_NUMBER() OVER (ORDER BY k1) AS rn FROM cte"
+                + ") window_branch LIMIT 10) "
+                + "UNION ALL "
+                + "(SELECT * FROM cte LIMIT 3)";
 
         assertNoProducerLimit(sql);
     }
@@ -114,7 +159,9 @@ class CteLimitPushdownPlanTest extends TestWithFeService implements MemoPatternM
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
+                .matches(logicalCTEProducer())
                 .nonMatch(logicalCTEProducer(logicalLimit()))
+                .nonMatch(logicalCTEProducer(logicalLimit(logicalProject())))
                 .nonMatch(logicalCTEProducer(logicalProject(logicalLimit())));
     }
 }
