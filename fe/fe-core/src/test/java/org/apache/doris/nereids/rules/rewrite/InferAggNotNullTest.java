@@ -132,15 +132,19 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
 
     @Test
     void testGetAggregateFunctionsStopsAtAggregateFunction() {
-        Sum inner = new Sum(scan1.getOutput().get(1));
-        Sum outer = new Sum(inner);
+        // Use different agg function types for inner (Avg) and outer (Count),
+        // so we can verify by instanceof regardless of how the plan builder
+        // clones/transforms expressions internally.
+        Avg inner = new Avg(scan1.getOutput().get(1));
+        Count outer = new Count(false, inner);
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .aggGroupUsingIndex(ImmutableList.of(), ImmutableList.of(new Alias(outer, "sum_k")))
+                .aggGroupUsingIndex(ImmutableList.of(), ImmutableList.of(new Alias(outer, "cnt")))
                 .build();
 
         Set<AggregateFunction> aggregateFunctions = ((LogicalAggregate<?>) plan).getAggregateFunctions();
+        System.out.println("aggregateFunctions: " + aggregateFunctions);
         Assertions.assertEquals(1, aggregateFunctions.size());
-        Assertions.assertTrue(aggregateFunctions.contains(outer));
-        Assertions.assertFalse(aggregateFunctions.contains(inner));
+        Assertions.assertTrue(aggregateFunctions.stream().allMatch(f -> f instanceof Count),
+                "should collect only the outer Count, got: " + aggregateFunctions);
     }
 }
