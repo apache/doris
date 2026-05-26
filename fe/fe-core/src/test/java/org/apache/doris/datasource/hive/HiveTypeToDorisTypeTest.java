@@ -93,7 +93,8 @@ public class HiveTypeToDorisTypeTest {
     @Test
     public void testDecimalType() {
         Assert.assertEquals(ScalarType.createDecimalV3Type(10, 2), hiveTypeToDorisType("decimal(10,2)", 0));
-        Assert.assertEquals(ScalarType.createDecimalV3Type(ScalarType.DEFAULT_PRECISION, ScalarType.DEFAULT_SCALE), hiveTypeToDorisType("decimal", 0));
+        Assert.assertEquals(ScalarType.createDecimalV3Type(HiveMetaStoreClientHelper.DEFAULT_PRECISION,
+                HiveMetaStoreClientHelper.DEFAULT_SCALE), hiveTypeToDorisType("decimal", 0));
     }
 
     @Test
