@@ -295,8 +295,10 @@ protected:
                       EXPECT_EQ(schema.type_descriptor.physical_type,
                                 ::parquet::Type::FIXED_LEN_BYTE_ARRAY);
                       EXPECT_TRUE(schema.type_descriptor.is_decimal);
-                      const auto& values = assert_cast<const ColumnDecimal128V3&>(column);
-                      EXPECT_EQ(values.get_element(0), Decimal128V3(12345));
+                      EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(),
+                                TYPE_DECIMAL32);
+                      const auto& values = assert_cast<const ColumnDecimal32&>(column);
+                      EXPECT_EQ(values.get_element(0), Decimal32(12345));
                       EXPECT_EQ(schema.type->to_string(column, 0), "123.45");
                   });
         add_field(arrow::field("decimal_fixed_binary_18_6_col", arrow::decimal128(18, 6), false),
@@ -306,8 +308,10 @@ protected:
                       EXPECT_EQ(schema.type_descriptor.physical_type,
                                 ::parquet::Type::FIXED_LEN_BYTE_ARRAY);
                       EXPECT_TRUE(schema.type_descriptor.is_decimal);
-                      const auto& values = assert_cast<const ColumnDecimal128V3&>(column);
-                      EXPECT_EQ(values.get_element(0), Decimal128V3(1234567));
+                      EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(),
+                                TYPE_DECIMAL64);
+                      const auto& values = assert_cast<const ColumnDecimal64&>(column);
+                      EXPECT_EQ(values.get_element(0), Decimal64(1234567));
                       EXPECT_EQ(schema.type->to_string(column, 0), "1.234567");
                   });
         add_field(arrow::field("nullable_int_col", arrow::int32(), true),

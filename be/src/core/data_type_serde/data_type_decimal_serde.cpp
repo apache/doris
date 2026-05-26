@@ -432,7 +432,8 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::read_column_from_decoded_values(
         IColumn& column, const DecodedColumnView& view) const {
-    if constexpr (T == TYPE_DECIMAL128I || T == TYPE_DECIMAL256) {
+    if constexpr (T == TYPE_DECIMAL32 || T == TYPE_DECIMAL64 || T == TYPE_DECIMAL128I ||
+                  T == TYPE_DECIMAL256) {
         if (view.value_kind == DecodedValueKind::INT32 ||
             view.value_kind == DecodedValueKind::INT64 ||
             view.value_kind == DecodedValueKind::BINARY ||
