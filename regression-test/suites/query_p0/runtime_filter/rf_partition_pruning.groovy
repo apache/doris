@@ -66,6 +66,7 @@ suite("rf_partition_pruning", "nonConcurrent") {
         "profile_level",
         "parallel_pipeline_task_num",
         "runtime_filter_type",
+        "runtime_filter_max_in_num",
         "runtime_filter_mode"
     ]
 
@@ -76,7 +77,8 @@ suite("rf_partition_pruning", "nonConcurrent") {
         "disable_join_reorder": "true",
         "enable_profile": "true",
         "profile_level": "2",
-        "parallel_pipeline_task_num": "1"
+        "parallel_pipeline_task_num": "1",
+        "runtime_filter_max_in_num": "1024"
     ]
 
     def getRfPruningSessionVars = {
@@ -346,6 +348,10 @@ suite("rf_partition_pruning", "nonConcurrent") {
     // ============================================================
     sql "set enable_runtime_filter_partition_prune=true"
     sql "set runtime_filter_type='IN_OR_BLOOM_FILTER,MIN_MAX'"
+    // Some shared regression environments set runtime_filter_max_in_num=0,
+    // which forces IN_OR_BLOOM runtime filters to become Bloom filters. RF
+    // partition pruning needs exact IN sets for these cases.
+    sql "set runtime_filter_max_in_num=1024"
     sql "set runtime_filter_wait_infinitely=true"
     sql "set disable_join_reorder=true"
     sql "set enable_profile=true"
