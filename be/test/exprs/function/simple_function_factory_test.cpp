@@ -94,10 +94,76 @@ private:
     PreparedFunctionPtr _prepared_function;
 };
 
+class MockContextSyncPreparedFunction final : public IPreparedFunction {
+public:
+    explicit MockContextSyncPreparedFunction(std::vector<bool> expected_const_flags)
+            : _expected_const_flags(std::move(expected_const_flags)) {}
+
+    String get_name() const override { return "mock_const_context_sync_test"; }
+
+    Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                   uint32_t result, size_t input_rows_count) const override {
+        auto* fragment_state = context->get_function_state(FunctionContext::FRAGMENT_LOCAL);
+        auto* thread_state = context->get_function_state(FunctionContext::THREAD_LOCAL);
+
+        if (_expected_const_flags[0] != (fragment_state != nullptr)) {
+            return Status::InternalError("fragment-local const state mismatch");
+        }
+        if (_expected_const_flags[2] != (thread_state != nullptr)) {
+            return Status::InternalError("thread-local const state mismatch");
+        }
+        return Status::OK();
+    }
+
+private:
+    std::vector<bool> _expected_const_flags;
+};
+
+class MockConstContextSyncFunction final : public IFunctionBase {
+public:
+    MockConstContextSyncFunction()
+            : _argument_types({std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>(),
+                               std::make_shared<DataTypeInt32>()}),
+              _return_type(std::make_shared<DataTypeInt32>()) {}
+
+    String get_name() const override { return "mock_const_context_sync_function"; }
+
+    const DataTypes& get_argument_types() const override { return _argument_types; }
+
+    const DataTypePtr& get_return_type() const override { return _return_type; }
+
+    PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
+                                const ColumnNumbers& arguments, uint32_t result) const override {
+        std::vector<bool> const_flags;
+        const_flags.reserve(arguments.size());
+        for (auto column_position : arguments) {
+            const auto& column = sample_block.get_by_position(column_position).column;
+            const_flags.push_back(column && is_column_const(*column));
+        }
+        return std::make_shared<MockContextSyncPreparedFunction>(std::move(const_flags));
+    }
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::FRAGMENT_LOCAL && context->is_col_constant(0)) {
+            context->set_function_state(scope, std::make_shared<int>(1));
+        }
+        if (scope == FunctionContext::THREAD_LOCAL && context->is_col_constant(2)) {
+            context->set_function_state(scope, std::make_shared<int>(1));
+        }
+        return Status::OK();
+    }
+
+    bool is_use_default_implementation_for_constants() const override { return false; }
+
+private:
+    DataTypes _argument_types;
+    DataTypePtr _return_type;
+};
+
 Block create_mock_const_test_block() {
     auto arg0 = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
     auto arg1_data = ColumnHelper::create_column<DataTypeInt32>({11});
-    auto arg1 = ColumnConst::create(arg1_data, 3);
+    ColumnPtr arg1 = ColumnConst::create(arg1_data, 3);
     auto arg2 = ColumnHelper::create_column<DataTypeInt32>({4, 5, 6});
 
     auto data_type = std::make_shared<DataTypeInt32>();
@@ -180,6 +246,16 @@ TEST_F(SimpleFunctionFactoryTest, test_debug_mock_const_execute_modes) {
     ASSERT_EQ(function.observed_const_patterns.size(), 1);
     EXPECT_EQ(function.observed_const_patterns[0], (std::vector<bool> {false, true, false}));
 #endif
+}
+
+TEST_F(SimpleFunctionFactoryTest, test_debug_mock_const_execute_syncs_context_state) {
+    MockConstContextSyncFunction function;
+    auto context = FunctionContext::create_context(nullptr, function.get_return_type(),
+                                                   function.get_argument_types());
+    auto block = create_mock_const_test_block();
+    ColumnNumbers arguments {0, 1, 2};
+
+    EXPECT_TRUE(function.execute(context.get(), block, arguments, 3, 3).ok());
 }
 
 } // namespace doris

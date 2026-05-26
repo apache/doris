@@ -39,6 +39,7 @@
 #include "exec/common/util.hpp"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function_helpers.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -59,10 +60,23 @@ ColumnNumbers collect_non_const_argument_positions(const Block& block,
     return non_const_arguments;
 }
 
+std::vector<std::shared_ptr<ColumnPtrWrapper>> collect_constant_argument_columns(
+        const Block& block, const ColumnNumbers& arguments) {
+    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_columns(arguments.size());
+    for (size_t argument_index = 0; argument_index < arguments.size(); ++argument_index) {
+        const auto& column = block.get_by_position(arguments[argument_index]).column;
+        if (column && is_column_const(*column)) {
+            constant_columns[argument_index] = std::make_shared<ColumnPtrWrapper>(column);
+        }
+    }
+    return constant_columns;
+}
+
 Status run_mock_const_probe(FunctionContext* context, const IFunctionBase& function,
                             const Block& block, const ColumnNumbers& arguments, uint32_t result,
                             size_t input_rows_count, const ColumnNumbers& columns_to_mock_const) {
     try {
+        auto& mutable_function = const_cast<IFunctionBase&>(function);
         Block const_block = block;
         for (auto column_position : columns_to_mock_const) {
             auto& column_with_type = const_block.get_by_position(column_position);
@@ -73,9 +87,24 @@ Status run_mock_const_probe(FunctionContext* context, const IFunctionBase& funct
             column_with_type.column = ColumnConst::create(std::move(one_row), input_rows_count);
         }
 
+        auto mock_context = context->clone();
+        mock_context->set_constant_cols(collect_constant_argument_columns(const_block, arguments));
+        mock_context->set_function_state(FunctionContext::FRAGMENT_LOCAL, std::shared_ptr<void> {});
+        mock_context->set_function_state(FunctionContext::THREAD_LOCAL, std::shared_ptr<void> {});
+        Defer close_probe([&] {
+            static_cast<void>(
+                    mutable_function.close(mock_context.get(), FunctionContext::THREAD_LOCAL));
+            static_cast<void>(
+                    mutable_function.close(mock_context.get(), FunctionContext::FRAGMENT_LOCAL));
+        });
+
+        RETURN_IF_ERROR(mutable_function.open(mock_context.get(), FunctionContext::FRAGMENT_LOCAL));
+        RETURN_IF_ERROR(mutable_function.open(mock_context.get(), FunctionContext::THREAD_LOCAL));
+
         RETURN_IF_ERROR(
-                function.prepare(context, const_block, arguments, result)
-                        ->execute(context, const_block, arguments, result, input_rows_count));
+                mutable_function.prepare(mock_context.get(), const_block, arguments, result)
+                        ->execute(mock_context.get(), const_block, arguments, result,
+                                  input_rows_count));
     } catch (const Exception&) {
         // Some columns do not support cut; skip this debug probe in that case.
     }
