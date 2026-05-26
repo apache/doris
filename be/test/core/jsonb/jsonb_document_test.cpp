@@ -42,6 +42,17 @@ static const JsonbValue* jsonb_value(JsonbWriter& writer) {
     return writer.getDocument()->getValue();
 }
 
+static std::string remove_path_member_escapes(std::string escaped) {
+    Stream stream(escaped.data(), escaped.size());
+    stream.set_leg_ptr(escaped.data());
+    stream.clear_leg_len();
+    for (size_t i = 0; i < escaped.size(); ++i) {
+        stream.add_leg_len();
+    }
+    stream.remove_escapes();
+    return {escaped.data(), stream.get_leg_len()};
+}
+
 TEST_F(JsonbDocumentTest, writer) {
     JsonbWriter writer;
     writer.writeStartObject();
@@ -307,6 +318,71 @@ TEST_F(JsonbDocumentTest, jsonb_path_member_to_string_escapes_control_characters
     std::string round_trip;
     ASSERT_TRUE(path.to_string(&round_trip));
     EXPECT_EQ(round_trip, expected_path);
+}
+
+TEST_F(JsonbDocumentTest, jsonb_path_member_to_string_escapes_all_control_forms) {
+    std::string key = "a";
+    key.push_back('\b');
+    key.append("b");
+    key.push_back('\f');
+    key.append("c");
+    key.push_back('\0');
+    key.push_back('\x1F');
+    key.append("d");
+
+    leg_info leg(key.data(), static_cast<unsigned int>(key.size()), 0, MEMBER_CODE);
+
+    std::string out;
+    ASSERT_TRUE(leg.to_string(&out));
+    EXPECT_EQ(out, ".\"a\\bb\\fc\\u0000\\u001fd\"");
+    EXPECT_EQ(out.find('\b'), std::string::npos);
+    EXPECT_EQ(out.find('\f'), std::string::npos);
+    EXPECT_EQ(out.find('\0'), std::string::npos);
+    EXPECT_EQ(out.find('\x1F'), std::string::npos);
+
+    const std::string expected_path = "$" + out;
+    std::string parsed_path = expected_path;
+    JsonbPath path;
+    ASSERT_TRUE(path.seek(parsed_path.data(), parsed_path.size()));
+
+    std::string round_trip;
+    ASSERT_TRUE(path.to_string(&round_trip));
+    EXPECT_EQ(round_trip, expected_path);
+}
+
+TEST_F(JsonbDocumentTest, jsonb_path_remove_escapes_decodes_json_sequences) {
+    std::string expected = "a";
+    expected.push_back('\b');
+    expected.append("b");
+    expected.push_back('\f');
+    expected.append("c");
+    expected.push_back('\n');
+    expected.append("d");
+    expected.push_back('\r');
+    expected.append("e");
+    expected.push_back('\t');
+    expected.append("f\"g\\h/i");
+    expected.push_back('\0');
+    expected.append("j");
+    expected.push_back('\x1F');
+    expected.append("k");
+    expected.push_back('\x1F');
+    expected.append("l");
+
+    const auto decoded =
+            remove_path_member_escapes(R"(a\bb\fc\nd\re\tf\"g\\h\/i\u0000j\u001fk\u001Fl)");
+    EXPECT_EQ(decoded.size(), expected.size());
+    EXPECT_EQ(decoded, expected);
+}
+
+TEST_F(JsonbDocumentTest, jsonb_path_remove_escapes_keeps_invalid_unicode_escape_body) {
+    EXPECT_EQ(remove_path_member_escapes(R"(\u0101)"), "u0101");
+    EXPECT_EQ(remove_path_member_escapes(R"(\u00g1)"), "u00g1");
+    EXPECT_EQ(remove_path_member_escapes(R"(\u00G1)"), "u00G1");
+    EXPECT_EQ(remove_path_member_escapes(R"(\u001g)"), "u001g");
+    EXPECT_EQ(remove_path_member_escapes(R"(\u00)"), "u00");
+    EXPECT_EQ(remove_path_member_escapes(R"(\q)"), "q");
+    EXPECT_EQ(remove_path_member_escapes("\\"), "");
 }
 
 TEST_F(JsonbDocumentTest, invaild_jsonb_document) {
