@@ -99,11 +99,13 @@ suite("test_bm25_score_variant_boolean_subcolumn", "p0") {
 
     // And score() must finish and produce a (positive) value for that row,
     // confirming the BM25 stats path still works for the string sub-column.
+    // FE rejects score() queries that miss ORDER BY or LIMIT, so include both.
     def hitScored = sql """
         select id, score()
         from test_bm25_score_variant_boolean_subcolumn
         where v["a"] match "abc"
-        order by id
+        order by score()
+        limit 10
     """
     assertEquals(1, hitScored.size())
     assertEquals(1, (hitScored[0][0] as int))
