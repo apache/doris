@@ -74,6 +74,7 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
             // mock snapshot data
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table2} (name, age) VALUES ('A2', 1);"""
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table2} (name, age) VALUES ('B2', 2);"""
+
         }
 
         sql """CREATE JOB ${jobName}
@@ -100,7 +101,6 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
         assert showTables.size() == 1
         def showTables2 = sql """ show tables from ${currentDb} like '${table2}'; """
         assert showTables2.size() == 1
-
         // check table schema correct
         def showTbl1 = sql """show create table ${currentDb}.${table1}"""
         def createTalInfo = showTbl1[0][1];

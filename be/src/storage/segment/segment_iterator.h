@@ -327,7 +327,7 @@ private:
     bool _check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
                                                                 bool default_return = false);
 
-    void _calculate_expr_in_remaining_conjunct_root();
+    void _calculate_common_expr_index_exec_status();
 
     Status _process_eof(Block* block);
 
@@ -420,8 +420,6 @@ private:
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<std::shared_ptr<ColumnPredicate>> _col_predicates;
     VExprContextSPtrs _common_expr_ctxs_push_down;
-    bool _enable_common_expr_pushdown = false;
-    std::vector<VExprSPtr> _remaining_conjunct_roots;
     std::set<ColumnId> _not_apply_index_pred;
 
     // row schema of the key to seek
