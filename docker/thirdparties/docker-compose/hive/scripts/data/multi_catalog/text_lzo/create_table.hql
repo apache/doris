@@ -1,5 +1,9 @@
+CREATE DATABASE IF NOT EXISTS `multi_catalog`;
+USE `multi_catalog`;
 
-use `multi_catalog`;
+DROP TABLE IF EXISTS text_lzo_format;
+DROP TABLE IF EXISTS text_deprecated_lzo_format;
+DROP TABLE IF EXISTS text_lzo_indexed_format;
 
 -- lzo-hadoop (org.anarres) mapreduce-API LZO text InputFormat
 -- Class is provided by auxlib/lzo-hadoop-1.0.6.jar (cp to /opt/hive/lib on boot)
