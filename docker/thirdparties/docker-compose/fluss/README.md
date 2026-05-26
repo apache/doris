@@ -10,7 +10,7 @@ A fully managed Apache Fluss cluster for end-to-end tests.
 | `doris--fluss-coordinator`    | CoordinatorServer  | 9123          | -                                      |
 | `doris--fluss-tablet-server`  | TabletServer       | 9123          | `DOCKER_FLUSS_EXTERNAL_PORT`           |
 
-Defaults (see `fluss_settings.env`): external Fluss port `9123`, external ZK port `12182`, image `apache/fluss:0.7.0`.
+Defaults (see `fluss_settings.env`): external Fluss port `9123`, external ZK port `12182`, image `apache/fluss:0.8.0-incubating`.
 
 ## Bring up / tear down
 

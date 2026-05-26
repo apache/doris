@@ -55,14 +55,10 @@ services:
             - |
                 FLUSS_PROPERTIES=
                 zookeeper.address: doris--fluss-zookeeper:2181
-                bind.listeners: FLUSS://doris--fluss-coordinator:9123
+                bind.listeners: INTERNAL://doris--fluss-coordinator:0, CLIENT://doris--fluss-coordinator:9123
+                advertised.listeners: CLIENT://localhost:9123
+                internal.listener.name: INTERNAL
                 remote.data.dir: /tmp/fluss/remote-data
-        healthcheck:
-            test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/9123' 2>/dev/null"]
-            interval: 5s
-            timeout: 10s
-            retries: 60
-            start_period: 15s
         networks:
             - doris--fluss--network
 
@@ -73,23 +69,19 @@ services:
         command: tabletServer
         depends_on:
             doris--fluss-coordinator:
-                condition: service_healthy
+                condition: service_started
         ports:
             - ${DOCKER_FLUSS_EXTERNAL_PORT}:9123
         environment:
             - |
                 FLUSS_PROPERTIES=
                 zookeeper.address: doris--fluss-zookeeper:2181
-                bind.listeners: FLUSS://doris--fluss-tablet-server:9123
-                internal.listener.name: FLUSS
-                advertised.listeners: FLUSS://localhost:${DOCKER_FLUSS_EXTERNAL_PORT}
+                bind.listeners: INTERNAL://doris--fluss-tablet-server:0, CLIENT://doris--fluss-tablet-server:9123
+                advertised.listeners: CLIENT://localhost:${DOCKER_FLUSS_EXTERNAL_PORT}
+                internal.listener.name: INTERNAL
+                tablet-server.id: 0
+                kv.snapshot.interval: 0s
                 data.dir: /tmp/fluss/data
                 remote.data.dir: /tmp/fluss/remote-data
-        healthcheck:
-            test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/9123' 2>/dev/null"]
-            interval: 5s
-            timeout: 10s
-            retries: 60
-            start_period: 15s
         networks:
             - doris--fluss--network
