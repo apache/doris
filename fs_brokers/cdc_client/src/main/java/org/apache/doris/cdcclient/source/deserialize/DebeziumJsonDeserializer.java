@@ -17,7 +17,6 @@
 
 package org.apache.doris.cdcclient.source.deserialize;
 
-import org.apache.doris.cdcclient.exception.CdcClientException;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
@@ -205,9 +204,7 @@ public class DebeziumJsonDeserializer
             String msg =
                     String.format(
                             "Failed to convert column '%s' value=%s: %s",
-                            fieldName,
-                            dbzObj,
-                            ExceptionUtils.getMessage(e));
+                            fieldName, dbzObj, ExceptionUtils.getMessage(e));
             LOG.error(msg, e);
             throw new RuntimeException(msg);
         }
