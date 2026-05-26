@@ -295,6 +295,12 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         auto page_size = _tablet_schema->row_store_page_size();
         opts.data_page_size =
                 (page_size > 0) ? page_size : segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+        // Row store data is already serialized as a single blob. Keep it on plain pages
+        // to avoid introducing dictionary pages for the hidden row store column.
+        opts.meta->set_encoding(_tablet_schema->binary_plain_encoding_default_impl() ==
+                                                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
+                                        ? PLAIN_ENCODING_V2
+                                        : PLAIN_ENCODING);
     }
 
     opts.rowset_ctx = _opts.rowset_ctx;
@@ -383,7 +389,7 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
     }
 }
 
-void SegmentWriter::_serialize_block_to_row_column(const Block& block) {
+void SegmentWriter::_serialize_block_to_row_column(Block& block) {
     if (block.rows() == 0) {
         return;
     }
@@ -392,14 +398,14 @@ void SegmentWriter::_serialize_block_to_row_column(const Block& block) {
     int row_column_id = 0;
     for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
         if (_tablet_schema->column(i).is_row_store_column()) {
-            auto* row_store_column = static_cast<ColumnString*>(
-                    block.get_by_position(i).column->assume_mutable_ref().assume_mutable().get());
-            row_store_column->clear();
+            auto row_store_column_ptr = block.get_by_position(i).column->clone_empty();
+            auto* row_store_column = static_cast<ColumnString*>(row_store_column_ptr.get());
             DataTypeSerDeSPtrs serdes = create_data_type_serdes(block.get_data_types());
             JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
                                                cast_set<int>(_tablet_schema->num_columns()), serdes,
                                                {_tablet_schema->row_columns_uids().begin(),
                                                 _tablet_schema->row_columns_uids().end()});
+            block.replace_by_position(i, std::move(row_store_column_ptr));
             break;
         }
     }
@@ -713,7 +719,7 @@ Status SegmentWriter::append_block(const Block* block, size_t row_pos, size_t nu
     // or it's schema change write(since column data type maybe changed, so we should reubild)
     if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        _serialize_block_to_row_column(*block);
+        _serialize_block_to_row_column(*const_cast<Block*>(block));
     }
 
     if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&

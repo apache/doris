@@ -1108,7 +1108,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                         .append("'='").append(entry.getValue()).append("',");
             }
             sb.deleteCharAt(sb.length() - 1);
-            sb.append(" ) TO DATABSE ").append(targetDb);
+            sb.append(" ) TO DATABASE ").append(targetDb);
             if (!targetProperties.isEmpty()) {
                 sb.append(" (");
                 for (Map.Entry<String, String> entry : targetProperties.entrySet()) {
@@ -1437,6 +1437,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             if (this.runningStreamTask != null
                     && this.runningStreamTask instanceof StreamingMultiTblTask) {
+                if (this.runningStreamTask.getIsCanceled().get()) {
+                    log.info("Streaming multi table job {} skip late commit offset on canceled task "
+                                    + "(expected: {}, actual: {})",
+                            getJobId(), this.runningStreamTask.getTaskId(), offsetRequest.getTaskId());
+                    return;
+                }
                 if (this.runningStreamTask.getTaskId() != offsetRequest.getTaskId()) {
                     throw new JobException("Task id mismatch when commit offset. expected: "
                             + this.runningStreamTask.getTaskId() + ", actual: " + offsetRequest.getTaskId());
@@ -1548,7 +1554,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 if (resp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                     log.warn("failed to delete streaming job, response: {}", resp);
                     throw new JobException("deleteJobKey failed for jobId=%s, dbId=%s, status=%s",
-                            getJobId(), getJobId(), resp.getStatus());
+                            getJobId(), getDbId(), resp.getStatus());
                 }
             } catch (RpcException e) {
                 log.warn("failed to delete streaming job {}", resp, e);

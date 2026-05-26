@@ -2,6 +2,10 @@
 
 This is the codebase for Apache Doris, an MPP OLAP database. It primarily consists of the Backend module BE (`be/`, execution and storage engine), the Frontend module FE (`fe/`, optimizer and transaction core), and the Cloud module (`cloud/`, storage-compute separation). Your basic development workflow is: modify code, build using standard procedures, add and run tests, and submit relevant changes.
 
+## Security Threat Model
+
+For security scans, vulnerability triage, security reviews, and changes involving authentication, authorization, network boundaries, external catalogs, cloud tenancy, or other security-sensitive behavior, read `SECURITY.md` first, then follow it to `threat-model.md`. Use `threat-model.md` to determine in-scope components, trust boundaries, attacker roles, explicit non-goals, and triage classification. Findings that are out of model or by design under `threat-model.md` should be reported as such, not treated as Doris vulnerabilities. Such reviews will not be conducted unless explicitly requested by the user, and no conclusions regarding this matter need to be provided.
+
 ## When running in a WORKTREE directory
 
 To ensure smooth test execution without interference between worktrees, the first thing to do upon entering a worktree directory is to check if `.worktree_initialized` exists. If not, execute `hooks/setup_worktree.sh`, setting `$ROOT_WORKSPACE_PATH` to the base directory (typically `${DORIS_REPO}`) beforehand. After successful execution, verify that `.worktree_initialized` has been touched and that `thirdparty/installed` dependencies exist correctly. Also check if submodules have been properly initialized; if not, do so manually.
@@ -11,6 +15,8 @@ When working in worktree mode, all operations must be confined to the current wo
 ## Coding Standards
 
 Assert correctness only—never use defensive programming with `if` or similar constructs. Any `if` check for errors must have a clearly known inevitable failure path (not speculation). If no such scenario is found, strictly avoid using `if(valid)` checks. However, you may use the `DORIS_CHECK` macro for precondition assertions (if inside performance-sensitive areas like loops, it can only be `DCHECK`). For example, if logically A=true should always imply B=true, then strictly avoid `if (A && B)` and instead use `if (A) { DORIS_CHECK(B); ... }`. In short, the principle is: upon discovering errors or unexpected situations, report errors or crash—never allow the process to continue.
+
+For `PaddedPODArray` and its peripheral packaging types, such as some certain Column, negative alignment allows the use of -1 as a valid index. No additional special handling is needed when the index may be -1.
 
 When adding code, strictly follow existing similar code in similar contexts, including interface usage, error handling, and locking patterns. When adding any code, first try to reference existing functionality. Second, examine the relevant context paragraphs to fully understand the logic.
 

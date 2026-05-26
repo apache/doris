@@ -333,18 +333,22 @@ public class CloudRestoreJob extends RestoreJob {
             int schemaHash = remoteTbl.getSchemaHashByIndexId(remoteIdx.getId());
             int remotetabletSize = remoteIdx.getTablets().size();
             remoteIdx.clearTabletsForRestore();
+            // Collect locally and bulk-publish to keep copy-on-write O(n) for the whole index.
+            List<Tablet> newTablets = new ArrayList<>(remotetabletSize);
             for (int i = 0; i < remotetabletSize; i++) {
                 // generate new tablet id
                 long newTabletId = env.getNextId();
                 Tablet newTablet = EnvFactory.getInstance().createTablet(newTabletId);
-                // add tablet to index, but not add to TabletInvertedIndex
-                remoteIdx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
+                newTablets.add(newTablet);
                 // replicas
                 long newReplicaId = Env.getCurrentEnv().getNextId();
                 Replica replica = new CloudReplica(newReplicaId, null, Replica.ReplicaState.NORMAL,
                         visibleVersion, schemaHash, dbId, localTbl.getId(), partitionId, remoteIdx.getId(), i);
                 newTablet.addReplica(replica, true /* is restore */);
             }
+            // add tablets to index in one batch; TabletInvertedIndex registration
+            // is intentionally skipped on the restore path (rebuilt separately).
+            remoteIdx.appendTablets(newTablets);
         }
         return remotePart;
     }

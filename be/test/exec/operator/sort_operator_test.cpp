@@ -193,21 +193,20 @@ TEST_F(SortOperatorTest, test_dep) {
     EXPECT_TRUE(is_ready(source_local_state->dependencies()));
 
     {
-        Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        MutableBlock merged_block = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos = false;
-        auto st = source->get_block(state.get(), &block, &eos);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        EXPECT_FALSE(eos);
+        while (!eos) {
+            Block block;
+            auto st = source->get_block(state.get(), &block, &eos);
+            EXPECT_TRUE(st.ok()) << st.msg();
+            EXPECT_TRUE(merged_block.merge(block));
+        }
+
+        auto block = merged_block.to_block();
         EXPECT_EQ(block.rows(), 6);
         std::cout << block.dump_data() << std::endl;
         EXPECT_TRUE(ColumnHelper::block_equal(
                 block, ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6})));
-
-        block.clear();
-        st = source->get_block(state.get(), &block, &eos);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        EXPECT_TRUE(eos);
-        EXPECT_EQ(block.rows(), 0);
     }
 }
 

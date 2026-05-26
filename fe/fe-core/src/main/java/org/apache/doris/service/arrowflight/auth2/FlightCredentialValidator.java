@@ -48,8 +48,7 @@ public class FlightCredentialValidator implements BasicCallHeaderAuthenticator.C
      */
     @Override
     public AuthResult validate(String username, String password) {
-        // TODO Add ClientAddress information while creating a Token
-        String remoteIp = "0.0.0.0";
+        String remoteIp = FlightRemoteIpServerStreamTracer.getRemoteIp();
         FlightAuthResult flightAuthResult = FlightAuthUtils.authenticateCredentials(username, password, remoteIp, LOG);
         return getAuthResultWithBearerToken(flightAuthResult);
     }

@@ -329,7 +329,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
         for (auto& col : columns_to_filter) {
             auto& column = block->get_by_position(col).column;
             if (column->is_exclusive()) {
-                column->assume_mutable()->clear();
+                column->assert_mutable()->clear();
             } else {
                 column = column->clone_empty();
             }
@@ -372,7 +372,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
         for (auto& col : columns_to_filter) {
             auto& column = block->get_by_position(col).column;
             if (column->is_exclusive()) {
-                column->assume_mutable()->clear();
+                column->assert_mutable()->clear();
             } else {
                 column = column->clone_empty();
             }

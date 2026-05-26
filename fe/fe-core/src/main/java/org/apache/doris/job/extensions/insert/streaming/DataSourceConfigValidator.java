@@ -109,8 +109,12 @@ public class DataSourceConfigValidator {
             }
         }
 
-        // Cross-field: verify-ca must be paired with a CA cert; otherwise the reader will
-        // silently fall back to the JVM default truststore and likely fail to connect.
+        validateSslVerifyCaPair(input);
+    }
+
+    // Cross-field: verify-ca must be paired with a CA cert; otherwise the reader will
+    // silently fall back to the JVM default truststore and likely fail to connect.
+    public static void validateSslVerifyCaPair(Map<String, String> input) throws IllegalArgumentException {
         if (DataSourceConfigKeys.SSL_MODE_VERIFY_CA.equals(input.get(DataSourceConfigKeys.SSL_MODE))
                 && (input.get(DataSourceConfigKeys.SSL_ROOTCERT) == null
                         || input.get(DataSourceConfigKeys.SSL_ROOTCERT).trim().isEmpty())) {
@@ -153,17 +157,42 @@ public class DataSourceConfigValidator {
             return isValidOffset(value, dataSourceType);
         }
 
-        // slot_name / publication_name are interpolated into PG DDL without quoting,
-        // so enforce unquoted-identifier grammar to prevent injection and runtime errors.
         if (key.equals(DataSourceConfigKeys.SLOT_NAME)
                 || key.equals(DataSourceConfigKeys.PUBLICATION_NAME)) {
-            return value.length() <= PG_MAX_IDENTIFIER_LENGTH
-                    && PG_IDENTIFIER_PATTERN.matcher(value).matches();
+            return isValidPgIdentifier(value);
         }
-        if (key.equals(DataSourceConfigKeys.SSL_MODE) && !ALLOW_SSL_MODES.contains(value)) {
-            return false;
+        if (key.equals(DataSourceConfigKeys.SSL_MODE)) {
+            return isValidSslMode(value);
+        }
+        if (key.equals(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)
+                || key.equals(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
+            return isPositiveInt(value);
         }
         return true;
+    }
+
+    public static boolean isPositiveInt(String value) {
+        if (value == null) {
+            return false;
+        }
+        try {
+            return Integer.parseInt(value) > 0;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    // slot_name / publication_name are interpolated into PG DDL without quoting,
+    // so enforce unquoted-identifier grammar to prevent injection and runtime errors.
+    public static boolean isValidPgIdentifier(String value) {
+        return value != null
+                && !value.isEmpty()
+                && value.length() <= PG_MAX_IDENTIFIER_LENGTH
+                && PG_IDENTIFIER_PATTERN.matcher(value).matches();
+    }
+
+    public static boolean isValidSslMode(String value) {
+        return ALLOW_SSL_MODES.contains(value);
     }
 
     /**

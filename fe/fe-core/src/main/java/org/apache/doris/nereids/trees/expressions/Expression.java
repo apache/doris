@@ -387,11 +387,6 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 && ((SlotReference) this).getOriginalColumn().get().isKey();
     }
 
-    public boolean containsVolatileExpression() {
-        return anyMatch(expr -> expr instanceof VolatileExpression
-                && ((VolatileExpression) expr).isVolatile());
-    }
-
     /** containsNullLiteralChildren */
     public boolean containsNullLiteralChildren() {
         return getOrInitMutableState("CONTAINS_NULL_LITERAL_CHILDREN", () -> {

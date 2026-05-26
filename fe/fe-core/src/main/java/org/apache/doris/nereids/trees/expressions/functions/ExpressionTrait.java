@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Variable;
+import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
@@ -125,5 +126,17 @@ public interface ExpressionTrait extends TreeNode<Expression> {
      */
     default boolean containsNondeterministic() {
         return anyMatch(expr -> !((ExpressionTrait) expr).isDeterministic());
+    }
+
+    /**
+     * Identify whether the expression itself needs volatile identity.
+     * Only VolatileExpression is allowed to override this method.
+     */
+    default boolean isVolatile() {
+        return false;
+    }
+
+    default boolean containsVolatileExpression() {
+        return containsType(VolatileExpression.class) && anyMatch(expr -> ((ExpressionTrait) expr).isVolatile());
     }
 }

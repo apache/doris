@@ -17,13 +17,10 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
@@ -35,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -81,15 +79,11 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
     public static DistributionSpec convertDistribution(LogicalOlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
         DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
-        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
         // When there are multiple partitions, olapScan tasks of different buckets are dispatched in
         // rounded robin algorithm. Therefore, the hashDistributedSpec can be broken except they are in
         // the same stable colocateGroup(CG)
-        boolean isBelongStableCG = colocateTableIndex.isColocateTable(olapTable.getId())
-                && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId()))
-                && olapTable.getCatalogId() == Env.getCurrentInternalCatalog().getId();
-        boolean isSelectUnpartition = olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
-                || olapScan.getSelectedPartitionIds().size() == 1;
+        boolean isBelongStableCG = Utils.isBelongStableCG(olapTable);
+        boolean isSelectUnpartition = Utils.isSelectUnpartition(olapTable, olapScan.getSelectedPartitionIds());
         // TODO: find a better way to handle both tablet num == 1 and colocate table together in future
         if (distributionInfo instanceof HashDistributionInfo && (isBelongStableCG || isSelectUnpartition)) {
             if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {

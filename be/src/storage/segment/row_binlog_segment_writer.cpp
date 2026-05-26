@@ -297,50 +297,55 @@ Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
     std::vector<uint32_t> binlog_cids = {_binlog_col_start_id, _binlog_col_start_id + 1,
                                          _binlog_col_start_id + 2};
     Block binlog_prefix_block = _tablet_schema->create_block_by_cids(binlog_cids);
-    MutableColumns binlog_prefix_columns = binlog_prefix_block.mutate_columns();
-    // we can't get correct lsn number before commit, because we can't get the version before commit,
-    // but we can fill auto-inc lsn to ensure the order first, then fill version when read single rowset.
-    IColumn* lsn_col_ptr = binlog_prefix_columns[0].get();
-    CHECK(_lsn_ids->size() >= num_rows) << _lsn_ids->size() << " vs " << num_rows;
-    for (int i = 0; i < num_rows; i++) {
-        assert_cast<ColumnInt128*>(lsn_col_ptr)
-                ->insert_value(static_cast<int128_t>(_lsn_ids->at(i)));
-    }
-
-    // wrong op only happens when partial-update, it will be fixed by delete bitmap when publish
-    const FieldType op_col_type = _tablet_schema->column(binlog_cids[1]).type();
-    IColumn* op_col_ptr = binlog_prefix_columns[1].get();
-    auto* op_nullable_column = typeid_cast<ColumnNullable*>(op_col_ptr);
-    IColumn* op_nested_column =
-            op_nullable_column != nullptr ? &op_nullable_column->get_nested_column() : op_col_ptr;
-
-    CHECK(op_types.size() >= num_rows) << op_types.size() << " vs " << num_rows;
-    CHECK(op_col_type == FieldType::OLAP_FIELD_TYPE_BIGINT)
-            << "row binlog op column type must be BIGINT, actual=" << static_cast<int>(op_col_type);
-    auto* op_int64_column = assert_cast<ColumnInt64*>(op_nested_column);
-    for (int i = 0; i < num_rows; i++) {
-        op_int64_column->insert_value(op_types[i]);
-    }
-
-    // we can't get correct timestamp when commit
-    IColumn* ts_col_ptr = binlog_prefix_columns[2].get();
-    auto timestamp = UnixMillis();
-    auto* ts_nullable_column = typeid_cast<ColumnNullable*>(ts_col_ptr);
-    if (ts_nullable_column != nullptr) {
-        assert_cast<ColumnInt64*>(&ts_nullable_column->get_nested_column())
-                ->insert_many_vals(timestamp, num_rows);
-    } else {
-        assert_cast<ColumnInt64*>(ts_col_ptr)->insert_many_vals(timestamp, num_rows);
-    }
-
-    // finally update null map
-    for (int i = 0; i < num_rows; i++) {
-        //lsn_column->get_null_map_data().emplace_back(0);
-        if (op_nullable_column != nullptr) {
-            op_nullable_column->get_null_map_data().emplace_back(0);
+    {
+        auto binlog_prefix_columns_guard = binlog_prefix_block.mutate_columns_scoped();
+        auto& binlog_prefix_columns = binlog_prefix_columns_guard.mutable_columns();
+        // we can't get correct lsn number before commit, because we can't get the version before commit,
+        // but we can fill auto-inc lsn to ensure the order first, then fill version when read single rowset.
+        IColumn* lsn_col_ptr = binlog_prefix_columns[0].get();
+        CHECK(_lsn_ids->size() >= num_rows) << _lsn_ids->size() << " vs " << num_rows;
+        for (int i = 0; i < num_rows; i++) {
+            assert_cast<ColumnInt128*>(lsn_col_ptr)
+                    ->insert_value(static_cast<int128_t>(_lsn_ids->at(i)));
         }
+
+        // wrong op only happens when partial-update, it will be fixed by delete bitmap when publish
+        const FieldType op_col_type = _tablet_schema->column(binlog_cids[1]).type();
+        IColumn* op_col_ptr = binlog_prefix_columns[1].get();
+        auto* op_nullable_column = typeid_cast<ColumnNullable*>(op_col_ptr);
+        IColumn* op_nested_column = op_nullable_column != nullptr
+                                            ? &op_nullable_column->get_nested_column()
+                                            : op_col_ptr;
+
+        CHECK(op_types.size() >= num_rows) << op_types.size() << " vs " << num_rows;
+        CHECK(op_col_type == FieldType::OLAP_FIELD_TYPE_BIGINT)
+                << "row binlog op column type must be BIGINT, actual="
+                << static_cast<int>(op_col_type);
+        auto* op_int64_column = assert_cast<ColumnInt64*>(op_nested_column);
+        for (int i = 0; i < num_rows; i++) {
+            op_int64_column->insert_value(op_types[i]);
+        }
+
+        // we can't get correct timestamp when commit
+        IColumn* ts_col_ptr = binlog_prefix_columns[2].get();
+        auto timestamp = UnixMillis();
+        auto* ts_nullable_column = typeid_cast<ColumnNullable*>(ts_col_ptr);
         if (ts_nullable_column != nullptr) {
-            ts_nullable_column->get_null_map_data().emplace_back(0);
+            assert_cast<ColumnInt64*>(&ts_nullable_column->get_nested_column())
+                    ->insert_many_vals(timestamp, num_rows);
+        } else {
+            assert_cast<ColumnInt64*>(ts_col_ptr)->insert_many_vals(timestamp, num_rows);
+        }
+
+        // finally update null map
+        for (int i = 0; i < num_rows; i++) {
+            //lsn_column->get_null_map_data().emplace_back(0);
+            if (op_nullable_column != nullptr) {
+                op_nullable_column->get_null_map_data().emplace_back(0);
+            }
+            if (ts_nullable_column != nullptr) {
+                ts_nullable_column->get_null_map_data().emplace_back(0);
+            }
         }
     }
 
@@ -389,13 +394,12 @@ Status RowBinlogSegmentWriter::_fill_before_columns(size_t num_rows) {
 
     // Compatibility path: only fill empty BEFORE values.
     if (_fill_empty_before_value) {
-        MutableColumns before_mutable_columns = before_block.mutate_columns();
-        for (auto& before_mutable_column : before_mutable_columns) {
+        auto before_mutable_columns_guard = before_block.mutate_columns_scoped();
+        for (auto& before_mutable_column : before_mutable_columns_guard.mutable_columns()) {
             auto* before_nullable_column =
                     reinterpret_cast<ColumnNullable*>(before_mutable_column.get());
             before_nullable_column->insert_many_defaults(num_rows);
         }
-        before_block.set_columns(std::move(before_mutable_columns));
     } else {
         DCHECK(_historical_data_writer != nullptr);
 
@@ -498,7 +502,7 @@ Status RowBinlogSourceDataWriter::fill_normal_columns(
     const auto& including_cids =
             partial_source_cids.empty() ? _normal_column_ids : partial_source_cids;
     for (size_t cid : including_cids) {
-        DCHECK(column_writers[start + cid]->get_field()->type() ==
+        DCHECK(column_writers[start + cid]->get_column()->type() ==
                _opt.source.tablet_schema->columns()[cid]->type())
                 << cid;
         RETURN_IF_ERROR(column_writers[start + cid]->append(_converted_columns[cid]->get_nullmap(),

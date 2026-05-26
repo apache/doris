@@ -25,6 +25,8 @@ add_executable(meta_tool
     meta_tool.cpp
 )
 
+target_include_directories(meta_tool PRIVATE ${PROJECT_SOURCE_DIR}/..)
+
 pch_reuse(meta_tool)
 
 # This permits libraries loaded by dlopen to link to the symbols in the program.

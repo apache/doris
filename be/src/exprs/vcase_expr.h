@@ -217,9 +217,9 @@ private:
             if (!then_columns[i]) {
                 continue;
             }
-            auto* __restrict column_raw_data =
-                    assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(
-                            then_columns[i]->assume_mutable().get())
+            const auto* __restrict column_raw_data =
+                    assert_cast<const ColumnType*, TypeCheckOnRelease::DISABLE>(
+                            then_columns[i].get())
                             ->get_data()
                             .data();
             if constexpr (std::is_same_v<ColumnType, ColumnDate> ||
@@ -277,10 +277,7 @@ private:
                     continue;
                 }
                 const auto* __restrict cond_raw_nullmap =
-                        assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(
-                                column_nullable_ptr->get_null_map_column_ptr().get())
-                                ->get_data()
-                                .data();
+                        column_nullable_ptr->get_null_map_column_ptr()->get_data().data();
                 for (int row_idx = 0; row_idx < rows_count; row_idx++) {
                     then_idx_ptr[row_idx] |= (!then_idx_ptr[row_idx] * cond_raw_data[row_idx] *
                                               !cond_raw_nullmap[row_idx]) *
