@@ -368,7 +368,7 @@ Status ParquetReader::_read_current_row_group_batch(int64_t batch_rows, Block* f
     return Status::OK();
 }
 
-ParquetReader::ParquetReader(std::unique_ptr<io::FileSystemProperties>& system_properties,
+ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                              std::unique_ptr<io::FileDescription>& file_description,
                              std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile)
         : FileReader(system_properties, file_description, io_ctx, profile) {}

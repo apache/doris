@@ -136,10 +136,10 @@ public:
         int64_t bloom_filter_read_time = 0;
     };
 
-    FileReader(std::unique_ptr<io::FileSystemProperties>& system_properties,
+    FileReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                std::unique_ptr<io::FileDescription>& file_description,
                std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile)
-            : _system_properties(std::move(system_properties)),
+            : _system_properties(system_properties),
               _file_description(std::move(file_description)),
               _io_ctx(io_ctx),
               _profile(profile) {}
@@ -196,7 +196,7 @@ protected:
     std::unique_ptr<FileScanRequest> _request;
     bool _eof = true;
     ReaderStatistics _reader_statistics;
-    std::unique_ptr<io::FileSystemProperties> _system_properties;
+    std::shared_ptr<io::FileSystemProperties> _system_properties;
     std::unique_ptr<io::FileDescription> _file_description;
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeProfile* _profile = nullptr;
