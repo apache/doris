@@ -782,6 +782,12 @@ public class Config extends ConfigBase {
     // check token when download image file.
     @ConfField public static boolean enable_token_check = true;
 
+    @ConfField(mutable = true, description = {
+            "Whether FE meta service accepts legacy FE node identity headers without a cluster token. "
+                    + "This is only for rolling upgrade compatibility and should be disabled after all FEs "
+                    + "are upgraded."})
+    public static boolean enable_meta_service_legacy_node_ident_auth = false;
+
     /**
      * Set to true if you deploy Palo using thirdparty deploy manager
      * Valid options are:

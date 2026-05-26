@@ -149,7 +149,7 @@ public class MetaHelper {
 
     public static <T> ResponseBody doGet(String url, int timeout, Class<T> clazz) throws IOException {
         Map<String, String> headers = HttpURLUtil.getNodeIdentHeaders();
-        LOG.info("meta helper, url: {}, timeout{}, headers: {}", url, timeout, headers);
+        LOG.info("meta helper, url: {}, timeout: {}, header names: {}", url, timeout, headers.keySet());
         String response = HttpUtils.doGet(url, headers, timeout);
         return parseResponse(response, clazz);
     }
