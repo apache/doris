@@ -163,7 +163,7 @@ public class StructLiteral extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
-        return 0;
+        throw new RuntimeException("Not support comparison between STRUCT literals");
     }
 
     @Override
