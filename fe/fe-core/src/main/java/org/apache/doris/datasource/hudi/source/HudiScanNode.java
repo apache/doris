@@ -170,63 +170,66 @@ public class HudiScanNode extends HiveScanNode {
         initBackendPolicy();
         initSchemaParams();
 
-        long startTime = System.currentTimeMillis();
-        hudiClient = hmsTable.getHudiClient();
-        hudiClient.reloadActiveTimeline();
-        basePath = hmsTable.getRemoteTable().getSd().getLocation();
-        inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
-        serdeLib = hmsTable.getRemoteTable().getSd().getSerdeInfo().getSerializationLib();
+        long tableMetaStartTime = System.currentTimeMillis();
+        try {
+            hudiClient = hmsTable.getHudiClient();
+            hudiClient.reloadActiveTimeline();
+            basePath = hmsTable.getRemoteTable().getSd().getLocation();
+            inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
+            serdeLib = hmsTable.getRemoteTable().getSd().getSerdeInfo().getSerializationLib();
 
-        if (scanParams != null && !scanParams.incrementalRead()) {
-            // Only support incremental read
-            throw new UserException("Not support function '" + scanParams.getParamType() + "' in hudi table");
-        }
-        if (incrementalRead) {
-            if (isCowTable) {
-                try {
-                    Map<String, String> serd = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
-                    if ("true".equals(serd.get("hoodie.query.as.ro.table"))
-                            && hmsTable.getRemoteTable().getTableName().endsWith("_ro")) {
-                        // Incremental read RO table as RT table, I don't know why?
-                        isCowTable = false;
-                        LOG.warn("Execute incremental read on RO table: {}", hmsTable.getFullQualifiers());
+            if (scanParams != null && !scanParams.incrementalRead()) {
+                // Only support incremental read
+                throw new UserException("Not support function '" + scanParams.getParamType() + "' in hudi table");
+            }
+            if (incrementalRead) {
+                if (isCowTable) {
+                    try {
+                        Map<String, String> serd = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
+                        if ("true".equals(serd.get("hoodie.query.as.ro.table"))
+                                && hmsTable.getRemoteTable().getTableName().endsWith("_ro")) {
+                            // Incremental read RO table as RT table, I don't know why?
+                            isCowTable = false;
+                            LOG.warn("Execute incremental read on RO table: {}", hmsTable.getFullQualifiers());
+                        }
+                    } catch (Exception e) {
+                        // ignore
                     }
-                } catch (Exception e) {
-                    // ignore
+                }
+                if (incrementalRelation == null) {
+                    throw new UserException("Failed to create incremental relation");
                 }
             }
-            if (incrementalRelation == null) {
-                throw new UserException("Failed to create incremental relation");
-            }
-        }
 
-        timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
-        TableSnapshot tableSnapshot = getQueryTableSnapshot();
-        if (tableSnapshot != null) {
-            if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
-                throw new UserException("Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`");
+            timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
+            TableSnapshot tableSnapshot = getQueryTableSnapshot();
+            if (tableSnapshot != null) {
+                if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
+                    throw new UserException("Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`");
+                }
+                queryInstant = tableSnapshot.getValue().replaceAll("[-: ]", "");
+            } else {
+                Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
+                if (!snapshotInstant.isPresent()) {
+                    prunedPartitions = Collections.emptyList();
+                    partitionInit = true;
+                    return;
+                }
+                queryInstant = snapshotInstant.get().requestedTime();
             }
-            queryInstant = tableSnapshot.getValue().replaceAll("[-: ]", "");
-        } else {
-            Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
-            if (!snapshotInstant.isPresent()) {
-                prunedPartitions = Collections.emptyList();
-                partitionInit = true;
-                return;
+
+            HudiSchemaCacheValue hudiSchemaCacheValue = HudiUtils.getSchemaCacheValue(hmsTable, queryInstant);
+            columnNames = hudiSchemaCacheValue.getSchema().stream().map(Column::getName).collect(Collectors.toList());
+            columnTypes = hudiSchemaCacheValue.getColTypes();
+
+            fsView = Env.getCurrentEnv()
+                .getExtMetaCacheMgr()
+                .hudi(hmsTable.getCatalog().getId())
+                .getFsView(hmsTable.getOrBuildNameMapping());
+        } finally {
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetTableMetaTime(System.currentTimeMillis() - tableMetaStartTime);
             }
-            queryInstant = snapshotInstant.get().requestedTime();
-        }
-
-        HudiSchemaCacheValue hudiSchemaCacheValue = HudiUtils.getSchemaCacheValue(hmsTable, queryInstant);
-        columnNames = hudiSchemaCacheValue.getSchema().stream().map(Column::getName).collect(Collectors.toList());
-        columnTypes = hudiSchemaCacheValue.getColTypes();
-
-        fsView = Env.getCurrentEnv()
-            .getExtMetaCacheMgr()
-            .hudi(hmsTable.getCatalog().getId())
-            .getFsView(hmsTable.getOrBuildNameMapping());
-        if (getSummaryProfile() != null) {
-            getSummaryProfile().addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
         }
         // Todo: Get the current schema id of the table, instead of using -1.
         // In Be Parquet/Rrc reader, if `current table schema id == current file schema id`, then its
