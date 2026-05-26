@@ -778,6 +778,84 @@ struct StGeometryType {
     }
 };
 
+struct StCoordDim {
+    static constexpr auto NAME = "st_coorddim";
+    static const size_t NUM_ARGS = 1;
+    using Type = DataTypeInt32;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto size = col->size();
+        auto res = ColumnInt32::create();
+        res->reserve(size);
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+
+        std::unique_ptr<GeoShape> shape;
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = col->get_data_at(row);
+            shape = GeoShape::from_encoded(shape_value.data, shape_value.size);
+            if (!shape) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            // All geometries in Doris are 2D (x, y)
+            res->insert_value(2);
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
+struct StDimension {
+    static constexpr auto NAME = "st_dimension";
+    static const size_t NUM_ARGS = 1;
+    using Type = DataTypeInt32;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto size = col->size();
+        auto res = ColumnInt32::create();
+        res->reserve(size);
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+
+        std::unique_ptr<GeoShape> shape;
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = col->get_data_at(row);
+            shape = GeoShape::from_encoded(shape_value.data, shape_value.size);
+            if (!shape) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            int dim = -1;
+            switch (shape->type()) {
+            case GEO_SHAPE_POINT:
+                dim = 0;
+                break;
+            case GEO_SHAPE_LINE_STRING:
+                dim = 1;
+                break;
+            case GEO_SHAPE_POLYGON:
+            case GEO_SHAPE_MULTI_POLYGON:
+                dim = 2;
+                break;
+            default:
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            res->insert_value(dim);
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
 struct StDistance {
     static constexpr auto NAME = "st_distance";
     static const size_t NUM_ARGS = 2;
@@ -946,6 +1024,8 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StAsBinary>>();
     factory.register_function<GeoFunction<StLength>>();
     factory.register_function<GeoFunction<StGeometryType>>();
+    factory.register_function<GeoFunction<StCoordDim>>();
+    factory.register_function<GeoFunction<StDimension>>();
     factory.register_function<GeoFunction<StDistance>>();
 }
 
