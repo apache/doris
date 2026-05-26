@@ -78,6 +78,23 @@ class CollectLimitAboveConsumerTest {
     }
 
     @Test
+    void testKeepMaxRowsNeededWhenConsumerIsCollectedMultipleTimes() {
+        LogicalOlapScan producerPlan = PlanConstructor.newLogicalOlapScan(10, "t_merge", 0);
+        LogicalCTEConsumer consumer = new LogicalCTEConsumer(
+                PlanConstructor.getNextRelationId(), new CTEId(10), "cte_merge", producerPlan);
+        LogicalLimit<LogicalCTEConsumer> highLimit = new LogicalLimit<>(20, 0, LimitPhase.ORIGIN, consumer);
+        LogicalLimit<LogicalCTEConsumer> lowLimit = new LogicalLimit<>(3, 0, LimitPhase.ORIGIN, consumer);
+
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(new ConnectContext(), highLimit);
+        Rule rule = new CollectLimitAboveConsumer().buildRules().get(0);
+        rule.transform(highLimit, cascadesContext);
+        rule.transform(lowLimit, cascadesContext);
+
+        Map<RelationId, Long> collected = cascadesContext.getStatementContext().getConsumerIdToLimitRows();
+        Assertions.assertEquals(20L, collected.get(consumer.getRelationId()));
+    }
+
+    @Test
     void testCollectLimitAboveProjectRowsNeeded() {
         LogicalOlapScan producerPlan = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
         LogicalCTEConsumer consumer = new LogicalCTEConsumer(
@@ -108,7 +125,7 @@ class CollectLimitAboveConsumerTest {
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(new ConnectContext(), limit);
         List<Rule> rules = new CollectLimitAboveConsumer().buildRules();
-        rules.get(1).transform(limit, cascadesContext);
+        Assertions.assertFalse(rules.get(1).getPattern().matchPlanTree(limit));
 
         Map<RelationId, Long> collected = cascadesContext.getStatementContext().getConsumerIdToLimitRows();
         Assertions.assertFalse(collected.containsKey(consumer.getRelationId()));
@@ -126,7 +143,7 @@ class CollectLimitAboveConsumerTest {
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(new ConnectContext(), limit);
         List<Rule> rules = new CollectLimitAboveConsumer().buildRules();
-        rules.get(1).transform(limit, cascadesContext);
+        Assertions.assertFalse(rules.get(1).getPattern().matchPlanTree(limit));
 
         Map<RelationId, Long> collected = cascadesContext.getStatementContext().getConsumerIdToLimitRows();
         Assertions.assertFalse(collected.containsKey(consumer.getRelationId()));

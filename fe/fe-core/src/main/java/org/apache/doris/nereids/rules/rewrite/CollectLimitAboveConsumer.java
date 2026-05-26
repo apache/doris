@@ -47,9 +47,6 @@ public class CollectLimitAboveConsumer implements RewriteRuleFactory {
                         .when(limit -> isRowPreservingProject(limit.child()))
                         .thenApply(ctx -> {
                             LogicalLimit<LogicalProject<LogicalCTEConsumer>> limit = ctx.root;
-                            if (!isRowPreservingProject(limit.child())) {
-                                return ctx.root;
-                            }
                             collectLimitRows(ctx.cascadesContext, limit, limit.child().child());
                             return ctx.root;
                         }).toRule(RuleType.COLLECT_LIMIT_ABOVE_CTE_CONSUMER)

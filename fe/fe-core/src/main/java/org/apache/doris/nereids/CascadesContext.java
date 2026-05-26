@@ -484,7 +484,7 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public void putConsumerIdToLimitRows(RelationId id, long rows) {
-        this.statementContext.getConsumerIdToLimitRows().put(id, rows);
+        this.statementContext.getConsumerIdToLimitRows().merge(id, rows, Math::max);
     }
 
     public Map<RelationId, Long> getConsumerIdToLimitRows() {
