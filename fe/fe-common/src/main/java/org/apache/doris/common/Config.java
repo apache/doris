@@ -4000,6 +4000,10 @@ public class Config extends ConfigBase {
         "print a warning when HMS call returns more partitions than the specified threshold"})
     public static int log_huge_hms_partition_num = 10000;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"当对分区枚举文件返回空集时开启log",
+            "enable logging when list file for empty partition."})
+    public static boolean enable_log_empty_partition_when_list_file = true;
+
     /**
      * Max pool size for loading hudi client cache
      */

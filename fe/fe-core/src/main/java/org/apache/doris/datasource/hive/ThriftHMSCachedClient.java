@@ -1028,15 +1028,14 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         String db = (dbName != null) ? dbName : "N/A";
         String tbl = (tableName != null) ? tableName : "N/A";
         String logMsg = "Partition count exceeds {} partitions, "
-                + "actual count {}, dbName {}, tableName {}, HMS client information: {}, query id: {}";
+                + "actual count {}, dbName {}, tableName {}, HMS client information: {}";
 
         Object[] params = {
             Config.log_huge_hms_partition_num,
             partitionCount,
             db,
             tbl,
-            (context != null) ? context : "N/A",
-            (context != null) ? context.getQueryIdStr() : "N/A"
+            (context != null) ? context : "N/A"
         };
 
         LOG.warn(logMsg, params);

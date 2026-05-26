@@ -291,6 +291,25 @@ public class HiveScanNode extends FileQueryScanNode {
         return numSplitsPerPartition.get() * prunedPartitions.size();
     }
 
+    protected void logIfGetNoFileFromEmptyPartitions(List<FileCacheValue> fileCacheValues,
+            List<HivePartition> partitions) {
+        for (int i = 0; i < fileCacheValues.size(); i++) {
+            if (fileCacheValues.get(i).getFiles().isEmpty()) {
+                BDPAuthContext context = BDPAuthContext.get();
+                String logMsg = "Path {} list no files, "
+                        + "partition last modified time {}, dbName {}, tableName {}, HMS client information: {}";
+                Object[] params = {
+                        partitions.get(i).getPath(),
+                        partitions.get(i).getLastModifiedTime(),
+                        hmsTable.getDbName(),
+                        hmsTable.getName(),
+                        (context != null) ? context : "N/A"
+                };
+                LOG.info(logMsg, params);
+            }
+        }
+    }
+
     private void getFileSplitByPartitions(HiveMetaStoreCache cache, List<HivePartition> partitions,
             List<Split> allFiles, String bindBrokerName, int numBackends,
             boolean isBatchMode) throws IOException, UserException {
@@ -309,6 +328,9 @@ public class HiveScanNode extends FileQueryScanNode {
                     || ConnectContext.get().getSessionVariable().getEnableExternalFileCache());
             fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
                     directoryLister, hmsTable);
+            if (Config.enable_log_empty_partition_when_list_file) {
+                logIfGetNoFileFromEmptyPartitions(fileCaches, partitions);
+            }
         }
 
         long targetFileSplitSize = determineTargetFileSplitSize(fileCaches, isBatchMode);

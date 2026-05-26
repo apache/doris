@@ -353,8 +353,6 @@ public class ThriftHMSCachedClientTest {
         String logMessage = testAppender.getFormattedMessages().get(0);
         Assertions.assertTrue(logMessage.contains("HMS client information: N/A"),
                 "Context should be N/A when BDPAuthContext is null");
-        Assertions.assertTrue(logMessage.contains("query id: N/A"),
-                "Query ID should be N/A when BDPAuthContext is null");
     }
 
     // ========== INTEGRATION TESTS ==========
@@ -486,7 +484,5 @@ public class ThriftHMSCachedClientTest {
                 "Should contain table name");
         Assertions.assertTrue(logMessage.contains("HMS client information: N/A"),
                 "Should contain HMS client info (N/A in test)");
-        Assertions.assertTrue(logMessage.contains("query id: N/A"),
-                "Should contain query id (N/A in test)");
     }
 }
