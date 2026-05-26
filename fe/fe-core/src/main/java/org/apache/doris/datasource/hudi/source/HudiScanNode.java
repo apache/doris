@@ -464,19 +464,7 @@ public class HudiScanNode extends HiveScanNode {
         if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
             return getIncrementalSplits();
         }
-        if (!partitionInit) {
-            long startTime = System.currentTimeMillis();
-            try {
-                prunedPartitions = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
-                        -> getPrunedPartitions(hudiClient));
-                if (getSummaryProfile() != null) {
-                    getSummaryProfile().addExternalTableGetPartitionsTime(System.currentTimeMillis() - startTime);
-                }
-            } catch (Exception e) {
-                throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
-            }
-            partitionInit = true;
-        }
+        initPrunedPartitions();
         List<Split> splits = Collections.synchronizedList(new ArrayList<>());
         try {
             hmsTable.getCatalog().getExecutionAuthenticator().execute(() -> {
@@ -487,6 +475,23 @@ public class HudiScanNode extends HiveScanNode {
             throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
         }
         return splits;
+    }
+
+    private void initPrunedPartitions() throws UserException {
+        if (partitionInit) {
+            return;
+        }
+        long startTime = System.currentTimeMillis();
+        try {
+            prunedPartitions = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
+                    -> getPrunedPartitions(hudiClient));
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetPartitionsTime(System.currentTimeMillis() - startTime);
+            }
+        } catch (Exception e) {
+            throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
+        }
+        partitionInit = true;
     }
 
     @Override
@@ -542,15 +547,10 @@ public class HudiScanNode extends HiveScanNode {
         if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
             return false;
         }
-        if (!partitionInit) {
-            // Non partition table will get one dummy partition
-            try {
-                prunedPartitions = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
-                        -> getPrunedPartitions(hudiClient));
-            } catch (Exception e) {
-                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
-            }
-            partitionInit = true;
+        try {
+            initPrunedPartitions();
+        } catch (UserException e) {
+            throw new RuntimeException(e.getMessage(), e);
         }
         int numPartitions = sessionVariable.getNumPartitionsInBatchMode();
         return numPartitions >= 0 && prunedPartitions.size() >= numPartitions;

@@ -415,14 +415,19 @@ public class SummaryProfile {
     private long nereidsMvRewriteTime = 0;
     @SerializedName(value = "externalCatalogMetaTime")
     private long externalCatalogMetaTime = 0;
+    // Total time to get table meta time, including time to get table meta from external catalog and time to do some process based on the meta, such as partition prune.
     @SerializedName(value = "externalTableGetTableMetaTime")
     private long externalTableGetTableMetaTime = 0;
+    // Total time to get partition values, including time to get partition values from external catalog and time to do some process based on the partition values, such as partition prune.
     @SerializedName(value = "externalTableGetPartitionValuesTime")
     private long externalTableGetPartitionValuesTime = 0;
+    // Total time to get partitions, including time to get partitions from external catalog and time to do some process based on the partitions, such as partition prune.
     @SerializedName(value = "externalTableGetPartitionsTime")
     private long externalTableGetPartitionsTime = 0;
+    // Total time to get partition files, including time to get partition files from external catalog and time to do some process based on the partition files, such as creating scan range.
     @SerializedName(value = "externalTableGetPartitionFilesTime")
     private long externalTableGetPartitionFilesTime = 0;
+    // Total time to get file scan tasks, including time to get file scan tasks from external catalog and time to do some process based on the file scan tasks, such as creating scan range.
     @SerializedName(value = "externalTableGetFileScanTasksTime")
     private long externalTableGetFileScanTasksTime = 0;
     @SerializedName(value = "externalTvfInitTime")

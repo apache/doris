@@ -506,12 +506,21 @@ public class IcebergScanNode extends FileQueryScanNode {
                             CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan);
                             taskRef.set(fileScanTasks);
 
+                            long startTime = System.currentTimeMillis();
                             CloseableIterator<FileScanTask> iterator = fileScanTasks.iterator();
-                            while (splitAssignment.needMoreSplit() && iterator.hasNext()) {
-                                try {
-                                    splitAssignment.addToQueue(Lists.newArrayList(createIcebergSplit(iterator.next())));
-                                } catch (UserException e) {
-                                    throw new RuntimeException(e);
+                            try {
+                                while (splitAssignment.needMoreSplit() && iterator.hasNext()) {
+                                    try {
+                                        splitAssignment.addToQueue(
+                                                Lists.newArrayList(createIcebergSplit(iterator.next())));
+                                    } catch (UserException e) {
+                                        throw new RuntimeException(e);
+                                    }
+                                }
+                            } finally {
+                                if (getSummaryProfile() != null) {
+                                    getSummaryProfile().addExternalTableGetFileScanTasksTime(
+                                            System.currentTimeMillis() - startTime);
                                 }
                             }
                         }
@@ -574,17 +583,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
-        long startTime = System.currentTimeMillis();
-        try {
-            return doPlanFileScanTask(scan);
-        } finally {
-            if (getSummaryProfile() != null) {
-                getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
-            }
-        }
-    }
-
-    private CloseableIterable<FileScanTask> doPlanFileScanTask(TableScan scan) {
         if (!IcebergUtils.isManifestCacheEnabled(source.getCatalog())) {
             return splitFiles(scan);
         }
@@ -929,21 +927,30 @@ public class IcebergScanNode extends FileQueryScanNode {
         TableScan scan = createTableScan();
 
         try (CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan)) {
-            if (tableLevelPushDownCount) {
-                int needSplitCnt = countFromSnapshot < COUNT_WITH_PARALLEL_SPLITS
-                        ? 1 : sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName()) * numBackends;
-                for (FileScanTask next : fileScanTasks) {
-                    splits.add(createIcebergSplit(next));
-                    if (splits.size() >= needSplitCnt) {
-                        break;
+            long startTime = System.currentTimeMillis();
+            try {
+                if (tableLevelPushDownCount) {
+                    int needSplitCnt = countFromSnapshot < COUNT_WITH_PARALLEL_SPLITS
+                            ? 1 : sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName())
+                                    * numBackends;
+                    for (FileScanTask next : fileScanTasks) {
+                        splits.add(createIcebergSplit(next));
+                        if (splits.size() >= needSplitCnt) {
+                            break;
+                        }
                     }
+                    setPushDownCount(countFromSnapshot);
+                    assignCountToSplits(splits, countFromSnapshot);
+                    recordManifestCacheProfile();
+                    return splits;
+                } else {
+                    fileScanTasks.forEach(taskGrp -> splits.add(createIcebergSplit(taskGrp)));
                 }
-                setPushDownCount(countFromSnapshot);
-                assignCountToSplits(splits, countFromSnapshot);
-                recordManifestCacheProfile();
-                return splits;
-            } else {
-                fileScanTasks.forEach(taskGrp -> splits.add(createIcebergSplit(taskGrp)));
+            } finally {
+                if (getSummaryProfile() != null) {
+                    getSummaryProfile().addExternalTableGetFileScanTasksTime(
+                            System.currentTimeMillis() - startTime);
+                }
             }
         } catch (IOException e) {
             throw new UserException(e.getMessage(), e.getCause());
