@@ -744,6 +744,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleMappingCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyByRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStageCommand;
@@ -9019,6 +9020,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         UserIdentity userIdentity = ctx.userIdentify() != null ? visitUserIdentify(ctx.userIdentify()) : null;
         String roleName = ctx.roleName != null ? ctx.roleName.getText() : null;
         return new DropRowPolicyCommand(ifExist, policyName, tableNameInfo, userIdentity, roleName);
+    }
+
+    @Override
+    public LogicalPlan visitDropRowPolicyByRoles(DorisParser.DropRowPolicyByRolesContext ctx) {
+        List<String> roleNames = ctx.roleNames.stream()
+                .map(ParseTree::getText)
+                .collect(Collectors.toList());
+        return new DropRowPolicyByRolesCommand(roleNames);
     }
 
     @Override

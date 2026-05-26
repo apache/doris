@@ -196,6 +196,22 @@ public class PolicyMgr implements Writable {
         }
     }
 
+    public void dropRowPoliciesByRoles(List<String> roleNames) throws DdlException {
+        writeLock();
+        try {
+            for (String roleName : roleNames) {
+                DropPolicyLog dropPolicyLog = new DropPolicyLog(
+                        null, null, null, PolicyTypeEnum.ROW, null, null, roleName);
+                if (existPolicy(dropPolicyLog)) {
+                    unprotectedDrop(dropPolicyLog);
+                    Env.getCurrentEnv().getEditLog().logDropPolicy(dropPolicyLog);
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
     /**
      * Check whether the policy exist.
      *

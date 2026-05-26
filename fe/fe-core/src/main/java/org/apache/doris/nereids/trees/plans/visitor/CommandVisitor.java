@@ -130,6 +130,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleMappingCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyByRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStageCommand;
@@ -1308,6 +1309,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropRowPolicyCommand(DropRowPolicyCommand dropRowPolicyCommand, C context) {
         return visitCommand(dropRowPolicyCommand, context);
+    }
+
+    default R visitDropRowPolicyByRolesCommand(DropRowPolicyByRolesCommand dropRowPolicyByRolesCommand, C context) {
+        return visitCommand(dropRowPolicyByRolesCommand, context);
     }
 
     default R visitTransactionBeginCommand(TransactionBeginCommand transactionBeginCommand, C context) {

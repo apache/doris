@@ -366,6 +366,8 @@ supportedDropStatement
     | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier
         partitionSpec?                                                            #dropIndex
     | DROP RESOURCE (IF EXISTS)? name=identifierOrText                          #dropResource
+    | DROP ROW POLICY FOR ROLE roleNames+=identifierOrText
+        (COMMA roleNames+=identifierOrText)*                                    #dropRowPolicyByRoles
     | DROP ROW POLICY (IF EXISTS)? policyName=identifier
         ON tableName=multipartIdentifier
         (FOR (userIdentify | ROLE roleName=identifier))?                        #dropRowPolicy
