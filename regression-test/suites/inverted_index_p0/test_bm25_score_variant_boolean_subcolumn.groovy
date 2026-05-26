@@ -31,8 +31,12 @@ suite("test_bm25_score_variant_boolean_subcolumn", "p0") {
         return
     }
 
+    // Default `enable_match_without_inverted_index` (true) is required: in
+    // segments where v.c has no fulltext index (e.g. row 3 stores boolean,
+    // rows 1/2 don't have the subcolumn at all), BE must take the silent
+    // empty-bitmap path so the predicate just returns false — that is the
+    // path that used to coredump in BM25 collection before this fix.
     sql """ set enable_common_expr_pushdown = true """
-    sql """ set enable_match_without_inverted_index = false """
 
     sql "DROP TABLE IF EXISTS test_bm25_score_variant_boolean_subcolumn"
     sql """
