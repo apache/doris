@@ -41,7 +41,6 @@
 #include "core/types.h"
 #include "exprs/function/function_helpers.h"
 #include "io/io_common.h"
-#include "storage/field.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
@@ -138,6 +137,7 @@ private:
     // process read
     template <typename ReadFunction>
     Status process_read(ReadFunction&& read_func, MutableColumnPtr& dst, size_t nrows) {
+        dst = IColumn::mutate(std::move(dst));
         // // Read all sub columns, and merge with root column
         ColumnNullable* nullable_column = nullptr;
         if (dst->is_nullable()) {

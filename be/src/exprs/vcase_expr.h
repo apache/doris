@@ -217,9 +217,9 @@ private:
             if (!then_columns[i]) {
                 continue;
             }
-            auto* __restrict column_raw_data =
-                    assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(
-                            then_columns[i]->assume_mutable().get())
+            const auto* __restrict column_raw_data =
+                    assert_cast<const ColumnType*, TypeCheckOnRelease::DISABLE>(
+                            then_columns[i].get())
                             ->get_data()
                             .data();
             if constexpr (std::is_same_v<ColumnType, ColumnDate> ||

@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
+import org.apache.doris.nereids.trees.expressions.functions.table.Binlog;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
 import org.apache.doris.nereids.trees.expressions.functions.table.CdcStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.File;
@@ -53,6 +54,7 @@ import com.google.common.collect.ImmutableList;
 public class BuiltinTableValuedFunctions implements FunctionHelper {
     public final ImmutableList<TableValuedFunc> tableValuedFunctions = ImmutableList.of(
             tableValued(Backends.class, "backends"),
+            tableValued(Binlog.class, "binlog"),
             tableValued(Catalogs.class, "catalogs"),
             tableValued(Frontends.class, "frontends"),
             tableValued(FrontendsDisks.class, "frontends_disks"),

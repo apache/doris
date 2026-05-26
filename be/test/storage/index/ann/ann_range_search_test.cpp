@@ -169,7 +169,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
     ASSERT_TRUE(range_search_ctx
                         ->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
                                                     column_iterators, common_expr_to_slotref_map,
-                                                    row_bitmap, stats)
+                                                    row_bitmap, stats, false)
                         .ok());
 
     doris::segment_v2::VirtualColumnIterator* virtual_column_iter =
@@ -266,7 +266,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
     ASSERT_TRUE(range_search_ctx
                         ->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
                                                     column_iterators, common_expr_to_slotref_map,
-                                                    row_bitmap, stats)
+                                                    row_bitmap, stats, false)
                         .ok());
 
     doris::segment_v2::VirtualColumnIterator* virtual_column_iter =
@@ -664,7 +664,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch_DimensionMismatch) {
 
     auto st = range_search_ctx->evaluate_ann_range_search(
             cid_to_index_iterators, idx_to_cid, column_iterators, common_expr_to_slotref_map,
-            row_bitmap, stats);
+            row_bitmap, stats, false);
     EXPECT_FALSE(st.ok());
     EXPECT_TRUE(st.is<doris::ErrorCode::INVALID_ARGUMENT>());
 }

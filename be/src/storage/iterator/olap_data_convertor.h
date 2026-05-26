@@ -46,7 +46,6 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "core/uint24.h"
-#include "runtime/collection_value.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -181,7 +180,7 @@ private:
 
         static ColumnPtr clone_and_padding(const ColumnString* input, size_t padding_length) {
             auto column = ColumnString::create();
-            auto padded_column = assert_cast<ColumnString*>(column->assume_mutable().get());
+            auto padded_column = assert_cast<ColumnString*>(column->assert_mutable().get());
 
             column->offsets.resize(input->size());
             column->chars.resize(input->size() * padding_length);

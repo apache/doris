@@ -64,7 +64,8 @@ struct TabletPublishStatistics {
 class TabletPublishTxnTask {
 public:
     TabletPublishTxnTask(StorageEngine& engine, EnginePublishVersionTask* engine_task,
-                         TabletSharedPtr tablet, RowsetSharedPtr rowset, int64_t partition_id,
+                         TabletSharedPtr tablet, RowsetSharedPtr rowset,
+                         std::vector<RowsetSharedPtr> attach_rowsets, int64_t partition_id,
                          int64_t transaction_id, Version version, const TabletInfo& tablet_info,
                          int64_t commit_tso);
     ~TabletPublishTxnTask();
@@ -78,6 +79,7 @@ private:
 
     TabletSharedPtr _tablet;
     RowsetSharedPtr _rowset;
+    std::vector<RowsetSharedPtr> _attach_rowsets;
     int64_t _partition_id;
     int64_t _transaction_id;
     Version _version;

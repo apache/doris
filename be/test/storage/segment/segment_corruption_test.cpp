@@ -30,7 +30,6 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
-#include "storage/field.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_cache.h"
