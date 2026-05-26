@@ -17,10 +17,12 @@
 
 package org.apache.doris.cdcclient.source.deserialize;
 
+import org.apache.doris.cdcclient.exception.CdcClientException;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.flink.cdc.debezium.utils.TemporalConversions;
 import org.apache.flink.table.data.TimestampData;
@@ -161,6 +163,7 @@ public class DebeziumJsonDeserializer
                             if (!excludeColumns.contains(field.name())) {
                                 Object valueConverted =
                                         convert(
+                                                field.name(),
                                                 field.schema(),
                                                 after.getWithoutDefault(field.name()));
                                 record.put(field.name(), valueConverted);
@@ -185,6 +188,7 @@ public class DebeziumJsonDeserializer
                             if (!excludeColumns.contains(field.name())) {
                                 Object valueConverted =
                                         convert(
+                                                field.name(),
                                                 field.schema(),
                                                 before.getWithoutDefault(field.name()));
                                 record.put(field.name(), valueConverted);
@@ -194,7 +198,22 @@ public class DebeziumJsonDeserializer
         return objectMapper.writeValueAsString(record);
     }
 
-    private Object convert(Schema fieldSchema, Object dbzObj) {
+    private Object convert(String fieldName, Schema fieldSchema, Object dbzObj) {
+        try {
+            return convertInternal(fieldSchema, dbzObj);
+        } catch (Exception e) {
+            String msg =
+                    String.format(
+                            "Failed to convert column '%s' value=%s: %s",
+                            fieldName,
+                            dbzObj,
+                            ExceptionUtils.getMessage(e));
+            LOG.error(msg, e);
+            throw new RuntimeException(msg);
+        }
+    }
+
+    private Object convertInternal(Schema fieldSchema, Object dbzObj) {
         if (dbzObj == null) {
             return null;
         }
@@ -374,7 +393,7 @@ public class DebeziumJsonDeserializer
             Schema elementSchema = fieldSchema.valueSchema();
             List<Object> result = new ArrayList<>();
             for (Object element : (List<?>) dbzObj) {
-                result.add(element == null ? null : convert(elementSchema, element));
+                result.add(element == null ? null : convertInternal(elementSchema, element));
             }
             return result;
         }

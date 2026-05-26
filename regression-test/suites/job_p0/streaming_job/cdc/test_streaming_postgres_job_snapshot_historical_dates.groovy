@@ -60,13 +60,17 @@ suite("test_streaming_postgres_job_snapshot_historical_dates",
 
     // Boundary rows. Picked to exercise:
     //   - Julian/Gregorian cutover (0001-01-01 ⇒ 2-day drift, 1582-10-04/15 boundary)
+    //   - negative tz offset before the cutover (0500-06-15 with -05)
+    //   - half-hour tz offset pre-1900 (1800-07-20 with +05:30)
     //   - LMT offset for pre-1901 values in zones like Asia/Shanghai (1900-12-31 vs 1901-01-02)
     //   - sub-millisecond precision on a pre-1970 value (negative micros, bug B)
     //   - NULL across all three columns
     def boundaryRows = [
             [ts: "0001-01-01 00:00:00.000123", tstz: "0001-01-01 00:00:00.000123+00", date: "0001-01-01"],
+            [ts: "0500-06-15 10:00:00.000000", tstz: "0500-06-15 10:00:00-05",        date: "0500-06-15"],
             [ts: "1582-10-04 12:34:56.000000", tstz: "1582-10-04 12:34:56+00",        date: "1582-10-04"],
             [ts: "1582-10-15 00:00:00.000000", tstz: "1582-10-15 00:00:00+00",        date: "1582-10-15"],
+            [ts: "1800-07-20 03:30:00.000000", tstz: "1800-07-20 03:30:00+05:30",     date: "1800-07-20"],
             [ts: "1900-12-31 23:59:59.999000", tstz: "1900-12-31 23:59:59.999+00",    date: "1900-12-31"],
             [ts: "1901-01-02 00:00:00.000000", tstz: "1901-01-02 00:00:00+09",        date: "1901-01-02"],
             [ts: "1969-12-31 23:59:59.999123", tstz: "1969-12-31 23:59:59.999123+00", date: "1969-12-31"],
