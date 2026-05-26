@@ -282,8 +282,7 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
         if (out_col->is_nullable()) {
             auto* nullable = assert_cast<ColumnNullable*>(out_col.get());
             struct_col_ptr = assert_cast<ColumnStruct*>(nullable->get_nested_column_ptr().get());
-            outer_struct_nullmap_ptr =
-                    assert_cast<ColumnUInt8*>(nullable->get_null_map_column_ptr().get());
+            outer_struct_nullmap_ptr = nullable->get_null_map_column_ptr().get();
         } else {
             struct_col_ptr = assert_cast<ColumnStruct*>(out_col.get());
         }
@@ -343,8 +342,7 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
             val_nullable->get_nested_column_ptr()->insert_range_from(
                     *_block_fast_path_ctx.nested_col, segment_ctx.seg_nested_start,
                     segment_ctx.seg_nested_count);
-            auto* val_nullmap =
-                    assert_cast<ColumnUInt8*>(val_nullable->get_null_map_column_ptr().get());
+            auto* val_nullmap = val_nullable->get_null_map_column_ptr().get();
             auto& val_nullmap_data = val_nullmap->get_data();
             const size_t old_size = val_nullmap_data.size();
             val_nullmap_data.resize(old_size + segment_ctx.seg_nested_count);
@@ -365,8 +363,7 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
             out_nullable->get_nested_column_ptr()->insert_range_from(
                     *_block_fast_path_ctx.nested_col, segment_ctx.seg_nested_start,
                     segment_ctx.seg_nested_count);
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(out_nullable->get_null_map_column_ptr().get());
+            auto* nullmap_column = out_nullable->get_null_map_column_ptr().get();
             auto& nullmap_data = nullmap_column->get_data();
             const size_t old_size = nullmap_data.size();
             nullmap_data.resize(old_size + segment_ctx.seg_nested_count);

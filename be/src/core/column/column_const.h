@@ -103,7 +103,7 @@ class ColumnConst final : public COWHelper<IColumn, ColumnConst> {
 private:
     friend class COWHelper<IColumn, ColumnConst>;
     using Self = ColumnConst;
-    WrappedPtr data;
+    IColumn::WrappedPtr data;
     size_t s;
 
     ColumnConst(const ColumnPtr& data, size_t s_, bool create_with_empty = false,

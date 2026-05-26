@@ -195,9 +195,9 @@ void PythonUDTFFunction::get_same_many_values(MutableColumnPtr& column, int leng
         if (_is_nullable) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             auto nested_column = nullable_column->get_nested_column_ptr();
-            auto nullmap_column = nullable_column->get_null_map_column_ptr();
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             nested_column->insert_many_from(*_array_column_detail.nested_col, pos, length);
-            assert_cast<ColumnUInt8*>(nullmap_column.get())->insert_many_defaults(length);
+            nullmap_column->insert_many_defaults(length);
         } else {
             column->insert_many_from(*_array_column_detail.nested_col, pos, length);
         }
@@ -215,8 +215,7 @@ int PythonUDTFFunction::get_value(MutableColumnPtr& column, int max_step) {
         if (_is_nullable) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             auto nested_column = nullable_column->get_nested_column_ptr();
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
 
             nested_column->insert_range_from(*_array_column_detail.nested_col, pos, max_step);
             size_t old_size = nullmap_column->size();

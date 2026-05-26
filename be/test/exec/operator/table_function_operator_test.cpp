@@ -145,8 +145,7 @@ public:
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             nullable_column->get_nested_column_ptr()->insert_range_from(*_detail.nested_col, pos,
                                                                         max_step);
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+                auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             const size_t old_size = nullmap_column->size();
             nullmap_column->resize(old_size + max_step);
             if (_detail.nested_nullmap_data != nullptr) {
