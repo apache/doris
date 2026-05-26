@@ -390,7 +390,7 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
         auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
         auto col_type = remove_nullable(type_ptr);
         auto col = nullable_column->get_nested_column_ptr();
-            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
+        auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
         bool ok = insert_cell(col, col_type, cell, datetime_is_string_format);
         nullmap_column->insert_value(ok ? 0 : 1);
     } else {
@@ -552,7 +552,7 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             auto* struct_column =
                     assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
-                auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             nullmap_column->insert_default();
             for (size_t i = 0; i < v.size(); ++i) {
                 auto& field = v[i];
