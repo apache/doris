@@ -67,7 +67,7 @@ public:
         column_ids.insert(_column_id);
     }
 
-    MOCK_FUNCTION const std::string& column_name() const { return *_column_name; }
+    virtual const std::string& column_name() const { return *_column_name; }
 
     uint64_t get_digest(uint64_t seed) const override;
 

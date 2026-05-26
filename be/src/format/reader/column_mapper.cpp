@@ -95,9 +95,10 @@ Status TableColumnMapper::create_scan_request(const std::map<int32_t, TableFilte
     file_request->reader_expression_map.clear();
     for (const auto& table_column : projected_columns) {
         const auto* mapping = _find_mapping(table_column.id);
-        if (mapping != nullptr && mapping->file_column_id.has_value() &&
-            table_filters.count(table_column.id) == 0) {
-            file_request->non_predicate_columns.push_back(*mapping->file_column_id);
+        if (mapping != nullptr && mapping->file_column_id.has_value()) {
+            if (table_filters.count(table_column.id) == 0) {
+                file_request->non_predicate_columns.push_back(*mapping->file_column_id);
+            }
         }
     }
     RETURN_IF_ERROR(localize_filters(table_filters, file_request));

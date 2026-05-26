@@ -86,7 +86,7 @@ Status DeletePredicate::execute(VExprContext* context, Block* block, int* result
     DCHECK_EQ(row_ids.size(), count);
     if (_deleted_rows.empty()) {
         block->insert({std::move(res_col), std::make_shared<DataTypeBool>(), expr_name()});
-        *result_column_id = block->get_columns().size() - 1;
+        *result_column_id = static_cast<int>(block->get_columns().size() - 1);
         return Status::OK();
     }
     const int64_t* delete_rows = _deleted_rows.data();
@@ -106,7 +106,7 @@ Status DeletePredicate::execute(VExprContext* context, Block* block, int* result
         ++start_index;
     }
     block->insert({std::move(res_col), std::make_shared<DataTypeBool>(), expr_name()});
-    *result_column_id = block->get_columns().size() - 1;
+    *result_column_id = static_cast<int>(block->get_columns().size() - 1);
     return Status::OK();
 }
 

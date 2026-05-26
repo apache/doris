@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -27,6 +28,7 @@
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "exprs/vexpr_fwd.h"
+#include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
 
 namespace doris {
@@ -96,64 +98,75 @@ struct FileScanRequest {
     std::vector<FileLocalFilter> local_filters;
     // fallback path if filters cannot be localized to file-local predicates. The expression can reference projected_file_columns and partition columns.
     std::vector<std::pair<ColumnId, VExprContextSPtr>> reader_expression_map;
-    // partition key -> value
-    std::map<std::string, Field> partition_values;
-
-    // projected_columns' id is file-local column id, and they are all from file schema.
-    // For example,
-    // file schema: [0: id (int), 1: name (string), 2: age (int)]
-    // predicate: age > 30
-    // table-level projection: [name, id]
-    // predicate_columns: [2]
-    // non_predicate_columns: [1, 0]
-    // projected_columns are columns in blocks returned to table reader: [1, 0] means only name and id are projected,
-    std::vector<ColumnId> projected_columns;
 };
 
 // 文件物理读取层通用接口。
 // 该接口只描述 file-local schema、file-local scan request 和 file-local block。
 // TableReader/IcebergTableReader 可以通过它组合不同文件格式 reader。
+/**
+ *                                +-----> get_schema() -----------------+
+ * FileReader() -----> init() ----|                                      -----> close()
+ *                                +-----> open() -----> get_block() ----+
+ */
 class FileReader {
 public:
+    struct ReaderStatistics {
+        int32_t filtered_row_groups = 0;
+        int32_t filtered_row_groups_by_min_max = 0;
+        int32_t filtered_row_groups_by_bloom_filter = 0;
+        int32_t read_row_groups = 0;
+        int64_t filtered_group_rows = 0;
+        int64_t filtered_page_rows = 0;
+        int64_t lazy_read_filtered_rows = 0;
+        int64_t read_rows = 0;
+        int64_t filtered_bytes = 0;
+        int64_t column_read_time = 0;
+        int64_t parse_meta_time = 0;
+        int64_t parse_footer_time = 0;
+        int64_t file_footer_read_calls = 0;
+        int64_t file_footer_hit_cache = 0;
+        int64_t file_reader_create_time = 0;
+        int64_t open_file_num = 0;
+        int64_t row_group_filter_time = 0;
+        int64_t page_index_filter_time = 0;
+        int64_t read_page_index_time = 0;
+        int64_t parse_page_index_time = 0;
+        int64_t predicate_filter_time = 0;
+        int64_t dict_filter_rewrite_time = 0;
+        int64_t bloom_filter_read_time = 0;
+    };
+
+    FileReader(std::unique_ptr<io::FileSystemProperties>& system_properties,
+               std::unique_ptr<io::FileDescription>& file_description,
+               std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile)
+            : _system_properties(std::move(system_properties)),
+              _file_description(std::move(file_description)),
+              _io_ctx(io_ctx),
+              _profile(profile) {}
     virtual ~FileReader() = default;
 
-    // 打开一个物理文件并加载文件级元数据。
-    // 该方法只建立 file-local reader 状态，不接收 table schema，也不做 projection/filter
-    // 规划；这些输入由 init(FileScanRequest) 提供。
-    virtual Status open(io::FileReaderSPtr file, io::IOContext* io_ctx = nullptr) {
-        // 真实实现会保存文件句柄、IO 上下文并读取文件元数据。
-        _file = std::move(file);
-        _io_ctx = io_ctx;
-        _eof = false;
-        return Status::OK();
-    }
+    // Initialize file reader and parse file metadata.
+    virtual Status init(RuntimeState* state);
 
-    // 返回文件自己的 schema 视图。
-    // 返回结果必须是 file-local schema：列 id、类型和 children 都按文件格式展开，
-    // 不在这里解释 Iceberg field id、缺失列、默认值或 generated column。
-    virtual Status get_schema(std::vector<SchemaField>* file_schema) const {
-        // 真实实现会展开文件格式自己的 file-local schema。
-        file_schema->clear();
-        return Status::OK();
-    }
+    // Get file-local schema from file metadata. The file schema is determined by file format and file content, and does not contain table/global schema semantics. For example, Iceberg field id, name mapping, default/generated/partition columns are not interpreted in file reader. This method can only be called after init() successfully, but does not require open() to be called.
+    virtual Status get_schema(std::vector<SchemaField>* file_schema) const = 0;
 
-    // 初始化一次 file-local scan。
-    // request 由 TableColumnMapper 生成，只包含文件列投影、本地过滤条件和 reader
-    // expression。FileReader 可以基于它初始化 row group/page/stripe 等文件格式计划。
-    virtual Status init(const FileScanRequest& request) {
-        // 真实实现会根据 projected columns、local filters 和 reader expressions
-        // 初始化文件格式自己的物理读取计划。
-        // _request.projected_file_columns = request.projected_file_columns;
-        _request.local_filters = request.local_filters;
-        _request.reader_expression_map = request.reader_expression_map;
+    // Open the file reader with file-local scan request. The file reader should initialize its internal state according to the request, but does not need to interpret table/global schema semantics. For example, all schema change, filter localization, default/generated/partition columns should be handled in table reader layer. This method can only be called after init() successfully.
+    virtual Status open(std::unique_ptr<FileScanRequest>& request) {
+        _request = std::move(request);
         return Status::OK();
     }
 
     // 读取下一批 file-local block。
+    // 该方法只能在 init(FileScanRequest) 成功后调用。
     // file_block 的列顺序和类型必须遵守 FileScanRequest，而不是 table/global schema。
-    // eof 表示当前文件 reader 是否读完；多文件切换由 TableReader 负责。
-    virtual Status get_block(Block* file_block, bool* eof) {
+    // rows 返回当前批次输出行数；eof 表示当前文件 reader 是否读完；多文件切换由
+    // TableReader 负责。
+    virtual Status get_block(Block* file_block, size_t* rows, bool* eof) {
         // stub 默认立即 EOF。
+        if (rows != nullptr) {
+            *rows = 0;
+        }
         if (eof != nullptr) {
             *eof = true;
         }
@@ -164,18 +177,29 @@ public:
     // 关闭当前物理文件 reader 并释放文件层状态。
     // 该方法不处理 table-level delete/finalize 状态，后者由 TableReader 子类管理。
     virtual Status close() {
-        _file.reset();
-        _io_ctx = nullptr;
-        _request = FileScanRequest {};
+        _file_reader.reset();
+        _tracing_file_reader.reset();
+        _io_ctx.reset();
+        _request.reset();
         _eof = true;
         return Status::OK();
     }
 
 protected:
-    io::FileReaderSPtr _file;
-    io::IOContext* _io_ctx = nullptr;
-    FileScanRequest _request;
+    virtual void _init_profile() {}
+    io::FileReaderSPtr _file_reader;
+    // _tracing_file_reader wraps _file_reader.
+    // _file_reader is original file reader.
+    // _tracing_file_reader is tracing file reader with io context.
+    // If io_ctx is null, _tracing_file_reader will be the same as file_reader.
+    io::FileReaderSPtr _tracing_file_reader = nullptr;
+    std::unique_ptr<FileScanRequest> _request;
     bool _eof = true;
+    ReaderStatistics _reader_statistics;
+    std::unique_ptr<io::FileSystemProperties> _system_properties;
+    std::unique_ptr<io::FileDescription> _file_description;
+    std::shared_ptr<io::IOContext> _io_ctx;
+    RuntimeProfile* _profile = nullptr;
 };
 
 } // namespace doris::reader

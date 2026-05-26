@@ -22,13 +22,14 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <memory>
+#include <vector>
 
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "exprs/function/cast/cast_base.h"
@@ -348,6 +349,23 @@ Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
     }
     return nested_serde->read_column_from_arrow(col.get_nested_column(), arrow_array, start, end,
                                                 ctz);
+}
+
+Status DataTypeNullableSerDe::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
+    auto& nullable_column = assert_cast<ColumnNullable&>(column);
+    auto& null_map = nullable_column.get_null_map_data();
+    const auto old_size = null_map.size();
+    null_map.resize(null_map.size() + view.row_count);
+    if (view.null_map != nullptr) {
+        // TODO: skip if no null in map
+        auto* dst = null_map.data() + old_size;
+        memcpy(dst, view.null_map, view.row_count);
+    }
+    DecodedColumnView nested_view = view;
+    nested_view.null_map = nullptr;
+    return nested_serde->read_column_from_decoded_values(nullable_column.get_nested_column(),
+                                                         nested_view);
 }
 
 bool DataTypeNullableSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
