@@ -26,7 +26,11 @@
 #include <unordered_map>
 
 #include "core/block/block.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/primitive_type.h"
 #include "storage/index/index_iterator.h"
+#include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_weight.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
@@ -58,6 +62,81 @@ public:
     }
 
     Result<bool> has_null() override { return false; }
+};
+
+class RecordingIndexIterator : public segment_v2::IndexIterator {
+public:
+    segment_v2::IndexReaderPtr get_reader(
+            segment_v2::IndexReaderType /*reader_type*/) const override {
+        return nullptr;
+    }
+
+    Status read_from_index(const segment_v2::IndexParam& param) override {
+        auto* i_param_ptr = std::get_if<segment_v2::InvertedIndexParam*>(&param);
+        if (i_param_ptr == nullptr || *i_param_ptr == nullptr) {
+            return Status::InvalidArgument("missing inverted index param");
+        }
+        auto* i_param = *i_param_ptr;
+        last_column_name = i_param->column_name;
+        last_column_storage_type = i_param->column_type == nullptr
+                                           ? FieldType::OLAP_FIELD_TYPE_UNKNOWN
+                                           : i_param->column_type->get_storage_field_type();
+        last_query_type = i_param->query_type;
+        last_query_value_type = i_param->query_value.get_type();
+        if (i_param->query_value.get_type() == TYPE_BOOLEAN) {
+            last_bool_value = i_param->query_value.get<TYPE_BOOLEAN>();
+        }
+        if (i_param->query_value.get_type() == TYPE_INT) {
+            last_int_value = i_param->query_value.get<TYPE_INT>();
+        }
+        if (i_param->roaring != nullptr) {
+            i_param->roaring->add(3);
+        }
+        return Status::OK();
+    }
+
+    Status read_null_bitmap(segment_v2::InvertedIndexQueryCacheHandle* /*cache_handle*/) override {
+        return Status::OK();
+    }
+
+    Result<bool> has_null() override { return false; }
+
+    std::string last_column_name;
+    FieldType last_column_storage_type = FieldType::OLAP_FIELD_TYPE_UNKNOWN;
+    segment_v2::InvertedIndexQueryType last_query_type =
+            segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY;
+    PrimitiveType last_query_value_type = PrimitiveType::TYPE_NULL;
+    bool last_bool_value = false;
+    Int32 last_int_value = 0;
+};
+
+class DummyInvertedIndexReader final : public segment_v2::InvertedIndexReader {
+public:
+    explicit DummyInvertedIndexReader(const TabletIndex* index_meta)
+            : segment_v2::InvertedIndexReader(index_meta, nullptr) {}
+
+    Status new_iterator(std::unique_ptr<segment_v2::IndexIterator>* /*iterator*/) override {
+        return Status::OK();
+    }
+
+    Status query(const segment_v2::IndexQueryContextPtr& /*context*/,
+                 const std::string& /*column_name*/, const Field& /*query_value*/,
+                 segment_v2::InvertedIndexQueryType /*query_type*/,
+                 std::shared_ptr<roaring::Roaring>& /*bit_map*/,
+                 const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/ = nullptr) override {
+        return Status::OK();
+    }
+
+    Status try_query(const segment_v2::IndexQueryContextPtr& /*context*/,
+                     const std::string& /*column_name*/, const Field& /*query_value*/,
+                     segment_v2::InvertedIndexQueryType /*query_type*/,
+                     size_t* /*count*/) override {
+        return Status::OK();
+    }
+
+    segment_v2::InvertedIndexReaderType type() override {
+        return segment_v2::InvertedIndexReaderType::BKD;
+    }
 };
 
 TEST_F(FunctionSearchTest, TestGetName) {
@@ -1628,6 +1707,237 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryPhrase) {
 
     auto phrase_query = std::dynamic_pointer_cast<inverted_index::query_v2::PhraseQuery>(out);
     EXPECT_NE(phrase_query, nullptr);
+}
+
+TEST_F(FunctionSearchTest, TestBuildLeafQueryVariantMissingFieldReturnsUnknown) {
+    TSearchClause clause;
+    clause.clause_type = "TERM";
+    clause.field_name = "var.items.missing";
+    clause.value = "value";
+    clause.__isset.field_name = true;
+    clause.__isset.value = true;
+
+    auto context = std::make_shared<IndexQueryContext>();
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    std::unordered_map<std::string, IndexIterator*> iterators;
+
+    TSearchFieldBinding field_binding;
+    field_binding.field_name = "var.items.missing";
+    field_binding.is_variant_subcolumn = true;
+    field_binding.__isset.is_variant_subcolumn = true;
+
+    FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
+    bool mapper_called = false;
+    resolver.set_leaf_query_mapper([&](const std::string& logical_field,
+                                       inverted_index::query_v2::QueryPtr* query) -> Status {
+        mapper_called = true;
+        EXPECT_EQ("var.items.missing", logical_field);
+        EXPECT_NE(nullptr, query);
+        EXPECT_NE(nullptr, *query);
+        return Status::OK();
+    });
+
+    inverted_index::query_v2::QueryPtr out;
+    std::string out_binding_key;
+    Status st = function_search->build_leaf_query(clause, context, resolver, &out, &out_binding_key,
+                                                  "OR", 0, 5);
+    ASSERT_TRUE(st.ok());
+    ASSERT_NE(out, nullptr);
+    EXPECT_TRUE(mapper_called);
+    EXPECT_TRUE(out_binding_key.empty());
+
+    auto weight = out->weight(false);
+    ASSERT_NE(weight, nullptr);
+    inverted_index::query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = 5;
+    auto scorer = weight->scorer(exec_ctx);
+    ASSERT_NE(scorer, nullptr);
+    EXPECT_EQ(inverted_index::query_v2::TERMINATED, scorer->doc());
+    ASSERT_TRUE(scorer->has_null_bitmap());
+    const auto* null_bitmap = scorer->get_null_bitmap();
+    ASSERT_NE(null_bitmap, nullptr);
+    EXPECT_EQ(5u, null_bitmap->cardinality());
+}
+
+TEST_F(FunctionSearchTest, TestBuildLeafQueryDirectUnknownClauseUsesLeafMapper) {
+    TSearchClause clause;
+    clause.clause_type = "PHRASE";
+    clause.field_name = "var.items.active";
+    clause.value = "true";
+    clause.__isset.field_name = true;
+    clause.__isset.value = true;
+
+    auto context = std::make_shared<IndexQueryContext>();
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    auto bool_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeBool>()));
+    data_type_with_names.emplace("var.items.active",
+                                 IndexFieldNameAndTypePair {"1.var.items.active", bool_type});
+
+    RecordingIndexIterator iterator;
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["var.items.active"] = &iterator;
+
+    FieldReaderResolver resolver(data_type_with_names, iterators, context);
+
+    FieldReaderBinding binding;
+    binding.logical_field_name = "var.items.active";
+    binding.stored_field_name = "1.var.items.active";
+    binding.stored_field_wstr = L"1.var.items.active";
+    binding.column_type = bool_type;
+    binding.query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY;
+    binding.state = SearchFieldBindingState::BOUND;
+    TabletIndex index_meta;
+    binding.inverted_reader = std::make_shared<DummyInvertedIndexReader>(&index_meta);
+
+    std::string key = resolver.binding_key_for("1.var.items.active",
+                                               InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+    binding.binding_key = key;
+    resolver._cache[key] = binding;
+
+    bool mapper_called = false;
+    resolver.set_leaf_query_mapper([&](const std::string& logical_field,
+                                       inverted_index::query_v2::QueryPtr* query) -> Status {
+        mapper_called = true;
+        EXPECT_EQ("var.items.active", logical_field);
+        EXPECT_NE(nullptr, query);
+        EXPECT_NE(nullptr, *query);
+        return Status::OK();
+    });
+
+    inverted_index::query_v2::QueryPtr out;
+    std::string out_binding_key;
+    Status st = function_search->build_leaf_query(clause, context, resolver, &out, &out_binding_key,
+                                                  "OR", 0, 4);
+    ASSERT_TRUE(st.ok());
+    ASSERT_NE(out, nullptr);
+    EXPECT_TRUE(mapper_called);
+    EXPECT_EQ(key, out_binding_key);
+    EXPECT_TRUE(iterator.last_column_name.empty());
+
+    auto weight = out->weight(false);
+    ASSERT_NE(weight, nullptr);
+    inverted_index::query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = 4;
+    auto scorer = weight->scorer(exec_ctx);
+    ASSERT_NE(scorer, nullptr);
+    EXPECT_EQ(inverted_index::query_v2::TERMINATED, scorer->doc());
+    ASSERT_TRUE(scorer->has_null_bitmap());
+    const auto* null_bitmap = scorer->get_null_bitmap();
+    ASSERT_NE(null_bitmap, nullptr);
+    EXPECT_EQ(4u, null_bitmap->cardinality());
+}
+
+TEST_F(FunctionSearchTest, TestBuildLeafQueryVariantBoolUsesDirectIndexReader) {
+    TSearchClause clause;
+    clause.clause_type = "TERM";
+    clause.field_name = "var.items.active";
+    clause.value = "true";
+    clause.__isset.field_name = true;
+    clause.__isset.value = true;
+
+    auto context = std::make_shared<IndexQueryContext>();
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    auto bool_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeBool>()));
+    data_type_with_names.emplace("var.items.active",
+                                 IndexFieldNameAndTypePair {"1.var.items.active", bool_type});
+
+    RecordingIndexIterator iterator;
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["var.items.active"] = &iterator;
+
+    FieldReaderResolver resolver(data_type_with_names, iterators, context);
+
+    FieldReaderBinding binding;
+    binding.logical_field_name = "var.items.active";
+    binding.stored_field_name = "1.var.items.active";
+    binding.stored_field_wstr = L"1.var.items.active";
+    binding.column_type = bool_type;
+    binding.query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
+    binding.state = SearchFieldBindingState::BOUND;
+    TabletIndex index_meta;
+    binding.inverted_reader = std::make_shared<DummyInvertedIndexReader>(&index_meta);
+
+    std::string key =
+            resolver.binding_key_for("1.var.items.active", InvertedIndexQueryType::MATCH_ANY_QUERY);
+    binding.binding_key = key;
+    resolver._cache[key] = binding;
+
+    inverted_index::query_v2::QueryPtr out;
+    std::string out_binding_key;
+    Status st = function_search->build_leaf_query(clause, context, resolver, &out, &out_binding_key,
+                                                  "OR", 0, 10);
+    ASSERT_TRUE(st.ok());
+    ASSERT_NE(out, nullptr);
+    EXPECT_EQ(key, out_binding_key);
+    EXPECT_EQ("1.var.items.active", iterator.last_column_name);
+    EXPECT_EQ(FieldType::OLAP_FIELD_TYPE_BOOL, iterator.last_column_storage_type);
+    EXPECT_EQ(InvertedIndexQueryType::EQUAL_QUERY, iterator.last_query_type);
+    EXPECT_EQ(TYPE_BOOLEAN, iterator.last_query_value_type);
+    EXPECT_TRUE(iterator.last_bool_value);
+
+    auto weight = out->weight(false);
+    ASSERT_NE(weight, nullptr);
+    inverted_index::query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = 10;
+    auto scorer = weight->scorer(exec_ctx, out_binding_key);
+    ASSERT_NE(scorer, nullptr);
+    EXPECT_EQ(3u, scorer->doc());
+}
+
+TEST_F(FunctionSearchTest, TestBuildLeafQueryVariantNestedIntUsesDirectIndexReader) {
+    TSearchClause clause;
+    clause.clause_type = "TERM";
+    clause.field_name = "var.items.flags.level";
+    clause.value = "3";
+    clause.__isset.field_name = true;
+    clause.__isset.value = true;
+
+    auto context = std::make_shared<IndexQueryContext>();
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    auto int_type = std::make_shared<DataTypeArray>(make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>()))));
+    data_type_with_names.emplace("var.items.flags.level",
+                                 IndexFieldNameAndTypePair {"1.var.items.flags.level", int_type});
+
+    RecordingIndexIterator iterator;
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["var.items.flags.level"] = &iterator;
+
+    FieldReaderResolver resolver(data_type_with_names, iterators, context);
+
+    FieldReaderBinding binding;
+    binding.logical_field_name = "var.items.flags.level";
+    binding.stored_field_name = "1.var.items.flags.level";
+    binding.stored_field_wstr = L"1.var.items.flags.level";
+    binding.column_type = int_type;
+    binding.query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
+    binding.state = SearchFieldBindingState::BOUND;
+    TabletIndex index_meta;
+    binding.inverted_reader = std::make_shared<DummyInvertedIndexReader>(&index_meta);
+
+    std::string key = resolver.binding_key_for("1.var.items.flags.level",
+                                               InvertedIndexQueryType::MATCH_ANY_QUERY);
+    binding.binding_key = key;
+    resolver._cache[key] = binding;
+
+    inverted_index::query_v2::QueryPtr out;
+    std::string out_binding_key;
+    Status st = function_search->build_leaf_query(clause, context, resolver, &out, &out_binding_key,
+                                                  "OR", 0, 10);
+    ASSERT_TRUE(st.ok());
+    ASSERT_NE(out, nullptr);
+    EXPECT_EQ(key, out_binding_key);
+    EXPECT_EQ("1.var.items.flags.level", iterator.last_column_name);
+    EXPECT_EQ(FieldType::OLAP_FIELD_TYPE_INT, iterator.last_column_storage_type);
+    EXPECT_EQ(InvertedIndexQueryType::EQUAL_QUERY, iterator.last_query_type);
+    EXPECT_EQ(TYPE_INT, iterator.last_query_value_type);
+    EXPECT_EQ(3, iterator.last_int_value);
 }
 
 TEST_F(FunctionSearchTest, TestMultiPhraseQueryCase) {
