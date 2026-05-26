@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
@@ -50,11 +51,12 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
                 .when(agg -> agg.getAggregateFunctions().size() == 1)
                 .when(agg -> {
                     Set<AggregateFunction> funcs = agg.getAggregateFunctions();
-                    return funcs.stream().allMatch(f -> f instanceof Count)
-                            || funcs.stream().allMatch(f -> f instanceof Avg)
-                            || funcs.stream().allMatch(f -> f instanceof Sum)
-                            || funcs.stream().allMatch(f -> f instanceof Max)
-                            || funcs.stream().allMatch(f -> f instanceof Min);
+                    return funcs.stream().allMatch(f -> f instanceof Count
+                            || f instanceof Avg
+                            || f instanceof Sum
+                            || f instanceof Max
+                            || f instanceof Min
+                            || f instanceof Ndv);
                 }).thenApply(ctx -> {
                     LogicalAggregate<Plan> agg = ctx.root;
                     Set<Expression> exprs = agg.getAggregateFunctions().stream().flatMap(f -> f.children().stream())
