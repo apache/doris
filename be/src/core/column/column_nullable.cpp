@@ -58,18 +58,21 @@ void check_nullable_sizes(const IColumn& nested_column, const IColumn& null_map)
 } // namespace
 
 namespace {
-ColumnUInt8::MutablePtr assert_mutable_null_map(const MutableColumnPtr& null_map) {
+ColumnUInt8::MutablePtr assert_mutable_null_map(MutableColumnPtr&& null_map) {
     if (is_column_const(*null_map)) [[unlikely]] {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "ColumnNullable cannot have constant null map");
     }
-    return ColumnUInt8::cast_to_column_mutptr(
+    auto mutable_null_map = ColumnUInt8::cast_to_column_mutptr(
             assert_cast<ColumnUInt8*, TypeCheckOnRelease::DISABLE>(null_map.get()));
+    null_map = nullptr;
+    return mutable_null_map;
 }
 } // namespace
 
 ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnPtr&& null_map_)
-        : ColumnNullable(std::move(nested_column_), assert_mutable_null_map(null_map_)) {}
+        : ColumnNullable(std::move(nested_column_), assert_mutable_null_map(std::move(null_map_))) {
+}
 
 ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_,
                                ColumnUInt8::MutablePtr&& null_map_)
@@ -91,7 +94,7 @@ ColumnNullable::ColumnNullable(SharedTag, ColumnPtr nested_column_, ColumnPtr nu
 
     if (const auto* nullable_nested = check_and_get_column<ColumnNullable>(nested_column_.get())) {
         auto merged_null_map = null_map_->clone_empty();
-        auto merged_null_map_ptr = assert_mutable_null_map(merged_null_map);
+        auto merged_null_map_ptr = assert_mutable_null_map(std::move(merged_null_map));
         merged_null_map_ptr->insert_range_from(*null_map_, 0, null_map_->size());
         auto& merged_null_map_data = merged_null_map_ptr->get_data();
         const auto& nested_null_map_data = nullable_nested->get_null_map_data();
