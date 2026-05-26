@@ -30,10 +30,10 @@
 #include "core/field.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
-#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vslot_ref.h"
 #include "runtime/descriptors.h"
 
@@ -808,7 +808,7 @@ Status RuntimeFilterPartitionPruner::prune_by_runtime_filters(
             continue;
         }
 
-        auto* wrapper_root = assert_cast<VRuntimeFilterWrapper*>(root.get());
+        auto* wrapper_root = assert_cast<RuntimeFilterExpr*>(root.get());
         int filter_id = wrapper_root->filter_id();
 
         VExprSPtr target_subtree = impl->children()[0];
