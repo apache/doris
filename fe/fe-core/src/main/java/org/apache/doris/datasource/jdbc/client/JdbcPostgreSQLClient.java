@@ -63,6 +63,11 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             String catalogName = getCatalogName(conn);
             rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
             while (rs.next()) {
+                // getColumns treats schema/table as LIKE patterns; drop rows pulled in via `_`/`%`.
+                if (!remoteDbName.equals(rs.getString("TABLE_SCHEM"))
+                        || !remoteTableName.equals(rs.getString("TABLE_NAME"))) {
+                    continue;
+                }
                 int dataType = rs.getInt("DATA_TYPE");
                 int arrayDimensions = 0;
                 if (dataType == Types.ARRAY) {
