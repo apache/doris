@@ -3995,6 +3995,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"连接HMS超过指定时间打印慢调用日志",
         "print a warning when the duration exceeds the specified time."})
     public static long log_slow_hms_time_ms = 5000;
+
+    @ConfField(mutable = true, description = {"当HMS调用返回的分区数量超过指定阈值时打印日志",
+        "print a warning when HMS call returns more partitions than the specified threshold"})
+    public static int log_huge_hms_partition_num = 10000;
+
     /**
      * Max pool size for loading hudi client cache
      */

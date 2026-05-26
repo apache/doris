@@ -30,6 +30,7 @@ import org.apache.doris.qe.BDPAuthContext;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
@@ -959,6 +960,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 List<Partition> partitions =
                         client.client.listPartitionsByFilterFromView(dbName, tableName, filter, maxParts);
                 MetricRepo.HISTO_HMS_API_CALL_LIST_PARTITIONS_BY_FILTER_FROM_VIEW_NUM.update(partitions.size());
+                logIfHugeHmsCall(partitions.size(), dbName, tableName);
                 return partitions;
             } catch (Exception e) {
                 client.setThrowable(e);
@@ -980,6 +982,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             try {
                 List<Partition> partitions = client.client.listPartitionsByFilter(dbName, tableName, filter, maxParts);
                 MetricRepo.HISTO_HMS_API_CALL_LIST_PARTITIONS_BY_FILTER_NUM.update(partitions.size());
+                logIfHugeHmsCall(partitions.size(), dbName, tableName);
                 return partitions;
             } catch (Exception e) {
                 client.setThrowable(e);
@@ -1012,6 +1015,30 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             tbl,
             (context != null) ? context : "N/A"
         };
+        LOG.warn(logMsg, params);
+    }
+
+    @VisibleForTesting
+    static void logIfHugeHmsCall(int partitionCount, String dbName, String tableName) {
+        if (partitionCount <= Config.log_huge_hms_partition_num) {
+            return;
+        }
+
+        BDPAuthContext context = BDPAuthContext.get();
+        String db = (dbName != null) ? dbName : "N/A";
+        String tbl = (tableName != null) ? tableName : "N/A";
+        String logMsg = "Partition count exceeds {} partitions, "
+                + "actual count {}, dbName {}, tableName {}, HMS client information: {}, query id: {}";
+
+        Object[] params = {
+            Config.log_huge_hms_partition_num,
+            partitionCount,
+            db,
+            tbl,
+            (context != null) ? context : "N/A",
+            (context != null) ? context.getQueryIdStr() : "N/A"
+        };
+
         LOG.warn(logMsg, params);
     }
 }
