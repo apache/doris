@@ -22,9 +22,11 @@
 
 #include <chrono> // IWYU pragma: keep
 #include <cstdint>
+#include <memory>
 
 #include "common/status.h"
 #include "core/column/column_const.h"
+#include "core/data_type_serde/decoded_value_reader.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
@@ -42,6 +44,46 @@ enum {
 
 namespace doris {
 static const int64_t micro_to_nano_second = 1000;
+
+namespace {
+
+class DateTimeV2DecodedValueReader final : public DecodedValueReader {
+public:
+    explicit DateTimeV2DecodedValueReader(DecodedTimeUnit time_unit) : _time_unit(time_unit) {}
+
+    Status read(IColumn& column, const DecodedColumnView& view) const override {
+        if (view.value_kind != DecodedValueKind::INT64) {
+            return Status::InvalidArgument("DATETIMEV2 decoded reader expects INT64 source");
+        }
+        if (view.values == nullptr && view.row_count > 0) {
+            return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+        }
+        auto& data = assert_cast<ColumnDateTimeV2&>(column).get_data();
+        const auto* values = reinterpret_cast<const int64_t*>(view.values);
+        static const cctz::time_zone utc_time_zone = cctz::utc_time_zone();
+        const int64_t second_mask = _time_unit == DecodedTimeUnit::MILLIS ? 1000 : 1000000;
+        for (int64_t row = 0; row < view.row_count; ++row) {
+            int64_t epoch_seconds = values[row] / second_mask;
+            int64_t sub_second = values[row] % second_mask;
+            if (sub_second < 0) {
+                sub_second += second_mask;
+                --epoch_seconds;
+            }
+            const int32_t microsecond =
+                    static_cast<int32_t>(sub_second * (1000000 / second_mask));
+            DateV2Value<DateTimeV2ValueType> datetime_value;
+            datetime_value.from_unixtime(epoch_seconds, utc_time_zone);
+            datetime_value.set_microsecond(static_cast<uint64_t>(microsecond));
+            data.push_back(datetime_value);
+        }
+        return Status::OK();
+    }
+
+private:
+    DecodedTimeUnit _time_unit = DecodedTimeUnit::UNKNOWN;
+};
+
+} // namespace
 
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
@@ -448,6 +490,18 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
         return Status::InternalError("not support convert to datetimev2 from arrow type: {}",
                                      arrow_array->type()->id());
     }
+    return Status::OK();
+}
+
+Status DataTypeDateTimeV2SerDe::create_decoded_value_reader(
+        const DecodedValueReaderOptions& options, DecodedValueReaderPtr* reader) const {
+    if (reader == nullptr) {
+        return Status::InvalidArgument("decoded value reader pointer is null");
+    }
+    if (options.value_kind != DecodedValueKind::INT64) {
+        return Status::NotSupported("DATETIMEV2 decoded reader expects INT64 source");
+    }
+    *reader = std::make_unique<DateTimeV2DecodedValueReader>(options.time_unit);
     return Status::OK();
 }
 

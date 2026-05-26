@@ -22,8 +22,10 @@
 #include <fmt/core.h>
 
 #include <cstdint>
+#include <memory>
 
 #include "core/column/column_const.h"
+#include "core/data_type_serde/decoded_value_reader.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
@@ -36,6 +38,30 @@ namespace doris {
 
 // This number represents the number of days from 0000-01-01 to 1970-01-01
 static const int32_t date_threshold = 719528;
+
+namespace {
+
+class DateV2DecodedValueReader final : public DecodedValueReader {
+public:
+    Status read(IColumn& column, const DecodedColumnView& view) const override {
+        if (view.value_kind != DecodedValueKind::INT32) {
+            return Status::InvalidArgument("DATEV2 decoded reader expects INT32 source");
+        }
+        if (view.values == nullptr && view.row_count > 0) {
+            return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+        }
+        auto& data = assert_cast<ColumnDateV2&>(column).get_data();
+        const auto* values = reinterpret_cast<const int32_t*>(view.values);
+        for (int64_t row = 0; row < view.row_count; ++row) {
+            DateV2Value<DateV2ValueType> date_v2;
+            date_v2.get_date_from_daynr(values[row] + date_threshold);
+            data.push_back(date_v2);
+        }
+        return Status::OK();
+    }
+};
+
+} // namespace
 
 Status DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                      int64_t end_idx, BufferWritable& bw,
@@ -122,6 +148,18 @@ Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
         v.get_date_from_daynr(date_value + date_threshold);
         col_data.emplace_back(v);
     }
+    return Status::OK();
+}
+
+Status DataTypeDateV2SerDe::create_decoded_value_reader(
+        const DecodedValueReaderOptions& options, DecodedValueReaderPtr* reader) const {
+    if (reader == nullptr) {
+        return Status::InvalidArgument("decoded value reader pointer is null");
+    }
+    if (options.value_kind != DecodedValueKind::INT32) {
+        return Status::NotSupported("DATEV2 decoded reader expects INT32 source");
+    }
+    *reader = std::make_unique<DateV2DecodedValueReader>();
     return Status::OK();
 }
 

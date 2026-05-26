@@ -50,8 +50,16 @@ class ParquetColumnReader {
 public:
     virtual ~ParquetColumnReader() = default;
 
+    // FileReader 暴露给上层 scan request 的 file-local column id。
+    // 对 top-level primitive 列，它通常等于 Parquet leaf column id；对 struct/list/map
+    // 这类复杂列，它表示 file schema tree 中的逻辑字段 id。
     virtual int file_column_id() const = 0;
-    virtual int parquet_column_ordinal() const = 0;
+
+    // Parquet 文件内部的 leaf column id，用于访问 RowGroupReader::RecordReader、
+    // ColumnChunk metadata、statistics/page index 等 Parquet 物理列结构。
+    // 只有 primitive leaf reader 有有效值；复杂列 reader 没有单一 leaf column，返回 -1。
+    virtual int parquet_leaf_column_id() const = 0;
+
     virtual const DataTypePtr& type() const = 0;
     virtual const std::string& name() const = 0;
 
@@ -93,7 +101,8 @@ private:
                              const std::string& name,
                              std::shared_ptr<::parquet::internal::RecordReader>* reader) const;
 
-    Status create_primitive_reader(int file_column_id, const ParquetTypeDescriptor& type_descriptor,
+    Status create_primitive_reader(int parquet_leaf_column_id,
+                                   const ParquetTypeDescriptor& type_descriptor,
                                    const ::parquet::ColumnDescriptor* descriptor, DataTypePtr type,
                                    std::string name,
                                    std::shared_ptr<::parquet::internal::RecordReader> record_reader,

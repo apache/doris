@@ -67,6 +67,8 @@ public:
     template <typename DecimalDataType>
     Status from_decimal_strict_mode_batch(const typename DecimalDataType::ColumnType& decimal_col,
                                           IColumn& target_col) const;
+    Status create_decoded_value_reader(const DecodedValueReaderOptions& options,
+                                       DecodedValueReaderPtr* reader) const override;
     int get_scale() const override { return _scale; }
 
 protected:

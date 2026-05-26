@@ -47,6 +47,9 @@ enum class ParquetColumnSchemaKind {
 // 它描述 Parquet 逻辑字段到 leaf column ordinal 的关系，不包含 table/global schema 语义。
 struct ParquetColumnSchema {
     int field_id = -1;
+    // Parquet schema 中的 primitive leaf column ordinal。
+    // 该 id 用于访问 ColumnDescriptor、RowGroupReader::RecordReader、ColumnChunk
+    // metadata 和 statistics。复杂类型节点本身没有单一 leaf column，因此为 -1。
     int leaf_column_id = -1;
     std::string name;
     DataTypePtr type;

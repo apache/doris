@@ -313,7 +313,9 @@ ParquetTypeDescriptor resolve_parquet_type(const ::parquet::ColumnDescriptor* co
     }
     if (direct_flat_primitive_doris_type(column) != nullptr || result.is_string_like ||
         (result.is_decimal && result.decimal_precision <= 38) ||
-        (result.is_timestamp && result.physical_type == ::parquet::Type::INT64)) {
+        (result.is_timestamp && result.physical_type == ::parquet::Type::INT64) ||
+        remove_nullable(result.doris_type)->get_primitive_type() == TYPE_DATEV2 ||
+        remove_nullable(result.doris_type)->get_primitive_type() == TYPE_TIMEV2) {
         result.supports_record_reader = true;
     }
     return result;

@@ -34,6 +34,12 @@
 namespace doris {
 DataTypeSerDe::~DataTypeSerDe() = default;
 
+Status DataTypeSerDe::create_decoded_value_reader(const DecodedValueReaderOptions& options,
+                                                  DecodedValueReaderPtr* reader) const {
+    return Status::NotSupported("create_decoded_value_reader is not supported for {}",
+                                get_name());
+}
+
 DataTypeSerDeSPtrs create_data_type_serdes(const DataTypes& types) {
     DataTypeSerDeSPtrs serdes;
     serdes.reserve(types.size());

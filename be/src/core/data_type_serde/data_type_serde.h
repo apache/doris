@@ -27,6 +27,7 @@
 #include "common/cast_set.h"
 #include "common/status.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type_serde/decoded_value_reader.h"
 #include "core/field.h"
 #include "core/string_buffer.hpp"
 #include "core/types.h"
@@ -484,6 +485,12 @@ public:
     virtual Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                           int64_t start, int64_t end,
                                           const cctz::time_zone& ctz) const = 0;
+
+    // Bind a reader for already decoded column values. The input view is format-neutral:
+    // file readers translate their decoder output into DecodedColumnView, while SerDe owns
+    // the Doris-type-specific materialization into IColumn.
+    virtual Status create_decoded_value_reader(const DecodedValueReaderOptions& options,
+                                               DecodedValueReaderPtr* reader) const;
 
     // ORC serializer
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,
