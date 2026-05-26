@@ -162,7 +162,6 @@ DataTypePtr logical_type_to_doris_type(const ::parquet::ColumnDescriptor* column
         const auto& timestamp_type =
                 static_cast<const ::parquet::TimestampLogicalType&>(*logical_type);
         int scale = 0;
-        result->is_timestamp = true;
         if (timestamp_type.time_unit() == ::parquet::LogicalType::TimeUnit::MILLIS) {
             scale = 3;
             result->time_unit = ParquetTimeUnit::MILLIS;
@@ -174,6 +173,7 @@ DataTypePtr logical_type_to_doris_type(const ::parquet::ColumnDescriptor* column
         } else {
             return nullptr;
         }
+        result->is_timestamp = true;
         return create_type(TYPE_DATETIMEV2, nullable, 0, scale);
     }
     if (logical_type->is_int()) {
@@ -264,6 +264,26 @@ bool record_reader_physical_type_supported(::parquet::Type::type physical_type) 
     }
 }
 
+bool record_reader_integer_annotation_supported(const ::parquet::ColumnDescriptor* column,
+                                                const DataTypePtr& doris_type) {
+    const auto& logical_type = column->logical_type();
+    const bool has_int_logical_type =
+            logical_type != nullptr && logical_type->is_valid() && logical_type->is_int();
+    const bool has_int_converted_type =
+            column->converted_type() == ::parquet::ConvertedType::INT_8 ||
+            column->converted_type() == ::parquet::ConvertedType::UINT_8 ||
+            column->converted_type() == ::parquet::ConvertedType::INT_16 ||
+            column->converted_type() == ::parquet::ConvertedType::UINT_16 ||
+            column->converted_type() == ::parquet::ConvertedType::INT_32 ||
+            column->converted_type() == ::parquet::ConvertedType::UINT_32 ||
+            column->converted_type() == ::parquet::ConvertedType::INT_64 ||
+            column->converted_type() == ::parquet::ConvertedType::UINT_64;
+    auto primitive_type = remove_nullable(doris_type)->get_primitive_type();
+    return (has_int_logical_type || has_int_converted_type) &&
+           (primitive_type == TYPE_TINYINT || primitive_type == TYPE_SMALLINT ||
+            primitive_type == TYPE_INT || primitive_type == TYPE_BIGINT);
+}
+
 } // namespace
 
 std::string parquet_column_name(const ::parquet::ColumnDescriptor* column) {
@@ -314,6 +334,7 @@ ParquetTypeDescriptor resolve_parquet_type(const ::parquet::ColumnDescriptor* co
     if (direct_flat_primitive_doris_type(column) != nullptr || result.is_string_like ||
         (result.is_decimal && result.decimal_precision <= 38) ||
         (result.is_timestamp && result.physical_type == ::parquet::Type::INT64) ||
+        record_reader_integer_annotation_supported(column, result.doris_type) ||
         remove_nullable(result.doris_type)->get_primitive_type() == TYPE_DATEV2 ||
         remove_nullable(result.doris_type)->get_primitive_type() == TYPE_TIMEV2) {
         result.supports_record_reader = true;
