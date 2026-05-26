@@ -360,11 +360,11 @@ public class Alter {
                 .alterTable(oldBaseTableInfo, newBaseTableInfo, currentAlterOps.hasReplaceTableOp());
         }
 
-        olapTable.writeLock();
+        olapTable.readLock();
         try {
             Env.getCurrentEnv().notifyTableMetaChange(olapTable);
         } finally {
-            olapTable.writeUnlock();
+            olapTable.readUnlock();
         }
         return needProcessOutsideTableLock;
     }

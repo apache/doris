@@ -31,7 +31,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 /**
- * Persist payload for {@link OperationType#OP_TABLE_META_OPERATION}.
+ * Persist payload for {@link OperationType#OP_TABLE_META_CHANGE}.
  * Generic "an operation modified this table's metadata" signal that follower
  * FEs use to invalidate any local FE caches keyed by the table (sql cache,
  * sorted partition cache, and future per-table caches). This is about
