@@ -81,7 +81,7 @@ suite("test_streaming_mysql_job_server_id", "p0,external,mysql,external_docker,e
                 "${jobName}: expected error containing '${expectFragment}', got: ${thrown.message}"
     }
 
-    def runHappyPath = { String jobName, String extraProps ->
+    def runHappyPath = { String jobName, String extraProps, Closure binlogCheck = null ->
         sql "DROP JOB IF EXISTS where jobname = '${jobName}'"
         sql "DROP TABLE IF EXISTS ${currentDb}.${srcTable} FORCE"
         try {
@@ -95,6 +95,9 @@ suite("test_streaming_mysql_job_server_id", "p0,external,mysql,external_docker,e
             })
             def rows = sql """SELECT name FROM ${currentDb}.${srcTable} ORDER BY name"""
             assert rows.size() == 2, "${jobName}: expected 2 rows, got ${rows.size()}"
+            if (binlogCheck != null) {
+                binlogCheck()
+            }
         } finally {
             sql "DROP JOB IF EXISTS where jobname = '${jobName}'"
         }
@@ -112,7 +115,18 @@ suite("test_streaming_mysql_job_server_id", "p0,external,mysql,external_docker,e
             "snapshot_parallelism")
 
     // ─── Section 2: happy path — job runs, data syncs ────────────────────────
-    runHappyPath("test_serverid_single", '"server_id" = "99001"')
+    // single value + binlog increment covers BinlogSplitReader binding startServerId.
+    runHappyPath("test_serverid_single", '"server_id" = "99001"') {
+        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+            sql "INSERT INTO ${mysqlDb}.${srcTable} VALUES ('C', 3)"
+            sql "UPDATE ${mysqlDb}.${srcTable} SET age = 99 WHERE name = 'A'"
+            sql "DELETE FROM ${mysqlDb}.${srcTable} WHERE name = 'B'"
+        }
+        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+            def after = sql "SELECT name, age FROM ${currentDb}.${srcTable} ORDER BY name"
+            after.size() == 2 && after[0][0] == 'A' && after[0][1] == 99 && after[1][0] == 'C'
+        })
+    }
     runHappyPath("test_serverid_range",
             '"server_id" = "99100-99103", "snapshot_parallelism" = "4", "snapshot_split_size" = "1"')
     runHappyPath("test_serverid_default", '"snapshot_parallelism" = "2"')

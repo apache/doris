@@ -144,8 +144,6 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
 
-        // Initialize thread pool for parallel polling. server_id is validated at the FE;
-        // resolveServerIdRange is invoked lazily by generateMySqlConfig per reader.
         int parallelism =
                 Integer.parseInt(
                         config.getOrDefault(
