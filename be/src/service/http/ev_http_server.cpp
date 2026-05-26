@@ -31,7 +31,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include <algorithm>
 #include <memory>
 #include <sstream>
 

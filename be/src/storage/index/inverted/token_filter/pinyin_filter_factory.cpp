@@ -17,7 +17,6 @@
 
 #include "storage/index/inverted/token_filter/pinyin_filter_factory.h"
 
-#include <algorithm>
 #include <stdexcept>
 #include <string>
 

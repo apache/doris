@@ -19,7 +19,6 @@
 
 #include <gen_cpp/segment_v2.pb.h>
 
-#include <algorithm>
 #include <filesystem>
 #include <ostream>
 #include <string>

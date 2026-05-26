@@ -19,7 +19,6 @@
 
 #include <stdio.h>
 
-#include <algorithm>
 #include <cinttypes>
 #include <cmath>
 #include <limits>

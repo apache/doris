@@ -24,7 +24,6 @@
 #include <rocksdb/filter_policy.h>
 #include <rocksdb/table.h>
 
-#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <optional>

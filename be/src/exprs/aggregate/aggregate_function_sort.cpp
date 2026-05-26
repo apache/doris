@@ -17,8 +17,6 @@
 
 #include "exprs/aggregate/aggregate_function_sort.h"
 
-#include <algorithm>
-
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
 namespace doris {

@@ -20,8 +20,6 @@
 #include <gen_cpp/Exprs_types.h>
 #include <glog/logging.h>
 
-#include <algorithm>
-
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"

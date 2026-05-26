@@ -17,8 +17,6 @@
 
 #include "exprs/aggregate/aggregate_function_hll_union_agg.h"
 
-#include <algorithm>
-
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 

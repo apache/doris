@@ -17,7 +17,6 @@
 
 #include "exprs/aggregate/aggregate_function_reader.h"
 
-#include <algorithm>
 #include <string>
 
 #include "exprs/aggregate/aggregate_function_bitmap.h"

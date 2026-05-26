@@ -23,7 +23,6 @@
 #include <glog/logging.h>
 #include <sys/types.h>
 
-#include <algorithm>
 #include <ostream>
 
 #include "core/block/block.h"

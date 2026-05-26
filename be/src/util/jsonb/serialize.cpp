@@ -19,7 +19,6 @@
 
 #include <assert.h>
 
-#include <algorithm>
 #include <memory>
 #include <unordered_set>
 #include <vector>

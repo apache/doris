@@ -21,7 +21,6 @@
 #include <glog/logging.h>
 #include <stddef.h>
 
-#include <algorithm>
 #include <memory>
 #include <unordered_set>
 #include <utility>

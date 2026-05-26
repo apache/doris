@@ -24,7 +24,6 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-#include <algorithm>
 #include <ostream>
 #include <string>
 #include <type_traits>

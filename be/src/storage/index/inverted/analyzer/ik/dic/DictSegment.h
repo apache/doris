@@ -20,7 +20,6 @@
 #include <CLucene.h>
 #include <parallel_hashmap/phmap.h>
 
-#include <algorithm>
 #include <array>
 #include <cassert>
 #include <memory>

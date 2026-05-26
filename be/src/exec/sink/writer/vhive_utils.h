@@ -19,7 +19,6 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
-#include <algorithm>
 #include <iostream>
 #include <regex>
 #include <sstream>

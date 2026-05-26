@@ -17,7 +17,6 @@
 
 #include "format/parquet/byte_array_plain_decoder.h"
 
-#include <algorithm>
 #include <vector>
 
 #include "core/column/column.h"

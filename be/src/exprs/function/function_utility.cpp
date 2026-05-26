@@ -18,7 +18,6 @@
 
 #include <boost/iterator/iterator_facade.hpp>
 // IWYU pragma: no_include <bits/chrono.h>
-#include <algorithm>
 #include <chrono> // IWYU pragma: keep
 #include <memory>
 #include <string>

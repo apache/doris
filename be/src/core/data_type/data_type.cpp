@@ -24,7 +24,6 @@
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/types.pb.h>
 
-#include <algorithm>
 #include <utility>
 
 #include "common/logging.h"

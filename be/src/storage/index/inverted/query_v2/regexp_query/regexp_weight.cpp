@@ -33,7 +33,6 @@
 #endif
 #include <gen_cpp/PaloBrokerService_types.h>
 
-#include <algorithm>
 #include <string>
 
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_scorer.h"

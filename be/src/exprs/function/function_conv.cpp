@@ -20,7 +20,6 @@
 
 #include <boost/iterator/iterator_facade.hpp>
 // IWYU pragma: no_include <bits/std_abs.h>
-#include <algorithm>
 #include <cmath> // IWYU pragma: keep
 #include <memory>
 #include <utility>
