@@ -291,9 +291,9 @@ Status read_filter_columns(ParquetReaderScanState* state, int64_t batch_rows,
     for (size_t filter_idx = 0; filter_idx < state->filter_fields.size(); ++filter_idx) {
         const int file_field_id = state->filter_fields[filter_idx];
         auto& column_reader = state->current_filter_columns[filter_idx];
-        MutableColumnPtr column;
+        MutableColumnPtr column = column_reader->type()->create_column();
         int64_t column_rows = 0;
-        RETURN_IF_ERROR(column_reader->read(batch_rows, &column, &column_rows));
+        RETURN_IF_ERROR(column_reader->read(batch_rows, column, &column_rows));
         if (column_rows != batch_rows) {
             return Status::Corruption("Parquet filter column {} returned {} rows, expected {} rows",
                                       column_reader->name(), column_rows, batch_rows);
@@ -487,9 +487,9 @@ Status read_current_row_group_batch(ParquetReaderScanState* state, int64_t batch
     decoded_output_columns.reserve(state->current_output_columns.size());
     for (size_t output_idx = 0; output_idx < state->current_output_columns.size(); ++output_idx) {
         auto& column_reader = state->current_output_columns[output_idx];
-        MutableColumnPtr column;
+        MutableColumnPtr column = column_reader->type()->create_column();
         if (need_filter_output) {
-            RETURN_IF_ERROR(column_reader->select(selection, selected_rows, batch_rows, &column));
+            RETURN_IF_ERROR(column_reader->select(selection, selected_rows, batch_rows, column));
             if (column->size() != selected_rows) {
                 return Status::Corruption(
                         "Parquet selected output column {} returned {} rows, expected {} rows",
@@ -497,7 +497,7 @@ Status read_current_row_group_batch(ParquetReaderScanState* state, int64_t batch
             }
         } else {
             int64_t column_rows = 0;
-            RETURN_IF_ERROR(column_reader->read(batch_rows, &column, &column_rows));
+            RETURN_IF_ERROR(column_reader->read(batch_rows, column, &column_rows));
             if (column_rows != batch_rows) {
                 return Status::Corruption(
                         "Parquet output column {} returned {} rows, expected {} rows",

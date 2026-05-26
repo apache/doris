@@ -57,7 +57,7 @@ public:
     const DataTypePtr& type() const override { return _type; }
     const std::string& name() const override { return _name; }
 
-    Status read(int64_t rows, MutableColumnPtr* column, int64_t* rows_read) override;
+    Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
 
     const ::parquet::ColumnDescriptor* descriptor() const { return _descriptor; }
@@ -89,7 +89,7 @@ public:
     const DataTypePtr& type() const override { return _type; }
     const std::string& name() const override { return _name; }
 
-    Status read(int64_t rows, MutableColumnPtr* column, int64_t* rows_read) override;
+    Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
 
 private:
@@ -277,8 +277,8 @@ Status build_binary_values(const ScalarColumnReader& column_reader,
 
 } // namespace
 
-Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr* column, int64_t* rows_read) {
-    if (column == nullptr || rows_read == nullptr) {
+Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
+    if (column.get() == nullptr || rows_read == nullptr) {
         return Status::InvalidArgument("Invalid parquet column read result pointer for column {}",
                                        _name);
     }
@@ -314,10 +314,7 @@ Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr* column, int64_t*
         view.values = record_reader->values();
     }
 
-    if (*column == nullptr) {
-        *column = _type->create_column();
-    }
-    RETURN_IF_ERROR(_type->get_serde()->read_column_from_decoded_values(*column->get(), view));
+    RETURN_IF_ERROR(_type->get_serde()->read_column_from_decoded_values(*column, view));
     return Status::OK();
 }
 
@@ -352,26 +349,25 @@ Status ScalarColumnReader::skip(int64_t rows) {
     return Status::OK();
 }
 
-Status StructColumnReader::read(int64_t rows, MutableColumnPtr* column, int64_t* rows_read) {
-    if (column == nullptr || rows_read == nullptr) {
+Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
+    if (column.get() == nullptr || rows_read == nullptr) {
         return Status::InvalidArgument("Invalid parquet struct read result pointer for column {}",
                                        _name);
     }
     if (_children.empty()) {
-        auto result_column = _type->create_column();
-        result_column->resize(static_cast<size_t>(rows));
-        *column = std::move(result_column);
+        column->resize(static_cast<size_t>(rows));
         *rows_read = rows;
         return Status::OK();
     }
 
-    MutableColumns child_columns;
-    child_columns.reserve(_children.size());
     int64_t expected_rows = -1;
+    size_t child_idx = 0;
+    DCHECK_EQ(assert_cast<ColumnStruct&>(*column).get_columns().size(), _children.size());
     for (auto& child_reader : _children) {
-        MutableColumnPtr child_column;
         int64_t child_rows = 0;
-        RETURN_IF_ERROR(child_reader->read(rows, &child_column, &child_rows));
+        auto child_column =
+                assert_cast<ColumnStruct&>(*column).get_column_ptr(child_idx)->assume_mutable();
+        RETURN_IF_ERROR(child_reader->read(rows, child_column, &child_rows));
         if (expected_rows < 0) {
             expected_rows = child_rows;
         } else if (child_rows != expected_rows) {
@@ -379,11 +375,10 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr* column, int64_t*
                     "Parquet struct children returned different row counts in column {}: {} vs {}",
                     _name, expected_rows, child_rows);
         }
-        child_columns.push_back(std::move(child_column));
+        child_idx++;
     }
 
     *rows_read = std::max<int64_t>(expected_rows, 0);
-    *column = ColumnStruct::create(std::move(child_columns));
     return Status::OK();
 }
 
@@ -402,8 +397,8 @@ Status ParquetColumnReader::skip(int64_t rows) {
 }
 
 Status ParquetColumnReader::select(const SelectionVector& sel, uint16_t selected_rows,
-                                   int64_t batch_rows, MutableColumnPtr* column) {
-    if (column == nullptr) {
+                                   int64_t batch_rows, MutableColumnPtr& column) {
+    if (column.get() == nullptr) {
         return Status::InvalidArgument("Parquet selected read result is null for column {}",
                                        name());
     }

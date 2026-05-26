@@ -137,9 +137,9 @@ protected:
 
 TEST_F(ParquetColumnReaderTest, ReadPrimitiveColumnsFromParquetFile) {
     auto int_reader = create_reader(0);
-    MutableColumnPtr int_column;
+    MutableColumnPtr int_column = int_reader->type()->create_column();
     int64_t rows_read = 0;
-    auto st = int_reader->read(5, &int_column, &rows_read);
+    auto st = int_reader->read(5, int_column, &rows_read);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(rows_read, 5);
 
@@ -149,8 +149,8 @@ TEST_F(ParquetColumnReaderTest, ReadPrimitiveColumnsFromParquetFile) {
     EXPECT_EQ(int_values.get_element(4), 50);
 
     auto string_reader = create_reader(1);
-    MutableColumnPtr string_column;
-    st = string_reader->read(5, &string_column, &rows_read);
+    MutableColumnPtr string_column = string_reader->type()->create_column();
+    st = string_reader->read(5, string_column, &rows_read);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(rows_read, 5);
 
@@ -160,8 +160,8 @@ TEST_F(ParquetColumnReaderTest, ReadPrimitiveColumnsFromParquetFile) {
     EXPECT_EQ(string_values.get_data_at(3).to_string(), "delta");
 
     auto bool_reader = create_reader(3);
-    MutableColumnPtr bool_column;
-    st = bool_reader->read(5, &bool_column, &rows_read);
+    MutableColumnPtr bool_column = bool_reader->type()->create_column();
+    st = bool_reader->read(5, bool_column, &rows_read);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(rows_read, 5);
 
@@ -173,9 +173,9 @@ TEST_F(ParquetColumnReaderTest, ReadPrimitiveColumnsFromParquetFile) {
 
 TEST_F(ParquetColumnReaderTest, ReadNullableColumnFromParquetFile) {
     auto reader = create_reader(2);
-    MutableColumnPtr column;
+    MutableColumnPtr column = reader->type()->create_column();
     int64_t rows_read = 0;
-    auto st = reader->read(5, &column, &rows_read);
+    auto st = reader->read(5, column, &rows_read);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(rows_read, 5);
 
@@ -197,9 +197,9 @@ TEST_F(ParquetColumnReaderTest, SkipThenRead) {
     auto st = reader->skip(2);
     ASSERT_TRUE(st.ok()) << st;
 
-    MutableColumnPtr column;
+    MutableColumnPtr column = reader->type()->create_column();
     int64_t rows_read = 0;
-    st = reader->read(2, &column, &rows_read);
+    st = reader->read(2, column, &rows_read);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(rows_read, 2);
 
@@ -216,8 +216,8 @@ TEST_F(ParquetColumnReaderTest, SelectReadsOnlySelectedRanges) {
     selection.set_index(1, 2);
     selection.set_index(2, 4);
 
-    MutableColumnPtr column;
-    auto st = reader->select(selection, 3, 5, &column);
+    MutableColumnPtr column = reader->type()->create_column();
+    auto st = reader->select(selection, 3, 5, column);
     ASSERT_TRUE(st.ok()) << st;
 
     const auto& int_values = assert_cast<const ColumnInt32&>(*column);
