@@ -17,9 +17,7 @@
 
 #include "core/data_type_serde/data_type_time_serde.h"
 
-#include <memory>
-
-#include "core/data_type_serde/decoded_value_reader.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
@@ -30,48 +28,29 @@
 namespace doris {
 namespace {
 
-class TimeV2DecodedValueReader final : public DecodedValueReader {
-public:
-    explicit TimeV2DecodedValueReader(DecodedTimeUnit time_unit) : _time_unit(time_unit) {}
-
-    Status read(IColumn& column, const DecodedColumnView& view) const override {
-        if (view.values == nullptr && view.row_count > 0) {
-            return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+TimeValue::TimeType read_time_decoded_value(const DecodedColumnView& view, int64_t row) {
+    int64_t micros = 0;
+    if (view.value_kind == DecodedValueKind::INT32) {
+        const auto* values = reinterpret_cast<const int32_t*>(view.values);
+        micros = static_cast<int64_t>(values[row]) * 1000;
+    } else {
+        const auto* values = reinterpret_cast<const int64_t*>(view.values);
+        micros = values[row];
+        if (view.time_unit == DecodedTimeUnit::MILLIS) {
+            micros *= 1000;
+        } else if (view.time_unit == DecodedTimeUnit::NANOS) {
+            micros /= 1000;
         }
-        auto& data = assert_cast<ColumnTimeV2&>(column).get_data();
-        for (int64_t row = 0; row < view.row_count; ++row) {
-            data.push_back(read_time_value(view, row));
-        }
-        return Status::OK();
     }
-
-private:
-    TimeValue::TimeType read_time_value(const DecodedColumnView& view, int64_t row) const {
-        int64_t micros = 0;
-        if (view.value_kind == DecodedValueKind::INT32) {
-            const auto* values = reinterpret_cast<const int32_t*>(view.values);
-            micros = static_cast<int64_t>(values[row]) * 1000;
-        } else {
-            const auto* values = reinterpret_cast<const int64_t*>(view.values);
-            micros = values[row];
-            if (_time_unit == DecodedTimeUnit::MILLIS) {
-                micros *= 1000;
-            } else if (_time_unit == DecodedTimeUnit::NANOS) {
-                micros /= 1000;
-            }
-        }
-        const bool negative = micros < 0;
-        const int64_t abs_micros = std::abs(micros);
-        return TimeValue::make_time(abs_micros / TimeValue::ONE_HOUR_MICROSECONDS,
-                                    (abs_micros % TimeValue::ONE_HOUR_MICROSECONDS) /
-                                            TimeValue::ONE_MINUTE_MICROSECONDS,
-                                    (abs_micros % TimeValue::ONE_MINUTE_MICROSECONDS) /
-                                            TimeValue::ONE_SECOND_MICROSECONDS,
-                                    abs_micros % TimeValue::ONE_SECOND_MICROSECONDS, negative);
-    }
-
-    DecodedTimeUnit _time_unit = DecodedTimeUnit::UNKNOWN;
-};
+    const bool negative = micros < 0;
+    const int64_t abs_micros = std::abs(micros);
+    return TimeValue::make_time(abs_micros / TimeValue::ONE_HOUR_MICROSECONDS,
+                                (abs_micros % TimeValue::ONE_HOUR_MICROSECONDS) /
+                                        TimeValue::ONE_MINUTE_MICROSECONDS,
+                                (abs_micros % TimeValue::ONE_MINUTE_MICROSECONDS) /
+                                        TimeValue::ONE_SECOND_MICROSECONDS,
+                                abs_micros % TimeValue::ONE_SECOND_MICROSECONDS, negative);
+}
 
 } // namespace
 
@@ -194,16 +173,19 @@ Status DataTypeTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn& col
     return Status::OK();
 }
 
-Status DataTypeTimeV2SerDe::create_decoded_value_reader(
-        const DecodedValueReaderOptions& options, DecodedValueReaderPtr* reader) const {
-    if (reader == nullptr) {
-        return Status::InvalidArgument("decoded value reader pointer is null");
-    }
-    if (options.value_kind != DecodedValueKind::INT32 &&
-        options.value_kind != DecodedValueKind::INT64) {
+Status DataTypeTimeV2SerDe::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
+    if (view.value_kind != DecodedValueKind::INT32 &&
+        view.value_kind != DecodedValueKind::INT64) {
         return Status::NotSupported("TIMEV2 decoded reader expects INT32 or INT64 source");
     }
-    *reader = std::make_unique<TimeV2DecodedValueReader>(options.time_unit);
+    if (view.values == nullptr && view.row_count > 0) {
+        return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+    }
+    auto& data = assert_cast<ColumnTimeV2&>(column).get_data();
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        data.push_back(read_time_decoded_value(view, row));
+    }
     return Status::OK();
 }
 

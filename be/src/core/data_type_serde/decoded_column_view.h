@@ -19,7 +19,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <memory>
 #include <vector>
 
 #include "common/status.h"
@@ -48,30 +47,16 @@ enum class DecodedTimeUnit {
     NANOS,
 };
 
-struct DecodedValueReaderOptions {
+struct DecodedColumnView {
     DecodedValueKind value_kind = DecodedValueKind::INT32;
     DecodedTimeUnit time_unit = DecodedTimeUnit::UNKNOWN;
+    int64_t row_count = 0;
     int decimal_precision = -1;
     int decimal_scale = -1;
     int fixed_length = -1;
-};
-
-struct DecodedColumnView {
-    DecodedValueKind value_kind = DecodedValueKind::INT32;
-    int64_t row_count = 0;
     const uint8_t* values = nullptr;
     const uint8_t* null_map = nullptr;
     const std::vector<StringRef>* binary_values = nullptr;
 };
-
-// DataTypeSerDe 在 bind 阶段创建的轻量读值对象。
-// 查询热路径只调用 read，不再根据 Doris/format type 重复分发。
-class DecodedValueReader {
-public:
-    virtual ~DecodedValueReader() = default;
-    virtual Status read(IColumn& column, const DecodedColumnView& view) const = 0;
-};
-
-using DecodedValueReaderPtr = std::unique_ptr<DecodedValueReader>;
 
 } // namespace doris

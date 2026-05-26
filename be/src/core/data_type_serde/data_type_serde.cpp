@@ -34,9 +34,9 @@
 namespace doris {
 DataTypeSerDe::~DataTypeSerDe() = default;
 
-Status DataTypeSerDe::create_decoded_value_reader(const DecodedValueReaderOptions& options,
-                                                  DecodedValueReaderPtr* reader) const {
-    return Status::NotSupported("create_decoded_value_reader is not supported for {}",
+Status DataTypeSerDe::read_column_from_decoded_values(IColumn& column,
+                                                      const DecodedColumnView& view) const {
+    return Status::NotSupported("read_column_from_decoded_values is not supported for {}",
                                 get_name());
 }
 

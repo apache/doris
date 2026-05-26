@@ -32,7 +32,7 @@
 
 #include "core/column/column.h"
 #include "core/column/column_struct.h"
-#include "core/data_type_serde/decoded_value_reader.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type/data_type_nullable.h"
 #include "format/new_parquet/parquet_column_schema.h"
 
@@ -43,16 +43,14 @@ class PrimitiveColumnReader final : public ParquetColumnReader {
 public:
     PrimitiveColumnReader(int parquet_leaf_column_id, const ::parquet::ColumnDescriptor* descriptor,
                           ParquetTypeDescriptor type_descriptor, DataTypePtr type, std::string name,
-                          std::shared_ptr<::parquet::internal::RecordReader> record_reader,
-                          DecodedValueReaderPtr decoded_value_reader)
+                          std::shared_ptr<::parquet::internal::RecordReader> record_reader)
             : _file_column_id(parquet_leaf_column_id),
               _parquet_leaf_column_id(parquet_leaf_column_id),
               _descriptor(descriptor),
               _type_descriptor(std::move(type_descriptor)),
               _type(std::move(type)),
               _name(std::move(name)),
-              _record_reader(std::move(record_reader)),
-              _decoded_value_reader(std::move(decoded_value_reader)) {}
+              _record_reader(std::move(record_reader)) {}
 
     int file_column_id() const override { return _file_column_id; }
     int parquet_leaf_column_id() const override { return _parquet_leaf_column_id; }
@@ -75,7 +73,6 @@ private:
     DataTypePtr _type;
     std::string _name;
     std::shared_ptr<::parquet::internal::RecordReader> _record_reader;
-    DecodedValueReaderPtr _decoded_value_reader;
 };
 
 class StructColumnReader final : public ParquetColumnReader {
@@ -217,17 +214,6 @@ DecodedValueKind decoded_value_kind(const ParquetTypeDescriptor& type_descriptor
     }
 }
 
-DecodedValueReaderOptions decoded_value_reader_options(
-        const ParquetTypeDescriptor& type_descriptor) {
-    DecodedValueReaderOptions options;
-    options.value_kind = decoded_value_kind(type_descriptor);
-    options.time_unit = decoded_time_unit(type_descriptor.time_unit);
-    options.decimal_precision = type_descriptor.decimal_precision;
-    options.decimal_scale = type_descriptor.decimal_scale;
-    options.fixed_length = type_descriptor.fixed_length;
-    return options;
-}
-
 Status build_null_map(const PrimitiveColumnReader& column_reader,
                       ::parquet::internal::RecordReader& record_reader, int64_t records_read,
                       std::vector<uint8_t>* null_map) {
@@ -310,10 +296,6 @@ Status PrimitiveColumnReader::read(int64_t rows, MutableColumnPtr* column, int64
         return Status::InternalError("Parquet record reader is not initialized for column {}",
                                      _name);
     }
-    if (_decoded_value_reader == nullptr) {
-        return Status::InternalError("Decoded value reader is not initialized for column {}", _name);
-    }
-
     ::parquet::internal::RecordReader* record_reader = nullptr;
     RETURN_IF_ERROR(read_records(*this, rows, &record_reader, rows_read));
     if (record_reader->values_written() != *rows_read) {
@@ -328,7 +310,11 @@ Status PrimitiveColumnReader::read(int64_t rows, MutableColumnPtr* column, int64
     std::vector<StringRef> binary_values;
     DecodedColumnView view;
     view.value_kind = decoded_value_kind(_type_descriptor);
+    view.time_unit = decoded_time_unit(_type_descriptor.time_unit);
     view.row_count = *rows_read;
+    view.decimal_precision = _type_descriptor.decimal_precision;
+    view.decimal_scale = _type_descriptor.decimal_scale;
+    view.fixed_length = _type_descriptor.fixed_length;
     view.null_map = null_map.empty() ? nullptr : null_map.data();
     if (view.value_kind == DecodedValueKind::BINARY ||
         view.value_kind == DecodedValueKind::FIXED_BINARY) {
@@ -339,7 +325,7 @@ Status PrimitiveColumnReader::read(int64_t rows, MutableColumnPtr* column, int64
     }
 
     auto result_column = _type->create_column();
-    RETURN_IF_ERROR(_decoded_value_reader->read(*result_column, view));
+    RETURN_IF_ERROR(_type->get_serde()->read_column_from_decoded_values(*result_column, view));
     *column = std::move(result_column);
     return Status::OK();
 }
@@ -478,13 +464,9 @@ Status ParquetColumnReaderFactory::create_primitive_reader(
         return Status::InvalidArgument("Invalid parquet column reader arguments for column {}",
                                        name);
     }
-    DecodedValueReaderPtr decoded_value_reader;
-    RETURN_IF_ERROR(type->get_serde()->create_decoded_value_reader(
-            decoded_value_reader_options(type_descriptor), &decoded_value_reader));
     *reader = std::make_unique<PrimitiveColumnReader>(parquet_leaf_column_id, descriptor,
                                                       type_descriptor, std::move(type),
-                                                      std::move(name), std::move(record_reader),
-                                                      std::move(decoded_value_reader));
+                                                      std::move(name), std::move(record_reader));
     return Status::OK();
 }
 

@@ -22,7 +22,6 @@
 #include <arrow/builder.h>
 #include <arrow/util/decimal.h>
 
-#include <memory>
 #include <type_traits>
 
 #include "arrow/type.h"
@@ -32,7 +31,7 @@
 #include "core/column/column_decimal.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/define_primitive_type.h"
-#include "core/data_type_serde/decoded_value_reader.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
 #include "exprs/function/cast/cast_to_decimal.h"
@@ -62,43 +61,34 @@ NativeType decode_big_endian_signed_integer(const uint8_t* data, int length) {
 }
 
 template <PrimitiveType T>
-class DecimalDecodedValueReader final : public DecodedValueReader {
-public:
-    explicit DecimalDecodedValueReader(DecodedValueKind value_kind, int fixed_length)
-            : _value_kind(value_kind), _fixed_length(fixed_length) {}
-
-    Status read(IColumn& column, const DecodedColumnView& view) const override {
-        auto& data = assert_cast<ColumnDecimal<T>&>(column).get_data();
-        for (int64_t row = 0; row < view.row_count; ++row) {
-            data.push_back(read_decimal_value(view, row));
-        }
-        return Status::OK();
+typename PrimitiveTypeTraits<T>::CppType read_decimal_decoded_value(
+        const DecodedColumnView& view, int64_t row) {
+    using FieldType = typename PrimitiveTypeTraits<T>::CppType;
+    if (view.value_kind == DecodedValueKind::INT32) {
+        const auto* values = reinterpret_cast<const int32_t*>(view.values);
+        return FieldType {static_cast<typename FieldType::NativeType>(values[row])};
     }
-
-private:
-    typename PrimitiveTypeTraits<T>::CppType read_decimal_value(const DecodedColumnView& view,
-                                                               int64_t row) const {
-        using FieldType = typename PrimitiveTypeTraits<T>::CppType;
-        if (_value_kind == DecodedValueKind::INT32) {
-            const auto* values = reinterpret_cast<const int32_t*>(view.values);
-            return FieldType {static_cast<typename FieldType::NativeType>(values[row])};
-        }
-        if (_value_kind == DecodedValueKind::INT64) {
-            const auto* values = reinterpret_cast<const int64_t*>(view.values);
-            return FieldType {static_cast<typename FieldType::NativeType>(values[row])};
-        }
-        const auto& value = (*view.binary_values)[row];
-        const auto length = _value_kind == DecodedValueKind::FIXED_BINARY
-                                    ? _fixed_length
-                                    : cast_set<int, size_t, false>(value.size);
-        return FieldType {static_cast<typename FieldType::NativeType>(
-                decode_big_endian_signed_integer<Int128>(
-                        reinterpret_cast<const uint8_t*>(value.data), length))};
+    if (view.value_kind == DecodedValueKind::INT64) {
+        const auto* values = reinterpret_cast<const int64_t*>(view.values);
+        return FieldType {static_cast<typename FieldType::NativeType>(values[row])};
     }
+    const auto& value = (*view.binary_values)[row];
+    const auto length = view.value_kind == DecodedValueKind::FIXED_BINARY
+                                ? view.fixed_length
+                                : cast_set<int, size_t, false>(value.size);
+    return FieldType {static_cast<typename FieldType::NativeType>(
+            decode_big_endian_signed_integer<Int128>(reinterpret_cast<const uint8_t*>(value.data),
+                                                     length))};
+}
 
-    DecodedValueKind _value_kind = DecodedValueKind::INT32;
-    int _fixed_length = -1;
-};
+template <PrimitiveType T>
+Status read_decimal_decoded_values(IColumn& column, const DecodedColumnView& view) {
+    auto& data = assert_cast<ColumnDecimal<T>&>(column).get_data();
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        data.push_back(read_decimal_decoded_value<T>(view, row));
+    }
+    return Status::OK();
+}
 
 } // namespace
 
@@ -440,23 +430,18 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeDecimalSerDe<T>::create_decoded_value_reader(
-        const DecodedValueReaderOptions& options, DecodedValueReaderPtr* reader) const {
-    if (reader == nullptr) {
-        return Status::InvalidArgument("decoded value reader pointer is null");
-    }
+Status DataTypeDecimalSerDe<T>::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
     if constexpr (T == TYPE_DECIMAL128I || T == TYPE_DECIMAL256) {
-        if (options.value_kind == DecodedValueKind::INT32 ||
-            options.value_kind == DecodedValueKind::INT64 ||
-            options.value_kind == DecodedValueKind::BINARY ||
-            options.value_kind == DecodedValueKind::FIXED_BINARY) {
-            *reader = std::make_unique<DecimalDecodedValueReader<T>>(options.value_kind,
-                                                                     options.fixed_length);
-            return Status::OK();
+        if (view.value_kind == DecodedValueKind::INT32 ||
+            view.value_kind == DecodedValueKind::INT64 ||
+            view.value_kind == DecodedValueKind::BINARY ||
+            view.value_kind == DecodedValueKind::FIXED_BINARY) {
+            return read_decimal_decoded_values<T>(column, view);
         }
     }
-    return Status::NotSupported("Unsupported decoded value reader for {} from source kind {}",
-                                get_name(), static_cast<int>(options.value_kind));
+    return Status::NotSupported("Unsupported decoded values for {} from source kind {}",
+                                get_name(), static_cast<int>(view.value_kind));
 }
 
 template <PrimitiveType T>

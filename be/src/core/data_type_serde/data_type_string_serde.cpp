@@ -18,7 +18,7 @@
 #include "core/data_type_serde/data_type_string_serde.h"
 
 #include "core/column/column_string.h"
-#include "core/data_type_serde/decoded_value_reader.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type/define_primitive_type.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_utils.h"
@@ -28,20 +28,17 @@ namespace doris {
 namespace {
 
 template <typename ColumnType>
-class StringDecodedValueReader final : public DecodedValueReader {
-public:
-    Status read(IColumn& column, const DecodedColumnView& view) const override {
-        if (view.binary_values == nullptr && view.row_count > 0) {
-            return Status::Corruption("Decoded binary values are null for {}", column.get_name());
-        }
-        auto& string_column = assert_cast<ColumnType&>(column);
-        for (int64_t row = 0; row < view.row_count; ++row) {
-            const auto& value = (*view.binary_values)[row];
-            string_column.insert_data(value.data, value.size);
-        }
-        return Status::OK();
+Status read_string_decoded_values(IColumn& column, const DecodedColumnView& view) {
+    if (view.binary_values == nullptr && view.row_count > 0) {
+        return Status::Corruption("Decoded binary values are null for {}", column.get_name());
     }
-};
+    auto& string_column = assert_cast<ColumnType&>(column);
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        const auto& value = (*view.binary_values)[row];
+        string_column.insert_data(value.data, value.size);
+    }
+    return Status::OK();
+}
 
 } // namespace
 
@@ -334,18 +331,14 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::create_decoded_value_reader(
-        const DecodedValueReaderOptions& options, DecodedValueReaderPtr* reader) const {
-    if (reader == nullptr) {
-        return Status::InvalidArgument("decoded value reader pointer is null");
+Status DataTypeStringSerDeBase<ColumnType>::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
+    if (view.value_kind != DecodedValueKind::BINARY &&
+        view.value_kind != DecodedValueKind::FIXED_BINARY) {
+        return Status::NotSupported("Unsupported decoded values for {} from source kind {}",
+                                    get_name(), static_cast<int>(view.value_kind));
     }
-    if (options.value_kind != DecodedValueKind::BINARY &&
-        options.value_kind != DecodedValueKind::FIXED_BINARY) {
-        return Status::NotSupported("Unsupported decoded value reader for {} from source kind {}",
-                                    get_name(), static_cast<int>(options.value_kind));
-    }
-    *reader = std::make_unique<StringDecodedValueReader<ColumnType>>();
-    return Status::OK();
+    return read_string_decoded_values<ColumnType>(column, view);
 }
 
 template <typename ColumnType>

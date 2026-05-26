@@ -20,14 +20,13 @@
 #include <arrow/builder.h>
 
 #include <cstdint>
-#include <memory>
 
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
-#include "core/data_type_serde/decoded_value_reader.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/packed_int128.h"
 #include "core/types.h"
@@ -52,22 +51,19 @@ const NativeType* decoded_values_as(const DecodedColumnView& view) {
 }
 
 template <PrimitiveType DorisType, typename SourceType>
-class NumberDecodedValueReader final : public DecodedValueReader {
-public:
-    Status read(IColumn& column, const DecodedColumnView& view) const override {
-        if (view.values == nullptr && view.row_count > 0) {
-            return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
-        }
-        auto& data = assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column)
-                             .get_data();
-        const auto* values = decoded_values_as<SourceType>(view);
-        for (int64_t row = 0; row < view.row_count; ++row) {
-            using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
-            data.push_back(static_cast<DorisCppType>(values[row]));
-        }
-        return Status::OK();
+Status read_number_decoded_values(IColumn& column, const DecodedColumnView& view) {
+    if (view.values == nullptr && view.row_count > 0) {
+        return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
     }
-};
+    auto& data = assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column)
+                         .get_data();
+    const auto* values = decoded_values_as<SourceType>(view);
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
+        data.push_back(static_cast<DorisCppType>(values[row]));
+    }
+    return Status::OK();
+}
 
 } // namespace
 // Type map的基本结构
@@ -185,39 +181,31 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::create_decoded_value_reader(
-        const DecodedValueReaderOptions& options, DecodedValueReaderPtr* reader) const {
-    if (reader == nullptr) {
-        return Status::InvalidArgument("decoded value reader pointer is null");
-    }
+Status DataTypeNumberSerDe<T>::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
     if constexpr (T == TYPE_BOOLEAN) {
-        if (options.value_kind == DecodedValueKind::BOOL) {
-            *reader = std::make_unique<NumberDecodedValueReader<TYPE_BOOLEAN, bool>>();
-            return Status::OK();
+        if (view.value_kind == DecodedValueKind::BOOL) {
+            return read_number_decoded_values<TYPE_BOOLEAN, bool>(column, view);
         }
     } else if constexpr (T == TYPE_INT) {
-        if (options.value_kind == DecodedValueKind::INT32) {
-            *reader = std::make_unique<NumberDecodedValueReader<TYPE_INT, int32_t>>();
-            return Status::OK();
+        if (view.value_kind == DecodedValueKind::INT32) {
+            return read_number_decoded_values<TYPE_INT, int32_t>(column, view);
         }
     } else if constexpr (T == TYPE_BIGINT) {
-        if (options.value_kind == DecodedValueKind::INT64) {
-            *reader = std::make_unique<NumberDecodedValueReader<TYPE_BIGINT, int64_t>>();
-            return Status::OK();
+        if (view.value_kind == DecodedValueKind::INT64) {
+            return read_number_decoded_values<TYPE_BIGINT, int64_t>(column, view);
         }
     } else if constexpr (T == TYPE_FLOAT) {
-        if (options.value_kind == DecodedValueKind::FLOAT) {
-            *reader = std::make_unique<NumberDecodedValueReader<TYPE_FLOAT, float>>();
-            return Status::OK();
+        if (view.value_kind == DecodedValueKind::FLOAT) {
+            return read_number_decoded_values<TYPE_FLOAT, float>(column, view);
         }
     } else if constexpr (T == TYPE_DOUBLE) {
-        if (options.value_kind == DecodedValueKind::DOUBLE) {
-            *reader = std::make_unique<NumberDecodedValueReader<TYPE_DOUBLE, double>>();
-            return Status::OK();
+        if (view.value_kind == DecodedValueKind::DOUBLE) {
+            return read_number_decoded_values<TYPE_DOUBLE, double>(column, view);
         }
     }
-    return Status::NotSupported("Unsupported decoded value reader for {} from source kind {}",
-                                get_name(), static_cast<int>(options.value_kind));
+    return Status::NotSupported("Unsupported decoded values for {} from source kind {}",
+                                get_name(), static_cast<int>(view.value_kind));
 }
 
 template <PrimitiveType T>

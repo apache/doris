@@ -22,7 +22,6 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <memory>
 #include <vector>
 
 #include "core/assert_cast.h"
@@ -30,7 +29,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
-#include "core/data_type_serde/decoded_value_reader.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "exprs/function/cast/cast_base.h"
@@ -40,31 +39,6 @@
 
 namespace doris {
 class Arena;
-namespace {
-
-class NullableDecodedValueReader final : public DecodedValueReader {
-public:
-    explicit NullableDecodedValueReader(DecodedValueReaderPtr nested_reader)
-            : _nested_reader(std::move(nested_reader)) {}
-
-    Status read(IColumn& column, const DecodedColumnView& view) const override {
-        auto& nullable_column = assert_cast<ColumnNullable&>(column);
-        auto& null_map = nullable_column.get_null_map_data();
-        null_map.reserve(null_map.size() + view.row_count);
-        for (int64_t row = 0; row < view.row_count; ++row) {
-            null_map.push_back(view.null_map != nullptr ? view.null_map[row] : 0);
-        }
-        DecodedColumnView nested_view = view;
-        nested_view.null_map = nullptr;
-        RETURN_IF_ERROR(_nested_reader->read(nullable_column.get_nested_column(), nested_view));
-        return Status::OK();
-    }
-
-private:
-    DecodedValueReaderPtr _nested_reader;
-};
-
-} // namespace
 Status DataTypeNullableSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                        int64_t end_idx, BufferWritable& bw,
                                                        FormatOptions& options) const {
@@ -377,15 +351,18 @@ Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
                                                 ctz);
 }
 
-Status DataTypeNullableSerDe::create_decoded_value_reader(
-        const DecodedValueReaderOptions& options, DecodedValueReaderPtr* reader) const {
-    if (reader == nullptr) {
-        return Status::InvalidArgument("decoded value reader pointer is null");
+Status DataTypeNullableSerDe::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
+    auto& nullable_column = assert_cast<ColumnNullable&>(column);
+    auto& null_map = nullable_column.get_null_map_data();
+    null_map.reserve(null_map.size() + view.row_count);
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        null_map.push_back(view.null_map != nullptr ? view.null_map[row] : 0);
     }
-    DecodedValueReaderPtr nested_reader;
-    RETURN_IF_ERROR(nested_serde->create_decoded_value_reader(options, &nested_reader));
-    *reader = std::make_unique<NullableDecodedValueReader>(std::move(nested_reader));
-    return Status::OK();
+    DecodedColumnView nested_view = view;
+    nested_view.null_map = nullptr;
+    return nested_serde->read_column_from_decoded_values(nullable_column.get_nested_column(),
+                                                         nested_view);
 }
 
 bool DataTypeNullableSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
