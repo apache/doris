@@ -665,7 +665,7 @@ FE_MODULES="$(
 if [[ "${BUILD_BE}" -eq 1 ]]; then
 
     echo "install datasketches-cpp to thirdparty path before build be"
-    update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/datasketches-cpp.tar.gz"
+    update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
     cd "${DORIS_HOME}/contrib/datasketches-cpp"
     "${CMAKE_CMD}" -S . -B build/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$TP_INSTALLED_DIR -DBUILD_TESTS=OFF
     "${CMAKE_CMD}" --build build/Release -t install
