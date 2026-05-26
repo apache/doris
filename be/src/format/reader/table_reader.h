@@ -167,28 +167,24 @@ public:
             }
 
             bool current_eof = false;
-            Block current_block;
-            for (const auto& field : _data_reader.block_schema) {
-                // TODO: reuse column's memory
-                current_block.insert({field.type->create_column(), field.type, field.name});
-            }
+            _data_reader.block_template.clear_column_data();
             size_t current_rows = 0;
-            RETURN_IF_ERROR(
-                    _data_reader.reader->get_block(&current_block, &current_rows, &current_eof));
+            RETURN_IF_ERROR(_data_reader.reader->get_block(&_data_reader.block_template,
+                                                           &current_rows, &current_eof));
             if (current_rows == 0) {
                 if (current_eof) {
                     RETURN_IF_ERROR(close_current_reader());
                 }
                 continue;
             }
-            DCHECK_EQ(current_block.columns(), _data_reader.block_schema.size());
+            DCHECK_EQ(_data_reader.block_template.columns(), _data_reader.scan_schema.size());
 
             DORIS_CHECK(block->columns() == _data_reader.column_mapper.mappings().size());
             size_t idx = 0;
             for (const auto& mapping : _data_reader.column_mapper.mappings()) {
                 ColumnPtr column;
-                RETURN_IF_ERROR(_materialize_mapping_column(mapping, &current_block, current_rows,
-                                                            &column));
+                RETURN_IF_ERROR(_materialize_mapping_column(
+                        mapping, &_data_reader.block_template, current_rows, &column));
                 block->replace_by_position(idx, std::move(column));
                 idx++;
             }
@@ -231,6 +227,20 @@ protected:
         auto file_request = std::make_unique<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper.create_scan_request(
                 _table_filters, _projected_columns, file_request.get()));
+        _data_reader.scan_schema.clear();
+        _data_reader.block_template.clear();
+        _data_reader.scan_schema.resize(file_request->column_positions.size());
+        for (const auto& [file_column_id, block_position] : file_request->column_positions) {
+            DORIS_CHECK(block_position < _data_reader.scan_schema.size());
+            const auto* field = _find_schema_field(_data_reader.block_schema, file_column_id);
+            DORIS_CHECK(field != nullptr);
+            _data_reader.scan_schema[block_position] = *field;
+        }
+        _data_reader.block_template.reserve(_data_reader.scan_schema.size());
+        for (const auto& field : _data_reader.scan_schema) {
+            _data_reader.block_template.insert(
+                    {field.type->create_column(), field.type, field.name});
+        }
         RETURN_IF_ERROR(_data_reader.reader->open(file_request));
         RETURN_IF_ERROR(_open_mapping_exprs());
         return Status::OK();
@@ -243,6 +253,8 @@ protected:
         _data_reader.reader.reset();
         _data_reader.column_mapper.clear();
         _data_reader.block_schema.clear();
+        _data_reader.scan_schema.clear();
+        _data_reader.block_template.clear();
         _current_task.reset();
         return Status::OK();
     }
@@ -296,6 +308,8 @@ protected:
         std::unique_ptr<FileReader> reader;
         TableColumnMapper column_mapper;
         std::vector<SchemaField> block_schema;
+        std::vector<SchemaField> scan_schema;
+        Block block_template;
     };
     DataReader _data_reader;
     std::vector<TableColumn> _projected_columns;
@@ -314,6 +328,16 @@ protected:
     FileFormat _format;
 
 private:
+    static const SchemaField* _find_schema_field(const std::vector<SchemaField>& schema,
+                                                 ColumnId column_id) {
+        for (const auto& field : schema) {
+            if (field.id == column_id) {
+                return &field;
+            }
+        }
+        return nullptr;
+    }
+
     Status _parse_delete_predicates(const SplitReadOptions& options);
 };
 

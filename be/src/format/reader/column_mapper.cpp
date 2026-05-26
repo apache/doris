@@ -17,6 +17,7 @@
 
 #include "format/reader/column_mapper.h"
 
+#include <cstddef>
 #include <vector>
 
 #include "common/status.h"
@@ -30,6 +31,31 @@ namespace doris::reader {
 static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
 static constexpr const char* ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER = "_last_updated_sequence_number";
 
+static void add_scan_column(FileScanRequest* file_request, ColumnId file_column_id,
+                            std::vector<ColumnId>* scan_columns) {
+    if (file_request->column_positions.count(file_column_id) == 0) {
+        file_request->column_positions.emplace(file_column_id,
+                                               file_request->column_positions.size());
+        scan_columns->push_back(file_column_id);
+    }
+}
+
+static void rebuild_projection(ColumnMapping* mapping, size_t block_position) {
+    DORIS_CHECK(mapping->file_column_id.has_value());
+    if (mapping->is_trivial) {
+        mapping->projection = VExprContext::create_shared(TableSlotRef::create_shared(
+                static_cast<int>(block_position), static_cast<int>(block_position), -1,
+                mapping->file_type, mapping->file_column_name));
+        return;
+    }
+
+    auto expr = Cast::create_shared(mapping->table_type);
+    expr->add_child(TableSlotRef::create_shared(static_cast<int>(block_position),
+                                                static_cast<int>(block_position), -1,
+                                                mapping->file_type, mapping->file_column_name));
+    mapping->projection = VExprContext::create_shared(expr);
+}
+
 Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& projected_columns,
                                          const std::map<std::string, Field>& partition_values,
                                          const std::vector<SchemaField>& file_schema) {
@@ -40,21 +66,9 @@ Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& project
         mapping.table_type = table_column.type;
         if (const auto* file_field = _find_file_field(table_column, file_schema)) {
             mapping.file_column_id = file_field->id;
+            mapping.file_column_name = file_field->name;
             mapping.file_type = file_field->type;
             mapping.is_trivial = _is_same_type(mapping.table_type, mapping.file_type);
-            if (!mapping.is_trivial) {
-                // 1. Data type mismatch (caused by schema evolution) and casting is needed.
-                auto expr = Cast::create_shared(mapping.table_type);
-                expr->add_child(TableSlotRef::create_shared(mapping.file_column_id.value(),
-                                                            mapping.file_column_id.value(), -1,
-                                                            mapping.file_type, file_field->name));
-                mapping.projection = VExprContext::create_shared(expr);
-            } else {
-                // 2. Data type matches, trivial mapping.
-                mapping.projection = VExprContext::create_shared(TableSlotRef::create_shared(
-                        mapping.file_column_id.value(), mapping.file_column_id.value(), -1,
-                        mapping.file_type, file_field->name));
-            }
         } else if (table_column.is_partition_key && partition_values.count(table_column.name) > 0) {
             // 3. Partition column, use partition value as a constant mapping. Note that partition column may also have default expression, but partition value should take precedence if it exists.
             mapping.default_expr = VExprContext::create_shared(TableLiteral::create_shared(
@@ -91,17 +105,27 @@ Status TableColumnMapper::create_scan_request(const std::map<int32_t, TableFilte
     // 真实实现会把 table projection/filter 转换成 file-local projection/filter。
     file_request->predicate_columns.clear();
     file_request->non_predicate_columns.clear();
+    file_request->column_positions.clear();
     file_request->local_filters.clear();
     file_request->reader_expression_map.clear();
+    RETURN_IF_ERROR(localize_filters(table_filters, file_request));
     for (const auto& table_column : projected_columns) {
         const auto* mapping = _find_mapping(table_column.id);
         if (mapping != nullptr && mapping->file_column_id.has_value()) {
             if (table_filters.count(table_column.id) == 0) {
-                file_request->non_predicate_columns.push_back(*mapping->file_column_id);
+                add_scan_column(file_request, *mapping->file_column_id,
+                                &file_request->non_predicate_columns);
             }
         }
     }
-    RETURN_IF_ERROR(localize_filters(table_filters, file_request));
+    for (auto& mapping : _mappings) {
+        if (!mapping.file_column_id.has_value()) {
+            continue;
+        }
+        auto position_it = file_request->column_positions.find(*mapping.file_column_id);
+        DORIS_CHECK(position_it != file_request->column_positions.end());
+        rebuild_projection(&mapping, position_it->second);
+    }
     return Status::OK();
 }
 
@@ -124,7 +148,7 @@ Status TableColumnMapper::localize_filters(const std::map<int32_t, TableFilter>&
             local_filter.predicates = it.second.predicates;
             file_request->local_filters.push_back(std::move(local_filter));
         }
-        file_request->predicate_columns.push_back(*mapping->file_column_id);
+        add_scan_column(file_request, *mapping->file_column_id, &file_request->predicate_columns);
     }
     return Status::OK();
 }

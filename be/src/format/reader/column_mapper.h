@@ -51,6 +51,7 @@ enum TableVirtualColumnType {
 struct ColumnMapping {
     int32_t table_column_id = -1;
     std::optional<int32_t> file_column_id;
+    std::string file_column_name;
     DataTypePtr file_type;
     DataTypePtr table_type;
 

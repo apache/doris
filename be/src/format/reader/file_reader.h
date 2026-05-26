@@ -95,6 +95,7 @@ struct FileScanRequest {
 
     std::vector<ColumnId> predicate_columns;
     std::vector<ColumnId> non_predicate_columns;
+    std::map<ColumnId, size_t> column_positions;
     std::vector<FileLocalFilter> local_filters;
     // fallback path if filters cannot be localized to file-local predicates. The expression can reference projected_file_columns and partition columns.
     std::vector<std::pair<ColumnId, VExprContextSPtr>> reader_expression_map;
