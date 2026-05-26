@@ -30,11 +30,11 @@
 #include "core/types.h"
 #include "exec/runtime_filter/utils.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
-#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vslot_ref.h"
 #include "runtime/descriptors.h"
 
@@ -426,8 +426,7 @@ TEST_F(RuntimeFilterPartitionPrunerTest, PublicPruneByRuntimeFiltersIdentitySlot
     wrapper_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
     wrapper_node.__set_node_type(TExprNodeType::IN_PRED);
     wrapper_node.__set_opcode(TExprOpcode::FILTER_IN);
-    auto wrapper =
-            VRuntimeFilterWrapper::create_shared(wrapper_node, impl, 0, false, /*filter_id=*/7);
+    auto wrapper = RuntimeFilterExpr::create_shared(wrapper_node, impl, 0, false, /*filter_id=*/7);
     VExprContextSPtrs conjuncts {std::make_shared<VExprContext>(wrapper)};
 
     RuntimeFilterPartitionPruner pruner;
