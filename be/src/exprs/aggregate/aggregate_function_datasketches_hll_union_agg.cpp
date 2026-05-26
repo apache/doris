@@ -29,7 +29,7 @@ template <template <PrimitiveType> class Data>
 AggregateFunctionPtr create_aggregate_function_datasketches_hll_union_agg(
         const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
         const bool result_is_nullable, const AggregateFunctionAttr& attr) {
-    return creator_with_type_list<TYPE_STRING, TYPE_VARCHAR, TYPE_BINARY, TYPE_VARBINARY>::create<
+    return creator_with_type_list<TYPE_STRING, TYPE_VARCHAR, TYPE_VARBINARY>::create<
             AggregateFunctionDataSketchesHllUnionAgg, Data>(argument_types, result_is_nullable,
                                                             attr);
 }

@@ -209,17 +209,10 @@ public:
 
 private:
     static void ALWAYS_INLINE add_one(Data& data, const IColumn& column, ssize_t row_num) {
-        if constexpr (T == TYPE_BINARY || is_string_type(T) || is_varbinary(T)) {
-            StringRef value;
-            if constexpr (T == TYPE_BINARY) {
-                value = column.get_data_at(static_cast<size_t>(row_num));
-            } else {
-                const auto& src_column =
-                        assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                    TypeCheckOnRelease::DISABLE>(column);
-                value = src_column.get_data_at(static_cast<size_t>(row_num));
-            }
-
+        if constexpr (is_string_type(T) || is_varbinary(T)) {
+            const auto& src_column = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                                 TypeCheckOnRelease::DISABLE>(column);
+            StringRef value = src_column.get_data_at(static_cast<size_t>(row_num));
             if (value.empty()) {
                 throw Exception(ErrorCode::CORRUPTION,
                                 "HLL sketch data corrupted when add: empty input.");

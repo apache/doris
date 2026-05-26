@@ -48,39 +48,6 @@ protected:
     std::unique_ptr<Arena> arena;
 };
 
-class DataTypeBinaryForTest final : public IDataType {
-public:
-    DataTypeBinaryForTest() : _delegate(std::make_shared<DataTypeString>()) {}
-
-    const std::string get_family_name() const override { return _delegate->get_family_name(); }
-    PrimitiveType get_primitive_type() const override { return TYPE_BINARY; }
-    doris::FieldType get_storage_field_type() const override {
-        return _delegate->get_storage_field_type();
-    }
-    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return _delegate->get_serde(nesting_level);
-    }
-    Status check_column(const IColumn& column) const override { return _delegate->check_column(column); }
-    MutableColumnPtr create_column() const override { return _delegate->create_column(); }
-    Field get_field(const TExprNode& node) const override { return _delegate->get_field(node); }
-    bool equals(const IDataType& rhs) const override { return rhs.get_primitive_type() == TYPE_BINARY; }
-
-    int64_t get_uncompressed_serialized_bytes(const IColumn& column,
-                                              int be_exec_version) const override {
-        return _delegate->get_uncompressed_serialized_bytes(column, be_exec_version);
-    }
-    char* serialize(const IColumn& column, char* buf, int be_exec_version) const override {
-        return _delegate->serialize(column, buf, be_exec_version);
-    }
-    const char* deserialize(const char* buf, MutableColumnPtr* column,
-                            int be_exec_version) const override {
-        return _delegate->deserialize(buf, column, be_exec_version);
-    }
-
-private:
-    DataTypePtr _delegate;
-};
-
 TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testBasicUnion) {
     // Create test: union multiple hll sketches and get correct cardinality estimate
     DataTypePtr input_type = std::make_shared<DataTypeString>();
@@ -636,91 +603,6 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testVarbinaryInput) {
     ColumnFloat64 result;
     fn->insert_result_into(place, result);
     EXPECT_DOUBLE_EQ(result.get_data()[0], sketch.get_estimate());
-
-    fn->destroy(place);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testBinaryInputViaFactory) {
-    AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_datasketches_HLL_union_agg(factory);
-    int be_version = BeExecVersionManager::get_newest_version();
-
-    DataTypes argument_types = {std::make_shared<DataTypeBinaryForTest>()};
-    auto fn = factory.get("datasketches_hll_union_agg", argument_types, nullptr, false, be_version);
-    ASSERT_NE(fn, nullptr);
-
-    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
-    for (int i = 20; i < 30; ++i) {
-        sketch.update(i);
-    }
-    const auto ser = sketch.serialize_compact();
-
-    auto column_binary = ColumnString::create();
-    column_binary->insert_data((const char*)ser.data(), ser.size());
-
-    const IColumn* columns[1] = {column_binary.get()};
-
-    AggregateDataPtr place = arena->aligned_alloc(fn->size_of_data(), fn->align_of_data());
-    fn->create(place);
-    fn->add(place, columns, 0, *arena);
-
-    ColumnFloat64 result;
-    fn->insert_result_into(place, result);
-    EXPECT_DOUBLE_EQ(result.get_data()[0], sketch.get_estimate());
-
-    fn->destroy(place);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testBinaryAddEmptyStringThrowsViaFactory) {
-    AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_datasketches_HLL_union_agg(factory);
-    int be_version = BeExecVersionManager::get_newest_version();
-
-    DataTypes argument_types = {std::make_shared<DataTypeBinaryForTest>()};
-    auto fn = factory.get("datasketches_hll_union_agg", argument_types, nullptr, false, be_version);
-    ASSERT_NE(fn, nullptr);
-
-    auto column_binary = ColumnString::create();
-    column_binary->insert_data("", 0);
-
-    const IColumn* columns[1] = {column_binary.get()};
-
-    AggregateDataPtr place = arena->aligned_alloc(fn->size_of_data(), fn->align_of_data());
-    fn->create(place);
-
-    try {
-        fn->add(place, columns, 0, *arena);
-        FAIL() << "Expected doris::Exception";
-    } catch (const doris::Exception& e) {
-        EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
-    }
-
-    fn->destroy(place);
-}
-
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testBinaryCorruptedInputThrowsViaFactory) {
-    AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_datasketches_HLL_union_agg(factory);
-    int be_version = BeExecVersionManager::get_newest_version();
-
-    DataTypes argument_types = {std::make_shared<DataTypeBinaryForTest>()};
-    auto fn = factory.get("datasketches_hll_union_agg", argument_types, nullptr, false, be_version);
-    ASSERT_NE(fn, nullptr);
-
-    auto column_binary = ColumnString::create();
-    column_binary->insert_data("x", 1);
-
-    const IColumn* columns[1] = {column_binary.get()};
-
-    AggregateDataPtr place = arena->aligned_alloc(fn->size_of_data(), fn->align_of_data());
-    fn->create(place);
-
-    try {
-        fn->add(place, columns, 0, *arena);
-        FAIL() << "Expected doris::Exception";
-    } catch (const doris::Exception& e) {
-        EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
-    }
 
     fn->destroy(place);
 }
