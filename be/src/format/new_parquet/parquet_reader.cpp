@@ -431,6 +431,15 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
     }
     RETURN_IF_ERROR(reader::FileReader::open(request));
 
+    if (_request->column_positions.empty()) {
+        for (const auto file_column_id : _request->predicate_columns) {
+            _request->column_positions.emplace(file_column_id, file_column_id);
+        }
+        for (const auto file_column_id : _request->non_predicate_columns) {
+            _request->column_positions.emplace(file_column_id, file_column_id);
+        }
+    }
+
     const int num_fields = static_cast<int>(_state->file_schema.size());
     for (const auto file_column_id : _request->predicate_columns) {
         DORIS_CHECK(_request->column_positions.count(file_column_id) > 0);
