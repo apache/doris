@@ -35,11 +35,14 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "exec/common/endian.h"
+#include "format/parquet/arrow_memory_pool.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Types_types.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -485,6 +488,13 @@ TEST_F(VIcebergDeleteSinkTest, TestGenerateDeleteFilePath) {
 }
 
 TEST_F(VIcebergDeleteSinkTest, TestWritePositionDeleteParquetFieldIds) {
+    auto* old_arrow_memory_pool = ExecEnv::GetInstance()->_arrow_memory_pool;
+    auto arrow_memory_pool = std::make_unique<ArrowMemoryPool>();
+    ExecEnv::GetInstance()->_arrow_memory_pool = arrow_memory_pool.get();
+    Defer restore_arrow_memory_pool {[old_arrow_memory_pool] {
+        ExecEnv::GetInstance()->_arrow_memory_pool = old_arrow_memory_pool;
+    }};
+
     std::filesystem::path temp_dir = std::filesystem::temp_directory_path() /
                                      ("iceberg_position_delete_test_" + generate_uuid_string());
     ASSERT_TRUE(std::filesystem::create_directories(temp_dir));
