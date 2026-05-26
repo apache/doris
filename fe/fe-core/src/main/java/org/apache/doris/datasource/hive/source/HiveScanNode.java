@@ -182,8 +182,6 @@ public class HiveScanNode extends FileQueryScanNode {
                 getSummaryProfile().setGetPartitionsFinishTime();
             }
             return resPartitions;
-        } catch (AnalysisException e) {
-            throw e;
         } catch (RuntimeException e) {
             if (getSummaryProfile() != null) {
                 getSummaryProfile().addExternalTableGetPartitionsTime(System.currentTimeMillis() - startTime);
