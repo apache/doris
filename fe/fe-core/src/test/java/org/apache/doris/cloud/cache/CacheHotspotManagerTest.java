@@ -167,29 +167,32 @@ public class CacheHotspotManagerTest {
     }
 
     @Test
-    public void testCreateTableOnceJobDedupesPendingOrderDifference() throws AnalysisException {
+    public void testCreateTableOnceJobRejectsPendingDuplicateOrderDifference() throws AnalysisException {
         long firstJobId = cacheHotspotManager.createJob(newTableStmt("dst", false,
                 Triple.of("db1", "tbl1", ""),
                 Triple.of("db2", "tbl2", "p1")));
-        long reusedJobId = cacheHotspotManager.createJob(newTableStmt("dst", false,
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class, () ->
+                cacheHotspotManager.createJob(newTableStmt("dst", false,
                 Triple.of("db2", "tbl2", "p1"),
-                Triple.of("db1", "tbl1", "")));
+                Triple.of("db1", "tbl1", ""))));
 
-        Assert.assertEquals(firstJobId, reusedJobId);
+        Assert.assertTrue(exception.getMessage().contains("already has a pending job"));
+        Assert.assertTrue(exception.getMessage().contains("job id: " + firstJobId));
         Assert.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
         Mockito.verify(env, Mockito.times(1)).getNextId();
         Mockito.verify(editLog, Mockito.times(1)).logModifyCloudWarmUpJob(Mockito.any(CloudWarmUpJob.class));
     }
 
     @Test
-    public void testCreateTableOnceJobDedupesDuplicateTableEntries() throws AnalysisException {
+    public void testCreateTableOnceJobRejectsPendingDuplicateTableEntries() throws AnalysisException {
         long firstJobId = cacheHotspotManager.createJob(newTableStmt("dst", false,
                 Triple.of("db1", "tbl1", ""),
                 Triple.of("db1", "tbl1", "")));
-        long reusedJobId = cacheHotspotManager.createJob(newTableStmt("dst", false,
-                Triple.of("db1", "tbl1", "")));
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class, () ->
+                cacheHotspotManager.createJob(newTableStmt("dst", false, Triple.of("db1", "tbl1", ""))));
 
-        Assert.assertEquals(firstJobId, reusedJobId);
+        Assert.assertTrue(exception.getMessage().contains("already has a pending job"));
+        Assert.assertTrue(exception.getMessage().contains("job id: " + firstJobId));
         Assert.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
     }
 
@@ -311,11 +314,11 @@ public class CacheHotspotManagerTest {
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Future<Long> firstCreate = executor.submit(() -> cacheHotspotManager.createJob(
+            Future<Long> firstCreate = executor.submit(() -> createJobWithThreadLocalEnv(
                     newClusterStmt("dst", "src", false)));
             Assert.assertTrue(firstCreateEntered.await(5, TimeUnit.SECONDS));
 
-            Future<Long> secondCreate = executor.submit(() -> cacheHotspotManager.createJob(
+            Future<Long> secondCreate = executor.submit(() -> createJobWithThreadLocalEnv(
                     newClusterStmt("dst", "src", false)));
             waitForOncePendingCreateLockRefCount(2, 5000L);
 
@@ -411,6 +414,13 @@ public class CacheHotspotManagerTest {
 
     private int getOncePendingCreateLockCount() throws Exception {
         return getOncePendingCreateLocks().size();
+    }
+
+    private long createJobWithThreadLocalEnv(WarmUpClusterCommand command) throws AnalysisException {
+        try (MockedStatic<Env> threadLocalEnvMock = Mockito.mockStatic(Env.class)) {
+            threadLocalEnvMock.when(Env::getCurrentEnv).thenReturn(env);
+            return cacheHotspotManager.createJob(command);
+        }
     }
 
     private int getOnlyOncePendingCreateLockRefCount() throws Exception {
