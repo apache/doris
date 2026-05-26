@@ -23,6 +23,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive.DeriveContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -106,15 +107,10 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, DeriveContext context) {
         for (NamedExpression ne : project.getProjects()) {
-            if (!(ne instanceof Slot)) {
-                if (ne.child(0) instanceof Slot) {
-                    if (context.operativeSlotIds.contains(ne.getExprId().asInt())) {
-                        context.operativeSlotIds.add(((Slot) ne.child(0)).getExprId().asInt());
-                    }
-                } else {
-                    context.addOperativeSlots(ne);
-                    context.addOperativeSlot(ne);
-                }
+            if (!(ne instanceof Slot) && (context.operativeSlotIds.contains(ne.getExprId().asInt())
+                    || ne.child(0) instanceof PreferPushDownProject)) {
+                context.addOperativeSlots(ne);
+                context.addOperativeSlot(ne);
             }
         }
         Plan plan = visitChildren(this, project, context);
