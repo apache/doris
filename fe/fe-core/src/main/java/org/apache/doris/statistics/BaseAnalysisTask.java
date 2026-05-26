@@ -595,6 +595,10 @@ public abstract class BaseAnalysisTask {
 
     protected abstract void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException;
 
+    protected boolean shouldCollectHotValue() {
+        return Boolean.TRUE.equals(info.collectHotValue);
+    }
+
     protected String getPartitionInfo(String partitionName) {
         return "";
     }

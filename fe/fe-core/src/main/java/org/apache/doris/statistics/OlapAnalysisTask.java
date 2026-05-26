@@ -342,10 +342,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         }
     }
 
-    protected boolean shouldCollectHotValue() {
-        return Boolean.TRUE.equals(info.collectHotValue);
-    }
-
     @Override
     protected void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException {
         TableStatsMeta tableStats = Env.getServingEnv().getAnalysisManager().findTableStatsStatus(tbl.getId());
