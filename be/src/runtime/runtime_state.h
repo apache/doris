@@ -143,21 +143,13 @@ public:
     // Adaptive byte budgeting still uses this as the hard row ceiling.
     MOCK_FUNCTION int batch_size() const { return _clamp_batch_size(_query_options.batch_size); }
 
-    MOCK_FUNCTION int batch_size_for_operator(int operator_id) const {
-#ifndef NDEBUG
-        return _debug_batch_size_by_id(batch_size(), operator_id, 0x9e3779b9U);
-#else
+        MOCK_FUNCTION int batch_size_for_node(int node_id) const {
+    #ifndef NDEBUG
+        return _debug_batch_size_by_node(batch_size(), node_id);
+    #else
         return batch_size();
-#endif
-    }
-
-    MOCK_FUNCTION int batch_size_for_sink(int operator_id) const {
-#ifndef NDEBUG
-        return _debug_batch_size_by_id(batch_size(), operator_id, 0x85ebca6bU);
-#else
-        return batch_size();
-#endif
-    }
+    #endif
+        }
 
     // Target byte budget per output block (default 8MB when adaptive is enabled).
     // The public FE/session contract is [1MB, 512MB]; this accessor still clamps any direct
@@ -873,8 +865,8 @@ private:
         return std::min(std::max(1, value), kMax);
     }
 
-    static int _debug_batch_size_by_id(int base, int operator_id, uint32_t salt) {
-        auto mixed = static_cast<uint32_t>(-operator_id) ^ salt;
+    static int _debug_batch_size_by_node(int base, int node_id) {
+        auto mixed = static_cast<uint32_t>(-node_id) ^ 0x9e3779b9U;
         mixed ^= mixed >> 16;
         mixed *= 0x7feb352dU;
         mixed ^= mixed >> 15;

@@ -519,14 +519,14 @@ PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* 
                                                          RuntimeState* state)
         : _parent(parent),
           _state(state),
-          _batch_size(state->batch_size_for_sink(parent->operator_id())) {}
+                    _batch_size(state->batch_size_for_node(parent->node_id())) {}
 
 PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
         : _num_rows_returned(0),
           _rows_returned_counter(nullptr),
           _parent(parent),
           _state(state),
-          _batch_size(state->batch_size_for_operator(parent->operator_id())),
+                    _batch_size(state->batch_size_for_node(parent->node_id())),
           _budget(_batch_size, state->preferred_block_size_bytes()) {}
 
 template <typename SharedStateArg>
