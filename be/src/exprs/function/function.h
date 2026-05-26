@@ -185,24 +185,7 @@ public:
     }
 
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   uint32_t result, size_t input_rows_count) const {
-        // Some function implementations may not handle the case where input_rows_count is 0
-        // (e.g., some functions access the 0th row of input columns during execution).
-        // Additionally, some UDF functions may hang if they write 0 rows and then try to read.
-        // Therefore, before executing the function, we first check if input_rows_count is 0.
-        // If it is 0, we directly return an empty result column to avoid executing the function body.
-        if (input_rows_count == 0) {
-            block.get_by_position(result).column =
-                    block.get_by_position(result).type->create_column();
-            return Status::OK();
-        }
-        try {
-            return prepare(context, block, arguments, result)
-                    ->execute(context, block, arguments, result, input_rows_count);
-        } catch (const Exception& e) {
-            return e.to_status();
-        }
-    }
+                   uint32_t result, size_t input_rows_count) const;
 
     virtual Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
@@ -226,6 +209,11 @@ public:
     virtual bool can_push_down_to_index() const { return false; }
 
     virtual bool is_blockable() const { return false; }
+
+private:
+    Status mock_const_execute(FunctionContext* context, Block& block,
+                              const ColumnNumbers& arguments, uint32_t result,
+                              size_t input_rows_count) const;
 };
 
 using FunctionBasePtr = std::shared_ptr<IFunctionBase>;

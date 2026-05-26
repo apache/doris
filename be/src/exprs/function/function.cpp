@@ -405,4 +405,55 @@ bool FunctionBuilderImpl::is_nested_type_date_or_datetime_or_decimal(
     }
 }
 
+Status IFunctionBase::mock_const_execute(FunctionContext* context, Block& block,
+                                         const ColumnNumbers& arguments, uint32_t result,
+                                         size_t input_rows_count) const {
+    if (!is_udf_function()) {
+        try {
+            Block const_block;
+            for (size_t col = 0; col < block.columns(); ++col) {
+                auto& col_data = block.get_by_position(col);
+                if (col_data.column) {
+                    auto one_row = col_data.column->cut(0, 1);
+                    auto const_col = ColumnConst::create(std::move(one_row), input_rows_count);
+                    const_block.insert({std::move(const_col), col_data.type, col_data.name});
+                } else {
+                    const_block.insert(col_data);
+                }
+            }
+            RETURN_IF_ERROR(
+                    prepare(context, const_block, arguments, result)
+                            ->execute(context, const_block, arguments, result, input_rows_count));
+        } catch (const Exception&) {
+            // some column not support cut, just ignore and return OK.
+        }
+    }
+    return Status::OK();
+}
+
+Status IFunctionBase::execute(FunctionContext* context, Block& block,
+                              const ColumnNumbers& arguments, uint32_t result,
+                              size_t input_rows_count) const {
+    // Some function implementations may not handle the case where input_rows_count is 0
+    // (e.g., some functions access the 0th row of input columns during execution).
+    // Additionally, some UDF functions may hang if they write 0 rows and then try to read.
+    // Therefore, before executing the function, we first check if input_rows_count is 0.
+    // If it is 0, we directly return an empty result column to avoid executing the function body.
+    if (input_rows_count == 0) {
+        block.get_by_position(result).column = block.get_by_position(result).type->create_column();
+        return Status::OK();
+    }
+
+#ifndef NDEBUG
+    RETURN_IF_ERROR(mock_const_execute(context, block, arguments, result, input_rows_count));
+#endif
+
+    try {
+        return prepare(context, block, arguments, result)
+                ->execute(context, block, arguments, result, input_rows_count);
+    } catch (const Exception& e) {
+        return e.to_status();
+    }
+}
+
 } // namespace doris
