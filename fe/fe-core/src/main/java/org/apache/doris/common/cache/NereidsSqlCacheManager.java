@@ -468,6 +468,9 @@ public class NereidsSqlCacheManager {
                 if (currentTableVersion != cacheTableVersion) {
                     return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
                 }
+                if (olapTable.getBaseSchemaVersion() != tableVersion.schemaVersion) {
+                    return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
+                }
                 if (tableIf instanceof MTMV) {
                     // mtmv maybe access old data when grace_period > 0, we should disable cache at this case
                     long gracePeriod = ((MTMV) tableIf).getGracePeriod();
