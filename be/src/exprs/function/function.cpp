@@ -41,6 +41,49 @@
 #include "exprs/function/function_helpers.h"
 
 namespace doris {
+
+namespace {
+
+ColumnNumbers collect_non_const_argument_positions(const Block& block,
+                                                   const ColumnNumbers& arguments) {
+    ColumnNumbers non_const_arguments;
+    non_const_arguments.reserve(arguments.size());
+    for (auto column_position : arguments) {
+        const auto& column = block.get_by_position(column_position).column;
+        if (!column || is_column_const(*column) ||
+            std::ranges::find(non_const_arguments, column_position) != non_const_arguments.end()) {
+            continue;
+        }
+        non_const_arguments.push_back(column_position);
+    }
+    return non_const_arguments;
+}
+
+Status run_mock_const_probe(FunctionContext* context, const IFunctionBase& function,
+                            const Block& block, const ColumnNumbers& arguments, uint32_t result,
+                            size_t input_rows_count, const ColumnNumbers& columns_to_mock_const) {
+    try {
+        Block const_block = block;
+        for (auto column_position : columns_to_mock_const) {
+            auto& column_with_type = const_block.get_by_position(column_position);
+            if (!column_with_type.column || is_column_const(*column_with_type.column)) {
+                continue;
+            }
+            auto one_row = column_with_type.column->cut(0, 1);
+            column_with_type.column = ColumnConst::create(std::move(one_row), input_rows_count);
+        }
+
+        RETURN_IF_ERROR(
+                function.prepare(context, const_block, arguments, result)
+                        ->execute(context, const_block, arguments, result, input_rows_count));
+    } catch (const Exception&) {
+        // Some columns do not support cut; skip this debug probe in that case.
+    }
+    return Status::OK();
+}
+
+} // namespace
+
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
                            size_t input_rows_count) {
     ColumnPtr result_null_map_column;
@@ -409,23 +452,17 @@ Status IFunctionBase::mock_const_execute(FunctionContext* context, Block& block,
                                          const ColumnNumbers& arguments, uint32_t result,
                                          size_t input_rows_count) const {
     if (!is_udf_function()) {
-        try {
-            Block const_block;
-            for (size_t col = 0; col < block.columns(); ++col) {
-                auto& col_data = block.get_by_position(col);
-                if (col_data.column) {
-                    auto one_row = col_data.column->cut(0, 1);
-                    auto const_col = ColumnConst::create(std::move(one_row), input_rows_count);
-                    const_block.insert({std::move(const_col), col_data.type, col_data.name});
-                } else {
-                    const_block.insert(col_data);
-                }
+        auto non_const_arguments = collect_non_const_argument_positions(block, arguments);
+        if (!non_const_arguments.empty()) {
+            RETURN_IF_ERROR(run_mock_const_probe(context, *this, block, arguments, result,
+                                                 input_rows_count, non_const_arguments));
+
+            // Probe the mixed path by forcing each non-const argument to const one at a time.
+            for (auto column_position : non_const_arguments) {
+                RETURN_IF_ERROR(run_mock_const_probe(context, *this, block, arguments, result,
+                                                     input_rows_count,
+                                                     ColumnNumbers {column_position}));
             }
-            RETURN_IF_ERROR(
-                    prepare(context, const_block, arguments, result)
-                            ->execute(context, const_block, arguments, result, input_rows_count));
-        } catch (const Exception&) {
-            // some column not support cut, just ignore and return OK.
         }
     }
     return Status::OK();

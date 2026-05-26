@@ -20,8 +20,13 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <vector>
 
+#include "core/column/column_const.h"
 #include "core/data_type/data_type_number.h"
+#include "exprs/function/function.h"
+#include "exprs/function_context.h"
+#include "testutil/column_helper.h"
 
 namespace doris {
 
@@ -42,6 +47,67 @@ public:
         return Status::OK();
     }
 };
+
+class MockPreparedFunction final : public IPreparedFunction {
+public:
+    String get_name() const override { return "mock_const_execute_test"; }
+
+    Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                   uint32_t result, size_t input_rows_count) const override {
+        return Status::OK();
+    }
+};
+
+class MockConstRecordingFunction final : public IFunctionBase {
+public:
+    MockConstRecordingFunction()
+            : _argument_types({std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>(),
+                               std::make_shared<DataTypeInt32>()}),
+              _return_type(std::make_shared<DataTypeInt32>()),
+              _prepared_function(std::make_shared<MockPreparedFunction>()) {}
+
+    String get_name() const override { return "mock_const_recording_function"; }
+
+    const DataTypes& get_argument_types() const override { return _argument_types; }
+
+    const DataTypePtr& get_return_type() const override { return _return_type; }
+
+    PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
+                                const ColumnNumbers& arguments, uint32_t result) const override {
+        std::vector<bool> const_flags;
+        const_flags.reserve(arguments.size());
+        for (auto column_position : arguments) {
+            const auto& column = sample_block.get_by_position(column_position).column;
+            const_flags.push_back(column && is_column_const(*column));
+        }
+        observed_const_patterns.push_back(std::move(const_flags));
+        return _prepared_function;
+    }
+
+    bool is_use_default_implementation_for_constants() const override { return false; }
+
+    mutable std::vector<std::vector<bool>> observed_const_patterns;
+
+private:
+    DataTypes _argument_types;
+    DataTypePtr _return_type;
+    PreparedFunctionPtr _prepared_function;
+};
+
+Block create_mock_const_test_block() {
+    auto arg0 = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
+    auto arg1_data = ColumnHelper::create_column<DataTypeInt32>({11});
+    auto arg1 = ColumnConst::create(arg1_data, 3);
+    auto arg2 = ColumnHelper::create_column<DataTypeInt32>({4, 5, 6});
+
+    auto data_type = std::make_shared<DataTypeInt32>();
+    Block block;
+    block.insert({arg0, data_type, "arg0"});
+    block.insert({arg1, data_type, "arg1"});
+    block.insert({arg2, data_type, "arg2"});
+    block.insert({data_type->create_column(), data_type, "result"});
+    return block;
+}
 
 class SimpleFunctionFactoryTest : public testing::Test {
     void SetUp() override {
@@ -93,6 +159,27 @@ TEST_F(SimpleFunctionFactoryTest, test_return_all) {
         // } catch (...) {
         // }
     }
+}
+
+TEST_F(SimpleFunctionFactoryTest, test_debug_mock_const_execute_modes) {
+    MockConstRecordingFunction function;
+    auto context = FunctionContext::create_context(nullptr, function.get_return_type(),
+                                                   function.get_argument_types());
+    auto block = create_mock_const_test_block();
+    ColumnNumbers arguments {0, 1, 2};
+
+    EXPECT_TRUE(function.execute(context.get(), block, arguments, 3, 3).ok());
+
+#ifndef NDEBUG
+    ASSERT_EQ(function.observed_const_patterns.size(), 4);
+    EXPECT_EQ(function.observed_const_patterns[0], (std::vector<bool> {true, true, true}));
+    EXPECT_EQ(function.observed_const_patterns[1], (std::vector<bool> {true, true, false}));
+    EXPECT_EQ(function.observed_const_patterns[2], (std::vector<bool> {false, true, true}));
+    EXPECT_EQ(function.observed_const_patterns[3], (std::vector<bool> {false, true, false}));
+#else
+    ASSERT_EQ(function.observed_const_patterns.size(), 1);
+    EXPECT_EQ(function.observed_const_patterns[0], (std::vector<bool> {false, true, false}));
+#endif
 }
 
 } // namespace doris
