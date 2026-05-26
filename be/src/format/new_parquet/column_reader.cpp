@@ -128,18 +128,6 @@ Status read_records(ScalarColumnReader& column_reader, int64_t batch_rows,
     return Status::OK();
 }
 
-Status get_binary_chunks(const ScalarColumnReader& column_reader,
-                         ::parquet::internal::RecordReader& record_reader,
-                         std::vector<std::shared_ptr<::arrow::Array>>* chunks) {
-    auto* binary_reader = dynamic_cast<::parquet::internal::BinaryRecordReader*>(&record_reader);
-    if (binary_reader == nullptr) {
-        return Status::InternalError("Parquet binary record reader is not available for column {}",
-                                     column_reader.name());
-    }
-    *chunks = binary_reader->GetBuilderChunks();
-    return Status::OK();
-}
-
 struct RowRange {
     int64_t start = 0;
     int64_t length = 0;
@@ -230,11 +218,21 @@ Status build_null_map(const ScalarColumnReader& column_reader,
     return Status::OK();
 }
 
+Status get_binary_chunks(const ScalarColumnReader& column_reader,
+                         ::parquet::internal::RecordReader& record_reader,
+                         std::vector<std::shared_ptr<::arrow::Array>>* chunks) {
+    auto* binary_reader = dynamic_cast<::parquet::internal::BinaryRecordReader*>(&record_reader);
+    if (binary_reader == nullptr) {
+        return Status::InternalError("Parquet binary record reader is not available for column {}",
+                                     column_reader.name());
+    }
+    *chunks = binary_reader->GetBuilderChunks();
+    return Status::OK();
+}
+
 Status build_binary_values(const ScalarColumnReader& column_reader,
-                           ::parquet::internal::RecordReader& record_reader, int64_t records_read,
-                           std::vector<StringRef>* binary_values) {
-    std::vector<std::shared_ptr<::arrow::Array>> chunks;
-    RETURN_IF_ERROR(get_binary_chunks(column_reader, record_reader, &chunks));
+                           const std::vector<std::shared_ptr<::arrow::Array>>& chunks,
+                           int64_t records_read, std::vector<StringRef>* binary_values) {
     binary_values->reserve(records_read);
     for (const auto& chunk : chunks) {
         if (chunk == nullptr) {
@@ -298,6 +296,7 @@ Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
     RETURN_IF_ERROR(build_null_map(*this, *record_reader, *rows_read, &null_map));
 
     std::vector<StringRef> binary_values;
+    std::vector<std::shared_ptr<::arrow::Array>> binary_chunks;
     DecodedColumnView view;
     view.value_kind = decoded_value_kind(_type_descriptor);
     view.time_unit = decoded_time_unit(_type_descriptor.time_unit);
@@ -308,7 +307,8 @@ Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
     view.null_map = null_map.empty() ? nullptr : null_map.data();
     if (view.value_kind == DecodedValueKind::BINARY ||
         view.value_kind == DecodedValueKind::FIXED_BINARY) {
-        RETURN_IF_ERROR(build_binary_values(*this, *record_reader, *rows_read, &binary_values));
+        RETURN_IF_ERROR(get_binary_chunks(*this, *record_reader, &binary_chunks));
+        RETURN_IF_ERROR(build_binary_values(*this, binary_chunks, *rows_read, &binary_values));
         view.binary_values = &binary_values;
     } else {
         view.values = record_reader->values();
