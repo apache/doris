@@ -59,12 +59,13 @@ suite("test_bm25_score_variant_boolean_subcolumn", "p0") {
 
     // Core regression: before the fix this aborts the BE. After the fix it
     // must return cleanly and produce zero rows (no segment has v.c indexed
-    // as a string term matching "abc").
+    // as a string term matching "abc"). The FE score() TopN push-down
+    // requires exactly one ordering expression, so order by score() alone.
     def scoredRows = sql """
         select id, score()
         from test_bm25_score_variant_boolean_subcolumn
         where v["c"] match "abc"
-        order by score(), id
+        order by score()
         limit 10
     """
     assertEquals(0, scoredRows.size())
