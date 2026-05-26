@@ -135,11 +135,6 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
                 children.toArray(new Expression[0]));
     }
 
-    @Override
-    public boolean isDeterministic() {
-        return volatility == FunctionVolatility.IMMUTABLE;
-    }
-
     /**
      * translate catalog python udaf to nereids python udaf
      */
@@ -226,5 +221,10 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
+    }
+
+    @Override
+    public FunctionVolatility getVolatility() {
+        return volatility;
     }
 }

@@ -150,11 +150,6 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
     }
 
     @Override
-    public boolean isDeterministic() {
-        return volatility == FunctionVolatility.IMMUTABLE;
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (!(o instanceof PythonUdf)) {
             return false;
@@ -233,6 +228,11 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
+    }
+
+    @Override
+    public FunctionVolatility getVolatility() {
+        return volatility;
     }
 
     private static VolatileIdentity createVolatileIdentity(FunctionVolatility volatility) {

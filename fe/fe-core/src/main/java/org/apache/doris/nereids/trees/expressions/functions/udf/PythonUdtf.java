@@ -100,11 +100,6 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
     }
 
     @Override
-    public boolean isDeterministic() {
-        return volatility == FunctionVolatility.IMMUTABLE;
-    }
-
-    @Override
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(signature);
     }
@@ -188,6 +183,11 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
     @Override
     public NullableMode getNullableMode() {
         return nullableMode;
+    }
+
+    @Override
+    public FunctionVolatility getVolatility() {
+        return volatility;
     }
 
     @Override

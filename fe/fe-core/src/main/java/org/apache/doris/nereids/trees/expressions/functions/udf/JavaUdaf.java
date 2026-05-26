@@ -128,11 +128,6 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
                 removeFn, isDistinct, checkSum, isStaticLoad, expirationTime, children.toArray(new Expression[0]));
     }
 
-    @Override
-    public boolean isDeterministic() {
-        return volatility == FunctionVolatility.IMMUTABLE;
-    }
-
     /**
      * translate catalog java udf to nereids java udf
      */
@@ -215,5 +210,10 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
+    }
+
+    @Override
+    public FunctionVolatility getVolatility() {
+        return volatility;
     }
 }

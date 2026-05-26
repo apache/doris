@@ -145,11 +145,6 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
     }
 
     @Override
-    public boolean isDeterministic() {
-        return volatility == FunctionVolatility.IMMUTABLE;
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (!(o instanceof JavaUdf)) {
             return false;
@@ -224,6 +219,11 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
+    }
+
+    @Override
+    public FunctionVolatility getVolatility() {
+        return volatility;
     }
 
     private static VolatileIdentity createVolatileIdentity(FunctionVolatility volatility) {

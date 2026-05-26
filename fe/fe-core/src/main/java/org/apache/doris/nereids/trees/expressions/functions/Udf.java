@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -45,7 +46,14 @@ public interface Udf extends ComputeNullable {
 
     NullableMode getNullableMode();
 
+    FunctionVolatility getVolatility();
+
     List<Expression> children();
+
+    @Override
+    default boolean isDeterministic() {
+        return getVolatility() == FunctionVolatility.IMMUTABLE;
+    }
 
     @Override
     default boolean foldable() {

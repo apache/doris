@@ -95,11 +95,6 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
     }
 
     @Override
-    public boolean isDeterministic() {
-        return volatility == FunctionVolatility.IMMUTABLE;
-    }
-
-    @Override
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(signature);
     }
@@ -179,6 +174,11 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
     @Override
     public NullableMode getNullableMode() {
         return nullableMode;
+    }
+
+    @Override
+    public FunctionVolatility getVolatility() {
+        return volatility;
     }
 
     @Override

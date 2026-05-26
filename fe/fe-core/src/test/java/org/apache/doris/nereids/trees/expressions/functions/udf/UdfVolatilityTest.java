@@ -37,6 +37,7 @@ class UdfVolatilityTest {
         PythonUdf udf = pythonUdf(FunctionVolatility.IMMUTABLE, VolatileIdentity.NON_VOLATILE);
 
         Assertions.assertTrue(udf.isDeterministic());
+        Assertions.assertEquals(FunctionVolatility.IMMUTABLE, udf.getVolatility());
         Assertions.assertFalse(udf.containsVolatileExpression());
         Assertions.assertEquals(PythonUdf.class, new PythonUdfBuilder(udf).functionClass());
     }
@@ -47,6 +48,7 @@ class UdfVolatilityTest {
         PythonUdf second = pythonUdf(FunctionVolatility.VOLATILE, VolatileIdentity.newVolatileIdentity());
 
         Assertions.assertFalse(first.isDeterministic());
+        Assertions.assertEquals(FunctionVolatility.VOLATILE, first.getVolatility());
         Assertions.assertTrue(first.containsVolatileExpression());
         Assertions.assertNotEquals(first, second);
 
@@ -69,6 +71,7 @@ class UdfVolatilityTest {
         JavaUdf udf = javaUdf(FunctionVolatility.STABLE, VolatileIdentity.NON_VOLATILE);
 
         Assertions.assertFalse(udf.isDeterministic());
+        Assertions.assertEquals(FunctionVolatility.STABLE, udf.getVolatility());
         Assertions.assertFalse(udf.containsVolatileExpression());
     }
 
