@@ -64,7 +64,7 @@ void QuantileState::set_compression(float compression) {
 }
 
 bool QuantileState::is_valid(const Slice& slice) {
-    if (slice.size < 1) {
+    if (slice.data == nullptr || slice.size < sizeof(float) + sizeof(uint8_t)) {
         return false;
     }
     const uint8_t* ptr = (uint8_t*)slice.data;
@@ -93,6 +93,10 @@ bool QuantileState::is_valid(const Slice& slice) {
         }
         uint16_t num_explicits = decode_fixed16_le(ptr);
         ptr += sizeof(uint16_t);
+        const size_t remaining_size = static_cast<size_t>(end - ptr);
+        if (num_explicits > remaining_size / sizeof(double)) {
+            return false;
+        }
         ptr += num_explicits * sizeof(double);
         break;
     }
@@ -101,6 +105,11 @@ bool QuantileState::is_valid(const Slice& slice) {
             return false;
         }
         uint32_t tdigest_serialized_length = decode_fixed32_le(ptr);
+        const size_t remaining_size = static_cast<size_t>(end - ptr);
+        if (tdigest_serialized_length > remaining_size ||
+            !TDigest::is_serialized_valid(ptr, tdigest_serialized_length)) {
+            return false;
+        }
         ptr += tdigest_serialized_length;
         break;
     }

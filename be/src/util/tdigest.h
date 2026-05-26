@@ -438,11 +438,57 @@ public:
         }
     }
 
+    static constexpr size_t fixed_serialized_size() {
+        return sizeof(uint32_t) + sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(uint32_t) * 3;
+    }
+
+    static bool is_serialized_valid(const uint8_t* reader, size_t length) {
+        if (reader == nullptr || length < fixed_serialized_size()) {
+            return false;
+        }
+
+        size_t offset = 0;
+        uint32_t total_length = 0;
+        memcpy(&total_length, reader + offset, sizeof(uint32_t));
+        offset += sizeof(uint32_t);
+        if (total_length != length) {
+            return false;
+        }
+
+        offset += sizeof(Value) * 5 + sizeof(Index) * 2;
+        auto read_size = [&reader, &offset, length](uint32_t* size) {
+            if (length - offset < sizeof(uint32_t)) {
+                return false;
+            }
+            memcpy(size, reader + offset, sizeof(uint32_t));
+            offset += sizeof(uint32_t);
+            return true;
+        };
+        auto skip_items = [&offset, length](uint32_t size, size_t item_size) {
+            if (size > (length - offset) / item_size) {
+                return false;
+            }
+            offset += size * item_size;
+            return true;
+        };
+
+        uint32_t size = 0;
+        if (!read_size(&size) || !skip_items(size, sizeof(Centroid))) {
+            return false;
+        }
+        if (!read_size(&size) || !skip_items(size, sizeof(Centroid))) {
+            return false;
+        }
+        if (!read_size(&size) || !skip_items(size, sizeof(Weight))) {
+            return false;
+        }
+        return offset == length;
+    }
+
     uint32_t serialized_size() {
-        return static_cast<uint32_t>(sizeof(uint32_t) + sizeof(Value) * 5 + sizeof(Index) * 2 +
-                                     sizeof(uint32_t) * 3 + _processed.size() * sizeof(Centroid) +
-                                     _unprocessed.size() * sizeof(Centroid) +
-                                     _cumulative.size() * sizeof(Weight));
+        return static_cast<uint32_t>(
+                fixed_serialized_size() + _processed.size() * sizeof(Centroid) +
+                _unprocessed.size() * sizeof(Centroid) + _cumulative.size() * sizeof(Weight));
     }
 
     size_t serialize(uint8_t* writer) {

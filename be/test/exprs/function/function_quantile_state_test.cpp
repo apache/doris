@@ -16,7 +16,10 @@
 // under the License.
 #include <gtest/gtest.h>
 
+#include <cstdint>
+#include <cstring>
 #include <string>
+#include <vector>
 
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/data_type_string.h"
@@ -24,9 +27,17 @@
 #include "core/types.h"
 #include "core/value/quantile_state.h"
 #include "exprs/function/function_test_util.h"
+#include "util/tdigest.h"
 #include "util/url_coding.h"
 
 namespace doris {
+namespace {
+
+constexpr size_t QUANTILE_STATE_HEADER_SIZE = sizeof(float) + sizeof(uint8_t);
+constexpr size_t TDIGEST_PROCESSED_COUNT_OFFSET =
+        sizeof(uint32_t) + sizeof(Value) * 5 + sizeof(Index) * 2;
+
+} // namespace
 
 TEST(function_quantile_state_test, function_quantile_state_to_base64) {
     std::string func_name = "quantile_state_to_base64";
@@ -211,6 +222,37 @@ TEST(function_quantile_state_test, function_quantile_state_roundtrip) {
                 0.01);
     EXPECT_NEAR(original.get_value_by_percentile(0.9), recovered.get_value_by_percentile(0.9),
                 0.01);
+}
+
+TEST(function_quantile_state_test, rejects_tdigest_base64_with_corrupted_inner_count) {
+    QuantileState original;
+    for (int i = 0; i < 3000; i++) {
+        original.add_value(static_cast<double>(i));
+    }
+
+    std::vector<uint8_t> serialized(original.get_serialized_size());
+    const size_t serialized_len = original.serialize(serialized.data());
+    ASSERT_EQ(serialized.size(), serialized_len);
+    ASSERT_GT(serialized_len,
+              QUANTILE_STATE_HEADER_SIZE + TDIGEST_PROCESSED_COUNT_OFFSET + sizeof(uint32_t));
+    ASSERT_EQ(serialized[sizeof(float)], TDIGEST);
+
+    const uint32_t corrupted_processed_count = 1024 * 1024;
+    memcpy(serialized.data() + QUANTILE_STATE_HEADER_SIZE + TDIGEST_PROCESSED_COUNT_OFFSET,
+           &corrupted_processed_count, sizeof(corrupted_processed_count));
+
+    std::vector<unsigned char> encoded(serialized_len * 2);
+    const size_t encoded_len = base64_encode(serialized.data(), serialized_len, encoded.data());
+    const std::string base64_str(reinterpret_cast<char*>(encoded.data()), encoded_len);
+
+    std::vector<char> decoded(serialized_len);
+    const int decoded_len = base64_decode(base64_str.c_str(), base64_str.length(), decoded.data());
+    ASSERT_EQ(serialized_len, decoded_len);
+
+    QuantileState recovered;
+    Slice decoded_slice(decoded.data(), decoded_len);
+    EXPECT_FALSE(recovered.is_valid(decoded_slice));
+    EXPECT_FALSE(recovered.deserialize(decoded_slice));
 }
 
 } // namespace doris
