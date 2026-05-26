@@ -241,6 +241,7 @@ public:
     RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
     OperatorXBase* parent() { return _parent; }
     RuntimeState* state() { return _state; }
+    [[nodiscard]] int batch_size() const { return _batch_size; }
     [[nodiscard]] const BlockBudget& block_budget() const { return _budget; }
     VExprContextSPtrs& conjuncts() { return _conjuncts; }
     VExprContextSPtrs& projections() { return _projections; }
@@ -333,6 +334,7 @@ protected:
 
     OperatorXBase* _parent = nullptr;
     RuntimeState* _state = nullptr;
+    int _batch_size = 0;
     // Execution-scoped row/byte budget derived from the session batch settings.
     const BlockBudget _budget;
     VExprContextSPtrs _conjuncts;
@@ -496,6 +498,7 @@ public:
 
     DataSinkOperatorXBase* parent() { return _parent; }
     RuntimeState* state() { return _state; }
+    [[nodiscard]] int batch_size() const { return _batch_size; }
     RuntimeProfile* operator_profile() { return _operator_profile; }
     RuntimeProfile* common_profile() { return _common_profile; }
     RuntimeProfile* custom_profile() { return _custom_profile; }
@@ -518,6 +521,7 @@ public:
 protected:
     DataSinkOperatorXBase* _parent = nullptr;
     RuntimeState* _state = nullptr;
+    int _batch_size = 0;
     RuntimeProfile* _operator_profile = nullptr;
     RuntimeProfile* _common_profile = nullptr;
     RuntimeProfile* _custom_profile = nullptr;

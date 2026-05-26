@@ -36,7 +36,7 @@ namespace doris {
 DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* state,
                                                                OperatorXBase* parent)
         : PipelineXLocalState<FakeSharedState>(state, parent),
-          batch_size(state->batch_size()),
+          batch_size(Base::batch_size()),
           _agg_data(std::make_unique<DistinctDataVariants>()),
           _child_block(Block::create_unique()),
           _aggregated_block(Block::create_unique()),
@@ -401,9 +401,9 @@ Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, Block* block, bo
 
 bool DistinctStreamingAggOperatorX::need_more_input_data(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
-    const bool need_batch = local_state._stop_emplace_flag
-                                    ? local_state._aggregated_block->empty()
-                                    : local_state._aggregated_block->rows() < state->batch_size();
+    const bool need_batch = local_state._stop_emplace_flag ? local_state._aggregated_block->empty()
+                                                           : local_state._aggregated_block->rows() <
+                                                                     local_state.batch_size;
     return need_batch && !(local_state._child_eos || local_state._reach_limit);
 }
 

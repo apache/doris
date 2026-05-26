@@ -257,7 +257,7 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
     DCHECK(_block_fast_path_enabled);
 
     const auto remaining_capacity =
-            state->batch_size() - cast_set<int>(columns[p._child_slots.size()]->size());
+            batch_size() - cast_set<int>(columns[p._child_slots.size()]->size());
     if (remaining_capacity <= 0) {
         return Status::OK();
     }
@@ -512,7 +512,7 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state, Block* o
 
     if (use_slow_path) {
         bool skip_child_row = false;
-        while (columns[p._child_slots.size()]->size() < state->batch_size()) {
+        while (columns[p._child_slots.size()]->size() < batch_size()) {
             RETURN_IF_CANCELLED(state);
 
             if (_child_block->rows() == 0) {
@@ -545,9 +545,9 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state, Block* o
             auto repeat_times = _fns[p._fn_num - 1]->get_value(
                     columns[p._child_slots.size() + p._fn_num - 1],
                     //// It has already been checked that
-                    // columns[p._child_slots.size()]->size() < state->batch_size(),
+                    // columns[p._child_slots.size()]->size() < batch_size(),
                     // so columns[p._child_slots.size()]->size() will not exceed the range of int.
-                    state->batch_size() - (int)columns[p._child_slots.size()]->size());
+                    batch_size() - (int)columns[p._child_slots.size()]->size());
             _current_row_insert_times += repeat_times;
             for (int i = 0; i < p._fn_num - 1; i++) {
                 _fns[i]->get_same_many_values(columns[i + p._child_slots.size()], repeat_times);
@@ -597,7 +597,7 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(RuntimeS
         child_row_to_output_rows_indices.push_back(0);
     }
 
-    auto batch_size = state->batch_size();
+    auto batch_size = this->batch_size();
     auto output_row_count = columns[child_slot_count]->size();
     while (output_row_count < batch_size) {
         RETURN_IF_CANCELLED(state);

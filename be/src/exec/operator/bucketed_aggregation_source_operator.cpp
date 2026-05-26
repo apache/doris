@@ -439,7 +439,7 @@ Status BucketedAggLocalState::_output_bucket(RuntimeState* state, Block* block, 
                           auto& it = agg_method.begin;
                           auto& it_end = agg_method.end;
 
-                          uint32_t batch_size = state->batch_size();
+                          uint32_t batch_size = this->batch_size();
                           auto table_size = agg_method.hash_table->size();
                           auto alloc_size = std::min(static_cast<size_t>(batch_size),
                                                      static_cast<size_t>(table_size));

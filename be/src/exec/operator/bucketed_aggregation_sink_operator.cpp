@@ -368,7 +368,7 @@ size_t BucketedAggSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool
                               // However, skew is possible, so we use a conservative per-bucket
                               // estimate of batch_size/128 (2x average).
                               auto per_bucket_rows = std::max<size_t>(
-                                      1, state->batch_size() / (BUCKETED_AGG_NUM_BUCKETS / 2));
+                                      1, batch_size() / (BUCKETED_AGG_NUM_BUCKETS / 2));
                               return agg_method.hash_table->estimate_memory(per_bucket_rows);
                           }},
                 _bucket_agg_data[b]->method_variant);

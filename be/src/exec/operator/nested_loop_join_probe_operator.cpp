@@ -379,7 +379,7 @@ Status NestedLoopJoinProbeLocalState::_finalize_lazy_probe_row(RuntimeState* sta
     }
 
     if (p._enable_lazy_mark_finalize) {
-        if (_join_block.rows() >= state->batch_size()) {
+        if (_join_block.rows() >= batch_size()) {
             *consumed = false;
             return Status::OK();
         }
@@ -405,7 +405,7 @@ Status NestedLoopJoinProbeLocalState::_finalize_lazy_probe_row(RuntimeState* sta
     if (!should_output) {
         return Status::OK();
     }
-    if (_join_block.rows() >= state->batch_size()) {
+    if (_join_block.rows() >= batch_size()) {
         *consumed = false;
         return Status::OK();
     }
@@ -419,7 +419,7 @@ Status NestedLoopJoinProbeLocalState::_finalize_lazy_build_side(RuntimeState* st
         return Status::OK();
     }
 
-    while (_join_block.rows() < state->batch_size() &&
+    while (_join_block.rows() < batch_size() &&
            _output_null_idx_build_side < _shared_state->build_blocks.size()) {
         const auto& build_block = _shared_state->build_blocks[_output_null_idx_build_side];
         const auto* __restrict visited_flags =
@@ -428,7 +428,7 @@ Status NestedLoopJoinProbeLocalState::_finalize_lazy_build_side(RuntimeState* st
                         ->get_data()
                         .data();
         const size_t rows = build_block.rows();
-        const size_t output_capacity = state->batch_size() - _join_block.rows();
+        const size_t output_capacity = batch_size() - _join_block.rows();
 
         IColumn::Filter filter(rows, 0);
         auto* __restrict filter_data = filter.data();
@@ -653,11 +653,11 @@ Status NestedLoopJoinProbeLocalState::_generate_lazy_block_base_probe(RuntimeSta
                                                                       Block* probe_block,
                                                                       bool ignore_null) {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    while (_join_block.rows() < state->batch_size()) {
+    while (_join_block.rows() < batch_size()) {
         while (_current_build_pos == _shared_state->build_blocks.size() ||
                _probe_block_pos == probe_block->rows()) {
             RETURN_IF_ERROR(_advance_lazy_probe_row(state, *probe_block));
-            if (_join_block.rows() >= state->batch_size()) {
+            if (_join_block.rows() >= batch_size()) {
                 break;
             }
             if (_probe_block_pos >= probe_block->rows()) {
@@ -665,14 +665,13 @@ Status NestedLoopJoinProbeLocalState::_generate_lazy_block_base_probe(RuntimeSta
             }
         }
 
-        if (_join_block.rows() >= state->batch_size() || _matched_rows_done ||
-            _need_more_input_data) {
+        if (_join_block.rows() >= batch_size() || _matched_rows_done || _need_more_input_data) {
             break;
         }
 
         const size_t build_block_idx = _current_build_pos++;
         const auto& build_block = _shared_state->build_blocks[build_block_idx];
-        if (_should_delay_lazy_probe_build_block(build_block.rows(), state->batch_size())) {
+        if (_should_delay_lazy_probe_build_block(build_block.rows(), batch_size())) {
             --_current_build_pos;
             break;
         }
@@ -703,7 +702,7 @@ Status NestedLoopJoinProbeLocalState::_generate_lazy_block_base_build(RuntimeSta
     }
 
     size_t processed_rows = 0;
-    while (processed_rows + probe_rows <= state->batch_size()) {
+    while (processed_rows + probe_rows <= batch_size()) {
         if (_probe_block_pos == probe_rows) {
             _current_build_row_pos++;
             _probe_block_pos = 0;
@@ -767,7 +766,7 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_probe(RuntimeState* sta
         return build_blocks[_current_build_pos].rows();
     };
 
-    while (_join_block.rows() + add_rows() <= state->batch_size()) {
+    while (_join_block.rows() + add_rows() <= batch_size()) {
         while (_current_build_pos == _shared_state->build_blocks.size() ||
                _probe_block_pos == probe_block->rows()) {
             // if probe block is empty(), do not need disprocess the probe block rows
@@ -805,9 +804,8 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_probe(RuntimeState* sta
                             now_process_build_block, p._num_build_side_columns);
     }
 
-    DCHECK_LE(_join_block.rows(), state->batch_size())
-            << "join block rows:" << _join_block.rows()
-            << ", state batch size:" << state->batch_size()
+    DCHECK_LE(_join_block.rows(), batch_size())
+            << "join block rows:" << _join_block.rows() << ", state batch size:" << batch_size()
             << "probe_block rows:" << probe_block->rows()
             << " build blocks size:" << _shared_state->build_blocks.size();
 }
@@ -842,7 +840,7 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_build(RuntimeState* sta
         return;
     }
 
-    while (_join_block.rows() + probe_rows <= state->batch_size()) {
+    while (_join_block.rows() + probe_rows <= batch_size()) {
         // The current build row has processed the entire probe block; move to the next build row
         if (_probe_block_pos == probe_rows) {
             // Move to the next build row and reset the probe position
@@ -876,9 +874,8 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_build(RuntimeState* sta
         _probe_block_pos = probe_rows;
     }
 
-    DCHECK_LE(_join_block.rows(), state->batch_size())
-            << "join block rows:" << _join_block.rows()
-            << ", state batch size:" << state->batch_size()
+    DCHECK_LE(_join_block.rows(), batch_size())
+            << "join block rows:" << _join_block.rows() << ", state batch size:" << batch_size()
             << "probe_block rows:" << probe_block->rows()
             << "build block rows:" << build_block.rows();
 }
@@ -962,7 +959,7 @@ Status NestedLoopJoinProbeLocalState::generate_other_join_block_data(RuntimeStat
                 // probe row with null from build side.
                 if (_probe_side_process_count) {
                     _finalize_current_phase<false, JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN>(
-                            _join_block, state->batch_size());
+                            _join_block, batch_size());
                 }
             } else if (_probe_side_process_count && p._is_mark_join &&
                        _shared_state->build_blocks.empty()) {
@@ -982,7 +979,7 @@ Status NestedLoopJoinProbeLocalState::generate_other_join_block_data(RuntimeStat
         if (_matched_rows_done &&
             _output_null_idx_build_side < _shared_state->build_blocks.size()) {
             _finalize_current_phase<true, JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN>(
-                    _join_block, state->batch_size());
+                    _join_block, batch_size());
         }
     }
     return Status::OK();
