@@ -81,7 +81,13 @@ struct MockAggsinkOperator : public AggSinkOperatorX {
 
     Status _init_probe_expr_ctx(RuntimeState* state) override { return Status::OK(); }
 
-    Status _init_aggregate_evaluators(RuntimeState* state) override { return Status::OK(); }
+    Status _init_aggregate_evaluators(RuntimeState* state) override {
+        _is_merge = false;
+        for (auto* evaluator : _aggregate_evaluators) {
+            _is_merge |= evaluator->is_merge();
+        }
+        return Status::OK();
+    }
 
     Status _check_agg_fn_output() override { return Status::OK(); }
 };
