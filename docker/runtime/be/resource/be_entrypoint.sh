@@ -20,11 +20,11 @@
 # the fe query port for mysql.
 FE_QUERY_PORT=${FE_QUERY_PORT:-9030}
 # timeout for probe fe master.
-PROBE_TIMEOUT=60
+PROBE_TIMEOUT=${PROBE_TIMEOUT:-60}
 # interval time to probe fe.
-PROBE_INTERVAL=2
+PROBE_INTERVAL=${PROBE_INTERVAL:-2}
 # rpc port for fe communicate with be.
-HEARTBEAT_PORT=9050
+HEARTBEAT_PORT=${HEARTBEAT_PORT:-9050}
 # fqdn or ip
 MY_SELF=
 MY_IP=`hostname -i`
