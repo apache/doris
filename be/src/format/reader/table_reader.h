@@ -240,7 +240,6 @@ protected:
         std::vector<SchemaField> file_schema;
         RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
         RETURN_IF_ERROR(_data_reader.column_mapper.create_mapping(_options.projected_columns,
-                                                                  &_data_reader.block_schema,
                                                                   _partition_values, file_schema));
 
         FileScanRequest file_request;

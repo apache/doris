@@ -101,12 +101,12 @@ private:
                              const std::string& name,
                              std::shared_ptr<::parquet::internal::RecordReader>* reader) const;
 
-    Status create_primitive_reader(int parquet_leaf_column_id,
-                                   const ParquetTypeDescriptor& type_descriptor,
-                                   const ::parquet::ColumnDescriptor* descriptor, DataTypePtr type,
-                                   std::string name,
-                                   std::shared_ptr<::parquet::internal::RecordReader> record_reader,
-                                   std::unique_ptr<ParquetColumnReader>* reader) const;
+    Status create_scalar_reader(int parquet_leaf_column_id,
+                                const ParquetTypeDescriptor& type_descriptor,
+                                const ::parquet::ColumnDescriptor* descriptor, DataTypePtr type,
+                                std::string name,
+                                std::shared_ptr<::parquet::internal::RecordReader> record_reader,
+                                std::unique_ptr<ParquetColumnReader>* reader) const;
 
     std::shared_ptr<::parquet::RowGroupReader> _row_group;
     mutable std::vector<std::shared_ptr<::parquet::internal::RecordReader>> _record_readers;
