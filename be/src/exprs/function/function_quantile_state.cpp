@@ -95,8 +95,7 @@ public:
         const NullMap* nullmap = nullptr;
         if constexpr (is_nullable) {
             col_nullable = check_and_get_column<ColumnNullable>(column.get());
-            col_nullmap = check_and_get_column<ColumnUInt8>(
-                    col_nullable->get_null_map_column_ptr().get());
+            col_nullmap = col_nullable->get_null_map_column_ptr().get();
             col = check_and_get_column<ColumnFloat64>(col_nullable->get_nested_column_ptr().get());
             if (col == nullptr || col_nullmap == nullptr) {
                 return type_error();

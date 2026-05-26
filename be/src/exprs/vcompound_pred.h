@@ -406,10 +406,7 @@ private:
                     assert_cast<const ColumnUInt8*>(nullable_column->get_nested_column_ptr().get())
                             ->get_data()
                             .data();
-            auto* null_map = assert_cast<const ColumnUInt8*>(
-                                     nullable_column->get_null_map_column_ptr().get())
-                                     ->get_data()
-                                     .data();
+            auto* null_map = nullable_column->get_null_map_column_ptr()->get_data().data();
             return std::make_pair(data_column, null_map);
         } else {
             auto* data_column = assert_cast<const ColumnUInt8*>(column.get())->get_data().data();

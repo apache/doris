@@ -239,9 +239,9 @@ public:
 private:
     friend class COWHelper<IColumn, ColumnMap>;
 
-    WrappedPtr keys_column;    // nullable
-    WrappedPtr values_column;  // nullable
-    WrappedPtr offsets_column; // offset
+    IColumn::WrappedPtr keys_column;    // nullable
+    IColumn::WrappedPtr values_column;  // nullable
+    IColumn::WrappedPtr offsets_column; // offset
 
     ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, MutableColumnPtr&& offsets);
     ColumnMap(SharedTag, ColumnPtr keys, ColumnPtr values, ColumnPtr offsets);

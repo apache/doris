@@ -147,9 +147,8 @@ public:
                                      ->get_nested_type();
 
                 // need to union nullmap from all columns
-                VectorizedUtils::update_null_map(
-                        outside_null_map->get_data(),
-                        assert_cast<const ColumnUInt8&>(*column_array_nullmap).get_data());
+                VectorizedUtils::update_null_map(outside_null_map->get_data(),
+                                                 column_array_nullmap->get_data());
             }
 
             // here is the array column

@@ -2122,7 +2122,7 @@ void ColumnVariant::clear_sparse_column() {
 }
 
 void ColumnVariant::ensure_binary_columns_rows() {
-    auto resize_if_empty = [this](WrappedPtr& column) {
+    auto resize_if_empty = [this](IColumn::WrappedPtr& column) {
         const auto& const_column = static_cast<const IColumn::Ptr&>(column);
         if (const_column->size() == num_rows) {
             return;
