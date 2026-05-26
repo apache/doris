@@ -1029,6 +1029,7 @@ DECLARE_String(kafka_api_version_request);
 DECLARE_String(kafka_broker_version_fallback);
 DECLARE_mString(kafka_debug);
 
+DECLARE_mInt64(max_chunk_size_for_broker);
 // The number of pool siz of routine load consumer.
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.

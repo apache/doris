@@ -250,6 +250,16 @@ std::string HdfsMgr::_hdfs_cache_key(const THdfsParams& hdfs_params, const std::
         cache_key += hdfs_params.user;
     }
 
+    // Include Kerberos authentication info in cache key
+    // Different principals or keytabs should have different cache keys
+    if (hdfs_params.__isset.hdfs_kerberos_principal) {
+        cache_key += hdfs_params.hdfs_kerberos_principal;
+    }
+
+    if (hdfs_params.__isset.hdfs_kerberos_keytab) {
+        cache_key += hdfs_params.hdfs_kerberos_keytab;
+    }
+
     return cache_key;
 }
 

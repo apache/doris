@@ -23,12 +23,14 @@
 #include <thrift/transport/TTransportException.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <limits>
 #include <ostream>
 #include <string>
 #include <thread>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/broker_file_system.h"
@@ -108,43 +110,64 @@ Status BrokerFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes
         return Status::InternalError("connect to broker failed");
     }
 
-    TBrokerPReadRequest request;
-    request.__set_version(TBrokerVersion::VERSION_ONE);
-    request.__set_fd(_fd);
-    request.__set_offset(offset);
-    request.__set_length(bytes_req);
+    // If max_chunk_size_for_broker is <= 0, read all at once; otherwise read in chunks
+    const size_t MAX_READ_SIZE = (config::max_chunk_size_for_broker <= 0) 
+                                  ? std::numeric_limits<size_t>::max() 
+                                  : config::max_chunk_size_for_broker;
+    size_t remaining = bytes_req;
+    size_t current_offset = offset;
+    size_t total_bytes_read = 0;
 
-    TBrokerReadResponse response;
-    try {
-        VLOG_RPC << "send pread request to broker:" << _broker_addr << " position:" << offset
-                 << ", read bytes length:" << bytes_req;
+    while (remaining > 0) {
+        size_t chunk_size = std::min(remaining, MAX_READ_SIZE);
+        TBrokerPReadRequest request;
+        request.__set_version(TBrokerVersion::VERSION_ONE);
+        request.__set_fd(_fd);
+        request.__set_offset(current_offset);
+        request.__set_length(chunk_size);
+
+        TBrokerReadResponse response;
         try {
-            (*_connection)->pread(response, request);
-        } catch (apache::thrift::transport::TTransportException& e) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            RETURN_IF_ERROR((*_connection).reopen());
-            LOG(INFO) << "retry reading from broker: " << _broker_addr << ". reason: " << e.what();
-            (*_connection)->pread(response, request);
+            VLOG_RPC << "send pread request to broker:" << _broker_addr
+                     << " position:" << current_offset
+                     << ", read bytes length:" << chunk_size;
+            try {
+                (*_connection)->pread(response, request);
+            } catch (apache::thrift::transport::TTransportException& e) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                RETURN_IF_ERROR((*_connection).reopen());
+                LOG(INFO) << "retry reading from broker: " << _broker_addr << ". reason: " << e.what();
+                (*_connection)->pread(response, request);
+            }
+        } catch (apache::thrift::TException& e) {
+            std::stringstream ss;
+            ss << "read broker file failed, broker:" << _broker_addr << " failed:" << e.what();
+            return Status::RpcError(ss.str());
         }
-    } catch (apache::thrift::TException& e) {
-        std::stringstream ss;
-        ss << "read broker file failed, broker:" << _broker_addr << " failed:" << e.what();
-        return Status::RpcError(ss.str());
+
+        if (response.opStatus.statusCode == TBrokerOperationStatusCode::END_OF_FILE) {
+            // read the end of broker's file
+            return Status::OK();
+        }
+        if (response.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
+            std::stringstream ss;
+            ss << "Open broker reader failed, broker:" << _broker_addr
+               << " failed:" << response.opStatus.message;
+            return Status::InternalError(ss.str());
+        }
+
+        memcpy(to + total_bytes_read, response.data.data(), response.data.size());
+        total_bytes_read += response.data.size();
+        current_offset += response.data.size();
+        
+        if (response.data.size() < chunk_size) {
+            break;
+        }
+
+        remaining -= response.data.size();
     }
 
-    if (response.opStatus.statusCode == TBrokerOperationStatusCode::END_OF_FILE) {
-        // read the end of broker's file
-        return Status::OK();
-    }
-    if (response.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
-        std::stringstream ss;
-        ss << "Open broker reader failed, broker:" << _broker_addr
-           << " failed:" << response.opStatus.message;
-        return Status::InternalError(ss.str());
-    }
-
-    *bytes_read = response.data.size();
-    memcpy(to, response.data.data(), *bytes_read);
+    *bytes_read = total_bytes_read;
     return Status::OK();
 }
 

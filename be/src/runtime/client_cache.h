@@ -192,8 +192,12 @@ public:
         } while (num_retries < max_retries);
     }
 
+    // Constructor for testing: directly inject a client without cache
+    // This allows tests to use mock clients without needing a real ClientCache
+    explicit ClientConnection(T* client) : _client_cache(nullptr), _client(client) {}
+
     ~ClientConnection() {
-        if (_client != nullptr) {
+        if (_client_cache != nullptr && _client != nullptr) {
             _client_cache->release_client(&_client);
         }
     }

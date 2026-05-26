@@ -39,6 +39,7 @@ __pycache__
 !.idea/icon.svg
 **/.vscode/
 **/.fleet/
+.joycode/
 
 # docs
 docs/contents/

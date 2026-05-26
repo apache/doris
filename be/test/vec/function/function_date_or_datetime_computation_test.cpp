@@ -32,7 +32,7 @@ TEST(DateTimeFunctionTest, year_and_week_test) {
 
     // Test with custom format string
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {
                 {{std::string("2023-01-01"), std::string("%s-%s")}, std::string("2022-52")},
                 {{std::string("2023-01-02"), std::string("%s-%s")}, std::string("2023-01")},
@@ -46,7 +46,8 @@ TEST(DateTimeFunctionTest, year_and_week_test) {
 
     // Test with different first day of week settings
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_INT};
         DataSet data_set = {
                 {{std::string("2023-01-01"), std::string("%s-%s"), 1}, std::string("2023-01")},
                 {{std::string("2023-01-02"), std::string("%s-%s"), 1}, std::string("2023-01")},
@@ -59,8 +60,8 @@ TEST(DateTimeFunctionTest, year_and_week_test) {
 
     // Test with different minimal days settings
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::Int32,
-                                    TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
         DataSet data_set = {
                 {{std::string("2023-01-01"), std::string("%s-%s"), 2, 1},
                  std::string("2023-01")},
@@ -76,7 +77,7 @@ TEST(DateTimeFunctionTest, week_and_year_test) {
 
     // Test default format (Chinese)
     {
-        InputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {
                 {{std::string("2023-01-02")}, std::string("2023年第01周")},
                 {{Null()}, Null()},
