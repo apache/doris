@@ -239,13 +239,14 @@ protected:
     virtual Status open_reader() {
         std::vector<SchemaField> file_schema;
         RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
+        _data_reader.block_schema = file_schema;
         RETURN_IF_ERROR(_data_reader.column_mapper.create_mapping(_options.projected_columns,
                                                                   _partition_values, file_schema));
 
-        FileScanRequest file_request;
+        auto file_request = std::make_unique<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper.create_scan_request(
-                _table_filters, _options.projected_columns, &file_request));
-        RETURN_IF_ERROR(_data_reader.reader->init(file_request));
+                _table_filters, _options.projected_columns, file_request.get()));
+        RETURN_IF_ERROR(_data_reader.reader->open(file_request));
         return Status::OK();
     }
 

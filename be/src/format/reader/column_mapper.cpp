@@ -93,11 +93,9 @@ Status TableColumnMapper::create_scan_request(const std::map<int32_t, TableFilte
     file_request->non_predicate_columns.clear();
     file_request->local_filters.clear();
     file_request->reader_expression_map.clear();
-    file_request->projected_columns.clear();
     for (const auto& table_column : projected_columns) {
         const auto* mapping = _find_mapping(table_column.id);
         if (mapping != nullptr && mapping->file_column_id.has_value()) {
-            file_request->projected_columns.push_back(*mapping->file_column_id);
             if (table_filters.count(table_column.id) == 0) {
                 file_request->non_predicate_columns.push_back(*mapping->file_column_id);
             }

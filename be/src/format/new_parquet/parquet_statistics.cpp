@@ -55,29 +55,6 @@ PrimitiveType physical_filter_type(const ParquetColumnSchema& column_schema) {
     }
 }
 
-bool statistics_supported(const ParquetColumnSchema& column_schema) {
-    if (column_schema.descriptor == nullptr) {
-        return false;
-    }
-    switch (column_schema.type_descriptor.physical_type) {
-    case ::parquet::Type::BOOLEAN:
-        return physical_filter_type(column_schema) == TYPE_BOOLEAN;
-    case ::parquet::Type::INT32:
-        return physical_filter_type(column_schema) == TYPE_INT;
-    case ::parquet::Type::INT64:
-        return physical_filter_type(column_schema) == TYPE_BIGINT;
-    case ::parquet::Type::FLOAT:
-        return physical_filter_type(column_schema) == TYPE_FLOAT;
-    case ::parquet::Type::DOUBLE:
-        return physical_filter_type(column_schema) == TYPE_DOUBLE;
-    case ::parquet::Type::BYTE_ARRAY:
-    case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
-        return physical_filter_type(column_schema) == TYPE_STRING;
-    default:
-        return false;
-    }
-}
-
 template <typename ParquetDType, PrimitiveType DorisType, typename ConvertFn>
 bool set_typed_min_max(const std::shared_ptr<::parquet::Statistics>& statistics, ConvertFn convert,
                        ParquetColumnStatistics* column_statistics) {
@@ -137,39 +114,6 @@ segment_v2::ZoneMap to_column_predicate_statistics(const ParquetColumnStatistics
 
 } // namespace
 
-std::vector<ParquetColumnPredicate> ParquetStatisticsUtils::BuildColumnPredicates(
-        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const reader::FileScanRequest& request) {
-    std::vector<ParquetColumnPredicate> plans;
-    for (const auto& local_filter : request.local_filters) {
-        if (local_filter.predicates.empty() || local_filter.file_column_id < 0 ||
-            local_filter.file_column_id >= static_cast<int>(file_schema.size())) {
-            continue;
-        }
-
-        const auto* column_schema = file_schema[local_filter.file_column_id].get();
-        if (column_schema == nullptr || column_schema->kind != ParquetColumnSchemaKind::PRIMITIVE ||
-            column_schema->leaf_column_id < 0 || !statistics_supported(*column_schema)) {
-            continue;
-        }
-
-        ParquetColumnPredicate plan;
-        plan.file_column_id = local_filter.file_column_id;
-        plan.leaf_column_id = column_schema->leaf_column_id;
-        plan.column_schema = column_schema;
-        for (const auto& predicate : local_filter.predicates) {
-            if (predicate != nullptr &&
-                predicate->primitive_type() == physical_filter_type(*column_schema)) {
-                plan.predicates.push_back(predicate);
-            }
-        }
-        if (!plan.predicates.empty()) {
-            plans.push_back(std::move(plan));
-        }
-    }
-    return plans;
-}
-
 ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
         const ParquetColumnSchema& column_schema,
         const std::shared_ptr<::parquet::Statistics>& statistics) {
@@ -215,19 +159,19 @@ ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
     }
 }
 
-bool ParquetStatisticsUtils::CheckStatistics(const ParquetColumnPredicate& predicate,
+bool ParquetStatisticsUtils::CheckStatistics(const reader::FileLocalFilter& local_filter,
                                              const ParquetColumnStatistics& statistics) {
     if (!statistics.has_any_statistics()) {
         return false;
     }
 
-    for (const auto& column_predicate : predicate.predicates) {
+    // TODO: replace local_filter.predicates by local_filter.conjuncts
+    for (const auto& column_predicate : local_filter.predicates) {
         if (is_null_only_predicate(*column_predicate)) {
             if (!statistics.has_null_count) {
                 continue;
             }
-        } else if (!statistics.has_min_max &&
-                   !(statistics.has_null_count && !statistics.has_not_null)) {
+        } else if (!statistics.has_any_statistics()) {
             continue;
         }
         if (!column_predicate->evaluate_and(to_column_predicate_statistics(statistics))) {
@@ -237,18 +181,20 @@ bool ParquetStatisticsUtils::CheckStatistics(const ParquetColumnPredicate& predi
     return false;
 }
 
-bool ParquetStatisticsUtils::RowGroupExcludes(const ::parquet::RowGroupMetaData& row_group,
-                                              const ParquetColumnPredicate& predicate) {
-    if (predicate.leaf_column_id < 0 || predicate.leaf_column_id >= row_group.num_columns() ||
-        predicate.column_schema == nullptr) {
-        return false;
-    }
-    auto column_chunk = row_group.ColumnChunk(predicate.leaf_column_id);
+bool ParquetStatisticsUtils::RowGroupExcludes(
+        const ::parquet::RowGroupMetaData& row_group,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
+        const reader::FileLocalFilter& local_filter) {
+    DCHECK(local_filter.file_column_id >= 0 &&
+           local_filter.file_column_id < row_group.num_columns());
+    DCHECK_LT(local_filter.file_column_id, schema.size());
+    auto column_chunk = row_group.ColumnChunk(local_filter.file_column_id);
     if (column_chunk == nullptr) {
         return false;
     }
-    return CheckStatistics(predicate, TransformColumnStatistics(*predicate.column_schema,
-                                                                column_chunk->statistics()));
+    return CheckStatistics(local_filter,
+                           TransformColumnStatistics(*schema[local_filter.file_column_id],
+                                                     column_chunk->statistics()));
 }
 
 Status ParquetStatisticsUtils::SelectRowGroups(
@@ -260,7 +206,6 @@ Status ParquetStatisticsUtils::SelectRowGroups(
     }
     selected_row_groups->clear();
 
-    const auto column_predicates = BuildColumnPredicates(file_schema, request);
     const int num_row_groups = metadata.num_row_groups();
     selected_row_groups->reserve(num_row_groups);
     for (int row_group_idx = 0; row_group_idx < num_row_groups; ++row_group_idx) {
@@ -270,8 +215,8 @@ Status ParquetStatisticsUtils::SelectRowGroups(
             continue;
         }
         bool drop = false;
-        for (const auto& column_predicate : column_predicates) {
-            if (RowGroupExcludes(*row_group, column_predicate)) {
+        for (const auto& local_filter : request.local_filters) {
+            if (RowGroupExcludes(*row_group, file_schema, local_filter)) {
                 drop = true;
                 break;
             }

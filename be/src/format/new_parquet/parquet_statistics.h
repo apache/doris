@@ -38,16 +38,6 @@ namespace doris::parquet {
 
 struct ParquetColumnSchema;
 
-// 已经编译到 Parquet file-local schema 的单列谓词计划。
-// 这对应 DuckDB Parquet reader 中“local filter + column reader/statistics”的组合：
-// 只包含 file-local top-level column id、leaf column ordinal 和 Doris ColumnPredicate。
-struct ParquetColumnPredicate {
-    reader::ColumnId file_column_id = -1;
-    int leaf_column_id = -1;
-    const ParquetColumnSchema* column_schema = nullptr;
-    std::vector<std::shared_ptr<ColumnPredicate>> predicates;
-};
-
 // Parquet row group column statistics 转换后的 Doris 统计视图。
 // DuckDB 会把 Parquet stats 转换成 BaseStatistics，然后让 TableFilter 自己判断；
 // Doris 新 reader 先保存 file-local min/max/null 信息，再交给 ColumnPredicate 判断。
@@ -66,19 +56,17 @@ struct ParquetColumnStatistics {
 // 结构参考 DuckDB ParquetStatisticsUtils：先把 Parquet metadata 转成统一统计对象，
 // 再由 filter/predicate 判断是否可以裁剪。这里不理解 table/global schema。
 struct ParquetStatisticsUtils {
-    static std::vector<ParquetColumnPredicate> BuildColumnPredicates(
-            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-            const reader::FileScanRequest& request);
-
     static ParquetColumnStatistics TransformColumnStatistics(
             const ParquetColumnSchema& column_schema,
             const std::shared_ptr<::parquet::Statistics>& statistics);
 
-    static bool CheckStatistics(const ParquetColumnPredicate& predicate,
+    // Return true if the statistics indicate that the row group can be safely skipped according to the local filter.
+    static bool CheckStatistics(const reader::FileLocalFilter& local_filter,
                                 const ParquetColumnStatistics& statistics);
 
     static bool RowGroupExcludes(const ::parquet::RowGroupMetaData& row_group,
-                                 const ParquetColumnPredicate& predicate);
+                                 const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
+                                 const reader::FileLocalFilter& local_filter);
 
     static Status SelectRowGroups(
             const ::parquet::FileMetaData& metadata,
