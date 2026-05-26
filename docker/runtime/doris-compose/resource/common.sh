@@ -153,20 +153,38 @@ create_doris_instance() {
 
         lock_cluster
 
-        output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/create_instance?token=greedisgood9999" \
-            -d '{"instance_id":"'"${INSTANCE_ID}"'",
-                    "name": "'"${INSTANCE_ID}"'",
-                    "user_id": "'"${DORIS_CLOUD_USER}"'",
-                    "obj_info": {
-                    "ak": "'"${DORIS_CLOUD_AK}"'",
-                    "sk": "'"${DORIS_CLOUD_SK}"'",
-                    "bucket": "'"${DORIS_CLOUD_BUCKET}"'",
-                    "endpoint": "'"${DORIS_CLOUD_ENDPOINT}"'",
-                    "external_endpoint": "'"${DORIS_CLOUD_EXTERNAL_ENDPOINT}"'",
-                    "prefix": "'"${DORIS_CLOUD_PREFIX}"'",
-                    "region": "'"${DORIS_CLOUD_REGION}"'",
-                    "provider": "'"${DORIS_CLOUD_PROVIDER}"'"
-                }}')
+        if [[ "${ENABLE_STORAGE_VAULT}" =~ ^([Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Yy]|[Oo][Nn]|1)$ ]]; then
+            output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/create_instance?token=greedisgood9999" \
+                -d '{"instance_id":"'"${INSTANCE_ID}"'",
+                        "name": "'"${INSTANCE_ID}"'",
+                        "user_id": "'"${DORIS_CLOUD_USER}"'",
+                        "vault": {
+                        "obj_info": {
+                        "ak": "'"${DORIS_CLOUD_AK}"'",
+                        "sk": "'"${DORIS_CLOUD_SK}"'",
+                        "bucket": "'"${DORIS_CLOUD_BUCKET}"'",
+                        "endpoint": "'"${DORIS_CLOUD_ENDPOINT}"'",
+                        "external_endpoint": "'"${DORIS_CLOUD_EXTERNAL_ENDPOINT}"'",
+                        "prefix": "'"${DORIS_CLOUD_PREFIX}"'",
+                        "region": "'"${DORIS_CLOUD_REGION}"'",
+                        "provider": "'"${DORIS_CLOUD_PROVIDER}"'"
+                    }}}')
+        else
+            output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/create_instance?token=greedisgood9999" \
+                -d '{"instance_id":"'"${INSTANCE_ID}"'",
+                        "name": "'"${INSTANCE_ID}"'",
+                        "user_id": "'"${DORIS_CLOUD_USER}"'",
+                        "obj_info": {
+                        "ak": "'"${DORIS_CLOUD_AK}"'",
+                        "sk": "'"${DORIS_CLOUD_SK}"'",
+                        "bucket": "'"${DORIS_CLOUD_BUCKET}"'",
+                        "endpoint": "'"${DORIS_CLOUD_ENDPOINT}"'",
+                        "external_endpoint": "'"${DORIS_CLOUD_EXTERNAL_ENDPOINT}"'",
+                        "prefix": "'"${DORIS_CLOUD_PREFIX}"'",
+                        "region": "'"${DORIS_CLOUD_REGION}"'",
+                        "provider": "'"${DORIS_CLOUD_PROVIDER}"'"
+                    }}')
+        fi
 
         unlock_cluster
 

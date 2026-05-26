@@ -66,9 +66,8 @@ public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
     using ValueDict = typename BloomFilterTraits<CppType>::ValueDict;
 
-    explicit BloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options,
-                                        const TypeInfo* type_info)
-            : _bf_options(bf_options), _type_info(type_info) {}
+    explicit BloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options)
+            : _bf_options(bf_options) {}
 
     ~BloomFilterIndexWriterImpl() override = default;
 
@@ -129,12 +128,11 @@ public:
         meta->set_algorithm(BLOCK_BLOOM_FILTER);
 
         // write bloom filters
-        const auto* bf_type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
         IndexedColumnWriterOptions options;
         options.write_ordinal_index = true;
         options.write_value_index = false;
         options.encoding = PLAIN_ENCODING;
-        IndexedColumnWriter bf_writer(options, bf_type_info, file_writer);
+        IndexedColumnWriter bf_writer(options, FieldType::OLAP_FIELD_TYPE_VARCHAR, file_writer);
         RETURN_IF_ERROR(bf_writer.init());
         for (auto& bf : _bfs) {
             Slice data(bf->data(), bf->size());
@@ -162,7 +160,6 @@ private:
 
 private:
     BloomFilterOptions _bf_options {};
-    const TypeInfo* _type_info = nullptr;
     Arena _arena;
     bool _has_null = false;
     uint64_t _bf_buffer_size = 0;
@@ -222,12 +219,11 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     meta->set_algorithm(BLOCK_BLOOM_FILTER);
 
     // write bloom filters
-    const auto* bf_type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
     options.encoding = PLAIN_ENCODING;
-    IndexedColumnWriter bf_writer(options, bf_type_info, file_writer);
+    IndexedColumnWriter bf_writer(options, FieldType::OLAP_FIELD_TYPE_VARCHAR, file_writer);
     RETURN_IF_ERROR(bf_writer.init());
     for (auto& bf : _bfs) {
         Slice data(bf->data(), bf->size());
@@ -280,12 +276,11 @@ Status NGramBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     meta->set_algorithm(NGRAM_BLOOM_FILTER);
 
     // write bloom filters
-    const TypeInfo* bf_typeinfo = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_VARCHAR);
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
     options.encoding = PLAIN_ENCODING;
-    IndexedColumnWriter bf_writer(options, bf_typeinfo, file_writer);
+    IndexedColumnWriter bf_writer(options, FieldType::OLAP_FIELD_TYPE_VARCHAR, file_writer);
     RETURN_IF_ERROR(bf_writer.init());
     for (auto& bf : _bfs) {
         Slice data(bf->data(), bf->size());
@@ -302,8 +297,7 @@ uint64_t NGramBloomFilterIndexWriterImpl::size() {
 }
 
 // TODO currently we don't support bloom filter index for tinyint/hll/float/double
-Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
-                                      const TypeInfo* type_info,
+Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options, FieldType type,
                                       std::unique_ptr<BloomFilterIndexWriter>* res) {
     DBUG_EXECUTE_IF("BloomFilterIndexWriter::create", {
         auto fpp = DebugPoints::instance()->get_debug_param_or_default<std::string>(
@@ -316,11 +310,10 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
             }
         }
     })
-    FieldType type = type_info->type();
     switch (type) {
-#define M(TYPE)                                                                  \
-    case TYPE:                                                                   \
-        res->reset(new BloomFilterIndexWriterImpl<TYPE>(bf_options, type_info)); \
+#define M(TYPE)                                                       \
+    case TYPE:                                                        \
+        res->reset(new BloomFilterIndexWriterImpl<TYPE>(bf_options)); \
         break;
         M(FieldType::OLAP_FIELD_TYPE_BOOL)
         M(FieldType::OLAP_FIELD_TYPE_TINYINT)
@@ -352,11 +345,9 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
     return Status::OK();
 }
 
-Status NGramBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_options,
-                                               const TypeInfo* typeinfo, uint8_t gram_size,
-                                               uint16_t gram_bf_size,
+Status NGramBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_options, FieldType type,
+                                               uint8_t gram_size, uint16_t gram_bf_size,
                                                std::unique_ptr<BloomFilterIndexWriter>* res) {
-    FieldType type = typeinfo->type();
     switch (type) {
     case FieldType::OLAP_FIELD_TYPE_CHAR:
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
@@ -372,9 +363,8 @@ Status NGramBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_opti
 }
 
 Status PrimaryKeyBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_options,
-                                                    const TypeInfo* typeinfo,
+                                                    FieldType type,
                                                     std::unique_ptr<BloomFilterIndexWriter>* res) {
-    FieldType type = typeinfo->type();
     switch (type) {
     case FieldType::OLAP_FIELD_TYPE_CHAR:
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:

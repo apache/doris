@@ -36,22 +36,24 @@ public:
         // Block block;
         return create_columns_with_type_and_name(row_desc);
     }
-    static MutableBlock build_mutable_mem_reuse_block(Block* block, const RowDescriptor& row_desc) {
+    static ScopedMutableBlock build_scoped_mutable_mem_reuse_block(Block* block,
+                                                                   const RowDescriptor& row_desc) {
         if (!block->mem_reuse()) {
             MutableBlock tmp(VectorizedUtils::create_columns_with_type_and_name(row_desc));
             block->swap(tmp.to_block());
         }
-        return MutableBlock::build_mutable_block(block);
+        return ScopedMutableBlock(block);
     }
-    static MutableBlock build_mutable_mem_reuse_block(Block* block, const Block& other) {
+    static ScopedMutableBlock build_scoped_mutable_mem_reuse_block(Block* block,
+                                                                   const Block& other) {
         if (!block->mem_reuse()) {
             MutableBlock tmp(other.clone_empty());
             block->swap(tmp.to_block());
         }
-        return MutableBlock::build_mutable_block(block);
+        return ScopedMutableBlock(block);
     }
-    static MutableBlock build_mutable_mem_reuse_block(Block* block,
-                                                      const std::vector<SlotDescriptor*>& slots) {
+    static ScopedMutableBlock build_scoped_mutable_mem_reuse_block(
+            Block* block, const std::vector<SlotDescriptor*>& slots) {
         if (!block->mem_reuse()) {
             size_t column_size = slots.size();
             MutableColumns columns(column_size);
@@ -65,7 +67,7 @@ public:
                                                     slot_desc->col_name()));
             }
         }
-        return MutableBlock(block);
+        return ScopedMutableBlock(block);
     }
 
     static ColumnsWithTypeAndName create_columns_with_type_and_name(const RowDescriptor& row_desc) {
@@ -245,7 +247,7 @@ inline void change_null_to_true(MutableColumnPtr column, ColumnPtr argument = nu
     size_t rows = column->size();
     if (is_column_const(*column)) {
         change_null_to_true(
-                assert_cast<ColumnConst*>(column.get())->get_data_column_ptr()->assume_mutable());
+                assert_cast<ColumnConst*>(column.get())->get_data_column_ptr()->assert_mutable());
     } else if (column->has_null()) {
         auto* nullable = assert_cast<ColumnNullable*>(column.get());
         auto* __restrict data = assert_cast<ColumnUInt8*>(nullable->get_nested_column_ptr().get())

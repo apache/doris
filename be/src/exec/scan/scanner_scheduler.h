@@ -62,7 +62,7 @@ struct SimplifiedScanTask {
 class ScannerSplitRunner : public SplitRunner {
 public:
     ScannerSplitRunner(std::string name, std::function<bool()> scan_func)
-            : _name(std::move(name)), _scan_func(scan_func), _started(false) {}
+            : _name(std::move(name)), _scan_func(std::move(scan_func)), _started(false) {}
 
     Status init() override { return Status::OK(); }
 

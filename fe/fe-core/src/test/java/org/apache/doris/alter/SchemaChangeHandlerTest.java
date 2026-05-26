@@ -301,6 +301,18 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
         Assert.assertFalse(cols.contains("v6"));
         Assert.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
+
+        // enable hidden sequence column should not pollute row binlog schema
+        alterTable("ALTER TABLE test." + tableName
+                + " ENABLE FEATURE \"SEQUENCE_LOAD\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")",
+                connectContext);
+        jobSize++;
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+
+        Assert.assertTrue(tbl.getBaseSchema(true).stream().anyMatch(Column::isSequenceColumn));
+        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        Assert.assertFalse(cols.contains(Column.SEQUENCE_COL));
+        Assert.assertFalse(cols.contains(Column.generateBeforeColName(Column.SEQUENCE_COL)));
     }
 
     @Test

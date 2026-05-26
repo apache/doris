@@ -36,12 +36,14 @@ public class OlapTableWrapper extends OlapTable {
         super(originTable.getId(), wrapperName, baseSchema,
                 keysType, originTable.getPartitionInfo(), originTable.getDefaultDistributionInfo());
         this.originTable = originTable;
+        this.setQualifiedDbName(originTable.getQualifiedDbName());
     }
 
     protected OlapTableWrapper(OlapTable originTable) {
         super(originTable.getId(), originTable.getName(), originTable.getBaseSchema(),
                 originTable.getKeysType(), originTable.getPartitionInfo(), originTable.getDefaultDistributionInfo());
         this.originTable = originTable;
+        this.setQualifiedDbName(originTable.getQualifiedDbName());
     }
 
     public OlapTable getOriginTable() {

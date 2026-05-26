@@ -21,7 +21,9 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -29,13 +31,24 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.Map;
+import java.util.Set;
 
 public class CTEInlineTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         connectContext.setDatabase("test");
+        createTable("CREATE TABLE cte_inline_tbl (\n"
+                + "  id int NULL,\n"
+                + "  val int NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES (\"replication_num\" = \"1\")");
     }
 
     @Test
@@ -80,5 +93,30 @@ public class CTEInlineTest extends TestWithFeService implements MemoPatternMatch
                         )
                 ).when(cte -> cte.getCteName().equals("yy"))
         );
+    }
+
+    @Test
+    public void refreshCteConsumersAfterNormalizeEliminatesEmptyBranch() {
+        int oldCteInlineMode = connectContext.getSessionVariable().cteInlineMode;
+        int oldInlineCteReferencedThreshold = connectContext.getSessionVariable().inlineCTEReferencedThreshold;
+        connectContext.getSessionVariable().cteInlineMode = 0;
+        connectContext.getSessionVariable().inlineCTEReferencedThreshold = 1;
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        String sql = "with cte as (select id, val from cte_inline_tbl) "
+                + "select * from cte where id = 1 "
+                + "union all select * from cte where id = 2 "
+                + "union all select * from cte where 1 = 0";
+        try {
+            PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
+                Map<CTEId, Set<LogicalCTEConsumer>> consumers =
+                        planner.getCascadesContext().getStatementContext().getCteIdToConsumers();
+                Assertions.assertEquals(1, consumers.size());
+                Assertions.assertEquals(2, consumers.values().iterator().next().size());
+            });
+        } finally {
+            connectContext.getSessionVariable().cteInlineMode = oldCteInlineMode;
+            connectContext.getSessionVariable().inlineCTEReferencedThreshold = oldInlineCteReferencedThreshold;
+            connectContext.getSessionVariable().setDisableNereidsRules("");
+        }
     }
 }

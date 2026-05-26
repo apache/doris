@@ -72,8 +72,6 @@ public:
     Status add_array_values(size_t field_size, const void* value_ptr,
                             const uint8_t* nested_null_map, const uint8_t* offsets_ptr,
                             size_t count) override;
-    Status add_array_values(size_t field_size, const CollectionValue* values,
-                            size_t count) override;
     Status add_numeric_values(const void* values, size_t count);
     Status add_value(const CppType& value);
     int64_t size() const override;

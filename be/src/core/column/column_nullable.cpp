@@ -28,6 +28,30 @@
 #include "exec/sort/sort_block.h"
 
 namespace doris {
+namespace {
+
+const ColumnUInt8& check_nullable_null_map_column(const IColumn& null_map) {
+    const auto* concrete = check_and_get_column<ColumnUInt8>(null_map);
+    if (!concrete) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "ColumnNullable null map must be ColumnUInt8, but got {}",
+                               null_map.get_name());
+        __builtin_unreachable();
+    }
+    return *concrete;
+}
+
+void check_nullable_sizes(const IColumn& nested_column, const IColumn& null_map) {
+    const auto& null_map_concrete = check_nullable_null_map_column(null_map);
+    if (nested_column.size() != null_map_concrete.size()) {
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "Size of nested column {} with size {} is not equal to size of null map {}",
+                nested_column.get_name(), nested_column.size(), null_map_concrete.size());
+    }
+}
+
+} // namespace
 
 ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnPtr&& null_map_)
         : _nested_column(std::move(nested_column_)), _null_map(std::move(null_map_)) {
@@ -45,6 +69,40 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
                                "ColumnNullable cannot have constant null map");
         __builtin_unreachable();
     }
+    check_nullable_sizes(*static_cast<const IColumn::Ptr&>(_nested_column),
+                         *static_cast<const IColumn::Ptr&>(_null_map));
+}
+
+ColumnNullable::ColumnNullable(SharedTag, ColumnPtr nested_column_, ColumnPtr null_map_) {
+    check_nullable_sizes(*nested_column_, *null_map_);
+
+    if (const auto* nullable_nested = check_and_get_column<ColumnNullable>(nested_column_.get())) {
+        auto merged_null_map = null_map_->clone_empty();
+        merged_null_map->insert_range_from(*null_map_, 0, null_map_->size());
+        auto& merged_null_map_data = assert_cast<ColumnUInt8&>(*merged_null_map).get_data();
+        const auto& nested_null_map_data = nullable_nested->get_null_map_data();
+        DCHECK_EQ(merged_null_map_data.size(), nested_null_map_data.size());
+        for (size_t i = 0; i != merged_null_map_data.size(); ++i) {
+            merged_null_map_data[i] |= nested_null_map_data[i];
+        }
+
+        static_cast<IColumn::Ptr&>(_nested_column) = nullable_nested->get_nested_column_ptr();
+        static_cast<IColumn::Ptr&>(_null_map) = std::move(merged_null_map);
+    } else {
+        static_cast<IColumn::Ptr&>(_nested_column) = std::move(nested_column_);
+        static_cast<IColumn::Ptr&>(_null_map) = std::move(null_map_);
+    }
+
+    check_const_only_in_top_level();
+    check_nullable_sizes(*static_cast<const IColumn::Ptr&>(_nested_column),
+                         *static_cast<const IColumn::Ptr&>(_null_map));
+}
+
+void ColumnNullable::replace_columns(ColumnPtr nested_column, ColumnPtr null_map) {
+    check_nullable_sizes(*nested_column, *null_map);
+    static_cast<IColumn::Ptr&>(_nested_column) = std::move(nested_column);
+    static_cast<IColumn::Ptr&>(_null_map) = std::move(null_map);
+    check_const_only_in_top_level();
 }
 
 void ColumnNullable::shrink_padding_chars() {
@@ -113,7 +171,14 @@ void ColumnNullable::update_crc32c_batch(uint32_t* __restrict hashes,
     const auto* __restrict real_null_data = get_null_map_column().get_data().data();
     if (_nested_column->support_replace_column_null_data()) {
         // nullmap process is slow, replace null data to default value to avoid nullmap process
-        _nested_column->assume_mutable()->replace_column_null_data(real_null_data);
+        // This is an intentional in-place mutation inside a logically-const hash computation:
+        // null positions are overwritten with defaults so the inner hash loop needs no null checks.
+        // The invariant is that a column instance is not hashed concurrently through the same
+        // owner while this per-block hash path runs. Shared aliases are detached by mutate()
+        // before this normalized nested column is written back.
+        auto nested_mut = std::move(*static_cast<const IColumn::Ptr&>(_nested_column)).mutate();
+        nested_mut->replace_column_null_data(real_null_data);
+        static_cast<IColumn::Ptr&>(const_cast<WrappedPtr&>(_nested_column)) = std::move(nested_mut);
         _nested_column->update_crc32c_batch(hashes, nullptr);
     } else {
         auto s = size();
@@ -373,12 +438,15 @@ size_t ColumnNullable::filter(const Filter& filter) {
 
 Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
     auto* nullable_col_ptr = assert_cast<ColumnNullable*>(col_ptr);
-    WrappedPtr nest_col_ptr = nullable_col_ptr->_nested_column;
+    // Access the nested column via const path to avoid assert_mutable_ref (which requires
+    // exclusive ownership). The output col_ptr was just created, so its nested column is exclusive.
+    IColumn* nest_col_raw = const_cast<IColumn*>(
+            static_cast<const WrappedPtr&>(nullable_col_ptr->_nested_column).get());
 
     /// `get_null_map_data` will set `_need_update_has_null` to true
     auto& res_nullmap = nullable_col_ptr->get_null_map_data();
 
-    RETURN_IF_ERROR(get_nested_column().filter_by_selector(sel, sel_size, nest_col_ptr.get()));
+    RETURN_IF_ERROR(get_nested_column().filter_by_selector(sel, sel_size, nest_col_raw));
     DCHECK(res_nullmap.empty());
     res_nullmap.resize(sel_size);
     auto& cur_nullmap = get_null_map_column().get_data();

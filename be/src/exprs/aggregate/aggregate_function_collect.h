@@ -17,11 +17,10 @@
 
 #pragma once
 
-#include <assert.h>
 #include <glog/logging.h>
-#include <string.h>
 
 #include <cstddef>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <new>
@@ -50,7 +49,7 @@ struct AggregateFunctionCollectSetData {
     using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using SelfType = AggregateFunctionCollectSetData;
-    using Set = phmap::flat_hash_set<ElementType>;
+    using Set = doris::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
 
@@ -119,7 +118,7 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     using SelfType = AggregateFunctionCollectSetData<T, HasLimit>;
-    using Set = phmap::flat_hash_set<ElementType>;
+    using Set = doris::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
 
@@ -137,7 +136,6 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
         if (max_size == -1) {
             max_size = rhs.max_size;
         }
-        max_size = rhs.max_size;
 
         for (const auto& rhs_elem : rhs.data_set) {
             if constexpr (HasLimit) {
@@ -205,7 +203,6 @@ struct AggregateFunctionCollectListData {
             if (max_size == -1) {
                 max_size = rhs.max_size;
             }
-            max_size = rhs.max_size;
             for (auto& rhs_elem : rhs.data) {
                 if (size() >= max_size) {
                     return;
@@ -237,7 +234,7 @@ struct AggregateFunctionCollectListData {
         auto& vec = assert_cast<ColVecType&>(to).get_data();
         size_t old_size = vec.size();
         vec.resize(old_size + size());
-        memcpy(vec.data() + old_size, data.data(), size() * sizeof(ElementType));
+        std::memcpy(vec.data() + old_size, data.data(), size() * sizeof(ElementType));
     }
 };
 
@@ -263,7 +260,6 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
             if (max_size == -1) {
                 max_size = rhs.max_size;
             }
-            max_size = rhs.max_size;
 
             data->insert_range_from(*rhs.data, 0,
                                     std::min(static_cast<size_t>(max_size - size()), rhs.size()));
@@ -332,7 +328,6 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
             if (max_size == -1) {
                 max_size = rhs.max_size;
             }
-            max_size = rhs.max_size;
 
             column_data->insert_range_from(
                     *rhs.column_data, 0,

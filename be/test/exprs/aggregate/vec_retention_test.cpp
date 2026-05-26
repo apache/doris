@@ -25,6 +25,7 @@
 #include "common/logging.h"
 #include "core/assert_cast.h"
 #include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
@@ -42,6 +43,18 @@ class IColumn;
 namespace doris {
 
 void register_aggregate_function_retention(AggregateFunctionSimpleFactory& factory);
+
+namespace {
+ColumnArray& retention_result_array(IColumn& column) {
+    return assert_cast<ColumnArray&>(column);
+}
+
+ColumnUInt8::Container& retention_result_data(IColumn& column) {
+    auto& array = retention_result_array(column);
+    auto& nested = assert_cast<ColumnNullable&>(array.get_data());
+    return assert_cast<ColumnUInt8&>(nested.get_nested_column()).get_data();
+}
+} // namespace
 
 class VRetentionTest : public testing::Test {
 public:
@@ -83,25 +96,23 @@ TEST_F(VRetentionTest, testEmpty) {
     agg_function->create(place2);
 
     agg_function->merge(place, place2, arena);
-    auto column_result =
-            ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
+    auto column_result = agg_function->get_return_type()->create_column();
     agg_function->insert_result_into(place, *column_result);
-    auto& result = assert_cast<ColumnUInt8&>(column_result->get_data()).get_data();
+    auto& result = retention_result_data(*column_result);
     for (int i = 0; i < result.size(); i++) {
         EXPECT_EQ(result[i], 0);
     }
 
-    auto column_result2 =
-            ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
+    auto column_result2 = agg_function->get_return_type()->create_column();
     agg_function->insert_result_into(place2, *column_result2);
-    auto& result2 = assert_cast<ColumnUInt8&>(column_result2->get_data()).get_data();
+    auto& result2 = retention_result_data(*column_result2);
     for (int i = 0; i < result2.size(); i++) {
         EXPECT_EQ(result2[i], 0);
     }
 
-    EXPECT_EQ(column_result2->get_offsets()[-1], 0);
-    EXPECT_EQ(column_result2->get_offsets()[0], 3);
-    EXPECT_EQ(column_result2->get_offsets().size(), 1);
+    EXPECT_EQ(retention_result_array(*column_result2).get_offsets()[-1], 0);
+    EXPECT_EQ(retention_result_array(*column_result2).get_offsets()[0], 3);
+    EXPECT_EQ(retention_result_array(*column_result2).get_offsets().size(), 1);
     agg_function->destroy(place);
     agg_function->destroy(place2);
 }
@@ -141,17 +152,16 @@ TEST_F(VRetentionTest, testSample) {
 
     agg_function->merge(place2, place, arena);
 
-    auto column_result2 =
-            ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
+    auto column_result2 = agg_function->get_return_type()->create_column();
     agg_function->insert_result_into(place2, *column_result2);
-    auto& result2 = assert_cast<ColumnUInt8&>(column_result2->get_data()).get_data();
+    auto& result2 = retention_result_data(*column_result2);
     for (int i = 0; i < result2.size(); i++) {
         EXPECT_EQ(result2[i], 1);
     }
 
-    EXPECT_EQ(column_result2->get_offsets()[-1], 0);
-    EXPECT_EQ(column_result2->get_offsets()[0], 3);
-    EXPECT_EQ(column_result2->get_offsets().size(), 1);
+    EXPECT_EQ(retention_result_array(*column_result2).get_offsets()[-1], 0);
+    EXPECT_EQ(retention_result_array(*column_result2).get_offsets()[0], 3);
+    EXPECT_EQ(retention_result_array(*column_result2).get_offsets().size(), 1);
     agg_function->destroy(place2);
 }
 
@@ -184,16 +194,15 @@ TEST_F(VRetentionTest, testNoMerge) {
         agg_function->add(place, column, i, arena);
     }
 
-    auto column_result =
-            ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
+    auto column_result = agg_function->get_return_type()->create_column();
     agg_function->insert_result_into(place, *column_result);
-    auto& result = assert_cast<ColumnUInt8&>(column_result->get_data()).get_data();
+    auto& result = retention_result_data(*column_result);
     for (int i = 0; i < result.size(); i++) {
         EXPECT_EQ(result[i], 1);
     }
-    EXPECT_EQ(column_result->get_offsets()[-1], 0);
-    EXPECT_EQ(column_result->get_offsets()[0], 3);
-    EXPECT_EQ(column_result->get_offsets().size(), 1);
+    EXPECT_EQ(retention_result_array(*column_result).get_offsets()[-1], 0);
+    EXPECT_EQ(retention_result_array(*column_result).get_offsets()[0], 3);
+    EXPECT_EQ(retention_result_array(*column_result).get_offsets().size(), 1);
     agg_function->destroy(place);
 }
 
@@ -233,10 +242,9 @@ TEST_F(VRetentionTest, testSerialize) {
     VectorBufferReader buf_reader(buf.get_data_at(0));
     agg_function->deserialize(place2, buf_reader, arena);
 
-    auto column_result =
-            ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
+    auto column_result = agg_function->get_return_type()->create_column();
     agg_function->insert_result_into(place2, *column_result);
-    auto& result = assert_cast<ColumnUInt8&>(column_result->get_data()).get_data();
+    auto& result = retention_result_data(*column_result);
     for (int i = 0; i < result.size(); i++) {
         if (i == 0) {
             EXPECT_EQ(result[i], 1);
@@ -267,10 +275,9 @@ TEST_F(VRetentionTest, testSerialize) {
 
     agg_function->merge(place2, place3, arena);
 
-    auto column_result2 =
-            ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
+    auto column_result2 = agg_function->get_return_type()->create_column();
     agg_function->insert_result_into(place2, *column_result2);
-    auto& result2 = assert_cast<ColumnUInt8&>(column_result2->get_data()).get_data();
+    auto& result2 = retention_result_data(*column_result2);
     for (int i = 0; i < result2.size(); i++) {
         if (i == result2.size() - 1) {
             EXPECT_EQ(result2[i], 0);
@@ -279,9 +286,9 @@ TEST_F(VRetentionTest, testSerialize) {
         }
     }
 
-    EXPECT_EQ(column_result2->get_offsets()[-1], 0);
-    EXPECT_EQ(column_result2->get_offsets()[0], 3);
-    EXPECT_EQ(column_result2->get_offsets().size(), 1);
+    EXPECT_EQ(retention_result_array(*column_result2).get_offsets()[-1], 0);
+    EXPECT_EQ(retention_result_array(*column_result2).get_offsets()[0], 3);
+    EXPECT_EQ(retention_result_array(*column_result2).get_offsets().size(), 1);
 
     agg_function->destroy(place2);
     agg_function->destroy(place3);

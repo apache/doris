@@ -1518,7 +1518,7 @@ Status VariantRootColumnIterator::_process_root_column(MutableColumnPtr& dst,
     auto tmp = ColumnVariant::create(0, obj.enable_doc_mode(), root_column->size());
     auto& tmp_obj = *tmp;
     tmp_obj.add_sub_column({}, std::move(root_column), most_common_type);
-    // tmp_obj.get_sparse_column()->assume_mutable()->insert_many_defaults(root_column->size());
+    // tmp_obj.get_sparse_column()->assert_mutable()->insert_many_defaults(root_column->size());
 
     // merge tmp object column to dst
     obj.insert_range_from(*tmp, 0, tmp_obj.rows());
@@ -1587,8 +1587,9 @@ static void fill_nested_with_defaults(MutableColumnPtr& dst, MutableColumnPtr& s
     }
     auto new_nested =
             dst_array->get_data_ptr()->clone_resized(sibling_array->get_data_ptr()->size());
-    auto new_array = make_nullable(ColumnArray::create(
-            new_nested->assume_mutable(), sibling_array->get_offsets_ptr()->assume_mutable()));
+    ColumnPtr nested_column = std::move(new_nested);
+    auto new_array =
+            make_nullable(ColumnArray::create(nested_column, sibling_array->get_offsets_ptr()));
     dst->insert_range_from(*new_array, 0, new_array->size());
 #ifndef NDEBUG
     if (!dst_array->has_equal_offsets(*sibling_array)) {

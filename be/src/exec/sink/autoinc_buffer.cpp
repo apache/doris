@@ -152,9 +152,11 @@ Status AutoIncIDBuffer::sync_request_ids(size_t request_length,
         }
     }
     CHECK_EQ(request_length, 0);
+#ifndef BE_TEST
     if (!_is_fetching && _current_volume < _low_water_level_mark()) {
         RETURN_IF_ERROR(_launch_async_fetch_task(_prefetch_size()));
     }
+#endif
     return Status::OK();
 }
 

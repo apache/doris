@@ -117,6 +117,10 @@ class ClusterOptions {
     // Example: clusterSnapshot = '{"cloud_unique_id":"1:instance_id:xxx"}'
     String clusterSnapshot = null;
 
+    // Create cloud instance in storage-vault mode instead of legacy obj_info mode.
+    // Docker framework will also create a default storage vault automatically for new clusters.
+    Boolean enableStorageVault = false;
+
     void enableDebugPoints() {
         feConfigs.add('enable_debug_points=true')
         beConfigs.add('enable_debug_points=true')
@@ -375,9 +379,13 @@ class SuiteCluster {
             cmd += ['--extra-hosts']
             cmd += options.extraHosts
         }
-        if (!options.environments.isEmpty()) {
+        def envs = new ArrayList<String>(options.environments)
+        if (options.enableStorageVault) {
+            envs.add('ENABLE_STORAGE_VAULT=1')
+        }
+        if (!envs.isEmpty()) {
             cmd += ['--env']
-            cmd += options.environments
+            cmd += envs
         }
         if (!options.cloudStoreConfigs.isEmpty()) {
             cmd += ['--cloud-config']

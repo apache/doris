@@ -99,7 +99,7 @@ public:
         }
         auto clone = value->clone_empty();
         clone->reserve(input_rows_count);
-        clone->assume_mutable()->insert_indices_from(*value, array_sizes.data(),
+        clone->assert_mutable()->insert_indices_from(*value, array_sizes.data(),
                                                      array_sizes.data() + offset);
         if (!clone->is_nullable()) {
             clone = ColumnNullable::create(std::move(clone), ColumnUInt8::create(clone->size(), 0));

@@ -17,12 +17,13 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <cstdint>
+#include <set>
+#include <vector>
 
 #include "common/cast_set.h"
 #include "common/status.h"
+#include "core/column/column.h"
 #include "exec/operator/join_probe_operator.h"
 #include "exec/operator/operator.h"
 #include "util/simd/bits.h"
@@ -49,7 +50,7 @@ public:
     for (size_t i = 0; i < column_to_keep; ++i) {        \
         auto& column = block->get_by_position(i).column; \
         if (column->is_exclusive()) {                    \
-            column->assume_mutable()->clear();           \
+            column->assert_mutable()->clear();           \
         } else {                                         \
             column = column->clone_empty();              \
         }                                                \
@@ -77,6 +78,39 @@ public:
 private:
     // Whether to generate data based on the build side
     bool use_generate_block_base_build() const;
+    Status _advance_lazy_probe_row(RuntimeState* state, const Block& probe_block);
+    Status _generate_lazy_block_base_probe(RuntimeState* state, Block* probe_block,
+                                           bool ignore_null);
+    Status _generate_lazy_block_base_build(RuntimeState* state, Block* probe_block);
+    bool _should_delay_lazy_probe_build_block(size_t candidate_rows, size_t batch_size) const;
+    bool _lazy_should_output_matched_rows() const;
+    Status _process_lazy_probe_build_block(Block* probe_block, const Block& build_block,
+                                           size_t build_block_idx, bool ignore_null);
+    void _mark_lazy_build_rows_visited(size_t build_block_idx, const IColumn::Filter& filter);
+    void _update_lazy_mark_join_state(const IColumn::Filter& mark_filter,
+                                      const ColumnUInt8& mark_null_map,
+                                      const IColumn::Filter& other_filter);
+    Status _append_lazy_rows(const IColumn::Filter& filter, size_t selected_rows,
+                             bool fixed_side_probe, int64_t fixed_side_pos,
+                             const Block& probe_block, const Block& build_block);
+    Status _append_lazy_probe_row_with_build_defaults(const Block& probe_block,
+                                                      int64_t probe_row_pos);
+    Status _append_lazy_mark_probe_row_with_build_defaults(const Block& probe_block,
+                                                           int64_t probe_row_pos,
+                                                           int8_t mark_value);
+    Status _finalize_lazy_probe_row(RuntimeState* state, const Block& probe_block,
+                                    int64_t probe_row_pos, bool* consumed);
+    Status _append_lazy_build_rows_with_probe_defaults(const Block& build_block,
+                                                       const IColumn::Filter& filter,
+                                                       size_t selected_rows);
+    Status _finalize_lazy_build_side(RuntimeState* state);
+    void _replace_lazy_placeholder_columns(size_t rows);
+    void _append_lazy_probe_eval_columns(ColumnsWithTypeAndName& eval_columns,
+                                         const Block& probe_block, bool fixed_side_probe,
+                                         int64_t fixed_side_pos, size_t rows);
+    void _append_lazy_build_eval_columns(ColumnsWithTypeAndName& eval_columns,
+                                         const Block& build_block, bool fixed_side_probe,
+                                         int64_t fixed_side_pos, size_t rows);
 
     friend class NestedLoopJoinProbeOperatorX;
     void _update_additional_flags(Block* block);
@@ -139,7 +173,7 @@ private:
     template <bool SetBuildSideFlag, bool SetProbeSideFlag, bool IgnoreNull>
     Status _do_filtering_and_update_visited_flags(Block* block, bool materialize) {
         // The number of columns will not exceed the range of u32.
-        uint32_t column_to_keep = cast_set<uint32_t>(block->columns());
+        auto column_to_keep = cast_set<uint32_t>(block->columns());
         // If we need to set visited flags for build side,
         // 1. Execute conjuncts and get a column with bool type to do filtering.
         // 2. Use bool column to update build-side visited flags.
@@ -205,6 +239,7 @@ private:
     bool _need_more_input_data = true;
     // Visited flags for current row in probe side.
     std::vector<int8_t> _cur_probe_row_visited_flags;
+    std::vector<int8_t> _cur_probe_row_mark_flags;
     size_t _current_build_pos = 0;
     size_t _current_build_row_pos =
             0; // current row pos in build block, used by _generate_block_base_build
@@ -212,7 +247,9 @@ private:
     std::stack<uint16_t> _build_offset_stack;
     std::stack<uint16_t> _probe_offset_stack;
     uint64_t _output_null_idx_build_side = 0;
+    uint64_t _output_null_row_idx_build_side = 0;
     VExprContextSPtrs _join_conjuncts;
+    VExprContextSPtrs _mark_join_conjuncts;
 
     RuntimeProfile::Counter* _loop_join_timer = nullptr;
     RuntimeProfile::Counter* _output_temp_blocks_timer = nullptr;
@@ -232,7 +269,8 @@ public:
     Status push(RuntimeState* state, Block* input_block, bool eos) const override;
     Status pull(doris::RuntimeState* state, Block* output_block, bool* eos) const override;
     const RowDescriptor& intermediate_row_desc() const override {
-        return _old_version_flag ? _row_descriptor : *_intermediate_row_desc;
+        DORIS_CHECK(_intermediate_row_desc != nullptr);
+        return *_intermediate_row_desc;
     }
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
@@ -245,9 +283,11 @@ public:
     }
 
     const RowDescriptor& row_desc() const override {
-        return _old_version_flag
-                       ? (_output_row_descriptor ? *_output_row_descriptor : _row_descriptor)
-                       : (_output_row_descriptor ? *_output_row_descriptor : *_output_row_desc);
+        if (_output_row_descriptor) {
+            return *_output_row_descriptor;
+        }
+        DORIS_CHECK(_output_row_desc != nullptr);
+        return *_output_row_desc;
     }
 
     bool need_more_input_data(RuntimeState* state) const override;
@@ -256,9 +296,17 @@ private:
     friend class NestedLoopJoinProbeLocalState;
     bool _is_output_probe_side_only;
     VExprContextSPtrs _join_conjuncts;
+    VExprContextSPtrs _mark_join_conjuncts;
     size_t _num_probe_side_columns = 0;
     size_t _num_build_side_columns = 0;
-    const bool _old_version_flag;
+    bool _has_materialized_slot_ids = false;
+    std::vector<SlotId> _materialized_slot_ids;
+    bool _enable_lazy_materialize = false;
+    bool _enable_lazy_probe_finalize = false;
+    bool _enable_lazy_build_finalize = false;
+    bool _enable_lazy_mark_finalize = false;
+    std::set<int> _lazy_eval_column_ids;
+    std::set<int> _materialize_column_ids;
 };
 
 } // namespace doris
