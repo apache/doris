@@ -22,12 +22,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <type_traits>
 
 #include "core/assert_cast.h"
 #include "core/column/column.h"
-#include "core/column/column_nullable.h"
-#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -36,8 +33,6 @@ namespace doris {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-template <PrimitiveType T>
-class ColumnDecimal;
 template <PrimitiveType T>
 class ColumnVector;
 
@@ -125,14 +120,9 @@ struct BaseData {
 
 template <PrimitiveType T, typename Name, bool is_stddev>
 struct PopData : BaseData<T, is_stddev>, Name {
-    using ColVecResult = std::conditional_t<is_decimal(T), ColumnDecimal128V2, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
-        auto& col = assert_cast<ColVecResult&>(to);
-        if constexpr (is_decimal(T)) {
-            col.get_data().push_back(this->get_pop_result().value());
-        } else {
-            col.get_data().push_back(this->get_pop_result());
-        }
+        auto& col = assert_cast<ColumnFloat64&>(to);
+        col.get_data().push_back(this->get_pop_result());
     }
 
     static DataTypePtr get_return_type() { return std::make_shared<DataTypeFloat64>(); }
@@ -144,17 +134,12 @@ struct PopData : BaseData<T, is_stddev>, Name {
 
 template <PrimitiveType T, typename Name, bool is_stddev>
 struct SampData : BaseData<T, is_stddev>, Name {
-    using ColVecResult = std::conditional_t<is_decimal(T), ColumnDecimal128V2, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
-        auto& col = assert_cast<ColVecResult&>(to);
+        auto& col = assert_cast<ColumnFloat64&>(to);
         if (this->count == 1 || this->count == 0) {
-            col.insert_default();
+            col.get_data().push_back(std::nan(""));
         } else {
-            if constexpr (is_decimal(T)) {
-                col.get_data().push_back(this->get_samp_result().value());
-            } else {
-                col.get_data().push_back(this->get_samp_result());
-            }
+            col.get_data().push_back(this->get_samp_result());
         }
     }
 
