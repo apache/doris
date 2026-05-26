@@ -39,6 +39,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "core/pod_array.h"
 #include "core/pod_array_fwd.h"
 #include "util/coding.h"
@@ -563,41 +564,95 @@ public:
     }
 
     /**
-     * read a bitmap from a serialized version.
+     * Read a Doris-encoded BITMAP* payload from `buf`. Reads no more than
+     * `maxbytes` bytes. Throws doris::Exception if the buffer is too small
+     * or the encoding is otherwise malformed.
      *
-     * This function is unsafe in the sense that if you provide bad data,
-     * many bytes could be read, possibly causing a buffer overflow. See also readSafe.
+     * Wraps the upstream CRoaring *_deserialize_safe primitives so a
+     * tampered map_size varint or per-container count cannot trigger a
+     * heap out-of-bounds read.
      */
-    static Roaring64Map read(const char* buf) {
+    static Roaring64Map readSafe(const char* buf, size_t maxbytes) {
         Roaring64Map result;
-
+        if (maxbytes < 1) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "ran out of bytes while reading bitmap type code");
+        }
         bool is_v1 = BitmapTypeCode::BITMAP32 == *buf || BitmapTypeCode::BITMAP64 == *buf;
         bool is_bitmap32 = BitmapTypeCode::BITMAP32 == *buf || BitmapTypeCode::BITMAP32_V2 == *buf;
         bool is_bitmap64 = BitmapTypeCode::BITMAP64 == *buf || BitmapTypeCode::BITMAP64_V2 == *buf;
+        if (!is_bitmap32 && !is_bitmap64) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "invalid bitmap type code for read: {}",
+                            (int)(*buf));
+        }
+        buf++;
+        maxbytes--;
+
+        // Doris convention: Roaring::read/write second arg is `portable`, and
+        // is_v1=true means portable serialization (per existing read() above).
+        auto read_one_roaring = [&](roaring::Roaring& out) {
+            roaring::api::roaring_bitmap_t* rb = nullptr;
+            if (is_v1) {
+                size_t need = roaring::api::roaring_bitmap_portable_deserialize_size(buf, maxbytes);
+                if (need == 0 || need > maxbytes) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    "ran out of bytes or invalid portable roaring bitmap");
+                }
+                rb = roaring::api::roaring_bitmap_portable_deserialize_safe(buf, maxbytes);
+            } else {
+                rb = roaring::api::roaring_bitmap_deserialize_safe(buf, maxbytes);
+            }
+            if (rb == nullptr) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "ran out of bytes or invalid roaring bitmap container");
+            }
+            out = roaring::Roaring(rb);
+            size_t consumed = out.getSizeInBytes(is_v1);
+            if (consumed > maxbytes) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "inconsistent roaring bitmap size after read");
+            }
+            buf += consumed;
+            maxbytes -= consumed;
+        };
+
         if (is_bitmap32) {
-            roaring::Roaring read = roaring::Roaring::read(buf + 1, is_v1);
-            result.emplaceOrInsert(0, std::move(read));
+            roaring::Roaring r;
+            read_one_roaring(r);
+            result.emplaceOrInsert(0, std::move(r));
             return result;
         }
 
-        DCHECK(is_bitmap64);
-        buf++;
-
-        // get map size (varint64 took 1~10 bytes)
-        uint64_t map_size;
-        buf = reinterpret_cast<const char*>(
+        // is_bitmap64: read map_size varint within remaining buffer.
+        uint64_t map_size = 0;
+        size_t varint_max = maxbytes < 10 ? maxbytes : 10;
+        const uint8_t* p =
                 decode_varint64_ptr(reinterpret_cast<const uint8_t*>(buf),
-                                    reinterpret_cast<const uint8_t*>(buf + 10), &map_size));
-        DCHECK(buf != nullptr);
+                                    reinterpret_cast<const uint8_t*>(buf + varint_max), &map_size);
+        if (p == nullptr) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "varint decode failure for bitmap map_size");
+        }
+        size_t consumed = reinterpret_cast<const char*>(p) - buf;
+        buf = reinterpret_cast<const char*>(p);
+        maxbytes -= consumed;
+
+        // Cheap upper-bound: each entry takes at least 4 bytes (the map key).
+        if (map_size > maxbytes / sizeof(uint32_t)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "declared bitmap map_size exceeds buffer");
+        }
+
         for (uint64_t lcv = 0; lcv < map_size; lcv++) {
-            // get map key
+            if (maxbytes < sizeof(uint32_t)) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT, "ran out of bytes for bitmap map key");
+            }
             uint32_t key = decode_fixed32_le(reinterpret_cast<const uint8_t*>(buf));
             buf += sizeof(uint32_t);
-            // read map value Roaring
-            roaring::Roaring read_var = roaring::Roaring::read(buf, is_v1);
-            // forward buffer past the last Roaring Bitmap
-            buf += read_var.getSizeInBytes(is_v1);
-            result.emplaceOrInsert(key, std::move(read_var));
+            maxbytes -= sizeof(uint32_t);
+
+            roaring::Roaring r;
+            read_one_roaring(r);
+            result.emplaceOrInsert(key, std::move(r));
         }
         return result;
     }
@@ -882,10 +937,13 @@ public:
     explicit BitmapValue(uint64_t value)
             : _sv(value), _bitmap(nullptr), _type(SINGLE), _is_shared(false) {}
 
-    // Construct a bitmap from serialized data.
-    explicit BitmapValue(const char* src) : _is_shared(false) {
-        bool res = deserialize(src);
-        DCHECK(res);
+    // Construct a bitmap from serialized data with a bounded buffer length.
+    // Throws if the input is truncated or malformed.
+    BitmapValue(const char* src, size_t maxbytes) : _is_shared(false) {
+        if (!deserialize(src, maxbytes)) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "BitmapValue: failed to deserialize from buffer");
+        }
     }
 
     // !FIXME: We should rethink the logic here
@@ -1937,12 +1995,21 @@ public:
 
     // Deserialize a bitmap value from `src`.
     // Return false if `src` begins with unknown type code, true otherwise.
-    bool deserialize(const char* src) {
+    //
+    // Bounded deserialize: reads no more than `maxbytes` bytes from `src`.
+    // Returns false on unknown type code or any bounds/format violation.
+    bool deserialize(const char* src, size_t maxbytes) {
+        if (maxbytes < 1) {
+            return false;
+        }
         switch (*src) {
         case BitmapTypeCode::EMPTY:
             _type = EMPTY;
             break;
         case BitmapTypeCode::SINGLE32:
+            if (maxbytes < 1 + sizeof(uint32_t)) {
+                return false;
+            }
             _type = SINGLE;
             _sv = decode_fixed32_le(reinterpret_cast<const uint8_t*>(src + 1));
             if (config::enable_set_in_bitmap_value) {
@@ -1951,6 +2018,9 @@ public:
             }
             break;
         case BitmapTypeCode::SINGLE64:
+            if (maxbytes < 1 + sizeof(uint64_t)) {
+                return false;
+            }
             _type = SINGLE;
             _sv = decode_fixed64_le(reinterpret_cast<const uint8_t*>(src + 1));
             if (config::enable_set_in_bitmap_value) {
@@ -1965,20 +2035,31 @@ public:
             _type = BITMAP;
             _is_shared = false;
             try {
-                _bitmap = std::make_shared<detail::Roaring64Map>(detail::Roaring64Map::read(src));
+                _bitmap = std::make_shared<detail::Roaring64Map>(
+                        detail::Roaring64Map::readSafe(src, maxbytes));
+            } catch (const doris::Exception& e) {
+                LOG(ERROR) << "Decode roaring bitmap failed: " << e.what();
+                return false;
             } catch (const std::runtime_error& e) {
-                LOG(ERROR) << "Decode roaring bitmap failed, " << e.what();
+                LOG(ERROR) << "Decode roaring bitmap failed: " << e.what();
                 return false;
             }
             break;
         case BitmapTypeCode::SET: {
+            if (maxbytes < 2) {
+                return false;
+            }
             _type = SET;
             ++src;
             uint8_t count = *src;
             ++src;
+            size_t remaining = maxbytes - 2;
             if (count > SET_TYPE_THRESHOLD) {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "bitmap value with incorrect set count, count: {}", count);
+            }
+            if (remaining < static_cast<size_t>(count) * sizeof(uint64_t)) {
+                return false;
             }
             _set.reserve(count);
             for (uint8_t i = 0; i != count; ++i, src += sizeof(uint64_t)) {
@@ -2001,15 +2082,22 @@ public:
             break;
         }
         case BitmapTypeCode::SET_V2: {
+            if (maxbytes < 1 + sizeof(uint32_t)) {
+                return false;
+            }
             uint32_t size = 0;
             memcpy(&size, src + 1, sizeof(uint32_t));
             src += sizeof(uint32_t) + 1;
+            size_t remaining = maxbytes - 1 - sizeof(uint32_t);
+            if (static_cast<size_t>(size) > remaining / sizeof(uint64_t)) {
+                return false;
+            }
 
             if (!config::enable_set_in_bitmap_value || size > SET_TYPE_THRESHOLD) {
                 _type = BITMAP;
                 _prepare_bitmap_for_write();
 
-                for (int i = 0; i < size; ++i) {
+                for (uint32_t i = 0; i < size; ++i) {
                     uint64_t key {};
                     memcpy(&key, src, sizeof(uint64_t));
                     _bitmap->add(key);
@@ -2019,7 +2107,7 @@ public:
                 _type = SET;
                 _set.reserve(size);
 
-                for (int i = 0; i < size; ++i) {
+                for (uint32_t i = 0; i < size; ++i) {
                     uint64_t key {};
                     memcpy(&key, src, sizeof(uint64_t));
                     _set.insert(key);

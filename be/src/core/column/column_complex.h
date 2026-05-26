@@ -70,7 +70,7 @@ public:
         }
 
         if constexpr (T == TYPE_BITMAP) {
-            pvalue->deserialize(pos);
+            pvalue->deserialize(pos, length);
         } else if constexpr (T == TYPE_HLL) {
             pvalue->deserialize(Slice(pos, length));
         } else if constexpr (T == TYPE_QUANTILE_STATE) {

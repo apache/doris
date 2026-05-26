@@ -47,10 +47,15 @@ public:
 
     // read_from start
     template <typename T>
-    static void read_from(const char** src, T* result) {
+    static bool read_from(const char** src, size_t* remaining, T* result) {
         size_t type_size = sizeof(T);
+        if (*remaining < type_size) {
+            return false;
+        }
         memcpy(result, *src, type_size);
         *src += type_size;
+        *remaining -= type_size;
+        return true;
     }
 };
 
@@ -112,37 +117,68 @@ inline int32_t Helper::serialize_size<std::string>(const std::string& v) {
 // serialize_size end
 
 template <>
-inline void Helper::read_from<VecDateTimeValue>(const char** src, VecDateTimeValue* result) {
+inline bool Helper::read_from<VecDateTimeValue>(const char** src, size_t* remaining,
+                                                VecDateTimeValue* result) {
+    if (*remaining < (size_t)(DATETIME_PACKED_TIME_BYTE_SIZE + DATETIME_TYPE_BYTE_SIZE)) {
+        return false;
+    }
     result->from_packed_time(*(int64_t*)(*src));
     *src += DATETIME_PACKED_TIME_BYTE_SIZE;
     if (*(int*)(*src) == TIME_DATE) {
         result->cast_to_date();
     }
     *src += DATETIME_TYPE_BYTE_SIZE;
+    *remaining -= (DATETIME_PACKED_TIME_BYTE_SIZE + DATETIME_TYPE_BYTE_SIZE);
+    return true;
 }
 
 template <>
-inline void Helper::read_from<DecimalV2Value>(const char** src, DecimalV2Value* result) {
+inline bool Helper::read_from<DecimalV2Value>(const char** src, size_t* remaining,
+                                              DecimalV2Value* result) {
+    if (*remaining < (size_t)DECIMAL_BYTE_SIZE) {
+        return false;
+    }
     __int128 v = 0;
     memcpy(&v, *src, DECIMAL_BYTE_SIZE);
     *src += DECIMAL_BYTE_SIZE;
+    *remaining -= DECIMAL_BYTE_SIZE;
     *result = DecimalV2Value(v);
+    return true;
 }
 
 template <>
-inline void Helper::read_from<StringRef>(const char** src, StringRef* result) {
+inline bool Helper::read_from<StringRef>(const char** src, size_t* remaining, StringRef* result) {
+    if (*remaining < 4) {
+        return false;
+    }
     int32_t length = *(int32_t*)(*src);
     *src += 4;
+    *remaining -= 4;
+    if (length < 0 || (size_t)length > *remaining) {
+        return false;
+    }
     *result = StringRef((char*)*src, length);
     *src += length;
+    *remaining -= length;
+    return true;
 }
 
 template <>
-inline void Helper::read_from<std::string>(const char** src, std::string* result) {
+inline bool Helper::read_from<std::string>(const char** src, size_t* remaining,
+                                           std::string* result) {
+    if (*remaining < 4) {
+        return false;
+    }
     int32_t length = *(int32_t*)(*src);
     *src += 4;
+    *remaining -= 4;
+    if (length < 0 || (size_t)length > *remaining) {
+        return false;
+    }
     *result = std::string((char*)*src, length);
     *src += length;
+    *remaining -= length;
+    return true;
 }
 // read_from end
 } // namespace detail
@@ -156,7 +192,7 @@ struct BitmapIntersect {
 public:
     BitmapIntersect() = default;
 
-    explicit BitmapIntersect(const char* src) { deserialize(src); }
+    explicit BitmapIntersect(const char* src, size_t maxbytes) { deserialize(src, maxbytes); }
 
     void add_key(const T key) {
         BitmapValue empty_bitmap;
@@ -224,17 +260,38 @@ public:
         }
     }
 
-    void deserialize(const char* src) {
+    // Bounded deserialization. Returns true on success and false on any
+    // truncated / malformed input. Never reads past `src + maxbytes`.
+    bool deserialize(const char* src, size_t maxbytes) {
         const char* reader = src;
+        size_t remaining = maxbytes;
+        if (remaining < 4) {
+            return false;
+        }
         int32_t bitmaps_size = *(int32_t*)reader;
         reader += 4;
+        remaining -= 4;
+        if (bitmaps_size < 0) {
+            return false;
+        }
         for (int32_t i = 0; i < bitmaps_size; i++) {
             T key;
-            detail::Helper::read_from(&reader, &key);
-            BitmapValue bitmap(reader);
-            reader += bitmap.getSizeInBytes();
-            _bitmaps[key] = bitmap;
+            if (!detail::Helper::read_from(&reader, &remaining, &key)) {
+                return false;
+            }
+            BitmapValue bitmap;
+            if (!bitmap.deserialize(reader, remaining)) {
+                return false;
+            }
+            size_t consumed = bitmap.getSizeInBytes();
+            if (consumed > remaining) {
+                return false;
+            }
+            reader += consumed;
+            remaining -= consumed;
+            _bitmaps[key] = std::move(bitmap);
         }
+        return true;
     }
 
 protected:
@@ -246,7 +303,7 @@ struct BitmapIntersect<std::string_view> {
 public:
     BitmapIntersect() = default;
 
-    explicit BitmapIntersect(const char* src) { deserialize(src); }
+    explicit BitmapIntersect(const char* src, size_t maxbytes) { deserialize(src, maxbytes); }
 
     void add_key(const std::string_view key) {
         BitmapValue empty_bitmap;
@@ -311,17 +368,36 @@ public:
         }
     }
 
-    void deserialize(const char* src) {
+    bool deserialize(const char* src, size_t maxbytes) {
         const char* reader = src;
+        size_t remaining = maxbytes;
+        if (remaining < 4) {
+            return false;
+        }
         int32_t bitmaps_size = *(int32_t*)reader;
         reader += 4;
+        remaining -= 4;
+        if (bitmaps_size < 0) {
+            return false;
+        }
         for (int32_t i = 0; i < bitmaps_size; i++) {
             std::string key;
-            detail::Helper::read_from(&reader, &key);
-            BitmapValue bitmap(reader);
-            reader += bitmap.getSizeInBytes();
-            _bitmaps[key] = bitmap;
+            if (!detail::Helper::read_from(&reader, &remaining, &key)) {
+                return false;
+            }
+            BitmapValue bitmap;
+            if (!bitmap.deserialize(reader, remaining)) {
+                return false;
+            }
+            size_t consumed = bitmap.getSizeInBytes();
+            if (consumed > remaining) {
+                return false;
+            }
+            reader += consumed;
+            remaining -= consumed;
+            _bitmaps[key] = std::move(bitmap);
         }
+        return true;
     }
 
 protected:

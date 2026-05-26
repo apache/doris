@@ -31,8 +31,6 @@ class BitmapExprCalculation : public BitmapIntersect<std::string> {
 public:
     BitmapExprCalculation() = default;
 
-    explicit BitmapExprCalculation(const char* src) { deserialize(src); }
-
     void bitmap_calculation_init(std::string& input_str) {
         _polish = reverse_polish(input_str);
         std::string bitmap_key;

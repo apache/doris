@@ -70,7 +70,7 @@ Status DataTypeBitMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     auto& data = data_column.get_data();
 
     BitmapValue value;
-    if (!value.deserialize(slice.data)) {
+    if (!value.deserialize(slice.data, slice.size)) {
         return Status::InternalError("deserialize BITMAP from string fail!");
     }
     data.push_back(std::move(value));
@@ -98,7 +98,7 @@ Status DataTypeBitMapSerDe::write_column_to_pb(const IColumn& column, PValues& r
 Status DataTypeBitMapSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto& col = reinterpret_cast<ColumnBitmap&>(column);
     for (int i = 0; i < arg.bytes_value_size(); ++i) {
-        BitmapValue value(arg.bytes_value(i).data());
+        BitmapValue value(arg.bytes_value(i).data(), arg.bytes_value(i).size());
         col.insert_value(value);
     }
     return Status::OK();
@@ -144,7 +144,7 @@ Status DataTypeBitMapSerDe::write_column_to_arrow(const IColumn& column, const N
 void DataTypeBitMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnBitmap&>(column);
     auto* blob = arg->unpack<JsonbBinaryVal>();
-    BitmapValue bitmap_value(blob->getBlob());
+    BitmapValue bitmap_value(blob->getBlob(), blob->getBlobLen());
     col.insert_value(bitmap_value);
 }
 
@@ -224,7 +224,7 @@ Status DataTypeBitMapSerDe::from_string(StringRef& str, IColumn& column,
 Status DataTypeBitMapSerDe::from_olap_string(const std::string& str, Field& field,
                                              const FormatOptions& options) const {
     BitmapValue value;
-    if (!value.deserialize(str.data())) {
+    if (!value.deserialize(str.data(), str.size())) {
         return Status::InternalError("deserialize BITMAP from string fail!");
     }
     field = Field::create_field<TYPE_BITMAP>(std::move(value));

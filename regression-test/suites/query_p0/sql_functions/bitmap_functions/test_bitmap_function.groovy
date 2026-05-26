@@ -905,4 +905,63 @@ suite("test_bitmap_function") {
         sql """ SELECT bitmap_from_base64('CQoL') AS result; """ 
         exception "bitmap_from_base64 decode failed"
     }
+
+    /*
+     ┌────────────┬─────────────────────┬─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+     │ Base64     │ Payload             │ Attack                                                                                              │
+     ├────────────┼─────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────┤
+     │ BP////8P   │ 04 FF FF FF FF 0F   │ BITMAP64 with varint map_size = UINT32_MAX, no body — without fix loops huge map + heap over-read   │
+     ├────────────┼─────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────┤
+     │ Df////8P   │ 0D FF FF FF FF 0F   │ BITMAP64_V2 (portable) variant of above                                                             │
+     ├────────────┼─────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────┤
+     │ Cv////8=   │ 0A FF FF FF FF      │ SET_V2 with size = UINT32_MAX → attempts ~32 GiB alloc + over-read                                  │
+     └────────────┴─────────────────────┴─────────────────────────────────────────────────────────────────────────────────────────────────────┘
+    */
+    // Malicious BITMAP64 (type=0x04) with varint map_size = UINT32_MAX and no payload.
+    // Without bounds checking, deserialize would loop UINT32_MAX times reading past
+    // the buffer and trigger a huge allocation / heap over-read.
+    test {
+        sql """ SELECT bitmap_from_base64('BP////8P') AS result; """
+        exception "bitmap_from_base64 decode failed"
+    }
+
+    // Malicious BITMAP64_V2 (portable, type=0x0D) with varint map_size = UINT32_MAX.
+    test {
+        sql """ SELECT bitmap_from_base64('Df////8P') AS result; """
+        exception "bitmap_from_base64 decode failed"
+    }
+
+    // Malicious SET_V2 (type=0x0A) with uint32 size = UINT32_MAX and no elements.
+    // Without bounds checking this would attempt to allocate 32 GiB.
+    test {
+        sql """ SELECT bitmap_from_base64('Cv////8=') AS result; """
+        exception "bitmap_from_base64 decode failed"
+    }
+
+    // Invalid bitmap type codes: should hit the !is_bitmap32 && !is_bitmap64
+    // branch in Roaring64Map::readSafe / deserialize and return false instead
+    // of dereferencing arbitrary memory.
+    /*
+┌────────────┬────────────────┬───────────────────────────────────────────────┐
+│ Base64     │ 第一字节(type) │ 说明                                          │
+├────────────┼────────────────┼───────────────────────────────────────────────┤
+│ /wAAAA==   │ 0xFF           │ 完全非法 type code                            │
+├────────────┼────────────────┼───────────────────────────────────────────────┤
+│ BgAAAA==   │ 0x06           │ 落在 SET(5) 与 SET_V2(10) 之间的空隙          │
+├────────────┼────────────────┼───────────────────────────────────────────────┤
+│ CwAAAA==   │ 0x0B           │ 落在 SET_V2(10) 与 BITMAP32_V2(12) 之间的空隙 │
+└────────────┴────────────────┴───────────────────────────────────────────────┘
+    */
+    test {
+        sql """ SELECT bitmap_from_base64('/wAAAA==') AS result; """
+        exception "bitmap_from_base64 decode failed"
+    }
+    test {
+        sql """ SELECT bitmap_from_base64('BgAAAA==') AS result; """
+        exception "bitmap_from_base64 decode failed"
+    }
+    test {
+        sql """ SELECT bitmap_from_base64('CwAAAA==') AS result; """
+        exception "bitmap_from_base64 decode failed"
+    }
 }

@@ -90,8 +90,9 @@ const char* DataTypeBitMap::deserialize(const char* buf, MutableColumnPtr* colum
     const auto* meta_ptr = reinterpret_cast<const size_t*>(buf);
     const char* data_ptr = buf + sizeof(size_t) * real_have_saved_num;
     for (size_t i = 0; i < real_have_saved_num; ++i) {
-        data[i].deserialize(data_ptr);
-        data_ptr += unaligned_load<size_t>(&meta_ptr[i]);
+        size_t one_size = unaligned_load<size_t>(&meta_ptr[i]);
+        data[i].deserialize(data_ptr, one_size);
+        data_ptr += one_size;
     }
     return data_ptr;
 }
@@ -115,6 +116,6 @@ void DataTypeBitMap::serialize_as_stream(const BitmapValue& cvalue, BufferWritab
 void DataTypeBitMap::deserialize_as_stream(BitmapValue& value, BufferReadable& buf) {
     StringRef ref;
     buf.read_binary(ref);
-    value.deserialize(ref.data);
+    value.deserialize(ref.data, ref.size);
 }
 } // namespace doris
