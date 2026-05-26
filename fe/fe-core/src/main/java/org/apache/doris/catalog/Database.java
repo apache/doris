@@ -393,8 +393,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     }
 
     public void checkQuota() throws DdlException {
-        checkDataSizeQuota();
-        checkReplicaQuota();
+        if (Config.enable_check_database_quota) {
+            checkDataSizeQuota();
+            checkReplicaQuota();
+        }
     }
 
     public boolean isTableExist(String tableName) {

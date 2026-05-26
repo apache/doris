@@ -4017,4 +4017,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"构建FunctionGenTable失败时打印异常链的最大深度",
             "Max depth of exception chain to print when building FunctionGenTable fails"})
     public static int max_exception_chain_depth = 5;
+
+    @ConfField(mutable = true, description = {"是否检查当前db的quota",
+            "whether to enable check database's quota"})
+    public static boolean enable_check_database_quota = false;
 }

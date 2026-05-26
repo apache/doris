@@ -38,7 +38,9 @@ public class DbUsedDataQuotaInfoCollector extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        updateAllDatabaseUsedDataQuota();
+        if (Config.enable_check_database_quota) {
+            updateAllDatabaseUsedDataQuota();
+        }
     }
 
     private void updateAllDatabaseUsedDataQuota() {

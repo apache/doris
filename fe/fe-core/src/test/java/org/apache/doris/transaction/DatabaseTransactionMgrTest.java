@@ -18,6 +18,7 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
@@ -26,6 +27,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.meta.MetaContext;
@@ -36,6 +38,8 @@ import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import mockit.Mock;
+import mockit.MockUp;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
@@ -591,5 +595,35 @@ public class DatabaseTransactionMgrTest {
         LabelToTxnId.put(CatalogTestUtil.testTxnLabel6, transactionState6.getTransactionId());
         LabelToTxnId.put(CatalogTestUtil.testTxnLabel7, transactionState7.getTransactionId());
         LabelToTxnId.put(CatalogTestUtil.testTxnLabel8, transactionState8.getTransactionId());
+    }
+
+    @Test
+    public void testCheckDatabaseDataQuota() throws AnalysisException {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Config.enable_check_database_quota = true;
+        new MockUp<Database>() {
+            @Mock
+            public long getUsedDataQuota() {
+                return 1000;
+            }
+
+            @Mock
+            public long getDataQuota() {
+                return 100;
+            }
+        };
+        try {
+            masterDbTransMgr.checkDatabaseDataQuota();
+            Assert.fail("check database quota should throw exception");
+        } catch (Exception e) {
+            Assert.assertEquals(QuotaExceedException.class, e.getClass());
+        }
+
+        Config.enable_check_database_quota = false;
+        try {
+            masterDbTransMgr.checkDatabaseDataQuota();
+        } catch (Exception e) {
+            Assert.fail("enable check database quota should be false");
+        }
     }
 }

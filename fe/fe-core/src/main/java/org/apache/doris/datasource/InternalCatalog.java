@@ -1369,9 +1369,12 @@ public class InternalCatalog implements CatalogIf<Database> {
     public static long checkAndGetBufferSize(long indexNum, long bucketNum,
                                              long replicaNum, Database db, String tableName) throws DdlException {
         long totalReplicaNum = indexNum * bucketNum * replicaNum;
-        if (Config.isNotCloudMode() && totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
-            throw new DdlException("Database " + db.getFullName() + " table " + tableName + " add partition increasing "
-                + totalReplicaNum + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
+        if (Config.enable_check_database_quota) {
+            if (Config.isNotCloudMode() && totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
+                throw new DdlException("Database " + db.getFullName() + " table " + tableName
+                        + " add partition increasing " + totalReplicaNum + " of replica exceeds quota["
+                        + db.getReplicaQuota() + "]");
+            }
         }
         return 1 + totalReplicaNum + indexNum * bucketNum;
     }
