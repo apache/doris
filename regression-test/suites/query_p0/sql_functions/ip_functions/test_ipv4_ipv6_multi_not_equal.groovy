@@ -105,6 +105,4 @@ suite("test_ipv4_ipv6_multi_not_equal") {
         contains "1.1.1.2"
         contains "1.1.1.3"
     }
-
-    sql "DROP TABLE IF EXISTS ${tbl}"
 }
