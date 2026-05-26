@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "storage/iterators.h"
@@ -113,7 +114,7 @@ private:
     Status (VerticalBlockReader::*_next_block_func)(Block* block, bool* eof) = nullptr;
 
     RowSourcesBuffer* _row_sources_buffer;
-    ColumnPtr _delete_filter_column;
+    ColumnUInt8::MutablePtr _delete_filter_column;
 
     // for agg mode
     std::vector<AggregateFunctionPtr> _agg_functions;

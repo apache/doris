@@ -484,12 +484,9 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             DCHECK(delete_sign_idx > 0);
             auto target_columns_guard = block->mutate_columns_scoped();
             auto& target_columns = target_columns_guard.mutable_columns();
-            auto delete_filter_column = IColumn::mutate(std::move(_delete_filter_column));
-            auto* delete_filter_data_column =
-                    reinterpret_cast<ColumnUInt8*>(delete_filter_column.get());
-            delete_filter_data_column->resize(block_rows);
+            _delete_filter_column->resize(block_rows);
 
-            auto* __restrict filter_data = delete_filter_data_column->get_data().data();
+            auto* __restrict filter_data = _delete_filter_column->get_data().data();
             auto* __restrict delete_data =
                     reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
                             ->get_data()
@@ -520,12 +517,15 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
 
             const auto column_to_keep = target_columns.size();
             target_columns_guard.restore();
-            _delete_filter_column = std::move(delete_filter_column);
-            ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
-                                                             std::make_shared<DataTypeUInt8>(),
-                                                             "__DORIS_COMPACTION_FILTER__"};
-            block->insert(column_with_type_and_name);
-            RETURN_IF_ERROR(Block::filter_block(block, column_to_keep, column_to_keep));
+            ColumnPtr delete_filter_column =
+                    ColumnUInt8::cast_to_column_ptr(_delete_filter_column.get());
+            block->insert({std::move(delete_filter_column), std::make_shared<DataTypeUInt8>(),
+                           "__DORIS_COMPACTION_FILTER__"});
+            auto filter_status = Block::filter_block(block, column_to_keep, column_to_keep);
+            if (UNLIKELY(!filter_status.ok())) {
+                _delete_filter_column = ColumnUInt8::create();
+                return filter_status;
+            }
             _stats.rows_del_filtered += block_rows - block->rows();
             if (UNLIKELY(_reader_context.record_rowids)) {
                 DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
