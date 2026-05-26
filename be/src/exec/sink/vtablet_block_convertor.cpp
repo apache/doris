@@ -238,8 +238,8 @@ Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, B
             }
         }
 
-        const auto* tmp_column_ptr = check_and_get_column<ColumnNullable>(*orig_column);
-        const auto& tmp_real_column_ptr =
+        auto tmp_column_ptr = check_and_get_column<ColumnNullable>(*orig_column);
+        auto tmp_real_column_ptr =
                 tmp_column_ptr == nullptr ? orig_column : (tmp_column_ptr->get_nested_column_ptr());
         const auto* column_string = assert_cast<const ColumnString*>(tmp_real_column_ptr.get());
         const auto* null_map =
@@ -281,13 +281,22 @@ Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, B
                                  {len_column, len_type, "len"},
                                  {nullptr, input_type, "result"}});
                 RETURN_IF_ERROR(func->execute(nullptr, tmp_block, {0, 1, 2}, 3, row_count));
-                column_string =
-                        assert_cast<const ColumnString*>(tmp_block.get_by_position(3).column.get());
-                orig_column =
-                        orig_column->is_nullable()
-                                ? ColumnNullable::create(tmp_block.get_by_position(3).column,
-                                                         tmp_column_ptr->get_null_map_column_ptr())
-                                : std::move(tmp_block.get_by_position(3).column);
+                auto result_column =
+                        IColumn::mutate(std::move(tmp_block.get_by_position(3).column));
+                if (orig_column->is_nullable()) {
+                    orig_column = ColumnNullable::create(
+                            std::move(result_column),
+                            IColumn::mutate(tmp_column_ptr->get_null_map_column_ptr()));
+                } else {
+                    orig_column = std::move(result_column);
+                }
+                tmp_column_ptr = check_and_get_column<ColumnNullable>(*orig_column);
+                tmp_real_column_ptr = tmp_column_ptr == nullptr
+                                              ? orig_column
+                                              : tmp_column_ptr->get_nested_column_ptr();
+                column_string = assert_cast<const ColumnString*>(tmp_real_column_ptr.get());
+                null_map = tmp_column_ptr == nullptr ? nullptr
+                                                     : tmp_column_ptr->get_null_map_data().data();
             }
             for (size_t j = 0; j < row_count; ++j) {
                 auto row = rows ? (*rows)[j] : j;

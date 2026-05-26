@@ -56,7 +56,6 @@
 #include "runtime/runtime_state.h"
 #include "storage/data_dir.h"
 #include "storage/delete/delete_handler.h"
-#include "storage/field.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_writer.h"
 #include "storage/iterator/olap_data_convertor.h"
@@ -87,8 +86,6 @@
 #include "util/trace.h"
 
 namespace doris {
-
-class CollectionValue;
 
 using namespace ErrorCode;
 
@@ -172,14 +169,18 @@ public:
 
                 if (i == rows - 1 || _cmp.compare(row_refs[i], row_refs[i + 1])) {
                     for (int j = 0; j < key_number; j++) {
-                        finalized_block.get_by_position(j).column->assume_mutable()->insert_from(
-                                *row_ref.get_column(j), row_ref.position);
+                        auto& column_ptr = finalized_block.get_by_position(j).column;
+                        auto column = column_ptr->assert_mutable();
+                        column->insert_from(*row_ref.get_column(j), row_ref.position);
+                        column_ptr = std::move(column);
                     }
 
                     for (int j = key_number; j < columns; j++) {
+                        auto& column_ptr = finalized_block.get_by_position(j).column;
+                        auto column = column_ptr->assert_mutable();
                         agg_functions[j - key_number]->insert_result_into(
-                                agg_places[j - key_number],
-                                finalized_block.get_by_position(j).column->assume_mutable_ref());
+                                agg_places[j - key_number], *column);
+                        column_ptr = std::move(column);
                         agg_functions[j - key_number]->reset(agg_places[j - key_number]);
                     }
 
@@ -225,12 +226,14 @@ public:
                 int limit = std::min(ALTER_TABLE_BATCH_SIZE, rows - i);
 
                 for (int idx = 0; idx < columns; idx++) {
-                    auto column = finalized_block.get_by_position(idx).column->assume_mutable();
+                    auto& column_ptr = finalized_block.get_by_position(idx).column;
+                    auto column = column_ptr->assert_mutable();
 
                     for (int j = 0; j < limit; j++) {
                         auto row_ref = pushed_row_refs[i + j];
                         column->insert_from(*row_ref.get_column(idx), row_ref.position);
                     }
+                    column_ptr = std::move(column);
                 }
                 RETURN_IF_ERROR(rowset_writer->add_block(&finalized_block));
                 finalized_block.clear_column_data();
@@ -374,7 +377,7 @@ Status BlockChanger::change_block(Block* ref_block, Block* new_block) const {
         } else if (_schema_mapping[idx].ref_column_idx < 0) {
             // new column, write default value
             const auto& value = _schema_mapping[idx].default_value;
-            auto column = new_block->get_by_position(idx).column->assume_mutable();
+            auto column = new_block->get_by_position(idx).column->assert_mutable();
             if (value.is_null()) {
                 DCHECK(column->is_nullable());
                 column->insert_many_defaults(row_num);
@@ -382,6 +385,7 @@ Status BlockChanger::change_block(Block* ref_block, Block* new_block) const {
                 column = column->convert_to_predicate_column_if_dictionary();
                 column->insert_duplicate_fields(value, row_num);
             }
+            new_block->get_by_position(idx).column = std::move(column);
         } else {
             // same type, just swap column
             swap_idx_list.emplace_back(_schema_mapping[idx].ref_column_idx, idx);
@@ -398,21 +402,20 @@ Status BlockChanger::change_block(Block* ref_block, Block* new_block) const {
         if (ref_col_nullable != new_col_nullable) {
             // not nullable to nullable
             if (new_col_nullable) {
-                auto* new_nullable_col =
-                        assert_cast<ColumnNullable*>(new_col->assume_mutable().get());
+                auto mutable_new_col = new_col->assert_mutable();
+                auto* new_nullable_col = assert_cast<ColumnNullable*>(mutable_new_col.get());
 
                 new_nullable_col->change_nested_column(ref_col);
                 new_nullable_col->get_null_map_data().resize_fill(ref_col->size());
+                new_col = std::move(mutable_new_col);
             } else {
                 // nullable to not nullable:
                 // suppose column `c_phone` is originally varchar(16) NOT NULL,
                 // then do schema change `alter table test modify column c_phone int not null`,
                 // the cast expr of schema change is `CastExpr(CAST String to Nullable(Int32))`,
                 // so need to handle nullable to not nullable here
-                auto* ref_nullable_col =
-                        assert_cast<ColumnNullable*>(ref_col->assume_mutable().get());
-
-                new_col = ref_nullable_col->get_nested_column_ptr();
+                const auto& ref_nullable_col = assert_cast<const ColumnNullable&>(*ref_col);
+                new_col = ref_nullable_col.get_nested_column_ptr();
             }
         } else {
             new_block->get_by_position(it.second).column =
@@ -1533,12 +1536,6 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
 Status SchemaChangeJob::_init_column_mapping(ColumnMapping* column_mapping,
                                              const TabletColumn& column_schema,
                                              const std::string& value) {
-    auto t = StorageFieldFactory::create(column_schema);
-    Defer defer([t]() { delete t; });
-    if (t == nullptr) {
-        return Status::Uninitialized("Unsupport field creation of {}", column_schema.name());
-    }
-
     if (!column_schema.is_nullable() || value.length() != 0) {
         RETURN_IF_ERROR(column_schema.get_vec_type()->get_serde()->from_fe_string(
                 value, column_mapping->default_value));

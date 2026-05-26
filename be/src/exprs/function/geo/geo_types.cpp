@@ -1929,6 +1929,21 @@ double GeoMultiPolygon::Distance(const GeoShape* rhs) const {
     return (min_distance == std::numeric_limits<double>::max()) ? -1.0 : min_distance;
 }
 
+int GeoPolygon::num_points() const {
+    return _polygon->num_vertices() + _polygon->num_loops();
+}
+
+int GeoMultiPolygon::num_points() const {
+    int total = 0;
+    for (const auto& polygon : _polygons) {
+        DCHECK(polygon != nullptr);
+        int point_count = polygon->num_points();
+        DCHECK_GE(point_count, 0);
+        total += point_count;
+    }
+    return total;
+}
+
 double GeoCircle::Distance(const GeoShape* rhs) const {
     // Both rhs and self are guaranteed to be valid by StDistance (functions_geo.cpp)
     double circle_radius = S2Earth::ToMeters(_cap->radius());

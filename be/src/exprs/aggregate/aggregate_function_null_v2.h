@@ -214,7 +214,7 @@ public:
             auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
             auto& nested_col = nullable_col.get_nested_column();
             auto& null_map = nullable_col.get_null_map_data();
-            MutableColumnPtr nested_col_ptr = nested_col.assume_mutable();
+            MutableColumnPtr nested_col_ptr = nested_col.assert_mutable();
 
             null_map.resize(num_rows);
             uint8_t* __restrict null_map_data = null_map.data();
@@ -259,8 +259,7 @@ public:
                 }
             }
         }};
-        const IColumn* src_nested_column =
-                src_nullable_col->get_nested_column().assume_mutable().get();
+        const IColumn* src_nested_column = &src_nullable_col->get_nested_column();
         if (src_nullable_col->has_null()) {
             for (size_t i = 0; i < num_rows; ++i) {
                 if (!src_null_map_data[i]) {
@@ -274,7 +273,7 @@ public:
 
         if constexpr (result_is_nullable) {
             auto& dst_nullable_col = assert_cast<ColumnNullable&>(*dst);
-            MutableColumnPtr nested_col_ptr = dst_nullable_col.get_nested_column().assume_mutable();
+            MutableColumnPtr nested_col_ptr = dst_nullable_col.get_nested_column().assert_mutable();
             dst_nullable_col.get_null_map_column().insert_range_from(
                     src_nullable_col->get_null_map_column(), 0, num_rows);
             nested_function->serialize_to_column(nested_places, 0, nested_col_ptr, num_rows);

@@ -125,6 +125,7 @@ class ObsObjStorageTest {
         props.put("OBS_ENDPOINT", "https://obs.myhuaweicloud.com");
         props.put("OBS_ACCESS_KEY", "ak");
         props.put("OBS_SECRET_KEY", "sk");
+        props.put("OBS_REGION", "cn-north-4");
         // no bucket
 
         ObsObjStorage storage = new TestableObsObjStorage(props, mockObs);
@@ -140,6 +141,7 @@ class ObsObjStorageTest {
         props.put("OBS_ACCESS_KEY", "ak");
         props.put("OBS_SECRET_KEY", "sk");
         props.put("OBS_BUCKET", "my-bucket");
+        props.put("OBS_REGION", "cn-north-4");
         // no endpoint
 
         ObsObjStorage storage = new TestableObsObjStorage(props, mockObs);

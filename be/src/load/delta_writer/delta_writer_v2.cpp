@@ -110,6 +110,8 @@ Status DeltaWriterV2::init() {
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
+    context.db_id = _tablet_schema->db_id();
+    context.table_id = _tablet_schema->table_id();
     context.newest_write_timestamp = UnixSeconds();
     context.tablet = nullptr;
     context.write_type = DataWriteType::TYPE_DIRECT;

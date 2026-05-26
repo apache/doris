@@ -90,11 +90,11 @@ public class ArraySort extends ScalarFunction
             ArrayItemReference argRef = lambda.getLambdaArguments().get(0);
             Expression arrayExpr = argRef.getArrayExpression();
             ArrayType arrayType = (ArrayType) arrayExpr.getDataType();
-            return ArrayType.of(arrayType.getItemType(), true);
+            return ArrayType.of(arrayType.getItemType());
         } else if (children.get(0).getDataType() instanceof ArrayType) {
             Expression arrayExpr = children.get(0);
             ArrayType arrayType = (ArrayType) arrayExpr.getDataType();
-            return ArrayType.of(arrayType.getItemType(), true);
+            return ArrayType.of(arrayType.getItemType());
         } else {
             throw new AnalysisException("The first arg of array_sort must be lambda or array");
         }

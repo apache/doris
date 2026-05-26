@@ -83,9 +83,9 @@ materializedViewStatement
         propertyClause?
         AS? query                                                                               #createMTMV
     | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE | AUTO)    #refreshMTMV
-    | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME newName=identifier)
+    | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME renameNewName=multipartIdentifier)
         | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
-        | REPLACE WITH MATERIALIZED VIEW newName=identifier propertyClause?
+        | REPLACE WITH MATERIALIZED VIEW replaceNewName=identifier propertyClause?
         | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))                        #alterMTMV
     | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier
         (ON tableName=multipartIdentifier)?                                                     #dropMV
@@ -1634,8 +1634,6 @@ lambdaExpression
 booleanExpression
     : LOGICALNOT booleanExpression                                                  #logicalNot
     | EXISTS LEFT_PAREN query RIGHT_PAREN                                           #exist
-    | (ISNULL | IS_NULL_PRED) LEFT_PAREN valueExpression RIGHT_PAREN                #isnull
-    | IS_NOT_NULL_PRED LEFT_PAREN valueExpression RIGHT_PAREN                       #is_not_null_pred
     | valueExpression predicate?                                                    #predicated
     | NOT booleanExpression                                                         #logicalNot
     | left=booleanExpression operator=(AND | LOGICALAND) right=booleanExpression    #logicalBinary
@@ -1689,8 +1687,8 @@ primaryExpression
     | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                              #cast
-    | name=TRY_CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                           #tryCast
-    | DEFAULT LEFT_PAREN qualifiedName RIGHT_PAREN                                                 #defaultValue
+    | name=TRY_CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                          #tryCast
+    | DEFAULT LEFT_PAREN qualifiedName RIGHT_PAREN                                             #defaultValue
     | constant                                                                                 #constantDefault
     | interval                                                                                 #intervalLiteral
     | ASTERISK (exceptOrReplace)*                                                              #star
@@ -1712,6 +1710,8 @@ primaryExpression
     | (SUBSTR | SUBSTRING | MID) LEFT_PAREN
         expression FROM expression (FOR expression)? RIGHT_PAREN                               #substring
     | POSITION LEFT_PAREN expression IN expression RIGHT_PAREN                                 #position
+    | (ISNULL | IS_NULL_PRED) LEFT_PAREN expression RIGHT_PAREN                                #isnull
+    | IS_NOT_NULL_PRED LEFT_PAREN expression RIGHT_PAREN                                       #is_not_null_pred
     | functionCallExpression                                                                   #functionCall
     | value=primaryExpression LEFT_BRACKET index=valueExpression RIGHT_BRACKET                 #elementAt
     | value=primaryExpression LEFT_BRACKET begin=valueExpression
@@ -2003,6 +2003,7 @@ nonReserved
     | BEGIN
     | BELONG
     | BIN
+    | BINLOG
     | BITAND
     | BITMAP
     | BITMAP_EMPTY
