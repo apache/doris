@@ -85,6 +85,19 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
                   PRIMARY KEY ("name")
                 )"""
             sql """INSERT INTO ${pgDB}.${pgSchema}.userXinfo_pg_normal1 (name, weight) VALUES ('decoy1', 1.5);"""
+
+            // Decoy schema whose name differs from pgSchema (cdc_test) by a single char that
+            // JDBC LIKE matches via `_`. A same-named table with a different column shape
+            // (height) lives inside, so any schema-level LIKE leak surfaces as a stray
+            // `height` column or a Duplicate-column error.
+            sql """DROP SCHEMA IF EXISTS cdcXtest CASCADE"""
+            sql """CREATE SCHEMA cdcXtest"""
+            sql """CREATE TABLE ${pgDB}.cdcXtest.${table1} (
+                  "name" varchar(200),
+                  "height" float8,
+                  PRIMARY KEY ("name")
+                )"""
+            sql """INSERT INTO ${pgDB}.cdcXtest.${table1} (name, height) VALUES ('schema_decoy', 9.9);"""
         }
 
         sql """CREATE JOB ${jobName}
@@ -120,6 +133,8 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
         assert createTalInfo.contains("DISTRIBUTED BY HASH(`name`) BUCKETS AUTO");
         // Guard: decoy table userXinfo_pg_normal1 must not leak its `weight` column.
         assert !createTalInfo.contains("`weight`");
+        // Guard: decoy schema cdcXtest must not leak its `height` column either.
+        assert !createTalInfo.contains("`height`");
 
         // check job running
         try {
