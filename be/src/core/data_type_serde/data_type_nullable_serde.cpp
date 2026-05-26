@@ -354,10 +354,12 @@ Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
 Status DataTypeNullableSerDe::read_column_from_decoded_values(
         IColumn& column, const DecodedColumnView& view) const {
     auto& nullable_column = assert_cast<ColumnNullable&>(column);
+    auto* dst = nullable_column.get_null_map_data().end();
     auto& null_map = nullable_column.get_null_map_data();
-    null_map.reserve(null_map.size() + view.row_count);
-    for (int64_t row = 0; row < view.row_count; ++row) {
-        null_map.push_back(view.null_map != nullptr ? view.null_map[row] : 0);
+    null_map.resize(null_map.size() + view.row_count);
+    if (view.null_map != nullptr) {
+        // TODO: skip if no null in map
+        memcpy(dst, view.null_map, view.row_count);
     }
     DecodedColumnView nested_view = view;
     nested_view.null_map = nullptr;

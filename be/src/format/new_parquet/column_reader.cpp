@@ -32,18 +32,18 @@
 
 #include "core/column/column.h"
 #include "core/column/column_struct.h"
-#include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "format/new_parquet/parquet_column_schema.h"
 
 namespace doris::parquet {
 namespace {
 
-class PrimitiveColumnReader final : public ParquetColumnReader {
+class ScalarColumnReader final : public ParquetColumnReader {
 public:
-    PrimitiveColumnReader(int parquet_leaf_column_id, const ::parquet::ColumnDescriptor* descriptor,
-                          ParquetTypeDescriptor type_descriptor, DataTypePtr type, std::string name,
-                          std::shared_ptr<::parquet::internal::RecordReader> record_reader)
+    ScalarColumnReader(int parquet_leaf_column_id, const ::parquet::ColumnDescriptor* descriptor,
+                       ParquetTypeDescriptor type_descriptor, DataTypePtr type, std::string name,
+                       std::shared_ptr<::parquet::internal::RecordReader> record_reader)
             : _file_column_id(parquet_leaf_column_id),
               _parquet_leaf_column_id(parquet_leaf_column_id),
               _descriptor(descriptor),
@@ -99,7 +99,7 @@ private:
     std::vector<std::unique_ptr<ParquetColumnReader>> _children;
 };
 
-Status read_records(PrimitiveColumnReader& column_reader, int64_t batch_rows,
+Status read_records(ScalarColumnReader& column_reader, int64_t batch_rows,
                     ::parquet::internal::RecordReader** record_reader, int64_t* rows_read) {
     auto reader = column_reader.record_reader();
     if (reader == nullptr) {
@@ -128,7 +128,7 @@ Status read_records(PrimitiveColumnReader& column_reader, int64_t batch_rows,
     return Status::OK();
 }
 
-Status get_binary_chunks(const PrimitiveColumnReader& column_reader,
+Status get_binary_chunks(const ScalarColumnReader& column_reader,
                          ::parquet::internal::RecordReader& record_reader,
                          std::vector<std::shared_ptr<::arrow::Array>>* chunks) {
     auto* binary_reader = dynamic_cast<::parquet::internal::BinaryRecordReader*>(&record_reader);
@@ -156,6 +156,7 @@ std::vector<RowRange> selection_to_ranges(const SelectionVector& selection,
     int64_t previous = selection.get_index(0);
     for (uint16_t selection_idx = 1; selection_idx < selected_rows; ++selection_idx) {
         const int64_t current = selection.get_index(selection_idx);
+        DCHECK_GT(current, previous);
         if (current == previous + 1) {
             previous = current;
             continue;
@@ -166,18 +167,6 @@ std::vector<RowRange> selection_to_ranges(const SelectionVector& selection,
     }
     ranges.push_back(RowRange {range_start, previous - range_start + 1});
     return ranges;
-}
-
-Status append_rows(MutableColumnPtr* dst, MutableColumnPtr src) {
-    if (!*dst) {
-        *dst = std::move(src);
-        return Status::OK();
-    }
-    const size_t rows = src->size();
-    for (size_t row_idx = 0; row_idx < rows; ++row_idx) {
-        (*dst)->insert_from(*src, row_idx);
-    }
-    return Status::OK();
 }
 
 DecodedTimeUnit decoded_time_unit(ParquetTimeUnit time_unit) {
@@ -214,9 +203,9 @@ DecodedValueKind decoded_value_kind(const ParquetTypeDescriptor& type_descriptor
     }
 }
 
-Status build_null_map(const PrimitiveColumnReader& column_reader,
+Status build_null_map(const ScalarColumnReader& column_reader,
                       ::parquet::internal::RecordReader& record_reader, int64_t records_read,
-                      std::vector<uint8_t>* null_map) {
+                      NullMap* null_map) {
     if (column_reader.descriptor()->max_definition_level() == 0) {
         return Status::OK();
     }
@@ -233,13 +222,15 @@ Status build_null_map(const PrimitiveColumnReader& column_reader,
     }
     const int16_t max_definition_level = column_reader.descriptor()->max_definition_level();
     null_map->resize(records_read);
+    auto* __restrict dst = null_map->data();
+    const auto* __restrict src = def_levels;
     for (int64_t record_idx = 0; record_idx < records_read; ++record_idx) {
-        (*null_map)[record_idx] = def_levels[record_idx] == max_definition_level ? 0 : 1;
+        dst[record_idx] = src[record_idx] != max_definition_level;
     }
     return Status::OK();
 }
 
-Status build_binary_values(const PrimitiveColumnReader& column_reader,
+Status build_binary_values(const ScalarColumnReader& column_reader,
                            ::parquet::internal::RecordReader& record_reader, int64_t records_read,
                            std::vector<StringRef>* binary_values) {
     std::vector<std::shared_ptr<::arrow::Array>> chunks;
@@ -261,8 +252,7 @@ Status build_binary_values(const PrimitiveColumnReader& column_reader,
                 const uint8_t* value = binary_array->GetValue(row_idx, &length);
                 binary_values->emplace_back(reinterpret_cast<const char*>(value), length);
             }
-        } else if (auto* fixed_array =
-                           dynamic_cast<::arrow::FixedSizeBinaryArray*>(chunk.get())) {
+        } else if (auto* fixed_array = dynamic_cast<::arrow::FixedSizeBinaryArray*>(chunk.get())) {
             for (int64_t row_idx = 0; row_idx < fixed_array->length(); ++row_idx) {
                 if (fixed_array->IsNull(row_idx)) {
                     binary_values->emplace_back(static_cast<const char*>(nullptr), 0);
@@ -287,7 +277,7 @@ Status build_binary_values(const PrimitiveColumnReader& column_reader,
 
 } // namespace
 
-Status PrimitiveColumnReader::read(int64_t rows, MutableColumnPtr* column, int64_t* rows_read) {
+Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr* column, int64_t* rows_read) {
     if (column == nullptr || rows_read == nullptr) {
         return Status::InvalidArgument("Invalid parquet column read result pointer for column {}",
                                        _name);
@@ -304,7 +294,7 @@ Status PrimitiveColumnReader::read(int64_t rows, MutableColumnPtr* column, int64
                 record_reader->values_written(), *rows_read);
     }
 
-    std::vector<uint8_t> null_map;
+    NullMap null_map;
     RETURN_IF_ERROR(build_null_map(*this, *record_reader, *rows_read, &null_map));
 
     std::vector<StringRef> binary_values;
@@ -325,12 +315,11 @@ Status PrimitiveColumnReader::read(int64_t rows, MutableColumnPtr* column, int64
     }
 
     auto result_column = _type->create_column();
-    RETURN_IF_ERROR(_type->get_serde()->read_column_from_decoded_values(*result_column, view));
-    *column = std::move(result_column);
+    RETURN_IF_ERROR(_type->get_serde()->read_column_from_decoded_values(*column->get(), view));
     return Status::OK();
 }
 
-Status PrimitiveColumnReader::skip(int64_t rows) {
+Status ScalarColumnReader::skip(int64_t rows) {
     if (rows <= 0) {
         return Status::OK();
     }
@@ -418,7 +407,6 @@ Status ParquetColumnReader::select(const SelectionVector& sel, uint16_t selected
     }
     RETURN_IF_ERROR(sel.verify(selected_rows, batch_rows));
 
-    *column = nullptr;
     const auto ranges = selection_to_ranges(sel, selected_rows);
     int64_t cursor = 0;
     for (const auto& range : ranges) {
@@ -428,22 +416,16 @@ Status ParquetColumnReader::select(const SelectionVector& sel, uint16_t selected
         }
         RETURN_IF_ERROR(skip(range.start - cursor));
 
-        MutableColumnPtr range_column;
         int64_t range_rows_read = 0;
-        RETURN_IF_ERROR(read(range.length, &range_column, &range_rows_read));
+        RETURN_IF_ERROR(read(range.length, column, &range_rows_read));
         if (range_rows_read != range.length) {
             return Status::Corruption(
                     "Parquet selected read returned {} rows, expected {} rows for column {}",
                     range_rows_read, range.length, name());
         }
-        RETURN_IF_ERROR(append_rows(column, std::move(range_column)));
         cursor = range.start + range.length;
     }
     RETURN_IF_ERROR(skip(batch_rows - cursor));
-
-    if (!*column) {
-        *column = type()->create_column();
-    }
     return Status::OK();
 }
 
@@ -452,7 +434,7 @@ ParquetColumnReaderFactory::ParquetColumnReaderFactory(
         : _row_group(std::move(row_group)),
           _record_readers(static_cast<size_t>(num_leaf_columns)) {}
 
-Status ParquetColumnReaderFactory::create_primitive_reader(
+Status ParquetColumnReaderFactory::create_scalar_reader(
         int parquet_leaf_column_id, const ParquetTypeDescriptor& type_descriptor,
         const ::parquet::ColumnDescriptor* descriptor, DataTypePtr type, std::string name,
         std::shared_ptr<::parquet::internal::RecordReader> record_reader,
@@ -464,13 +446,13 @@ Status ParquetColumnReaderFactory::create_primitive_reader(
         return Status::InvalidArgument("Invalid parquet column reader arguments for column {}",
                                        name);
     }
-    *reader = std::make_unique<PrimitiveColumnReader>(parquet_leaf_column_id, descriptor,
-                                                      type_descriptor, std::move(type),
-                                                      std::move(name), std::move(record_reader));
+    *reader = std::make_unique<ScalarColumnReader>(parquet_leaf_column_id, descriptor,
+                                                   type_descriptor, std::move(type),
+                                                   std::move(name), std::move(record_reader));
     return Status::OK();
 }
 
-Status ParquetColumnReaderFactory::create_primitive(
+Status ParquetColumnReaderFactory::create_scalar_column_reader(
         const ParquetColumnSchema& column_schema,
         std::unique_ptr<ParquetColumnReader>* reader) const {
     if (reader == nullptr) {
@@ -490,9 +472,9 @@ Status ParquetColumnReaderFactory::create_primitive(
     std::shared_ptr<::parquet::internal::RecordReader> record_reader;
     RETURN_IF_ERROR(get_record_reader(column_schema.leaf_column_id, column_schema.descriptor,
                                       column_schema.name, &record_reader));
-    return create_primitive_reader(column_schema.leaf_column_id, column_schema.type_descriptor,
-                                   column_schema.descriptor, column_schema.type, column_schema.name,
-                                   std::move(record_reader), reader);
+    return create_scalar_reader(column_schema.leaf_column_id, column_schema.type_descriptor,
+                                column_schema.descriptor, column_schema.type, column_schema.name,
+                                std::move(record_reader), reader);
 }
 
 Status ParquetColumnReaderFactory::get_record_reader(
@@ -537,7 +519,7 @@ Status ParquetColumnReaderFactory::get_record_reader(
     return Status::OK();
 }
 
-Status ParquetColumnReaderFactory::create_struct(
+Status ParquetColumnReaderFactory::create_struct_column_reader(
         const ParquetColumnSchema& column_schema,
         std::unique_ptr<ParquetColumnReader>* reader) const {
     if (reader == nullptr) {
@@ -566,9 +548,9 @@ Status ParquetColumnReaderFactory::create(const ParquetColumnSchema& column_sche
     }
     switch (column_schema.kind) {
     case ParquetColumnSchemaKind::PRIMITIVE:
-        return create_primitive(column_schema, reader);
+        return create_scalar_column_reader(column_schema, reader);
     case ParquetColumnSchemaKind::STRUCT:
-        return create_struct(column_schema, reader);
+        return create_struct_column_reader(column_schema, reader);
     case ParquetColumnSchemaKind::LIST:
         return Status::NotSupported("Parquet LIST reader is not implemented for column {}",
                                     column_schema.name);
