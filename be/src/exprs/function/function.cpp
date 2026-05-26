@@ -75,6 +75,10 @@ std::vector<std::shared_ptr<ColumnPtrWrapper>> collect_constant_argument_columns
 Status run_mock_const_probe(FunctionContext* context, const IFunctionBase& function,
                             const Block& block, const ColumnNumbers& arguments, uint32_t result,
                             size_t input_rows_count, const ColumnNumbers& columns_to_mock_const) {
+    if (context == nullptr) {
+        return Status::OK();
+    }
+
     try {
         auto& mutable_function = const_cast<IFunctionBase&>(function);
         Block const_block = block;

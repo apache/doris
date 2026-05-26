@@ -258,4 +258,15 @@ TEST_F(SimpleFunctionFactoryTest, test_debug_mock_const_execute_syncs_context_st
     EXPECT_TRUE(function.execute(context.get(), block, arguments, 3, 3).ok());
 }
 
+TEST_F(SimpleFunctionFactoryTest, test_debug_mock_const_execute_skips_probe_without_context) {
+    MockConstRecordingFunction function;
+    auto block = create_mock_const_test_block();
+    ColumnNumbers arguments {0, 1, 2};
+
+    EXPECT_TRUE(function.execute(nullptr, block, arguments, 3, 3).ok());
+
+    ASSERT_EQ(function.observed_const_patterns.size(), 1);
+    EXPECT_EQ(function.observed_const_patterns[0], (std::vector<bool> {false, true, false}));
+}
+
 } // namespace doris
