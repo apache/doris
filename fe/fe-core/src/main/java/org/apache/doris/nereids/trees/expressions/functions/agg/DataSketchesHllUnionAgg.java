@@ -68,8 +68,10 @@ public class DataSketchesHllUnionAgg extends NotNullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (getArgumentType(0).isOnlyMetricType()) {
-            throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+        if (!(inputType.isStringType() || inputType.isVarcharType() || inputType.isVarBinaryType()
+            || inputType.isNullType())) {
+            throw new AnalysisException(getName()
+                + " function's argument should be of STRING/VARCHAR/VARBINARY type, but was " + inputType);
         }
     }
 
