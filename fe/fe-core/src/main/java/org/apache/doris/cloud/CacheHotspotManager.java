@@ -969,9 +969,13 @@ public class CacheHotspotManager extends MasterDaemon {
             try {
                 CloudWarmUpJob existingPendingJob = findExistingPendingOnceJob(oncePendingJobKey);
                 if (existingPendingJob != null) {
-                    LOG.info("reuse existing pending warm up job {} for key {}",
-                            existingPendingJob.getJobId(), oncePendingJobKey);
-                    return existingPendingJob.getJobId();
+                    long existingJobId = existingPendingJob.getJobId();
+                    if (stmt.isWarmUpWithTable()) {
+                        throw new AnalysisException("Table warm up job already has a pending job, job id: "
+                                + existingJobId + ". Please retry later.");
+                    }
+                    LOG.info("reuse existing pending warm up job {} for key {}", existingJobId, oncePendingJobKey);
+                    return existingJobId;
                 }
                 return createJobInternal(stmt);
             } finally {
