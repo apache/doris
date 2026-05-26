@@ -279,25 +279,39 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
 }
 
 Status FSFileCacheStorage::remove(const FileCacheKey& key) {
-    std::string dir = get_path_in_local_cache_v3(key.hash);
-    std::string file = get_path_in_local_cache_v3(dir, key.offset);
+    const std::string v3_dir = get_path_in_local_cache_v3(key.hash);
+    const std::string v3_file = get_path_in_local_cache_v3(v3_dir, key.offset);
     FDCache::instance()->remove_file_reader(std::make_pair(key.hash, key.offset));
-    RETURN_IF_ERROR(fs->delete_file(file));
+    RETURN_IF_ERROR(fs->delete_file(v3_file));
     // return OK not means the file is deleted, it may be not exist
 
+    std::string v2_dir;
     { // try to detect the file with old v2 format
-        dir = get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
-        file = get_path_in_local_cache_v2(dir, key.offset, key.meta.type);
-        RETURN_IF_ERROR(fs->delete_file(file));
+        v2_dir = get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
+        const std::string v2_file = get_path_in_local_cache_v2(v2_dir, key.offset, key.meta.type);
+        RETURN_IF_ERROR(fs->delete_file(v2_file));
     }
 
     BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
     _meta_store->delete_key(mkey);
     std::vector<FileInfo> files;
     bool exists {false};
-    RETURN_IF_ERROR(fs->list(dir, true, &files, &exists));
-    if (files.empty()) {
-        RETURN_IF_ERROR(fs->delete_directory(dir));
+    RETURN_IF_ERROR(fs->list(v2_dir, true, &files, &exists));
+    if (exists && files.empty()) {
+        auto st = fs->delete_empty_directory(v2_dir);
+        if (!st.ok()) {
+            LOG_WARNING("failed to remove cache directory {}", v2_dir).error(st);
+        }
+    }
+
+    files.clear();
+    exists = false;
+    RETURN_IF_ERROR(fs->list(v3_dir, true, &files, &exists));
+    if (exists && files.empty()) {
+        auto st = fs->delete_empty_directory(v3_dir);
+        if (!st.ok()) {
+            LOG_WARNING("failed to remove cache directory {}", v3_dir).error(st);
+        }
     }
     return Status::OK();
 }
