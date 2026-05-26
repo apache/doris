@@ -20,6 +20,7 @@ package org.apache.doris.datasource.paimon.source;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.FileQueryScanNode;
@@ -50,6 +51,9 @@ import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -59,6 +63,9 @@ import java.util.Optional;
 
 @RunWith(MockitoJUnitRunner.class)
 public class PaimonScanNodeTest {
+    private static final String DRIVER_BYTES = "paimon-jdbc-driver";
+    private static final String DRIVER_CHECKSUM = "fcf85686ee55f29a45de9c562410d5e4";
+
     @Mock
     private SessionVariable sv;
 
@@ -483,34 +490,37 @@ public class PaimonScanNodeTest {
 
     @Test
     public void testGetBackendPaimonOptionsForJdbcCatalog() throws Exception {
-        String driverUrl = "file:///tmp/postgresql-42.5.0.jar";
-        Map<String, String> props = new HashMap<>();
-        props.put("type", "paimon");
-        props.put("paimon.catalog.type", "jdbc");
-        props.put("uri", "jdbc:postgresql://127.0.0.1:5442/postgres");
-        props.put("warehouse", "s3://warehouse/path");
-        props.put("paimon.jdbc.driver_url", driverUrl);
-        props.put("paimon.jdbc.driver_class", "org.postgresql.Driver");
-        PaimonJdbcMetaStoreProperties jdbcMetaStoreProperties =
-                (PaimonJdbcMetaStoreProperties) MetastoreProperties.create(props);
+        runWithChecksumEnabled(() -> runWithDriverUrl(driverUrl -> {
+            Map<String, String> props = new HashMap<>();
+            props.put("type", "paimon");
+            props.put("paimon.catalog.type", "jdbc");
+            props.put("uri", "jdbc:postgresql://127.0.0.1:5442/postgres");
+            props.put("warehouse", "s3://warehouse/path");
+            props.put("paimon.jdbc.driver_url", driverUrl);
+            props.put("paimon.jdbc.driver_class", "org.postgresql.Driver");
+            props.put("paimon.jdbc.driver_checksum", DRIVER_CHECKSUM);
+            PaimonJdbcMetaStoreProperties jdbcMetaStoreProperties =
+                    (PaimonJdbcMetaStoreProperties) MetastoreProperties.create(props);
 
-        CatalogProperty catalogProperty = Mockito.mock(CatalogProperty.class);
-        Mockito.when(catalogProperty.getMetastoreProperties()).thenReturn(jdbcMetaStoreProperties);
+            CatalogProperty catalogProperty = Mockito.mock(CatalogProperty.class);
+            Mockito.when(catalogProperty.getMetastoreProperties()).thenReturn(jdbcMetaStoreProperties);
 
-        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
-        Mockito.when(catalog.getCatalogProperty()).thenReturn(catalogProperty);
+            PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+            Mockito.when(catalog.getCatalogProperty()).thenReturn(catalogProperty);
 
-        PaimonSource source = Mockito.mock(PaimonSource.class);
-        Mockito.when(source.getCatalog()).thenReturn(catalog);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            Mockito.when(source.getCatalog()).thenReturn(catalog);
 
-        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)),
-                false, sv, ScanContext.EMPTY);
-        node.setSource(source);
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)),
+                    false, sv, ScanContext.EMPTY);
+            node.setSource(source);
 
-        Map<String, String> backendOptions = node.getBackendPaimonOptions();
-        Assert.assertEquals("org.postgresql.Driver", backendOptions.get("jdbc.driver_class"));
-        Assert.assertEquals(driverUrl, backendOptions.get("jdbc.driver_url"));
-        Assert.assertEquals(2, backendOptions.size());
+            Map<String, String> backendOptions = node.getBackendPaimonOptions();
+            Assert.assertEquals(driverUrl, backendOptions.get("jdbc.driver_url"));
+            Assert.assertEquals("org.postgresql.Driver", backendOptions.get("jdbc.driver_class"));
+            Assert.assertEquals(DRIVER_CHECKSUM, backendOptions.get("jdbc.driver_checksum"));
+            Assert.assertEquals(3, backendOptions.size());
+        }));
     }
 
     @Test
@@ -524,6 +534,7 @@ public class PaimonScanNodeTest {
         Map<String, String> backendOptions = new HashMap<>();
         backendOptions.put("jdbc.driver_url", "file:///tmp/postgresql-42.5.0.jar");
         backendOptions.put("jdbc.driver_class", "org.postgresql.Driver");
+        backendOptions.put("jdbc.driver_checksum", "driver-checksum");
         setField(FileQueryScanNode.class, node, "params", new TFileScanRangeParams());
         setField(PaimonScanNode.class, node, "backendPaimonOptions", backendOptions);
         setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
@@ -575,5 +586,35 @@ public class PaimonScanNodeTest {
                 .withBucketPath("file://b1")
                 .withDataFiles(Collections.singletonList(dataFileMeta))
                 .build();
+    }
+
+    private void runWithChecksumEnabled(ThrowingRunnable runnable) throws Exception {
+        synchronized (FeConstants.class) {
+            boolean oldRunningUnitTest = FeConstants.runningUnitTest;
+            FeConstants.runningUnitTest = false;
+            try {
+                runnable.run();
+            } finally {
+                FeConstants.runningUnitTest = oldRunningUnitTest;
+            }
+        }
+    }
+
+    private void runWithDriverUrl(ThrowingConsumer<String> consumer) throws Exception {
+        Path driverPath = Files.createTempFile("paimon-jdbc-driver", ".jar");
+        try {
+            Files.write(driverPath, DRIVER_BYTES.getBytes(StandardCharsets.UTF_8));
+            consumer.accept(driverPath.toUri().toString());
+        } finally {
+            Files.deleteIfExists(driverPath);
+        }
+    }
+
+    private interface ThrowingRunnable {
+        void run() throws Exception;
+    }
+
+    private interface ThrowingConsumer<T> {
+        void accept(T value) throws Exception;
     }
 }

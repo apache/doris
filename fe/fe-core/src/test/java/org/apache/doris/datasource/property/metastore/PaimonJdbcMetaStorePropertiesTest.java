@@ -17,18 +17,23 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.catalog.JdbcResource;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 
 import org.apache.paimon.options.CatalogOptions;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
 public class PaimonJdbcMetaStorePropertiesTest {
+    private static final String DRIVER_BYTES = "paimon-jdbc-driver";
+    private static final String DRIVER_CHECKSUM = "fcf85686ee55f29a45de9c562410d5e4";
 
     @Test
     public void testBasicJdbcProperties() throws Exception {
@@ -155,24 +160,26 @@ public class PaimonJdbcMetaStorePropertiesTest {
     }
 
     @Test
-    public void testGetBackendPaimonOptions() throws Exception {
-        String driverUrl = "file:///tmp/postgresql-42.5.0.jar";
-        Map<String, String> props = new HashMap<>();
-        props.put("type", "paimon");
-        props.put("paimon.catalog.type", "jdbc");
-        props.put("uri", "jdbc:postgresql://127.0.0.1:5442/postgres");
-        props.put("warehouse", "s3://warehouse/path");
-        props.put("paimon.jdbc.driver_url", driverUrl);
-        props.put("paimon.jdbc.driver_class", "org.postgresql.Driver");
+    public void testGetBackendPaimonOptionsIncludesDriverChecksum() throws Exception {
+        runWithChecksumEnabled(() -> runWithDriverUrl(driverUrl -> {
+            Map<String, String> props = new HashMap<>();
+            props.put("type", "paimon");
+            props.put("paimon.catalog.type", "jdbc");
+            props.put("uri", "jdbc:postgresql://127.0.0.1:5442/postgres");
+            props.put("warehouse", "s3://warehouse/path");
+            props.put("paimon.jdbc.driver_url", driverUrl);
+            props.put("paimon.jdbc.driver_class", "org.postgresql.Driver");
+            props.put("paimon.jdbc.driver_checksum", DRIVER_CHECKSUM);
 
-        PaimonJdbcMetaStoreProperties jdbcProps = (PaimonJdbcMetaStoreProperties) MetastoreProperties.create(props);
-        Map<String, String> backendOptions = jdbcProps.getBackendPaimonOptions();
+            PaimonJdbcMetaStoreProperties jdbcProps =
+                    (PaimonJdbcMetaStoreProperties) MetastoreProperties.create(props);
+            Map<String, String> backendOptions = jdbcProps.getBackendPaimonOptions();
 
-        Assertions.assertEquals(
-                JdbcResource.getFullDriverUrl(driverUrl),
-                backendOptions.get("jdbc.driver_url"));
-        Assertions.assertEquals("org.postgresql.Driver", backendOptions.get("jdbc.driver_class"));
-        Assertions.assertEquals(2, backendOptions.size());
+            Assertions.assertEquals(driverUrl, backendOptions.get("jdbc.driver_url"));
+            Assertions.assertEquals("org.postgresql.Driver", backendOptions.get("jdbc.driver_class"));
+            Assertions.assertEquals(DRIVER_CHECKSUM, backendOptions.get("jdbc.driver_checksum"));
+            Assertions.assertEquals(3, backendOptions.size());
+        }));
     }
 
     @Test
@@ -188,5 +195,35 @@ public class PaimonJdbcMetaStorePropertiesTest {
         IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 jdbcProps::getBackendPaimonOptions);
         Assertions.assertTrue(exception.getMessage().contains("driver_class"));
+    }
+
+    private void runWithChecksumEnabled(ThrowingRunnable runnable) throws Exception {
+        synchronized (FeConstants.class) {
+            boolean oldRunningUnitTest = FeConstants.runningUnitTest;
+            FeConstants.runningUnitTest = false;
+            try {
+                runnable.run();
+            } finally {
+                FeConstants.runningUnitTest = oldRunningUnitTest;
+            }
+        }
+    }
+
+    private void runWithDriverUrl(ThrowingConsumer<String> consumer) throws Exception {
+        Path driverPath = Files.createTempFile("paimon-jdbc-driver", ".jar");
+        try {
+            Files.write(driverPath, DRIVER_BYTES.getBytes(StandardCharsets.UTF_8));
+            consumer.accept(driverPath.toUri().toString());
+        } finally {
+            Files.deleteIfExists(driverPath);
+        }
+    }
+
+    private interface ThrowingRunnable {
+        void run() throws Exception;
+    }
+
+    private interface ThrowingConsumer<T> {
+        void accept(T value) throws Exception;
     }
 }
