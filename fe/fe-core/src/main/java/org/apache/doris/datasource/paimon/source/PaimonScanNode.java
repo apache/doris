@@ -161,6 +161,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     @Override
     protected void doInitialize() throws UserException {
         super.doInitialize();
+        long startTime = System.currentTimeMillis();
         source = new PaimonSource(desc);
         serializedTable = PaimonUtil.encodeObjectToString(source.getPaimonTable());
         // Todo: Get the current schema id of the table, instead of using -1.
@@ -173,6 +174,9 @@ public class PaimonScanNode extends FileQueryScanNode {
         );
         backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
         backendPaimonOptions = getBackendPaimonOptions();
+        if (getSummaryProfile() != null) {
+            getSummaryProfile().addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
+        }
     }
 
     @VisibleForTesting

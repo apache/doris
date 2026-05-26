@@ -250,7 +250,15 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
-            remoteTable = loadHiveTable();
+            long startTime = System.currentTimeMillis();
+            try {
+                remoteTable = loadHiveTable();
+            } finally {
+                SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(null);
+                if (summaryProfile != null) {
+                    summaryProfile.addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
+                }
+            }
             if (remoteTable == null) {
                 throw new IllegalArgumentException("Hms table not exists, table: " + getNameWithFullQualifiers());
             } else {

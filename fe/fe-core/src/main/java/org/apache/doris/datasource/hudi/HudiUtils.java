@@ -26,6 +26,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -268,9 +269,14 @@ public class HudiUtils {
     }
 
     public static long getLastTimeStamp(HMSExternalTable hmsTable) {
+        long startTime = System.currentTimeMillis();
         HoodieTableMetaClient hudiClient = hmsTable.getHudiClient();
         HoodieTimeline timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
         Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
+        SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(null);
+        if (summaryProfile != null) {
+            summaryProfile.addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
+        }
         if (!snapshotInstant.isPresent()) {
             return 0L;
         }
@@ -279,40 +285,49 @@ public class HudiUtils {
 
     public static TablePartitionValues getPartitionValues(Optional<TableSnapshot> tableSnapshot,
             HMSExternalTable hmsTable) {
-        TablePartitionValues partitionValues = new TablePartitionValues();
+        long startTime = System.currentTimeMillis();
+        try {
+            TablePartitionValues partitionValues = new TablePartitionValues();
 
-        HoodieTableMetaClient hudiClient = hmsTable.getHudiClient();
-        HudiExternalMetaCache hudiExternalMetaCache =
-                Env.getCurrentEnv().getExtMetaCacheMgr()
-                        .hudi(hmsTable.getCatalog().getId());
-        boolean useHiveSyncPartition = hmsTable.useHiveSyncPartition();
+            HoodieTableMetaClient hudiClient = hmsTable.getHudiClient();
+            HudiExternalMetaCache hudiExternalMetaCache =
+                    Env.getCurrentEnv().getExtMetaCacheMgr()
+                            .hudi(hmsTable.getCatalog().getId());
+            boolean useHiveSyncPartition = hmsTable.useHiveSyncPartition();
 
-        if (tableSnapshot.isPresent()) {
-            if (tableSnapshot.get().getType() == TableSnapshot.VersionType.VERSION) {
-                // Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`";
-                return partitionValues;
+            if (tableSnapshot.isPresent()) {
+                if (tableSnapshot.get().getType() == TableSnapshot.VersionType.VERSION) {
+                    // Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`";
+                    return partitionValues;
+                }
+                String queryInstant = tableSnapshot.get().getValue().replaceAll("[-: ]", "");
+                try {
+                    partitionValues = hmsTable.getCatalog().getExecutionAuthenticator().execute(() ->
+                            hudiExternalMetaCache.getSnapshotPartitionValues(
+                                    hmsTable, queryInstant, useHiveSyncPartition));
+                } catch (Exception e) {
+                    throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+                }
+            } else {
+                HoodieTimeline timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
+                Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
+                if (!snapshotInstant.isPresent()) {
+                    return partitionValues;
+                }
+                try {
+                    partitionValues = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
+                            -> hudiExternalMetaCache.getPartitionValues(hmsTable, useHiveSyncPartition));
+                } catch (Exception e) {
+                    throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+                }
             }
-            String queryInstant = tableSnapshot.get().getValue().replaceAll("[-: ]", "");
-            try {
-                partitionValues = hmsTable.getCatalog().getExecutionAuthenticator().execute(() ->
-                        hudiExternalMetaCache.getSnapshotPartitionValues(hmsTable, queryInstant, useHiveSyncPartition));
-            } catch (Exception e) {
-                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
-            }
-        } else {
-            HoodieTimeline timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
-            Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
-            if (!snapshotInstant.isPresent()) {
-                return partitionValues;
-            }
-            try {
-                partitionValues = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
-                        -> hudiExternalMetaCache.getPartitionValues(hmsTable, useHiveSyncPartition));
-            } catch (Exception e) {
-                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+            return partitionValues;
+        } finally {
+            SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(null);
+            if (summaryProfile != null) {
+                summaryProfile.addExternalTableGetPartitionValuesTime(System.currentTimeMillis() - startTime);
             }
         }
-        return partitionValues;
     }
 
     public static HoodieTableMetaClient buildHudiTableMetaClient(String hudiBasePath, Configuration conf) {

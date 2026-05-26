@@ -83,6 +83,7 @@ public class SummaryProfile {
     public static final String FINALIZE_SCAN_NODE_TIME = "Finalize Scan Node Time";
     public static final String GET_SPLITS_TIME = "Get Splits Time";
     public static final String EXTERNAL_TABLE_META_TIME = "External Table Meta Time";
+    public static final String EXTERNAL_TABLE_GET_TABLE_META_TIME = "External Table Get Table Meta Time";
     public static final String EXTERNAL_TABLE_GET_PARTITION_VALUES_TIME = "External Table Get Partition Values Time";
     public static final String GET_PARTITIONS_TIME = "Get Partitions Time";
     public static final String GET_PARTITION_FILES_TIME = "Get Partition Files Time";
@@ -196,6 +197,7 @@ public class SummaryProfile {
             FINALIZE_SCAN_NODE_TIME,
             GET_SPLITS_TIME,
             EXTERNAL_TABLE_META_TIME,
+            EXTERNAL_TABLE_GET_TABLE_META_TIME,
             EXTERNAL_TABLE_GET_PARTITION_VALUES_TIME,
             GET_PARTITIONS_TIME,
             GET_PARTITION_FILES_TIME,
@@ -250,6 +252,7 @@ public class SummaryProfile {
             .put(FINALIZE_SCAN_NODE_TIME, 2)
             .put(GET_SPLITS_TIME, 3)
             .put(EXTERNAL_TABLE_META_TIME, 4)
+            .put(EXTERNAL_TABLE_GET_TABLE_META_TIME, 5)
             .put(EXTERNAL_TABLE_GET_PARTITION_VALUES_TIME, 5)
             .put(NEREIDS_DISTRIBUTE_TIME, 1)
             .put(NEREIDS_BE_FOLD_CONST_TIME, 2)
@@ -412,6 +415,8 @@ public class SummaryProfile {
     private long nereidsMvRewriteTime = 0;
     @SerializedName(value = "externalCatalogMetaTime")
     private long externalCatalogMetaTime = 0;
+    @SerializedName(value = "externalTableGetTableMetaTime")
+    private long externalTableGetTableMetaTime = 0;
     @SerializedName(value = "externalTableGetPartitionValuesTime")
     private long externalTableGetPartitionValuesTime = 0;
     @SerializedName(value = "externalTableGetPartitionsTime")
@@ -581,6 +586,8 @@ public class SummaryProfile {
                 getPrettyTime(getSplitsFinishTime, getSplitsStartTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(EXTERNAL_TABLE_META_TIME,
                 getPrettyAccumulatedTime(externalCatalogMetaTime));
+        executionSummaryProfile.addInfoString(EXTERNAL_TABLE_GET_TABLE_META_TIME,
+                getPrettyAccumulatedTime(externalTableGetTableMetaTime));
         executionSummaryProfile.addInfoString(EXTERNAL_TABLE_GET_PARTITION_VALUES_TIME,
                 getPrettyAccumulatedTime(externalTableGetPartitionValuesTime));
         executionSummaryProfile.addInfoString(GET_PARTITIONS_TIME,
@@ -1227,6 +1234,11 @@ public class SummaryProfile {
 
     public long getExternalCatalogMetaTimeMs() {
         return externalCatalogMetaTime;
+    }
+
+    public synchronized void addExternalTableGetTableMetaTime(long ms) {
+        this.externalTableGetTableMetaTime += ms;
+        addExternalCatalogMetaTimeInternal(ms);
     }
 
     public synchronized void addExternalTableGetPartitionValuesTime(long ms) {

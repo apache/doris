@@ -170,6 +170,7 @@ public class HudiScanNode extends HiveScanNode {
         initBackendPolicy();
         initSchemaParams();
 
+        long startTime = System.currentTimeMillis();
         hudiClient = hmsTable.getHudiClient();
         hudiClient.reloadActiveTimeline();
         basePath = hmsTable.getRemoteTable().getSd().getLocation();
@@ -224,6 +225,9 @@ public class HudiScanNode extends HiveScanNode {
             .getExtMetaCacheMgr()
             .hudi(hmsTable.getCatalog().getId())
             .getFsView(hmsTable.getOrBuildNameMapping());
+        if (getSummaryProfile() != null) {
+            getSummaryProfile().addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
+        }
         // Todo: Get the current schema id of the table, instead of using -1.
         // In Be Parquet/Rrc reader, if `current table schema id == current file schema id`, then its
         // `table_info_node_ptr` will be `TableSchemaChangeHelper::ConstNode`. When using `ConstNode`,

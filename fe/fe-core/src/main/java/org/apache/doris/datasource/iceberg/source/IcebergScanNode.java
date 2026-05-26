@@ -213,6 +213,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     protected void doInitialize() throws UserException {
+        long startTime = System.currentTimeMillis();
         icebergTable = source.getIcebergTable();
         partitionMapInfos = new HashMap<>();
         isPartitionedTable = icebergTable.spec().isPartitioned();
@@ -231,6 +232,9 @@ public class IcebergScanNode extends FileQueryScanNode {
                 icebergTable
         );
         backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
+        if (getSummaryProfile() != null) {
+            getSummaryProfile().addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
+        }
         super.doInitialize();
     }
 
