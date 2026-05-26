@@ -314,7 +314,9 @@ Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr* column, int64_t*
         view.values = record_reader->values();
     }
 
-    auto result_column = _type->create_column();
+    if (*column == nullptr) {
+        *column = _type->create_column();
+    }
     RETURN_IF_ERROR(_type->get_serde()->read_column_from_decoded_values(*column->get(), view));
     return Status::OK();
 }
