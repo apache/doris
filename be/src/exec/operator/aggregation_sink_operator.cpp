@@ -944,7 +944,6 @@ Status AggSinkOperatorX::_init_aggregate_evaluators(RuntimeState* state) {
 
 Status AggSinkOperatorX::_calc_aggregate_evaluators() {
     _offsets_of_aggregate_states.resize(_aggregate_evaluators.size());
-    _is_merge = false;
     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
         _offsets_of_aggregate_states[i] = _total_size_of_aggregate_states;
 
@@ -966,9 +965,6 @@ Status AggSinkOperatorX::_calc_aggregate_evaluators() {
             _total_size_of_aggregate_states =
                     (_total_size_of_aggregate_states + alignment_of_next_state - 1) /
                     alignment_of_next_state * alignment_of_next_state;
-        }
-        if (_aggregate_evaluators[i]->is_merge()) {
-            _is_merge = true;
         }
     }
     return Status::OK();
