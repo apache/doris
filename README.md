@@ -127,8 +127,8 @@ In a production environment, multiple FE nodes can be deployed for disaster reco
 
 | Role      | Function                                                     |
 | --------- | ------------------------------------------------------------ |
-| Master    | The FE Master node is responsible for metadata read and write operations. When metadata changes occur in the Master, they are synchronized to Follower or Observer nodes via the BDB JE protocol. |
-| Follower  | The Follower node is responsible for reading metadata. If the Master node fails, a Follower node can be selected as the new Master. |
+| Leader    | The FE Leader node is responsible for metadata read and write operations. When metadata changes occur in the Leader, they are synchronized to Follower or Observer nodes via the BDB JE protocol. |
+| Follower  | The Follower node is responsible for reading metadata. If the Leader node fails, a Follower node can be selected as the new Leader. |
 | Observer  | The Observer node is responsible for reading metadata and is mainly used to increase query concurrency. It does not participate in cluster leadership elections. |
 
 Both FE and BE processes are horizontally scalable, enabling a single cluster to support hundreds of machines and tens of petabytes of storage capacity. The FE and BE processes use a consistency protocol to ensure high availability of services and high reliability of data. The storage-compute integrated architecture is highly integrated, significantly reducing the operational complexity of distributed systems.
@@ -136,7 +136,7 @@ Both FE and BE processes are horizontally scalable, enabling a single cluster to
 
 ## Core Features of Apache Doris
 
-- **High Availability**: In Apache Doris, both metadata and data are stored with multiple replicas, synchronizing data logs via the quorum protocol. Data write is considered successful once a majority of replicas have completed the write, ensuring that the cluster remains available even if a few nodes fail. Apache Doris supports both same-city and cross-region disaster recovery, enabling dual-cluster master-slave modes. When some nodes experience failures, the cluster can automatically isolate the faulty nodes, preventing the overall cluster availability from being affected.
+- **High Availability**: In Apache Doris, both metadata and data are stored with multiple replicas, synchronizing data logs via the quorum protocol. Data write is considered successful once a majority of replicas have completed the write, ensuring that the cluster remains available even if a few nodes fail. Apache Doris supports both same-city and cross-region disaster recovery, enabling dual-cluster primary-secondary modes. When some nodes experience failures, the cluster can automatically isolate the faulty nodes, preventing the overall cluster availability from being affected.
 
 - **High Compatibility**: Apache Doris is highly compatible with the MySQL protocol and supports standard SQL syntax, covering most MySQL and Hive functions. This high compatibility allows users to seamlessly migrate and integrate existing applications and tools. Apache Doris supports the MySQL ecosystem, enabling users to connect Doris using MySQL Client tools for more convenient operations and maintenance. It also supports MySQL protocol compatibility for BI reporting tools and data transmission tools, ensuring efficiency and stability in data analysis and data transmission processes.
 
