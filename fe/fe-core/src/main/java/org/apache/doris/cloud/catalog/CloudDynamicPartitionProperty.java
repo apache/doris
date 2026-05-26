@@ -26,7 +26,7 @@ import java.util.Set;
 
 public class CloudDynamicPartitionProperty extends DynamicPartitionProperty {
 
-    private static Set<String> unsupportedProperties = Sets.newHashSet(
+    public static final Set<String> UNSUPPORTED_PROPERTIES = Sets.newHashSet(
             DynamicPartitionProperty.REPLICATION_NUM,
             DynamicPartitionProperty.REPLICATION_ALLOCATION,
             DynamicPartitionProperty.STORAGE_POLICY);
@@ -37,7 +37,7 @@ public class CloudDynamicPartitionProperty extends DynamicPartitionProperty {
 
     @Override
     protected boolean supportProperty(String property) {
-        return !unsupportedProperties.contains(property);
+        return !UNSUPPORTED_PROPERTIES.contains(property);
     }
 
 }
