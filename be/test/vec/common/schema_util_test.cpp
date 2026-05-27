@@ -731,6 +731,48 @@ TEST_F(SchemaUtilTest, TestParseVariantColumns) {
     EXPECT_TRUE(obj_column.is_scalar_variant());
 }
 
+TEST_F(SchemaUtilTest, TestParseVariantColumnsDuplicateJsonPathCheck) {
+    Block block;
+
+    auto variant_type = std::make_shared<DataTypeVariant>(10);
+    auto variant_column = ColumnVariant::create(10);
+    auto root_column = ColumnString::create();
+    root_column->insert(
+            vectorized::Field::create_field<PrimitiveType::TYPE_STRING>(R"({"a":123,"a":"123"})"));
+    root_column->insert(vectorized::Field::create_field<PrimitiveType::TYPE_STRING>(
+            R"({"a.b":1,"a":{"b":2}})"));
+    root_column->insert(vectorized::Field::create_field<PrimitiveType::TYPE_STRING>(
+            R"({"a":{"b":3},"a.b":4})"));
+    variant_column->create_root(std::make_shared<DataTypeString>(), root_column->get_ptr());
+
+    block.insert({variant_column->get_ptr(), variant_type, "variant_col"});
+
+    ParseConfig config;
+    config.check_duplicate_json_path = true;
+    auto status = schema_util::parse_variant_columns(block, {0}, config);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& result_column = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
+    ASSERT_TRUE(result_column.sanitize().ok());
+
+    const auto* sub_a = result_column.get_subcolumn(PathInData("a"));
+    const auto* sub_ab = result_column.get_subcolumn(PathInData("a.b"));
+    ASSERT_NE(sub_a, nullptr);
+    ASSERT_NE(sub_ab, nullptr);
+
+    FieldWithDataType field;
+    sub_a->get(0, field);
+    EXPECT_EQ(field.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(field.field.get<PrimitiveType::TYPE_BIGINT>(), 123);
+
+    sub_ab->get(1, field);
+    EXPECT_EQ(field.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(field.field.get<PrimitiveType::TYPE_BIGINT>(), 1);
+    sub_ab->get(2, field);
+    EXPECT_EQ(field.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(field.field.get<PrimitiveType::TYPE_BIGINT>(), 3);
+}
+
 TEST_F(SchemaUtilTest, TestGetLeastCommonSchema) {
     // Create test schemas
     TabletSchemaPB schema1_pb;

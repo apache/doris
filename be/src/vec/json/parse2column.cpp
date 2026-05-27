@@ -165,24 +165,49 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
         check_paths.insert(check_paths.end(), paths.begin(), paths.end());
         THROW_IF_ERROR(vectorized::schema_util::check_variant_has_no_ambiguous_paths(check_paths));
     }
+
+    auto is_plain_path = [](const PathInData& path) {
+        for (const auto& part : path.get_parts()) {
+            if (part.is_nested || part.anonymous_array_level != 0) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    auto get_or_create_subcolumn = [&](const PathInData& path, size_t index_hint,
+                                       const FieldInfo& field_info) -> ColumnVariant::Subcolumn* {
+        auto* subcolumn = column_variant.get_subcolumn(path, index_hint);
+        if (subcolumn == nullptr) {
+            if (path.has_nested_part()) {
+                column_variant.add_nested_subcolumn(path, field_info, old_num_rows);
+            } else {
+                column_variant.add_sub_column(path, old_num_rows);
+            }
+            subcolumn = column_variant.get_subcolumn(path, index_hint);
+        }
+        if (!subcolumn) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
+                                   path.get_path());
+        }
+        return subcolumn;
+    };
+
+    auto normalize_plain_path = [&](const PathInData& path) {
+        if (!config.check_duplicate_json_path || path.empty() || !is_plain_path(path)) {
+            return path;
+        }
+        return PathInData(path.get_path());
+    };
+
     for (size_t i = 0; i < paths.size(); ++i) {
         FieldInfo field_info;
         schema_util::get_field_info(values[i], &field_info);
         if (field_info.scalar_type_id == PrimitiveType::INVALID_TYPE) {
             continue;
         }
-        if (column_variant.get_subcolumn(paths[i], i) == nullptr) {
-            if (paths[i].has_nested_part()) {
-                column_variant.add_nested_subcolumn(paths[i], field_info, old_num_rows);
-            } else {
-                column_variant.add_sub_column(paths[i], old_num_rows);
-            }
-        }
-        auto* subcolumn = column_variant.get_subcolumn(paths[i], i);
-        if (!subcolumn) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
-                                   paths[i].get_path());
-        }
+        auto path = normalize_plain_path(paths[i]);
+        auto* subcolumn = get_or_create_subcolumn(path, i, field_info);
         if (subcolumn->cur_num_of_defaults() > 0) {
             subcolumn->insert_many_defaults(subcolumn->cur_num_of_defaults());
             subcolumn->reset_current_num_of_defaults();
@@ -190,7 +215,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
         if (subcolumn->size() != old_num_rows) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                    "subcolumn {} size missmatched, may contains duplicated entry",
-                                   paths[i].get_path());
+                                   path.get_path());
         }
         subcolumn->insert(std::move(values[i]), std::move(field_info));
     }

@@ -105,6 +105,7 @@ Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block)
 
     vectorized::ParseConfig config;
     config.enable_flatten_nested = _context.tablet_schema->variant_flatten_nested();
+    config.check_duplicate_json_path = config::variant_enable_duplicate_json_path_check;
     RETURN_IF_ERROR(
             vectorized::schema_util::parse_variant_columns(block, variant_column_pos, config));
     return Status::OK();
