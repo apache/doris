@@ -98,6 +98,23 @@ struct MockAggSourceOperator : public AggSourceOperatorX {
     std::unique_ptr<RowDescriptor> mock_row_descriptor;
 };
 
+class MockDistributionOperator final : public OperatorX<MockLocalState> {
+public:
+    MockDistributionOperator(ExchangeType exchange_type) : _exchange_type(exchange_type) {}
+
+    Status get_block(RuntimeState* /*state*/, Block* /*block*/, bool* eos) override {
+        *eos = true;
+        return Status::OK();
+    }
+
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
+        return {_exchange_type};
+    }
+
+private:
+    ExchangeType _exchange_type;
+};
+
 std::shared_ptr<AggSinkOperatorX> create_agg_sink_op(OperatorContext& ctx, bool is_merge,
                                                      bool without_key) {
     auto op = std::make_shared<MockAggsinkOperator>();
@@ -106,6 +123,19 @@ std::shared_ptr<AggSinkOperatorX> create_agg_sink_op(OperatorContext& ctx, bool 
     op->_pool = &ctx.pool;
     EXPECT_TRUE(op->prepare(&ctx.state).ok());
     return op;
+}
+
+TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_child_exchange) {
+    OperatorContext ctx;
+    auto sink_op = std::make_shared<MockAggsinkOperator>();
+    sink_op->_partition_exprs.emplace_back();
+    sink_op->_needs_finalize = false;
+    sink_op->_is_merge = true;
+    sink_op->_child =
+            std::make_shared<MockDistributionOperator>(ExchangeType::ADAPTIVE_PASSTHROUGH);
+
+    const auto distribution = sink_op->required_data_distribution(&ctx.state);
+    EXPECT_EQ(ExchangeType::HASH_SHUFFLE, distribution.distribution_type);
 }
 
 std::shared_ptr<AggSourceOperatorX> create_agg_source_op(OperatorContext& ctx, bool without_key,

@@ -164,7 +164,7 @@ public:
                                      state);
         }
         if (!_needs_finalize && !state->enable_local_exchange_before_agg() &&
-            !(_is_merge && _child && _child->is_serial_operator())) {
+            !(_is_merge && _child_breaks_local_key_distribution(state))) {
             return DataSinkOperatorX<AggSinkLocalState>::required_data_distribution(state);
         }
         return _is_colocate && _require_bucket_distribution
@@ -193,6 +193,23 @@ public:
     using DataSinkOperatorX<AggSinkLocalState>::get_local_state;
 
 protected:
+    static bool _is_hash_shuffle(ExchangeType exchange_type) {
+        return exchange_type == ExchangeType::HASH_SHUFFLE ||
+               exchange_type == ExchangeType::BUCKET_HASH_SHUFFLE;
+    }
+
+    bool _child_breaks_local_key_distribution(RuntimeState* state) const {
+        if (!_child) {
+            return false;
+        }
+        if (_child->is_serial_operator()) {
+            return true;
+        }
+        const auto child_distribution = _child->required_data_distribution(state);
+        return child_distribution.need_local_exchange() &&
+               !_is_hash_shuffle(child_distribution.distribution_type);
+    }
+
     MOCK_FUNCTION Status _init_probe_expr_ctx(RuntimeState* state);
 
     MOCK_FUNCTION Status _init_aggregate_evaluators(RuntimeState* state);
