@@ -31,6 +31,10 @@
 #include "exprs/vexpr_fwd.h"
 #include "format/reader/expr/literal.h"
 
+namespace doris {
+class ColumnPredicate;
+} // namespace doris
+
 namespace doris::reader {
 
 struct TableColumn;
@@ -38,6 +42,9 @@ struct TableFilter;
 struct SchemaField;
 struct FileScanRequest;
 struct FieldProjection;
+
+using TableColumnPredicates =
+        std::map<int32_t, std::vector<std::shared_ptr<ColumnPredicate>>>;
 
 enum class TableColumnMappingMode {
     BY_FIELD_ID,
@@ -100,15 +107,18 @@ public:
 
     // 把 table-level scan 请求转换成 file-local scan 请求。
     // table_request 使用 table/global schema；file_request 只包含 FileReader 能理解的
-    // projected_file_columns、local_filters 和 reader_expression_map。
-    virtual Status create_scan_request(const std::map<int32_t, TableFilter>& table_filters,
+    // projected_file_columns、expression_filters、column_predicate_filters 和
+    // reader_expression_map。
+    virtual Status create_scan_request(const std::vector<TableFilter>& table_filters,
+                                       const TableColumnPredicates& table_column_predicates,
                                        const std::vector<TableColumn>& projected_columns,
                                        FileScanRequest* file_request);
 
     // 将 table-level filter 定位到文件 schema。
     // trivial mapping 可以直接复制结构化谓词；类型变化时可以尝试安全 cast；无法安全
     // 下推的表达式应通过 reader_expression_map 或 table-level finalize/filter fallback 处理。
-    virtual Status localize_filters(const std::map<int32_t, TableFilter>& table_filters,
+    virtual Status localize_filters(const std::vector<TableFilter>& table_filters,
+                                    const TableColumnPredicates& table_column_predicates,
                                     FileScanRequest* file_request) const;
     void clear() { _mappings.clear(); }
     const std::vector<ColumnMapping>& mappings() const { return _mappings; }

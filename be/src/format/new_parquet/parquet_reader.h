@@ -127,9 +127,10 @@ private:
     Status _get_projected_schema_field(reader::ColumnId file_column_id,
                                        const reader::FieldProjection* projection,
                                        reader::SchemaField* field) const;
-    bool _has_expression_filter(const reader::FileLocalFilter& local_filter);
     Status _read_filter_columns(int64_t batch_rows, Block* file_block, SelectionVector* selection,
                                 uint16_t* selected_rows);
+    Status _execute_filter_conjuncts(int64_t batch_rows, Block* file_block,
+                                     SelectionVector* selection, uint16_t* selected_rows);
     IColumn::Filter _selection_to_filter(const SelectionVector& selection, uint16_t selected_rows,
                                          int64_t batch_rows);
     uint16_t _apply_filter_to_selection(const IColumn::Filter& filter, SelectionVector* selection,

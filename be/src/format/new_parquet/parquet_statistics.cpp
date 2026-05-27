@@ -159,14 +159,13 @@ ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
     }
 }
 
-bool ParquetStatisticsUtils::CheckStatistics(const reader::FileLocalFilter& local_filter,
+bool ParquetStatisticsUtils::CheckStatistics(const reader::FileColumnPredicateFilter& column_filter,
                                              const ParquetColumnStatistics& statistics) {
     if (!statistics.has_any_statistics()) {
         return false;
     }
 
-    // TODO: replace local_filter.predicates by local_filter.conjuncts
-    for (const auto& column_predicate : local_filter.predicates) {
+    for (const auto& column_predicate : column_filter.predicates) {
         if (is_null_only_predicate(*column_predicate)) {
             if (!statistics.has_null_count) {
                 continue;
@@ -184,16 +183,19 @@ bool ParquetStatisticsUtils::CheckStatistics(const reader::FileLocalFilter& loca
 bool ParquetStatisticsUtils::RowGroupExcludes(
         const ::parquet::RowGroupMetaData& row_group,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
-        const reader::FileLocalFilter& local_filter) {
-    DCHECK(local_filter.file_column_id >= 0 &&
-           local_filter.file_column_id < row_group.num_columns());
-    DCHECK_LT(local_filter.file_column_id, schema.size());
-    auto column_chunk = row_group.ColumnChunk(local_filter.file_column_id);
+        const reader::FileColumnPredicateFilter& column_filter) {
+    if (column_filter.predicates.empty()) {
+        return false;
+    }
+    DCHECK(column_filter.file_column_id >= 0 &&
+           column_filter.file_column_id < row_group.num_columns());
+    DCHECK_LT(column_filter.file_column_id, schema.size());
+    auto column_chunk = row_group.ColumnChunk(column_filter.file_column_id);
     if (column_chunk == nullptr) {
         return false;
     }
-    return CheckStatistics(local_filter,
-                           TransformColumnStatistics(*schema[local_filter.file_column_id],
+    return CheckStatistics(column_filter,
+                           TransformColumnStatistics(*schema[column_filter.file_column_id],
                                                      column_chunk->statistics()));
 }
 
@@ -215,8 +217,8 @@ Status ParquetStatisticsUtils::SelectRowGroups(
             continue;
         }
         bool drop = false;
-        for (const auto& local_filter : request.local_filters) {
-            if (RowGroupExcludes(*row_group, file_schema, local_filter)) {
+        for (const auto& column_filter : request.column_predicate_filters) {
+            if (RowGroupExcludes(*row_group, file_schema, column_filter)) {
                 drop = true;
                 break;
             }

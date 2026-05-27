@@ -17,6 +17,7 @@
 
 #include "format/reader/column_mapper.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <utility>
@@ -69,6 +70,8 @@ static constexpr const char* ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER = "_last_update
 
 static void add_scan_column(FileScanRequest* file_request, ColumnId file_column_id,
                             std::vector<ColumnId>* scan_columns) {
+    // column_positions is the global read-column index for this scan request, so it also
+    // deduplicates predicate_columns and non_predicate_columns across all filter/projection paths.
     if (file_request->column_positions.count(file_column_id) == 0) {
         file_request->column_positions.emplace(file_column_id,
                                                file_request->column_positions.size());
@@ -210,6 +213,13 @@ static Status rebuild_projected_file_type(ColumnMapping* mapping) {
     return Status::OK();
 }
 
+static std::vector<int32_t> filter_slot_ids(const TableFilter& table_filter) {
+    if (!table_filter.slot_ids.empty()) {
+        return table_filter.slot_ids;
+    }
+    return {};
+}
+
 Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& projected_columns,
                                          const std::map<std::string, Field>& partition_values,
                                          const std::vector<SchemaField>& file_schema) {
@@ -250,7 +260,8 @@ Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& project
     return Status::OK();
 }
 
-Status TableColumnMapper::create_scan_request(const std::map<int32_t, TableFilter>& table_filters,
+Status TableColumnMapper::create_scan_request(const std::vector<TableFilter>& table_filters,
+                                              const TableColumnPredicates& table_column_predicates,
                                               const std::vector<TableColumn>& projected_columns,
                                               FileScanRequest* file_request) {
     // FileReader evaluates expressions against a file-local block. This mapper owns the
@@ -259,12 +270,26 @@ Status TableColumnMapper::create_scan_request(const std::map<int32_t, TableFilte
     file_request->non_predicate_columns.clear();
     file_request->column_positions.clear();
     file_request->complex_projections.clear();
-    file_request->local_filters.clear();
+    file_request->expression_filters.clear();
+    file_request->column_predicate_filters.clear();
     file_request->reader_expression_map.clear();
     for (const auto& table_column : projected_columns) {
         auto* mapping = _find_mapping(table_column.id);
         if (mapping != nullptr && mapping->file_column_id.has_value()) {
-            if (table_filters.count(table_column.id) == 0) {
+            // A file column can be read lazily as a non-predicate column only when it is not used
+            // by either expression filters or single-column predicate pruning.
+            bool used_by_filter = table_column_predicates.count(table_column.id) > 0;
+            if (!used_by_filter) {
+                for (const auto& table_filter : table_filters) {
+                    const auto slot_ids = filter_slot_ids(table_filter);
+                    if (std::find(slot_ids.begin(), slot_ids.end(), table_column.id) !=
+                        slot_ids.end()) {
+                        used_by_filter = true;
+                        break;
+                    }
+                }
+            }
+            if (!used_by_filter) {
                 add_scan_column(file_request, *mapping->file_column_id,
                                 &file_request->non_predicate_columns);
             }
@@ -280,7 +305,7 @@ Status TableColumnMapper::create_scan_request(const std::map<int32_t, TableFilte
             }
         }
     }
-    RETURN_IF_ERROR(localize_filters(table_filters, file_request));
+    RETURN_IF_ERROR(localize_filters(table_filters, table_column_predicates, file_request));
     for (auto& mapping : _mappings) {
         if (!mapping.file_column_id.has_value()) {
             continue;
@@ -292,18 +317,29 @@ Status TableColumnMapper::create_scan_request(const std::map<int32_t, TableFilte
     return Status::OK();
 }
 
-Status TableColumnMapper::localize_filters(const std::map<int32_t, TableFilter>& table_filters,
+Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table_filters,
+                                           const TableColumnPredicates& table_column_predicates,
                                            FileScanRequest* file_request) const {
     // 真实实现会处理 trivial mapping、safe cast、reader expression fallback 和
     // finalize-only filter。stub 只复制能够直接定位到 file column 的谓词。
-    for (const auto& it : table_filters) {
-        const auto* mapping = _find_mapping(it.first);
-        if (mapping == nullptr || !mapping->file_column_id.has_value()) {
+    for (const auto& table_filter : table_filters) {
+        if (!table_filter.can_be_localized()) {
+            // TODO: Rewrite table filter to reader_expression_map
+            // file_request->reader_expression_map.emplace_back(..., table_filter.conjunct);
             continue;
         }
-        if (!it.second.can_be_localized()) {
-            // TODO: Rewrite table filter to reader_expression_map
-            // file_request->reader_expression_map.emplace_back(mapping->table_column_id, it.second.conjunct);
+        for (const auto table_column_id : filter_slot_ids(table_filter)) {
+            const auto* mapping = _find_mapping(table_column_id);
+            if (mapping == nullptr || !mapping->file_column_id.has_value()) {
+                continue;
+            }
+            add_scan_column(file_request, *mapping->file_column_id,
+                            &file_request->predicate_columns);
+        }
+    }
+    for (const auto& [table_column_id, _] : table_column_predicates) {
+        const auto* mapping = _find_mapping(table_column_id);
+        if (mapping == nullptr || !mapping->file_column_id.has_value()) {
             continue;
         }
         add_scan_column(file_request, *mapping->file_column_id, &file_request->predicate_columns);
@@ -312,20 +348,35 @@ Status TableColumnMapper::localize_filters(const std::map<int32_t, TableFilter>&
     // Build the complete table-slot to file-block position map after all predicate columns have
     // been assigned. This keeps expression localization independent from filter iteration order.
     const auto table_column_to_file_position = build_file_position_map(_mappings, *file_request);
-    for (const auto& it : table_filters) {
-        const auto* mapping = _find_mapping(it.first);
-        if (mapping == nullptr || !mapping->file_column_id.has_value() ||
-            !it.second.can_be_localized()) {
+    for (const auto& table_filter : table_filters) {
+        if (!table_filter.can_be_localized()) {
             continue;
         }
-        FileLocalFilter local_filter;
-        local_filter.file_column_id = *mapping->file_column_id;
-        if (it.second.conjunct != nullptr) {
-            local_filter.conjunct = VExprContext::create_shared(rewrite_table_expr_to_file_expr(
-                    it.second.conjunct->root(), table_column_to_file_position));
+        if (table_filter.conjunct != nullptr) {
+            FileExpressionFilter expression_filter;
+            expression_filter.conjunct =
+                    VExprContext::create_shared(rewrite_table_expr_to_file_expr(
+                            table_filter.conjunct->root(), table_column_to_file_position));
+            expression_filter.file_column_ids.reserve(table_filter.slot_ids.size());
+            for (const auto table_column_id : table_filter.slot_ids) {
+                const auto* mapping = _find_mapping(table_column_id);
+                if (mapping == nullptr || !mapping->file_column_id.has_value()) {
+                    continue;
+                }
+                expression_filter.file_column_ids.push_back(*mapping->file_column_id);
+            }
+            file_request->expression_filters.push_back(std::move(expression_filter));
         }
-        local_filter.predicates = it.second.predicates;
-        file_request->local_filters.push_back(std::move(local_filter));
+    }
+    for (const auto& [table_column_id, predicates] : table_column_predicates) {
+        const auto* mapping = _find_mapping(table_column_id);
+        if (mapping == nullptr || !mapping->file_column_id.has_value() || predicates.empty()) {
+            continue;
+        }
+        FileColumnPredicateFilter column_predicate_filter;
+        column_predicate_filter.file_column_id = *mapping->file_column_id;
+        column_predicate_filter.predicates = predicates;
+        file_request->column_predicate_filters.push_back(std::move(column_predicate_filter));
     }
     return Status::OK();
 }

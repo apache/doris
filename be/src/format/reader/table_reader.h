@@ -62,15 +62,14 @@ struct TableColumn {
 };
 
 // table-level filter。
-// TableColumnMapper 负责把它转换成 FileLocalFilter 或 reader_expression_map。
+// TableColumnMapper 负责把它转换成 FileExpressionFilter 或 reader_expression_map。
 struct TableFilter {
     // 表达式过滤，适合表达 cast、复杂表达式、复杂列提取等语义。
     VExprContextSPtr conjunct;
 
-    // 结构化列谓词，适合下推到文件层做 row group stats、page index、dictionary、
-    // bloom filter 等优化。
-    // TODO: conjunct 支持表达所有 filter 语义之后删除。
-    std::vector<std::shared_ptr<ColumnPredicate>> predicates;
+    // Table slot ids referenced by conjunct. A single expression filter may depend on multiple
+    // columns, while ColumnPredicate pruning still belongs to one concrete column.
+    std::vector<int32_t> slot_ids;
 
     bool can_be_localized() const { return true; }
 };
@@ -105,6 +104,7 @@ struct ReadProfile {
 
 struct TableReadOptions {
     const std::vector<TableColumn> projected_columns;
+    const TableColumnPredicates column_predicates;
     // All conjuncts from scan operator
     const VExprContext conjuncts;
     const FileFormat format;
@@ -229,7 +229,7 @@ protected:
 
         auto file_request = std::make_unique<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper.create_scan_request(
-                _table_filters, _projected_columns, file_request.get()));
+                _table_filters, _table_column_predicates, _projected_columns, file_request.get()));
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
         _data_reader.scan_schema.clear();
         _data_reader.block_template.clear();
@@ -266,6 +266,7 @@ protected:
         _data_reader.reader.reset();
         _data_reader.column_mapper.clear();
         _table_filters.clear();
+        _table_column_predicates.clear();
         _data_reader.block_schema.clear();
         _data_reader.scan_schema.clear();
         _data_reader.block_template.clear();
@@ -331,7 +332,8 @@ protected:
     std::shared_ptr<io::FileSystemProperties> _system_properties;
     // partition key -> value
     std::map<std::string, Field> _partition_values;
-    std::map<int32_t, TableFilter> _table_filters;
+    std::vector<TableFilter> _table_filters;
+    TableColumnPredicates _table_column_predicates;
     VExprContext _conjuncts {nullptr};
     std::unique_ptr<ReadProfile> _profile;
     // Parsed from DELETION_VECTOR in Iceberg and Paimon

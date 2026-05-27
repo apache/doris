@@ -60,13 +60,14 @@ struct ParquetStatisticsUtils {
             const ParquetColumnSchema& column_schema,
             const std::shared_ptr<::parquet::Statistics>& statistics);
 
-    // Return true if the statistics indicate that the row group can be safely skipped according to the local filter.
-    static bool CheckStatistics(const reader::FileLocalFilter& local_filter,
+    // Return true if the statistics indicate that the row group can be safely skipped according to
+    // the local single-column predicate filter.
+    static bool CheckStatistics(const reader::FileColumnPredicateFilter& column_filter,
                                 const ParquetColumnStatistics& statistics);
 
     static bool RowGroupExcludes(const ::parquet::RowGroupMetaData& row_group,
                                  const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
-                                 const reader::FileLocalFilter& local_filter);
+                                 const reader::FileColumnPredicateFilter& column_filter);
 
     static Status SelectRowGroups(
             const ::parquet::FileMetaData& metadata,
