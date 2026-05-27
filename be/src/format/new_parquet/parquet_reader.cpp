@@ -23,6 +23,7 @@
 #include <parquet/api/reader.h>
 
 #include <algorithm>
+#include <limits>
 #include <map>
 #include <memory>
 #include <string_view>
@@ -428,7 +429,8 @@ Status ParquetReader::_read_current_row_group_batch(int64_t batch_rows, Block* f
         return Status::OK();
     }
     SelectionVector selection;
-    uint16_t selected_rows = batch_rows;
+    DORIS_CHECK(batch_rows <= std::numeric_limits<uint16_t>::max());
+    uint16_t selected_rows = static_cast<uint16_t>(batch_rows);
     // 1. Read all predicate columns and evaluate selection vector.
     RETURN_IF_ERROR(_read_filter_columns(batch_rows, file_block, &selection, &selected_rows));
 
