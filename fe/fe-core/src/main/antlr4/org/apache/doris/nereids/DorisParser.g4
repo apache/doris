@@ -908,6 +908,7 @@ analyzeProperties
     | FULL
     | SQL
     | HISTOGRAM
+    | (HOT VALUE)
     | (SAMPLE ((ROWS rows=INTEGER_VALUE) | (PERCENT percent=INTEGER_VALUE)) )
     | (BUCKETS bucket=INTEGER_VALUE)
     | (PERIOD periodInSecond=INTEGER_VALUE)
@@ -2136,6 +2137,7 @@ nonReserved
     | HISTOGRAM
     | HLL_UNION
     | HOSTNAME
+    | HOT
     | HOTSPOT
     | HOUR
     | HOURS
