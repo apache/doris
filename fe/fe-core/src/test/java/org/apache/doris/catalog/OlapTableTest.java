@@ -162,7 +162,7 @@ public class OlapTableTest {
         olapTable.setTableProperty(tableProperty);
 
         try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
-                    MockedStatic<PropertyAnalyzer> mockedPA = 
+                    MockedStatic<PropertyAnalyzer> mockedPA =
                             Mockito.mockStatic(PropertyAnalyzer.class, Mockito.CALLS_REAL_METHODS)) {
             mockedConfig.when(Config::isCloudMode).thenReturn(true);
             mockedConfig.when(Config::isNotCloudMode).thenReturn(false);
@@ -233,7 +233,7 @@ public class OlapTableTest {
         ReplicaAllocation cloudReplicaAlloc = new ReplicaAllocation((short) 1);
 
         try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
-                    MockedStatic<PropertyAnalyzer> mockedPA =                     
+                    MockedStatic<PropertyAnalyzer> mockedPA =
                             Mockito.mockStatic(PropertyAnalyzer.class, Mockito.CALLS_REAL_METHODS)) {
             mockedConfig.when(Config::isCloudMode).thenReturn(true);
             mockedConfig.when(Config::isNotCloudMode).thenReturn(false);
