@@ -557,10 +557,8 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-        bool enable_result_cache, AnnRangeSearchEvaluationResult* evaluation_result) {
-    if (evaluation_result != nullptr) {
-        *evaluation_result = {};
-    }
+        bool enable_result_cache, AnnRangeSearchEvaluationResult& evaluation_result) {
+    evaluation_result = {};
     if (range_search_runtime.is_ann_range_search == false) {
         return Status::OK();
     }
@@ -696,10 +694,8 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         dist_fulfilled = true;
     }
 
-    if (evaluation_result != nullptr) {
-        evaluation_result->executed = true;
-        evaluation_result->dist_fulfilled = dist_fulfilled;
-    }
+    evaluation_result.executed = true;
+    evaluation_result.dist_fulfilled = dist_fulfilled;
     VLOG_DEBUG << fmt::format(
             "Ann range search filtered {} rows, origin {} rows, virtual column is full-filled: {}",
             origin_num - row_bitmap.cardinality(), origin_num, dist_fulfilled);

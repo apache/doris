@@ -80,7 +80,11 @@ struct AnnRangeSearchRuntime;
 using Selector = IColumn::Selector;
 
 struct AnnRangeSearchEvaluationResult {
+    // Indicates whether the expr row_bitmap has been updated.
     bool executed = false;
+    // Indicates whether the virtual column is fulfilled.
+    // NOTE, if there is no virtual column in the expr tree, and expr
+    // is evaluated by ann index, this flag is still true.
     bool dist_fulfilled = false;
 };
 
@@ -351,7 +355,7 @@ public:
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-            bool enable_result_cache, AnnRangeSearchEvaluationResult* result);
+            bool enable_result_cache, AnnRangeSearchEvaluationResult& result);
 
     // Prepare the runtime for ANN range search.
     // AnnRangeSearchRuntime is used to store the runtime information of ann range search.

@@ -452,7 +452,7 @@ Status VExprContext::evaluate_ann_range_search(
     AnnRangeSearchEvaluationResult evaluation_result;
     RETURN_IF_ERROR(_root->evaluate_ann_range_search(
             _ann_range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators,
-            row_bitmap, ann_index_stats, enable_result_cache, &evaluation_result));
+            row_bitmap, ann_index_stats, enable_result_cache, evaluation_result));
 
     if (!evaluation_result.executed) {
         return Status::OK();
