@@ -61,12 +61,24 @@ ColumnNumbers collect_non_const_argument_positions(const Block& block,
 }
 
 std::vector<std::shared_ptr<ColumnPtrWrapper>> collect_constant_argument_columns(
-        const Block& block, const ColumnNumbers& arguments) {
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_columns(arguments.size());
+        const FunctionContext& context, const Block& block, const ColumnNumbers& arguments) {
+    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_columns(
+            std::max<size_t>(context.get_num_args(), arguments.size()));
+
+    for (int argument_index = 0; argument_index < context.get_num_args(); ++argument_index) {
+        auto* const_column = context.get_constant_col(argument_index);
+        if (const_column != nullptr) {
+            constant_columns[argument_index] =
+                    std::make_shared<ColumnPtrWrapper>(const_column->column_ptr);
+        }
+    }
+
     for (size_t argument_index = 0; argument_index < arguments.size(); ++argument_index) {
         const auto& column = block.get_by_position(arguments[argument_index]).column;
         if (column && is_column_const(*column)) {
             constant_columns[argument_index] = std::make_shared<ColumnPtrWrapper>(column);
+        } else {
+            constant_columns[argument_index].reset();
         }
     }
     return constant_columns;
@@ -92,7 +104,8 @@ Status run_mock_const_probe(FunctionContext* context, const IFunctionBase& funct
         }
 
         auto mock_context = context->clone();
-        mock_context->set_constant_cols(collect_constant_argument_columns(const_block, arguments));
+        mock_context->set_constant_cols(
+                collect_constant_argument_columns(*mock_context, const_block, arguments));
         mock_context->set_function_state(FunctionContext::FRAGMENT_LOCAL, std::shared_ptr<void> {});
         mock_context->set_function_state(FunctionContext::THREAD_LOCAL, std::shared_ptr<void> {});
         Defer close_probe([&] {

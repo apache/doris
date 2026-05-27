@@ -160,6 +160,56 @@ private:
     DataTypePtr _return_type;
 };
 
+class MockOmittedConstantArgsPreparedFunction final : public IPreparedFunction {
+public:
+    String get_name() const override { return "mock_omitted_constant_args_test"; }
+
+    Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                   uint32_t result, size_t input_rows_count) const override {
+        return Status::OK();
+    }
+};
+
+class MockOmittedConstantArgsFunction final : public IFunctionBase {
+public:
+    MockOmittedConstantArgsFunction()
+            : _argument_types({std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>(),
+                               std::make_shared<DataTypeInt32>()}),
+              _return_type(std::make_shared<DataTypeInt32>()),
+              _prepared_function(std::make_shared<MockOmittedConstantArgsPreparedFunction>()) {}
+
+    String get_name() const override { return "mock_omitted_constant_args_function"; }
+
+    const DataTypes& get_argument_types() const override { return _argument_types; }
+
+    const DataTypePtr& get_return_type() const override { return _return_type; }
+
+    PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
+                                const ColumnNumbers& arguments, uint32_t result) const override {
+        return _prepared_function;
+    }
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::FRAGMENT_LOCAL) {
+            if (!context->is_col_constant(0)) {
+                return Status::InternalError("mocked execute argument was not constified");
+            }
+            if (context->get_constant_col(1) == nullptr ||
+                context->get_constant_col(2) == nullptr) {
+                return Status::InternalError("omitted constant arguments were dropped");
+            }
+        }
+        return Status::OK();
+    }
+
+    bool is_use_default_implementation_for_constants() const override { return false; }
+
+private:
+    DataTypes _argument_types;
+    DataTypePtr _return_type;
+    PreparedFunctionPtr _prepared_function;
+};
+
 Block create_mock_const_test_block() {
     auto arg0 = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
     auto arg1_data = ColumnHelper::create_column<DataTypeInt32>({11});
@@ -267,6 +317,25 @@ TEST_F(SimpleFunctionFactoryTest, test_debug_mock_const_execute_skips_probe_with
 
     ASSERT_EQ(function.observed_const_patterns.size(), 1);
     EXPECT_EQ(function.observed_const_patterns[0], (std::vector<bool> {false, true, false}));
+}
+
+TEST_F(SimpleFunctionFactoryTest,
+       test_debug_mock_const_execute_preserves_context_constants_for_omitted_args) {
+    MockOmittedConstantArgsFunction function;
+    auto context = FunctionContext::create_context(nullptr, function.get_return_type(),
+                                                   function.get_argument_types());
+
+    auto data_type = std::make_shared<DataTypeInt32>();
+    Block block;
+    block.insert({ColumnHelper::create_column<DataTypeInt32>({1, 2, 3}), data_type, "arg0"});
+    block.insert({data_type->create_column(), data_type, "result"});
+
+    context->set_constant_cols(
+            {nullptr,
+             std::make_shared<ColumnPtrWrapper>(ColumnHelper::create_column<DataTypeInt32>({11})),
+             std::make_shared<ColumnPtrWrapper>(ColumnHelper::create_column<DataTypeInt32>({22}))});
+
+    EXPECT_TRUE(function.execute(context.get(), block, ColumnNumbers {0}, 1, 3).ok());
 }
 
 } // namespace doris
