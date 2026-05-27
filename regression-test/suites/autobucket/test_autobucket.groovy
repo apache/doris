@@ -62,7 +62,7 @@ suite("test_autobucket") {
     // XXX: buckets at pos(8), next maybe impl by sql meta
     assertEquals(5, Integer.valueOf(result.get(0).Buckets))
     // set back to default
-    sql "ADMIN SET FRONTEND CONFIG ('autobucket_min_buckets' = '1')"
+    sql "ADMIN SET FRONTEND CONFIG ('autobucket_min_buckets' = '3')"
     sql "drop table if exists autobucket_test_min_buckets"
 
     // set max to 1

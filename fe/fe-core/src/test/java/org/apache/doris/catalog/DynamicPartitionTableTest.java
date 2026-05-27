@@ -1835,7 +1835,7 @@ public class DynamicPartitionTableTest {
         partitions = Lists.newArrayList(table.getAllPartitions());
         partitions.sort(Comparator.comparing(Partition::getId));
         Assert.assertEquals(53, partitions.size());
-        Assert.assertEquals(1, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
+        Assert.assertEquals(3, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
         Config.autobucket_out_of_bounds_percent_threshold = 0.5;
 
         table.readLock();

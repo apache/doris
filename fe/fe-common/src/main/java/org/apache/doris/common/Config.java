@@ -2639,7 +2639,7 @@ public class Config extends ConfigBase {
     public static long analyze_record_limit = 20000;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Minimum number of buckets for auto bucketing."})
-    public static int autobucket_min_buckets = 1;
+    public static int autobucket_min_buckets = 3;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Maximum number of buckets for auto bucketing."})
     public static int autobucket_max_buckets = 128;
