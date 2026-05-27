@@ -29,6 +29,8 @@
 
 #include "common/config.h"
 #include "core/pod_array.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/path.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
@@ -71,16 +73,25 @@ public:
     Status finish() override;
 
 private:
+    Status _append_vectors(const float* vectors, size_t num_elements);
+    Status _append_to_spool_file(const float* vectors, size_t num_elements);
+    Status _flush_spool_writer();
+    Status _train_and_add();
+    Status _add_spooled_vectors();
+    void _delete_spool_file();
+
     // VectorIndex shoule be managed by some cache.
     // VectorIndex should be weak shared by AnnIndexWriter and VectorIndexReader
     // This should be a weak_ptr
     std::shared_ptr<VectorIndex> _vector_index;
-    // _float_array is used to buffer the float data before training/adding to vector index
-    // if we dont do this, the performance(recall) will be very poor when adding small number of vectors one by one
-    PODArray<float> _float_array;
+    // _training_sample keeps a bounded sample for training. Full vectors are spooled separately
+    // so FAISS is trained once before any vector is added.
+    PODArray<float> _training_sample;
+    io::Path _spool_file_path;
+    io::FileWriterPtr _spool_file_writer;
+    int64_t _total_rows = 0;
     IndexFileWriter* _index_file_writer;
     const TabletIndex* _index_meta;
     std::shared_ptr<DorisFSDirectory> _dir;
-    bool _need_save_index = false;
 };
 } // namespace doris::segment_v2
