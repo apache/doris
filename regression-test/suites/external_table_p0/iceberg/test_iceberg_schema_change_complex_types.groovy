@@ -77,7 +77,7 @@ suite("test_iceberg_schema_change_complex_types", "p0,external,doris,external_do
         STRUCT(1, CAST(1.1 AS FLOAT), 'abc', MAP(1, 10), ARRAY(1, 2))
     )"""
 
-    // Complex type default value only supports NULL
+    // Invalid complex type default value is rejected.
     test {
         sql """
         ALTER TABLE ${table_name} MODIFY COLUMN st STRUCT<
@@ -87,7 +87,7 @@ suite("test_iceberg_schema_change_complex_types", "p0,external,doris,external_do
             sm: MAP<INT, INT> COMMENT 'm1',
             sa: ARRAY<INT> COMMENT 'a1'
         > DEFAULT 'x'"""
-        exception "just support null"
+        exception "only supports struct literals or DEFAULT NULL"
     }
 
     // Cannot change nullable complex column to not null
