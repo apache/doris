@@ -171,7 +171,8 @@ private:
     Status _simdjson_write_data_to_column(simdjson::ondemand::value& value,
                                           const DataTypePtr& type_desc, IColumn* column_ptr,
                                           const std::string& column_name, DataTypeSerDeSPtr serde,
-                                          bool* valid);
+                                          simdjson::ondemand::object* src_obj,
+                                          bool allow_variant_load_error, bool* valid);
 
     Status _simdjson_write_columns_by_jsonpath(simdjson::ondemand::object* value,
                                                const std::vector<SlotDescriptor*>& slot_descs,

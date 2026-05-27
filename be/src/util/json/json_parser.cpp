@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -35,6 +36,29 @@
 #include "util/json/simd_json_parser.h"
 
 namespace doris {
+
+namespace {
+
+constexpr size_t JSON_KEY_ERROR_PREVIEW_BYTES = 128;
+
+std::string json_key_length_error(std::string_view key, size_t max_key_length,
+                                  std::string_view parent_path = {}) {
+    std::string_view key_preview =
+            key.substr(0, std::min(key.size(), JSON_KEY_ERROR_PREVIEW_BYTES));
+    std::string truncated_suffix;
+    if (key_preview.size() != key.size()) {
+        truncated_suffix = "...";
+    }
+    std::string path_msg;
+    if (!parent_path.empty()) {
+        path_msg = fmt::format(" parent path: '{}'.", parent_path);
+    }
+    return fmt::format(
+            "Key length exceeds maximum allowed size of {} bytes. key length: {}, key: '{}{}'.{}",
+            max_key_length, key.size(), key_preview, truncated_suffix, path_msg);
+}
+
+} // namespace
 
 template <typename ParserImpl>
 std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, size_t length,
@@ -106,13 +130,12 @@ template <typename ParserImpl>
 void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseContext& ctx) {
     ctx.paths.reserve(ctx.paths.size() + object.size());
     ctx.values.reserve(ctx.values.size() + object.size());
-    auto check_key_length = [](const auto& key) {
+    auto check_key_length = [&](const auto& key) {
         const size_t max_key_length = cast_set<size_t>(config::variant_max_json_key_length);
         if (key.size() > max_key_length) {
             throw doris::Exception(
                     doris::ErrorCode::INVALID_ARGUMENT,
-                    fmt::format("Key length exceeds maximum allowed size of {} bytes.",
-                                max_key_length));
+                    json_key_length_error(key, max_key_length, ctx.builder.build().get_path()));
         }
     };
     auto traverse_object_member = [&](const auto& key, const auto& value) {
@@ -162,8 +185,7 @@ void JSONDataParser<ParserImpl>::traverseObjectAsJsonb(const JSONObject& object,
         if (key.size() > max_key_length) {
             throw doris::Exception(
                     doris::ErrorCode::INVALID_ARGUMENT,
-                    fmt::format("Key length exceeds maximum allowed size of {} bytes.",
-                                max_key_length));
+                    json_key_length_error(key, max_key_length));
         }
         writer.writeKey(key.data(), cast_set<uint8_t>(key.size()));
         traverseAsJsonb(value, writer);
