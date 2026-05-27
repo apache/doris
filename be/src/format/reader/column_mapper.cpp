@@ -273,6 +273,7 @@ Status TableColumnMapper::create_scan_request(const std::vector<TableFilter>& ta
     file_request->expression_filters.clear();
     file_request->column_predicate_filters.clear();
     file_request->reader_expression_map.clear();
+    // 1. Build referenced non-predicate columns
     for (const auto& table_column : projected_columns) {
         auto* mapping = _find_mapping(table_column.id);
         if (mapping != nullptr && mapping->file_column_id.has_value()) {
@@ -305,7 +306,9 @@ Status TableColumnMapper::create_scan_request(const std::vector<TableFilter>& ta
             }
         }
     }
+    // 2. Build referenced predicate columns
     RETURN_IF_ERROR(localize_filters(table_filters, table_column_predicates, file_request));
+    // 3. Re-build projections for all referenced file columns to point to the correct file-local block positions.
     for (auto& mapping : _mappings) {
         if (!mapping.file_column_id.has_value()) {
             continue;
