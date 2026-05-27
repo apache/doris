@@ -216,6 +216,9 @@ TEST_F(CastTest, ColumnMapperBuildsCastProjectionForTypeMismatch) {
     auto status = mapper.create_mapping(projected_columns, {}, file_schema);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(mapper.mappings().size(), 1);
+    reader::FileScanRequest file_request;
+    status = mapper.create_scan_request({}, {}, projected_columns, &file_request);
+    ASSERT_TRUE(status.ok()) << status;
     const auto& mapping = mapper.mappings()[0];
     EXPECT_FALSE(mapping.is_trivial);
     ASSERT_NE(mapping.projection, nullptr);
