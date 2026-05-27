@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <time.h>
 
 #include <ctime>
@@ -89,7 +90,8 @@ public:
         auto start_nanos = _start.tv_sec * NANOS_PER_SEC + _start.tv_nsec;
         auto end_nanos = end.tv_sec * NANOS_PER_SEC + end.tv_nsec;
         if (end_nanos < start_nanos) {
-            LOG(INFO) << "WARNING: time went backwards from " << start_nanos << " to " << end_nanos;
+            LOG_EVERY_T(WARNING, 1)
+                    << "time went backwards from " << start_nanos << " to " << end_nanos;
             return 0;
         }
         return end_nanos - start_nanos;
@@ -110,7 +112,8 @@ public:
         if (end.tv_sec < _start.tv_sec) {
             auto start_nanos = _start.tv_sec * NANOS_PER_SEC + _start.tv_nsec;
             auto end_nanos = end.tv_sec * NANOS_PER_SEC + end.tv_nsec;
-            LOG(INFO) << "WARNING: time went backwards from " << start_nanos << " to " << end_nanos;
+            LOG_EVERY_T(WARNING, 1)
+                    << "time went backwards from " << start_nanos << " to " << end_nanos;
             return 0;
         }
         return end.tv_sec - _start.tv_sec;
