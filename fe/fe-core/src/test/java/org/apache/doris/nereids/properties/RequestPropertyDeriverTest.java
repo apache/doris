@@ -53,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -237,6 +238,32 @@ class RequestPropertyDeriverTest {
     }
 
     @Test
+    void testSingleExecutionInstanceGlobalAggregate() {
+        ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
+        testConnectContext.getSessionVariable().setBeNumberForTest(1);
+        testConnectContext.getSessionVariable().parallelPipelineTaskNum = 1;
+
+        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                Lists.newArrayList(key),
+                Lists.newArrayList(key),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT),
+                true,
+                logicalProperties,
+                false,
+                groupPlan
+        );
+        GroupExpression groupExpression = new GroupExpression(aggregate);
+        new Group(null, groupExpression, null);
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(testConnectContext, jobContext);
+        List<List<PhysicalProperties>> actual
+                = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
+        List<List<PhysicalProperties>> expected = Lists.newArrayList();
+        expected.add(Lists.newArrayList(PhysicalProperties.ANY));
+        Assertions.assertEquals(expected, actual);
+    }
+
+    @Test
     void testGlobalAggregateWithoutPartition() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
@@ -372,8 +399,9 @@ class RequestPropertyDeriverTest {
     @Test
     void testAggregateWithAggShuffleUseParentKeyDisabled() {
         // Create ConnectContext with aggShuffleUseParentKey = false
-        ConnectContext testConnectContext = new ConnectContext();
+        ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
         testConnectContext.getSessionVariable().aggShuffleUseParentKey = false;
+        testConnectContext.getSessionVariable().setBeNumberForTest(3);
 
         SlotReference key1 = new SlotReference(new ExprId(0), "col1", IntegerType.INSTANCE, true, ImmutableList.of());
         SlotReference key2 = new SlotReference(new ExprId(1), "col2", IntegerType.INSTANCE, true, ImmutableList.of());
@@ -411,8 +439,9 @@ class RequestPropertyDeriverTest {
     @Test
     void testAggregateWithAggShuffleUseParentKeyEnabled() {
         // Create ConnectContext with aggShuffleUseParentKey = true (default value)
-        ConnectContext testConnectContext = new ConnectContext();
+        ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
         testConnectContext.getSessionVariable().aggShuffleUseParentKey = true;
+        testConnectContext.getSessionVariable().setBeNumberForTest(3);
 
         SlotReference key1 = new SlotReference(new ExprId(0), "col1", IntegerType.INSTANCE, true, ImmutableList.of());
         SlotReference key2 = new SlotReference(new ExprId(1), "col2", IntegerType.INSTANCE, true, ImmutableList.of());
