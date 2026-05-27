@@ -33,6 +33,8 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "format/new_parquet/parquet_reader.h"
 #include "format/reader/file_reader.h"
 #include "gen_cpp/Types_types.h"
@@ -44,6 +46,43 @@ namespace doris {
 namespace {
 
 constexpr int64_t ROW_COUNT = 5;
+
+class Int32GreaterThanExpr final : public VExpr {
+public:
+    Int32GreaterThanExpr(int column_id, int32_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _column_id(column_id),
+              _value(value) {}
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        const auto& input =
+                assert_cast<const ColumnInt32&>(*block->get_by_position(_column_id).column);
+        auto result = ColumnUInt8::create();
+        auto& result_data = result->get_data();
+        result_data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const size_t input_row = selector == nullptr ? row : (*selector)[row];
+            result_data[row] = input.get_element(input_row) > _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    const int _column_id;
+    const int32_t _value;
+    const std::string _expr_name = "Int32GreaterThanExpr";
+};
+
+VExprContextSPtr create_int32_greater_than_conjunct(int column_id, int32_t value) {
+    auto ctx = VExprContext::create_shared(std::make_shared<Int32GreaterThanExpr>(column_id, value));
+    ctx->_prepared = true;
+    ctx->_opened = true;
+    return ctx;
+}
 
 std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {
     std::shared_ptr<arrow::Array> array;
@@ -265,6 +304,7 @@ TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     request->non_predicate_columns = {1};
     reader::FileLocalFilter filter;
     filter.file_column_id = 0;
+    filter.conjunct = create_int32_greater_than_conjunct(0, 2);
     filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
             0, "id", schema[0].type, Field::create_field<TYPE_INT>(2), false));
     request->local_filters.push_back(std::move(filter));
@@ -306,9 +346,11 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByStatistics) {
     std::vector<reader::SchemaField> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     auto request = std::make_unique<reader::FileScanRequest>();
-    request->non_predicate_columns = {0, 1};
+    request->predicate_columns = {0};
+    request->non_predicate_columns = {1};
     reader::FileLocalFilter filter;
     filter.file_column_id = 0;
+    filter.conjunct = create_int32_greater_than_conjunct(0, 2);
     filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
             0, "id", schema[0].type, Field::create_field<TYPE_INT>(2), false));
     request->local_filters.push_back(std::move(filter));

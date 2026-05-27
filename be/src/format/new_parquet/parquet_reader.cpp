@@ -31,6 +31,7 @@
 #include "common/exception.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_nullable.h"
+#include "exprs/vexpr_context.h"
 #include "format/new_parquet/column_reader.h"
 #include "format/new_parquet/parquet_column_schema.h"
 #include "format/new_parquet/parquet_statistics.h"
@@ -193,13 +194,8 @@ void ParquetReader::_fill_schema_field(const ParquetColumnSchema& column_schema,
     }
 }
 
-bool ParquetReader::_has_structured_filter(const reader::FileLocalFilter& local_filter) {
-    for (const auto& predicate : local_filter.predicates) {
-        if (predicate != nullptr) {
-            return true;
-        }
-    }
-    return false;
+bool ParquetReader::_has_expression_filter(const reader::FileLocalFilter& local_filter) {
+    return local_filter.conjunct != nullptr;
 }
 
 Status ParquetReader::_read_filter_columns(int64_t batch_rows, Block* file_block,
@@ -220,38 +216,29 @@ Status ParquetReader::_read_filter_columns(int64_t batch_rows, Block* file_block
             return Status::Corruption("Parquet filter column {} returned {} rows, expected {} rows",
                                       column_reader->name(), column_rows, batch_rows);
         }
+        file_block->replace_by_position(block_position, std::move(column));
 
         for (const auto& local_filter : _request->local_filters) {
             if (local_filter.file_column_id != file_field_id ||
-                !_has_structured_filter(local_filter)) {
+                !_has_expression_filter(local_filter)) {
                 continue;
             }
             if (*selected_rows == 0) {
                 break;
             }
-            for (const auto& predicate : local_filter.predicates) {
-                *selected_rows = predicate->evaluate(*column, selection->data(), *selected_rows);
-                if (*selected_rows == 0) {
-                    break;
-                }
-            }
+            IColumn::Filter filter(static_cast<size_t>(batch_rows), 1);
+            bool can_filter_all = false;
+            RETURN_IF_ERROR(local_filter.conjunct->execute_filter(
+                    file_block, filter.data(), static_cast<size_t>(batch_rows), false,
+                    &can_filter_all));
+            *selected_rows =
+                    can_filter_all
+                            ? 0
+                            : _apply_filter_to_selection(filter, selection, *selected_rows);
             break;
         }
-        file_block->replace_by_position(block_position, std::move(column));
         if (*selected_rows == 0) {
             break;
-        }
-    }
-    return Status::OK();
-}
-
-Status ParquetReader::_validate_supported_local_filters(
-        const std::vector<reader::FileLocalFilter>& local_filters) {
-    for (const auto& local_filter : local_filters) {
-        if (local_filter.conjunct != nullptr) {
-            return Status::NotSupported(
-                    "Parquet expression filter fallback is not implemented for field {}",
-                    local_filter.file_column_id);
         }
     }
     return Status::OK();
@@ -264,6 +251,19 @@ IColumn::Filter ParquetReader::_selection_to_filter(const SelectionVector& selec
         filter[selection.get_index(selection_idx)] = 1;
     }
     return filter;
+}
+
+uint16_t ParquetReader::_apply_filter_to_selection(const IColumn::Filter& filter,
+                                                   SelectionVector* selection,
+                                                   uint16_t selected_rows) {
+    uint16_t new_selected_rows = 0;
+    for (uint16_t selection_idx = 0; selection_idx < selected_rows; ++selection_idx) {
+        const auto row_idx = selection->get_index(selection_idx);
+        if (filter[row_idx] != 0) {
+            selection->set_index(new_selected_rows++, static_cast<SelectionVector::Index>(row_idx));
+        }
+    }
+    return new_selected_rows;
 }
 
 Status ParquetReader::_open_next_row_group(bool* has_row_group) {
@@ -456,8 +456,6 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
                                            local_filter.file_column_id);
         }
     }
-    RETURN_IF_ERROR(_validate_supported_local_filters(_request->local_filters));
-
     RETURN_IF_ERROR(select_row_groups_by_statistics(*_state->metadata, _state->file_schema,
                                                     *_request, &_state->selected_row_groups));
     RETURN_IF_ERROR(_reset_reader_position());
