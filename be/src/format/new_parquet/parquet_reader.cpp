@@ -431,6 +431,7 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
     }
     RETURN_IF_ERROR(reader::FileReader::open(request));
 
+    // `_request->column_positions.empty()` means all columns are needed by table reader
     if (_request->column_positions.empty()) {
         for (const auto file_column_id : _request->predicate_columns) {
             _request->column_positions.emplace(file_column_id, file_column_id);

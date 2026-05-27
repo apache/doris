@@ -44,14 +44,14 @@ static void rebuild_projection(ColumnMapping* mapping, size_t block_position) {
     DORIS_CHECK(mapping->file_column_id.has_value());
     if (mapping->is_trivial) {
         mapping->projection = VExprContext::create_shared(TableSlotRef::create_shared(
-                static_cast<int>(block_position), static_cast<int>(block_position), -1,
+                cast_set<int>(block_position), cast_set<int>(block_position), -1,
                 mapping->file_type, mapping->file_column_name));
         return;
     }
 
     auto expr = Cast::create_shared(mapping->table_type);
-    expr->add_child(TableSlotRef::create_shared(static_cast<int>(block_position),
-                                                static_cast<int>(block_position), -1,
+    expr->add_child(TableSlotRef::create_shared(cast_set<int>(block_position),
+                                                cast_set<int>(block_position), -1,
                                                 mapping->file_type, mapping->file_column_name));
     mapping->projection = VExprContext::create_shared(expr);
 }
@@ -108,7 +108,6 @@ Status TableColumnMapper::create_scan_request(const std::map<int32_t, TableFilte
     file_request->column_positions.clear();
     file_request->local_filters.clear();
     file_request->reader_expression_map.clear();
-    RETURN_IF_ERROR(localize_filters(table_filters, file_request));
     for (const auto& table_column : projected_columns) {
         const auto* mapping = _find_mapping(table_column.id);
         if (mapping != nullptr && mapping->file_column_id.has_value()) {
@@ -118,6 +117,7 @@ Status TableColumnMapper::create_scan_request(const std::map<int32_t, TableFilte
             }
         }
     }
+    RETURN_IF_ERROR(localize_filters(table_filters, file_request));
     for (auto& mapping : _mappings) {
         if (!mapping.file_column_id.has_value()) {
             continue;

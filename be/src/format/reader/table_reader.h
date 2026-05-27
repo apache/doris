@@ -19,11 +19,8 @@
 
 #include <bvar/status.h>
 
-#include <cstddef>
-#include <cstdint>
 #include <map>
 #include <memory>
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -35,7 +32,6 @@
 #include "exprs/vexpr_fwd.h"
 #include "format/reader/column_mapper.h"
 #include "format/reader/expr/delete_predicate.h"
-#include "format/reader/expr/literal.h"
 #include "format/reader/file_reader.h"
 #include "runtime/descriptors.h"
 
