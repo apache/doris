@@ -162,5 +162,47 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatch) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_schema_mismatch_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_parquet_file(file_path, 1, "one");
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(
+            {.id = 99, .name = "missing_value", .type = std::make_shared<DataTypeString>()});
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader
+                        .init({
+                                .projected_columns = projected_columns,
+                                .conjuncts = VExprContext(nullptr),
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                        })
+                        .ok());
+
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    // The table projection asks for field id 99, but the ParquetReader exposes only file-local
+    // fields 0 and 1. get_block() opens the split lazily, so this is where TableReader must reject
+    // the mismatch between TableReadOptions::projected_columns and the Parquet file schema.
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("does not have a matching file column"), std::string::npos);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 } // namespace
 } // namespace doris::reader
