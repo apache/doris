@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -69,7 +68,7 @@ public class DataSketchesHllUnionAgg extends NotNullableAggregateFunction
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (!(inputType.isStringType() || inputType.isVarcharType() || inputType.isVarBinaryType()
-            || inputType.isNullType())) {
+                || inputType.isNullType())) {
             throw new AnalysisException(getName()
                 + " function's argument should be of STRING/VARCHAR/VARBINARY type, but was " + inputType);
         }
