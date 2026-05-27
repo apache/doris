@@ -33,11 +33,48 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "exprs/vexpr.h"
+#include "format/reader/expr/slot_ref.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
 
 namespace doris::reader {
 namespace {
+
+class TableInt32GreaterThanExpr final : public VExpr {
+public:
+    TableInt32GreaterThanExpr(int slot_id, int column_id, int32_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _column_id(column_id),
+              _value(value) {
+        add_child(TableSlotRef::create_shared(slot_id, column_id, -1,
+                                              std::make_shared<DataTypeInt32>(), "id"));
+        set_node_type(TExprNodeType::BINARY_PRED);
+        _opcode = TExprOpcode::GT;
+    }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        const auto& input =
+                assert_cast<const ColumnInt32&>(*block->get_by_position(_column_id).column);
+        auto result = ColumnUInt8::create();
+        auto& result_data = result->get_data();
+        result_data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const size_t input_row = selector == nullptr ? row : (*selector)[row];
+            result_data[row] = input.get_element(input_row) > _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    const int _column_id;
+    const int32_t _value;
+    const std::string _expr_name = "TableInt32GreaterThanExpr";
+};
 
 std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {
     std::shared_ptr<arrow::Array> array;
@@ -159,6 +196,75 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
     EXPECT_EQ(ids, std::vector<int32_t>({1, 2, 3}));
     EXPECT_EQ(values, std::vector<std::string>({"one", "two", "three"}));
 
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_conjunct_filter_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_parquet_file(file_path, 3, "three");
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back({.id = 0, .name = "id", .type = std::make_shared<DataTypeInt32>()});
+    projected_columns.push_back(
+            {.id = 1, .name = "value", .type = std::make_shared<DataTypeString>()});
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader
+                        .init({
+                                .projected_columns = projected_columns,
+                                .conjuncts = VExprContext(std::make_shared<TableInt32GreaterThanExpr>(
+                                        0, 0, 2)),
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                        })
+                        .ok());
+
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    // open_reader() should convert the table-level conjunct on projected column id 0 into
+    // _table_filters before ColumnMapper creates the FileScanRequest. ParquetReader then receives
+    // that localized conjunct and filters rows through its predicate-column path.
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    ASSERT_EQ(id_column.size(), 1);
+    EXPECT_EQ(id_column.get_element(0), 3);
+
+    ASSERT_TRUE(reader.close().ok());
+
+    TableReader filtered_reader;
+    ASSERT_TRUE(filtered_reader
+                        .init({
+                                .projected_columns = projected_columns,
+                                .conjuncts = VExprContext(std::make_shared<TableInt32GreaterThanExpr>(
+                                        0, 0, 4)),
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                        })
+                        .ok());
+    ASSERT_TRUE(filtered_reader.prepare_split(build_split_options(file_path)).ok());
+
+    block = build_table_block(projected_columns);
+    eos = false;
+    ASSERT_TRUE(filtered_reader.get_block(&block, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(block.get_by_position(0).column->size(), 0);
+
+    ASSERT_TRUE(filtered_reader.close().ok());
     std::filesystem::remove_all(test_dir);
 }
 

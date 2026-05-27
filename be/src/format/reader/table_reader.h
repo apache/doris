@@ -219,6 +219,7 @@ protected:
         RETURN_IF_ERROR(_data_reader.column_mapper.create_mapping(_projected_columns,
                                                                   _partition_values, file_schema));
         DORIS_CHECK(_data_reader.column_mapper.mappings().size() == _projected_columns.size());
+        RETURN_IF_ERROR(_build_table_filters_from_conjuncts());
 
         auto file_request = std::make_unique<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper.create_scan_request(
@@ -242,12 +243,15 @@ protected:
         return Status::OK();
     }
 
+    Status _build_table_filters_from_conjuncts();
+
     // 关闭当前具体 reader。
     // 该 hook 会被 create_next_reader 和 close 调用；实现应保持幂等。
     virtual Status close_current_reader() {
         RETURN_IF_ERROR(_data_reader.reader->close());
         _data_reader.reader.reset();
         _data_reader.column_mapper.clear();
+        _table_filters.clear();
         _data_reader.block_schema.clear();
         _data_reader.scan_schema.clear();
         _data_reader.block_template.clear();
@@ -314,6 +318,7 @@ protected:
     // partition key -> value
     std::map<std::string, Field> _partition_values;
     std::map<int32_t, TableFilter> _table_filters;
+    VExprContext _conjuncts {nullptr};
     std::unique_ptr<ReadProfile> _profile;
     // Parsed from DELETION_VECTOR in Iceberg and Paimon
     DeleteRows* _delete_rows;
