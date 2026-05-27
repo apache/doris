@@ -196,10 +196,15 @@ public class TableProperty implements GsonPostProcessable {
     public TableProperty resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, boolean reserveReplica,
                                                    ReplicaAllocation replicaAlloc) {
         if (Config.isCloudMode()) {
-            // In cloud mode, rewrite all properties that are not supported or need to be forced.
-            // This handles: replication_num, replication_allocation, dynamic_partition.replication_num,
-            // dynamic_partition.replication_allocation, storage_policy, storage_medium, in_memory, etc.
+            // In cloud mode, rewrite all unsupported or forced properties from the source cluster.
+            // These properties (e.g., replication_num, replication_allocation, storage_policy,
+            // storage_medium, in_memory, etc.) are not applicable in cloud mode. If kept, they would
+            // cause some critical problems.
             PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
+            buildInMemory();
+            buildStorageMedium();
+            buildStoragePolicy();
+            buildMinLoadReplicaNum();
         }
         // disable dynamic partition
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
