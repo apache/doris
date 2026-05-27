@@ -183,8 +183,9 @@ public class VariantType extends ScalarType {
             sb.append("\"variant_max_sparse_column_statistics_size\" = \"")
                                         .append(String.valueOf(variantMaxSparseColumnStatisticsSize)).append("\"");
             sb.append(",");
+            // Output at least 1 for backward compatibility: old data without this parameter defaults to 0
             sb.append("\"variant_sparse_hash_shard_count\" = \"")
-                                        .append(String.valueOf(variantSparseHashShardCount)).append("\"");
+                                        .append(String.valueOf(Math.max(1, variantSparseHashShardCount))).append("\"");
         }
         sb.append(")>");
         return sb.toString();
