@@ -1030,7 +1030,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>());
         CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
                 PhysicalProperties.ANY);
-        Map<String, DataType> argTypeMap = new CaseInsensitiveMap<>();
+        Map<String, DataType> argTypeMap = new CaseInsensitiveMap();
         List<DataType> argTypes = argsDef.getArgTypeDefs();
         if (!parameters.isEmpty()) {
             if (parameters.size() != argTypes.size()) {
