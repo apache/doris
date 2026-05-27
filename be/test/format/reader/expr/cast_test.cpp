@@ -207,4 +207,49 @@ TEST_F(CastTest, ColumnMapperBuildsCastProjectionForTypeMismatch) {
     mapping.projection->close();
 }
 
+TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
+    reader::TableColumnMapper mapper;
+    reader::TableColumn table_column;
+    table_column.id = 7;
+    table_column.name = "value";
+    table_column.type = std::make_shared<DataTypeInt64>();
+    std::vector<reader::TableColumn> projected_columns {table_column};
+
+    reader::SchemaField file_field;
+    file_field.id = 0;
+    file_field.name = "value";
+    file_field.type = std::make_shared<DataTypeInt32>();
+    std::vector<reader::SchemaField> file_schema {file_field};
+
+    auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto table_slot = TableSlotRef::create_shared(7, 7, -1, table_column.type, "value");
+    auto cast_filter = Cast::create_shared(std::make_shared<DataTypeInt64>());
+    cast_filter->add_child(table_slot);
+    reader::TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(cast_filter);
+    table_filter.slot_ids = {7};
+
+    reader::FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request)
+                        .ok());
+    ASSERT_EQ(file_request.expression_filters.size(), 1);
+    ASSERT_EQ(file_request.predicate_columns, std::vector<reader::ColumnId>({0}));
+
+    Block block;
+    block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({11, 22}));
+    int result_column_id = -1;
+    status = prepare_open_execute(file_request.expression_filters[0].conjunct.get(), &block,
+                                  &result_column_id);
+    ASSERT_TRUE(status.ok()) << status;
+
+    const auto& result_column =
+            assert_cast<const ColumnInt64&>(*block.get_by_position(result_column_id).column);
+    EXPECT_EQ(result_column.get_data()[0], 11);
+    EXPECT_EQ(result_column.get_data()[1], 22);
+
+    file_request.expression_filters[0].conjunct->close();
+}
+
 } // namespace doris
