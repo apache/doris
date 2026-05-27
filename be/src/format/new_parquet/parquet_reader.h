@@ -121,13 +121,13 @@ private:
     void _reset_current_row_group();
     void _fill_schema_field(const ParquetColumnSchema& column_schema,
                             reader::SchemaField* field) const;
-    bool _has_structured_filter(const reader::FileLocalFilter& local_filter);
+    bool _has_expression_filter(const reader::FileLocalFilter& local_filter);
     Status _read_filter_columns(int64_t batch_rows, Block* file_block, SelectionVector* selection,
                                 uint16_t* selected_rows);
-    Status _validate_supported_local_filters(
-            const std::vector<reader::FileLocalFilter>& local_filters);
     IColumn::Filter _selection_to_filter(const SelectionVector& selection, uint16_t selected_rows,
                                          int64_t batch_rows);
+    uint16_t _apply_filter_to_selection(const IColumn::Filter& filter, SelectionVector* selection,
+                                        uint16_t selected_rows);
     Status _open_next_row_group(bool* has_row_group);
     Status _read_current_row_group_batch(int64_t batch_rows, Block* file_block, size_t* rows);
 
