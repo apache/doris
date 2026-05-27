@@ -42,6 +42,7 @@
 #include "exprs/vexpr_context.h"
 #include "format/reader/column_mapper.h"
 #include "format/reader/file_reader.h"
+#include "format/reader/table_reader.h"
 #include "gen_cpp/Types_types.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
@@ -82,9 +83,53 @@ private:
     const std::string _expr_name = "Int32GreaterThanExpr";
 };
 
+class Int32SumGreaterThanExpr final : public VExpr {
+public:
+    Int32SumGreaterThanExpr(int left_column_id, int right_column_id, int32_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _left_column_id(left_column_id),
+              _right_column_id(right_column_id),
+              _value(value) {}
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        const auto& left_input =
+                assert_cast<const ColumnInt32&>(*block->get_by_position(_left_column_id).column);
+        const auto& right_input =
+                assert_cast<const ColumnInt32&>(*block->get_by_position(_right_column_id).column);
+        auto result = ColumnUInt8::create();
+        auto& result_data = result->get_data();
+        result_data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const size_t input_row = selector == nullptr ? row : (*selector)[row];
+            result_data[row] =
+                    left_input.get_element(input_row) + right_input.get_element(input_row) > _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    const int _left_column_id;
+    const int _right_column_id;
+    const int32_t _value;
+    const std::string _expr_name = "Int32SumGreaterThanExpr";
+};
+
 VExprContextSPtr create_int32_greater_than_conjunct(int column_id, int32_t value) {
     auto ctx =
             VExprContext::create_shared(std::make_shared<Int32GreaterThanExpr>(column_id, value));
+    ctx->_prepared = true;
+    ctx->_opened = true;
+    return ctx;
+}
+
+VExprContextSPtr create_int32_sum_greater_than_conjunct(int left_column_id, int right_column_id,
+                                                        int32_t value) {
+    auto ctx = VExprContext::create_shared(
+            std::make_shared<Int32SumGreaterThanExpr>(left_column_id, right_column_id, value));
     ctx->_prepared = true;
     ctx->_opened = true;
     return ctx;
@@ -131,6 +176,28 @@ void write_parquet_file(const std::string& file_path, int64_t row_group_size = R
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
                                                       row_group_size, builder.build()));
+}
+
+void write_int_pair_parquet_file(const std::string& file_path, int64_t row_group_size = ROW_COUNT) {
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false),
+            arrow::field("score", arrow::int32(), false),
+            arrow::field("value", arrow::utf8(), false),
+    });
+    auto table = arrow::Table::Make(
+            schema, {build_int32_array({1, 2, 3, 4, 5}), build_int32_array({1, 2, 3, 4, 5}),
+                     build_string_array({"one", "two", "three", "four", "five"})});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(
+            *table, arrow::default_memory_pool(), out, row_group_size, builder.build()));
 }
 
 Block build_file_block(const std::vector<reader::SchemaField>& schema) {
@@ -216,7 +283,7 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForStructChildren) {
     ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
 
     auto request = std::make_unique<reader::FileScanRequest>();
-    ASSERT_TRUE(mapper.create_scan_request({}, {table_column}, request.get()).ok());
+    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_column}, request.get()).ok());
     ASSERT_EQ(request->non_predicate_columns, std::vector<reader::ColumnId>({0}));
     ASSERT_EQ(request->complex_projections.size(), 1);
     const auto& projection = request->complex_projections.at(0);
@@ -359,12 +426,14 @@ TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     auto request = std::make_unique<reader::FileScanRequest>();
     request->predicate_columns = {0};
     request->non_predicate_columns = {1};
-    reader::FileLocalFilter filter;
-    filter.file_column_id = 0;
-    filter.conjunct = create_int32_greater_than_conjunct(0, 2);
-    filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
+    reader::FileExpressionFilter expression_filter;
+    expression_filter.conjunct = create_int32_greater_than_conjunct(0, 2);
+    request->expression_filters.push_back(std::move(expression_filter));
+    reader::FileColumnPredicateFilter column_filter;
+    column_filter.file_column_id = 0;
+    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
             0, "id", schema[0].type, Field::create_field<TYPE_INT>(2), false));
-    request->local_filters.push_back(std::move(filter));
+    request->column_predicate_filters.push_back(std::move(column_filter));
     ASSERT_TRUE(reader->open(request).ok());
 
     size_t rows = 0;
@@ -391,6 +460,40 @@ TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     EXPECT_EQ(rows, 0);
 }
 
+TEST_F(NewParquetReaderTest, ReadMultiPredicateColumnsBeforeExpressionFilter) {
+    write_int_pair_parquet_file(_file_path);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<reader::SchemaField> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    Block block = build_file_block(schema);
+
+    auto request = std::make_unique<reader::FileScanRequest>();
+    request->predicate_columns = {0, 1};
+    request->non_predicate_columns = {};
+    reader::FileExpressionFilter expression_filter;
+    expression_filter.conjunct = create_int32_sum_greater_than_conjunct(0, 1, 7);
+    request->expression_filters.push_back(std::move(expression_filter));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    ASSERT_EQ(rows, 2);
+
+    const auto& ids = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& scores = assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
+    ASSERT_EQ(ids.size(), 2);
+    ASSERT_EQ(scores.size(), 2);
+    EXPECT_EQ(ids.get_element(0), 4);
+    EXPECT_EQ(ids.get_element(1), 5);
+    EXPECT_EQ(scores.get_element(0), 4);
+    EXPECT_EQ(scores.get_element(1), 5);
+}
+
 TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByStatistics) {
     write_parquet_file(_file_path, 2);
     auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
@@ -405,12 +508,14 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByStatistics) {
     auto request = std::make_unique<reader::FileScanRequest>();
     request->predicate_columns = {0};
     request->non_predicate_columns = {1};
-    reader::FileLocalFilter filter;
-    filter.file_column_id = 0;
-    filter.conjunct = create_int32_greater_than_conjunct(0, 2);
-    filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
+    reader::FileExpressionFilter expression_filter;
+    expression_filter.conjunct = create_int32_greater_than_conjunct(0, 2);
+    request->expression_filters.push_back(std::move(expression_filter));
+    reader::FileColumnPredicateFilter column_filter;
+    column_filter.file_column_id = 0;
+    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
             0, "id", schema[0].type, Field::create_field<TYPE_INT>(2), false));
-    request->local_filters.push_back(std::move(filter));
+    request->column_predicate_filters.push_back(std::move(column_filter));
     ASSERT_TRUE(reader->open(request).ok());
 
     std::vector<int32_t> ids;

@@ -48,14 +48,8 @@ void collect_table_slot_ids(const VExprSPtr& expr, std::set<int>* slot_ids) {
 }
 
 void build_table_filters_from_conjunct(const VExprSPtr& conjunct,
-                                       std::map<int32_t, TableFilter>* table_filters) {
+                                       std::vector<TableFilter>* table_filters) {
     if (conjunct == nullptr) {
-        return;
-    }
-    std::set<int> slot_ids;
-    collect_table_slot_ids(conjunct, &slot_ids);
-    if (slot_ids.size() == 1) {
-        (*table_filters)[*slot_ids.begin()].conjunct = VExprContext::create_shared(conjunct);
         return;
     }
     if (conjunct->node_type() == TExprNodeType::COMPOUND_PRED &&
@@ -63,6 +57,15 @@ void build_table_filters_from_conjunct(const VExprSPtr& conjunct,
         for (const auto& child : conjunct->children()) {
             build_table_filters_from_conjunct(child, table_filters);
         }
+        return;
+    }
+    std::set<int> slot_ids;
+    collect_table_slot_ids(conjunct, &slot_ids);
+    if (!slot_ids.empty()) {
+        TableFilter table_filter;
+        table_filter.conjunct = VExprContext::create_shared(conjunct);
+        table_filter.slot_ids.assign(slot_ids.begin(), slot_ids.end());
+        table_filters->push_back(std::move(table_filter));
         return;
     }
 }
@@ -100,6 +103,7 @@ Status TableReader::init(TableReadOptions options) {
     mapper_options.allow_missing_columns = options.allow_missing_columns;
     _data_reader.column_mapper = TableColumnMapper(mapper_options);
     _conjuncts = std::move(options.conjuncts);
+    _table_column_predicates = std::move(options.column_predicates);
     return Status::OK();
 }
 
@@ -111,12 +115,12 @@ Status TableReader::_build_table_filters_from_conjuncts() {
 
 Status TableReader::_open_local_filter_exprs(const FileScanRequest& file_request) {
     RowDescriptor row_desc;
-    for (const auto& local_filter : file_request.local_filters) {
-        if (local_filter.conjunct == nullptr) {
+    for (const auto& expression_filter : file_request.expression_filters) {
+        if (expression_filter.conjunct == nullptr) {
             continue;
         }
-        RETURN_IF_ERROR(local_filter.conjunct->prepare(_runtime_state, row_desc));
-        RETURN_IF_ERROR(local_filter.conjunct->open(_runtime_state));
+        RETURN_IF_ERROR(expression_filter.conjunct->prepare(_runtime_state, row_desc));
+        RETURN_IF_ERROR(expression_filter.conjunct->open(_runtime_state));
     }
     return Status::OK();
 }

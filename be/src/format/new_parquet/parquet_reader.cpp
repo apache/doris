@@ -291,10 +291,6 @@ Status ParquetReader::_get_projected_schema_field(reader::ColumnId file_column_i
     return Status::OK();
 }
 
-bool ParquetReader::_has_expression_filter(const reader::FileLocalFilter& local_filter) {
-    return local_filter.conjunct != nullptr;
-}
-
 Status ParquetReader::_read_filter_columns(int64_t batch_rows, Block* file_block,
                                            SelectionVector* selection, uint16_t* selected_rows) {
     selection->resize(static_cast<size_t>(batch_rows));
@@ -314,28 +310,29 @@ Status ParquetReader::_read_filter_columns(int64_t batch_rows, Block* file_block
                                       column_reader->name(), column_rows, batch_rows);
         }
         file_block->replace_by_position(block_position, std::move(column));
+    }
+    return _execute_filter_conjuncts(batch_rows, file_block, selection, selected_rows);
+}
 
-        for (const auto& local_filter : _request->local_filters) {
-            if (local_filter.file_column_id != file_field_id ||
-                !_has_expression_filter(local_filter)) {
-                continue;
-            }
-            if (*selected_rows == 0) {
-                break;
-            }
-            IColumn::Filter filter(static_cast<size_t>(batch_rows), 1);
-            bool can_filter_all = false;
-            RETURN_IF_ERROR(local_filter.conjunct->execute_filter(file_block, filter.data(),
-                                                                  static_cast<size_t>(batch_rows),
-                                                                  false, &can_filter_all));
-            *selected_rows =
-                    can_filter_all ? 0
-                                   : _apply_filter_to_selection(filter, selection, *selected_rows);
-            break;
+Status ParquetReader::_execute_filter_conjuncts(int64_t batch_rows, Block* file_block,
+                                                SelectionVector* selection,
+                                                uint16_t* selected_rows) {
+    // Expression filters may reference several predicate columns. Execute them only after all
+    // predicate columns in the file-local block have been materialized.
+    for (const auto& expression_filter : _request->expression_filters) {
+        if (expression_filter.conjunct == nullptr) {
+            continue;
         }
         if (*selected_rows == 0) {
             break;
         }
+        IColumn::Filter filter(static_cast<size_t>(batch_rows), 1);
+        bool can_filter_all = false;
+        RETURN_IF_ERROR(expression_filter.conjunct->execute_filter(
+                file_block, filter.data(), static_cast<size_t>(batch_rows), false,
+                &can_filter_all));
+        *selected_rows =
+                can_filter_all ? 0 : _apply_filter_to_selection(filter, selection, *selected_rows);
     }
     return Status::OK();
 }
@@ -557,10 +554,10 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
         DORIS_CHECK(_request->column_positions.count(file_column_id) > 0);
         DORIS_CHECK(file_column_id >= 0 && file_column_id < num_fields);
     }
-    for (const auto& local_filter : _request->local_filters) {
-        if (local_filter.file_column_id < 0 || local_filter.file_column_id >= num_fields) {
+    for (const auto& column_filter : _request->column_predicate_filters) {
+        if (column_filter.file_column_id < 0 || column_filter.file_column_id >= num_fields) {
             return Status::InvalidArgument("Invalid parquet filter top-level field id {}",
-                                           local_filter.file_column_id);
+                                           column_filter.file_column_id);
         }
     }
     for (const auto& [file_column_id, projection] : _request->complex_projections) {

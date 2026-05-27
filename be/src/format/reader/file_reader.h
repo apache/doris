@@ -75,21 +75,19 @@ struct FieldProjection {
     std::vector<FieldProjection> children;
 };
 
-// 已经 localize 到文件 schema 的过滤条件。
-// TableColumnMapper 负责把 table-level filter 转成这个结构；FileReader 只消费
-// file-local column id、表达式和结构化谓词。
-struct FileLocalFilter {
-    ColumnId file_column_id = -1;
-
-    // 表达式过滤。适合 cast、复杂表达式或 reader_expression_map 生成的临时列过滤。
-    // 它通常不能直接驱动 row group stats、page index、dictionary、bloom filter。
+// File-local expression filter. It may reference multiple predicate_columns, so FileReader should
+// evaluate it after all referenced predicate columns have been materialized in the file-local block.
+struct FileExpressionFilter {
     VExprContextSPtr conjunct;
     // DeletePredicate
     VExprContextSPtr delete_conjunct;
+    std::vector<ColumnId> file_column_ids;
+};
 
-    // 结构化列谓词。适合文件层 pruning，例如 min/max、page index、dictionary、
-    // bloom filter 等只理解单列谓词的优化。
-    // TODO: conjunct 支持表达所有 filter 语义之后删除。
+// File-local single-column predicates for file-layer pruning, such as min/max, page index,
+// dictionary and bloom filter. Predicates must all belong to file_column_id.
+struct FileColumnPredicateFilter {
+    ColumnId file_column_id = -1;
     std::vector<std::shared_ptr<ColumnPredicate>> predicates;
 };
 
@@ -110,7 +108,8 @@ struct FileScanRequest {
     std::vector<ColumnId> non_predicate_columns;
     std::map<ColumnId, size_t> column_positions;
     std::map<ColumnId, FieldProjection> complex_projections;
-    std::vector<FileLocalFilter> local_filters;
+    std::vector<FileExpressionFilter> expression_filters;
+    std::vector<FileColumnPredicateFilter> column_predicate_filters;
     // fallback path if filters cannot be localized to file-local predicates. The expression can reference projected_file_columns and partition columns.
     std::vector<std::pair<ColumnId, VExprContextSPtr>> reader_expression_map;
 };
