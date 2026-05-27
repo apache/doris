@@ -28,6 +28,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
@@ -538,17 +543,11 @@ public class ColumnDefinition {
                         + DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
             }
             defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
-        } else if (type.isArrayType() && defaultValue.isPresent() && isOlap
-                && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE && !defaultValue.get()
-                .getValue().equals(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.getValue())) {
-            throw new AnalysisException("Array type column default value only support null or "
-                    + DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE);
         } else {
             validateComplexTypeDefaultValue();
         }
 
-        if (!isNullable && defaultValue.isPresent()
-                && defaultValue.get() == DefaultValue.NULL_DEFAULT_VALUE) {
+        if (!isNullable && hasNullDefaultValue()) {
             throw new AnalysisException(
                     "Can not set null default value to non nullable column: " + name);
         }
@@ -630,16 +629,68 @@ public class ColumnDefinition {
      * Validate non-null defaults for complex types before connector-specific validation.
      */
     public void validateComplexTypeDefaultValue() throws AnalysisException {
-        if (!defaultValue.isPresent() || defaultValue.get() == DefaultValue.NULL_DEFAULT_VALUE) {
+        if (type.isArrayType()) {
+            validateArrayDefaultValue();
+        } else if (type.isMapType()) {
+            validateMapDefaultValue();
+        } else if (type.isStructType()) {
+            validateStructDefaultValue();
+        } else if (type.isJsonType() || type.isVariantType()) {
+            if (hasNonNullDefaultValue()) {
+                throw new AnalysisException("Json or Variant type column default value only supports DEFAULT NULL");
+            }
+        }
+    }
+
+    private void validateArrayDefaultValue() {
+        if (!hasNonNullDefaultValue()) {
             return;
         }
-        if (type.isMapType()) {
-            throw new AnalysisException("Map type column default value just support null");
-        } else if (type.isStructType()) {
-            throw new AnalysisException("Struct type column default value just support null");
-        } else if (type.isJsonType() || type.isVariantType()) {
-            throw new AnalysisException("Json or Variant type column default value just support null");
+        if (!isLiteralDefaultValue(ArrayLiteral.class)) {
+            throw new AnalysisException("Array type column default value only supports array literals or DEFAULT NULL");
         }
+    }
+
+    private void validateMapDefaultValue() {
+        if (!hasNonNullDefaultValue()) {
+            return;
+        }
+        if (!isLiteralDefaultValue(MapLiteral.class)) {
+            throw new AnalysisException("Map type column default value only supports map literals or DEFAULT NULL");
+        }
+    }
+
+    private void validateStructDefaultValue() {
+        if (!hasNonNullDefaultValue()) {
+            return;
+        }
+        String value = defaultValue.get().getValue().trim();
+        if (!isEmptyStructLiteral(value) && !isLiteralDefaultValue(StructLiteral.class)) {
+            throw new AnalysisException(
+                    "Struct type column default value only supports struct literals or DEFAULT NULL");
+        }
+    }
+
+    private boolean isEmptyStructLiteral(String value) {
+        return value.startsWith("{") && value.endsWith("}")
+                && value.substring(1, value.length() - 1).trim().isEmpty();
+    }
+
+    private boolean isLiteralDefaultValue(Class<? extends Expression> literalClass) {
+        try {
+            Expression expression = new NereidsParser().parseExpression(defaultValue.get().getValue());
+            return literalClass.isInstance(expression);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean hasNonNullDefaultValue() {
+        return defaultValue.isPresent() && defaultValue.get().getValue() != null;
+    }
+
+    private boolean hasNullDefaultValue() {
+        return defaultValue.isPresent() && defaultValue.get().getValue() == null;
     }
 
     /**

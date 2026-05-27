@@ -587,7 +587,7 @@ suite("test_dup_schema_key_add","p0") {
 
 
      //TODO Test the duplicate model by adding a column with JSON type none default value 
-     errorMessage="errCode = 2, detailMessage = Json or Variant type column default value just support null"
+     errorMessage="errCode = 2, detailMessage = Json or Variant type column default value only supports DEFAULT NULL"
      expectException({
           sql initTable
           sql initTableData

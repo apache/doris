@@ -35,6 +35,7 @@
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/field.h"
 #include "core/string_ref.h"
 #include "gtest/gtest.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -106,6 +107,90 @@ TEST_F(DataTypeSerDeFromStringTest, array) {
 
         EXPECT_FALSE(serde->from_string_strict_mode(str_ref, *column, options));
     }
+}
+
+TEST_F(DataTypeSerDeFromStringTest, arrayFromFeString) {
+    auto type = std::make_shared<DataTypeArray>(
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>()));
+    auto serde = type->get_serde();
+
+    Field field;
+    ASSERT_TRUE(serde->from_fe_string(R"([1, NULL, nUlL, 3])", field).ok());
+    ASSERT_EQ(field.get_type(), TYPE_ARRAY);
+    const auto& array = field.get<TYPE_ARRAY>();
+    ASSERT_EQ(array.size(), 4);
+    EXPECT_EQ(array[0].get<TYPE_BIGINT>(), 1);
+    EXPECT_TRUE(array[1].is_null());
+    EXPECT_TRUE(array[2].is_null());
+    EXPECT_EQ(array[3].get<TYPE_BIGINT>(), 3);
+
+    EXPECT_FALSE(serde->from_fe_string(R"({"not_array": 1})", field).ok());
+}
+
+TEST_F(DataTypeSerDeFromStringTest, mapFromFeString) {
+    auto type = std::make_shared<DataTypeMap>(
+            std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>()));
+    auto serde = type->get_serde();
+
+    Field field;
+    ASSERT_TRUE(serde->from_fe_string(R"({"a": 1, "b": NULL, "c": nUlL})", field).ok());
+    ASSERT_EQ(field.get_type(), TYPE_MAP);
+    const auto& map = field.get<TYPE_MAP>();
+    ASSERT_EQ(map.size(), 2);
+    ASSERT_EQ(map[0].get_type(), TYPE_ARRAY);
+    ASSERT_EQ(map[1].get_type(), TYPE_ARRAY);
+
+    const auto& keys = map[0].get<TYPE_ARRAY>();
+    const auto& values = map[1].get<TYPE_ARRAY>();
+    ASSERT_EQ(keys.size(), 3);
+    ASSERT_EQ(values.size(), 3);
+    EXPECT_EQ(keys[0].get<TYPE_STRING>(), "a");
+    EXPECT_EQ(values[0].get<TYPE_BIGINT>(), 1);
+    EXPECT_EQ(keys[1].get<TYPE_STRING>(), "b");
+    EXPECT_TRUE(values[1].is_null());
+    EXPECT_EQ(keys[2].get<TYPE_STRING>(), "c");
+    EXPECT_TRUE(values[2].is_null());
+
+    EXPECT_FALSE(serde->from_fe_string(R"({"a": 1, "b"})", field).ok());
+}
+
+TEST_F(DataTypeSerDeFromStringTest, structFromFeString) {
+    DataTypes elems {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>()),
+                     std::make_shared<DataTypeString>(),
+                     std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>())};
+    Strings names {"f1", "f2", "f3"};
+    auto type = std::make_shared<DataTypeStruct>(elems, names);
+    auto serde = type->get_serde();
+
+    Field field;
+    ASSERT_TRUE(serde->from_fe_string(R"({NULL, "x", nUlL})", field).ok());
+    ASSERT_EQ(field.get_type(), TYPE_STRUCT);
+    const auto& tuple_values = field.get<TYPE_STRUCT>();
+    ASSERT_EQ(tuple_values.size(), 3);
+    EXPECT_TRUE(tuple_values[0].is_null());
+    EXPECT_EQ(tuple_values[1].get<TYPE_STRING>(), "x");
+    EXPECT_TRUE(tuple_values[2].is_null());
+
+    ASSERT_TRUE(serde->from_fe_string(R"({"f1": 7, "f2": "y", "f3": NULL})", field).ok());
+    ASSERT_EQ(field.get_type(), TYPE_STRUCT);
+    const auto& named_values = field.get<TYPE_STRUCT>();
+    ASSERT_EQ(named_values.size(), 3);
+    EXPECT_EQ(named_values[0].get<TYPE_BIGINT>(), 7);
+    EXPECT_EQ(named_values[1].get<TYPE_STRING>(), "y");
+    EXPECT_TRUE(named_values[2].is_null());
+
+    EXPECT_FALSE(serde->from_fe_string(R"({1, 2})", field).ok());
+    EXPECT_FALSE(serde->from_fe_string(R"({"f2": 1, "f1": "x", "f3": 3})", field).ok());
+
+    DataTypes non_nullable_elems {std::make_shared<DataTypeInt64>()};
+    Strings non_nullable_names {"f1"};
+    auto non_nullable_type =
+            std::make_shared<DataTypeStruct>(non_nullable_elems, non_nullable_names);
+    auto non_nullable_serde = non_nullable_type->get_serde();
+    auto status = non_nullable_serde->from_fe_string(R"({NULL})", field);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.to_string().find("NULL default is not allowed") != std::string::npos);
 }
 
 TEST_F(DataTypeSerDeFromStringTest, bitmap) {

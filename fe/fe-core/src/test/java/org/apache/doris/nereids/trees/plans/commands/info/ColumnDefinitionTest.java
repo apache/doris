@@ -22,12 +22,18 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.AggStateType;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.JsonType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.QuantileStateType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.UuidType;
+import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -36,6 +42,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Optional;
 
 public class ColumnDefinitionTest {
@@ -151,5 +159,54 @@ public class ColumnDefinitionTest {
         ColumnDefinition literal = new ColumnDefinition("u", UuidType.INSTANCE, false, null, false,
                 Optional.of(new DefaultValue("00112233-4455-6677-8899-aabbccddeeff")), "");
         Assertions.assertFalse(literal.hasUuidDefaultValue());
+    }
+
+    @Test
+    public void testComplexTypeLiteralDefaultValue() {
+        assertAllowsDefaultValue(ArrayType.of(IntegerType.INSTANCE), "[]");
+        assertAllowsDefaultValue(ArrayType.of(IntegerType.INSTANCE), "[1, 2]");
+        assertRejectsDefaultValue(ArrayType.of(IntegerType.INSTANCE), "{}",
+                "only supports array literals or DEFAULT NULL");
+
+        assertAllowsDefaultValue(MapType.of(StringType.INSTANCE, IntegerType.INSTANCE), "{}");
+        assertAllowsDefaultValue(MapType.of(StringType.INSTANCE, IntegerType.INSTANCE), "{\"a\": 1}");
+        assertRejectsDefaultValue(MapType.of(StringType.INSTANCE, IntegerType.INSTANCE), "[]",
+                "only supports map literals or DEFAULT NULL");
+
+        StructType structType = new StructType(Arrays.asList(
+                new StructField("f1", IntegerType.INSTANCE, true, ""),
+                new StructField("f2", StringType.INSTANCE, true, "")));
+        assertAllowsDefaultValue(structType, "{}");
+        assertAllowsDefaultValue(structType, "{1, \"a\"}");
+        assertRejectsDefaultValue(structType, "{\"f1\": 1, \"f2\": \"a\"}",
+                "only supports struct literals or DEFAULT NULL");
+
+        assertRejectsDefaultValue(JsonType.INSTANCE, "{}", "only supports DEFAULT NULL");
+        assertRejectsDefaultValue(VariantType.INSTANCE, "{}", "only supports DEFAULT NULL");
+
+        Assertions.assertDoesNotThrow(() -> newColumnDefinition(
+                ArrayType.of(IntegerType.INSTANCE), Optional.empty()).validate(
+                        true, Collections.emptySet(), Collections.emptySet(), false, KeysType.DUP_KEYS));
+        Assertions.assertDoesNotThrow(() -> newColumnDefinition(
+                MapType.of(StringType.INSTANCE, IntegerType.INSTANCE),
+                Optional.of(DefaultValue.NULL_DEFAULT_VALUE)).validate(
+                        true, Collections.emptySet(), Collections.emptySet(), false, KeysType.DUP_KEYS));
+    }
+
+    private void assertAllowsDefaultValue(DataType type, String defaultValue) {
+        Assertions.assertDoesNotThrow(() -> newColumnDefinition(
+                type, Optional.of(new DefaultValue(defaultValue))).validate(
+                        true, Collections.emptySet(), Collections.emptySet(), false, KeysType.DUP_KEYS));
+    }
+
+    private void assertRejectsDefaultValue(DataType type, String defaultValue, String message) {
+        ColumnDefinition columnDefinition = newColumnDefinition(type, Optional.of(new DefaultValue(defaultValue)));
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> columnDefinition.validate(
+                true, Collections.emptySet(), Collections.emptySet(), false, KeysType.DUP_KEYS));
+        Assertions.assertTrue(exception.getMessage().contains(message));
+    }
+
+    private ColumnDefinition newColumnDefinition(DataType type, Optional<DefaultValue> defaultValue) {
+        return new ColumnDefinition("col1", type, false, null, true, defaultValue, "");
     }
 }

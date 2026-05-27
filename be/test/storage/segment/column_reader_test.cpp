@@ -1980,7 +1980,8 @@ void check_default_value_lazy_output(bool read_by_rowids) {
     SCOPED_TRACE(read_by_rowids ? "read_by_rowids" : "next_batch");
 
     DefaultValueColumnIterator iterator(true, "7", false, FieldType::OLAP_FIELD_TYPE_INT, 0, 0,
-                                        sizeof(int32_t));
+                                        sizeof(int32_t),
+                                        std::make_shared<DataTypeInt32>()->get_serde());
     ColumnIteratorOptions iter_opts;
     ASSERT_TRUE(iterator.init(iter_opts).ok());
     iterator.set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
@@ -2020,7 +2021,8 @@ void check_default_value_predicate_not_read_again(bool read_by_rowids) {
     SCOPED_TRACE(read_by_rowids ? "read_by_rowids" : "next_batch");
 
     DefaultValueColumnIterator iterator(true, "7", false, FieldType::OLAP_FIELD_TYPE_INT, 0, 0,
-                                        sizeof(int32_t));
+                                        sizeof(int32_t),
+                                        std::make_shared<DataTypeInt32>()->get_serde());
     ColumnIteratorOptions iter_opts;
     ASSERT_TRUE(iterator.init(iter_opts).ok());
     iterator.set_read_requirement(ColumnIterator::ReadRequirement::PREDICATE);
@@ -2064,7 +2066,8 @@ TEST_F(ColumnReaderTest, DefaultValueLazyOutputRecoversFilteredPlaceholder) {
 
 TEST_F(ColumnReaderTest, DefaultValueLazyOutputFinalizesEmptySelection) {
     DefaultValueColumnIterator iterator(true, "7", false, FieldType::OLAP_FIELD_TYPE_INT, 0, 0,
-                                        sizeof(int32_t));
+                                        sizeof(int32_t),
+                                        std::make_shared<DataTypeInt32>()->get_serde());
     ColumnIteratorOptions iter_opts;
     ASSERT_TRUE(iterator.init(iter_opts).ok());
     iterator.set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
