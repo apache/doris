@@ -543,6 +543,44 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
     }
 
     @Test
+    public void testRepeatNoRequireKeepsHashLocalExchangeAboveRepeat() throws Exception {
+        // Behavior 1 of the RepeatNode fix — noRequire (tpcds q67, +73%).
+        // RepeatNode recurses with noRequire() instead of forwarding the streaming
+        // agg's HASH require to its child.  So when the pooling scan upstream does NOT
+        // already provide the distribution, the parent inserts the LE(LOCAL_HASH)
+        // ABOVE the Repeat, never below it:
+        //   Agg <- LE(LOCAL_HASH) <- LE(PASSTHROUGH) <- Repeat <- scan
+        // Pinning Repeat with repeat() (not anyTree) distinguishes the fixed plan from
+        // the buggy one (buggy forwarded the require, so the LE landed below the
+        // Repeat, hashing the pre-repeat rows by the child's single upstream key and
+        // collapsing them onto one instance).
+        setupLocalShuffleSession(null);
+        assertPlanShape(
+                "select k1, k2, count(*) from test.t1 group by grouping sets((k1), (k1, k2))",
+                anyTree(
+                        agg(
+                                localExchange(LOCAL_HASH,
+                                        localExchange(PT,
+                                                repeat(anyTree(olapScan("t1"))))))));
+    }
+
+    @Test
+    public void testRepeatReturnsChildDistributionSkipsRedundantHash() throws Exception {
+        // Behavior 2 of the RepeatNode fix — return enforceResult.second (tpcds q70).
+        // RepeatNode reports its child's real output distribution to the parent (not
+        // NOOP).  With a non-pooling colocate scan, the child's BUCKET_HASH
+        // distribution propagates through the Repeat and already satisfies the agg's
+        // hash requirement, so the parent's satisfy-check SKIPS inserting any LE — no
+        // LOCAL_HASH appears.  Had RepeatNode returned NOOP (the discarded v1), the
+        // satisfy-check would fail and force a redundant LE(LOCAL_HASH) that
+        // re-shuffles the post-repeat rows into skew.
+        setupLocalShuffleSession(sv -> sv.setIgnoreStorageDataDistribution(false));
+        assertNoLocalExchangeOfType(
+                "select k1, k2, count(*) from test.t1 group by grouping sets((k1), (k1, k2))",
+                LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+    }
+
+    @Test
     public void testLocalAndGlobalExecutionHashShufflePreferType() {
         PlanTranslatorContext translatorContext = new PlanTranslatorContext();
         LocalExchangeNode.LocalExchangeTypeRequire requireHash = LocalExchangeNode.LocalExchangeTypeRequire.requireHash();
