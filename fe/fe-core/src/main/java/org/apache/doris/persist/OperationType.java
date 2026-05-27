@@ -425,6 +425,11 @@ public class OperationType {
 
     public static final short OP_BEGIN_SNAPSHOT = 1100;
 
+    // Generic "an operation modified this table's metadata" signal broadcast from
+    // master to followers so that every FE-local cache keyed by table can be
+    // invalidated (NereidsSqlCacheManager, NereidsSortedPartitionsCacheManager, …).
+    public static final short OP_TABLE_META_CHANGE = 1102;
+
     /**
      * Get opcode name by op code.
      **/
