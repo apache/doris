@@ -6,19 +6,26 @@ PhysicalResultSink
 ------PhysicalDistribute[DistributionSpecGather]
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------filter((cast(web_sales.ws_ext_discount_amt as DECIMALV3(38, 5)) > (1.3 * avg(ws_ext_discount_amt) OVER(PARTITION BY i_item_sk))))
---------------PhysicalWindow
-----------------PhysicalQuickSort[LOCAL_SORT]
-------------------PhysicalDistribute[DistributionSpecHash]
+------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=((cast(web_sales.ws_ext_discount_amt as DECIMALV3(38, 5)) > (1.3 * avg(ws_ext_discount_amt)))) build RFs:RF3 ws_item_sk->i_item_sk;RF4 ws_item_sk->ws_item_sk
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = web_sales.ws_sold_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->ws_sold_date_sk
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = web_sales.ws_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->ws_item_sk;RF5 i_item_sk->ws_item_sk
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[web_sales] apply RFs: RF1 RF2 RF4
+----------------------PhysicalProject
+------------------------filter((item.i_manufact_id = 320))
+--------------------------PhysicalOlapScan[item] apply RFs: RF3
+------------------PhysicalProject
+--------------------filter((date_dim.d_date <= '2002-05-27') and (date_dim.d_date >= '2002-02-26'))
+----------------------PhysicalOlapScan[date_dim]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------hashAgg[LOCAL]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = web_sales.ws_sold_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->ws_sold_date_sk
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = web_sales.ws_sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->ws_sold_date_sk
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = web_sales.ws_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->ws_item_sk
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1
-----------------------------PhysicalProject
-------------------------------filter((item.i_manufact_id = 320))
---------------------------------PhysicalOlapScan[item]
+--------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF5
 ------------------------PhysicalProject
 --------------------------filter((date_dim.d_date <= '2002-05-27') and (date_dim.d_date >= '2002-02-26'))
 ----------------------------PhysicalOlapScan[date_dim]

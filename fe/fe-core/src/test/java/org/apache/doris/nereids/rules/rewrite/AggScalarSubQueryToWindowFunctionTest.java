@@ -19,14 +19,26 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
 import org.apache.doris.nereids.datasets.tpch.TPCHUtils;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implements MemoPatternMatchSupported {
     private static final String SQL_TEMPLATE = "    select\n"
@@ -56,6 +68,18 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
             buildSubQuery(MAX),
             buildSubQuery(MIN)
     };
+
+    @BeforeEach
+    public void addConstraints() throws Exception {
+        // Add UNIQUE constraint on part.p_partkey so DataTrait recognizes
+        // uniqueness for the TPC-H tables used in positive tests.
+        // Ignore if constraint already exists from a previous test.
+        try {
+            addConstraint("alter table part add constraint uq_part_pkey unique (p_partkey)");
+        } catch (Exception e) {
+            // Constraint may already exist; ignore
+        }
+    }
 
     private static String buildFromTemplate(String[] predicate, String[] query) {
         String sql = SQL_TEMPLATE;
@@ -338,6 +362,1767 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
         }
     }
 
+    @Test
+    public void testWindowPartitionsByOuterOnlyRelationSlots() throws Exception {
+        // Use TPC-H Q17: correlated table is part (p_partkey is unique via constraint),
+        // fact table is lineitem. The window PARTITION BY should contain all output
+        // columns of the correlated table (part).
+        String sql = TPCHUtils.Q17;
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyTopDown(new PushDownFilterThroughProject())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        List<LogicalWindow<Plan>> windows = plan.collectToList(LogicalWindow.class::isInstance);
+        Assertions.assertEquals(1, windows.size());
+
+        LogicalWindow<Plan> window = windows.get(0);
+        List<NamedExpression> windowExpressions = window.getWindowExpressions();
+        Assertions.assertEquals(1, windowExpressions.size());
+
+        WindowExpression windowExpression = (WindowExpression) windowExpressions.get(0).child(0);
+        Set<String> partitionKeys = windowExpression.getPartitionKeys().stream()
+                .map(Expression.class::cast)
+                .filter(Slot.class::isInstance)
+                .map(Slot.class::cast)
+                .map(Slot::getName)
+                .collect(Collectors.toSet());
+        // The window PARTITION BY should include the correlated column (p_partkey)
+        Assertions.assertTrue(partitionKeys.contains("p_partkey"),
+                "Expected partition keys to contain p_partkey, got: " + partitionKeys);
+    }
+
+    @Test
+    public void testSharedTablePredicatesStayAboveWindow() throws Exception {
+        createTable("CREATE TABLE fact_split (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_split (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        // Add UNIQUE constraint so the rule matches
+        addConstraint("alter table dim_split add constraint uq_dim_split_k unique (k)");
+
+        // Query with extra predicate on shared table (f.v > 6).
+        // This predicate must stay ABOVE the window, otherwise the window
+        // function would aggregate fewer rows than the original scalar subquery.
+        String sql = "SELECT d.did, d.k, d.tag, f.id, f.v "
+                + "FROM fact_split f, dim_split d "
+                + "WHERE f.k = d.k "
+                + "  AND f.v > 6"
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_split f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyTopDown(new PushDownFilterThroughProject())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule should match and produce a window
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rule should produce a window for this query");
+
+        // Collect the ExprIds of the shared table (fact_split – appears in both
+        // outer and inner plans).  Predicates that reference ONLY these ExprIds
+        // (shared-table-only filters) must stay ABOVE the window, otherwise the
+        // window function would see fewer rows than the original scalar subquery.
+        List<CatalogRelation> rels = plan.collectToList(CatalogRelation.class::isInstance);
+        Set<ExprId> sharedExprIds = rels.stream()
+                .filter(r -> r.getTable().getName().equals("fact_split"))
+                .flatMap(r -> r.getOutputExprIdSet().stream())
+                .collect(Collectors.toSet());
+
+        // Verify that no filter below the window contains a predicate whose
+        // input ExprIds are all from the shared table.  Such predicates
+        // (e.g. f.v > 6) must have been placed above the window.
+        List<LogicalWindow<Plan>> windows = plan.collectToList(LogicalWindow.class::isInstance);
+        LogicalWindow<Plan> window = windows.get(0);
+        Plan belowWindow = window.child(0);
+        List<LogicalFilter<Plan>> belowFilters = belowWindow
+                .collectToList(LogicalFilter.class::isInstance);
+        for (LogicalFilter<Plan> f : belowFilters) {
+            for (Expression conj : f.getConjuncts()) {
+                Set<ExprId> conjExprIds = conj.getInputSlotExprIds();
+                if (!conjExprIds.isEmpty() && sharedExprIds.containsAll(conjExprIds)) {
+                    Assertions.fail(
+                            "Shared-table-only predicate should not be below window: " + conj.toSql());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testMixedSharedOuterPredicatesStayAboveWindow() throws Exception {
+        // Mixed predicates that reference both shared-table and outer-only-table
+        // columns (e.g. f.v > d.tag) must stay ABOVE the window.  Pushing them
+        // below would restrict the rows seen by the window function, producing
+        // a different aggregate than the original scalar subquery.
+        //
+        // Input plan shape:
+        //   Filter(f.v > d.tag, f.v * 2 > sum_alias)       ← mixed + correlated
+        //     Apply(correlation: d.k)
+        //       CrossJoin
+        //         Scan fact f
+        //         Scan dim d   -- d.k is unique (constraint)
+        //       Aggregate(sum(f2.v) AS sum_alias)
+        //         Filter(f2.k = d.k)
+        //           Scan fact f2
+        //
+        // Output plan shape:
+        //   Filter(f.v > d.tag, f.v * 2 > sum_over_window)  ← mixed stays ABOVE
+        //     Window(sum(v) OVER (PARTITION BY d.k))
+        //       Filter(f.k = d.k)                           ← join cond BELOW
+        //         CrossJoin
+        //           Scan fact f
+        //           Scan dim d
+        createTable("CREATE TABLE fact_mixed (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_mixed (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_mixed add constraint uq_dim_mixed_k unique (k)");
+
+        // Mixed predicate: f.v > d.tag references both shared (f.v) and
+        // outer-only (d.tag) columns.  It must stay ABOVE the window.
+        String sql = "SELECT d.did, d.k, d.tag, f.id, f.v "
+                + "FROM fact_mixed f, dim_mixed d "
+                + "WHERE f.k = d.k "
+                + "  AND f.v > d.tag"
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_mixed f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyTopDown(new PushDownFilterThroughProject())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule should match and produce a window
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rule should produce a window for this query");
+
+        // Collect shared table (fact_mixed) ExprIds.
+        // A mixed predicate like f.v > d.tag references BOTH shared and
+        // outer-only sets.
+        List<CatalogRelation> rels = plan.collectToList(CatalogRelation.class::isInstance);
+        Set<ExprId> sharedExprIds = rels.stream()
+                .filter(r -> r.getTable().getName().equals("fact_mixed"))
+                .flatMap(r -> r.getOutputExprIdSet().stream())
+                .collect(Collectors.toSet());
+
+        // Verify: the mixed predicate f.v > d.tag must NOT be below the window.
+        // A mixed predicate references slots from BOTH shared and outer-only
+        // tables.  We detect it by checking that at least one ExprId is in the
+        // shared set AND at least one is outside the shared set.
+        List<LogicalWindow<Plan>> windows = plan.collectToList(LogicalWindow.class::isInstance);
+        LogicalWindow<Plan> window = windows.get(0);
+        Plan belowWindow = window.child(0);
+        List<LogicalFilter<Plan>> belowFilters = belowWindow
+                .collectToList(LogicalFilter.class::isInstance);
+        for (LogicalFilter<Plan> f : belowFilters) {
+            for (Expression conj : f.getConjuncts()) {
+                Set<ExprId> conjExprIds = conj.getInputSlotExprIds();
+                if (conjExprIds.isEmpty()) {
+                    continue;
+                }
+                boolean hasShared = false;
+                boolean hasNonShared = false;
+                for (ExprId id : conjExprIds) {
+                    if (sharedExprIds.contains(id)) {
+                        hasShared = true;
+                    } else {
+                        hasNonShared = true;
+                    }
+                }
+                if (hasShared && hasNonShared) {
+                    // Join conditions (f.k = d.k) are expected below the
+                    // window — they are matched from the inner filter and
+                    // needed for the join.  Only flag non-equality mixed
+                    // predicates like f.v > d.tag.
+                    if (!(conj instanceof org.apache.doris.nereids.trees.expressions.EqualPredicate)) {
+                        Assertions.fail(
+                                "Mixed shared+outer predicate should not be below window: "
+                                + conj.toSql());
+                    }
+                }
+                if (!hasNonShared) {
+                    // Shared-table-only predicate also belongs ABOVE.
+                    Assertions.fail(
+                            "Shared-table-only predicate should not be below window: "
+                            + conj.toSql());
+                }
+            }
+        }
+
+        // Verify the mixed predicate IS present in a filter ABOVE the window.
+        // Collect all filters above the window by excluding below-window filters.
+        List<LogicalFilter<Plan>> allFilters = plan
+                .collectToList(LogicalFilter.class::isInstance);
+        List<LogicalFilter<Plan>> aboveFilters = allFilters.stream()
+                .filter(f -> !belowFilters.contains(f))
+                .collect(Collectors.toList());
+        boolean foundMixedAbove = false;
+        for (LogicalFilter<Plan> f : aboveFilters) {
+            for (Expression conj : f.getConjuncts()) {
+                Set<ExprId> conjExprIds = conj.getInputSlotExprIds();
+                boolean hasShared = false;
+                boolean hasNonShared = false;
+                for (ExprId id : conjExprIds) {
+                    if (sharedExprIds.contains(id)) {
+                        hasShared = true;
+                    } else {
+                        hasNonShared = true;
+                    }
+                }
+                if (hasShared && hasNonShared) {
+                    foundMixedAbove = true;
+                }
+            }
+        }
+        Assertions.assertTrue(foundMixedAbove,
+                "Mixed predicate f.v > d.tag should be above the window");
+    }
+
+    @Test
+    public void testEnsureProjectOutputExpandsPrunedColumn() throws Exception {
+        // When a nested shared-table filter is extracted and hoisted above the
+        // window, any pruning project inside apply.left() that dropped a column
+        // referenced by the extracted conjunct must be expanded by
+        // ensureProjectOutput().  Otherwise the reinserted predicate would have
+        // a dangling slot reference.
+        //
+        // Plan shape:
+        //   Filter(sf.k = d.k, sf.k * 2 > sum_alias)     ← sf.k comparison
+        //     Apply(correlation: d.k)
+        //       CrossJoin
+        //         SubQueryAlias sf
+        //           Project(k)                             ← prunes v
+        //             Filter(v > 6)                        ← nested shared filter
+        //               Scan fact(k, v)
+        //         Scan dim_unique d
+        //       Aggregate(SUM(f2.k) AS sum_alias)
+        //         Filter(f2.k = d.k)
+        //           Scan fact f2
+        //
+        // The subquery SELECTs only k; the outer query uses sf.k for both join
+        // and comparison.  The column v appears ONLY in the nested filter v > 6.
+        // After extracting v > 6, ensureProjectOutput() must expand Project(k)
+        // to Project(k, v) so the hoisted predicate has access to v.
+        createTable("CREATE TABLE fact_ensure_proj (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_ensure_proj (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_ensure_proj add constraint uq_dim_ep_k unique (k)");
+
+        // The subquery SELECTs only k, pruning v.  v > 6 is a nested shared-table
+        // filter that must be extracted.  The rule must produce a window with
+        // v > 6 hoisted above it, and ensureProjectOutput must expand the
+        // pruning project to carry v through.
+        String sql = "SELECT sf.k, d.did "
+                + "FROM (SELECT k FROM fact_ensure_proj WHERE v > 6) sf, "
+                + "    dim_ensure_proj d "
+                + "WHERE sf.k = d.k "
+                + "  AND sf.k * 2 > ("
+                + "    SELECT SUM(f2.k) "
+                + "    FROM fact_ensure_proj f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule must match and produce a window.
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rule must produce a window for ensureProjectOutput test");
+
+        // Walk every filter in the plan and verify that every slot referenced
+        // by each conjunct is produced by the filter's child.  If
+        // ensureProjectOutput() did not expand the project, the reinserted
+        // predicate v > 6 would have a dangling reference to v.
+        List<LogicalFilter<Plan>> allFilters = plan
+                .collectToList(LogicalFilter.class::isInstance);
+        for (LogicalFilter<Plan> f : allFilters) {
+            Set<ExprId> childOutput = f.child().getOutputExprIdSet();
+            for (Expression conj : f.getConjuncts()) {
+                for (ExprId id : conj.getInputSlotExprIds()) {
+                    Assertions.assertTrue(childOutput.contains(id),
+                            "Filter conjunct slot " + id
+                            + " must be produced by filter's child. "
+                            + "ensureProjectOutput() may not have expanded "
+                            + "a pruning project. Conjunct: " + conj.toSql());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testNotMatchWhenCorrelatedTableNotUnique() throws Exception {
+        createTable("CREATE TABLE tpch.fact_dup (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE tpch.dim_dup (\n"
+                + "  did INT,\n"
+                + "  k INT,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+
+        String sql = "SELECT d.did, d.k, d.tag, f.id, f.v "
+                + "FROM fact_dup f, dim_dup d "
+                + "WHERE f.k = d.k "
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_dup f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyTopDown(new PushDownFilterThroughProject())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // DUPLICATE KEY table does not guarantee uniqueness, rule should not match
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance));
+    }
+
+    @Test
+    public void testUniqueKeyModelTriggersRewrite() throws Exception {
+        // UNIQUE KEY model tables guarantee uniqueness + non-null on the key
+        // column.  DataTrait recognizes this even without an explicit
+        // ADD CONSTRAINT, so the rule should fire.
+        createTable("CREATE TABLE tpch.fact_ukey (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        // dim_ukey has UNIQUE KEY(k) with k INT NOT NULL — this implies
+        // unique + non-null without needing an explicit constraint.
+        createTable("CREATE TABLE tpch.dim_ukey (\n"
+                + "  k INT NOT NULL,\n"
+                + "  did INT,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "UNIQUE KEY(k)\n"
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+
+        String sql = "SELECT d.did, d.k, d.tag, f.id, f.v "
+                + "FROM fact_ukey f, dim_ukey d "
+                + "WHERE f.k = d.k "
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_ukey f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyTopDown(new PushDownFilterThroughProject())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // UNIQUE KEY model alone provides uniqueness + non-null.
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "UNIQUE KEY model should trigger the window rewrite");
+    }
+
+    @Test
+    public void testNotMatchWhenOuterOnlyRelationOutputIsPruned() throws Exception {
+        createTable("CREATE TABLE tpch.fact_window_pruned (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE tpch.dim_window_pruned (\n"
+                + "  did INT,\n"
+                + "  k INT,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+
+        String sql = "SELECT t.id, t.k, t.v "
+                + "FROM ("
+                + "    SELECT f.id, d.k, f.v "
+                + "    FROM fact_window_pruned f, dim_window_pruned d "
+                + "    WHERE f.k = d.k"
+                + ") t "
+                + "WHERE t.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_window_pruned f2 "
+                + "    WHERE f2.k = t.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyTopDown(new PushDownFilterThroughProject())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance));
+    }
+
+    @Test
+    public void testNestedOuterFilterHoistedAboveWindow() throws Exception {
+        // When the outer child of Apply contains a nested LogicalFilter
+        // (e.g. a filter pushed into the FROM subquery like
+        // FROM (SELECT * FROM fact WHERE v > 6) sf), the rule must extract
+        // the nested conjuncts, classify them, and hoist shared-table
+        // predicates ABOVE the window.  Otherwise the window would aggregate
+        // over a filtered subset, while the original scalar subquery computes
+        // over ALL fact rows for the key.
+        createTable("CREATE TABLE fact_nested (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_nested (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_nested add constraint uq_dim_nested_k unique (k)");
+
+        // The FROM-subquery with WHERE v > 6 produces a LogicalFilter(f.v > 6)
+        // nested inside apply.left() under the LogicalSubQueryAlias.
+        String sql = "SELECT d.did, sf.id, sf.k, sf.v "
+                + "FROM (SELECT id, k, v FROM fact_nested WHERE v > 6) sf, dim_nested d "
+                + "WHERE sf.k = d.k "
+                + "  AND sf.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_nested f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule should match and produce a window
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rule should produce a window when nested outer filter is present");
+
+        // The nested shared-table predicate (v > 6) must be hoisted ABOVE the
+        // window.  Verify no shared-table-only predicate is below the window.
+        List<CatalogRelation> rels = plan.collectToList(CatalogRelation.class::isInstance);
+        Set<ExprId> factExprIds = rels.stream()
+                .filter(r -> r.getTable().getName().equals("fact_nested"))
+                .flatMap(r -> r.getOutputExprIdSet().stream())
+                .collect(Collectors.toSet());
+        List<LogicalWindow<Plan>> windows = plan.collectToList(LogicalWindow.class::isInstance);
+        LogicalWindow<Plan> window = windows.get(0);
+        Plan belowWindow = window.child(0);
+        List<LogicalFilter<Plan>> belowFilters = belowWindow
+                .collectToList(LogicalFilter.class::isInstance);
+        for (LogicalFilter<Plan> f : belowFilters) {
+            for (Expression conj : f.getConjuncts()) {
+                Set<ExprId> conjExprIds = conj.getInputSlotExprIds();
+                if (!conjExprIds.isEmpty() && factExprIds.containsAll(conjExprIds)) {
+                    Assertions.fail(
+                            "Nested shared-table predicate should be hoisted above window: "
+                            + conj.toSql());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testVolatilePredicateStaysAboveWindow() throws Exception {
+        // Volatile predicates like random() > 0.5 have no table column
+        // references but are non-deterministic.  They must stay ABOVE the
+        // window, otherwise the window function would aggregate over a
+        // different set of rows per partition than the original scalar
+        // subquery.  This follows the same principle as
+        // PushDownFilterThroughWindow.canPushDown().
+        createTable("CREATE TABLE fact_volatile (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_volatile (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_volatile add constraint uq_dim_volatile_k unique (k)");
+
+        // random() > 0.5 is a volatile predicate with no input slots.
+        // It must be kept ABOVE the window.
+        String sql = "SELECT d.did, f.id, f.k, f.v "
+                + "FROM fact_volatile f, dim_volatile d "
+                + "WHERE f.k = d.k "
+                + "  AND random() > 0.5"
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_volatile f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule should match and produce a window
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rule should produce a window for volatile predicate query");
+
+        // Verify the volatile predicate is NOT below the window.
+        List<LogicalWindow<Plan>> windows = plan.collectToList(LogicalWindow.class::isInstance);
+        LogicalWindow<Plan> window = windows.get(0);
+        Plan belowWindow = window.child(0);
+        List<LogicalFilter<Plan>> belowFilters = belowWindow
+                .collectToList(LogicalFilter.class::isInstance);
+        for (LogicalFilter<Plan> f : belowFilters) {
+            for (Expression conj : f.getConjuncts()) {
+                Assertions.assertFalse(conj.containsVolatileExpression(),
+                        "Volatile predicate should stay above window: " + conj.toSql());
+            }
+        }
+    }
+
+    @Test
+    public void testInnerFilterConjunctsStayBelowWindow() throws Exception {
+        // Regression test: shared-table predicates that were matched against
+        // inner subquery filter conjuncts must stay BELOW the window.
+        //
+        // Without the matchedInnerFilterConjuncts tracking, f.v < 10 would be
+        // classified as shared-table-only and placed ABOVE the window, letting
+        // the window aggregate over rows the original scalar subquery excluded.
+        createTable("CREATE TABLE fact_inner_filter (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_inner_filter (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        // UNIQUE constraint so the rule matches
+        addConstraint("alter table dim_inner_filter add constraint uq_dim_if_k unique (k)");
+
+        // Inner subquery has f2.v < 10 as a filter.  After checkFilter matches
+        // it against outer f.v < 10, the outer conjunct must go BELOW the window
+        // because it is semantically part of the inner aggregate's filter.
+        String sql = "SELECT d.did, f.id, f.k, f.v "
+                + "FROM fact_inner_filter f, dim_inner_filter d "
+                + "WHERE f.k = d.k "
+                + "  AND f.v < 10"
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_inner_filter f2 "
+                + "    WHERE f2.k = d.k"
+                + "      AND f2.v < 10"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule should match and produce a window
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rule should produce a window for this query");
+
+        // Collect the ExprIds of the shared table (fact_inner_filter).
+        List<CatalogRelation> allRels = plan.collectToList(CatalogRelation.class::isInstance);
+        Set<ExprId> sharedExprIds = allRels.stream()
+                .filter(r -> r.getTable().getName().equals("fact_inner_filter"))
+                .flatMap(r -> r.getOutputExprIdSet().stream())
+                .collect(Collectors.toSet());
+
+        // The conjunct f.v < 10, which was matched from the inner filter, must
+        // appear in a filter BELOW the window (it is part of the aggregate
+        // computation).  Verify it exists there and is NOT above.
+        List<LogicalWindow<Plan>> windows = plan.collectToList(LogicalWindow.class::isInstance);
+        LogicalWindow<Plan> window = windows.get(0);
+
+        // Check below-window filters: there MUST be at least one shared-table-only
+        // conjunct (f.v < 10) — this is the matched inner-filter predicate.
+        Plan belowWindow = window.child(0);
+        List<LogicalFilter<Plan>> belowFilters = belowWindow
+                .collectToList(LogicalFilter.class::isInstance);
+        boolean foundSharedOnlyBelow = false;
+        for (LogicalFilter<Plan> f : belowFilters) {
+            for (Expression conj : f.getConjuncts()) {
+                Set<ExprId> conjExprIds = conj.getInputSlotExprIds();
+                if (!conjExprIds.isEmpty() && sharedExprIds.containsAll(conjExprIds)) {
+                    foundSharedOnlyBelow = true;
+                }
+            }
+        }
+        Assertions.assertTrue(foundSharedOnlyBelow,
+                "Matched inner-filter conjunct f.v < 10 must be below the window");
+
+        // Check above-window filters: there should NOT be a shared-table-only
+        // conjunct that is NOT the window comparison.  f.v < 10 should not leak
+        // above.
+        List<LogicalFilter<Plan>> allFilters = plan
+                .collectToList(LogicalFilter.class::isInstance);
+        List<LogicalFilter<Plan>> aboveFilters = allFilters.stream()
+                .filter(f -> !belowFilters.contains(f))
+                .collect(Collectors.toList());
+        for (LogicalFilter<Plan> f : aboveFilters) {
+            for (Expression conj : f.getConjuncts()) {
+                Set<ExprId> conjExprIds = conj.getInputSlotExprIds();
+                if (!conjExprIds.isEmpty() && sharedExprIds.containsAll(conjExprIds)) {
+                    Assertions.fail(
+                            "Unexpected shared-table-only predicate above window: " + conj.toSql());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testSplitInnerFilterFromPushDown() throws Exception {
+        // Regression: PushDownFilterThroughProject splits the inner WHERE clause
+        // into multiple LogicalFilter nodes when a correlated predicate cannot
+        // be pushed through a project (references a correlated slot not in the
+        // project output) but a non-correlated predicate can.
+        //
+        // Before the fix, checkFilter() required exactly one inner filter and
+        // would reject plans where the filter was split.  Now it collects
+        // conjuncts from ALL inner filters.
+        createTable("CREATE TABLE fact_split2 (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_split2 (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_split2 add constraint uq_dim_split2_k unique (k)");
+
+        String sql = "SELECT d.did, f.id, f.k, f.v "
+                + "FROM fact_split2 f, dim_split2 d "
+                + "WHERE f.k = d.k "
+                + "  AND f.v < 10 "
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_split2 f2 "
+                + "    WHERE f2.k = d.k"
+                + "      AND f2.v < 10"
+                + "  )";
+
+        // Full regression-style pipeline: PushDownFilterThroughProject splits
+        // the inner filter, MergeFilters merges adjacent filters, then the
+        // custom rule rewrites.
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyTopDown(new PushDownFilterThroughProject())
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyBottomUp(new MergeFilters())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule should match and produce a window
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rule should produce a window even when inner filter is split by "
+                + "PushDownFilterThroughProject");
+
+        // Verify f.v < 10 (matched from inner filter) is below the window
+        List<LogicalWindow<Plan>> windows = plan.collectToList(LogicalWindow.class::isInstance);
+        LogicalWindow<Plan> window = windows.get(0);
+        Plan belowWindow = window.child(0);
+        List<LogicalFilter<Plan>> belowFilters = belowWindow
+                .collectToList(LogicalFilter.class::isInstance);
+        boolean found = false;
+        for (LogicalFilter<Plan> f : belowFilters) {
+            for (Expression conj : f.getConjuncts()) {
+                if (conj.toSql().contains("v < 10")) {
+                    found = true;
+                }
+            }
+        }
+        Assertions.assertTrue(found,
+                "Matched inner-filter conjunct f.v < 10 must be below the window");
+    }
+
+    @Test
+    public void testNestedVolatilePredicateStaysInPlace() throws Exception {
+        // Volatile predicates in nested filters (inside a FROM subquery like
+        // (SELECT * FROM dim WHERE random() > 0.5)) must NOT be hoisted above
+        // the window or join.  Moving a volatile predicate across a join
+        // changes its evaluation frequency:
+        //
+        //   CrossJoin(fact, (SELECT * FROM dim WHERE random()>0.5) d)
+        //
+        // originally evaluates random() once per dim row BEFORE the join.
+        // Hoisting it above the window/join evaluates random() once per
+        // joined fact row — one dim row with two matching fact rows can
+        // now keep one row instead of both or none.  We must keep volatile
+        // nested-filter predicates at their original child position while
+        // only extracting deterministic predicates.
+        createTable("CREATE TABLE fact_nested_vol (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_nested_vol (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_nested_vol add constraint uq_dim_nested_vol_k unique (k)");
+
+        // random() > 0.5 is nested inside the FROM subquery on dim_nested_vol.
+        // It must stay at its original position, NOT appear in the top filter
+        // above the window.
+        String sql = "SELECT d.did, f.id, f.k, f.v "
+                + "FROM fact_nested_vol f, "
+                + "    (SELECT * FROM dim_nested_vol WHERE random() > 0.5) d "
+                + "WHERE f.k = d.k "
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_nested_vol f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule should match and produce a window
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rule should produce a window when nested volatile filter is present");
+
+        // The volatile predicate must NOT be above the window, AND must
+        // still be present below the window (proving it was preserved, not
+        // silently dropped by stripOuterFilters or a later change).
+        List<LogicalWindow<Plan>> windows = plan.collectToList(LogicalWindow.class::isInstance);
+        LogicalWindow<Plan> window = windows.get(0);
+        Plan belowWindow = window.child(0);
+        List<LogicalFilter<Plan>> belowFilters = belowWindow
+                .collectToList(LogicalFilter.class::isInstance);
+        List<LogicalFilter<Plan>> allFilters = plan
+                .collectToList(LogicalFilter.class::isInstance);
+        List<LogicalFilter<Plan>> aboveFilters = allFilters.stream()
+                .filter(f -> !belowFilters.contains(f))
+                .collect(Collectors.toList());
+        for (LogicalFilter<Plan> f : aboveFilters) {
+            for (Expression conj : f.getConjuncts()) {
+                Assertions.assertFalse(conj.containsVolatileExpression(),
+                        "Nested volatile predicate should stay at its original position, "
+                        + "not be hoisted above the window: " + conj.toSql());
+            }
+        }
+        // Prove the volatile predicate was preserved below the window.
+        boolean foundVolatileBelow = false;
+        for (LogicalFilter<Plan> f : belowFilters) {
+            for (Expression conj : f.getConjuncts()) {
+                if (conj.containsVolatileExpression()) {
+                    foundVolatileBelow = true;
+                }
+            }
+        }
+        Assertions.assertTrue(foundVolatileBelow,
+                "Nested volatile predicate must still exist below the window — "
+                + "it should have been preserved at its original position, "
+                + "not silently dropped");
+    }
+
+    @Test
+    public void testVolatileNestedOnSharedTableRejected() throws Exception {
+        // A volatile predicate nested on a SHARED table (fact, which appears
+        // in both outer and inner plans) must cause the rewrite to be REJECTED.
+        //
+        // Keeping the volatile filter in place below the window would let the
+        // window aggregate over fewer fact rows than the original scalar
+        // subquery (which sums ALL fact f2 rows per key).  The same hazard
+        // does not apply to volatile filters on the outer-only table because
+        // the original scalar subquery does not touch that table.
+        //
+        // Plan shape that would be unsafe:
+        //   CrossJoin
+        //     Filter(random() > 0.5)       ← volatile on shared table fact
+        //       Scan fact sf
+        //     Scan dim_shared_vol d         ← outer-only, unique k
+        //
+        // After rewrite, the window would compute SUM(sf.v) OVER(PARTITION BY
+        // d.k) only over random-surviving fact rows, but the original scalar
+        // subquery SELECT SUM(f2.v) FROM fact f2 WHERE f2.k = d.k does NOT
+        // have a random filter — it always sees all fact rows.
+        createTable("CREATE TABLE fact_shared_vol (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_shared_vol (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_shared_vol add constraint uq_dim_shared_vol_k unique (k)");
+
+        // random() > 0.5 is on the shared table fact_shared_vol (inside the
+        // FROM subquery on the SHARED table).  The rewrite must be rejected.
+        String sql = "SELECT d.did, sf.id, sf.k, sf.v "
+                + "FROM (SELECT * FROM fact_shared_vol WHERE random() > 0.5) sf, "
+                + "    dim_shared_vol d "
+                + "WHERE sf.k = d.k "
+                + "  AND sf.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_shared_vol f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule must NOT match — volatile on shared table is unsafe
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must be rejected when volatile predicate is on the "
+                + "shared table (fact), otherwise the window would compute "
+                + "over fewer rows than the original scalar subquery");
+    }
+
+    @Test
+    public void testNonMovableNestedOnOuterOnlyKeptInPlace() throws Exception {
+        // NoneMovableFunction predicates like assert_true() have side effects
+        // and must not be moved from their original branch position.  When
+        // placed on the outer-only table, preserving them in place is safe.
+        createTable("CREATE TABLE fact_nm_outer (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_nm_outer (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_nm_outer add constraint uq_dim_nm_outer_k unique (k)");
+
+        // assert_true(tag > 0, 'bad') is on the outer-only table dim_nm_outer.
+        // It must stay at its original position below the window.
+        String sql = "SELECT d.did, f.id, f.k, f.v "
+                + "FROM fact_nm_outer f, "
+                + "    (SELECT * FROM dim_nm_outer WHERE assert_true(tag > 0, 'bad')) d "
+                + "WHERE f.k = d.k "
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_nm_outer f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule should match — NoneMovable on outer-only is safe to keep in place
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite should succeed when NoneMovableFunction predicate is "
+                + "on the outer-only table");
+
+        // The assert_true predicate must NOT be hoisted above the window,
+        // AND must still be present below the window (proving it was
+        // preserved, not silently dropped).
+        List<LogicalWindow<Plan>> windows = plan.collectToList(LogicalWindow.class::isInstance);
+        LogicalWindow<Plan> window = windows.get(0);
+        Plan belowWindow = window.child(0);
+        List<LogicalFilter<Plan>> belowFilters = belowWindow
+                .collectToList(LogicalFilter.class::isInstance);
+        List<LogicalFilter<Plan>> allFilters = plan
+                .collectToList(LogicalFilter.class::isInstance);
+        List<LogicalFilter<Plan>> aboveFilters = allFilters.stream()
+                .filter(f -> !belowFilters.contains(f))
+                .collect(Collectors.toList());
+        for (LogicalFilter<Plan> f : aboveFilters) {
+            for (Expression conj : f.getConjuncts()) {
+                Assertions.assertFalse(
+                        conj.containsType(
+                                org.apache.doris.nereids.trees.expressions.functions
+                                        .NoneMovableFunction.class),
+                        "NoneMovableFunction predicate should stay at its original "
+                        + "position, not be hoisted above the window: "
+                        + conj.toSql());
+            }
+        }
+        // Prove the NoneMovableFunction predicate was preserved below the window.
+        boolean foundNoneMovableBelow = false;
+        for (LogicalFilter<Plan> f : belowFilters) {
+            for (Expression conj : f.getConjuncts()) {
+                if (conj.containsType(
+                        org.apache.doris.nereids.trees.expressions.functions
+                                .NoneMovableFunction.class)) {
+                    foundNoneMovableBelow = true;
+                }
+            }
+        }
+        Assertions.assertTrue(foundNoneMovableBelow,
+                "NoneMovableFunction predicate must still exist below the window — "
+                + "it should have been preserved at its original position, "
+                + "not silently dropped");
+    }
+
+    @Test
+    public void testNonMovableNestedOnSharedTableRejected() throws Exception {
+        // NoneMovableFunction predicates like assert_true() must not be moved
+        // from their original position.  When placed on a shared table, keeping
+        // them in place would restrict the window's input relative to the
+        // original scalar subquery (same hazard as volatile on shared).
+        createTable("CREATE TABLE fact_nm_shared (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_nm_shared (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_nm_shared add constraint uq_dim_nm_shared_k unique (k)");
+
+        // assert_true(v > 0, 'bad') is nested in a WHERE clause on the shared
+        // table fact_nm_shared.  The rewrite must be rejected because the
+        // window would compute over a subset of fact rows, while the original
+        // scalar subquery sees all.
+        String sql = "SELECT d.did, sf.id, sf.k, sf.v "
+                + "FROM (SELECT * FROM fact_nm_shared "
+                + "       WHERE assert_true(v > 0, 'bad')) sf, "
+                + "    dim_nm_shared d "
+                + "WHERE sf.k = d.k "
+                + "  AND sf.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_nm_shared f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule must NOT match — NoneMovable on shared table is unsafe
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must be rejected when NoneMovableFunction predicate "
+                + "is on the shared table");
+    }
+
+    @Test
+    public void testNoneMovableInnerFilterRejected() throws Exception {
+        // checkFilter() must reject NoneMovableFunction predicates in the
+        // inner subquery filter, just like volatile expressions.  Two
+        // syntactically identical assert_true() calls — one in the outer
+        // filter, one in the inner filter — are independent evaluations:
+        // the inner one is part of the aggregate filter, the outer one is
+        // a per-row assertion.  ExpressionIdenticalChecker would match them
+        // structurally (same class + children after slot replacement),
+        // collapsing the independent evaluations into one below-window
+        // predicate and effectively pruning one side-effecting assertion.
+        // This guard must reject the match so the rule does not fire.
+        createTable("CREATE TABLE fact_nm_inner (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_nm_inner (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_nm_inner add constraint uq_dim_nm_inner_k unique (k)");
+
+        // assert_true(f.v > 0, 'bad') appears in BOTH the outer WHERE and
+        // the inner subquery WHERE.  They are independent per-row
+        // assertions — the rule must NOT collapse them into one.
+        String sql = "SELECT d.did, f.id, f.k, f.v "
+                + "FROM fact_nm_inner f, dim_nm_inner d "
+                + "WHERE f.k = d.k "
+                + "  AND assert_true(f.v > 0, 'bad')"
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_nm_inner f2 "
+                + "    WHERE f2.k = d.k"
+                + "      AND assert_true(f2.v > 0, 'bad')"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule must NOT match — NoneMovableFunction inner conjunct must not
+        // be matched against an outer NoneMovableFunction conjunct.
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must be rejected when inner subquery filter contains "
+                + "NoneMovableFunction predicates, even if they structurally "
+                + "match outer conjuncts");
+    }
+
+    @Test
+    public void testNoneMovableInTopLevelWhereKeptAboveWindow() throws Exception {
+        // A NoneMovableFunction predicate in the top-level outer WHERE
+        // that references only the outer-only table — e.g.
+        // assert_true(d.tag > 0, 'bad') — must NOT be pushed below the
+        // window.  Without the guard, it falls through the split: it is
+        // not volatile, not matched-inner, and hasShared=false, so it
+        // ends up in belowWindowConjuncts, moving a side-effecting
+        // evaluation to a different plan location.
+        createTable("CREATE TABLE fact_nm_toplevel (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_nm_toplevel (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_nm_toplevel add constraint uq_dim_nm_toplevel_k unique (k)");
+
+        // assert_true(d.tag > 0, 'bad') is in the top-level WHERE and
+        // references only dim_nm_toplevel (outer-only).  It must stay
+        // ABOVE the window, not be pushed below.
+        String sql = "SELECT d.did, f.id, f.k, f.v "
+                + "FROM fact_nm_toplevel f, dim_nm_toplevel d "
+                + "WHERE f.k = d.k "
+                + "  AND assert_true(d.tag > 0, 'bad')"
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_nm_toplevel f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule should match — NoneMovable on outer-only is safe when
+        // kept at its original position above the window.
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite should succeed when NoneMovableFunction predicate "
+                + "is on outer-only table and kept above the window");
+
+        // The assert_true predicate must NOT be pushed below the window.
+        List<LogicalWindow<Plan>> windows = plan.collectToList(LogicalWindow.class::isInstance);
+        LogicalWindow<Plan> window = windows.get(0);
+        Plan belowWindow = window.child(0);
+        List<LogicalFilter<Plan>> belowFilters = belowWindow
+                .collectToList(LogicalFilter.class::isInstance);
+        for (LogicalFilter<Plan> f : belowFilters) {
+            for (Expression conj : f.getConjuncts()) {
+                Assertions.assertFalse(
+                        conj.containsType(
+                                org.apache.doris.nereids.trees.expressions.functions
+                                        .NoneMovableFunction.class),
+                        "NoneMovableFunction predicate must stay above the "
+                        + "window, not be pushed below: " + conj.toSql());
+            }
+        }
+
+        // Prove the NoneMovableFunction predicate still exists above the
+        // window — it must not be silently dropped.  All filters that are
+        // not ancestors/descendants of the window's child are above-window
+        // filters in the rewritten plan.
+        List<LogicalFilter<Plan>> allFilters = plan
+                .collectToList(LogicalFilter.class::isInstance);
+        List<LogicalFilter<Plan>> aboveOnlyFilters = allFilters.stream()
+                .filter(f -> !belowFilters.contains(f))
+                .collect(Collectors.toList());
+        boolean foundNoneMovableAbove = false;
+        for (LogicalFilter<Plan> f : aboveOnlyFilters) {
+            for (Expression conj : f.getConjuncts()) {
+                if (conj.containsType(
+                        org.apache.doris.nereids.trees.expressions.functions
+                                .NoneMovableFunction.class)) {
+                    foundNoneMovableAbove = true;
+                }
+            }
+        }
+        Assertions.assertTrue(foundNoneMovableAbove,
+                "NoneMovableFunction predicate must exist above the window — "
+                + "it should not be silently dropped");
+    }
+
+    @Test
+    public void testVolatileInnerFilterRejected() throws Exception {
+        // checkFilter() must reject volatile expressions in the inner subquery
+        // filter.  Two syntactically identical volatile calls — like
+        // volatile_bool_udf(f.k) in the outer filter and
+        // volatile_bool_udf(f2.k) in the inner filter — are independent
+        // evaluations with distinct VolatileIdentity.  ExpressionIdenticalChecker
+        // would match them structurally (same class + children), collapsing
+        // the independent outer-row filter and inner-aggregate filter into one
+        // predicate.  Use random() > 0.5 as a built-in volatile predicate.
+        createTable("CREATE TABLE fact_vinner (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_vinner (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_vinner add constraint uq_dim_vinner_k unique (k)");
+
+        // random() > 0.5 appears in both the outer WHERE and the inner WHERE.
+        // Even though they look identical, they are independent volatile calls.
+        // checkFilter must reject this match.
+        String sql = "SELECT d.did, f.id, f.k, f.v "
+                + "FROM fact_vinner f, dim_vinner d "
+                + "WHERE f.k = d.k "
+                + "  AND random() > 0.5"
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_vinner f2 "
+                + "    WHERE f2.k = d.k"
+                + "      AND random() > 0.5"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule must NOT match — volatile inner conjunct cannot be matched
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must be rejected when inner subquery filter contains "
+                + "volatile predicates, even if they structurally match outer "
+                + "conjuncts");
+    }
+
+    @Test
+    public void testStateClearBetweenSiblingCandidates() throws Exception {
+        // The same rule instance processes every LogicalFilter in one
+        // rewriteRoot() call via deep traversal.  Two FROM-subquery
+        // branches under a CrossJoin produce two sibling Filter→Apply
+        // candidates.  The left branch is rejected (non-unique table);
+        // the right branch should succeed (unique table).  Without the
+        // clear() calls in check(), the rejected candidate's aggregate
+        // leaks into functions, making checkAggregate() see
+        // functions.size() != 1 for the valid candidate.
+        createTable("CREATE TABLE fact_clear (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        // dim_clear_dup: DUPLICATE KEY → k is NOT unique → rejected
+        createTable("CREATE TABLE dim_clear_dup (\n"
+                + "  did INT,\n"
+                + "  k INT,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        // dim_clear_uniq: add UNIQUE constraint → k IS unique → valid
+        createTable("CREATE TABLE dim_clear_uniq (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_clear_uniq add constraint uq_dim_clear_uniq_k unique (k)");
+
+        // Two FROM subqueries produce two sibling Filter→Apply candidates
+        // under the CrossJoin.  The left one is rejected (dim_clear_dup.k
+        // is not unique), the right one is valid (dim_clear_uniq.k is unique).
+        // If per-candidate state is not cleared, the left candidate's
+        // aggregate leaks into the right candidate's checkAggregate().
+        String sql = "SELECT a.id, b.id "
+                + "FROM "
+                + "  (SELECT f.id FROM fact_clear f, dim_clear_dup d "
+                + "    WHERE f.k = d.k "
+                + "      AND f.v * 2 > ("
+                + "        SELECT SUM(f2.v) FROM fact_clear f2 WHERE f2.k = d.k"
+                + "      )) a, "
+                + "  (SELECT f.id FROM fact_clear f, dim_clear_uniq du "
+                + "    WHERE f.k = du.k "
+                + "      AND f.v * 3 > ("
+                + "        SELECT SUM(f2.v) FROM fact_clear f2 WHERE f2.k = du.k"
+                + "      )) b";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // The right branch should be rewritten to a window.
+        // If clear() is missing, stale state from the left (rejected)
+        // branch contaminates the right candidate and no window appears.
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Valid right candidate should produce a window after a "
+                + "rejected left candidate, proving per-candidate state "
+                + "is cleared in check()");
+    }
+
+    @Test
+    public void testPrunedAggregateSlotExpandsProject() throws Exception {
+        // The window function's aggregate (after slot replacement) references
+        // shared-table slots.  When a pruning project inside apply.left()
+        // drops those slots and there are no nested filters to extract,
+        // ensureProjectOutput must still expand the project to carry the
+        // aggregate's input slots through.  Otherwise the window child does
+        // not expose the column and the rewritten plan has a dangling ref.
+        //
+        // Plan shape:
+        //   Filter(sf.k = d.k, sf.k * 2 > sum_alias)
+        //     Apply(correlation: d.k)
+        //       CrossJoin
+        //         SubQueryAlias sf
+        //           Project(k)                     ← prunes v
+        //             Scan fact(k, v)
+        //         Scan dim_unique(k)
+        //       Aggregate(SUM(f2.v) AS sum_alias)
+        //         Filter(f2.k = d.k)
+        //           Scan fact f2
+        //
+        // After slot replacement SUM(f2.v) → SUM(sf.v).  Without the fix,
+        // Project(k) is not expanded because extractedConjunctExprIds is
+        // empty (no nested filters).  The window references sf.v which is
+        // not in the project output — dangling reference.
+        createTable("CREATE TABLE fact_agg_prune (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_agg_prune (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_agg_prune add constraint uq_dim_agg_prune_k unique (k)");
+
+        // Subquery prunes v; window aggregate SUM(f2.v) needs sf.v.
+        // No nested filter to extract; extractedConjunctExprIds is empty.
+        String sql = "SELECT sf.k, d.did "
+                + "FROM (SELECT k FROM fact_agg_prune) sf, "
+                + "    dim_agg_prune d "
+                + "WHERE sf.k = d.k "
+                + "  AND sf.k * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_agg_prune f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule must match and produce a window.
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rule must produce a window when aggregate slot is pruned");
+
+        // Walk every filter; verify every conjunct slot is produced by
+        // the filter's child.  Also walk every window and verify its
+        // input slots are produced by the window's child.
+        List<LogicalFilter<Plan>> allFilters = plan
+                .collectToList(LogicalFilter.class::isInstance);
+        for (LogicalFilter<Plan> f : allFilters) {
+            Set<ExprId> childOutput = f.child().getOutputExprIdSet();
+            for (Expression conj : f.getConjuncts()) {
+                for (ExprId id : conj.getInputSlotExprIds()) {
+                    Assertions.assertTrue(childOutput.contains(id),
+                            "Filter conjunct slot " + id
+                            + " not produced by child. Conjunct: "
+                            + conj.toSql());
+                }
+            }
+        }
+        List<LogicalWindow<Plan>> windows = plan
+                .collectToList(LogicalWindow.class::isInstance);
+        for (LogicalWindow<Plan> w : windows) {
+            Set<ExprId> childOutput = w.child().getOutputExprIdSet();
+            for (NamedExpression ne : w.getWindowExpressions()) {
+                for (ExprId id : ne.getInputSlotExprIds()) {
+                    Assertions.assertTrue(childOutput.contains(id),
+                            "Window expression slot " + id
+                            + " not produced by child. Expression: "
+                            + ne.toSql());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testDifferentUdfNamesRejectedInCheckFilter() throws Exception {
+        // checkFilter() must reject deterministic UDF predicates when the
+        // inner and outer UDF have different function names, even if they
+        // share the same runtime class (PythonUdf / JavaUdf) and have the
+        // same children after slot replacement.
+        //
+        // ExpressionIdenticalChecker dispatches UDF wrapper nodes to the
+        // generic visitor, which only checks runtime class and children.
+        // Two syntactically identical calls to different UDFs — like
+        // outer_bool_udf(f.v) and inner_bool_udf(f2.v) after slot
+        // replacement — would incorrectly match without the BoundFunction
+        // name guard.  The match would then collapse the independent
+        // outer and inner evaluations into a single below-window
+        // predicate, silently replacing the inner aggregate filter with
+        // the outer UDF.
+        //
+        // Both UDFs are registered as IMMUTABLE so the volatile guard
+        // does not mask the bug.
+        createFunction("CREATE FUNCTION outer_bool_udf(INT) RETURNS BOOLEAN "
+                + "PROPERTIES ("
+                + "  'type'='PYTHON_UDF',"
+                + "  'symbol'='evaluate',"
+                + "  'runtime_version'='3.10.2',"
+                + "  'volatility'='immutable'"
+                + ")");
+        createFunction("CREATE FUNCTION inner_bool_udf(INT) RETURNS BOOLEAN "
+                + "PROPERTIES ("
+                + "  'type'='PYTHON_UDF',"
+                + "  'symbol'='evaluate',"
+                + "  'runtime_version'='3.10.2',"
+                + "  'volatility'='immutable'"
+                + ")");
+
+        createTable("CREATE TABLE fact_udf_name (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_udf_name (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_udf_name add constraint uq_dim_udf_name_k unique (k)");
+
+        // outer_bool_udf(f.v) in outer WHERE, inner_bool_udf(f2.v) in inner
+        // WHERE.  After slot replacement, inner_bool_udf(f2.v) →
+        // inner_bool_udf(f.v).  Both are PythonUdf with identical children
+        // but different function names — ExpressionIdenticalChecker must
+        // NOT match them.
+        String sql = "SELECT d.did, f.id, f.k, f.v "
+                + "FROM fact_udf_name f, dim_udf_name d "
+                + "WHERE f.k = d.k "
+                + "  AND outer_bool_udf(f.v)"
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_udf_name f2 "
+                + "    WHERE f2.k = d.k"
+                + "      AND inner_bool_udf(f2.v)"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule must NOT match — the two UDFs have different names and
+        // are different functions, even though they share the same
+        // PythonUdf wrapper class and have identical children after
+        // slot replacement.
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must be rejected when inner UDF has a different "
+                + "name than the structurally identical outer UDF — "
+                + "BoundFunction name must be compared");
+    }
+
+    @Test
+    public void testMatchWithDifferentAnalyzerRejected() throws Exception {
+        // ExpressionIdenticalChecker must not match two MATCH_ANY
+        // predicates with different USING ANALYZER clauses.  The
+        // analyzer determines which rows are included, so 'english'
+        // and 'chinese' produce different row sets.  Matching them
+        // would collapse the independent outer and inner filters
+        // and compute the window aggregate under the wrong analyzer.
+        createTable("CREATE TABLE fact_match_analyzer (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT,\n"
+                + "  txt STRING,\n"
+                + "  INDEX idx_txt (`txt`) USING INVERTED\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_match_analyzer (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_match_analyzer add constraint uq_dim_match_analyzer_k unique (k)");
+
+        // Outer MATCH_ANY uses analyzer 'english', inner uses 'chinese'.
+        // After slot replacement, both are MatchAny with the same
+        // children but different analyzers — must NOT be matched.
+        String sql = "SELECT d.did, f.id, f.k, f.v "
+                + "FROM fact_match_analyzer f, dim_match_analyzer d "
+                + "WHERE f.k = d.k "
+                + "  AND f.txt MATCH_ANY 'foo' USING ANALYZER 'english'"
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_match_analyzer f2 "
+                + "    WHERE f2.k = d.k"
+                + "      AND f2.txt MATCH_ANY 'foo' USING ANALYZER 'chinese'"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule must NOT match — MATCH with different analyzers are
+        // different predicates even though they share the same
+        // MatchAny class and children after slot replacement.
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must be rejected when MATCH predicates have "
+                + "different USING ANALYZER clauses");
+    }
+
+    @Test
+    public void testCommutativePredicateMatchBreaksAfterFirstHit() throws Exception {
+        // When the outer filter contains both ordered forms of the same
+        // equi-join condition (f.k = d.k and d.k = f.k),
+        // visitComparisonPredicate accepts both via cp.commute().
+        // Without the break in checkFilter(), the inner loop continues
+        // after a successful match and calls innerIterator.remove()
+        // twice without a next(), throwing IllegalStateException.
+        createTable("CREATE TABLE fact_commute (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_commute (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_commute add constraint uq_dim_commute_k unique (k)");
+
+        // Outer filter has both f.k = d.k and d.k = f.k.
+        // Inner filter has f2.k = d.k → after slot replacement → f.k = d.k.
+        // visitComparisonPredicate matches both forms.  The break after
+        // the first match prevents IllegalStateException.
+        String sql = "SELECT d.did, f.id, f.k, f.v "
+                + "FROM fact_commute f, dim_commute d "
+                + "WHERE f.k = d.k "
+                + "  AND d.k = f.k"
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_commute f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule should succeed — both ordered forms are the same join
+        // condition and the break prevents a double-remove crash.
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite should succeed when outer filter has both "
+                + "ordered forms of the same equi-join condition");
+    }
+
+    @Test
+    public void testStackedPruningProjectsExpanded() throws Exception {
+        // When the shared table is behind multiple stacked pruning
+        // projects — e.g. SubQueryAlias sf → Project(k) → Project(k)
+        // → Scan(k,v) — ensureProjectOutput() must recurse into the
+        // child before computing each project's childOutput.  If it
+        // reads childOutput from the unexpanded child first, the outer
+        // project cannot pull v through because its immediate child
+        // (the inner project) only outputs k before expansion.
+        //
+        // Plan shape:
+        //   Filter(sf.k = d.k, sf.k * 2 > sum_alias)
+        //     Apply(correlation: d.k)
+        //       CrossJoin
+        //         SubQueryAlias sf
+        //           Project(k)                     ← outer prune
+        //             Project(k)                   ← inner prune
+        //               Scan fact(k, v)
+        //         Scan dim_unique(k)
+        //       Aggregate(SUM(f2.v) AS sum_alias)
+        //         Filter(f2.k = d.k)
+        //           Scan fact f2
+        createTable("CREATE TABLE fact_stacked (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_stacked (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_stacked add constraint uq_dim_stacked_k unique (k)");
+
+        // Two nested SELECT subqueries produce stacked pruning projects.
+        // Inner: SELECT id, k → Project(id, k) — slot-only, survives
+        //        elimination (outputs {id,k} ≠ child's {id,k,v}).
+        // Outer: SELECT k → Project(k) — slot-only, survives
+        //        elimination (outputs {k} ≠ child's {id,k}).
+        // Both are slot-only so checkProject() passes.  v is pruned at
+        // both levels and only available at the Scan.
+        // Without the depth-first fix, ensureProjectOutput reads
+        // childOutput from the unexpanded inner project (only {id,k}),
+        // fails to add v to the outer project, and the window's
+        // SUM(sf.v) references a slot not produced by its child.
+        String sql = "SELECT sf.k, d.did "
+                + "FROM (SELECT k FROM "
+                + "        (SELECT id, k FROM fact_stacked) t"
+                + "     ) sf, "
+                + "    dim_stacked d "
+                + "WHERE sf.k = d.k "
+                + "  AND sf.k * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_stacked f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule must match and produce a window.
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rule must produce a window when shared table is behind "
+                + "stacked pruning projects");
+
+        // Walk every filter; verify every conjunct slot is produced by
+        // the filter's child.  Also walk every window and verify its
+        // input slots are produced by the window's child.
+        List<LogicalFilter<Plan>> allFilters = plan
+                .collectToList(LogicalFilter.class::isInstance);
+        for (LogicalFilter<Plan> f : allFilters) {
+            Set<ExprId> childOutput = f.child().getOutputExprIdSet();
+            for (Expression conj : f.getConjuncts()) {
+                for (ExprId id : conj.getInputSlotExprIds()) {
+                    Assertions.assertTrue(childOutput.contains(id),
+                            "Filter conjunct slot " + id
+                            + " not produced by child. Conjunct: "
+                            + conj.toSql());
+                }
+            }
+        }
+        List<LogicalWindow<Plan>> windows = plan
+                .collectToList(LogicalWindow.class::isInstance);
+        for (LogicalWindow<Plan> w : windows) {
+            Set<ExprId> childOutput = w.child().getOutputExprIdSet();
+            for (NamedExpression ne : w.getWindowExpressions()) {
+                for (ExprId id : ne.getInputSlotExprIds()) {
+                    Assertions.assertTrue(childOutput.contains(id),
+                            "Window expression slot " + id
+                            + " not produced by child. Expression: "
+                            + ne.toSql());
+                }
+            }
+        }
+    }
+
     private void check(String sql) {
         System.out.printf("Test:\n%s\n\n", sql);
         Plan plan = PlanChecker.from(createCascadesContext(sql))
@@ -346,7 +2131,6 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
                 .applyTopDown(new PushDownFilterThroughProject())
                 .customRewrite(new EliminateUnnecessaryProject())
                 .customRewrite(new AggScalarSubQueryToWindowFunction())
-                .rewrite()
                 .getPlan();
         System.out.println(plan.treeString());
         Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance));
@@ -357,7 +2141,6 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
         Plan plan = PlanChecker.from(createCascadesContext(sql))
                 .analyze(sql)
                 .customRewrite(new AggScalarSubQueryToWindowFunction())
-                .rewrite()
                 .getPlan();
         System.out.println(plan.treeString());
         Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance));
