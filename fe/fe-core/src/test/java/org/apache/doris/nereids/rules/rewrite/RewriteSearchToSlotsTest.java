@@ -32,6 +32,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -261,6 +262,31 @@ public class RewriteSearchToSlotsTest {
     }
 
     @Test
+    public void testRewriteSearchHandlesCaseInsensitiveVariantParentField() throws Exception {
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(),
+                buildVariantTableWithInvertedIndex(102L), ImmutableList.of("db"));
+        Search searchFunc = new Search(new StringLiteral("V.foo:bar"));
+
+        Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
+                "rewriteSearch", Search.class, LogicalOlapScan.class);
+        rewriteMethod.setAccessible(true);
+
+        Object rewritten = rewriteMethod.invoke(rewriteRule, searchFunc, scan);
+        Assertions.assertInstanceOf(SearchExpression.class, rewritten);
+
+        SearchExpression searchExpression = (SearchExpression) rewritten;
+        Assertions.assertEquals(1, searchExpression.getSlotChildren().size());
+        Assertions.assertTrue(searchExpression.getSlotChildren().get(0) instanceof ElementAt);
+        ElementAt elementAt = (ElementAt) searchExpression.getSlotChildren().get(0);
+        Assertions.assertTrue(elementAt.child(0) instanceof SlotReference);
+        Assertions.assertEquals("v", ((SlotReference) elementAt.child(0)).getName());
+
+        SearchDslParser.QsPlan normalizedPlan = searchExpression.getQsPlan();
+        Assertions.assertEquals("v.foo", normalizedPlan.getFieldBindings().get(0).getFieldName());
+        Assertions.assertEquals("v.foo", normalizedPlan.getRoot().getField());
+    }
+
+    @Test
     public void testRewriteSearchThrowsWhenFieldMissing() throws Exception {
         LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(),
                 PlanConstructor.student, ImmutableList.of("db"));
@@ -330,6 +356,20 @@ public class RewriteSearchToSlotsTest {
                 KeysType.PRIMARY_KEYS, new PartitionInfo(), null,
                 new TableIndexes(ImmutableList.of(invertedOnName)));
         table.setIndexMeta(-1, "student_with_inverted_index", table.getFullSchema(),
+                0, 0, (short) 0, TStorageType.COLUMN, KeysType.PRIMARY_KEYS);
+        return table;
+    }
+
+    private static OlapTable buildVariantTableWithInvertedIndex(long tableId) {
+        List<Column> columns = ImmutableList.of(
+                new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
+                new Column("v", Type.VARIANT, false, AggregateType.NONE, "", ""));
+        Index invertedOnVariant = new Index(2L, "idx_v", ImmutableList.of("v"),
+                IndexType.INVERTED, null, "");
+        OlapTable table = new OlapTable(tableId, "variant_with_inverted_index", false, columns,
+                KeysType.PRIMARY_KEYS, new PartitionInfo(), null,
+                new TableIndexes(ImmutableList.of(invertedOnVariant)));
+        table.setIndexMeta(-1, "variant_with_inverted_index", table.getFullSchema(),
                 0, 0, (short) 0, TStorageType.COLUMN, KeysType.PRIMARY_KEYS);
         return table;
     }
