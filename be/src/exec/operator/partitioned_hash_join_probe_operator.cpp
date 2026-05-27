@@ -36,6 +36,7 @@
 #include "exec/spill/spill_repartitioner.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
@@ -217,6 +218,7 @@ Status PartitionedHashJoinProbeLocalState::close(RuntimeState* state) {
         }
         _current_probe_reader.reset();
     }
+    _recovered_build_block.reset();
 
     // Clean up any remaining spill partition queue entries
     for (auto& entry : _spill_partition_queue) {
@@ -349,7 +351,7 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_partition(
         RETURN_IF_ERROR(_current_build_reader->open());
     }
     bool eos = false;
-    while (!eos) {
+    while (!eos && !state->is_cancelled()) {
         Block block;
         RETURN_IF_ERROR(_current_build_reader->read(&block, &eos));
         COUNTER_UPDATE(_recovery_build_rows, block.rows());
@@ -373,6 +375,7 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_partition(
             return Status::OK(); // yield — buffer full, more data may remain
         }
     }
+    RETURN_IF_CANCELLED(state);
     // Build file fully consumed.
     RETURN_IF_ERROR(_current_build_reader->close());
     _current_build_reader.reset();
@@ -409,6 +412,7 @@ Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_partition(
             return Status::OK(); // yield — enough data read
         }
     }
+    RETURN_IF_CANCELLED(state);
     // Probe file fully consumed.
     RETURN_IF_ERROR(_current_probe_reader->close());
     _current_probe_reader.reset();
@@ -416,6 +420,7 @@ Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_partition(
     return Status::OK();
 }
 
+// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity): existing spill repartition state machine handles build/probe phases together.
 Status PartitionedHashJoinProbeLocalState::repartition_current_partition(
         RuntimeState* state, JoinSpillPartitionInfo& partition) {
     auto& p = _parent->cast<PartitionedHashJoinProbeOperatorX>();
@@ -474,6 +479,7 @@ Status PartitionedHashJoinProbeLocalState::repartition_current_partition(
         }
     }
     RETURN_IF_ERROR(_repartitioner.finalize());
+    RETURN_IF_CANCELLED(state);
     _recovered_build_block.reset();
     _current_build_reader.reset(); // clear any leftover reader state
     partition.build_file.reset();
@@ -497,9 +503,9 @@ Status PartitionedHashJoinProbeLocalState::repartition_current_partition(
         while (!done && !state->is_cancelled()) {
             RETURN_IF_ERROR(_repartitioner.repartition(state, partition.probe_file, &done));
         }
-        partition.probe_file.reset();
-
         RETURN_IF_ERROR(_repartitioner.finalize());
+        RETURN_IF_CANCELLED(state);
+        partition.probe_file.reset();
         _current_probe_reader.reset();
     }
 
@@ -698,7 +704,11 @@ Status PartitionedHashJoinProbeOperatorX::pull(doris::RuntimeState* state, Block
     // per-partition build and probe spill streams. After this point every partition
     // (including the original "level-0" ones) is accessed uniformly via the queue.
     if (!local_state._spill_queue_initialized) {
-        DCHECK(local_state._child_eos) << "pull() with is_spilled=true called before child EOS";
+        if (UNLIKELY(!local_state._child_eos)) {
+            return Status::InternalError(
+                    "query:{}, node:{}, pull() with is_spilled=true called before child EOS",
+                    print_id(state->query_id()), node_id());
+        }
         // There maybe some blocks still in partitioned block or probe blocks. Flush them to disk.
         RETURN_IF_ERROR(local_state.spill_probe_blocks(state, true));
         // Close all probe writers so that SpillFile metadata (part_count, etc.)
@@ -731,6 +741,7 @@ Status PartitionedHashJoinProbeOperatorX::pull(doris::RuntimeState* state, Block
     return _pull_from_spill_queue(local_state, state, output_block, eos);
 }
 
+// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity): existing spill queue pull handles setup, recovery, and probing phases.
 Status PartitionedHashJoinProbeOperatorX::_pull_from_spill_queue(
         PartitionedHashJoinProbeLocalState& local_state, RuntimeState* state, Block* output_block,
         bool* eos) const {

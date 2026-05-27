@@ -166,7 +166,6 @@ public:
         std::vector<ColumnId>* origin_return_columns = nullptr;
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
-        std::vector<VExprSPtr> remaining_conjunct_roots;
         VExprContextSPtrs common_expr_ctxs_push_down;
 
         // used for compaction to record row ids

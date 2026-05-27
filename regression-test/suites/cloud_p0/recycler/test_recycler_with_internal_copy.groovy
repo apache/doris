@@ -95,11 +95,22 @@ suite("test_recycler_with_internal_copy") {
     logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
     assertEquals(code, 0)
 
-    result = sql " copy into ${tableName} from @~('${fileName}') properties ('file.type' = 'csv', 'file.column_separator' = '|', 'copy.async' = 'false'); "
-    logger.info("copy result: " + result)
-    assertTrue(result.size() == 1)
-    assertTrue(result[0].size() == 8)
-    assertTrue(result[0][1].equals("FINISHED"), "Finish copy into, state=" + result[0][1] + ", expected state=FINISHED")
+    retry = 15
+    success = false
+    do {
+        result = sql " copy into ${tableName} from @~('${fileName}') properties ('file.type' = 'csv', 'file.column_separator' = '|', 'copy.async' = 'false'); "
+        logger.info("copy result after recycle: " + result)
+        assertTrue(result.size() == 1)
+        assertTrue(result[0].size() == 8)
+        if (result[0][1].equals("FINISHED")) {
+            success = true
+            break
+        }
+        assertTrue(result[0][1].equals("CANCELLED") && result[0][3].contains("No files can be copied"),
+                "Finish copy into, state=" + result[0][1] + ", expected state=FINISHED")
+        Thread.sleep(20000) // wait copy job metadata recycled
+    } while (retry--)
+    assertTrue(success)
     qt_sql " SELECT COUNT(*) FROM ${tableName}; "
 
     String[][] tabletInfoList = sql """ show tablets from ${tableName}; """

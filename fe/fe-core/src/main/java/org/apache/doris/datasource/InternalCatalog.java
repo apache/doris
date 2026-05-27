@@ -127,6 +127,7 @@ import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.stats.SimpleAggCacheMgr;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -1975,6 +1976,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 olapTable.updateVisibleVersionAndTime(version, versionTime);
             }
         }
+        if (partition != null && !isTempPartition) {
+            SimpleAggCacheMgr.internalInstance().invalidateTable(olapTable.getId());
+        }
 
         // Here, we only wait for the EventProcessor to finish processing the event,
         // but regardless of the success or failure of the result,
@@ -2006,14 +2010,17 @@ public class InternalCatalog implements CatalogIf<Database> {
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
+            Partition partition = null;
             if (info.isTempPartition()) {
                 olapTable.dropTempPartition(info.getPartitionName(), true);
             } else {
-                Partition partition = olapTable.dropPartition(info.getDbId(), info.getPartitionName(),
-                        info.isForceDrop());
+                partition = olapTable.dropPartition(info.getDbId(), info.getPartitionName(), info.isForceDrop());
                 if (!info.isForceDrop() && partition != null && info.getRecycleTime() != 0) {
                     Env.getCurrentRecycleBin().setRecycleTimeByIdForReplay(partition.getId(), info.getRecycleTime());
                 }
+            }
+            if (partition != null && !info.isTempPartition()) {
+                SimpleAggCacheMgr.internalInstance().invalidateTable(olapTable.getId());
             }
             olapTable.updateVisibleVersionAndTime(info.getVersion(), info.getVersionTime());
             // Replay set new partition loaded flag to true for auto analyze.
@@ -3487,12 +3494,19 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
+        // Collect bucket tablets locally and bulk-publish to the MaterializedIndex's
+        // tablets list in a single copy-on-write after the loop (O(bucketNum) instead
+        // of O(bucketNum^2)). TabletInvertedIndex registration stays per-iteration
+        // because Tablet.addReplica(...) below needs the tablet present in the
+        // inverted index.
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        List<Tablet> bucketTablets = new ArrayList<>(distributionInfo.getBucketNum());
         for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
             // create a new tablet with random chosen backends
             Tablet tablet = EnvFactory.getInstance().createTablet(idGeneratorBuffer.getNextId());
 
-            // add tablet to inverted index first
-            index.addTablet(tablet, tabletMeta);
+            invertedIndex.addTablet(tablet.getId(), tabletMeta);
+            bucketTablets.add(tablet);
             tabletIdSet.add(tablet.getId());
 
             // get BackendIds
@@ -3531,6 +3545,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum(),
                     totalReplicaNum + " vs. " + replicaAlloc.getTotalReplicaNum());
         }
+
+        // Publish all bucket tablets to the materialized index in one batch.
+        index.appendTablets(bucketTablets);
 
         if (groupId != null && chooseBackendsArbitrary) {
             colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);

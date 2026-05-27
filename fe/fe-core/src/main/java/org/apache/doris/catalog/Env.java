@@ -55,6 +55,7 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
@@ -221,6 +222,7 @@ import org.apache.doris.persist.SetTableStatusOperationLog;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.TableInfo;
+import org.apache.doris.persist.TableMetaChange;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TruncateTableInfo;
@@ -261,6 +263,7 @@ import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.statistics.StatisticsJobAppender;
 import org.apache.doris.statistics.StatisticsMetricCollector;
 import org.apache.doris.statistics.query.QueryStats;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
@@ -316,6 +319,7 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -1768,6 +1772,26 @@ public class Env {
                     Config.rpc_port);
             editLog.logMasterInfo(masterInfo);
             LOG.info("logMasterInfo:{}", masterInfo);
+
+            if (Boolean.getBoolean(FeConstants.DROP_BACKENDS_KEY)) {
+                LOG.info("drop_backends is set, dropping all backends...");
+                try {
+                    SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+                    List<Backend> bes = systemInfoService.getAllClusterBackendsNoException().values()
+                            .stream().collect(Collectors.toList());
+                    if (Config.isNotCloudMode()) {
+                        for (Backend be : bes) {
+                            systemInfoService.dropBackend(be.getHost(), be.getHeartbeatPort());
+                        }
+                    } else {
+                        ((CloudSystemInfoService) systemInfoService).updateCloudBackends(Collections.emptyList(), bes);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("failed to drop backends", e);
+                }
+                System.clearProperty(FeConstants.DROP_BACKENDS_KEY);
+                LOG.info("finished dropping all backends");
+            }
 
             // for master, the 'isReady' is set behind.
             // but we are sure that all metadata is replayed if we get here.
@@ -6978,7 +7002,9 @@ public class Env {
                 LOG.warn("ignore set same state {} for table {}. is replay: {}.",
                             olapTable.getState(), tableName, isReplay);
             }
-            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(olapTable);
+            if (!isReplay) {
+                notifyTableMetaChange(olapTable);
+            }
         } finally {
             olapTable.writeUnlock();
         }
@@ -7086,7 +7112,9 @@ public class Env {
                 LOG.info("set replica {} of tablet {} on backend {} as version {}, last success version {}, "
                         + "last failed version {}, update time {}. is replay: {}", replica.getId(), tabletId,
                         backendId, version, lastSuccessVersion, lastFailedVersion, updateTime, isReplay);
-                Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(table);
+                if (!isReplay) {
+                    notifyTableMetaChange(table);
+                }
             } finally {
                 table.writeUnlock();
             }
@@ -7167,7 +7195,9 @@ public class Env {
                         + " {}.", partitionId, oldVersion, visibleVersion, database, table, isReplay);
             }
 
-            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(olapTable);
+            if (!isReplay) {
+                notifyTableMetaChange(olapTable);
+            }
         } finally {
             olapTable.writeUnlock();
         }
@@ -7410,6 +7440,35 @@ public class Env {
 
     public NereidsSortedPartitionsCacheManager getSortedPartitionsCacheManager() {
         return sortedPartitionsCacheManager;
+    }
+
+    public void notifyTableMetaChange(TableIf table) {
+        if (table == null) {
+            return;
+        }
+        TableMetaChange change =
+                TableMetaChange.fromTable(table);
+        fanOutTableMetaChange(change);
+        if (isMaster() && editLog != null && Config.enable_write_op_table_meta_change) {
+            editLog.logTableMetaChange(change);
+        }
+    }
+
+    public void replayTableMetaChange(TableMetaChange change) {
+        if (change == null) {
+            return;
+        }
+        fanOutTableMetaChange(change);
+    }
+
+    private void fanOutTableMetaChange(TableMetaChange change) {
+        if (sqlCacheManager != null) {
+            sqlCacheManager.invalidateAboutTable(change);
+        }
+        if (sortedPartitionsCacheManager != null) {
+            sortedPartitionsCacheManager.invalidateTable(
+                    change.getCatalogName(), change.getDbName(), change.getTableName());
+        }
     }
 
     public SplitSourceManager getSplitSourceManager() {

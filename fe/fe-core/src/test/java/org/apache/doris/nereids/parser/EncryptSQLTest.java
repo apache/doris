@@ -405,6 +405,40 @@ public class EncryptSQLTest extends ParserTestBase {
         Assertions.assertTrue(event.errorMessage.contains(errorMsg));
     }
 
+    @Test
+    //when mockito framework will be introduced into release branch
+    //then version of tests for mockito can be found in #62141
+    public void testCreateUserPasswordMasking() throws Exception {
+        ctx.setDatabase("test");
+        new MockUp<StmtExecutor>() {
+            @Mock
+            public boolean isForwardToMaster() {
+                return false;
+            }
+        };
+        ctx.setEnv(env);
+        // testing for https://github.com/apache/doris/issues/62140
+        String sql = "CREATE USER 'test_user62140'@'%' IDENTIFIED BY '123456'";
+        String res = "CREATE USER 'test_user62140'@'%' IDENTIFIED BY '*XXX'";
+        parseAndCheck(sql, res);
+    }
+
+    @Test
+    public void testAlterUserPasswordMasking() throws Exception {
+        ctx.setDatabase("test");
+        new MockUp<StmtExecutor>() {
+            @Mock
+            public boolean isForwardToMaster() {
+                return false;
+            }
+        };
+        ctx.setEnv(env);
+        // testing for https://github.com/apache/doris/issues/62140
+        String sql = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '123456'";
+        String res = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '*XXX'";
+        parseAndCheck(sql, res);
+    }
+
     private void parseAndCheck(String sql, String expected) throws Exception {
         processor.executeQuery(sql);
         AuditEvent event = auditEvents.get(auditEvents.size() - 1);
