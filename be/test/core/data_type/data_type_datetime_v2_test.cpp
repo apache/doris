@@ -123,23 +123,6 @@ TEST_F(DataTypeDateTimeV2Test, simple_func_test) {
     EXPECT_THROW(DataTypeTimeV2(7), Exception);
 }
 
-TEST_F(DataTypeDateTimeV2Test, get_default) {
-    auto v = 0UL;
-    EXPECT_EQ(dt_datetime_v2_0.get_default(),
-              Field::create_field<TYPE_DATETIMEV2>(
-                      *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v));
-    EXPECT_EQ(dt_datetime_v2_5.get_default(),
-              Field::create_field<TYPE_DATETIMEV2>(
-                      *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v));
-    EXPECT_EQ(dt_datetime_v2_6.get_default(),
-              Field::create_field<TYPE_DATETIMEV2>(
-                      *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v));
-    EXPECT_EQ(dt_date_v2.get_default(),
-              Field::create_field<TYPE_DATEV2>(
-                      *(typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType*)&v));
-    EXPECT_EQ(dt_time_v2_6.get_default(), Field::create_field<TYPE_TIMEV2>(0.0));
-}
-
 TEST_F(DataTypeDateTimeV2Test, get_field) {
     config::allow_zero_date = true;
     {
@@ -780,7 +763,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
         std::cout << "test datatype to string: " << dt.get_family_name() << std::endl;
         using DataType = decltype(dt);
         using ColumnType = typename std::remove_reference<DataType>::type::ColumnType;
-        const auto* col_with_type = assert_cast<const ColumnType*>(&source_column);
+        const auto* col_with_type = &source_column;
 
         size_t row_count = source_column.size();
         {

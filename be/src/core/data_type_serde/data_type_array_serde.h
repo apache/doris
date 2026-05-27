@@ -30,7 +30,6 @@
 namespace doris {
 class PValues;
 struct JsonbValue;
-class JsonWriter;
 
 class IColumn;
 class Arena;

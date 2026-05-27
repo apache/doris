@@ -61,6 +61,7 @@ import org.apache.flink.cdc.connectors.mysql.source.split.MySqlSplitState;
 import org.apache.flink.cdc.connectors.mysql.source.split.SourceRecords;
 import org.apache.flink.cdc.connectors.mysql.source.utils.ChunkUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
+import org.apache.flink.cdc.connectors.mysql.source.utils.StatementUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.TableDiscoveryUtils;
 import org.apache.flink.cdc.connectors.mysql.table.StartupMode;
 import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
@@ -69,7 +70,9 @@ import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.IOException;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -590,8 +593,6 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
             Map<String, Object> offset, JobBaseConfig jobConfig) throws JsonProcessingException {
         SnapshotSplit snapshotSplit = objectMapper.convertValue(offset, SnapshotSplit.class);
         TableId tableId = TableId.parse(snapshotSplit.getTableId());
-        Object[] splitStart = snapshotSplit.getSplitStart();
-        Object[] splitEnd = snapshotSplit.getSplitEnd();
         List<String> splitKeys = snapshotSplit.getSplitKey();
         Map<TableId, TableChanges.TableChange> tableSchemas = getTableSchemas(jobConfig);
         TableChanges.TableChange tableChange = tableSchemas.get(tableId);
@@ -600,6 +601,17 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         // only support one split key
         String splitKey = splitKeys.get(0);
         Column splitColumn = tableChange.getTable().columnWithName(splitKey);
+        Preconditions.checkNotNull(
+                splitColumn,
+                "Split key column "
+                        + splitKey
+                        + " not found in table "
+                        + tableId
+                        + " for job "
+                        + jobConfig.getJobId());
+        Class<?> keyClass = resolveSplitKeyClass(tableId, splitColumn, jobConfig);
+        Object[] splitStart = convertBounds(snapshotSplit.getSplitStart(), keyClass, objectMapper);
+        Object[] splitEnd = convertBounds(snapshotSplit.getSplitEnd(), keyClass, objectMapper);
         RowType splitType = ChunkUtils.getChunkKeyColumnType(splitColumn, false);
         MySqlSnapshotSplit split =
                 new MySqlSnapshotSplit(
@@ -631,6 +643,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                             .sorted(Comparator.comparing(AbstractSourceSplit::getSplitId))
                             .toList();
 
+            Map<TableId, TableChanges.TableChange> tableSchemas = getTableSchemas(config);
             for (SnapshotSplit split : assignedSplitLists) {
                 // find the min binlog offset
                 Map<String, String> offsetMap = split.getHighWatermark();
@@ -641,13 +654,26 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                 if (maxOffsetFinishSplits == null || binlogOffset.isAfter(maxOffsetFinishSplits)) {
                     maxOffsetFinishSplits = binlogOffset;
                 }
+                TableId tid = TableId.parse(split.getTableId());
+                TableChanges.TableChange tableChange = tableSchemas.get(tid);
+                Preconditions.checkNotNull(
+                        tableChange, "Can not find table " + tid + " in job " + config.getJobId());
+                String splitKey = split.getSplitKey().get(0);
+                Column splitColumn = tableChange.getTable().columnWithName(splitKey);
+                Preconditions.checkNotNull(
+                        splitColumn,
+                        "Split key column "
+                                + splitKey
+                                + " not found in table "
+                                + tid
+                                + " for job "
+                                + config.getJobId());
+                Class<?> keyClass = resolveSplitKeyClass(tid, splitColumn, config);
+                Object[] start = convertBounds(split.getSplitStart(), keyClass, objectMapper);
+                Object[] end = convertBounds(split.getSplitEnd(), keyClass, objectMapper);
                 finishedSnapshotSplitInfos.add(
                         new FinishedSnapshotSplitInfo(
-                                TableId.parse(split.getTableId()),
-                                split.getSplitId(),
-                                split.getSplitStart(),
-                                split.getSplitEnd(),
-                                binlogOffset));
+                                tid, split.getSplitId(), start, end, binlogOffset));
             }
         }
 
@@ -1048,6 +1074,24 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
             this.setTableSchemas(schemas);
         }
         return schemas;
+    }
+
+    @Override
+    protected Class<?> probeSplitKeyClass(
+            TableId tableId, Column splitColumn, JobBaseConfig jobConfig) {
+        MySqlSourceConfig sourceConfig = getSourceConfig(jobConfig);
+        String sql =
+                String.format(
+                        "SELECT %s FROM %s WHERE 1=0",
+                        StatementUtils.quote(splitColumn.name()), StatementUtils.quote(tableId));
+        try (MySqlConnection jdbc = DebeziumUtils.createMySqlConnection(sourceConfig);
+                Statement st = jdbc.connection().createStatement();
+                ResultSet rs = st.executeQuery(sql)) {
+            return Class.forName(rs.getMetaData().getColumnClassName(1));
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "Probe split key class failed for " + tableId + "." + splitColumn.name(), e);
+        }
     }
 
     private Map<TableId, TableChanges.TableChange> discoverTableSchemas(JobBaseConfig config) {

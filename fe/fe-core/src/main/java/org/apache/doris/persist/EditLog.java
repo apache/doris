@@ -1452,6 +1452,11 @@ public class EditLog {
                     // This log is only used to keep FE/MS cut point in journal timeline.
                     break;
                 }
+                case OperationType.OP_TABLE_META_CHANGE: {
+                    TableMetaChange op = (TableMetaChange) journal.getData();
+                    env.replayTableMetaChange(op);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
@@ -2561,5 +2566,9 @@ public class EditLog {
 
     public long logMetaSyncPoint(CloudMetaSyncPoint syncPoint) {
         return logEdit(OperationType.OP_META_SYNC_POINT, syncPoint);
+    }
+
+    public void logTableMetaChange(TableMetaChange op) {
+        logEdit(OperationType.OP_TABLE_META_CHANGE, op);
     }
 }

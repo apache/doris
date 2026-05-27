@@ -461,7 +461,7 @@ void AnalyticSinkLocalState::_init_result_columns() {
 void AnalyticSinkLocalState::_refresh_buffer_and_dependency_state(Block* block) {
     size_t buffer_size = 0;
     {
-        std::unique_lock<std::mutex> lc(_shared_state->buffer_mutex);
+        LockGuard lc(_shared_state->buffer_mutex);
         _shared_state->blocks_buffer.push(std::move(*block));
         buffer_size = _shared_state->blocks_buffer.size();
     }
@@ -756,7 +756,7 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, Block* input_bloc
     RETURN_IF_ERROR(_add_input_block(state, input_block));
     RETURN_IF_ERROR(local_state._execute_impl());
     if (local_state._input_eos) {
-        std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+        LockGuard lc(local_state._shared_state->sink_eos_lock);
         local_state._shared_state->sink_eos = true;
         local_state._dependency->set_ready_to_read(); // ready for source to read
     }

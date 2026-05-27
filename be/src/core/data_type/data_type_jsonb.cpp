@@ -35,17 +35,6 @@ class IColumn;
 
 namespace doris {
 #include "common/compile_check_begin.h"
-Field DataTypeJsonb::get_default() const {
-    std::string default_json = "null";
-    // convert default_json to binary
-    JsonBinaryValue jsonb_value;
-    THROW_IF_ERROR(jsonb_value.from_json_string(default_json));
-    // Throw exception if default_json.size() is large than INT32_MAX
-    // JsonbField keeps its own memory
-    return Field::create_field<TYPE_JSONB>(
-            JsonbField(jsonb_value.value(), cast_set<Int32>(jsonb_value.size())));
-}
-
 Field DataTypeJsonb::get_field(const TExprNode& node) const {
     DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
     DCHECK(node.__isset.json_literal);

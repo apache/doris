@@ -343,16 +343,6 @@ ColumnVariant::Subcolumn ColumnVariant::Subcolumn::clone_with_default_values(
     return new_subcolumn;
 }
 
-Field ColumnVariant::Subcolumn::get_last_field() const {
-    if (data.empty()) {
-        return Field();
-    }
-
-    const auto& last_part = data.back();
-    assert(!last_part->empty());
-    return (*last_part)[last_part->size() - 1];
-}
-
 void ColumnVariant::Subcolumn::insert_range_from(const Subcolumn& src, size_t start,
                                                  size_t length) {
     if (start + length > src.size()) {
@@ -2620,64 +2610,29 @@ bool ColumnVariant::try_insert_many_defaults_from_nested(const Subcolumns::NodeP
     return true;
 }
 
-/// Visitor that keeps @num_dimensions_to_keep dimensions in arrays
-/// and replaces all scalars or nested arrays to @replacement at that level.
-class FieldVisitorReplaceScalars : public StaticVisitor<Field> {
-public:
-    FieldVisitorReplaceScalars(const Field& replacement_, size_t num_dimensions_to_keep_)
-            : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
-
-    template <PrimitiveType T>
-    Field apply(const typename PrimitiveTypeTraits<T>::CppType& x) const {
-        if constexpr (T == TYPE_ARRAY) {
-            if (num_dimensions_to_keep == 0) {
-                return replacement;
-            }
-
-            const size_t size = x.size();
-            Array res(size);
-            for (size_t i = 0; i < size; ++i) {
-                res[i] = apply_visitor(
-                        FieldVisitorReplaceScalars(replacement, num_dimensions_to_keep - 1), x[i]);
-            }
-            return Field::create_field<TYPE_ARRAY>(res);
-        } else {
-            return replacement;
-        }
-    }
-
-private:
-    const Field& replacement;
-    size_t num_dimensions_to_keep;
-};
-
 bool ColumnVariant::try_insert_default_from_nested(const Subcolumns::NodePtr& entry) const {
     const auto* leaf = get_leaf_of_the_same_nested(entry);
     if (!leaf) {
         return false;
     }
 
-    auto last_field = leaf->data.get_last_field();
-    if (last_field.is_null()) {
+    size_t leaf_size = leaf->data.size();
+    if (leaf_size == 0) {
         return false;
     }
 
-    size_t leaf_num_dimensions = leaf->data.get_dimensions();
-    size_t entry_num_dimensions = entry->data.get_dimensions();
-
-    if (entry_num_dimensions > leaf_num_dimensions) {
-        throw doris::Exception(
-                ErrorCode::INVALID_ARGUMENT,
-                "entry_num_dimensions > leaf_num_dimensions, entry_num_dimensions={}, "
-                "leaf_num_dimensions={}",
-                entry_num_dimensions, leaf_num_dimensions);
+    if (leaf->data.is_null_at(leaf_size - 1)) {
+        return false;
     }
 
-    auto default_scalar = entry->data.get_least_common_type()->get_default();
+    FieldInfo field_info = {
+            .scalar_type_id = entry->data.least_common_type.get_base_type_id(),
+            .num_dimensions = entry->data.get_dimensions(),
+    };
 
-    auto default_field = apply_visitor(
-            FieldVisitorReplaceScalars(default_scalar, leaf_num_dimensions), last_field);
-    entry->data.insert(std::move(default_field));
+    auto new_subcolumn = leaf->data.cut(leaf_size - 1, 1).clone_with_default_values(field_info);
+    entry->data.insert_range_from(new_subcolumn, 0, 1);
+    ENABLE_CHECK_CONSISTENCY(this);
     return true;
 }
 
@@ -2839,11 +2794,5 @@ MutableColumnPtr ColumnVariant::clone() const {
     return res;
 }
 
-bool ColumnVariant::is_doc_mode() const {
-    const auto& offset = serialized_doc_value_column_offsets();
-    return subcolumns.size() == 1 && offset[num_rows - 1] != 0;
-}
-
 #include "common/compile_check_end.h"
-
 } // namespace doris

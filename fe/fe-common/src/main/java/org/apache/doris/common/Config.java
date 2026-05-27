@@ -2454,6 +2454,18 @@ public class Config extends ConfigBase {
 
     @ConfField(
             mutable = true,
+            description = {
+                    "是否在 DDL 时写入 OP_TABLE_META_CHANGE edit log 通知 follower FE 清理 sql cache。"
+                            + "默认 false，开启后 master DDL 会广播表元数据变更信号到所有 follower",
+                    "Whether to write OP_TABLE_META_CHANGE edit log on DDL to notify follower FEs "
+                            + "to invalidate sql cache. Default false. When enabled, master DDL broadcasts "
+                            + "table metadata change signal to all followers"
+            }
+    )
+    public static boolean enable_write_op_table_meta_change = false;
+
+    @ConfField(
+            mutable = true,
             callbackClassString = "org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager$UpdateConfig",
             description = {
                     "当前默认设置为 100，用来控制控制 NereidsSortedPartitionsCacheManager 中有序分区元数据的缓存个数，"
@@ -2739,7 +2751,7 @@ public class Config extends ConfigBase {
     @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
 
-    @ConfField
+    @ConfField(mutable = true)
     public static long statistics_sql_mem_limit_in_bytes = 2L * 1024 * 1024 * 1024;
 
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -2766,6 +2778,23 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static int auto_analyze_simultaneously_running_task_num = 1;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "统计信息收集时 string 列允许的最大字节长度。若列中存在长度超过该值的行，"
+                    + "该列的统计信息将被跳过收集（task 仍标记为 FINISHED，在 SHOW ANALYZE 中显示跳过原因）。"
+                    + "≤ 0 表示关闭此保护。默认 1024 (1KB)。"
+                    + "注意：此保护只覆盖 FULL / LINEAR / DUJ1 统计收集路径（即 analyze 全表和 sample 的主 SQL）。"
+                    + "当 enable_partition_analyze=true 时的 per-partition 路径（PARTITION_ANALYZE_TEMPLATE）"
+                    + "出于正确性考虑不启用该保护，详见 BaseAnalysisTask 中的 NOTE。",
+            "Max byte length allowed for a string column when collecting statistics. "
+                    + "If any row in a string column is longer than this value, the column's stats "
+                    + "collection is skipped (the task is still marked FINISHED, with the skip reason "
+                    + "shown in SHOW ANALYZE). A value <= 0 disables this protection. Default: 1024 (1KB). "
+                    + "Note: this protection applies to the FULL / LINEAR / DUJ1 collection paths "
+                    + "(i.e. the main SQL used by full-table and sample analyze). The per-partition path "
+                    + "(PARTITION_ANALYZE_TEMPLATE, used when enable_partition_analyze=true) is intentionally "
+                    + "not guarded for correctness reasons; see the NOTE in BaseAnalysisTask."})
+    public static long statistics_max_string_column_length = 1024;
 
     @Deprecated
     @ConfField

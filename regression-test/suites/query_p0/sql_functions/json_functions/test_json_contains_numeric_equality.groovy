@@ -15,18 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <memory>
-
-#include "exprs/aggregate/aggregate_function_min_max_by.h"
-#include "exprs/aggregate/aggregate_function_simple_factory.h"
-
-namespace doris {
-#include "common/compile_check_begin.h"
-
-void register_aggregate_function_min_by(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both(
-            "min_by", create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
-                                                           AggregateFunctionMinByData>);
+suite("test_json_contains_numeric_equality", "p0") {
+    order_qt_json_contains_numeric_equality """
+        SELECT JSON_CONTAINS('1', '1.0'),
+               JSON_CONTAINS('1.0', '1'),
+               JSON_CONTAINS('[1]', '1.0'),
+               JSON_CONTAINS('[1.0]', '1'),
+               JSON_CONTAINS('{"qty": 1}', '{"qty": 1.0}'),
+               JSON_CONTAINS('{"qty": 1.0}', '{"qty": 1}'),
+               JSON_CONTAINS('{"qty": 1}', '{"qty": 1.5}')
+        ORDER BY 1;
+    """
 }
-
-} // namespace doris

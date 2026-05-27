@@ -15,15 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "core/value/map_value.h"
-
-namespace doris {
-
-///====================== map-value funcs ======================///
-void MapValue::shallow_copy(const MapValue* value) {
-    _length = value->_length;
-    _key_data = value->_key_data;
-    _value_data = value->_value_data;
+suite("test_parquet_dict", "p0") {
+    try {
+        String ak = context.config.otherConfigs.get("ak")
+        String sk = context.config.otherConfigs.get("sk")
+        qt_s3_tvf """ SELECT * FROM FILE (
+            "uri" = "https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/query_p0/test_page_v2.parquet",
+            "s3.access_key"= "${ak}",
+            "s3.secret_key" = "${sk}",
+            "format" = "parquet"
+        ) where user_id='68535cc98406454081424bf8247d783d' ;
+        """
+    } finally {
+    }
 }
-
-} // namespace doris

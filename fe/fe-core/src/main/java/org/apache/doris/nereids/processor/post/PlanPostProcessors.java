@@ -64,6 +64,7 @@ public class PlanPostProcessors {
         // add processor if we need
         Builder<PlanPostProcessor> builder = ImmutableList.builder();
         builder.add(new PushDownFilterThroughProject());
+        builder.add(new PrunePartitionPredicate());
         builder.add(new RemoveUselessProjectPostProcessor());
         builder.add(new RecomputeLogicalPropertiesProcessor());
         /*

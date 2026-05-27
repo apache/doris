@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
@@ -35,15 +38,22 @@ import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import mockit.Mock;
 import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class DistinctAggregateRewriterTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
@@ -52,16 +62,33 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
         createTable("create table test.distinct_agg_split_t(a int null, b int not null,"
                 + "c varchar(10) null, d date, dt datetime)\n"
                 + "distributed by hash(a) properties('replication_num' = '1');");
+        createTable("CREATE TABLE IF NOT EXISTS test.sales_records\n"
+                + "(\n"
+                + "    record_id BIGINT,\n"
+                + "    seller_id BIGINT,\n"
+                + "    sale_date DATE,\n"
+                + "    amount DECIMAL(18,2)\n"
+                + ")\n"
+                + "DUPLICATE KEY(record_id, seller_id)\n"
+                + "PARTITION BY RANGE(sale_date)\n"
+                + "(\n"
+                + "    PARTITION p202301 VALUES LESS THAN ('2023-02-01'),\n"
+                + "    PARTITION p202302 VALUES LESS THAN ('2023-03-01'),\n"
+                + "    PARTITION p202303 VALUES LESS THAN ('2023-04-01')\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(record_id) BUCKETS 10\n"
+                + "PROPERTIES (\n"
+                + "    \"replication_num\" = \"1\"\n"
+                + ");");
+        createTable("create table test.distinct_agg_hash_ab(a int null, b int not null, c int null, d int null)\n"
+                + "distributed by hash(a, b) properties('replication_num' = '1');");
+        createTable("create table test.distinct_agg_hash_abcd(a int null, b int not null, c int null, d int null)\n"
+                + "distributed by hash(a, b, c, d) properties('replication_num' = '1');");
         connectContext.setDatabase("test");
+        SessionVariable spySessionVariable = Mockito.spy(connectContext.getSessionVariable());
+        Mockito.doReturn(24).when(spySessionVariable).getParallelExecInstanceNum(Mockito.anyString());
+        connectContext.setSessionVariable(spySessionVariable);
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
-        new SessionVariableMockUp();
-    }
-
-    private static class SessionVariableMockUp extends MockUp<SessionVariable> {
-        @Mock
-        private int getParallelExecInstanceNum(String clusterName) {
-            return 24;
-        }
     }
 
     private void applyMock() {
@@ -256,25 +283,67 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
         ((AbstractPlan) child).setStatistics(new Statistics(100000, colStats));
         aggregate.setStatistics(new Statistics(240, ImmutableMap.of()));
 
-        Assertions.assertTrue(rewriter.shouldUseMultiDistinct(aggregate));
+        Assertions.assertFalse(rewriter.shouldUseMultiDistinct(aggregate));
     }
 
     @Test
-    void testShouldUseMultiDistinctWithStatsNotSelected() throws Exception {
-        DistinctAggregateRewriter rewriter = new DistinctAggregateRewriter();
+    void testShouldUseMultiDistinctWithPartitionTable() {
+        DistinctAggregateRewriter rewriter = DistinctAggregateRewriter.INSTANCE;
         LogicalAggregate<? extends Plan> aggregate = getLogicalAggregate(
-                "select b, count(distinct a) from test.distinct_agg_split_t group by b"
+                "select count(distinct record_id) from sales_records group by sale_date;"
         );
         Plan child = aggregate.child();
         Map<org.apache.doris.nereids.trees.expressions.Expression, ColumnStatistic> colStats = new HashMap<>();
         aggregate.getGroupByExpressions().forEach(expr ->
-                colStats.put(expr, buildColumnStats(1000.0, false)));
+                colStats.put(expr, unknownColumnStats()));
         aggregate.getDistinctArguments().forEach(expr ->
-                colStats.put(expr, buildColumnStats(10000.0, false)));
-        ((AbstractPlan) child).setStatistics(new Statistics(100000, colStats));
-        aggregate.setStatistics(new Statistics(1000.0, ImmutableMap.of()));
+                colStats.put(expr, unknownColumnStats()));
+        ((AbstractPlan) child).setStatistics(new Statistics(10000, colStats));
+        aggregate.setStatistics(new Statistics(100, ImmutableMap.of()));
 
-        Assertions.assertFalse(rewriter.shouldUseMultiDistinct(aggregate));
+        Assertions.assertTrue(rewriter.shouldUseMultiDistinct(aggregate));
+    }
+
+    @Test
+    void testResolveDistinctDistributionInfoWithProjectAndFilter() throws Exception {
+        LogicalAggregate<? extends Plan> aggregate = getLogicalAggregate(
+                "select bb, count(distinct aa) from "
+                        + "(select a as aa, b as bb from test.distinct_agg_hash_ab where c > 1) t "
+                        + "group by bb"
+        );
+
+        Object info = invokeResolveDistinctDistributionInfo(aggregate);
+        Assertions.assertNotNull(info);
+
+        List<String> distinctSlotNames = getDistinctSlots(info).stream()
+                .map(SlotReference::getName)
+                .collect(Collectors.toList());
+        Assertions.assertEquals(ImmutableList.of("a"), distinctSlotNames);
+
+        DistributionInfo distributionInfo = getDistributionInfo(info);
+        Assertions.assertTrue(distributionInfo instanceof HashDistributionInfo);
+        List<String> distributionColumnNames = ((HashDistributionInfo) distributionInfo).getDistributionColumns().stream()
+                .map(column -> column.getName().toLowerCase())
+                .collect(Collectors.toList());
+        Assertions.assertEquals(ImmutableList.of("a", "b"), distributionColumnNames);
+    }
+
+    @Test
+    void testIsDistinctKeySatisfyDistributionWhenDistinctContainsDistributionColumns() throws Exception {
+        LogicalAggregate<? extends Plan> aggregate = getLogicalAggregate(
+                "select d, count(distinct a, b, c) from test.distinct_agg_hash_ab group by d"
+        );
+
+        Assertions.assertTrue(invokeIsDistinctKeySatisfyDistribution(aggregate));
+    }
+
+    @Test
+    void testIsDistinctKeySatisfyDistributionWhenDistributionHasExtraColumns() throws Exception {
+        LogicalAggregate<? extends Plan> aggregate = getLogicalAggregate(
+                "select d, count(distinct a, b, c) from test.distinct_agg_hash_abcd group by d"
+        );
+
+        Assertions.assertFalse(invokeIsDistinctKeySatisfyDistribution(aggregate));
     }
 
     private LogicalAggregate<? extends Plan> getLogicalAggregate(String sql) {
@@ -298,6 +367,33 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
             }
         }
         return Optional.empty();
+    }
+
+    private Object invokeResolveDistinctDistributionInfo(LogicalAggregate<? extends Plan> aggregate) throws Exception {
+        Method method = DistinctAggregateRewriter.class.getDeclaredMethod(
+                "resolveDistinctDistributionInfo", LogicalAggregate.class);
+        method.setAccessible(true);
+        return method.invoke(DistinctAggregateRewriter.INSTANCE, aggregate);
+    }
+
+    private boolean invokeIsDistinctKeySatisfyDistribution(LogicalAggregate<? extends Plan> aggregate) throws Exception {
+        Method method = DistinctAggregateRewriter.class.getDeclaredMethod(
+                "isDistinctKeySatisfyDistribution", LogicalAggregate.class);
+        method.setAccessible(true);
+        return (boolean) method.invoke(DistinctAggregateRewriter.INSTANCE, aggregate);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Set<SlotReference> getDistinctSlots(Object info) throws Exception {
+        Field field = info.getClass().getDeclaredField("distinctSlots");
+        field.setAccessible(true);
+        return (Set<SlotReference>) field.get(info);
+    }
+
+    private DistributionInfo getDistributionInfo(Object info) throws Exception {
+        Field field = info.getClass().getDeclaredField("distributionInfo");
+        field.setAccessible(true);
+        return (DistributionInfo) field.get(info);
     }
 
     private ColumnStatistic unknownColumnStats() {

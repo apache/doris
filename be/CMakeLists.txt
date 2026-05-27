@@ -335,8 +335,9 @@ if (COMPILER_CLANG)
                         -Wunused-template
                         -Wunused-member-function
                         -Wunused-macros
-                        -Wconversion)
-    add_compile_options( -Wno-gnu-statement-expression
+                        -Wconversion
+                        -Wthread-safety)
+    add_compile_options(-Wno-gnu-statement-expression
                         -Wno-implicit-float-conversion
                         -Wno-sign-conversion
                         )

@@ -945,10 +945,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 // generate new tablets in origin tablet order
                 int tabletNum = idx.getTablets().size();
                 idx.clearTabletsForRestore();
+                // Collect locally and bulk-publish to keep copy-on-write O(n) for the whole index.
+                List<Tablet> newTablets = new ArrayList<>(tabletNum);
                 for (int i = 0; i < tabletNum; i++) {
                     long newTabletId = env.getNextId();
                     Tablet newTablet = EnvFactory.getInstance().createTablet(newTabletId);
-                    idx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
+                    newTablets.add(newTablet);
                     // replicas
                     if (Config.isCloudMode()) {
                         long newReplicaId = Env.getCurrentEnv().getNextId();
@@ -988,6 +990,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                         return new Status(ErrCode.COMMON_ERROR, e.getMessage());
                     }
                 }
+                // add tablets to index in one batch; TabletInvertedIndex registration
+                // is intentionally skipped on the restore path (rebuilt separately).
+                idx.appendTablets(newTablets);
             }
 
             if (createNewColocateGroup) {

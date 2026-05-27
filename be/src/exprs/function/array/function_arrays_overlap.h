@@ -230,10 +230,6 @@ public:
         Field param_value;
         arguments[0].column->get(0, param_value);
         DCHECK(arguments[0].type->get_primitive_type() == TYPE_ARRAY);
-        auto nested_param_type =
-                check_and_get_data_type<DataTypeArray>(remove_nullable(arguments[0].type).get())
-                        ->get_nested_type()
-                        ->get_primitive_type();
         // The current implementation for the inverted index of arrays cannot handle cases where the array contains null values,
         // meaning an item in the array is null.
         if (param_value.is_null()) {
@@ -246,7 +242,6 @@ public:
             RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
             null_bitmap = null_bitmap_cache_handle.get_bitmap();
         }
-        std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         const Array& query_val = param_value.get<TYPE_ARRAY>();
 
         InvertedIndexParam param;
@@ -260,9 +255,7 @@ public:
             if (nested_query_val.is_null()) {
                 return Status::OK();
             }
-            RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
-                    nested_param_type, &nested_query_val, query_param));
-            param.query_value = query_param->get_value();
+            param.query_value = nested_query_val;
             param.roaring = std::make_shared<roaring::Roaring>();
             param.analyzer_ctx = analyzer_ctx;
             RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));
@@ -313,8 +306,8 @@ public:
 
         // execute overlap check
         auto array_type = remove_nullable(block.get_by_position(arguments[0]).type);
-        auto left_element_type =
-                remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
+        auto left_element_type = remove_nullable(
+                assert_cast<const DataTypeArray*>(array_type.get())->get_nested_type());
         switch (left_element_type->get_primitive_type()) {
         case TYPE_STRING:
         case TYPE_CHAR:

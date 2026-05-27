@@ -107,7 +107,7 @@ Field ColumnStruct::operator[](size_t n) const {
 void ColumnStruct::get(size_t n, Field& res) const {
     const size_t tuple_size = columns.size();
 
-    res = Field::create_field<TYPE_STRUCT>(Tuple());
+    res = Field::create_field<TYPE_STRUCT>(Struct());
     auto& res_tuple = res.get<TYPE_STRUCT>();
     res_tuple.reserve(tuple_size);
 
@@ -121,10 +121,11 @@ void ColumnStruct::insert(const Field& x) {
     const auto& tuple = x.get<TYPE_STRUCT>();
     const size_t tuple_size = columns.size();
     if (tuple.size() != tuple_size) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Cannot insert value of different size into tuple. field tuple size "
-                               "{}, columns size {}",
-                               tuple.size(), tuple_size);
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "Cannot insert value of different size into struct. field struct size "
+                "{}, columns size {}",
+                tuple.size(), tuple_size);
     }
 
     for (size_t i = 0; i < tuple_size; ++i) {
@@ -138,7 +139,7 @@ void ColumnStruct::insert_from(const IColumn& src_, size_t n) {
     const size_t tuple_size = columns.size();
     if (src.columns.size() != tuple_size) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Cannot insert value of different size into tuple.");
+                               "Cannot insert value of different size into struct.");
         __builtin_unreachable();
     }
 

@@ -70,8 +70,10 @@ inline static HttpResponse http_json_reply_message(const MetaServiceResponseStat
 
 inline static HttpResponse http_text_reply(MetaServiceCode code, const std::string& msg,
                                            const std::string& body) {
-    auto [status_code, _] = convert_ms_code_to_http_code(code);
-    return {status_code, msg, body};
+    auto [status_code, status_msg] = convert_ms_code_to_http_code(code);
+    std::string response_msg =
+            code == MetaServiceCode::OK && msg.empty() ? std::string(status_msg) : msg;
+    return {.status_code = status_code, .msg = std::move(response_msg), .body = body};
 }
 
 inline static HttpResponse http_text_reply(const MetaServiceResponseStatus& status,

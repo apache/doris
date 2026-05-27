@@ -335,7 +335,8 @@ bool RowGroupReader::is_dictionary_encoded(const tparquet::ColumnMetaData& colum
     if (column_metadata.__isset.encoding_stats) {
         // Condition #1 above
         for (const tparquet::PageEncodingStats& enc_stat : column_metadata.encoding_stats) {
-            if (enc_stat.page_type == tparquet::PageType::DATA_PAGE &&
+            if ((enc_stat.page_type == tparquet::PageType::DATA_PAGE ||
+                 enc_stat.page_type == tparquet::PageType::DATA_PAGE_V2) &&
                 (enc_stat.encoding != tparquet::Encoding::PLAIN_DICTIONARY &&
                  enc_stat.encoding != tparquet::Encoding::RLE_DICTIONARY) &&
                 enc_stat.count > 0) {
@@ -715,6 +716,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         DCHECK_EQ(pre_read_rows + _cached_filtered_rows, 0);
         *read_rows = 0;
         *batch_eof = true;
+        RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block));
         return Status::OK();
     }
 

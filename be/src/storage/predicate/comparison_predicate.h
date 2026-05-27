@@ -22,6 +22,7 @@
 
 #include "common/compare.h"
 #include "core/column/column_dictionary.h"
+#include "core/field.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/inverted/inverted_index_cache.h" // IWYU pragma: keep
 #include "storage/index/inverted/inverted_index_reader.h"
@@ -93,14 +94,10 @@ public:
             return Status::InvalidArgument("invalid comparison predicate type {}", PT);
         }
 
-        std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-        RETURN_IF_ERROR(
-                InvertedIndexQueryParamFactory::create_query_value<Type>(&_value, query_param));
-
         InvertedIndexParam param;
         param.column_name = name_with_type.first;
         param.column_type = name_with_type.second;
-        param.query_value = query_param->get_value();
+        param.query_value = Field::create_field<Type>(_value);
         param.query_type = query_type;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
@@ -399,9 +396,7 @@ public:
         if (column.is_nullable()) {
             const auto* nullable_column_ptr = check_and_get_column<ColumnNullable>(column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map =
-                    assert_cast<const ColumnUInt8&>(nullable_column_ptr->get_null_map_column())
-                            .get_data();
+            const auto& null_map = nullable_column_ptr->get_null_map_column().get_data();
 
             if (nested_column.is_column_dictionary()) {
                 if constexpr (is_string_type(Type)) {
@@ -495,9 +490,7 @@ private:
         if (column.is_nullable()) {
             const auto* nullable_column_ptr = check_and_get_column<ColumnNullable>(column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map =
-                    assert_cast<const ColumnUInt8&>(nullable_column_ptr->get_null_map_column())
-                            .get_data();
+            const auto& null_map = nullable_column_ptr->get_null_map_column().get_data();
 
             return _base_evaluate<true>(&nested_column, null_map.data(), sel, size);
         } else {
@@ -550,9 +543,7 @@ private:
         if (column.is_nullable()) {
             const auto* nullable_column_ptr = check_and_get_column<ColumnNullable>(column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map =
-                    assert_cast<const ColumnUInt8&>(nullable_column_ptr->get_null_map_column())
-                            .get_data();
+            const auto& null_map = nullable_column_ptr->get_null_map_column().get_data();
 
             _base_evaluate_bit<true, is_and>(&nested_column, null_map.data(), sel, size, flags);
         } else {

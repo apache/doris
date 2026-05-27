@@ -41,17 +41,16 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, Block* outpu
     output_block->clear_column_data();
     auto get_data_from_blocks_buffer = false;
     {
-        std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
+        LockGuard lock(local_state._shared_state->buffer_mutex);
         get_data_from_blocks_buffer = !local_state._shared_state->blocks_buffer.empty();
         if (get_data_from_blocks_buffer) {
             local_state._shared_state->blocks_buffer.front().swap(*output_block);
             local_state._shared_state->blocks_buffer.pop();
 
-            if (local_state._shared_state->blocks_buffer.empty() &&
-                !local_state._shared_state->sink_eos) {
+            if (local_state._shared_state->blocks_buffer.empty()) {
                 // add this mutex to check, as in some case maybe is doing block(), and the sink is doing set eos.
                 // so have to hold mutex to set block(), avoid to sink have set eos and set ready, but here set block() by mistake
-                std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+                LockGuard lc(local_state._shared_state->sink_eos_lock);
                 //if buffer have no data and sink not eos, block reading and wait for signal again
                 if (!local_state._shared_state->sink_eos) {
                     local_state._dependency->block();
@@ -94,7 +93,7 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state, Block
     if (current_eos) {
         // current sort have eos, so get next idx
         local_state._sort_idx++;
-        std::unique_lock<std::mutex> lc(local_state._shared_state->prepared_finish_lock);
+        LockGuard lc(local_state._shared_state->prepared_finish_lock);
         if (local_state._sort_idx < sorter_size &&
             !sorters[local_state._sort_idx]->prepared_finish()) {
             local_state._dependency->block();

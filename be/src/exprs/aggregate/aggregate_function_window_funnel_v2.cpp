@@ -40,10 +40,13 @@ AggregateFunctionPtr create_aggregate_function_window_funnel_v2(const std::strin
         return nullptr;
     }
     if (argument_types[2]->get_primitive_type() == TYPE_DATETIMEV2) {
-        return creator_without_type::create<AggregateFunctionWindowFunnelV2>(
+        return creator_without_type::create<AggregateFunctionWindowFunnelV2<TYPE_DATETIMEV2>>(
+                argument_types, result_is_nullable, attr);
+    } else if (argument_types[2]->get_primitive_type() == TYPE_TIMESTAMPTZ) {
+        return creator_without_type::create<AggregateFunctionWindowFunnelV2<TYPE_TIMESTAMPTZ>>(
                 argument_types, result_is_nullable, attr);
     } else {
-        LOG(WARNING) << "Only support DateTime type as window argument!";
+        LOG(WARNING) << "Only support DateTime or TimeStampTz type as window argument!";
         return nullptr;
     }
 }

@@ -149,13 +149,6 @@ TEST_F(DataTypeNumberTest, get_storage_field_type) {
 
     EXPECT_EQ(dt_uint8.get_storage_field_type(), doris::FieldType::OLAP_FIELD_TYPE_BOOL);
 }
-TEST_F(DataTypeNumberTest, get_default) {
-    EXPECT_EQ(dt_int8.get_default(), Field::create_field<TYPE_TINYINT>(0));
-    EXPECT_EQ(dt_int16.get_default(), Field::create_field<TYPE_SMALLINT>(0));
-    EXPECT_EQ(dt_int32.get_default(), Field::create_field<TYPE_INT>(0));
-    EXPECT_EQ(dt_int64.get_default(), Field::create_field<TYPE_BIGINT>(0));
-    EXPECT_EQ(dt_int128.get_default(), Field::create_field<TYPE_LARGEINT>(Int128(0)));
-}
 template <PrimitiveType T>
 void test_int_field(const typename PrimitiveTypeTraits<T>::DataType& dt) {
     TExprNode expr_node;
@@ -367,7 +360,7 @@ TEST_F(DataTypeNumberTest, to_string) {
         std::cout << "test datatype to string: " << dt.get_family_name() << std::endl;
         using DataType = decltype(dt);
         using ColumnType = typename std::remove_reference<DataType>::type::ColumnType;
-        const auto* col_with_type = assert_cast<const ColumnType*>(&source_column);
+        const auto* col_with_type = &source_column;
 
         size_t row_count = source_column.size();
         {

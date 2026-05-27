@@ -610,7 +610,9 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
                 RETURN_IF_ERROR(_convert_to_output_block(block));
                 // Truncate char columns or varchar columns if size is smaller than file columns
                 // or not found in the file column schema.
+                _update_adaptive_batch_size_before_truncate(*block);
                 RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
+                _update_adaptive_batch_size_after_truncate(*block);
             }
         }
         break;

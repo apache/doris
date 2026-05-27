@@ -18,9 +18,11 @@
 package org.apache.doris.mysql.authenticate.ldap;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
 
 import mockit.Expectations;
 import mockit.Mocked;
+import org.apache.logging.log4j.Level;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -84,5 +86,34 @@ public class LdapManagerTest {
 
         mockClient(true, false);
         Assert.assertFalse(ldapManager.checkUserPasswd(USER2, "123"));
+    }
+
+    @Test
+    public void testCheckUserPasswdCachedPasswdMatchLogsInfoWithoutThreshold() {
+        LdapManager ldapManager = new LdapManager();
+        mockClient(true, true);
+        Assert.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
+
+        try (TestLogAppender appender = TestLogAppender.attach(LdapManager.class)) {
+            Assert.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
+            Assert.assertTrue(appender.contains(Level.DEBUG,
+                    "LdapManager.checkUserPasswd: user=user1, result=cached_passwd_match, elapsed="));
+            Assert.assertFalse(appender.contains(Level.WARN,
+                    "LdapManager.checkUserPasswd slow: user=user1"));
+        }
+    }
+
+    @Test
+    public void testGetUserInfoLogsInfoWithoutThreshold() {
+        LdapManager ldapManager = new LdapManager();
+        mockClient(true, true);
+
+        try (TestLogAppender appender = TestLogAppender.attach(LdapManager.class)) {
+            Assert.assertNotNull(ldapManager.getUserInfo(USER1));
+            Assert.assertTrue(appender.contains(Level.DEBUG,
+                    "LdapManager.getUserInfo: user=user1, cacheHit=false, elapsed="));
+            Assert.assertFalse(appender.contains(Level.WARN,
+                    "LdapManager.getUserInfo slow: user=user1"));
+        }
     }
 }

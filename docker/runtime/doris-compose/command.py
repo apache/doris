@@ -438,6 +438,14 @@ class UpCommand(Command):
             "Add custom host-to-IP mappings (host:ip). For example: --extra-hosts myhost1:192.168.10.1 myhost2:192.168.10.2 . Only use when creating new cluster."
         )
 
+        parser.add_argument(
+            "--cloud-config",
+            nargs="*",
+            type=str,
+            help=
+            "Override cloud store config values. For example: --cloud-config DORIS_CLOUD_AK=xxx DORIS_CLOUD_BUCKET=yyy. Only use when creating new cloud cluster."
+        )
+
         parser.add_argument("--coverage-dir",
                             default="",
                             help="Set code coverage output directory")
@@ -490,8 +498,13 @@ class UpCommand(Command):
         parser.add_argument(
             "--fdb-version",
             type=str,
-            default="7.1.26",
+            default="7.3.69",
             help="fdb image version. Only use in cloud cluster.")
+        parser.add_argument(
+            "--fdb-image",
+            type=str,
+            default=os.environ.get("DORIS_FDB_IMAGE", ""),
+            help="Override fdb image. Only use in cloud cluster.")
 
         parser.add_argument(
             "--tde-ak",
@@ -590,7 +603,9 @@ class UpCommand(Command):
                     args.add_recycle_num = 1
                 if not args.be_cluster:
                     args.be_cluster = "compute_cluster"
-                cloud_store_config = self._get_cloud_store_config()
+                cloud_store_config = self._merge_cloud_store_config(
+                    self._get_cloud_store_config(), args.cloud_config
+                )
             else:
                 args.add_ms_num = 0
                 args.add_recycle_num = 0
@@ -663,9 +678,10 @@ class UpCommand(Command):
             if for_all:
                 cluster.set_image(args.IMAGE)
 
+        fdb_image = args.fdb_image or "foundationdb/foundationdb:{}".format(
+            args.fdb_version)
         for node in cluster.get_all_nodes(CLUSTER.Node.TYPE_FDB):
-            node.set_image("foundationdb/foundationdb:{}".format(
-                args.fdb_version))
+            node.set_image(fdb_image)
 
         cluster.save()
 
@@ -790,8 +806,7 @@ class UpCommand(Command):
                     except Exception as e:
                         LOG.error(f"Failed to add BE {be_endpoint}: {str(e)}")
                 if is_new_cluster:
-                    cloud_store_config = self._get_cloud_store_config()
-                    db_mgr.create_default_storage_vault(cloud_store_config)
+                    db_mgr.create_default_storage_vault(cluster.cloud_store_config)
 
             if not cluster.is_host_network():
                 wait_service(True, args.wait_timeout, cluster, add_fe_ids,
@@ -866,6 +881,34 @@ class UpCommand(Command):
                     "Should provide none empty property '{}' in file {}".
                     format(key, CLUSTER.CLOUD_CFG_FILE))
         return config
+
+    @staticmethod
+    def _merge_cloud_store_config(base_config, overrides):
+        if not overrides:
+            return base_config
+
+        merged = dict(base_config)
+        for item in overrides:
+            pos = item.find('=')
+            if pos <= 0:
+                raise Exception(
+                    "cloud config override '{}' error format, should be like 'name=value'".
+                    format(item)
+                )
+            key = item[:pos].strip()
+            value = item[pos + 1:].strip()
+            if not key or not value:
+                raise Exception(
+                    "cloud config override '{}' error format, should be like 'name=value'".
+                    format(item)
+                )
+            if key not in merged:
+                raise Exception(
+                    "Unknown cloud config override '{}', available keys: {}".
+                    format(key, ", ".join(sorted(merged.keys())))
+                )
+            merged[key] = value
+        return merged
 
 
 class DownCommand(Command):

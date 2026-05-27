@@ -160,8 +160,6 @@ class DataTypeDateTime;
 class DataTypeIPv4;
 class DataTypeIPv6;
 class DataTypeString;
-template <typename T>
-class DataTypeEnum;
 template <PrimitiveType T>
 class DataTypeNumber;
 template <PrimitiveType T>

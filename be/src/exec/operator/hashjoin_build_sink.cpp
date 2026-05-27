@@ -67,7 +67,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
         _dependency->block();
         _finish_dependency->block();
         {
-            std::lock_guard<std::mutex> guard(p._mutex);
+            LockGuard guard(p._mutex);
             p._finish_dependencies.push_back(_finish_dependency);
         }
     } else {
@@ -243,8 +243,15 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
 
         if (p._use_shared_hash_table) {
-            std::unique_lock lock(p._mutex);
-            p._signaled = true;
+            LockGuard lock(p._mutex);
+            // Only signal non-builder tasks when the builder actually built the hash table.
+            // When the builder is terminated early, process_build_block() has not initialized the
+            // shared hash table or runtime filter wrappers. In that case the hash table variant is
+            // still monostate, so signaling non-builders would make them enter std::visit on
+            // monostate and crash with "Hash table type mismatch".
+            if (!_terminated) {
+                p._signaled = true;
+            }
             for (auto& dep : _shared_state->sink_deps) {
                 dep->set_ready();
             }

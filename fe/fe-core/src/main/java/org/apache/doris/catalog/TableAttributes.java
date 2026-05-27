@@ -33,9 +33,9 @@ public class TableAttributes {
     @SerializedName(value = "constraints")
     private final Map<String, Constraint> constraintsMap = new HashMap<>();
     @SerializedName(value = "visibleVersion")
-    private long visibleVersion;
+    private volatile long visibleVersion;
     @SerializedName(value = "visibleVersionTime")
-    private long visibleVersionTime;
+    private volatile long visibleVersionTime;
 
     public TableAttributes() {
         this.visibleVersion = TABLE_INIT_VERSION;

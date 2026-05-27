@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "core/data_type/primitive_type.h"
+#include "core/field.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "storage/index/index_query_context.h"
@@ -223,11 +224,11 @@ public:
     IndexType index_type() override { return IndexType::INVERTED; }
 
     virtual Status query(const IndexQueryContextPtr& context, const std::string& column_name,
-                         const void* query_value, InvertedIndexQueryType query_type,
+                         const Field& query_value, InvertedIndexQueryType query_type,
                          std::shared_ptr<roaring::Roaring>& bit_map,
                          const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) = 0;
     virtual Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
-                             const void* query_value, InvertedIndexQueryType query_type,
+                             const Field& query_value, InvertedIndexQueryType query_type,
                              size_t* count) = 0;
 
     Status read_null_bitmap(const IndexQueryContextPtr& context,
@@ -285,11 +286,11 @@ public:
 
     Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
-                 const void* query_value, InvertedIndexQueryType query_type,
+                 const Field& query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map,
                  const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
     Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
-                     const void* query_value, InvertedIndexQueryType query_type,
+                     const Field& query_value, InvertedIndexQueryType query_type,
                      size_t* count) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "FullTextIndexReader not support try_query");
@@ -310,11 +311,11 @@ public:
 
     Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
-                 const void* query_value, InvertedIndexQueryType query_type,
+                 const Field& query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map,
                  const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
     Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
-                     const void* query_value, InvertedIndexQueryType query_type,
+                     const Field& query_value, InvertedIndexQueryType query_type,
                      size_t* count) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "StringTypeInvertedIndexReader not support try_query");
@@ -370,21 +371,21 @@ public:
 
     Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
-                 const void* query_value, InvertedIndexQueryType query_type,
+                 const Field& query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map,
                  const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
     Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
-                     const void* query_value, InvertedIndexQueryType query_type,
+                     const Field& query_value, InvertedIndexQueryType query_type,
                      size_t* count) override;
-    Status invoke_bkd_try_query(const IndexQueryContextPtr& context, const void* query_value,
+    Status invoke_bkd_try_query(const IndexQueryContextPtr& context, const Field& query_value,
                                 InvertedIndexQueryType query_type,
                                 std::shared_ptr<lucene::util::bkd::bkd_reader> r, size_t* count);
-    Status invoke_bkd_query(const IndexQueryContextPtr& context, const void* query_value,
+    Status invoke_bkd_query(const IndexQueryContextPtr& context, const Field& query_value,
                             InvertedIndexQueryType query_type,
                             std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                             std::shared_ptr<roaring::Roaring>& bit_map);
     template <InvertedIndexQueryType QT>
-    Status construct_bkd_query_value(const void* query_value,
+    Status construct_bkd_query_value(const Field& query_value,
                                      std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                                      InvertedIndexVisitor<QT>* visitor);
 
@@ -394,106 +395,6 @@ public:
 private:
     const TypeInfo* _type_info {};
     const KeyCoder* _value_key_coder {};
-};
-
-template <PrimitiveType PT>
-class InvertedIndexQueryParam;
-
-/**
- * @brief InvertedIndexQueryParamFactory is a factory class to create QueryValue object.
- * we need a template function to make predict class like in_list_predict template class to use.
- * also need a function with primitive type parameter to create inverted index query value. like some function expr: function_array_index
- * Now we just mapping field value in query engine to storage field value
- */
-class InvertedIndexQueryParamFactory {
-    ENABLE_FACTORY_CREATOR(InvertedIndexQueryParamFactory);
-
-public:
-    virtual ~InvertedIndexQueryParamFactory() = default;
-
-    template <PrimitiveType PT, typename ValueType>
-    static Status create_query_value(
-            const ValueType* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param) {
-        static_assert(!std::is_same_v<ValueType, void>,
-                      "ValueType cannot be void, as it is unsupported and dangerous.");
-
-        using CPP_TYPE = typename PrimitiveTypeTraits<PT>::CppType;
-        std::unique_ptr<InvertedIndexQueryParam<PT>> param =
-                InvertedIndexQueryParam<PT>::create_unique();
-
-        CPP_TYPE cpp_val;
-        if constexpr (std::is_same_v<ValueType, doris::Field>) {
-            auto field_val = value->template get<PT>();
-            cpp_val = static_cast<CPP_TYPE>(field_val);
-        } else {
-            cpp_val = static_cast<CPP_TYPE>(*value);
-        }
-
-        auto storage_val = PrimitiveTypeConvertor<PT>::to_storage_field_type(cpp_val);
-        param->set_value(&storage_val);
-        result_param = std::move(param);
-        return Status::OK();
-    }
-
-    static Status create_query_value(
-            const PrimitiveType& primitiveType, const doris::Field* value,
-            std::unique_ptr<InvertedIndexQueryParamFactory>& result_param) {
-        switch (primitiveType) {
-#define M(TYPE)                                                             \
-    case TYPE: {                                                            \
-        return create_query_value<TYPE, doris::Field>(value, result_param); \
-    }
-            M(PrimitiveType::TYPE_BOOLEAN)
-            M(PrimitiveType::TYPE_TINYINT)
-            M(PrimitiveType::TYPE_SMALLINT)
-            M(PrimitiveType::TYPE_INT)
-            M(PrimitiveType::TYPE_BIGINT)
-            M(PrimitiveType::TYPE_LARGEINT)
-            M(PrimitiveType::TYPE_FLOAT)
-            M(PrimitiveType::TYPE_DOUBLE)
-            M(PrimitiveType::TYPE_DECIMALV2)
-            M(PrimitiveType::TYPE_DECIMAL32)
-            M(PrimitiveType::TYPE_DECIMAL64)
-            M(PrimitiveType::TYPE_DECIMAL128I)
-            M(PrimitiveType::TYPE_DECIMAL256)
-            M(PrimitiveType::TYPE_DATE)
-            M(PrimitiveType::TYPE_DATETIME)
-            M(PrimitiveType::TYPE_CHAR)
-            M(PrimitiveType::TYPE_VARCHAR)
-            M(PrimitiveType::TYPE_STRING)
-            M(PrimitiveType::TYPE_DATEV2)
-            M(PrimitiveType::TYPE_DATETIMEV2)
-            M(PrimitiveType::TYPE_IPV4)
-            M(PrimitiveType::TYPE_IPV6)
-#undef M
-        default:
-            return Status::NotSupported("Unsupported primitive type {} for inverted index reader",
-                                        primitiveType);
-        }
-    };
-
-    virtual const void* get_value() const {
-        LOG_FATAL(
-                "Execution reached an undefined behavior code path in "
-                "InvertedIndexQueryParamFactory");
-        __builtin_unreachable();
-    };
-};
-
-template <PrimitiveType PT>
-class InvertedIndexQueryParam : public InvertedIndexQueryParamFactory {
-    ENABLE_FACTORY_CREATOR(InvertedIndexQueryParam);
-    using storage_val = typename PrimitiveTypeTraits<PT>::StorageFieldType;
-
-public:
-    void set_value(const storage_val* value) {
-        _value = *reinterpret_cast<const storage_val*>(value);
-    }
-
-    const void* get_value() const override { return &_value; }
-
-private:
-    storage_val _value;
 };
 
 } // namespace segment_v2

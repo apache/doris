@@ -296,6 +296,12 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         auto page_size = _tablet_schema->row_store_page_size();
         opts.data_page_size =
                 (page_size > 0) ? page_size : segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+        // Row store data is already serialized as a single blob. Keep it on plain pages
+        // to avoid introducing dictionary pages for the hidden row store column.
+        opts.meta->set_encoding(_tablet_schema->binary_plain_encoding_default_impl() ==
+                                                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
+                                        ? PLAIN_ENCODING_V2
+                                        : PLAIN_ENCODING);
     }
 
     opts.rowset_ctx = _opts.rowset_ctx;

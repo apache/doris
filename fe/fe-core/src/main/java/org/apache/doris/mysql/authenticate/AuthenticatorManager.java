@@ -161,8 +161,16 @@ public class AuthenticatorManager {
                                 MysqlSerializer serializer,
                                 MysqlAuthPacket authPacket,
                                 MysqlHandshakePacket handshakePacket) throws IOException {
+
         String remoteIp = context.getMysqlChannel().getRemoteIp();
         Authenticator primaryAuthenticator = chooseAuthenticator(userName, remoteIp);
+        boolean debugEnabled = LOG.isDebugEnabled();
+        long resolveStart = 0L;
+        if (debugEnabled) {
+            LOG.debug("AuthenticatorManager: user={}, authenticator={}",
+                    userName, primaryAuthenticator.getClass().getSimpleName());
+            resolveStart = System.currentTimeMillis();
+        }
         Optional<AuthenticateRequest> primaryRequest = resolveAuthenticateRequest(primaryAuthenticator, userName,
                 context, channel, serializer, authPacket, handshakePacket);
         if (!primaryRequest.isPresent()) {
@@ -170,6 +178,11 @@ public class AuthenticatorManager {
         }
 
         AuthenticateRequest request = primaryRequest.get();
+        if (debugEnabled) {
+            long resolveElapsed = System.currentTimeMillis() - resolveStart;
+            LOG.debug("resolvePassword: user={}, elapsed={}ms", userName, resolveElapsed);
+            resolveStart = System.currentTimeMillis();
+        }
         remoteIp = request.getRemoteIp();
         if (isOidcAuthenticationWithoutSsl(authPacket, request)) {
             setInsecureOidcTransportError(context);
@@ -177,6 +190,10 @@ public class AuthenticatorManager {
                     new ArrayList<>());
         }
         AuthenticateResponse primaryResponse = authenticateWith(primaryAuthenticator, request);
+        if (debugEnabled) {
+            long authenticateElapsed = System.currentTimeMillis() - resolveStart;
+            LOG.debug("authenticate: user={}, elapsed={}ms", userName, authenticateElapsed);
+        }
         if (primaryResponse.isSuccess()) {
             return finishSuccessfulAuthentication(context, remoteIp, primaryResponse, false);
         }

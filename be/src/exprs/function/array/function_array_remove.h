@@ -364,8 +364,8 @@ private:
         }
         // execute
         auto array_type = remove_nullable(arguments[0].type);
-        auto left_element_type =
-                remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
+        auto left_element_type = remove_nullable(
+                assert_cast<const DataTypeArray*>(array_type.get())->get_nested_type());
         auto right_type = remove_nullable(arguments[1].type);
 
         ColumnPtr res = nullptr;

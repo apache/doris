@@ -15,13 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "core/value/struct_value.h"
+suite("test_jsonb_keys_invalid_path", "p0") {
+    test {
+        sql """
+            SELECT json_keys(CAST('{"a":{"b":1}}' AS JSONB), '\$**.a');
+        """
+        exception "In this situation, path expressions may not contain the * and ** tokens or an array range."
+    }
 
-namespace doris {
-
-void StructValue::shallow_copy(const StructValue* other) {
-    _size = other->_size;
-    _values = other->_values;
-    _has_null = other->_has_null;
+    test {
+        sql """
+            SELECT json_keys(j, p)
+            FROM (
+                SELECT CAST('{"a":{"b":1}}' AS JSONB) AS j, '\$**.a' AS p
+            ) t;
+        """
+        exception "In this situation, path expressions may not contain the * and ** tokens or an array range."
+    }
 }
-} // namespace doris

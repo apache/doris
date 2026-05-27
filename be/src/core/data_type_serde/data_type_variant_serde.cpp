@@ -21,6 +21,7 @@
 #include <string>
 
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -109,10 +110,11 @@ Status DataTypeVariantSerDe::serialize_one_cell_to_json(const IColumn& column, i
 
 Status DataTypeVariantSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                             const FormatOptions& options) const {
-    ParseConfig config;
+    ParseConfig parse_config;
+    parse_config.check_duplicate_json_path = config::variant_enable_duplicate_json_path_check;
     StringRef json_ref(slice.data, slice.size);
     RETURN_IF_CATCH_EXCEPTION(
-            variant_util::parse_json_to_variant(column, json_ref, nullptr, config));
+            variant_util::parse_json_to_variant(column, json_ref, nullptr, parse_config));
     return Status::OK();
 }
 

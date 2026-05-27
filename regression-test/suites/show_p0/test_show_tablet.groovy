@@ -27,6 +27,12 @@ suite("test_show_tablet") {
             );"""
 
     def res = sql """ SHOW TABLETS FROM show_tablets_test_t """
+    def noDbJdbcUrl = context.config.jdbcUrl.replaceFirst(/(jdbc:mysql:\/\/[^\/]+\/)[^?]*/, '$1')
+    connect(context.config.jdbcUser, context.config.jdbcPassword, noDbJdbcUrl) {
+        def tabletId = res[0][0]
+        def tabletRes = sql """ SHOW TABLET ${tabletId} """
+        assertTrue(tabletRes.size() == 1)
+    }
     if (res.size() == 5) {
         // replication num == 1
         res = sql """SHOW TABLETS FROM show_tablets_test_t limit 5, 1;"""

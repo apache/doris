@@ -81,18 +81,18 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
         std::shared_ptr<TableSchemaChangeHelper::Node> key_node = nullptr;
 
         {
-            const auto& key_type = assert_cast<const DataTypePtr&>(
+            const auto& key_type =
                     assert_cast<const DataTypeMap*>(remove_nullable(table_data_type).get())
-                            ->get_key_type());
+                            ->get_key_type();
 
             RETURN_IF_ERROR(by_parquet_name(key_type, file_field.children[0], key_node));
         }
 
         std::shared_ptr<TableSchemaChangeHelper::Node> value_node = nullptr;
         {
-            const auto& value_type = assert_cast<const DataTypePtr&>(
+            const auto& value_type =
                     assert_cast<const DataTypeMap*>(remove_nullable(table_data_type).get())
-                            ->get_value_type());
+                            ->get_value_type();
 
             RETURN_IF_ERROR(by_parquet_name(value_type, file_field.children[1], value_node));
         }
@@ -106,9 +106,9 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
         MOCK_REMOVE(DCHECK(file_field.children.size() == 1));
 
         std::shared_ptr<TableSchemaChangeHelper::Node> element_node = nullptr;
-        const auto& element_type = assert_cast<const DataTypePtr&>(
+        const auto& element_type =
                 assert_cast<const DataTypeArray*>(remove_nullable(table_data_type).get())
-                        ->get_nested_type());
+                        ->get_nested_type();
 
         RETURN_IF_ERROR(by_parquet_name(element_type, file_field.children[0], element_node));
 
@@ -198,15 +198,15 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
         MOCK_REMOVE(DCHECK(orc_root->getSubtypeCount() == 2));
 
         std::shared_ptr<TableSchemaChangeHelper::Node> key_node = nullptr;
-        const auto& key_type = assert_cast<const DataTypePtr&>(
+        const auto& key_type =
                 assert_cast<const DataTypeMap*>(remove_nullable(table_data_type).get())
-                        ->get_key_type());
+                        ->get_key_type();
         RETURN_IF_ERROR(by_orc_name(key_type, orc_root->getSubtype(0), key_node));
 
         std::shared_ptr<TableSchemaChangeHelper::Node> value_node = nullptr;
-        const auto& value_type = assert_cast<const DataTypePtr&>(
+        const auto& value_type =
                 assert_cast<const DataTypeMap*>(remove_nullable(table_data_type).get())
-                        ->get_value_type());
+                        ->get_value_type();
         RETURN_IF_ERROR(by_orc_name(value_type, orc_root->getSubtype(1), value_node));
         node = std::make_shared<TableSchemaChangeHelper::MapNode>(key_node, value_node);
 
@@ -219,9 +219,9 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
         MOCK_REMOVE(DCHECK(orc_root->getSubtypeCount() == 1));
 
         std::shared_ptr<TableSchemaChangeHelper::Node> element_node = nullptr;
-        const auto& element_type = assert_cast<const DataTypePtr&>(
+        const auto& element_type =
                 assert_cast<const DataTypeArray*>(remove_nullable(table_data_type).get())
-                        ->get_nested_type());
+                        ->get_nested_type();
 
         RETURN_IF_ERROR(by_orc_name(element_type, orc_root->getSubtype(0), element_node));
         node = std::make_shared<TableSchemaChangeHelper::ArrayNode>(element_node);

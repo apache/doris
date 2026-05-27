@@ -77,6 +77,7 @@ void merge_events_list(T& events_list, size_t prefix_size, bool prefix_sorted, b
 /// The algorithm uses this to ensure each funnel step comes from a different row.
 ///
 /// This approach adds ZERO storage overhead — each event remains 9 bytes (UInt64 + UInt8).
+template <PrimitiveType T>
 struct WindowFunnelStateV2 {
     /// (timestamp_int_val, 1-based event_index with continuation flag in bit 7)
     ///
@@ -136,10 +137,10 @@ struct WindowFunnelStateV2 {
         window = win;
         window_funnel_mode = mode;
 
-        // get_data() returns DateV2Value<DateTimeV2ValueType>; convert to packed UInt64
-        auto timestamp = assert_cast<const ColumnVector<TYPE_DATETIMEV2>&>(*arg_columns[2])
-                                 .get_data()[row_num]
-                                 .to_date_int_val();
+        auto timestamp =
+                assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(*arg_columns[2])
+                        .get_data()[row_num]
+                        .to_date_int_val();
 
         // Iterate from last event to first (reverse order).
         // This ensures that after stable_sort, events with the same timestamp
@@ -174,7 +175,7 @@ struct WindowFunnelStateV2 {
         }
     }
 
-    void merge(const WindowFunnelStateV2& other) {
+    void merge(const WindowFunnelStateV2<T>& other) {
         if (other.events_list.empty()) {
             return;
         }
@@ -617,20 +618,22 @@ private:
     }
 };
 
+template <PrimitiveType T>
 class AggregateFunctionWindowFunnelV2 final
-        : public IAggregateFunctionDataHelper<WindowFunnelStateV2, AggregateFunctionWindowFunnelV2>,
+        : public IAggregateFunctionDataHelper<WindowFunnelStateV2<T>,
+                                              AggregateFunctionWindowFunnelV2<T>>,
           MultiExpression,
           NullableAggregateFunction {
 public:
     AggregateFunctionWindowFunnelV2(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<WindowFunnelStateV2, AggregateFunctionWindowFunnelV2>(
-                      argument_types_) {
-        WindowFunnelStateV2::validate_event_count(
+            : IAggregateFunctionDataHelper<WindowFunnelStateV2<T>,
+                                           AggregateFunctionWindowFunnelV2<T>>(argument_types_) {
+        WindowFunnelStateV2<T>::validate_event_count(
                 cast_set<int>(IAggregateFunction::get_argument_types().size() - 3));
     }
 
     void create(AggregateDataPtr __restrict place) const override {
-        new (place) WindowFunnelStateV2(
+        new (place) WindowFunnelStateV2<T>(
                 cast_set<int>(IAggregateFunction::get_argument_types().size() - 3));
     }
 
@@ -665,8 +668,8 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(const_cast<AggregateDataPtr>(place)).sort();
         assert_cast<ColumnInt32&>(to).get_data().push_back(
-                IAggregateFunctionDataHelper<WindowFunnelStateV2,
-                                             AggregateFunctionWindowFunnelV2>::data(place)
+                IAggregateFunctionDataHelper<WindowFunnelStateV2<T>,
+                                             AggregateFunctionWindowFunnelV2<T>>::data(place)
                         .get());
     }
 

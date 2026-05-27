@@ -15,18 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <memory>
+package org.apache.doris.statistics;
 
-#include "exprs/aggregate/aggregate_function_min_max_by.h"
-#include "exprs/aggregate/aggregate_function_simple_factory.h"
+/**
+ * Control-flow signal thrown by an analysis task when it decides to skip
+ * statistics collection for a specific column (e.g. a string column contains
+ * at least one row whose byte length exceeds
+ * {@code Config.statistics_max_string_column_length}).
+ *
+ * This is NOT an error. The task that catches this exception should mark
+ * itself as FINISHED (not FAILED) and surface the skip reason via
+ * {@code info.message} / {@code SHOW ANALYZE}.
+ */
+public class AnalyzeSkipException extends RuntimeException {
 
-namespace doris {
-#include "common/compile_check_begin.h"
+    public AnalyzeSkipException(String message) {
+        super(message);
+    }
 
-void register_aggregate_function_max_by(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both(
-            "max_by", create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
-                                                           AggregateFunctionMaxByData>);
+    public AnalyzeSkipException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }
-
-} // namespace doris

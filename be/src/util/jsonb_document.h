@@ -67,10 +67,13 @@
 #define JSONB_JSONBDOCUMENT_H
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -1002,6 +1005,220 @@ struct ArrayVal : public ContainerVal {
     const_iterator end() const { return const_iterator((pointer)(payload + size)); }
 };
 
+namespace jsonb_detail {
+
+struct JsonbScaledDecimal {
+    wide::Int256 value;
+    uint32_t scale;
+};
+
+inline void validate_decimal_scale(uint32_t scale) {
+    if (scale > static_cast<uint32_t>(BeConsts::MAX_DECIMALV3_SCALE)) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "Invalid JSONB decimal scale: {}, max allowed scale: {}", scale,
+                        BeConsts::MAX_DECIMALV3_SCALE);
+    }
+}
+
+inline bool is_numeric(const JsonbValue* value) {
+    return value->isInt() || value->isDouble() || value->isFloat() || value->isDecimal();
+}
+
+inline double floating_value(const JsonbValue* value) {
+    if (value->isDouble()) {
+        return value->unpack<JsonbDoubleVal>()->val();
+    }
+    return value->unpack<JsonbFloatVal>()->val();
+}
+
+inline JsonbScaledDecimal get_scaled_decimal(const JsonbValue* value) {
+    switch (value->type) {
+    case JsonbType::T_Decimal32: {
+        const auto* decimal = value->unpack<JsonbDecimal32>();
+        validate_decimal_scale(decimal->scale);
+        return {wide::Int256(decimal->val()), decimal->scale};
+    }
+    case JsonbType::T_Decimal64: {
+        const auto* decimal = value->unpack<JsonbDecimal64>();
+        validate_decimal_scale(decimal->scale);
+        return {wide::Int256(decimal->val()), decimal->scale};
+    }
+    case JsonbType::T_Decimal128: {
+        const auto* decimal = value->unpack<JsonbDecimal128>();
+        validate_decimal_scale(decimal->scale);
+        return {wide::Int256(decimal->val()), decimal->scale};
+    }
+    case JsonbType::T_Decimal256: {
+        const auto* decimal = value->unpack<JsonbDecimal256>();
+        validate_decimal_scale(decimal->scale);
+        return {decimal->val(), decimal->scale};
+    }
+    default:
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid JSONB decimal value type: {}",
+                        static_cast<int32_t>(value->type));
+    }
+}
+
+inline bool scaled_decimal_equal_decimal(const JsonbScaledDecimal& lhs,
+                                         const JsonbScaledDecimal& rhs) {
+    if (lhs.scale == rhs.scale) {
+        return lhs.value == rhs.value;
+    }
+
+    if (lhs.scale < rhs.scale) {
+        const auto scale_multiplier = decimal_scale_multiplier<wide::Int256>(rhs.scale - lhs.scale);
+        return rhs.value % scale_multiplier == 0 && lhs.value == rhs.value / scale_multiplier;
+    }
+
+    const auto scale_multiplier = decimal_scale_multiplier<wide::Int256>(lhs.scale - rhs.scale);
+    return lhs.value % scale_multiplier == 0 && lhs.value / scale_multiplier == rhs.value;
+}
+
+inline bool scaled_decimal_equal_integer(const JsonbScaledDecimal& decimal, int128_t integer) {
+    const auto integer_value = wide::Int256(integer);
+    if (decimal.scale == 0) {
+        return decimal.value == integer_value;
+    }
+
+    const auto scale_multiplier = decimal_scale_multiplier<wide::Int256>(decimal.scale);
+    return decimal.value % scale_multiplier == 0 &&
+           decimal.value / scale_multiplier == integer_value;
+}
+
+inline constexpr auto kPowersOfFive = [] {
+    std::array<wide::Int256, BeConsts::MAX_DECIMALV3_SCALE + 1> powers {};
+    powers[0] = 1;
+    for (size_t i = 1; i < powers.size(); ++i) {
+        powers[i] = powers[i - 1] * 5;
+    }
+    return powers;
+}();
+
+inline wide::Int256 power_of_five(uint32_t exponent) {
+    validate_decimal_scale(exponent);
+    return kPowersOfFive[exponent];
+}
+
+inline bool scaled_binary_equal(wide::Int256 value, int exponent, wide::Int256 significand) {
+    if (exponent < 0) {
+        const int divisor_exponent = -exponent;
+        if (divisor_exponent >= std::numeric_limits<int64_t>::digits) {
+            return false;
+        }
+        const auto divisor = wide::Int256(1) << divisor_exponent;
+        return significand % divisor == 0 && value == significand / divisor;
+    }
+    constexpr int max_positive_int256_shift = std::numeric_limits<wide::Int256>::digits;
+    // wide::Int256 is signed, so shifting 1 by 255 reaches the sign bit.
+    if (exponent >= max_positive_int256_shift) {
+        return false;
+    }
+    const auto multiplier = wide::Int256(1) << exponent;
+    return value % multiplier == 0 && value / multiplier == significand;
+}
+
+inline bool floating_equal_integer(const JsonbValue* floating, int128_t integer) {
+    const double value = floating_value(floating);
+    int exponent = 0;
+    std::frexp(value, &exponent);
+    if (!std::isfinite(value) || std::trunc(value) != value) {
+        return false;
+    }
+    if (exponent >= 128) {
+        return value == -std::ldexp(1.0, 127) && integer == std::numeric_limits<int128_t>::min();
+    }
+    if (exponent <= -1) {
+        return false;
+    }
+    return static_cast<int128_t>(value) == integer;
+}
+
+inline bool floating_equal_decimal(const JsonbValue* floating, const JsonbScaledDecimal& decimal) {
+    const double value = floating_value(floating);
+    if (!std::isfinite(value)) {
+        return false;
+    }
+    if (value == 0) {
+        return decimal.value == 0;
+    }
+
+    int exponent = 0;
+    const double significand_fraction = std::frexp(value, &exponent);
+    const double significand_double =
+            std::ldexp(significand_fraction, std::numeric_limits<double>::digits);
+    auto significand = wide::Int256(static_cast<int64_t>(significand_double));
+    exponent -= std::numeric_limits<double>::digits;
+
+    const auto five_multiplier = power_of_five(decimal.scale);
+    if (decimal.value % five_multiplier != 0) {
+        return false;
+    }
+    const auto binary_scaled_decimal = decimal.value / five_multiplier;
+    return scaled_binary_equal(binary_scaled_decimal, exponent + decimal.scale, significand);
+}
+
+inline bool numeric_equal(const JsonbValue* lhs, const JsonbValue* rhs) {
+    if (!is_numeric(rhs)) {
+        return false;
+    }
+
+    if ((lhs->isDouble() || lhs->isFloat()) && rhs->isInt()) {
+        return floating_equal_integer(lhs, rhs->int_val());
+    }
+
+    if ((rhs->isDouble() || rhs->isFloat()) && lhs->isInt()) {
+        return floating_equal_integer(rhs, lhs->int_val());
+    }
+
+    if ((lhs->isDouble() || lhs->isFloat()) && rhs->isDecimal()) {
+        return floating_equal_decimal(lhs, get_scaled_decimal(rhs));
+    }
+
+    if ((rhs->isDouble() || rhs->isFloat()) && lhs->isDecimal()) {
+        return floating_equal_decimal(rhs, get_scaled_decimal(lhs));
+    }
+
+    if (lhs->isDouble() || lhs->isFloat()) {
+        return (rhs->isDouble() || rhs->isFloat()) && floating_value(lhs) == floating_value(rhs);
+    }
+
+    if (lhs->isDecimal()) {
+        const auto lhs_decimal = get_scaled_decimal(lhs);
+        if (rhs->isDecimal()) {
+            return scaled_decimal_equal_decimal(lhs_decimal, get_scaled_decimal(rhs));
+        }
+        return scaled_decimal_equal_integer(lhs_decimal, rhs->int_val());
+    }
+
+    if (rhs->isDecimal()) {
+        return scaled_decimal_equal_integer(get_scaled_decimal(rhs), lhs->int_val());
+    }
+
+    return lhs->int_val() == rhs->int_val();
+}
+
+inline bool array_contains_value(const ArrayVal* target_array, const JsonbValue* candidate) {
+    const int target_num = target_array->numElem();
+    for (int i = 0; i < target_num; ++i) {
+        if (target_array->get(i)->contains(candidate)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline bool array_contains_array(const ArrayVal* target_array, const ArrayVal* candidate_array) {
+    const int candidate_num = candidate_array->numElem();
+    for (int i = 0; i < candidate_num; ++i) {
+        if (!array_contains_value(target_array, candidate_array->get(i))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace jsonb_detail
+
 inline const JsonbValue* JsonbDocument::createValue(const char* pb, size_t size) {
     if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
         return nullptr;
@@ -1128,18 +1345,14 @@ inline bool JsonbValue::contains(const JsonbValue* rhs) const {
     case JsonbType::T_Int16:
     case JsonbType::T_Int32:
     case JsonbType::T_Int64:
-    case JsonbType::T_Int128: {
-        return rhs->isInt() && this->int_val() == rhs->int_val();
-    }
+    case JsonbType::T_Int128:
     case JsonbType::T_Double:
-    case JsonbType::T_Float: {
-        if (!rhs->isDouble() && !rhs->isFloat()) {
-            return false;
-        }
-        double left = isDouble() ? unpack<JsonbDoubleVal>()->val() : unpack<JsonbFloatVal>()->val();
-        double right = rhs->isDouble() ? rhs->unpack<JsonbDoubleVal>()->val()
-                                       : rhs->unpack<JsonbFloatVal>()->val();
-        return left == right;
+    case JsonbType::T_Float:
+    case JsonbType::T_Decimal32:
+    case JsonbType::T_Decimal64:
+    case JsonbType::T_Decimal128:
+    case JsonbType::T_Decimal256: {
+        return jsonb_detail::numeric_equal(this, rhs);
     }
     case JsonbType::T_String:
     case JsonbType::T_Binary: {
@@ -1153,29 +1366,11 @@ inline bool JsonbValue::contains(const JsonbValue* rhs) const {
         return false;
     }
     case JsonbType::T_Array: {
-        int lhs_num = unpack<ArrayVal>()->numElem();
+        const auto* lhs_array = unpack<ArrayVal>();
         if (rhs->isArray()) {
-            int rhs_num = rhs->unpack<ArrayVal>()->numElem();
-            if (rhs_num > lhs_num) {
-                return false;
-            }
-            int contains_num = 0;
-            for (int i = 0; i < lhs_num; ++i) {
-                for (int j = 0; j < rhs_num; ++j) {
-                    if (unpack<ArrayVal>()->get(i)->contains(rhs->unpack<ArrayVal>()->get(j))) {
-                        contains_num++;
-                        break;
-                    }
-                }
-            }
-            return contains_num == rhs_num;
+            return jsonb_detail::array_contains_array(lhs_array, rhs->unpack<ArrayVal>());
         }
-        for (int i = 0; i < lhs_num; ++i) {
-            if (unpack<ArrayVal>()->get(i)->contains(rhs)) {
-                return true;
-            }
-        }
-        return false;
+        return jsonb_detail::array_contains_value(lhs_array, rhs);
     }
     case JsonbType::T_Object: {
         if (rhs->isObject()) {
@@ -1199,42 +1394,6 @@ inline bool JsonbValue::contains(const JsonbValue* rhs) const {
     }
     case JsonbType::T_False: {
         return rhs->isFalse();
-    }
-    case JsonbType::T_Decimal32: {
-        if (rhs->isDecimal32()) {
-            return unpack<JsonbDecimal32>()->val() == rhs->unpack<JsonbDecimal32>()->val() &&
-                   unpack<JsonbDecimal32>()->precision ==
-                           rhs->unpack<JsonbDecimal32>()->precision &&
-                   unpack<JsonbDecimal32>()->scale == rhs->unpack<JsonbDecimal32>()->scale;
-        }
-        return false;
-    }
-    case JsonbType::T_Decimal64: {
-        if (rhs->isDecimal64()) {
-            return unpack<JsonbDecimal64>()->val() == rhs->unpack<JsonbDecimal64>()->val() &&
-                   unpack<JsonbDecimal64>()->precision ==
-                           rhs->unpack<JsonbDecimal64>()->precision &&
-                   unpack<JsonbDecimal64>()->scale == rhs->unpack<JsonbDecimal64>()->scale;
-        }
-        return false;
-    }
-    case JsonbType::T_Decimal128: {
-        if (rhs->isDecimal128()) {
-            return unpack<JsonbDecimal128>()->val() == rhs->unpack<JsonbDecimal128>()->val() &&
-                   unpack<JsonbDecimal128>()->precision ==
-                           rhs->unpack<JsonbDecimal128>()->precision &&
-                   unpack<JsonbDecimal128>()->scale == rhs->unpack<JsonbDecimal128>()->scale;
-        }
-        return false;
-    }
-    case JsonbType::T_Decimal256: {
-        if (rhs->isDecimal256()) {
-            return unpack<JsonbDecimal256>()->val() == rhs->unpack<JsonbDecimal256>()->val() &&
-                   unpack<JsonbDecimal256>()->precision ==
-                           rhs->unpack<JsonbDecimal256>()->precision &&
-                   unpack<JsonbDecimal256>()->scale == rhs->unpack<JsonbDecimal256>()->scale;
-        }
-        return false;
     }
     case JsonbType::NUM_TYPES:
         break;
