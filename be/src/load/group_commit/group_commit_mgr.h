@@ -25,7 +25,9 @@
 #include <future>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <shared_mutex>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 
@@ -38,6 +40,7 @@
 
 namespace doris {
 class ExecEnv;
+class GroupCommitMgr;
 class TUniqueId;
 class RuntimeState;
 
@@ -76,7 +79,7 @@ public:
     Status add_load_id(const UniqueId& load_id, const std::shared_ptr<Dependency> put_block_dep);
     Status remove_load_id(const UniqueId& load_id);
     void cancel(const Status& st);
-    bool need_commit() { return _need_commit; }
+    bool need_commit() const { return _need_commit.load(); }
 
     Status create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id, const std::string& import_label,
                       WalManager* wal_manager, std::vector<TSlotDescriptor>& slot_desc,
@@ -95,8 +98,8 @@ public:
                 "wait_internal_group_commit_finish={}, data_size_condition={}, "
                 "group_commit_load_count={}, process_finish={}, _need_commit={}, schema_version={}",
                 load_instance_id.to_string(), label, txn_id, wait_internal_group_commit_finish,
-                data_size_condition, group_commit_load_count, process_finish.load(), _need_commit,
-                schema_version);
+                data_size_condition, group_commit_load_count, process_finish.load(),
+                _need_commit.load(), schema_version);
         return fmt::to_string(debug_string_buffer);
     }
 
@@ -131,7 +134,7 @@ private:
     std::shared_ptr<VWalWriter> _v_wal_writer;
 
     // commit
-    bool _need_commit = false;
+    std::atomic<bool> _need_commit = false;
     // commit by time interval, can be changed by 'ALTER TABLE my_table SET ("group_commit_interval_ms"="1000");'
     int64_t _group_commit_interval_ms;
     std::chrono::steady_clock::time_point _start_time;
@@ -148,27 +151,31 @@ private:
 class GroupCommitTable {
 public:
     GroupCommitTable(ExecEnv* exec_env, doris::ThreadPool* thread_pool, int64_t db_id,
-                     int64_t table_id, std::shared_ptr<std::atomic_size_t> all_block_queue_bytes)
+                     int64_t table_id, std::shared_ptr<std::atomic_size_t> all_block_queue_bytes,
+                     GroupCommitMgr* group_commit_mgr)
             : _exec_env(exec_env),
               _thread_pool(thread_pool),
               _all_block_queues_bytes(all_block_queue_bytes),
               _db_id(db_id),
-              _table_id(table_id) {};
+              _table_id(table_id),
+              _group_commit_mgr(group_commit_mgr) {};
     Status get_first_block_load_queue(int64_t table_id, int64_t base_schema_version,
                                       int64_t index_size, const UniqueId& load_id,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                       int be_exe_version,
-                                      std::shared_ptr<MemTrackerLimiter> mem_tracker,
                                       std::shared_ptr<Dependency> create_plan_dep,
                                       std::shared_ptr<Dependency> put_block_dep);
     Status get_load_block_queue(const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                 std::shared_ptr<Dependency> get_block_dep);
     void remove_load_id(const UniqueId& load_id);
+    Status submit_create_group_commit_load();
 
 private:
+    Status _submit_create_group_commit_load();
     Status _create_group_commit_load(int be_exe_version,
-                                     std::shared_ptr<MemTrackerLimiter> mem_tracker);
+                                     const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
+                                     std::shared_ptr<LoadBlockQueue>& created_load_block_queue);
     Status _exec_plan_fragment(int64_t db_id, int64_t table_id, const std::string& label,
                                int64_t txn_id, const TPipelineFragmentParams& pipeline_params);
     Status _finish_group_commit_load(int64_t db_id, int64_t table_id, const std::string& label,
@@ -182,6 +189,7 @@ private:
 
     int64_t _db_id;
     int64_t _table_id;
+    GroupCommitMgr* _group_commit_mgr = nullptr;
 
     std::mutex _lock;
     // fragment_instance_id to load_block_queue
@@ -192,6 +200,8 @@ private:
                                             std::shared_ptr<Dependency>, int64_t, int64_t>>
             _create_plan_deps;
     std::string _create_plan_failed_reason;
+    int _create_plan_be_exe_version = 0;
+    int64_t _create_plan_start_time_ms = 0;
 };
 
 class GroupCommitMgr {
@@ -209,14 +219,19 @@ public:
                                       int64_t index_size, const UniqueId& load_id,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                       int be_exe_version,
-                                      std::shared_ptr<MemTrackerLimiter> mem_tracker,
                                       std::shared_ptr<Dependency> create_plan_dep,
                                       std::shared_ptr<Dependency> put_block_dep);
     void remove_load_id(int64_t table_id, const UniqueId& load_id);
     std::promise<Status> debug_promise;
     std::future<Status> debug_future = debug_promise.get_future();
+    void add_need_create_plan_table(int64_t table_id);
+    std::shared_ptr<MemTrackerLimiter> group_commit_mem_tracker() {
+        return _group_commit_mem_tracker;
+    }
 
 private:
+    void _create_plan_worker();
+
     ExecEnv* _exec_env = nullptr;
     std::unique_ptr<doris::ThreadPool> _thread_pool;
     // memory consumption of all tables' load block queues, used for memory back pressure.
@@ -225,6 +240,12 @@ private:
     std::mutex _lock;
     // TODO remove table when unused
     std::unordered_map<int64_t, std::shared_ptr<GroupCommitTable>> _table_map;
+    std::mutex _need_create_plan_lock;
+    std::condition_variable _need_create_plan_cv;
+    std::set<int64_t> _need_create_plan_tables;
+    bool _stopped = false;
+    std::thread _create_plan_thread;
+    std::shared_ptr<MemTrackerLimiter> _group_commit_mem_tracker;
 };
 
 } // namespace doris

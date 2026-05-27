@@ -29,9 +29,12 @@
 #include "exec/pipeline/dependency.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "util/client_cache.h"
 #include "util/debug_points.h"
 #include "util/thrift_rpc_helper.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -84,18 +87,21 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state, std::shared_ptr<Bl
             _all_block_queues_bytes->load(std::memory_order_relaxed) >=
                     config::group_commit_queue_mem_limit) {
             group_commit_block_by_memory_counter << 1;
-            DCHECK(_load_ids_to_write_dep.find(load_id) != _load_ids_to_write_dep.end());
-            _load_ids_to_write_dep[load_id]->block();
-            VLOG_DEBUG << "block add_block for load_id=" << load_id
-                       << ", memory=" << _all_block_queues_bytes->load(std::memory_order_relaxed)
-                       << ". inner load_id=" << load_instance_id << ", label=" << label;
+            auto dep_it = _load_ids_to_write_dep.find(load_id);
+            DCHECK(dep_it != _load_ids_to_write_dep.end());
+            if (dep_it != _load_ids_to_write_dep.end() && dep_it->second) {
+                dep_it->second->block();
+                VLOG_DEBUG << "block add_block for load_id=" << load_id << ", memory="
+                           << _all_block_queues_bytes->load(std::memory_order_relaxed)
+                           << ". inner load_id=" << load_instance_id << ", label=" << label;
+            }
         }
     }
-    if (!_need_commit) {
+    if (!_need_commit.load()) {
         if (_data_bytes >= _group_commit_data_bytes) {
             VLOG_DEBUG << "group commit meets commit condition for data size, label=" << label
                        << ", instance_id=" << load_instance_id << ", data_bytes=" << _data_bytes;
-            _need_commit = true;
+            _need_commit.store(true);
             data_size_condition = true;
         }
         if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
@@ -103,7 +109,7 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state, std::shared_ptr<Bl
                     .count() >= _group_commit_interval_ms) {
             VLOG_DEBUG << "group commit meets commit condition for time interval, label=" << label
                        << ", instance_id=" << load_instance_id << ", data_bytes=" << _data_bytes;
-            _need_commit = true;
+            _need_commit.store(true);
         }
     }
     for (auto read_dep : _read_deps) {
@@ -126,11 +132,11 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, Block* block, bool
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now() - _start_time)
                             .count();
-    if (!_need_commit && duration >= _group_commit_interval_ms) {
-        _need_commit = true;
+    if (!_need_commit.load() && duration >= _group_commit_interval_ms) {
+        _need_commit.store(true);
     }
     if (_block_queue.empty()) {
-        if (_need_commit && duration >= 10 * _group_commit_interval_ms) {
+        if (_need_commit.load() && duration >= 10 * _group_commit_interval_ms) {
             auto last_print_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                                                std::chrono::steady_clock::now() - _last_print_time)
                                                .count();
@@ -142,7 +148,7 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, Block* block, bool
             }
         }
         VLOG_DEBUG << "get_block for inner load_id=" << load_instance_id << ", but queue is empty";
-        if (!_need_commit) {
+        if (!_need_commit.load()) {
             get_block_dep->block();
             VLOG_DEBUG << "block get_block for inner load_id=" << load_instance_id;
         }
@@ -160,7 +166,7 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, Block* block, bool
                    << ". txn_id=" << txn_id << ", label=" << label
                    << ", instance_id=" << load_instance_id << ", load_ids=" << _get_load_ids();
     }
-    if (_block_queue.empty() && _need_commit && _load_ids_to_write_dep.empty()) {
+    if (_block_queue.empty() && _need_commit.load() && _load_ids_to_write_dep.empty()) {
         *eos = true;
     } else {
         *eos = false;
@@ -199,9 +205,12 @@ bool LoadBlockQueue::contain_load_id(const UniqueId& load_id) {
 Status LoadBlockQueue::add_load_id(const UniqueId& load_id,
                                    const std::shared_ptr<Dependency> put_block_dep) {
     std::unique_lock l(mutex);
-    if (_need_commit) {
-        return Status::InternalError<false>("block queue is set need commit, id=" +
-                                            load_instance_id.to_string());
+    if (_need_commit.load() || !status.ok() || process_finish.load()) {
+        return Status::InternalError<false>(
+                "block queue cannot add load id, id=" + load_instance_id.to_string() +
+                ", need_commit=" + (_need_commit.load() ? "true" : "false") +
+                ", process_finish=" + (process_finish.load() ? "true" : "false") +
+                ", queue_status=" + status.to_string());
     }
     _load_ids_to_write_dep[load_id] = put_block_dep;
     group_commit_load_count.fetch_add(1);
@@ -221,7 +230,7 @@ void LoadBlockQueue::_cancel_without_lock(const Status& st) {
             Status::Cancelled("cancel group_commit, label=" + label + ", status=" + st.to_string());
     size_t before_block_queues_bytes = _all_block_queues_bytes->load();
     while (!_block_queue.empty()) {
-        const BlockData& block_data = _block_queue.front().block;
+        const BlockData& block_data = _block_queue.front();
         _all_block_queues_bytes->fetch_sub(block_data.block_bytes, std::memory_order_relaxed);
         _block_queue.pop_front();
     }
@@ -243,8 +252,7 @@ void LoadBlockQueue::_cancel_without_lock(const Status& st) {
 Status GroupCommitTable::get_first_block_load_queue(
         int64_t table_id, int64_t base_schema_version, int64_t index_size, const UniqueId& load_id,
         std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version,
-        std::shared_ptr<MemTrackerLimiter> mem_tracker, std::shared_ptr<Dependency> create_plan_dep,
-        std::shared_ptr<Dependency> put_block_dep) {
+        std::shared_ptr<Dependency> create_plan_dep, std::shared_ptr<Dependency> put_block_dep) {
     DCHECK(table_id == _table_id);
     std::unique_lock l(_lock);
     auto try_to_get_matched_queue = [&]() -> Status {
@@ -277,31 +285,126 @@ Status GroupCommitTable::get_first_block_load_queue(
         return Status::OK();
     }
     create_plan_dep->block();
+    _create_plan_be_exe_version = be_exe_version;
+    if (_create_plan_deps.empty()) {
+        _create_plan_start_time_ms = MonotonicMillis();
+    }
     _create_plan_deps.emplace(load_id, std::make_tuple(create_plan_dep, put_block_dep,
                                                        base_schema_version, index_size));
-    if (!_is_creating_plan_fragment) {
-        _is_creating_plan_fragment = true;
-        RETURN_IF_ERROR(
-                _thread_pool->submit_func([&, be_exe_version, mem_tracker, dep = create_plan_dep] {
-                    Defer defer {[&, dep = dep]() {
-                        std::unique_lock l(_lock);
-                        for (auto it : _create_plan_deps) {
-                            std::get<0>(it.second)->set_ready();
-                        }
-                        _create_plan_deps.clear();
-                        _is_creating_plan_fragment = false;
-                    }};
-                    auto st = _create_group_commit_load(be_exe_version, mem_tracker);
-                    if (!st.ok()) {
-                        LOG(WARNING) << "create group commit load error: " << st.to_string();
-                        _create_plan_failed_reason = ". create group commit load error: " +
-                                                     st.to_string().substr(0, 300);
-                    } else {
-                        _create_plan_failed_reason = "";
-                    }
-                }));
-    }
+    [[maybe_unused]] auto submit_st = _submit_create_group_commit_load();
     return try_to_get_matched_queue();
+}
+
+Status GroupCommitTable::submit_create_group_commit_load() {
+    std::unique_lock l(_lock);
+    if (_create_plan_deps.empty()) {
+        return Status::OK();
+    }
+    return _submit_create_group_commit_load();
+}
+
+Status GroupCommitTable::_submit_create_group_commit_load() {
+    if (_is_creating_plan_fragment) {
+        return Status::OK();
+    }
+
+    int64_t timeout_ms = config::group_commit_create_plan_timeout_ms;
+    if (timeout_ms > 0 && !_create_plan_deps.empty()) {
+        int64_t now_ms = MonotonicMillis();
+        if (_create_plan_start_time_ms > 0 && now_ms - _create_plan_start_time_ms > timeout_ms) {
+            _create_plan_failed_reason =
+                    ". group commit create plan timeout after " + std::to_string(timeout_ms) + "ms";
+            for (const auto& [id, load_info] : _create_plan_deps) {
+                std::get<0>(load_info)->set_ready();
+            }
+            _create_plan_deps.clear();
+            _create_plan_start_time_ms = 0;
+            return Status::OK();
+        }
+    }
+
+    auto mem_tracker = _group_commit_mgr->group_commit_mem_tracker();
+    int be_exe_version = _create_plan_be_exe_version;
+    _is_creating_plan_fragment = true;
+    auto submit_st = _thread_pool->submit_func([&, be_exe_version, mem_tracker] {
+        std::shared_ptr<LoadBlockQueue> created_load_block_queue;
+        Status create_group_commit_st = Status::OK();
+        std::string create_plan_failed_reason;
+        Defer defer {[&]() {
+            bool need_resubmit = !create_group_commit_st.ok();
+            std::unique_lock l(_lock);
+            _is_creating_plan_fragment = false;
+            _create_plan_failed_reason = create_plan_failed_reason;
+            if (created_load_block_queue && create_group_commit_st.ok() &&
+                !created_load_block_queue->need_commit()) {
+                std::vector<UniqueId> success_load_ids;
+                for (const auto& [id, load_info] : _create_plan_deps) {
+                    auto create_dep = std::get<0>(load_info);
+                    auto put_dep = std::get<1>(load_info);
+                    if (created_load_block_queue->schema_version == std::get<2>(load_info) &&
+                        created_load_block_queue->index_size == std::get<3>(load_info)) {
+                        auto st = created_load_block_queue->add_load_id(id, put_dep);
+                        if (!st.ok()) {
+                            LOG(WARNING) << "failed to add pending load_id into created "
+                                            "group commit queue, load_id="
+                                         << id << ", label=" << created_load_block_queue->label
+                                         << ", status=" << st.to_string();
+                            need_resubmit = true;
+                        } else {
+                            create_dep->set_ready();
+                            success_load_ids.emplace_back(id);
+                        }
+                    } else if (created_load_block_queue->schema_version > std::get<2>(load_info) ||
+                               (created_load_block_queue->schema_version ==
+                                        std::get<2>(load_info) &&
+                                created_load_block_queue->index_size != std::get<3>(load_info))) {
+                        // schema version mismatch:
+                        //   1. the schema version of created load block queue is newer than the load request
+                        //   2. the index size is not equal
+                        // set ready for the load request to let it fail
+                        create_dep->set_ready();
+                        success_load_ids.emplace_back(id);
+                    }
+                }
+                for (const auto& id : success_load_ids) {
+                    _create_plan_deps.erase(id);
+                }
+                if (_create_plan_deps.empty()) {
+                    _create_plan_start_time_ms = 0;
+                }
+            }
+            if (!_create_plan_deps.empty()) {
+                need_resubmit = true;
+            }
+            if (need_resubmit && _group_commit_mgr) {
+                LOG(INFO) << "resubmit create group commit load task for table: " << _table_id;
+                _group_commit_mgr->add_need_create_plan_table(_table_id);
+            }
+        }};
+        create_group_commit_st =
+                _create_group_commit_load(be_exe_version, mem_tracker, created_load_block_queue);
+        if (!create_group_commit_st.ok()) {
+            LOG(WARNING) << "create group commit load error: "
+                         << create_group_commit_st.to_string();
+            create_plan_failed_reason = ". create group commit load error: " +
+                                        create_group_commit_st.to_string().substr(0, 300);
+        } else {
+            create_plan_failed_reason = "";
+        }
+    });
+    if (!submit_st.ok()) {
+        _is_creating_plan_fragment = false;
+        _create_plan_failed_reason =
+                ". create group commit load error: submit create group commit load task failed: " +
+                submit_st.to_string().substr(0, 300);
+        for (const auto& [id, load_info] : _create_plan_deps) {
+            std::get<0>(load_info)->set_ready();
+        }
+        _create_plan_deps.clear();
+        LOG(WARNING) << "submit create group commit load task for table: " << _table_id
+                     << ", error: " << submit_st.to_string();
+    }
+    return submit_st;
 }
 
 void GroupCommitTable::remove_load_id(const UniqueId& load_id) {
@@ -317,8 +420,9 @@ void GroupCommitTable::remove_load_id(const UniqueId& load_id) {
     }
 }
 
-Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
-                                                   std::shared_ptr<MemTrackerLimiter> mem_tracker) {
+Status GroupCommitTable::_create_group_commit_load(
+        int be_exe_version, const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
+        std::shared_ptr<LoadBlockQueue>& created_load_block_queue) {
     Status st = Status::OK();
     TStreamLoadPutResult result;
     std::string label;
@@ -390,6 +494,7 @@ Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
                     _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
                     pipeline_params.fragment.output_sink.olap_table_sink.schema.slot_descs,
                     be_exe_version));
+            created_load_block_queue = load_block_queue;
 
             std::unique_lock l(_lock);
             _load_block_queues.emplace(instance_id, load_block_queue);
@@ -403,10 +508,22 @@ Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
                         create_dep->set_ready();
                         success_load_ids.emplace_back(id);
                     }
+                } else if (load_block_queue->schema_version > std::get<2>(load_info) ||
+                           (load_block_queue->schema_version == std::get<2>(load_info) &&
+                            load_block_queue->index_size != std::get<3>(load_info))) {
+                    // schema version mismatch:
+                    //   1. the schema version of created load block queue is newer than the load request
+                    //   2. the index size is not equal
+                    // set ready for the load request to let it fail
+                    create_dep->set_ready();
+                    success_load_ids.emplace_back(id);
                 }
             }
             for (const auto& id : success_load_ids) {
                 _create_plan_deps.erase(id);
+            }
+            if (_create_plan_deps.empty()) {
+                _create_plan_start_time_ms = 0;
             }
         }
     }
@@ -467,16 +584,25 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                         client->loadTxnCommit(result, request);
                     },
                     config::txn_commit_rpc_timeout_ms);
-            result_status = Status::create(result.status);
-            // DELETE_BITMAP_LOCK_ERROR will be retried
-            if (result_status.ok() || !result_status.is<ErrorCode::DELETE_BITMAP_LOCK_ERROR>()) {
-                break;
+            if (st.ok()) {
+                result_status = Status::create(result.status);
+                // DELETE_BITMAP_LOCK_ERROR will be retried
+                if (result_status.ok() ||
+                    !result_status.is<ErrorCode::DELETE_BITMAP_LOCK_ERROR>()) {
+                    break;
+                }
+                LOG_WARNING("Failed to commit txn on group commit")
+                        .tag("label", label)
+                        .tag("txn_id", txn_id)
+                        .tag("retry_times", retry_times)
+                        .error(result_status);
+            } else {
+                LOG_WARNING("Failed to commit txn on group commit")
+                        .tag("label", label)
+                        .tag("txn_id", txn_id)
+                        .tag("retry_times", retry_times)
+                        .error(st);
             }
-            LOG_WARNING("Failed to commit txn on group commit")
-                    .tag("label", label)
-                    .tag("txn_id", txn_id)
-                    .tag("retry_times", retry_times)
-                    .error(result_status);
             retry_times++;
         }
         DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.commit_success_and_rpc_error",
@@ -497,7 +623,9 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                 [&request, &result](FrontendServiceConnection& client) {
                     client->loadTxnRollback(result, request);
                 });
-        result_status = Status::create<false>(result.status);
+        if (st.ok()) {
+            result_status = Status::create<false>(result.status);
+        }
         DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status", {
             std ::string msg = "abort txn";
             LOG(INFO) << "debug promise set: " << msg;
@@ -527,6 +655,10 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         }
         _load_block_queues.erase(instance_id);
     }
+    if (!load_block_queue) {
+        LOG(WARNING) << "finish group commit can not find load block queue, label=" << label
+                     << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id);
+    }
     // status: exec_plan_fragment result
     // st: commit txn rpc status
     // result_status: commit txn result
@@ -551,11 +683,15 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
        << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id)
        << ", exec_plan_fragment status=" << status.to_string()
        << ", commit/abort txn rpc status=" << st.to_string()
-       << ", commit/abort txn status=" << result_status.to_string()
-       << ", this group commit includes " << load_block_queue->group_commit_load_count << " loads"
-       << ", flush because meet "
-       << (load_block_queue->data_size_condition ? "data size " : "time ") << "condition"
-       << ", wal space info:" << ExecEnv::GetInstance()->wal_mgr()->get_wal_dirs_info_string();
+       << ", commit/abort txn status=" << result_status.to_string();
+    if (load_block_queue) {
+        ss << ", this group commit includes " << load_block_queue->group_commit_load_count
+           << " loads, flush because meet "
+           << (load_block_queue->data_size_condition ? "data size " : "time ") << "condition";
+    } else {
+        ss << ", load block queue is missing when finishing group commit";
+    }
+    ss << ", wal space info:" << ExecEnv::GetInstance()->wal_mgr()->get_wal_dirs_info_string();
     if (state) {
         if (!state->get_error_log_file_path().empty()) {
             ss << ", error_url=" << state->get_error_log_file_path();
@@ -615,35 +751,95 @@ GroupCommitMgr::GroupCommitMgr(ExecEnv* exec_env) : _exec_env(exec_env) {
                               .set_max_threads(config::group_commit_insert_threads)
                               .build(&_thread_pool));
     _all_block_queues_bytes = std::make_shared<std::atomic_size_t>(0);
+    _group_commit_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD, "GroupCommit");
+    _create_plan_thread = std::thread(&GroupCommitMgr::_create_plan_worker, this);
 }
 
 GroupCommitMgr::~GroupCommitMgr() {
+    stop();
     LOG(INFO) << "GroupCommitMgr is destoried";
 }
 
 void GroupCommitMgr::stop() {
+    {
+        std::lock_guard<std::mutex> l(_need_create_plan_lock);
+        if (_stopped) {
+            return;
+        }
+        _stopped = true;
+    }
+    _need_create_plan_cv.notify_all();
+    if (_create_plan_thread.joinable()) {
+        _create_plan_thread.join();
+    }
     _thread_pool->shutdown();
     LOG(INFO) << "GroupCommitMgr is stopped";
 }
 
-Status GroupCommitMgr::get_first_block_load_queue(
-        int64_t db_id, int64_t table_id, int64_t base_schema_version, int64_t index_size,
-        const UniqueId& load_id, std::shared_ptr<LoadBlockQueue>& load_block_queue,
-        int be_exe_version, std::shared_ptr<MemTrackerLimiter> mem_tracker,
-        std::shared_ptr<Dependency> create_plan_dep, std::shared_ptr<Dependency> put_block_dep) {
+void GroupCommitMgr::add_need_create_plan_table(int64_t table_id) {
+    {
+        std::lock_guard<std::mutex> l(_need_create_plan_lock);
+        if (_stopped) {
+            return;
+        }
+        _need_create_plan_tables.insert(table_id);
+    }
+    _need_create_plan_cv.notify_one();
+}
+
+void GroupCommitMgr::_create_plan_worker() {
+    SCOPED_INIT_THREAD_CONTEXT();
+    while (true) {
+        std::set<int64_t> need_create_plan_tables;
+        {
+            std::unique_lock<std::mutex> l(_need_create_plan_lock);
+            _need_create_plan_cv.wait(
+                    l, [this] { return _stopped || !_need_create_plan_tables.empty(); });
+            if (_stopped && _need_create_plan_tables.empty()) {
+                return;
+            }
+            need_create_plan_tables.swap(_need_create_plan_tables);
+        }
+        for (const auto table_id : need_create_plan_tables) {
+            std::shared_ptr<GroupCommitTable> group_commit_table;
+            {
+                std::lock_guard<std::mutex> l(_lock);
+                auto it = _table_map.find(table_id);
+                if (it == _table_map.end()) {
+                    continue;
+                }
+                group_commit_table = it->second;
+            }
+            auto st = group_commit_table->submit_create_group_commit_load();
+            if (!st.ok()) {
+                LOG(WARNING) << "submit create group commit load task from worker for table: "
+                             << table_id << ", error: " << st.to_string();
+            }
+        }
+    }
+}
+
+Status GroupCommitMgr::get_first_block_load_queue(int64_t db_id, int64_t table_id,
+                                                  int64_t base_schema_version, int64_t index_size,
+                                                  const UniqueId& load_id,
+                                                  std::shared_ptr<LoadBlockQueue>& load_block_queue,
+                                                  int be_exe_version,
+                                                  std::shared_ptr<Dependency> create_plan_dep,
+                                                  std::shared_ptr<Dependency> put_block_dep) {
     std::shared_ptr<GroupCommitTable> group_commit_table;
     {
         std::lock_guard wlock(_lock);
         if (_table_map.find(table_id) == _table_map.end()) {
             _table_map.emplace(table_id, std::make_shared<GroupCommitTable>(
                                                  _exec_env, _thread_pool.get(), db_id, table_id,
-                                                 _all_block_queues_bytes));
+                                                 _all_block_queues_bytes, this));
         }
         group_commit_table = _table_map[table_id];
     }
     RETURN_IF_ERROR(group_commit_table->get_first_block_load_queue(
             table_id, base_schema_version, index_size, load_id, load_block_queue, be_exe_version,
-            mem_tracker, create_plan_dep, put_block_dep));
+            create_plan_dep, put_block_dep));
     return Status::OK();
 }
 
