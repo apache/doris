@@ -320,4 +320,21 @@ public class MetricsTest {
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_cloud_meta_duration_ms summary"));
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_materialized_view_rewrite_duration_ms summary"));
     }
+
+    @Test
+    public void testConnectionMetrics() {
+        Assert.assertEquals(0L,
+                MetricRepo.USER_GAUGE_CONNECTION_NUM.getOrAdd("user1").getValue().longValue());
+        Assert.assertEquals(0L,
+                MetricRepo.USER_COUNTER_CONNECTION_ERR.getOrAdd("user1").getValue().longValue());
+        MetricRepo.USER_COUNTER_CONNECTION_ERR.getOrAdd("user1").increase(1L);
+        MetricRepo.USER_COUNTER_CONNECTION_ERR.getOrAdd("user1").increase(1L);
+        MetricRepo.USER_COUNTER_CONNECTION_ERR.getOrAdd("user2").increase(1L);
+        Assert.assertEquals(2L,
+                MetricRepo.USER_COUNTER_CONNECTION_ERR.getOrAdd("user1").getValue().longValue());
+        Assert.assertEquals(1L,
+                MetricRepo.USER_COUNTER_CONNECTION_ERR.getOrAdd("user2").getValue().longValue());
+        Assert.assertEquals(0L,
+                MetricRepo.USER_COUNTER_CONNECTION_ERR.getOrAdd("user3").getValue().longValue());
+    }
 }

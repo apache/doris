@@ -20,6 +20,7 @@ package org.apache.doris.mysql;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.ProxyProtocolHandler.ProtocolType;
 import org.apache.doris.mysql.ProxyProtocolHandler.ProxyProtocolResult;
 import org.apache.doris.qe.ConnectContext;
@@ -134,6 +135,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             ConnectProcessor processor = new MysqlConnectProcessor(context);
             context.startAcceptQuery(processor);
         } catch (AfterConnectedException e) {
+            MetricRepo.USER_COUNTER_CONNECTION_ERR.getOrAdd(context.getQualifiedUser()).increase(1L);
             // do not need to print log for this kind of exception.
             // just clean up the context;
             context.cleanup();
