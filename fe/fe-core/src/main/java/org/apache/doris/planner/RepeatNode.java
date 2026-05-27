@@ -101,8 +101,17 @@ public class RepeatNode extends PlanNode {
     @Override
     public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
             PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        // REPEAT (rollup/grouping sets) is NOT distribution-preserving: it NULLs grouping
+        // columns per set and produces GROUPING_ID, which is part of the downstream agg hash
+        // key but does not exist below the repeat. Forwarding the parent HASH require down
+        // would push the local exchange before the row expansion AND hash by the child
+        // distribution (a single upstream shuffle key) instead of the agg grouping_exprs,
+        // collapsing rows onto one instance (tpcds q67, +73%). Recurse with noRequire so the
+        // parent inserts its hash local exchange ABOVE the repeat using its own grouping_exprs
+        // (mirrors BE, whose RepeatOperatorX has a NOOP required_data_distribution).
         Pair<PlanNode, LocalExchangeType> enforceResult
-                = enforceRequire(translatorContext, children.get(0), 0, parentRequire);
+                = enforceRequire(translatorContext, children.get(0), 0,
+                        LocalExchangeTypeRequire.noRequire());
         children = new java.util.ArrayList<>();
         children.add(enforceResult.first);
         return Pair.of(this, enforceResult.second);
