@@ -95,6 +95,7 @@ struct FileScanRequest {
 
     std::vector<ColumnId> predicate_columns;
     std::vector<ColumnId> non_predicate_columns;
+    std::map<ColumnId, size_t> column_positions;
     std::vector<FileLocalFilter> local_filters;
     // fallback path if filters cannot be localized to file-local predicates. The expression can reference projected_file_columns and partition columns.
     std::vector<std::pair<ColumnId, VExprContextSPtr>> reader_expression_map;
@@ -136,10 +137,10 @@ public:
         int64_t bloom_filter_read_time = 0;
     };
 
-    FileReader(std::unique_ptr<io::FileSystemProperties>& system_properties,
+    FileReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                std::unique_ptr<io::FileDescription>& file_description,
                std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile)
-            : _system_properties(std::move(system_properties)),
+            : _system_properties(system_properties),
               _file_description(std::move(file_description)),
               _io_ctx(io_ctx),
               _profile(profile) {}
@@ -196,7 +197,7 @@ protected:
     std::unique_ptr<FileScanRequest> _request;
     bool _eof = true;
     ReaderStatistics _reader_statistics;
-    std::unique_ptr<io::FileSystemProperties> _system_properties;
+    std::shared_ptr<io::FileSystemProperties> _system_properties;
     std::unique_ptr<io::FileDescription> _file_description;
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeProfile* _profile = nullptr;

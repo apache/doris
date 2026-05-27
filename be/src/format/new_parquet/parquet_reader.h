@@ -45,7 +45,7 @@ struct ParquetScanRequest : public reader::FileScanRequest {};
 // schema，不处理 table-level cast/default/generated/partition 语义。
 class ParquetReader : public reader::FileReader {
 public:
-    ParquetReader(std::unique_ptr<io::FileSystemProperties>& system_properties,
+    ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                   std::unique_ptr<io::FileDescription>& file_description,
                   std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile);
     ~ParquetReader() override;

@@ -208,10 +208,11 @@ Status ParquetReader::_read_filter_columns(int64_t batch_rows, Block* file_block
     for (size_t filter_idx = 0; filter_idx < _request->predicate_columns.size(); ++filter_idx) {
         const int file_field_id = _request->predicate_columns[filter_idx];
         auto& column_reader = _state->current_predicate_columns[filter_idx];
-        auto column = file_block->get_by_position(column_reader->file_column_id())
-                              .column->assume_mutable();
-        DCHECK_EQ(file_block->get_by_position(column_reader->file_column_id())
-                          .type->get_primitive_type(),
+        auto position_it = _request->column_positions.find(file_field_id);
+        DORIS_CHECK(position_it != _request->column_positions.end());
+        const auto block_position = position_it->second;
+        auto column = file_block->get_by_position(block_position).column->assume_mutable();
+        DCHECK_EQ(file_block->get_by_position(block_position).type->get_primitive_type(),
                   column_reader->type()->get_primitive_type());
         int64_t column_rows = 0;
         RETURN_IF_ERROR(column_reader->read(batch_rows, column, &column_rows));
@@ -236,7 +237,7 @@ Status ParquetReader::_read_filter_columns(int64_t batch_rows, Block* file_block
             }
             break;
         }
-        file_block->replace_by_position(file_field_id, std::move(column));
+        file_block->replace_by_position(block_position, std::move(column));
         if (*selected_rows == 0) {
             break;
         }
@@ -313,7 +314,7 @@ Status ParquetReader::_open_next_row_group(bool* has_row_group) {
     return Status::OK();
 }
 
-// `file_block` has a complete struct derived from the file's schema.
+// `file_block` has the same layout as FileScanRequest::column_positions.
 Status ParquetReader::_read_current_row_group_batch(int64_t batch_rows, Block* file_block,
                                                     size_t* rows) {
     if (_state->current_predicate_columns.empty() &&
@@ -331,9 +332,12 @@ Status ParquetReader::_read_current_row_group_batch(int64_t batch_rows, Block* f
     if (need_filter_output) {
         IColumn::Filter output_filter = _selection_to_filter(selection, selected_rows, batch_rows);
         for (const auto file_field_id : _request->predicate_columns) {
+            auto position_it = _request->column_positions.find(file_field_id);
+            DORIS_CHECK(position_it != _request->column_positions.end());
+            const auto block_position = position_it->second;
             RETURN_IF_CATCH_EXCEPTION(file_block->replace_by_position(
-                    file_field_id, file_block->get_by_position(file_field_id)
-                                           .column->filter(output_filter, selected_rows)));
+                    block_position, file_block->get_by_position(block_position)
+                                            .column->filter(output_filter, selected_rows)));
         }
     }
 
@@ -341,9 +345,12 @@ Status ParquetReader::_read_current_row_group_batch(int64_t batch_rows, Block* f
     for (size_t output_idx = 0; output_idx < _state->current_non_predicate_columns.size();
          ++output_idx) {
         auto& column_reader = _state->current_non_predicate_columns[output_idx];
-        auto col = file_block->get_columns()[column_reader->file_column_id()]->assume_mutable();
-        DCHECK_EQ(file_block->get_by_position(column_reader->file_column_id())
-                          .type->get_primitive_type(),
+        auto position_it =
+                _request->column_positions.find(_request->non_predicate_columns[output_idx]);
+        DORIS_CHECK(position_it != _request->column_positions.end());
+        const auto block_position = position_it->second;
+        auto col = file_block->get_columns()[block_position]->assume_mutable();
+        DCHECK_EQ(file_block->get_by_position(block_position).type->get_primitive_type(),
                   column_reader->type()->get_primitive_type());
         if (need_filter_output) {
             [[maybe_unused]] auto old_size = col->size();
@@ -368,7 +375,7 @@ Status ParquetReader::_read_current_row_group_batch(int64_t batch_rows, Block* f
     return Status::OK();
 }
 
-ParquetReader::ParquetReader(std::unique_ptr<io::FileSystemProperties>& system_properties,
+ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                              std::unique_ptr<io::FileDescription>& file_description,
                              std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile)
         : FileReader(system_properties, file_description, io_ctx, profile) {}
@@ -424,7 +431,25 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
     }
     RETURN_IF_ERROR(reader::FileReader::open(request));
 
+    // `_request->column_positions.empty()` means all columns are needed by table reader
+    if (_request->column_positions.empty()) {
+        for (const auto file_column_id : _request->predicate_columns) {
+            _request->column_positions.emplace(file_column_id, file_column_id);
+        }
+        for (const auto file_column_id : _request->non_predicate_columns) {
+            _request->column_positions.emplace(file_column_id, file_column_id);
+        }
+    }
+
     const int num_fields = static_cast<int>(_state->file_schema.size());
+    for (const auto file_column_id : _request->predicate_columns) {
+        DORIS_CHECK(_request->column_positions.count(file_column_id) > 0);
+        DORIS_CHECK(file_column_id >= 0 && file_column_id < num_fields);
+    }
+    for (const auto file_column_id : _request->non_predicate_columns) {
+        DORIS_CHECK(_request->column_positions.count(file_column_id) > 0);
+        DORIS_CHECK(file_column_id >= 0 && file_column_id < num_fields);
+    }
     for (const auto& local_filter : _request->local_filters) {
         if (local_filter.file_column_id < 0 || local_filter.file_column_id >= num_fields) {
             return Status::InvalidArgument("Invalid parquet filter top-level field id {}",

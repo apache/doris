@@ -98,10 +98,10 @@ Block build_file_block(const std::vector<reader::SchemaField>& schema) {
 
 class TestFileReader final : public reader::FileReader {
 public:
-    TestFileReader(std::unique_ptr<io::FileSystemProperties>& system_properties,
+    TestFileReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                    std::unique_ptr<io::FileDescription>& file_description,
                    std::shared_ptr<io::IOContext> io_ctx)
-            : reader::FileReader(system_properties, file_description, std::move(io_ctx), nullptr) {}
+            : reader::FileReader(system_properties, file_description, io_ctx, nullptr) {}
 
     Status get_schema(std::vector<reader::SchemaField>* file_schema) const override {
         file_schema->clear();
@@ -119,7 +119,7 @@ public:
 };
 
 TEST(FileReaderTest, OpenStoresRequestAndCloseClearsState) {
-    auto system_properties = std::make_unique<io::FileSystemProperties>();
+    auto system_properties = std::make_shared<io::FileSystemProperties>();
     system_properties->system_type = TFileType::FILE_LOCAL;
     auto file_description = std::make_unique<io::FileDescription>();
     auto io_ctx = std::make_shared<io::IOContext>();
@@ -149,7 +149,7 @@ protected:
     void TearDown() override { std::filesystem::remove_all(_test_dir); }
 
     std::unique_ptr<parquet::ParquetReader> create_reader() const {
-        auto system_properties = std::make_unique<io::FileSystemProperties>();
+        auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
         file_description->path = _file_path;
