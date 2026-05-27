@@ -18,10 +18,16 @@
 #include "format/reader/column_mapper.h"
 
 #include <cstddef>
+#include <memory>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
 #include "core/assert_cast.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "format/reader/expr/cast.h"
 #include "format/reader/expr/slot_ref.h"
 #include "format/reader/file_reader.h"
@@ -86,8 +92,8 @@ static void rebuild_projection(ColumnMapping* mapping, size_t block_position) {
     mapping->projection = VExprContext::create_shared(expr);
 }
 
-static std::map<int32_t, size_t> build_file_position_map(
-        const std::vector<ColumnMapping>& mappings, const FileScanRequest& file_request) {
+static std::map<int32_t, size_t> build_file_position_map(const std::vector<ColumnMapping>& mappings,
+                                                         const FileScanRequest& file_request) {
     std::map<int32_t, size_t> table_column_to_file_position;
     for (const auto& mapping : mappings) {
         if (!mapping.file_column_id.has_value()) {
@@ -101,6 +107,109 @@ static std::map<int32_t, size_t> build_file_position_map(
     return table_column_to_file_position;
 }
 
+static bool is_complex_type(const DataTypePtr& type) {
+    DORIS_CHECK(type != nullptr);
+    const auto primitive_type = remove_nullable(type)->get_primitive_type();
+    return primitive_type == TYPE_STRUCT || primitive_type == TYPE_ARRAY ||
+           primitive_type == TYPE_MAP;
+}
+
+static const SchemaField* find_file_child_by_table_column(
+        const TableColumn& table_column, const std::vector<SchemaField>& file_children,
+        TableColumnMappingMode mode) {
+    for (const auto& field : file_children) {
+        if (mode == TableColumnMappingMode::BY_FIELD_ID && !field.field_id_path.empty() &&
+            field.field_id_path.back() != -1 && field.field_id_path.back() == table_column.id) {
+            return &field;
+        }
+        if (field.name == table_column.name) {
+            return &field;
+        }
+    }
+    return nullptr;
+}
+
+static bool complex_projection_has_pruned_children(const ColumnMapping& mapping) {
+    if (!is_complex_type(mapping.file_type)) {
+        return false;
+    }
+    if (mapping.child_mappings.empty()) {
+        return false;
+    }
+    DORIS_CHECK(mapping.file_type != nullptr);
+    DORIS_CHECK(mapping.table_type != nullptr);
+    if (remove_nullable(mapping.file_type)->get_primitive_type() !=
+        remove_nullable(mapping.table_type)->get_primitive_type()) {
+        return true;
+    }
+    if (!mapping.table_type->equals(*mapping.file_type)) {
+        return true;
+    }
+    for (const auto& child_mapping : mapping.child_mappings) {
+        if (!child_mapping.file_column_id.has_value() ||
+            complex_projection_has_pruned_children(child_mapping)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static Status rebuild_projected_file_type(ColumnMapping* mapping) {
+    if (mapping == nullptr) {
+        return Status::InvalidArgument("mapping is null");
+    }
+    DORIS_CHECK(is_complex_type(mapping->file_type));
+    DataTypes child_types;
+    Strings child_names;
+    child_types.reserve(mapping->child_mappings.size());
+    child_names.reserve(mapping->child_mappings.size());
+    for (auto& child_mapping : mapping->child_mappings) {
+        if (!child_mapping.file_column_id.has_value()) {
+            continue;
+        }
+        if (complex_projection_has_pruned_children(child_mapping)) {
+            RETURN_IF_ERROR(rebuild_projected_file_type(&child_mapping));
+        }
+        child_types.push_back(child_mapping.file_type);
+        child_names.push_back(child_mapping.file_column_name);
+    }
+    if (child_types.empty()) {
+        return Status::NotSupported("Projection for complex column {} contains no file children",
+                                    mapping->file_column_name);
+    }
+    DataTypePtr projected_type;
+    const auto primitive_type = remove_nullable(mapping->file_type)->get_primitive_type();
+    switch (primitive_type) {
+    case TYPE_STRUCT:
+        projected_type = std::make_shared<DataTypeStruct>(child_types, child_names);
+        break;
+    case TYPE_ARRAY:
+        DORIS_CHECK(child_types.size() == 1);
+        projected_type = std::make_shared<DataTypeArray>(child_types[0]);
+        break;
+    case TYPE_MAP:
+        DORIS_CHECK(child_types.size() == 1);
+        DORIS_CHECK(remove_nullable(child_types[0])->get_primitive_type() == TYPE_STRUCT);
+        {
+            const auto* entry_type =
+                    assert_cast<const DataTypeStruct*>(remove_nullable(child_types[0]).get());
+            DORIS_CHECK(entry_type->get_elements().size() == 2);
+            projected_type = std::make_shared<DataTypeMap>(entry_type->get_element(0),
+                                                           entry_type->get_element(1));
+        }
+        break;
+    default:
+        return Status::InvalidArgument("Cannot project children from non-complex column {}",
+                                       mapping->file_column_name);
+    }
+    mapping->file_type =
+            mapping->file_type->is_nullable() ? make_nullable(projected_type) : projected_type;
+    mapping->is_trivial =
+            mapping->table_type != nullptr && mapping->table_type->equals(*mapping->file_type);
+    mapping->has_complex_projection = true;
+    return Status::OK();
+}
+
 Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& projected_columns,
                                          const std::map<std::string, Field>& partition_values,
                                          const std::vector<SchemaField>& file_schema) {
@@ -110,10 +219,7 @@ Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& project
         mapping.table_column_id = table_column.id;
         mapping.table_type = table_column.type;
         if (const auto* file_field = _find_file_field(table_column, file_schema)) {
-            mapping.file_column_id = file_field->id;
-            mapping.file_column_name = file_field->name;
-            mapping.file_type = file_field->type;
-            mapping.is_trivial = _is_same_type(mapping.table_type, mapping.file_type);
+            RETURN_IF_ERROR(_create_direct_mapping(table_column, *file_field, &mapping));
         } else if (table_column.is_partition_key && partition_values.count(table_column.name) > 0) {
             // 3. Partition column, use partition value as a constant mapping. Note that partition column may also have default expression, but partition value should take precedence if it exists.
             mapping.default_expr = VExprContext::create_shared(TableLiteral::create_shared(
@@ -130,12 +236,12 @@ Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& project
         } else {
             if (table_column.is_partition_key) {
                 return Status::InvalidArgument(
-                        "Table column '%s' (id=%d) does not have a matching partition value",
-                        table_column.name);
+                        "Table column '{}' (id={}) does not have a matching partition value",
+                        table_column.name, table_column.id);
             }
             if (!_options.allow_missing_columns) {
                 return Status::InvalidArgument(
-                        "Table column '%s' (id=%d) does not have a matching file column",
+                        "Table column '{}' (id={}) does not have a matching file column",
                         table_column.name, table_column.id);
             }
         }
@@ -152,14 +258,25 @@ Status TableColumnMapper::create_scan_request(const std::map<int32_t, TableFilte
     file_request->predicate_columns.clear();
     file_request->non_predicate_columns.clear();
     file_request->column_positions.clear();
+    file_request->complex_projections.clear();
     file_request->local_filters.clear();
     file_request->reader_expression_map.clear();
     for (const auto& table_column : projected_columns) {
-        const auto* mapping = _find_mapping(table_column.id);
+        auto* mapping = _find_mapping(table_column.id);
         if (mapping != nullptr && mapping->file_column_id.has_value()) {
             if (table_filters.count(table_column.id) == 0) {
                 add_scan_column(file_request, *mapping->file_column_id,
                                 &file_request->non_predicate_columns);
+            }
+            if (mapping->has_complex_projection ||
+                complex_projection_has_pruned_children(*mapping)) {
+                if (!mapping->has_complex_projection) {
+                    RETURN_IF_ERROR(rebuild_projected_file_type(mapping));
+                }
+                FieldProjection projection;
+                RETURN_IF_ERROR(_build_complex_projection(*mapping, &projection));
+                file_request->complex_projections.emplace(*mapping->file_column_id,
+                                                          std::move(projection));
             }
         }
     }
@@ -216,14 +333,79 @@ Status TableColumnMapper::localize_filters(const std::map<int32_t, TableFilter>&
 const SchemaField* TableColumnMapper::_find_file_field(
         const TableColumn& table_column, const std::vector<SchemaField>& file_schema) const {
     for (const auto& field : file_schema) {
-        if (_options.mode == TableColumnMappingMode::BY_FIELD_ID && field.id == table_column.id) {
-            return &field;
+        if (_options.mode == TableColumnMappingMode::BY_FIELD_ID) {
+            if (!field.field_id_path.empty() && field.field_id_path.back() != -1 &&
+                field.field_id_path.back() == table_column.id) {
+                return &field;
+            }
+            if ((field.field_id_path.empty() || field.field_id_path.back() == -1) &&
+                field.id == table_column.id) {
+                return &field;
+            }
         }
         if (field.name == table_column.name) {
             return &field;
         }
     }
     return nullptr;
+}
+
+Status TableColumnMapper::_create_direct_mapping(const TableColumn& table_column,
+                                                 const SchemaField& file_field,
+                                                 ColumnMapping* mapping) const {
+    if (mapping == nullptr) {
+        return Status::InvalidArgument("mapping is null");
+    }
+    mapping->file_column_id = file_field.id;
+    mapping->file_column_name = file_field.name;
+    mapping->file_path = file_field.file_path;
+    mapping->file_type = file_field.type;
+    mapping->is_trivial = _is_same_type(mapping->table_type, mapping->file_type);
+    mapping->child_mappings.clear();
+
+    if (!table_column.children.empty() && is_complex_type(file_field.type)) {
+        for (const auto& table_child : table_column.children) {
+            const auto* file_child = find_file_child_by_table_column(
+                    table_child, file_field.children, _options.mode);
+            if (file_child == nullptr) {
+                return Status::NotSupported(
+                        "Complex schema change is not implemented: table child column '{}' "
+                        "(id={}) does not have a matching file child under column '{}'",
+                        table_child.name, table_child.id, table_column.name);
+            }
+            ColumnMapping child_mapping;
+            child_mapping.table_column_id = table_child.id;
+            child_mapping.table_type = table_child.type;
+            RETURN_IF_ERROR(_create_direct_mapping(table_child, *file_child, &child_mapping));
+            mapping->child_mappings.push_back(std::move(child_mapping));
+        }
+    }
+    return Status::OK();
+}
+
+Status TableColumnMapper::_build_complex_projection(const ColumnMapping& mapping,
+                                                    FieldProjection* projection) const {
+    if (projection == nullptr) {
+        return Status::InvalidArgument("projection is null");
+    }
+    DORIS_CHECK(mapping.file_column_id.has_value());
+    projection->file_column_id = *mapping.file_column_id;
+    projection->file_path = mapping.file_path;
+    projection->project_all_children = mapping.child_mappings.empty();
+    projection->children.clear();
+    for (const auto& child_mapping : mapping.child_mappings) {
+        if (!child_mapping.file_column_id.has_value()) {
+            continue;
+        }
+        FieldProjection child_projection;
+        RETURN_IF_ERROR(_build_complex_projection(child_mapping, &child_projection));
+        projection->children.push_back(std::move(child_projection));
+    }
+    if (!projection->project_all_children && projection->children.empty()) {
+        return Status::NotSupported("Projection for complex column {} contains no file children",
+                                    mapping.file_column_name);
+    }
+    return Status::OK();
 }
 
 } // namespace doris::reader

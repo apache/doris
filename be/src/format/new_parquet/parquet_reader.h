@@ -121,6 +121,12 @@ private:
     void _reset_current_row_group();
     void _fill_schema_field(const ParquetColumnSchema& column_schema,
                             reader::SchemaField* field) const;
+    Status _fill_projected_schema_field(const ParquetColumnSchema& column_schema,
+                                        const reader::FieldProjection* projection,
+                                        reader::SchemaField* field) const;
+    Status _get_projected_schema_field(reader::ColumnId file_column_id,
+                                       const reader::FieldProjection* projection,
+                                       reader::SchemaField* field) const;
     bool _has_expression_filter(const reader::FileLocalFilter& local_filter);
     Status _read_filter_columns(int64_t batch_rows, Block* file_block, SelectionVector* selection,
                                 uint16_t* selected_rows);

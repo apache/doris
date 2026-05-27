@@ -26,8 +26,13 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/reader/column_mapper.h"
@@ -180,8 +185,8 @@ public:
             size_t idx = 0;
             for (const auto& mapping : _data_reader.column_mapper.mappings()) {
                 ColumnPtr column;
-                RETURN_IF_ERROR(_materialize_mapping_column(
-                        mapping, &_data_reader.block_template, current_rows, &column));
+                RETURN_IF_ERROR(_materialize_mapping_column(mapping, &_data_reader.block_template,
+                                                            current_rows, &column));
                 block->replace_by_position(idx, std::move(column));
                 idx++;
             }
@@ -233,7 +238,13 @@ protected:
             DORIS_CHECK(block_position < _data_reader.scan_schema.size());
             const auto* field = _find_schema_field(_data_reader.block_schema, file_column_id);
             DORIS_CHECK(field != nullptr);
-            _data_reader.scan_schema[block_position] = *field;
+            auto projection_it = file_request->complex_projections.find(file_column_id);
+            if (projection_it == file_request->complex_projections.end()) {
+                _data_reader.scan_schema[block_position] = *field;
+            } else {
+                RETURN_IF_ERROR(_project_schema_field(*field, projection_it->second,
+                                                      &_data_reader.scan_schema[block_position]));
+            }
         }
         _data_reader.block_template.reserve(_data_reader.scan_schema.size());
         for (const auto& field : _data_reader.scan_schema) {
@@ -340,6 +351,86 @@ private:
             }
         }
         return nullptr;
+    }
+
+    static Status _project_schema_field(const SchemaField& field, const FieldProjection& projection,
+                                        SchemaField* projected_field) {
+        if (projected_field == nullptr) {
+            return Status::InvalidArgument("projected_field is null");
+        }
+        *projected_field = field;
+        if (projection.project_all_children || projection.children.empty()) {
+            return Status::OK();
+        }
+        projected_field->children.clear();
+        for (const auto& child_projection : projection.children) {
+            if (child_projection.file_path.empty()) {
+                return Status::InvalidArgument("Empty projection path for field {}", field.name);
+            }
+            const int32_t child_idx = child_projection.file_path.back();
+            if (child_idx < 0 || child_idx >= static_cast<int32_t>(field.children.size())) {
+                return Status::InvalidArgument("Invalid projection child index {} for field {}",
+                                               child_idx, field.name);
+            }
+            if (child_projection.file_path != field.children[child_idx].file_path) {
+                return Status::InvalidArgument("Invalid projection path for field {}",
+                                               field.children[child_idx].name);
+            }
+            SchemaField projected_child;
+            RETURN_IF_ERROR(_project_schema_field(field.children[child_idx], child_projection,
+                                                  &projected_child));
+            projected_field->children.push_back(std::move(projected_child));
+        }
+        if (projected_field->children.empty()) {
+            return Status::NotSupported("Projection for field {} contains no children", field.name);
+        }
+        RETURN_IF_ERROR(_rebuild_projected_type(field.type, projected_field));
+        return Status::OK();
+    }
+
+    static Status _rebuild_projected_type(const DataTypePtr& original_type,
+                                          SchemaField* projected_field) {
+        if (original_type == nullptr) {
+            return Status::InvalidArgument("Cannot rebuild projected type for field {}",
+                                           projected_field->name);
+        }
+        DataTypes child_types;
+        Strings child_names;
+        child_types.reserve(projected_field->children.size());
+        child_names.reserve(projected_field->children.size());
+        for (const auto& child : projected_field->children) {
+            child_types.push_back(child.type);
+            child_names.push_back(child.name);
+        }
+
+        const auto primitive_type = remove_nullable(original_type)->get_primitive_type();
+        DataTypePtr projected_type;
+        switch (primitive_type) {
+        case TYPE_STRUCT:
+            projected_type = std::make_shared<DataTypeStruct>(child_types, child_names);
+            break;
+        case TYPE_ARRAY:
+            DORIS_CHECK(child_types.size() == 1);
+            projected_type = std::make_shared<DataTypeArray>(child_types[0]);
+            break;
+        case TYPE_MAP:
+            DORIS_CHECK(child_types.size() == 1);
+            DORIS_CHECK(remove_nullable(child_types[0])->get_primitive_type() == TYPE_STRUCT);
+            {
+                const auto* entry_type =
+                        assert_cast<const DataTypeStruct*>(remove_nullable(child_types[0]).get());
+                DORIS_CHECK(entry_type->get_elements().size() == 2);
+                projected_type = std::make_shared<DataTypeMap>(entry_type->get_element(0),
+                                                               entry_type->get_element(1));
+            }
+            break;
+        default:
+            return Status::InvalidArgument("Cannot project children from non-complex field {}",
+                                           projected_field->name);
+        }
+        projected_field->type =
+                original_type->is_nullable() ? make_nullable(projected_type) : projected_type;
+        return Status::OK();
     }
 
     Status _parse_delete_predicates(const SplitReadOptions& options);

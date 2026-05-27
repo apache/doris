@@ -25,19 +25,23 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/assert_cast.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/types.h"
 #include "format/new_parquet/column_reader.h"
 #include "format/new_parquet/parquet_column_schema.h"
 #include "format/new_parquet/selection_vector.h"
+#include "format/reader/file_reader.h"
 
 namespace doris::parquet {
 namespace {
@@ -100,8 +104,7 @@ protected:
     }
 
     std::shared_ptr<arrow::Array> build_fixed_binary_array(
-            const std::shared_ptr<arrow::DataType>& type,
-            const std::vector<std::string>& values) {
+            const std::shared_ptr<arrow::DataType>& type, const std::vector<std::string>& values) {
         arrow::FixedSizeBinaryBuilder builder(type, arrow::default_memory_pool());
         for (const auto& value : values) {
             EXPECT_TRUE(builder.Append(reinterpret_cast<const uint8_t*>(value.data())).ok());
@@ -116,6 +119,28 @@ protected:
         EXPECT_TRUE(builder.Append(3).ok());
         EXPECT_TRUE(builder.AppendNull().ok());
         EXPECT_TRUE(builder.Append(5).ok());
+        return finish_array(&builder);
+    }
+
+    std::shared_ptr<arrow::Array> build_required_struct_array() {
+        auto struct_type = arrow::struct_({arrow::field("a", arrow::int32(), false),
+                                           arrow::field("b", arrow::utf8(), false)});
+        std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders;
+        auto a_array_builder = std::make_unique<arrow::Int32Builder>();
+        field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(a_array_builder)));
+        auto b_array_builder = std::make_unique<arrow::StringBuilder>();
+        field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(b_array_builder)));
+        arrow::StructBuilder builder(struct_type, arrow::default_memory_pool(),
+                                     std::move(field_builders));
+        auto* a_builder = assert_cast<arrow::Int32Builder*>(builder.field_builder(0));
+        auto* b_builder = assert_cast<arrow::StringBuilder*>(builder.field_builder(1));
+        const std::vector<int32_t> a_values = {101, 102, 103, 104, 105};
+        const std::vector<std::string> b_values = {"sa", "sb", "sc", "sd", "se"};
+        for (size_t row = 0; row < a_values.size(); ++row) {
+            EXPECT_TRUE(builder.Append().ok());
+            EXPECT_TRUE(a_builder->Append(a_values[row]).ok());
+            EXPECT_TRUE(b_builder->Append(b_values[row]).ok());
+        }
         return finish_array(&builder);
     }
 
@@ -138,8 +163,7 @@ protected:
     }
 
     std::shared_ptr<arrow::Array> build_timestamp_array(
-            const std::shared_ptr<arrow::DataType>& type,
-            const std::vector<int64_t>& values) {
+            const std::shared_ptr<arrow::DataType>& type, const std::vector<int64_t>& values) {
         arrow::TimestampBuilder builder(type, arrow::default_memory_pool());
         for (const auto value : values) {
             EXPECT_TRUE(builder.Append(value).ok());
@@ -147,9 +171,8 @@ protected:
         return finish_array(&builder);
     }
 
-    std::shared_ptr<arrow::Array> build_decimal_array(
-            const std::shared_ptr<arrow::DataType>& type,
-            const std::vector<int64_t>& values) {
+    std::shared_ptr<arrow::Array> build_decimal_array(const std::shared_ptr<arrow::DataType>& type,
+                                                      const std::vector<int64_t>& values) {
         arrow::Decimal128Builder builder(type, arrow::default_memory_pool());
         for (const auto value : values) {
             EXPECT_TRUE(builder.Append(arrow::Decimal128(value)).ok());
@@ -165,16 +188,16 @@ protected:
     }
 
     void write_parquet_file() {
-        add_field(arrow::field("bool_col", arrow::boolean(), false),
-                  build_required_array<arrow::BooleanBuilder, bool>(
-                          {true, false, true, false, true}),
-                  [](const ParquetColumnSchema& schema, const IColumn& column) {
-                      EXPECT_EQ(schema.type_descriptor.physical_type, ::parquet::Type::BOOLEAN);
-                      const auto& values = assert_cast<const ColumnBool&>(column);
-                      EXPECT_EQ(values.get_element(0), 1);
-                      EXPECT_EQ(values.get_element(1), 0);
-                      EXPECT_EQ(values.get_element(4), 1);
-                  });
+        add_field(
+                arrow::field("bool_col", arrow::boolean(), false),
+                build_required_array<arrow::BooleanBuilder, bool>({true, false, true, false, true}),
+                [](const ParquetColumnSchema& schema, const IColumn& column) {
+                    EXPECT_EQ(schema.type_descriptor.physical_type, ::parquet::Type::BOOLEAN);
+                    const auto& values = assert_cast<const ColumnBool&>(column);
+                    EXPECT_EQ(values.get_element(0), 1);
+                    EXPECT_EQ(values.get_element(1), 0);
+                    EXPECT_EQ(values.get_element(4), 1);
+                });
         add_field(arrow::field("int32_col", arrow::int32(), false),
                   build_required_array<arrow::Int32Builder, int32_t>({10, 20, 30, 40, 50}),
                   [](const ParquetColumnSchema& schema, const IColumn& column) {
@@ -192,18 +215,17 @@ protected:
                       EXPECT_EQ(values.get_element(0), 10000000000L);
                       EXPECT_EQ(values.get_element(1), -9L);
                   });
-        add_field(arrow::field("float_col", arrow::float32(), false),
-                  build_required_array<arrow::FloatBuilder, float>(
-                          {1.5F, -2.25F, 3.0F, 4.5F, 5.75F}),
-                  [](const ParquetColumnSchema& schema, const IColumn& column) {
-                      EXPECT_EQ(schema.type_descriptor.physical_type, ::parquet::Type::FLOAT);
-                      const auto& values = assert_cast<const ColumnFloat32&>(column);
-                      EXPECT_FLOAT_EQ(values.get_element(0), 1.5F);
-                      EXPECT_FLOAT_EQ(values.get_element(1), -2.25F);
-                  });
+        add_field(
+                arrow::field("float_col", arrow::float32(), false),
+                build_required_array<arrow::FloatBuilder, float>({1.5F, -2.25F, 3.0F, 4.5F, 5.75F}),
+                [](const ParquetColumnSchema& schema, const IColumn& column) {
+                    EXPECT_EQ(schema.type_descriptor.physical_type, ::parquet::Type::FLOAT);
+                    const auto& values = assert_cast<const ColumnFloat32&>(column);
+                    EXPECT_FLOAT_EQ(values.get_element(0), 1.5F);
+                    EXPECT_FLOAT_EQ(values.get_element(1), -2.25F);
+                });
         add_field(arrow::field("double_col", arrow::float64(), false),
-                  build_required_array<arrow::DoubleBuilder, double>(
-                          {3.5, -4.75, 6.0, 7.25, 8.5}),
+                  build_required_array<arrow::DoubleBuilder, double>({3.5, -4.75, 6.0, 7.25, 8.5}),
                   [](const ParquetColumnSchema& schema, const IColumn& column) {
                       EXPECT_EQ(schema.type_descriptor.physical_type, ::parquet::Type::DOUBLE);
                       const auto& values = assert_cast<const ColumnFloat64&>(column);
@@ -263,31 +285,27 @@ protected:
                       EXPECT_EQ(schema.type->to_string(column, 1), "00:00:01.000000");
                       EXPECT_EQ(schema.type->to_string(column, 2), "01:02:03.004567");
                   });
-        add_field(arrow::field("timestamp_millis_col",
-                               arrow::timestamp(arrow::TimeUnit::MILLI), false),
+        add_field(arrow::field("timestamp_millis_col", arrow::timestamp(arrow::TimeUnit::MILLI),
+                               false),
                   build_timestamp_array(arrow::timestamp(arrow::TimeUnit::MILLI),
                                         {0, 1234, 1609459200000, 1609459201000, -1}),
                   [](const ParquetColumnSchema& schema, const IColumn& column) {
                       EXPECT_EQ(schema.type_descriptor.physical_type, ::parquet::Type::INT64);
                       EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(),
                                 TYPE_DATETIMEV2);
-                      EXPECT_EQ(schema.type->to_string(column, 1),
-                                "1970-01-01 00:00:01.234");
-                      EXPECT_EQ(schema.type->to_string(column, 4),
-                                "1969-12-31 23:59:59.999");
+                      EXPECT_EQ(schema.type->to_string(column, 1), "1970-01-01 00:00:01.234");
+                      EXPECT_EQ(schema.type->to_string(column, 4), "1969-12-31 23:59:59.999");
                   });
-        add_field(arrow::field("timestamp_micros_col",
-                               arrow::timestamp(arrow::TimeUnit::MICRO), false),
+        add_field(arrow::field("timestamp_micros_col", arrow::timestamp(arrow::TimeUnit::MICRO),
+                               false),
                   build_timestamp_array(arrow::timestamp(arrow::TimeUnit::MICRO),
                                         {0, 1234567, 1609459200000000, 1609459201000000, -1}),
                   [](const ParquetColumnSchema& schema, const IColumn& column) {
                       EXPECT_EQ(schema.type_descriptor.physical_type, ::parquet::Type::INT64);
                       EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(),
                                 TYPE_DATETIMEV2);
-                      EXPECT_EQ(schema.type->to_string(column, 1),
-                                "1970-01-01 00:00:01.234567");
-                      EXPECT_EQ(schema.type->to_string(column, 4),
-                                "1969-12-31 23:59:59.999999");
+                      EXPECT_EQ(schema.type->to_string(column, 1), "1970-01-01 00:00:01.234567");
+                      EXPECT_EQ(schema.type->to_string(column, 4), "1969-12-31 23:59:59.999999");
                   });
         add_field(arrow::field("decimal_fixed_binary_9_2_col", arrow::decimal128(9, 2), false),
                   build_decimal_array(arrow::decimal128(9, 2), {12345, -67, 0, 987, 1000}),
@@ -295,8 +313,7 @@ protected:
                       EXPECT_EQ(schema.type_descriptor.physical_type,
                                 ::parquet::Type::FIXED_LEN_BYTE_ARRAY);
                       EXPECT_TRUE(schema.type_descriptor.is_decimal);
-                      EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(),
-                                TYPE_DECIMAL32);
+                      EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(), TYPE_DECIMAL32);
                       const auto& values = assert_cast<const ColumnDecimal32&>(column);
                       EXPECT_EQ(values.get_element(0), Decimal32(12345));
                       EXPECT_EQ(schema.type->to_string(column, 0), "123.45");
@@ -308,8 +325,7 @@ protected:
                       EXPECT_EQ(schema.type_descriptor.physical_type,
                                 ::parquet::Type::FIXED_LEN_BYTE_ARRAY);
                       EXPECT_TRUE(schema.type_descriptor.is_decimal);
-                      EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(),
-                                TYPE_DECIMAL64);
+                      EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(), TYPE_DECIMAL64);
                       const auto& values = assert_cast<const ColumnDecimal64&>(column);
                       EXPECT_EQ(values.get_element(0), Decimal64(1234567));
                       EXPECT_EQ(schema.type->to_string(column, 0), "1.234567");
@@ -329,6 +345,26 @@ protected:
                       EXPECT_EQ(nested_column.get_element(0), 1);
                       EXPECT_EQ(nested_column.get_element(2), 3);
                   });
+        add_field(arrow::field("struct_col",
+                               arrow::struct_({
+                                       arrow::field("a", arrow::int32(), false),
+                                       arrow::field("b", arrow::utf8(), false),
+                               }),
+                               false),
+                  build_required_struct_array(),
+                  [](const ParquetColumnSchema& schema, const IColumn& column) {
+                      EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(), TYPE_STRUCT);
+                      const auto& struct_column = assert_cast<const ColumnStruct&>(column);
+                      ASSERT_EQ(struct_column.get_columns().size(), 2);
+                      const auto& a_values =
+                              assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+                      const auto& b_values =
+                              assert_cast<const ColumnString&>(struct_column.get_column(1));
+                      EXPECT_EQ(a_values.get_element(0), 101);
+                      EXPECT_EQ(a_values.get_element(4), 105);
+                      EXPECT_EQ(b_values.get_data_at(1).to_string(), "sb");
+                      EXPECT_EQ(b_values.get_data_at(4).to_string(), "se");
+                  });
 
         auto schema = arrow::schema(_arrow_fields);
         auto table = arrow::Table::Make(schema, _arrays);
@@ -341,9 +377,8 @@ protected:
         builder.version(::parquet::ParquetVersion::PARQUET_2_6);
         builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
         builder.compression(::parquet::Compression::UNCOMPRESSED);
-        PARQUET_THROW_NOT_OK(
-                ::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, ROW_COUNT,
-                                             builder.build()));
+        PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                          ROW_COUNT, builder.build()));
     }
 
     std::unique_ptr<ParquetColumnReader> create_reader(size_t field_idx) const {
@@ -378,6 +413,9 @@ protected:
 TEST_F(ParquetColumnReaderTest, ReadAllSupportedPhysicalAndLogicalTypes) {
     for (size_t field_idx = 0; field_idx < _fields.size(); ++field_idx) {
         SCOPED_TRACE(_fields[field_idx]->name);
+        if (_fields[field_idx]->kind != ParquetColumnSchemaKind::PRIMITIVE) {
+            continue;
+        }
         ASSERT_TRUE(supports_record_reader(_fields[field_idx]->type_descriptor));
         read_and_validate(field_idx);
     }
@@ -418,10 +456,64 @@ TEST_F(ParquetColumnReaderTest, SelectReadsOnlySelectedRanges) {
     EXPECT_EQ(int_values.get_element(2), 50);
 }
 
+TEST_F(ParquetColumnReaderTest, ReadProjectedStructChildren) {
+    const auto field_idx = _fields.size() - 1;
+    const auto& struct_schema = *_fields[field_idx];
+    ASSERT_EQ(struct_schema.name, "struct_col");
+    ASSERT_EQ(struct_schema.children.size(), 2);
+
+    reader::FieldProjection projection;
+    projection.file_column_id = struct_schema.top_level_field_id;
+    projection.file_path = struct_schema.file_path;
+    projection.project_all_children = false;
+    reader::FieldProjection child_projection;
+    child_projection.file_column_id = struct_schema.top_level_field_id;
+    child_projection.file_path = struct_schema.children[1]->file_path;
+    projection.children.push_back(std::move(child_projection));
+
+    ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
+    std::unique_ptr<ParquetColumnReader> reader;
+    auto st = factory.create(struct_schema, &projection, &reader);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(remove_nullable(reader->type())->get_primitive_type(), TYPE_STRUCT);
+    const auto* projected_type =
+            assert_cast<const DataTypeStruct*>(remove_nullable(reader->type()).get());
+    ASSERT_EQ(projected_type->get_elements().size(), 1);
+    EXPECT_EQ(projected_type->get_element_name(0), "b");
+
+    MutableColumnPtr column = reader->type()->create_column();
+    int64_t rows_read = 0;
+    st = reader->read(ROW_COUNT, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, ROW_COUNT);
+    const auto& struct_column = assert_cast<const ColumnStruct&>(*column);
+    ASSERT_EQ(struct_column.get_columns().size(), 1);
+    const auto& values = assert_cast<const ColumnString&>(struct_column.get_column(0));
+    EXPECT_EQ(values.get_data_at(0).to_string(), "sa");
+    EXPECT_EQ(values.get_data_at(4).to_string(), "se");
+}
+
+TEST_F(ParquetColumnReaderTest, BuildComplexSchemaPathMetadata) {
+    const auto field_idx = _fields.size() - 1;
+    const auto& struct_schema = *_fields[field_idx];
+    ASSERT_EQ(struct_schema.name, "struct_col");
+    ASSERT_EQ(struct_schema.children.size(), 2);
+    EXPECT_EQ(struct_schema.file_path, std::vector<int32_t>({static_cast<int32_t>(field_idx)}));
+    EXPECT_EQ(struct_schema.name_path, std::vector<std::string>({"struct_col"}));
+    EXPECT_EQ(struct_schema.children[0]->file_path,
+              std::vector<int32_t>({static_cast<int32_t>(field_idx), 0}));
+    EXPECT_EQ(struct_schema.children[1]->file_path,
+              std::vector<int32_t>({static_cast<int32_t>(field_idx), 1}));
+    EXPECT_EQ(struct_schema.children[0]->name_path, std::vector<std::string>({"struct_col", "a"}));
+    EXPECT_EQ(struct_schema.children[1]->name_path, std::vector<std::string>({"struct_col", "b"}));
+    EXPECT_EQ(struct_schema.max_definition_level, 0);
+    EXPECT_EQ(struct_schema.max_repetition_level, 0);
+}
+
 TEST_F(ParquetColumnReaderTest, ResolveSupportedPhysicalAndLogicalSchemas) {
     std::vector<::parquet::schema::NodePtr> nodes = {
-            ::parquet::schema::PrimitiveNode::Make(
-                    "required_bool", ::parquet::Repetition::REQUIRED, ::parquet::Type::BOOLEAN),
+            ::parquet::schema::PrimitiveNode::Make("required_bool", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::BOOLEAN),
             ::parquet::schema::PrimitiveNode::Make(
                     "required_int32", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32),
             ::parquet::schema::PrimitiveNode::Make(
@@ -430,41 +522,42 @@ TEST_F(ParquetColumnReaderTest, ResolveSupportedPhysicalAndLogicalSchemas) {
                     "required_float", ::parquet::Repetition::REQUIRED, ::parquet::Type::FLOAT),
             ::parquet::schema::PrimitiveNode::Make(
                     "required_double", ::parquet::Repetition::REQUIRED, ::parquet::Type::DOUBLE),
-            ::parquet::schema::PrimitiveNode::Make(
-                    "required_binary", ::parquet::Repetition::REQUIRED, ::parquet::Type::BYTE_ARRAY),
+            ::parquet::schema::PrimitiveNode::Make("required_binary",
+                                                   ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::BYTE_ARRAY),
             ::parquet::schema::PrimitiveNode::Make(
                     "required_fixed_binary", ::parquet::Repetition::REQUIRED,
                     ::parquet::Type::FIXED_LEN_BYTE_ARRAY, ::parquet::ConvertedType::NONE, 4),
             ::parquet::schema::PrimitiveNode::Make(
                     "optional_int32", ::parquet::Repetition::OPTIONAL, ::parquet::Type::INT32),
-            ::parquet::schema::PrimitiveNode::Make(
-                    "utf8_binary", ::parquet::Repetition::REQUIRED, ::parquet::Type::BYTE_ARRAY,
-                    ::parquet::ConvertedType::UTF8),
-            ::parquet::schema::PrimitiveNode::Make(
-                    "enum_binary", ::parquet::Repetition::REQUIRED, ::parquet::Type::BYTE_ARRAY,
-                    ::parquet::ConvertedType::ENUM),
-            ::parquet::schema::PrimitiveNode::Make(
-                    "json_binary", ::parquet::Repetition::REQUIRED, ::parquet::Type::BYTE_ARRAY,
-                    ::parquet::ConvertedType::JSON),
-            ::parquet::schema::PrimitiveNode::Make(
-                    "bson_binary", ::parquet::Repetition::REQUIRED, ::parquet::Type::BYTE_ARRAY,
-                    ::parquet::ConvertedType::BSON),
-            ::parquet::schema::PrimitiveNode::Make(
-                    "decimal_int32", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32,
-                    ::parquet::ConvertedType::DECIMAL, -1, 9, 2),
-            ::parquet::schema::PrimitiveNode::Make(
-                    "decimal_int64", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT64,
-                    ::parquet::ConvertedType::DECIMAL, -1, 18, 6),
+            ::parquet::schema::PrimitiveNode::Make("utf8_binary", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::BYTE_ARRAY,
+                                                   ::parquet::ConvertedType::UTF8),
+            ::parquet::schema::PrimitiveNode::Make("enum_binary", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::BYTE_ARRAY,
+                                                   ::parquet::ConvertedType::ENUM),
+            ::parquet::schema::PrimitiveNode::Make("json_binary", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::BYTE_ARRAY,
+                                                   ::parquet::ConvertedType::JSON),
+            ::parquet::schema::PrimitiveNode::Make("bson_binary", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::BYTE_ARRAY,
+                                                   ::parquet::ConvertedType::BSON),
+            ::parquet::schema::PrimitiveNode::Make("decimal_int32", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::INT32,
+                                                   ::parquet::ConvertedType::DECIMAL, -1, 9, 2),
+            ::parquet::schema::PrimitiveNode::Make("decimal_int64", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::INT64,
+                                                   ::parquet::ConvertedType::DECIMAL, -1, 18, 6),
             ::parquet::schema::PrimitiveNode::Make(
                     "decimal_binary", ::parquet::Repetition::REQUIRED, ::parquet::Type::BYTE_ARRAY,
                     ::parquet::ConvertedType::DECIMAL, -1, 18, 6),
-            ::parquet::schema::PrimitiveNode::Make(
-                    "decimal_fixed_binary", ::parquet::Repetition::REQUIRED,
-                    ::parquet::Type::FIXED_LEN_BYTE_ARRAY, ::parquet::ConvertedType::DECIMAL, 8,
-                    18, 6),
-            ::parquet::schema::PrimitiveNode::Make(
-                    "date_int32", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32,
-                    ::parquet::ConvertedType::DATE),
+            ::parquet::schema::PrimitiveNode::Make("decimal_fixed_binary",
+                                                   ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::FIXED_LEN_BYTE_ARRAY,
+                                                   ::parquet::ConvertedType::DECIMAL, 8, 18, 6),
+            ::parquet::schema::PrimitiveNode::Make("date_int32", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::INT32,
+                                                   ::parquet::ConvertedType::DATE),
             ::parquet::schema::PrimitiveNode::Make(
                     "time_millis_int32", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32,
                     ::parquet::ConvertedType::TIME_MILLIS),
@@ -477,27 +570,27 @@ TEST_F(ParquetColumnReaderTest, ResolveSupportedPhysicalAndLogicalSchemas) {
             ::parquet::schema::PrimitiveNode::Make(
                     "timestamp_micros_int64", ::parquet::Repetition::REQUIRED,
                     ::parquet::Type::INT64, ::parquet::ConvertedType::TIMESTAMP_MICROS),
-            ::parquet::schema::PrimitiveNode::Make(
-                    "int8_int32", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32,
-                    ::parquet::ConvertedType::INT_8),
-            ::parquet::schema::PrimitiveNode::Make(
-                    "uint8_int32", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32,
-                    ::parquet::ConvertedType::UINT_8),
-            ::parquet::schema::PrimitiveNode::Make(
-                    "int16_int32", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32,
-                    ::parquet::ConvertedType::INT_16),
-            ::parquet::schema::PrimitiveNode::Make(
-                    "uint16_int32", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32,
-                    ::parquet::ConvertedType::UINT_16),
-            ::parquet::schema::PrimitiveNode::Make(
-                    "int32_int32", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32,
-                    ::parquet::ConvertedType::INT_32),
-            ::parquet::schema::PrimitiveNode::Make(
-                    "uint32_int32", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32,
-                    ::parquet::ConvertedType::UINT_32),
-            ::parquet::schema::PrimitiveNode::Make(
-                    "int64_int64", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT64,
-                    ::parquet::ConvertedType::INT_64),
+            ::parquet::schema::PrimitiveNode::Make("int8_int32", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::INT32,
+                                                   ::parquet::ConvertedType::INT_8),
+            ::parquet::schema::PrimitiveNode::Make("uint8_int32", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::INT32,
+                                                   ::parquet::ConvertedType::UINT_8),
+            ::parquet::schema::PrimitiveNode::Make("int16_int32", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::INT32,
+                                                   ::parquet::ConvertedType::INT_16),
+            ::parquet::schema::PrimitiveNode::Make("uint16_int32", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::INT32,
+                                                   ::parquet::ConvertedType::UINT_16),
+            ::parquet::schema::PrimitiveNode::Make("int32_int32", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::INT32,
+                                                   ::parquet::ConvertedType::INT_32),
+            ::parquet::schema::PrimitiveNode::Make("uint32_int32", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::INT32,
+                                                   ::parquet::ConvertedType::UINT_32),
+            ::parquet::schema::PrimitiveNode::Make("int64_int64", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::INT64,
+                                                   ::parquet::ConvertedType::INT_64),
     };
 
     auto schema =
@@ -523,13 +616,13 @@ TEST_F(ParquetColumnReaderTest, RejectUnsupportedPhysicalAndLogicalTypes) {
             {
                     ::parquet::schema::PrimitiveNode::Make(
                             "int96_col", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT96),
-                    ::parquet::schema::PrimitiveNode::Make(
-                            "repeated_int32_col", ::parquet::Repetition::REPEATED,
-                            ::parquet::Type::INT32),
+                    ::parquet::schema::PrimitiveNode::Make("repeated_int32_col",
+                                                           ::parquet::Repetition::REPEATED,
+                                                           ::parquet::Type::INT32),
                     ::parquet::schema::PrimitiveNode::Make(
                             "decimal256_fixed_col", ::parquet::Repetition::REQUIRED,
-                            ::parquet::Type::FIXED_LEN_BYTE_ARRAY, ::parquet::ConvertedType::DECIMAL,
-                            20, 39, 6),
+                            ::parquet::Type::FIXED_LEN_BYTE_ARRAY,
+                            ::parquet::ConvertedType::DECIMAL, 20, 39, 6),
                     ::parquet::schema::PrimitiveNode::Make(
                             "uint64_col", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT64,
                             ::parquet::ConvertedType::UINT_64),

@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "format/new_parquet/parquet_reader.h"
+
 #include <arrow/api.h>
 #include <arrow/io/api.h>
 #include <gtest/gtest.h>
@@ -24,6 +26,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/assert_cast.h"
@@ -31,11 +34,13 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
-#include "format/new_parquet/parquet_reader.h"
+#include "format/reader/column_mapper.h"
 #include "format/reader/file_reader.h"
 #include "gen_cpp/Types_types.h"
 #include "io/io_common.h"
@@ -78,7 +83,8 @@ private:
 };
 
 VExprContextSPtr create_int32_greater_than_conjunct(int column_id, int32_t value) {
-    auto ctx = VExprContext::create_shared(std::make_shared<Int32GreaterThanExpr>(column_id, value));
+    auto ctx =
+            VExprContext::create_shared(std::make_shared<Int32GreaterThanExpr>(column_id, value));
     ctx->_prepared = true;
     ctx->_opened = true;
     return ctx;
@@ -111,9 +117,9 @@ void write_parquet_file(const std::string& file_path, int64_t row_group_size = R
             arrow::field("id", arrow::int32(), false),
             arrow::field("value", arrow::utf8(), false),
     });
-    auto table = arrow::Table::Make(
-            schema, {build_int32_array({1, 2, 3, 4, 5}),
-                     build_string_array({"one", "two", "three", "four", "five"})});
+    auto table = arrow::Table::Make(schema,
+                                    {build_int32_array({1, 2, 3, 4, 5}),
+                                     build_string_array({"one", "two", "three", "four", "five"})});
 
     auto file_result = arrow::io::FileOutputStream::Open(file_path);
     ASSERT_TRUE(file_result.ok()) << file_result.status();
@@ -123,8 +129,8 @@ void write_parquet_file(const std::string& file_path, int64_t row_group_size = R
     builder.version(::parquet::ParquetVersion::PARQUET_2_6);
     builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
     builder.compression(::parquet::Compression::UNCOMPRESSED);
-    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(
-            *table, arrow::default_memory_pool(), out, row_group_size, builder.build()));
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      row_group_size, builder.build()));
 }
 
 Block build_file_block(const std::vector<reader::SchemaField>& schema) {
@@ -173,6 +179,57 @@ TEST(FileReaderTest, OpenStoresRequestAndCloseClearsState) {
     ASSERT_TRUE(reader.close().ok());
     EXPECT_FALSE(reader.has_request());
     EXPECT_TRUE(reader.eof());
+}
+
+TEST(TableColumnMapperTest, CreatesComplexProjectionForStructChildren) {
+    reader::SchemaField struct_field;
+    struct_field.id = 0;
+    struct_field.name = "s";
+    struct_field.file_path = {0};
+    reader::SchemaField a_field;
+    a_field.id = 0;
+    a_field.name = "a";
+    a_field.type = std::make_shared<DataTypeInt32>();
+    a_field.file_path = {0, 0};
+    reader::SchemaField b_field;
+    b_field.id = 0;
+    b_field.name = "b";
+    b_field.type = std::make_shared<DataTypeString>();
+    b_field.file_path = {0, 1};
+    struct_field.children = {a_field, b_field};
+    struct_field.type = std::make_shared<DataTypeStruct>(DataTypes {a_field.type, b_field.type},
+                                                         Strings {"a", "b"});
+
+    reader::TableColumn table_child;
+    table_child.id = 101;
+    table_child.name = "b";
+    table_child.type = b_field.type;
+    reader::TableColumn table_column;
+    table_column.id = 100;
+    table_column.name = "s";
+    table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_field.type}, Strings {"b"});
+    table_column.children = {table_child};
+
+    reader::TableColumnMapperOptions options;
+    options.mode = reader::TableColumnMappingMode::BY_NAME;
+    reader::TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
+
+    auto request = std::make_unique<reader::FileScanRequest>();
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_column}, request.get()).ok());
+    ASSERT_EQ(request->non_predicate_columns, std::vector<reader::ColumnId>({0}));
+    ASSERT_EQ(request->complex_projections.size(), 1);
+    const auto& projection = request->complex_projections.at(0);
+    EXPECT_EQ(projection.file_path, std::vector<int32_t>({0}));
+    ASSERT_FALSE(projection.project_all_children);
+    ASSERT_EQ(projection.children.size(), 1);
+    EXPECT_EQ(projection.children[0].file_path, std::vector<int32_t>({0, 1}));
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    const auto* projected_type =
+            assert_cast<const DataTypeStruct*>(mapper.mappings()[0].file_type.get());
+    ASSERT_EQ(projected_type->get_elements().size(), 1);
+    EXPECT_EQ(projected_type->get_element_name(0), "b");
 }
 
 class NewParquetReaderTest : public testing::Test {

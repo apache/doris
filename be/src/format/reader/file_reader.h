@@ -59,7 +59,20 @@ struct SchemaField {
     std::string name;
     DataTypePtr type;
     std::vector<SchemaField> children;
+    std::vector<int32_t> file_path;
+    std::vector<int32_t> field_id_path;
+    std::vector<std::string> name_path;
     ColumnType column_type = ColumnType::DATA_COLUMN;
+};
+
+// File-local nested projection. The top-level scan column is still represented
+// by FileScanRequest::predicate_columns/non_predicate_columns; this tree only
+// describes which child paths are needed inside a complex top-level field.
+struct FieldProjection {
+    ColumnId file_column_id = -1;
+    std::vector<int32_t> file_path;
+    bool project_all_children = true;
+    std::vector<FieldProjection> children;
 };
 
 // 已经 localize 到文件 schema 的过滤条件。
@@ -96,6 +109,7 @@ struct FileScanRequest {
     std::vector<ColumnId> predicate_columns;
     std::vector<ColumnId> non_predicate_columns;
     std::map<ColumnId, size_t> column_positions;
+    std::map<ColumnId, FieldProjection> complex_projections;
     std::vector<FileLocalFilter> local_filters;
     // fallback path if filters cannot be localized to file-local predicates. The expression can reference projected_file_columns and partition columns.
     std::vector<std::pair<ColumnId, VExprContextSPtr>> reader_expression_map;

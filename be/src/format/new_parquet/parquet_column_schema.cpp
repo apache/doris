@@ -19,6 +19,7 @@
 
 #include <parquet/api/schema.h>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
@@ -31,6 +32,19 @@
 
 namespace doris::parquet {
 namespace {
+
+struct SchemaBuildContext {
+    int32_t top_level_field_id = -1;
+    int32_t parent_schema_node_id = -1;
+    int16_t definition_level = 0;
+    int16_t repetition_level = 0;
+    int16_t nullable_definition_level = 0;
+    int16_t repeated_repetition_level = 0;
+    std::vector<int32_t> file_path;
+    std::vector<int32_t> field_id_path;
+    std::vector<std::string> name_path;
+    int* next_schema_node_id = nullptr;
+};
 
 bool is_list_node(const ::parquet::schema::Node& node) {
     const auto& logical_type = node.logical_type();
@@ -49,16 +63,63 @@ DataTypePtr nullable_if_needed(DataTypePtr type, const ::parquet::schema::Node& 
     return node.is_optional() ? make_nullable(type) : type;
 }
 
+void inherit_common_schema_state(const ::parquet::schema::Node& node,
+                                 const SchemaBuildContext& context,
+                                 ParquetColumnSchema* column_schema) {
+    DORIS_CHECK(column_schema != nullptr);
+    DORIS_CHECK(context.next_schema_node_id != nullptr);
+    column_schema->field_id = node.field_id();
+    column_schema->top_level_field_id = context.top_level_field_id;
+    column_schema->schema_node_id = (*context.next_schema_node_id)++;
+    column_schema->parent_schema_node_id = context.parent_schema_node_id;
+    column_schema->file_path = context.file_path;
+    column_schema->field_id_path = context.field_id_path;
+    column_schema->name_path = context.name_path;
+    column_schema->name = node.name();
+    column_schema->node = &node;
+    column_schema->max_definition_level = context.definition_level;
+    column_schema->max_repetition_level = context.repetition_level;
+    column_schema->nullable_definition_level = context.nullable_definition_level;
+    column_schema->repeated_repetition_level = context.repeated_repetition_level;
+}
+
+SchemaBuildContext child_context(const SchemaBuildContext& parent,
+                                 const ::parquet::schema::Node& child_node, int32_t child_idx,
+                                 int32_t parent_schema_node_id) {
+    SchemaBuildContext result = parent;
+    result.parent_schema_node_id = parent_schema_node_id;
+    result.file_path.push_back(child_idx);
+    result.field_id_path.push_back(child_node.field_id());
+    result.name_path.push_back(child_node.name());
+    if (child_node.repetition() != ::parquet::Repetition::REQUIRED) {
+        result.definition_level++;
+        result.nullable_definition_level = result.definition_level;
+    }
+    if (child_node.is_repeated()) {
+        result.repetition_level++;
+        result.repeated_repetition_level = result.repetition_level;
+    }
+    return result;
+}
+
+void propagate_child_levels(ParquetColumnSchema* column_schema) {
+    DORIS_CHECK(column_schema != nullptr);
+    for (const auto& child : column_schema->children) {
+        column_schema->max_definition_level =
+                std::max(column_schema->max_definition_level, child->max_definition_level);
+        column_schema->max_repetition_level =
+                std::max(column_schema->max_repetition_level, child->max_repetition_level);
+    }
+}
+
 Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
-                         const ::parquet::schema::Node& node,
+                         const ::parquet::schema::Node& node, const SchemaBuildContext& context,
                          std::unique_ptr<ParquetColumnSchema>* result) {
     if (result == nullptr) {
         return Status::InvalidArgument("result is null");
     }
     auto column_schema = std::make_unique<ParquetColumnSchema>();
-    column_schema->field_id = node.field_id();
-    column_schema->name = node.name();
-    column_schema->node = &node;
+    inherit_common_schema_state(node, context, column_schema.get());
 
     if (node.is_primitive()) {
         const int leaf_column_id = schema.ColumnIndex(node);
@@ -69,6 +130,10 @@ Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
         column_schema->kind = ParquetColumnSchemaKind::PRIMITIVE;
         column_schema->leaf_column_id = leaf_column_id;
         column_schema->descriptor = schema.Column(leaf_column_id);
+        if (column_schema->descriptor != nullptr) {
+            column_schema->max_definition_level = column_schema->descriptor->max_definition_level();
+            column_schema->max_repetition_level = column_schema->descriptor->max_repetition_level();
+        }
         column_schema->type_descriptor = resolve_parquet_type(column_schema->descriptor);
         column_schema->type = column_schema->type_descriptor.doris_type;
         if (column_schema->type == nullptr) {
@@ -87,10 +152,13 @@ Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
                                         node.name());
         }
         std::unique_ptr<ParquetColumnSchema> child;
-        RETURN_IF_ERROR(build_node_schema(schema, *group.field(0), &child));
+        RETURN_IF_ERROR(build_node_schema(
+                schema, *group.field(0),
+                child_context(context, *group.field(0), 0, column_schema->schema_node_id), &child));
         column_schema->type =
                 nullable_if_needed(std::make_shared<DataTypeArray>(child->type), node);
         column_schema->children.push_back(std::move(child));
+        propagate_child_levels(column_schema.get());
         *result = std::move(column_schema);
         return Status::OK();
     }
@@ -102,9 +170,17 @@ Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
                                         node.name());
         }
         std::unique_ptr<ParquetColumnSchema> key_value;
-        RETURN_IF_ERROR(build_node_schema(schema, *group.field(0), &key_value));
+        RETURN_IF_ERROR(build_node_schema(
+                schema, *group.field(0),
+                child_context(context, *group.field(0), 0, column_schema->schema_node_id),
+                &key_value));
         if (key_value->children.size() != 2) {
             return Status::NotSupported("Unsupported parquet MAP key_value layout for column {}",
+                                        node.name());
+        }
+        if (key_value->children[0]->node == nullptr ||
+            key_value->children[0]->node->repetition() != ::parquet::Repetition::REQUIRED) {
+            return Status::NotSupported("Unsupported nullable parquet MAP key for column {}",
                                         node.name());
         }
         auto key_type = key_value->children[0]->type;
@@ -112,6 +188,7 @@ Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
         column_schema->type =
                 nullable_if_needed(std::make_shared<DataTypeMap>(key_type, value_type), node);
         column_schema->children.push_back(std::move(key_value));
+        propagate_child_levels(column_schema.get());
         *result = std::move(column_schema);
         return Status::OK();
     }
@@ -123,13 +200,17 @@ Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
     child_names.reserve(group.field_count());
     for (int child_idx = 0; child_idx < group.field_count(); ++child_idx) {
         std::unique_ptr<ParquetColumnSchema> child;
-        RETURN_IF_ERROR(build_node_schema(schema, *group.field(child_idx), &child));
+        RETURN_IF_ERROR(build_node_schema(schema, *group.field(child_idx),
+                                          child_context(context, *group.field(child_idx), child_idx,
+                                                        column_schema->schema_node_id),
+                                          &child));
         child_types.push_back(child->type);
         child_names.push_back(child->name);
         column_schema->children.push_back(std::move(child));
     }
     column_schema->type =
             nullable_if_needed(std::make_shared<DataTypeStruct>(child_types, child_names), node);
+    propagate_child_levels(column_schema.get());
     *result = std::move(column_schema);
     return Status::OK();
 }
@@ -146,10 +227,16 @@ Status build_parquet_column_schema(const ::parquet::SchemaDescriptor& schema,
     if (root == nullptr) {
         return Status::InvalidArgument("Parquet schema root is null");
     }
+    int next_schema_node_id = 0;
     fields->reserve(root->field_count());
     for (int field_idx = 0; field_idx < root->field_count(); ++field_idx) {
         std::unique_ptr<ParquetColumnSchema> field;
-        RETURN_IF_ERROR(build_node_schema(schema, *root->field(field_idx), &field));
+        SchemaBuildContext context;
+        context.top_level_field_id = field_idx;
+        context.next_schema_node_id = &next_schema_node_id;
+        RETURN_IF_ERROR(build_node_schema(
+                schema, *root->field(field_idx),
+                child_context(context, *root->field(field_idx), field_idx, -1), &field));
         fields->push_back(std::move(field));
     }
     return Status::OK();

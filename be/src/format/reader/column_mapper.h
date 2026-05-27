@@ -19,7 +19,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -28,12 +30,14 @@
 #include "core/data_type/data_type.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/reader/expr/literal.h"
+
 namespace doris::reader {
 
 struct TableColumn;
 struct TableFilter;
 struct SchemaField;
 struct FileScanRequest;
+struct FieldProjection;
 
 enum class TableColumnMappingMode {
     BY_FIELD_ID,
@@ -52,6 +56,7 @@ struct ColumnMapping {
     int32_t table_column_id = -1;
     std::optional<int32_t> file_column_id;
     std::string file_column_name;
+    std::vector<int32_t> file_path;
     DataTypePtr file_type;
     DataTypePtr table_type;
 
@@ -66,6 +71,7 @@ struct ColumnMapping {
     std::vector<ColumnMapping> child_mappings;
     bool is_trivial = false;
     bool is_constant = false;
+    bool has_complex_projection = false;
     TableVirtualColumnType virtual_column_type = TableVirtualColumnType::INVALID;
     VExprContextSPtr default_expr;
 };
@@ -110,8 +116,21 @@ public:
 private:
     const SchemaField* _find_file_field(const TableColumn& table_column,
                                         const std::vector<SchemaField>& file_schema) const;
+    Status _create_direct_mapping(const TableColumn& table_column, const SchemaField& file_field,
+                                  ColumnMapping* mapping) const;
+    Status _build_complex_projection(const ColumnMapping& mapping,
+                                     FieldProjection* projection) const;
 
-    const ColumnMapping* _find_mapping(ColumnId table_column_id) const {
+    ColumnMapping* _find_mapping(int32_t table_column_id) {
+        for (auto& mapping : _mappings) {
+            if (mapping.table_column_id == table_column_id) {
+                return &mapping;
+            }
+        }
+        return nullptr;
+    }
+
+    const ColumnMapping* _find_mapping(int32_t table_column_id) const {
         for (const auto& mapping : _mappings) {
             if (mapping.table_column_id == table_column_id) {
                 return &mapping;

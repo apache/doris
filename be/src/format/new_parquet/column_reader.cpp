@@ -33,8 +33,10 @@
 #include "core/column/column.h"
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "format/new_parquet/parquet_column_schema.h"
+#include "format/reader/file_reader.h"
 
 namespace doris::parquet {
 namespace {
@@ -77,10 +79,10 @@ private:
 
 class StructColumnReader final : public ParquetColumnReader {
 public:
-    StructColumnReader(const ParquetColumnSchema& schema,
+    StructColumnReader(const ParquetColumnSchema& schema, DataTypePtr type,
                        std::vector<std::unique_ptr<ParquetColumnReader>> children)
-            : _field_id(schema.field_id),
-              _type(schema.type),
+            : _field_id(schema.top_level_field_id),
+              _type(std::move(type)),
               _name(schema.name),
               _children(std::move(children)) {}
 
@@ -364,6 +366,7 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
     size_t child_idx = 0;
     DCHECK_EQ(assert_cast<ColumnStruct&>(*column).get_columns().size(), _children.size());
     for (auto& child_reader : _children) {
+        DORIS_CHECK(child_reader != nullptr);
         int64_t child_rows = 0;
         auto child_column =
                 assert_cast<ColumnStruct&>(*column).get_column_ptr(child_idx)->assume_mutable();
@@ -517,7 +520,7 @@ Status ParquetColumnReaderFactory::get_record_reader(
 }
 
 Status ParquetColumnReaderFactory::create_struct_column_reader(
-        const ParquetColumnSchema& column_schema,
+        const ParquetColumnSchema& column_schema, const reader::FieldProjection* projection,
         std::unique_ptr<ParquetColumnReader>* reader) const {
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
@@ -529,16 +532,45 @@ Status ParquetColumnReaderFactory::create_struct_column_reader(
     }
     std::vector<std::unique_ptr<ParquetColumnReader>> child_readers;
     child_readers.reserve(column_schema.children.size());
-    for (const auto& child_schema : column_schema.children) {
+    DataTypes projected_child_types;
+    Strings projected_child_names;
+    for (size_t child_idx = 0; child_idx < column_schema.children.size(); ++child_idx) {
+        const auto& child_schema = column_schema.children[child_idx];
+        const reader::FieldProjection* child_projection = nullptr;
+        if (projection != nullptr && !projection->project_all_children) {
+            auto it = std::find_if(projection->children.begin(), projection->children.end(),
+                                   [&](const reader::FieldProjection& child) {
+                                       return child.file_path == child_schema->file_path;
+                                   });
+            if (it == projection->children.end()) {
+                continue;
+            }
+            child_projection = &*it;
+        }
         std::unique_ptr<ParquetColumnReader> child_reader;
-        RETURN_IF_ERROR(create(*child_schema, &child_reader));
+        RETURN_IF_ERROR(create(*child_schema, child_projection, &child_reader));
+        projected_child_types.push_back(child_reader->type());
+        projected_child_names.push_back(child_reader->name());
         child_readers.push_back(std::move(child_reader));
     }
-    *reader = std::make_unique<StructColumnReader>(column_schema, std::move(child_readers));
+    if (child_readers.empty() && !column_schema.children.empty()) {
+        return Status::NotSupported("Parquet STRUCT projection for column {} contains no children",
+                                    column_schema.name);
+    }
+    DataTypePtr type = column_schema.type;
+    if (projection != nullptr && !projection->project_all_children) {
+        type = std::make_shared<DataTypeStruct>(projected_child_types, projected_child_names);
+        if (column_schema.type != nullptr && column_schema.type->is_nullable()) {
+            type = make_nullable(type);
+        }
+    }
+    *reader = std::make_unique<StructColumnReader>(column_schema, std::move(type),
+                                                   std::move(child_readers));
     return Status::OK();
 }
 
 Status ParquetColumnReaderFactory::create(const ParquetColumnSchema& column_schema,
+                                          const reader::FieldProjection* projection,
                                           std::unique_ptr<ParquetColumnReader>* reader) const {
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
@@ -547,7 +579,7 @@ Status ParquetColumnReaderFactory::create(const ParquetColumnSchema& column_sche
     case ParquetColumnSchemaKind::PRIMITIVE:
         return create_scalar_column_reader(column_schema, reader);
     case ParquetColumnSchemaKind::STRUCT:
-        return create_struct_column_reader(column_schema, reader);
+        return create_struct_column_reader(column_schema, projection, reader);
     case ParquetColumnSchemaKind::LIST:
         return Status::NotSupported("Parquet LIST reader is not implemented for column {}",
                                     column_schema.name);
