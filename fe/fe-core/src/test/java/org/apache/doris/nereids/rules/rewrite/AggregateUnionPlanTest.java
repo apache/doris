@@ -35,6 +35,7 @@ public class AggregateUnionPlanTest extends TestWithFeService implements MemoPat
     protected void runBeforeAll() throws Exception {
         createDatabase("test_agg_union");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 2;
 
         // Tables with RANDOM distribution: no PhysicalDistribute needed in union inputs
         createTable("CREATE TABLE test_agg_union.t1_random ("

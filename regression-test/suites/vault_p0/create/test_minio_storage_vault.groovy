@@ -35,6 +35,8 @@ suite ("test_minio_storage_vault") {
     String extMinioRegion = context.config.otherConfigs.get("extMinioRegion")
     String extMinioBucket = context.config.otherConfigs.get("extMinioBucket")
 
+    sql "set parallel_pipeline_task_num = 2"
+
     // **********************************************************************
     // *      case 1: test MinIO as Storage Vault using S3 Path Style       *
     // **********************************************************************
