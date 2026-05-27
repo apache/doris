@@ -238,32 +238,6 @@ class RequestPropertyDeriverTest {
     }
 
     @Test
-    void testSingleExecutionInstanceGlobalAggregate() {
-        ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
-        testConnectContext.getSessionVariable().setBeNumberForTest(1);
-        testConnectContext.getSessionVariable().parallelPipelineTaskNum = 1;
-
-        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
-        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
-                Lists.newArrayList(key),
-                Lists.newArrayList(key),
-                new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT),
-                true,
-                logicalProperties,
-                false,
-                groupPlan
-        );
-        GroupExpression groupExpression = new GroupExpression(aggregate);
-        new Group(null, groupExpression, null);
-        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(testConnectContext, jobContext);
-        List<List<PhysicalProperties>> actual
-                = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
-        List<List<PhysicalProperties>> expected = Lists.newArrayList();
-        expected.add(Lists.newArrayList(PhysicalProperties.ANY));
-        Assertions.assertEquals(expected, actual);
-    }
-
-    @Test
     void testGlobalAggregateWithoutPartition() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(

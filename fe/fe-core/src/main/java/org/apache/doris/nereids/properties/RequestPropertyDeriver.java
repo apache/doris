@@ -499,10 +499,6 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
             return null;
         } else if (agg.getAggPhase().isGlobal()) {
-            if (connectContext != null && AggregateUtils.isSingleExecutionInstance(connectContext)) {
-                addRequestPropertyToChildren(PhysicalProperties.ANY);
-                return null;
-            }
             // partition expressions already set by rule
             if (agg.getPartitionExpressions().isPresent() && !agg.getPartitionExpressions().get().isEmpty()) {
                 addRequestPropertyToChildren(
