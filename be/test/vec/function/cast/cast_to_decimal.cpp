@@ -24,6 +24,7 @@
 #include "common/exception.h"
 #include "olap/olap_common.h"
 #include "testutil/test_util.h"
+#include "util/string_parser.hpp"
 #include "vec/core/extended_types.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -89,6 +90,37 @@ TEST_F(FunctionCastToDecimalTest, test_from_string_invalid_input) {
     int table_index = 0;
     from_string_invalid_input_test_func<Decimal32>(9, 3, table_index++);
 }
+
+TEST_F(FunctionCastToDecimalTest, test_from_string_scientific_notation) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {
+            {{std::string("1.4E+2")}, DECIMAL128V3(140, 0, 15)},
+            {{std::string(".14E+3")}, DECIMAL128V3(140, 0, 15)},
+            {{std::string("0.001E+5")}, DECIMAL128V3(100, 0, 15)},
+            {{std::string("1.E+2")}, DECIMAL128V3(100, 0, 15)},
+            {{std::string("1.4E+0")}, DECIMAL128V3(1, 400000000000000, 15)},
+            {{std::string("1.4E-2")}, DECIMAL128V3(0, 14000000000000, 15)},
+    };
+    check_function_for_cast<DataTypeDecimal<Decimal128V3::PType>>(input_types, data_set, 15, 38);
+}
+
+TEST_F(FunctionCastToDecimalTest, string_parser_scientific_rounding) {
+    auto parse_decimal128 = [](std::string_view value) {
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        auto parsed = StringParser::string_to_decimal<TYPE_DECIMAL128I>(value.data(), value.size(),
+                                                                        38, 15, &result);
+        EXPECT_EQ(result, StringParser::PARSE_SUCCESS);
+        return parsed;
+    };
+
+    EXPECT_EQ(parse_decimal128("5e-16"), 1);
+    EXPECT_EQ(parse_decimal128("5e-17"), 0);
+    EXPECT_EQ(parse_decimal128("9e-17"), 0);
+    EXPECT_EQ(parse_decimal128("-5e-17"), 0);
+    EXPECT_EQ(parse_decimal128("0.0000000000000005"), 1);
+    EXPECT_EQ(parse_decimal128("0.00000000000000005"), 0);
+}
+
 TEST_F(FunctionCastToDecimalTest, test_from_bool) {
     from_bool_test_func<Decimal32>(9, 0);
     from_bool_test_func<Decimal32>(9, 1);
