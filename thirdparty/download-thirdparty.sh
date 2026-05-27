@@ -371,6 +371,19 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
         fi
         cd -
     fi
+    if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-17.0.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            # apache-arrow-17.0.0-status-inline-static-fix.patch :
+            # Move Status::message()/detail() empty sentinels out of header
+            # inline function-local statics. Clang can place those weak inline
+            # std::string objects in RELRO, then crash while initializing them.
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-status-inline-static-fix.patch"
+
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
     echo "Finished patching ${ARROW_SOURCE}"
 fi
 
