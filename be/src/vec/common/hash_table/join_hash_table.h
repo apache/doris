@@ -211,7 +211,8 @@ public:
 
             /// If the probe key is null
             if (build_idx == bucket_size) {
-                probe_idx++;
+                build_idx = 0;
+                picking_null_keys = false;
                 break;
             }
             do_the_probe();
