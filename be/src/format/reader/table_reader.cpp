@@ -20,15 +20,54 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 
+#include <set>
 #include <vector>
 
 #include "common/status.h"
+#include "core/assert_cast.h"
+#include "exprs/vslot_ref.h"
 #include "format/new_parquet/parquet_reader.h"
 #include "format/reader/column_mapper.h"
 #include "format/table/deletion_vector_reader.h"
 #include "io/io_common.h"
 
 namespace doris::reader {
+namespace {
+
+void collect_table_slot_ids(const VExprSPtr& expr, std::set<int>* slot_ids) {
+    if (expr == nullptr) {
+        return;
+    }
+    if (expr->is_slot_ref()) {
+        const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
+        slot_ids->insert(slot_ref->slot_id());
+    }
+    for (const auto& child : expr->children()) {
+        collect_table_slot_ids(child, slot_ids);
+    }
+}
+
+void build_table_filters_from_conjunct(const VExprSPtr& conjunct,
+                                       std::map<int32_t, TableFilter>* table_filters) {
+    if (conjunct == nullptr) {
+        return;
+    }
+    std::set<int> slot_ids;
+    collect_table_slot_ids(conjunct, &slot_ids);
+    if (slot_ids.size() == 1) {
+        (*table_filters)[*slot_ids.begin()].conjunct = VExprContext::create_shared(conjunct);
+        return;
+    }
+    if (conjunct->node_type() == TExprNodeType::COMPOUND_PRED &&
+        conjunct->op() == TExprOpcode::COMPOUND_AND) {
+        for (const auto& child : conjunct->children()) {
+            build_table_filters_from_conjunct(child, table_filters);
+        }
+        return;
+    }
+}
+
+} // namespace
 
 std::shared_ptr<io::FileSystemProperties> create_system_properties(
         const TFileScanRangeParams* scan_params) {
@@ -58,9 +97,27 @@ Status TableReader::init(TableReadOptions options) {
     _profile = std::move(options.profile);
     TableColumnMapperOptions mapper_options;
     mapper_options.mode = TableColumnMappingMode::BY_FIELD_ID;
+    mapper_options.allow_missing_columns = options.allow_missing_columns;
     _data_reader.column_mapper = TableColumnMapper(mapper_options);
-    // TODO:
-    // _table_filters = build_table_filters_from_conjuncts(options.conjuncts);
+    _conjuncts = std::move(options.conjuncts);
+    return Status::OK();
+}
+
+Status TableReader::_build_table_filters_from_conjuncts() {
+    _table_filters.clear();
+    build_table_filters_from_conjunct(_conjuncts.root(), &_table_filters);
+    return Status::OK();
+}
+
+Status TableReader::_open_local_filter_exprs(const FileScanRequest& file_request) {
+    RowDescriptor row_desc;
+    for (const auto& local_filter : file_request.local_filters) {
+        if (local_filter.conjunct == nullptr) {
+            continue;
+        }
+        RETURN_IF_ERROR(local_filter.conjunct->prepare(_runtime_state, row_desc));
+        RETURN_IF_ERROR(local_filter.conjunct->open(_runtime_state));
+    }
     return Status::OK();
 }
 

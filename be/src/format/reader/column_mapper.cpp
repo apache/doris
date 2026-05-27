@@ -21,12 +21,42 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/assert_cast.h"
 #include "format/reader/expr/cast.h"
 #include "format/reader/expr/slot_ref.h"
 #include "format/reader/file_reader.h"
 #include "format/reader/table_reader.h"
 
 namespace doris::reader {
+
+static VExprSPtr rewrite_table_expr_to_file_expr(
+        const VExprSPtr& expr, const std::map<int32_t, size_t>& table_column_to_file_position) {
+    if (expr == nullptr) {
+        return nullptr;
+    }
+    if (expr->is_slot_ref()) {
+        const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
+        const auto position_it = table_column_to_file_position.find(slot_ref->slot_id());
+        if (position_it != table_column_to_file_position.end()) {
+            return TableSlotRef::create_shared(slot_ref->slot_id(),
+                                               cast_set<int>(position_it->second), -1,
+                                               slot_ref->data_type(), slot_ref->expr_name());
+        }
+        return expr;
+    }
+
+    // VExpr currently does not provide a generic deep-clone API for arbitrary expression types.
+    // Keep all slot-localization mutation inside ColumnMapper and rebuild it for every split
+    // before the localized expression is prepared/opened by TableReader.
+    VExprSPtrs rewritten_children;
+    rewritten_children.reserve(expr->children().size());
+    for (const auto& child : expr->children()) {
+        rewritten_children.push_back(
+                rewrite_table_expr_to_file_expr(child, table_column_to_file_position));
+    }
+    expr->set_children(std::move(rewritten_children));
+    return expr;
+}
 
 static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
 static constexpr const char* ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER = "_last_updated_sequence_number";
@@ -54,6 +84,21 @@ static void rebuild_projection(ColumnMapping* mapping, size_t block_position) {
                                                 cast_set<int>(block_position), -1,
                                                 mapping->file_type, mapping->file_column_name));
     mapping->projection = VExprContext::create_shared(expr);
+}
+
+static std::map<int32_t, size_t> build_file_position_map(
+        const std::vector<ColumnMapping>& mappings, const FileScanRequest& file_request) {
+    std::map<int32_t, size_t> table_column_to_file_position;
+    for (const auto& mapping : mappings) {
+        if (!mapping.file_column_id.has_value()) {
+            continue;
+        }
+        const auto position_it = file_request.column_positions.find(*mapping.file_column_id);
+        if (position_it != file_request.column_positions.end()) {
+            table_column_to_file_position.emplace(mapping.table_column_id, position_it->second);
+        }
+    }
+    return table_column_to_file_position;
 }
 
 Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& projected_columns,
@@ -102,7 +147,8 @@ Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& project
 Status TableColumnMapper::create_scan_request(const std::map<int32_t, TableFilter>& table_filters,
                                               const std::vector<TableColumn>& projected_columns,
                                               FileScanRequest* file_request) {
-    // 真实实现会把 table projection/filter 转换成 file-local projection/filter。
+    // FileReader evaluates expressions against a file-local block. This mapper owns the
+    // table-column to file-column conversion, so it also owns the file-local block positions.
     file_request->predicate_columns.clear();
     file_request->non_predicate_columns.clear();
     file_request->column_positions.clear();
@@ -141,14 +187,28 @@ Status TableColumnMapper::localize_filters(const std::map<int32_t, TableFilter>&
         if (!it.second.can_be_localized()) {
             // TODO: Rewrite table filter to reader_expression_map
             // file_request->reader_expression_map.emplace_back(mapping->table_column_id, it.second.conjunct);
-        } else {
-            FileLocalFilter local_filter;
-            local_filter.file_column_id = *mapping->file_column_id;
-            local_filter.conjunct = it.second.conjunct;
-            local_filter.predicates = it.second.predicates;
-            file_request->local_filters.push_back(std::move(local_filter));
+            continue;
         }
         add_scan_column(file_request, *mapping->file_column_id, &file_request->predicate_columns);
+    }
+
+    // Build the complete table-slot to file-block position map after all predicate columns have
+    // been assigned. This keeps expression localization independent from filter iteration order.
+    const auto table_column_to_file_position = build_file_position_map(_mappings, *file_request);
+    for (const auto& it : table_filters) {
+        const auto* mapping = _find_mapping(it.first);
+        if (mapping == nullptr || !mapping->file_column_id.has_value() ||
+            !it.second.can_be_localized()) {
+            continue;
+        }
+        FileLocalFilter local_filter;
+        local_filter.file_column_id = *mapping->file_column_id;
+        if (it.second.conjunct != nullptr) {
+            local_filter.conjunct = VExprContext::create_shared(rewrite_table_expr_to_file_expr(
+                    it.second.conjunct->root(), table_column_to_file_position));
+        }
+        local_filter.predicates = it.second.predicates;
+        file_request->local_filters.push_back(std::move(local_filter));
     }
     return Status::OK();
 }
