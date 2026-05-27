@@ -23,6 +23,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive.DeriveContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -105,15 +106,20 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
 
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, DeriveContext context) {
+        // Only propagate input slots to operative when the output slot is actually
+        // needed by an upstream operator. Previously complex expressions (e.g. a+b)
+        // unconditionally marked all their input slots as operative, which prevented
+        // those columns from being lazy-materialized even when they were only used
+        // for projection. The PreferPushDownProject branch further skips input slots
+        // inside PPD subtrees (struct_element etc.) so struct/variant base columns
+        // can benefit from TopN lazy materialization.
         for (NamedExpression ne : project.getProjects()) {
-            if (!(ne instanceof Slot)) {
-                if (ne.child(0) instanceof Slot) {
-                    if (context.operativeSlotIds.contains(ne.getExprId().asInt())) {
-                        context.operativeSlotIds.add(((Slot) ne.child(0)).getExprId().asInt());
-                    }
+            if (!(ne instanceof Slot) && context.operativeSlotIds.contains(ne.getExprId().asInt())) {
+                context.addOperativeSlot(ne);
+                if (ne.containsType(PreferPushDownProject.class)) {
+                    context.addOperativeSlotsSkipPreferPushDownProject(ne);
                 } else {
                     context.addOperativeSlots(ne);
-                    context.addOperativeSlot(ne);
                 }
             }
         }
@@ -206,6 +212,26 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
                     operativeSlotIds.add(((Slot) child).getExprId().asInt());
                 }
             });
+        }
+
+        /**
+         * Traverse the expression tree and add all Slot nodes to operativeSlotIds,
+         * but skip entire subtrees rooted at PreferPushDownProject (e.g. struct_element,
+         * element_at) nodes. This prevents base columns like struct_col/payload from
+         * being marked as operative when they only appear as inputs to PPD functions.
+         * Those columns can then be lazy-materialized by TopN.
+         */
+        public void addOperativeSlotsSkipPreferPushDownProject(Expression expr) {
+            if (expr instanceof PreferPushDownProject) {
+                return;
+            }
+            if (expr instanceof Slot) {
+                operativeSlotIds.add(((Slot) expr).getExprId().asInt());
+                return;
+            }
+            for (Expression child : expr.children()) {
+                addOperativeSlotsSkipPreferPushDownProject(child);
+            }
         }
     }
 }
