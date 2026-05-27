@@ -123,6 +123,10 @@ public interface PlanShapeDsl {
         return PlanShape.partitionSort(children);
     }
 
+    default PlanShape<RepeatNode> repeat(PlanShape<?>... children) {
+        return PlanShape.node(RepeatNode.class, children);
+    }
+
     // ---- assertion entry points ----
 
     default void assertMatches(PlanNode root, PlanShape<?> shape) {
