@@ -17,10 +17,18 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.load.NereidsLoadUtils;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
@@ -35,5 +43,18 @@ class PlanUtilsTest {
 
         Plan filter = PlanUtils.filterOrSelf(ImmutableSet.of(BooleanLiteral.TRUE), scan);
         Assertions.assertTrue(filter instanceof LogicalFilter);
+    }
+
+    @Test
+    void translateToLegacyExprShouldQuoteReservedColumnForRoutineLoadReparse() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        ctx.setStatementContext(new StatementContext(ctx, new OriginStatement("", 0)));
+        Expression expr = new NereidsParser().parseExpression("`group` is not null");
+
+        Expr legacyExpr = PlanUtils.translateToLegacyExpr(expr, null, ctx);
+        String exprSql = legacyExpr.toSqlWithoutTbl();
+
+        Assertions.assertTrue(exprSql.contains("`group`"));
+        Assertions.assertDoesNotThrow(() -> NereidsLoadUtils.parseExpressionSeq(exprSql));
     }
 }
