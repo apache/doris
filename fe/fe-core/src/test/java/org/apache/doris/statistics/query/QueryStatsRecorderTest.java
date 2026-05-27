@@ -29,8 +29,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
@@ -38,7 +38,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlap
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.qe.ConnectContext;
@@ -291,7 +290,7 @@ public class QueryStatsRecorderTest {
                 Mockito.mock(PhysicalLazyMaterializeOlapScan.class);
         Mockito.when(lazyScan.getScan()).thenReturn(inner);
         Mockito.when(lazyScan.getOutput())
-               .thenReturn(ImmutableList.of(sortSlot, rowIdSlot));
+                .thenReturn(ImmutableList.of(sortSlot, rowIdSlot));
         Mockito.when(lazyScan.children()).thenReturn(ImmutableList.of());
 
         // PhysicalLazyMaterialize: knows cold_col is lazy for this relation;
@@ -472,29 +471,100 @@ public class QueryStatsRecorderTest {
     // ── Alias / GROUP BY / ORDER BY / Window ─────────────────────────────────
 
     /**
-     * SELECT k1 AS x FROM t: Alias wraps k1; unwrapAlias must resolve to k1 so queryHit is recorded.
+ * Unit test for unwrapAlias: Alias(k1) → k1SlotReference.
      */
     @Test
+    public void testUnwrapAliasReturnsUnderlyingSlot() {
+        ExprId id1 = new ExprId(1);
+        SlotReference k1Slot = mockSlot(id1, "k1");
+
+        org.apache.doris.nereids.trees.expressions.Alias alias =
+                Mockito.mock(org.apache.doris.nereids.trees.expressions.Alias.class);
+        Mockito.when(alias.child()).thenReturn(k1Slot);
+
+        SlotReference result = QueryStatsRecorder.unwrapAlias(alias);
+        Assertions.assertEquals(k1Slot, result);
+    }
+
+    /**
+     * SELECT k1 AS x FROM t: PhysicalProject.getProjects() exposes Alias so
+     * unwrapAlias resolves to k1 and records k1.queryHit.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
     public void testAliasUnwrappedForQueryHit() {
         ExprId id1 = new ExprId(1);
         SlotReference k1Slot = mockSlot(id1, "k1");
         PhysicalOlapScan scan = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(k1Slot));
 
-        // Root output: Alias("x", k1Slot)
         org.apache.doris.nereids.trees.expressions.Alias alias =
                 Mockito.mock(org.apache.doris.nereids.trees.expressions.Alias.class);
-        Mockito.when(alias.getExprId()).thenReturn(new ExprId(99)); // alias has its own ExprId
+        Mockito.when(alias.getExprId()).thenReturn(new ExprId(99));
         Mockito.when(alias.child()).thenReturn(k1Slot);
 
-        Mockito.when(scan.getOutput()).thenReturn(ImmutableList.of(alias));
+        org.apache.doris.nereids.trees.plans.physical.PhysicalProject<?> project =
+                Mockito.mock(org.apache.doris.nereids.trees.plans.physical.PhysicalProject.class);
+        Mockito.when(project.children()).thenReturn(ImmutableList.of(scan));
+        Mockito.when(project.getProjects()).thenReturn(ImmutableList.of(alias));
+        Mockito.when(project.getOutput()).thenReturn(ImmutableList.of());
 
-        Map<String, StatsDelta> deltas = QueryStatsRecorder.collectDeltas(scan);
+        Map<String, StatsDelta> deltas = QueryStatsRecorder.collectDeltas(
+                (org.apache.doris.nereids.trees.plans.physical.PhysicalPlan) project);
 
         Assertions.assertEquals(1, deltas.size());
         StatsDelta delta = deltas.values().iterator().next();
-        Assertions.assertNotNull(delta.getColumnStats().get("k1"),
-                "k1 must be recorded after alias unwrap");
+        Assertions.assertNotNull(delta.getColumnStats().get("k1"), "k1 must be recorded via alias unwrap");
         Assertions.assertTrue(delta.getColumnStats().get("k1").queryHit);
+    }
+
+    /**
+     * SELECT k1 AS x FROM t ORDER BY k2: PhysicalProject is intermediate under PhysicalSort.
+     * walkPlan must propagate alias ExprId so parent's getOutput() resolves to k1.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testAliasUnwrappedForQueryHitIntermediateProject() {
+        ExprId id1 = new ExprId(1);
+        ExprId id2 = new ExprId(2);
+        ExprId aliasId = new ExprId(99);
+        SlotReference k1Slot = mockSlot(id1, "k1");
+        SlotReference k2Slot = mockSlot(id2, "k2");
+        PhysicalOlapScan scan = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(k1Slot, k2Slot));
+
+        org.apache.doris.nereids.trees.expressions.Alias alias =
+                Mockito.mock(org.apache.doris.nereids.trees.expressions.Alias.class);
+        Mockito.when(alias.getExprId()).thenReturn(aliasId);
+        Mockito.when(alias.child()).thenReturn(k1Slot);
+
+        // x_slot — what PhysicalProject.getOutput() returns (alias's ExprId, not k1's)
+        SlotReference xSlot = mockSlot(aliasId, "x");
+
+        org.apache.doris.nereids.trees.plans.physical.PhysicalProject<?> project =
+                Mockito.mock(org.apache.doris.nereids.trees.plans.physical.PhysicalProject.class);
+        Mockito.when(project.children()).thenReturn(ImmutableList.of(scan));
+        Mockito.when(project.getProjects()).thenReturn(ImmutableList.of(alias));
+        Mockito.when(project.getOutput()).thenReturn(ImmutableList.of(xSlot));
+
+        Expression sortExpr = Mockito.mock(Expression.class);
+        Mockito.when(sortExpr.getInputSlots()).thenReturn(ImmutableSet.of(k2Slot));
+        org.apache.doris.nereids.properties.OrderKey orderKey =
+                Mockito.mock(org.apache.doris.nereids.properties.OrderKey.class);
+        Mockito.when(orderKey.getExpr()).thenReturn(sortExpr);
+
+        org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort<?> sort =
+                Mockito.mock(org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort.class);
+        Mockito.when(sort.children()).thenReturn(ImmutableList.of(project));
+        Mockito.when(sort.getOrderKeys()).thenReturn(ImmutableList.of(orderKey));
+        Mockito.when(sort.getOutput()).thenReturn(ImmutableList.of(xSlot));
+
+        Map<String, StatsDelta> deltas = QueryStatsRecorder.collectDeltas(
+                (org.apache.doris.nereids.trees.plans.physical.PhysicalPlan) sort);
+
+        StatsDelta delta = deltas.get("1_1_1_1");
+        Assertions.assertNotNull(delta);
+        Assertions.assertTrue(delta.getColumnStats().get("k2").queryHit, "k2: ORDER BY");
+        Assertions.assertNotNull(delta.getColumnStats().get("x"), "x slot resolves via alias propagation");
+        Assertions.assertTrue(delta.getColumnStats().get("x").queryHit, "x: SELECT output via alias");
     }
 
     /**
@@ -560,7 +630,7 @@ public class QueryStatsRecorderTest {
         StatsDelta delta = deltas.get("1_1_1_1");
         Assertions.assertNotNull(delta);
         Assertions.assertTrue(delta.getColumnStats().get("k2").queryHit, "k2: ORDER BY key");
-        Assertions.assertNull(delta.getColumnStats().get("k1"), "k1 not in ORDER BY, no delta yet");
+        Assertions.assertTrue(delta.getColumnStats().get("k1").queryHit, "k1: SELECT output");
     }
 
     /**
@@ -665,6 +735,58 @@ public class QueryStatsRecorderTest {
                 "k1: join hash conjunct → filterHit");
         Assertions.assertTrue(deltas.get("2_2_2_2").getColumnStats().get("k2").filterHit,
                 "k2: join hash conjunct → filterHit");
+    }
+
+    /**
+     * JOIN ON a.k1 = b.k2 (tinyint vs smallint): Nereids inserts Alias(Cast(k1)) in a
+     * PhysicalProject via PushDownExpressionsInHashCondition. The cast-alias ExprId must be
+     * propagated into exprIdToScan so that recordInputSlotsAsFilterHit can record k1.filterHit.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testCastAliasInJoinPropagatesFilterHit() {
+        ExprId k1Id = new ExprId(1);
+        ExprId castAliasId = new ExprId(99);
+
+        SlotReference k1Slot = mockSlot(k1Id, "k1");
+        PhysicalOlapScan scan = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(k1Slot));
+
+        // Cast(k1) — not a SlotReference, so unwrapAlias returns null for the alias below
+        Expression castExpr = Mockito.mock(Expression.class);
+        Mockito.when(castExpr.getInputSlots()).thenReturn(ImmutableSet.of(k1Slot));
+
+        // Alias(Cast(k1)) with a fresh ExprId — this is what PushDownExpressionsInHashCondition
+        // creates; the hash conjunct references castAliasId, not k1Id
+        org.apache.doris.nereids.trees.expressions.Alias castAlias =
+                Mockito.mock(org.apache.doris.nereids.trees.expressions.Alias.class);
+        Mockito.when(castAlias.getExprId()).thenReturn(castAliasId);
+        Mockito.when(castAlias.child()).thenReturn(castExpr);
+
+        SlotReference castAliasSlot = mockSlot(castAliasId, "k1");
+        org.apache.doris.nereids.trees.plans.physical.PhysicalProject<?> project =
+                Mockito.mock(org.apache.doris.nereids.trees.plans.physical.PhysicalProject.class);
+        Mockito.when(project.children()).thenReturn(ImmutableList.of(scan));
+        Mockito.when(project.getProjects()).thenReturn(ImmutableList.of(castAlias));
+        Mockito.when(project.getOutput()).thenReturn(ImmutableList.of(castAliasSlot));
+
+        // Hash conjunct uses the cast-alias slot, not the original k1Slot
+        Expression hashConjunct = Mockito.mock(Expression.class);
+        Mockito.when(hashConjunct.getInputSlots()).thenReturn(ImmutableSet.of(castAliasSlot));
+
+        org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin<?, ?> join =
+                Mockito.mock(org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin.class);
+        Mockito.when(join.children()).thenReturn(ImmutableList.of(project));
+        Mockito.when(join.getHashJoinConjuncts()).thenReturn(ImmutableList.of(hashConjunct));
+        Mockito.when(join.getOtherJoinConjuncts()).thenReturn(ImmutableList.of());
+        Mockito.when(join.getOutput()).thenReturn(ImmutableList.of());
+
+        Map<String, StatsDelta> deltas = QueryStatsRecorder.collectDeltas((PhysicalPlan) join);
+
+        Assertions.assertTrue(deltas.containsKey("1_1_1_1"), "scan delta must exist");
+        Assertions.assertNotNull(deltas.get("1_1_1_1").getColumnStats().get("k1"),
+                "k1 must be recorded via cast-alias propagation");
+        Assertions.assertTrue(deltas.get("1_1_1_1").getColumnStats().get("k1").filterHit,
+                "k1.filterHit must be set through Alias(Cast(k1)) chain");
     }
 
     /**
