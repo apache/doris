@@ -20,6 +20,8 @@
 #include <utility>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/exception.h"
+#include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_complex.h"
@@ -90,8 +92,10 @@ const char* DataTypeBitMap::deserialize(const char* buf, MutableColumnPtr* colum
     const auto* meta_ptr = reinterpret_cast<const size_t*>(buf);
     const char* data_ptr = buf + sizeof(size_t) * real_have_saved_num;
     for (size_t i = 0; i < real_have_saved_num; ++i) {
-        size_t one_size = unaligned_load<size_t>(&meta_ptr[i]);
-        data[i].deserialize(data_ptr, one_size);
+        auto one_size = unaligned_load<size_t>(&meta_ptr[i]);
+        if (!data[i].deserialize(data_ptr, one_size)) {
+            throw Exception(Status::DataQualityError("Failed to deserialize bitmap data"));
+        }
         data_ptr += one_size;
     }
     return data_ptr;
@@ -116,6 +120,8 @@ void DataTypeBitMap::serialize_as_stream(const BitmapValue& cvalue, BufferWritab
 void DataTypeBitMap::deserialize_as_stream(BitmapValue& value, BufferReadable& buf) {
     StringRef ref;
     buf.read_binary(ref);
-    value.deserialize(ref.data, ref.size);
+    if (!value.deserialize(ref.data, ref.size)) {
+        throw Exception(Status::DataQualityError("Failed to deserialize bitmap data"));
+    }
 }
 } // namespace doris

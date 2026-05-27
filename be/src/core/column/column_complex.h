@@ -70,7 +70,9 @@ public:
         }
 
         if constexpr (T == TYPE_BITMAP) {
-            pvalue->deserialize(pos, length);
+            if (!pvalue->deserialize(pos, length)) {
+                throw Exception(Status::DataQualityError("Failed to deserialize bitmap data"));
+            }
         } else if constexpr (T == TYPE_HLL) {
             pvalue->deserialize(Slice(pos, length));
         } else if constexpr (T == TYPE_QUANTILE_STATE) {
