@@ -17,6 +17,8 @@
 
 #include "exprs/vsearch.h"
 
+#include <fmt/format.h>
+
 #include <memory>
 #include <roaring/roaring.hh>
 
@@ -30,6 +32,7 @@
 #include "glog/logging.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/olap_common.h"
 #include "storage/segment/segment.h"
 
 namespace doris {
@@ -44,6 +47,18 @@ struct SearchInputBundle {
     std::vector<int> column_ids;
     ColumnsWithTypeAndName literal_args;
 };
+
+void add_search_binding_diagnostic(const IndexExecContext* index_context,
+                                   const std::string& diagnostic) {
+    VLOG_DEBUG << diagnostic;
+    if (index_context == nullptr) {
+        return;
+    }
+    const auto& index_query_context = index_context->get_index_query_context();
+    if (index_query_context != nullptr && index_query_context->stats != nullptr) {
+        index_query_context->stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
+    }
+}
 
 Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
                              SearchInputBundle* bundle) {
@@ -158,9 +173,24 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
                             if (base_column_index >= 0) {
                                 bundle->column_ids.emplace_back(base_column_index);
                             }
+                            add_search_binding_diagnostic(
+                                    index_context.get(),
+                                    fmt::format("[VariantSearchBinding] phase=collect_inputs "
+                                                "result=parent_fallback logical_field={} "
+                                                "parent_field={} sub_path={} base_column_id={} "
+                                                "stored_field={} reason=slot_iterator_missing",
+                                                field_name, binding->parent_field_name, sub_path,
+                                                base_column_id, prefix + "." + sub_path));
                             field_added = true;
                         }
                     }
+                } else {
+                    add_search_binding_diagnostic(
+                            index_context.get(),
+                            fmt::format("[VariantSearchBinding] phase=collect_inputs "
+                                        "result=reject logical_field={} parent_field={} "
+                                        "reason=parent_column_not_found",
+                                        field_name, binding->parent_field_name));
                 }
             }
 
@@ -174,6 +204,15 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
                 bundle->iterators.emplace(field_name, iterator);
                 bundle->field_types.emplace(field_name, *storage_name_type);
                 bundle->column_ids.emplace_back(column_id);
+                if (binding != nullptr && binding->__isset.is_variant_subcolumn &&
+                    binding->is_variant_subcolumn) {
+                    add_search_binding_diagnostic(
+                            index_context.get(),
+                            fmt::format("[VariantSearchBinding] phase=collect_inputs "
+                                        "result=direct_iterator logical_field={} column_id={} "
+                                        "stored_field={}",
+                                        field_name, column_id, storage_name_type->first));
+                }
             }
 
             child_index++;
@@ -187,6 +226,18 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
                 field_bindings[child_index].__isset.is_variant_subcolumn &&
                 field_bindings[child_index].is_variant_subcolumn) {
                 // Variant subcolumn not materialized - skip, will create empty BitSetQuery in function_search
+                add_search_binding_diagnostic(
+                        index_context.get(),
+                        fmt::format("[VariantSearchBinding] phase=collect_inputs "
+                                    "result=unmaterialized_element_at logical_field={} "
+                                    "parent_field={} sub_path={} reason=no_slot_ref",
+                                    field_bindings[child_index].field_name,
+                                    field_bindings[child_index].__isset.parent_field_name
+                                            ? field_bindings[child_index].parent_field_name
+                                            : "",
+                                    field_bindings[child_index].__isset.subcolumn_path
+                                            ? field_bindings[child_index].subcolumn_path
+                                            : ""));
                 child_index++;
                 continue;
             }
@@ -253,6 +304,11 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
     if (bundle.iterators.empty() && !is_nested_query) {
         LOG(WARNING) << "VSearchExpr: No indexed columns available for evaluation, DSL: "
                      << _original_dsl;
+        add_search_binding_diagnostic(
+                index_context.get(),
+                fmt::format("[VariantSearchBinding] phase=evaluate_search result=no_iterator "
+                            "dsl={} reason=no_indexed_columns",
+                            _original_dsl));
         auto empty_bitmap = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
                                                       std::make_shared<roaring::Roaring>());
         index_context->set_index_result_for_expr(this, std::move(empty_bitmap));
