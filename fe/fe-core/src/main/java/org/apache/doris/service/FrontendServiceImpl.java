@@ -1008,10 +1008,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (ctx == null) {
             return result;
         }
-        // SHOW VARIABLES can be evaluated through an internal schema query. Planning that internal
-        // query may call setVarOnce() and temporarily change the live session variable
-        // (for example disable_join_reorder). Dump a reverted clone so Changed only
-        // reflects user-visible session settings, while the real session remains untouched.
+        // SHOW VARIABLES can be evaluated through an internal schema query. Planning that
+        // internal query may call setVarOnce() and temporarily change the live session
+        // variable (for example disable_join_reorder). Cloning alone is not enough,
+        // because the clone would keep both the temporary value and its recorded origin.
+        // Revert only the clone so Changed reflects user-visible session settings,
+        // while the real session remains untouched.
         SessionVariable sessionVariable = VariableMgr.cloneSessionVariable(ctx.getSessionVariable());
         try {
             VariableMgr.revertSessionValue(sessionVariable);
