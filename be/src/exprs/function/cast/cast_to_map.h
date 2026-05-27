@@ -34,7 +34,7 @@ inline Status deduplicate_map_keys_in_result(Block& block, uint32_t result) {
                                         result_column_name);
         }
 
-        RETURN_IF_ERROR(map_column->deduplicate_keys());
+        RETURN_IF_ERROR(map_column->deduplicate_keys(true));
         ColumnPtr nested_column_ptr = std::move(nested_column);
         nullable_column->change_nested_column(nested_column_ptr);
     } else {
@@ -44,7 +44,7 @@ inline Status deduplicate_map_keys_in_result(Block& block, uint32_t result) {
                                         result_column_name);
         }
 
-        RETURN_IF_ERROR(map_column->deduplicate_keys());
+        RETURN_IF_ERROR(map_column->deduplicate_keys(true));
     }
 
     block.get_by_position(result).column = std::move(mutable_result_column);
