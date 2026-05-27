@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -251,12 +252,14 @@ public class SqlBlockRuleMgr implements Writable {
                         && rule.getSqlHash().equals(sqlHash)) {
                     MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
                     rule.getBlockCount().increase(1L);
-                    throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
+                    throw new AnalysisException("sql match hash sql block rule: " + rule.getName(),
+                            ErrorCode.ERR_SQL_BLOCK_RULE_HIT);
                 } else if (StringUtils.isNotEmpty(rule.getSql()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSql())
                         && rule.getSqlPattern() != null && rule.getSqlPattern().matcher(originSql).find()) {
                     MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
                     rule.getBlockCount().increase(1L);
-                    throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
+                    throw new AnalysisException("sql match regex sql block rule: " + rule.getName(),
+                            ErrorCode.ERR_SQL_BLOCK_RULE_HIT);
                 }
             } finally {
                 rule.getTryBlockHistogram().update(System.currentTimeMillis() - startAt);
@@ -304,13 +307,13 @@ public class SqlBlockRuleMgr implements Writable {
                 if (rule.getPartitionNum() < partitionNum && rule.getPartitionNum() != 0) {
                     throw new AnalysisException(
                             "sql hits sql block rule: " + rule.getName() + ", reach partition_num : "
-                                    + rule.getPartitionNum());
+                                    + rule.getPartitionNum(), ErrorCode.ERR_SQL_BLOCK_RULE_HIT);
                 } else if (rule.getTabletNum() < tabletNum && rule.getTabletNum() != 0) {
                     throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach tablet_num : "
-                            + rule.getTabletNum());
+                            + rule.getTabletNum(), ErrorCode.ERR_SQL_BLOCK_RULE_HIT);
                 } else if (rule.getCardinality() < cardinality && rule.getCardinality() != 0) {
                     throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach cardinality : "
-                            + rule.getCardinality());
+                            + rule.getCardinality(), ErrorCode.ERR_SQL_BLOCK_RULE_HIT);
                 }
             }
         }

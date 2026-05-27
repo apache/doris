@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorCodeMapper;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlErrPacket;
 import org.apache.doris.mysql.MysqlOkPacket;
@@ -104,6 +105,10 @@ public class QueryState {
     }
 
     public void setError(ErrorCode code, String msg) {
+        if (code == ErrorCode.ERR_UNKNOWN_ERROR) {
+            code = ErrorCodeMapper.getErrorCode(msg);
+        }
+
         this.stateType = MysqlStateType.ERR;
         this.errorCode = code;
         this.errorMessage = msg;

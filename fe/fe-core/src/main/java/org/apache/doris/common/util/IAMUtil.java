@@ -96,10 +96,18 @@ public class IAMUtil {
             post.setEntity(entity);
             try (CloseableHttpResponse response = httpClient.execute(post)) {
                 int statusCode = response.getStatusLine().getStatusCode();
+                String result = EntityUtils.toString(response.getEntity());
                 if (statusCode == 200) {
-                    String result = EntityUtils.toString(response.getEntity());
                     JsonNode jsonNode = getObjectMapperInstance().readTree(result);
-                    return jsonNode.get("data").get("entity").asText();
+                    boolean success = jsonNode.get("success").asBoolean(false);
+                    if (success) {
+                        return jsonNode.get("data").get("entity").asText();
+                    } else {
+                        LOG.warn("call user token from iam endpoint error, msg: {}",
+                                jsonNode.get("message").asText());
+                    }
+                } else {
+                    LOG.warn("call user token from iam endpoint error, result: {}", result);
                 }
             }
         } catch (Exception e) {

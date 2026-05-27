@@ -17,7 +17,14 @@
 
 package org.apache.doris.blockrule;
 
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.util.SqlBlockUtil;
+import org.apache.doris.metric.LongCounterMetric;
+import org.apache.doris.metric.Metric.MetricUnit;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -26,6 +33,11 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class SqlBlockRuleMgrTest {
+    private static void initSqlBlockRuleCounter() {
+        MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE = new LongCounterMetric("counter_hit_sql_block_rule_test",
+                MetricUnit.ROWS, "");
+    }
+
     @Test
     public void testToInfoString() {
         SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
@@ -39,4 +51,35 @@ public class SqlBlockRuleMgrTest {
         Assert.assertTrue(nameToSqlBlockRuleMap.containsKey("r1"));
     }
 
+    @Test
+    public void testSqlBlockHitHasDedicatedErrorCode() {
+        initSqlBlockRuleCounter();
+        SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
+        SqlBlockRule rule = new SqlBlockRule("regex_rule", "select \\* from test_table",
+                SqlBlockUtil.STRING_DEFAULT, 0L, 0L, 0L, true, true);
+        mgr.getNameToSqlBlockRuleMap().put(rule.getName(), rule);
+
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                () -> mgr.matchSql("select * from test_table", "", "root"));
+        Assert.assertEquals(ErrorCode.ERR_SQL_BLOCK_RULE_HIT, exception.getMysqlErrorCode());
+    }
+
+    @Test
+    public void testLimitationsHitHasDedicatedErrorCode() {
+        initSqlBlockRuleCounter();
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        try {
+            SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
+            SqlBlockRule rule = new SqlBlockRule("partition_rule", SqlBlockUtil.STRING_DEFAULT,
+                    SqlBlockUtil.STRING_DEFAULT, 1L, 0L, 0L, true, true);
+            mgr.getNameToSqlBlockRuleMap().put(rule.getName(), rule);
+
+            AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                    () -> mgr.checkLimitations(2L, 0L, 0L, "root"));
+            Assert.assertEquals(ErrorCode.ERR_SQL_BLOCK_RULE_HIT, exception.getMysqlErrorCode());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
 }
