@@ -898,29 +898,22 @@ Status Segment::get_default_value_field(const TabletColumn& tablet_column, Field
         return Status::OK();
     }
 
-    if (tablet_column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        if (default_value != "[]") {
-            return Status::NotSupported("Array default {} is unsupported", default_value);
-        }
+    // [] and {} need no nested SerDe, so an ARRAY/MAP TabletColumn built without sub-columns can
+    // still materialize an empty default.
+    if (tablet_column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY && default_value == "[]") {
         *field = Field::create_field<TYPE_ARRAY>(Array {});
         return Status::OK();
     }
-    if (tablet_column.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
-        return Status::NotSupported("STRUCT default type is unsupported");
-    }
-    if (tablet_column.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
-        if (default_value != "{}") {
-            return Status::NotSupported("Map default {} is unsupported", default_value);
-        }
+    if (tablet_column.type() == FieldType::OLAP_FIELD_TYPE_MAP && default_value == "{}") {
         *field = Field::create_field<TYPE_MAP>(Map {Field::create_field<TYPE_ARRAY>(Array {}),
                                                     Field::create_field<TYPE_ARRAY>(Array {})});
         return Status::OK();
     }
 
-    const auto serde = DataTypeFactory::instance()
-                               .create_data_type(tablet_column.type(), tablet_column.precision(),
-                                                 tablet_column.frac(), tablet_column.length())
-                               ->get_serde();
+    // Any other non-null default, including a non-empty ARRAY/MAP or any STRUCT literal, needs the
+    // SerDe of the declared (possibly nested) type to parse recursively; a bare FieldType cannot
+    // describe nested item types.
+    const auto serde = remove_nullable(tablet_column.get_vec_type())->get_serde();
     return serde->from_fe_string(default_value, *field);
 }
 
