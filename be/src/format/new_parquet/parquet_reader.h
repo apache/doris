@@ -54,8 +54,8 @@ public:
     // init 成功后可以调用 get_schema() 获取 Parquet file-local schema。
     Status init(RuntimeState* state) override;
 
-    // 解析 Parquet footer 并返回 Parquet 文件自身的 schema。
-    // 该方法只能在 open() 成功后调用，不要求 init() 已经执行。
+    // 返回 init() 阶段解析出的 Parquet 文件自身 schema。
+    // 该方法只能在 init() 成功后调用，不要求 open() 已经执行。
     // 这里不做 Iceberg schema evolution，也不把字段转换成 table/global schema。
     Status get_schema(std::vector<reader::SchemaField>* file_schema) const override;
 

@@ -159,7 +159,7 @@ public:
     }
 
     // 读取下一批 file-local block。
-    // 该方法只能在 init(FileScanRequest) 成功后调用。
+    // 该方法只能在 open(FileScanRequest) 成功后调用。
     // file_block 的列顺序和类型必须遵守 FileScanRequest，而不是 table/global schema。
     // rows 返回当前批次输出行数；eof 表示当前文件 reader 是否读完；多文件切换由
     // TableReader 负责。
