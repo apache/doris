@@ -34,6 +34,10 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
         return format == "parquet" ? baseName : "${baseName}_orc"
     }
 
+    def unpartitionedTableNameForFormat = { baseName, format ->
+        return "${baseName}_${format}"
+    }
+
     sql """drop catalog if exists ${catalogName}"""
     sql """
         create catalog if not exists ${catalogName} properties (
@@ -58,6 +62,20 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
                 from ${tableName}
                 order by id
             """
+            if (rows.size() != 2) {
+                def dorisBusinessRows = sql """
+                    select id, tag, score, dt
+                    from ${tableName}
+                    order by id, tag, score
+                """
+                def sparkBusinessRows = spark_iceberg_jdbc """
+                    select id, tag, score, dt
+                    from demo.${dbName}.${tableName}
+                    order by id, tag, score
+                """
+                log.info("Unexpected v2-to-v3 precheck row count for ${tableName}: lineageRows=${rows}, "
+                        + "dorisBusinessRows=${dorisBusinessRows}, sparkBusinessRows=${sparkBusinessRows}")
+            }
             assertEquals(2, rows.size())
             rows.each { row ->
                 assertTrue(row[1] == null,
@@ -67,19 +85,60 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
             }
         }
 
-        def assertV23RowsNotNullAfterUpd = { tableName ->
+        def assertLineageState = { tableName, nonNullIds, nullIds ->
             def rows = sql """
                 select id, _row_id, _last_updated_sequence_number
                 from ${tableName}
                 order by id
             """
+            log.info("Lineage state for ${tableName}: ${rows}")
+            Map<Integer, List<Object>> rowsById = [:]
             rows.each { row ->
-                assertTrue(row[1] != null,
-                    "_row_id should be non-null after Doris operator for ${tableName}")                        
-                assertTrue(row[2] != null,
-                    "_last_updated_sequence_number should be non-null after Doris operator for ${tableName}")
-
+                rowsById[row[0].toString().toInteger()] = row
             }
+            nonNullIds.each { id ->
+                assertTrue(rowsById.containsKey(id), "id=${id} should exist in ${tableName}, rows=${rows}")
+                def row = rowsById[id]
+                assertTrue(row[1] != null,
+                    "_row_id should be non-null after Doris operator for ${tableName}, row=${row}")
+                assertTrue(row[2] != null,
+                    "_last_updated_sequence_number should be non-null after Doris operator for ${tableName}, row=${row}")
+            }
+            nullIds.each { id ->
+                assertTrue(rowsById.containsKey(id), "id=${id} should exist in ${tableName}, rows=${rows}")
+                def row = rowsById[id]
+                assertTrue(row[1] == null,
+                        "_row_id should stay null for historical v2 row in ${tableName}, row=${row}")
+                assertTrue(row[2] == null,
+                        "_last_updated_sequence_number should stay null for historical v2 row in ${tableName}, row=${row}")
+            }
+        }
+
+        def normalizeBusinessRows = { rows ->
+            return rows.collect { row ->
+                [
+                    row[0].toString().toInteger(),
+                    row[1].toString(),
+                    row[2].toString().toInteger(),
+                    row[3].toString()
+                ]
+            }
+        }
+
+        def assertSparkBusinessRowsEqual = { tableName ->
+            def sparkRows = spark_iceberg_jdbc """
+                select id, tag, score, dt
+                from demo.${dbName}.${tableName}
+                order by id
+            """
+            def dorisRows = sql """
+                select id, tag, score, dt
+                from ${tableName}
+                order by id
+            """
+            log.info("Doris business rows for ${tableName}: ${dorisRows}")
+            log.info("Spark business rows for ${tableName}: ${sparkRows}")
+            assertEquals(normalizeBusinessRows(dorisRows), normalizeBusinessRows(sparkRows))
         }
 
         def upgradeV3DorisOperationInsert = { tableName ->
@@ -98,7 +157,8 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
             assertEquals(3, rows.size())
             assertEquals(4, rows[2][0].toString().toInteger())
             assertEquals("post_v3_i", rows[2][1])
-            assertV23RowsNotNullAfterUpd(tableName)
+            assertLineageState(tableName, [1, 3, 4], [])
+            assertSparkBusinessRowsEqual(tableName)
         }
 
         def upgradeV3DorisOperationDelete = { tableName ->
@@ -116,7 +176,8 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
             """
             assertEquals(1, rows.size())
             assertEquals(1, rows[0][0].toString().toInteger())
-            assertV23RowsNotNullAfterUpd(tableName)
+            assertLineageState(tableName, [1], [])
+            assertSparkBusinessRowsEqual(tableName)
 
         }
 
@@ -137,7 +198,8 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
             assertEquals(2, rows.size())
             assertEquals(1, rows[0][0].toString().toInteger())
             assertEquals("post_v3_u", rows[0][1])
-            assertV23RowsNotNullAfterUpd(tableName)
+            assertLineageState(tableName, [1, 3], [])
+            assertSparkBusinessRowsEqual(tableName)
         }
 
         def upgradeV3DorisOperationRewrite = { tableName ->
@@ -158,7 +220,46 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
                 from ${tableName}
             """
             assertEquals(2, rowCount[0][0].toString().toInteger())
-            assertV23RowsNotNullAfterUpd(tableName)
+            assertLineageState(tableName, [1, 3], [])
+            assertSparkBusinessRowsEqual(tableName)
+        }
+
+        def upgradeV3DorisOperationMerge = { tableName ->
+            assertV2RowsAreNullAfterUpgrade(tableName)
+
+            sql """
+                merge into ${tableName} t
+                using (
+                    select 1 as id, 'post_v3_m_u' as tag, 101 as score, date '2024-01-01' as dt, 'U' as flag
+                    union all
+                    select 3, 'base3', 30, date '2024-01-03', 'D'
+                    union all
+                    select 4, 'post_v3_m_i', 40, date '2024-01-04', 'I'
+                ) s
+                on t.id = s.id
+                when matched and s.flag = 'D' then delete
+                when matched then update set tag = s.tag, score = s.score
+                when not matched then insert (id, tag, score, dt)
+                values (s.id, s.tag, s.score, s.dt)
+            """
+
+            def rows = sql """
+                select id, tag, score, _row_id, _last_updated_sequence_number
+                from ${tableName}
+                order by id
+            """
+            assertEquals(2, rows.size())
+            assertEquals(1, rows[0][0].toString().toInteger())
+            assertEquals("post_v3_m_u", rows[0][1].toString())
+            assertEquals(101, rows[0][2].toString().toInteger())
+            assertEquals(4, rows[1][0].toString().toInteger())
+            assertEquals("post_v3_m_i", rows[1][1].toString())
+            rows.each { row ->
+                assertTrue(row[3] != null, "_row_id should be non-null after MERGE for ${tableName}, row=${row}")
+                assertTrue(row[4] != null,
+                        "_last_updated_sequence_number should be non-null after MERGE for ${tableName}, row=${row}")
+            }
+            assertSparkBusinessRowsEqual(tableName)
         }
 
         formats.each { format ->
@@ -200,6 +301,7 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
             """)
             assertTrue(dorisRewriteResult.size() > 0,
                     "Doris rewrite_data_files should return summary rows")
+            assertLineageState(dorisTargetTable, [1, 2, 3, 4], [])
 
             check_sqls_result_equal """
                 select *
@@ -210,11 +312,19 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
                 from ${sparkReferenceTable}
                 order by id
             """
+            assertSparkBusinessRowsEqual(dorisTargetTable)
 
             upgradeV3DorisOperationInsert(tableNameForFormat("v2v3_doris_upd_case1", format))
             upgradeV3DorisOperationDelete(tableNameForFormat("v2v3_doris_upd_case2", format))
             upgradeV3DorisOperationUpdate(tableNameForFormat("v2v3_doris_upd_case3", format))
             upgradeV3DorisOperationRewrite(tableNameForFormat("v2v3_doris_upd_case4", format))
+            upgradeV3DorisOperationMerge(tableNameForFormat("v2v3_doris_upd_case5", format))
+
+            upgradeV3DorisOperationInsert(unpartitionedTableNameForFormat("v2v3_doris_unpart_case1", format))
+            upgradeV3DorisOperationDelete(unpartitionedTableNameForFormat("v2v3_doris_unpart_case2", format))
+            upgradeV3DorisOperationUpdate(unpartitionedTableNameForFormat("v2v3_doris_unpart_case3", format))
+            upgradeV3DorisOperationRewrite(unpartitionedTableNameForFormat("v2v3_doris_unpart_case4", format))
+            upgradeV3DorisOperationMerge(unpartitionedTableNameForFormat("v2v3_doris_unpart_case5", format))
         }
 
     } finally {

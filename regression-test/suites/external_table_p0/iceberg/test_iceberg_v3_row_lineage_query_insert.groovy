@@ -138,6 +138,111 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
         assertEquals(2, combinedPredicate.size())
         assertEquals(expectedIds[1], combinedPredicate[0][0].toString().toInteger())
         assertEquals(expectedIds[2], combinedPredicate[1][0].toString().toInteger())
+
+        def aggregateRows = sql("""
+            select count(*), min(_row_id), max(_last_updated_sequence_number)
+            from ${tableName}
+            where _row_id is not null
+        """)
+        log.info("Checking row lineage aggregate for ${tableName}: result=${aggregateRows}")
+        assertEquals(expectedIds.size(), aggregateRows[0][0].toString().toInteger())
+        assertTrue(aggregateRows[0][1] != null, "min(_row_id) should be non-null for ${tableName}")
+        assertTrue(aggregateRows[0][2] != null,
+                "max(_last_updated_sequence_number) should be non-null for ${tableName}")
+    }
+
+    def assertV2DoesNotExposeRowLineageColumns = { tableName ->
+        sql("""set show_hidden_columns = true""")
+        def descRows = sql("""desc ${tableName}""")
+        def columns = collectDescColumns(descRows)
+        log.info("Checking v2 row lineage compatibility for ${tableName}: desc=${descRows}")
+        assertTrue(!columns.contains("_row_id"),
+                "Iceberg v2 table should not expose _row_id for ${tableName}, got ${columns}")
+        assertTrue(!columns.contains("_last_updated_sequence_number"),
+                "Iceberg v2 table should not expose _last_updated_sequence_number for ${tableName}, got ${columns}")
+
+        test {
+            sql """select id, _row_id from ${tableName}"""
+            exception "_row_id"
+        }
+
+        test {
+            sql """select id, _last_updated_sequence_number from ${tableName}"""
+            exception "_last_updated_sequence_number"
+        }
+
+        sql("""set show_hidden_columns = false""")
+    }
+
+    def assertRowLineagePredicatesAreNotPushedDown = { tableName, rowId, sequenceNumber ->
+        def explainRowId = sql("""
+            explain verbose
+            select id
+            from ${tableName}
+            where id = 1 and _row_id = ${rowId}
+        """)
+        def explainSeq = sql("""
+            explain verbose
+            select id
+            from ${tableName}
+            where _last_updated_sequence_number >= ${sequenceNumber}
+        """)
+
+        [explainRowId, explainSeq].each { explainRows ->
+            String pushdownText = explainRows.collect { row -> row.toString().toLowerCase() }
+                    .findAll { line -> line.contains("icebergpredicatepushdown") }
+                    .join("\n")
+            log.info("Checking row lineage predicate pushdown for ${tableName}: ${pushdownText}")
+            assertTrue(!pushdownText.contains("_row_id"),
+                    "_row_id should not be pushed to Iceberg predicate pushdown for ${tableName}: ${pushdownText}")
+            assertTrue(!pushdownText.contains("_last_updated_sequence_number"),
+                    "_last_updated_sequence_number should not be pushed to Iceberg predicate pushdown for ${tableName}: ${pushdownText}")
+        }
+    }
+
+    def assertCreateTableWithRowLineageColumnsFails = { format ->
+        test {
+            sql """
+                create table create_with_row_id_${format} (
+                    id int,
+                    _row_id bigint
+                ) engine=iceberg
+                properties (
+                    "format-version" = "3",
+                    "write.format.default" = "${format}"
+                )
+            """
+            exception "Cannot create Iceberg table with row lineage column"
+        }
+
+        test {
+            sql """
+                create table create_with_sequence_${format} (
+                    id int,
+                    _last_updated_sequence_number bigint
+                ) engine=iceberg
+                properties (
+                    "format-version" = "3",
+                    "write.format.default" = "${format}"
+                )
+            """
+            exception "Cannot create Iceberg table with row lineage column"
+        }
+
+        test {
+            sql """
+                create table create_with_two_lineage_cols_${format} (
+                    id int,
+                    _row_id bigint,
+                    _last_updated_sequence_number bigint
+                ) engine=iceberg
+                properties (
+                    "format-version" = "3",
+                    "write.format.default" = "${format}"
+                )
+            """
+            exception "Cannot create Iceberg table with row lineage column"
+        }
     }
 
     sql """drop catalog if exists ${catalogName}"""
@@ -163,9 +268,27 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
         formats.each { format ->
             String unpartitionedTable = "test_row_lineage_query_insert_unpartitioned_${format}"
             String partitionedTable = "test_row_lineage_query_insert_partitioned_${format}"
+            String v2Table = "test_row_lineage_query_insert_v2_${format}"
             log.info("Run row lineage query/insert test with format ${format}")
 
             try {
+                // TODO: uncomment when bugfix
+                // assertCreateTableWithRowLineageColumnsFails(format)
+
+                sql """drop table if exists ${v2Table}"""
+                sql """
+                    create table ${v2Table} (
+                        id int,
+                        name string
+                    ) engine=iceberg
+                    properties (
+                        "format-version" = "2",
+                        "write.format.default" = "${format}"
+                    )
+                """
+                sql """insert into ${v2Table} values(1, 'legacy')"""
+                assertV2DoesNotExposeRowLineageColumns(v2Table)
+
                 sql """drop table if exists ${unpartitionedTable}"""
                 sql """
                     create table ${unpartitionedTable} (
@@ -193,6 +316,15 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                 // 3. Explicit SELECT on row lineage columns returns non-null values.
                 assertRowLineageHiddenColumns(unpartitionedTable, 3)
                 assertExplicitRowLineageReadable(unpartitionedTable, [1, 2, 3])
+                def unpartitionedLineageRows = sql("""
+                    select id, _row_id, _last_updated_sequence_number
+                    from ${unpartitionedTable}
+                    order by id
+                """)
+                assertRowLineagePredicatesAreNotPushedDown(
+                        unpartitionedTable,
+                        unpartitionedLineageRows[0][1],
+                        unpartitionedLineageRows[0][2])
 
                 test {
                     sql """insert into ${unpartitionedTable}(_row_id, id, name, age) values (1, 9, 'BadRow', 99)"""
@@ -266,6 +398,26 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                 assertEquals(1, exactPartitionPredicate.size())
                 assertEquals(12, exactPartitionPredicate[0][0].toString().toInteger())
 
+                def partitionAggregate = sql("""
+                    select dt, count(*), min(_row_id), max(_last_updated_sequence_number)
+                    from ${partitionedTable}
+                    group by dt
+                    order by dt
+                """)
+                log.info("Checking partitioned row lineage aggregate for ${partitionedTable}: result=${partitionAggregate}")
+                assertEquals(3, partitionAggregate.size())
+                partitionAggregate.each { row ->
+                    assertEquals(1, row[1].toString().toInteger())
+                    assertTrue(row[2] != null, "partition min(_row_id) should be non-null for ${partitionedTable}")
+                    assertTrue(row[3] != null,
+                            "partition max(_last_updated_sequence_number) should be non-null for ${partitionedTable}")
+                }
+
+                assertRowLineagePredicatesAreNotPushedDown(
+                        partitionedTable,
+                        partitionLineageRows[1][1],
+                        partitionLineageRows[1][2])
+
                 test {
                     sql """
                         insert into ${partitionedTable}(_row_id, id, name, age, dt)
@@ -292,6 +444,11 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                         format,
                         "Partitioned normal INSERT")
             } finally {
+                sql """set show_hidden_columns = false"""
+                sql """drop table if exists create_with_two_lineage_cols_${format}"""
+                sql """drop table if exists create_with_sequence_${format}"""
+                sql """drop table if exists create_with_row_id_${format}"""
+                sql """drop table if exists ${v2Table}"""
                 sql """drop table if exists ${partitionedTable}"""
                 sql """drop table if exists ${unpartitionedTable}"""
             }

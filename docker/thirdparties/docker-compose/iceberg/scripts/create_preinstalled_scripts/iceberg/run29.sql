@@ -109,6 +109,7 @@ drop table if exists v2v3_doris_upd_case1;
 drop table if exists v2v3_doris_upd_case2;
 drop table if exists v2v3_doris_upd_case3;
 drop table if exists v2v3_doris_upd_case4;
+drop table if exists v2v3_doris_upd_case5;
 
 
 create table v2v3_doris_upd_case1 (
@@ -199,6 +200,28 @@ delete from v2v3_doris_upd_case4 where id = 2;
 alter table v2v3_doris_upd_case4 set tblproperties ('format-version' = '3');
 
 
+create table v2v3_doris_upd_case5 (
+    id int,
+    tag string,
+    score int,
+    dt date
+) using iceberg
+partitioned by (days(dt))
+tblproperties (
+    'format-version' = '2',
+    'write.format.default' = 'parquet',
+    'write.delete.mode' = 'merge-on-read',
+    'write.update.mode' = 'merge-on-read',
+    'write.merge.mode' = 'merge-on-read'
+);
+
+insert into v2v3_doris_upd_case5 values (1, 'base', 100, date '2024-01-01'),(2, 'base', 200, date '2024-01-02');
+insert into v2v3_doris_upd_case5 values (3, 'base', 300, date '2024-01-03');
+update      v2v3_doris_upd_case5 set tag = 'base_u', score = score + 10 where id = 1;
+delete from v2v3_doris_upd_case5 where id = 2;
+alter table v2v3_doris_upd_case5 set tblproperties ('format-version' = '3');
+
+
 drop table if exists v2v3_row_lineage_null_after_upgrade_orc;
 drop table if exists v2v3_spark_ops_reference_orc;
 drop table if exists v2v3_doris_ops_target_orc;
@@ -206,6 +229,7 @@ drop table if exists v2v3_doris_upd_case1_orc;
 drop table if exists v2v3_doris_upd_case2_orc;
 drop table if exists v2v3_doris_upd_case3_orc;
 drop table if exists v2v3_doris_upd_case4_orc;
+drop table if exists v2v3_doris_upd_case5_orc;
 
 create table v2v3_row_lineage_null_after_upgrade_orc (
     id int,
@@ -389,3 +413,235 @@ insert into v2v3_doris_upd_case4_orc values (3, 'base', 300, date '2024-01-03');
 update      v2v3_doris_upd_case4_orc set tag = 'base_u', score = score + 10 where id = 1;
 delete from v2v3_doris_upd_case4_orc where id = 2;
 alter table v2v3_doris_upd_case4_orc set tblproperties ('format-version' = '3');
+
+create table v2v3_doris_upd_case5_orc (
+    id int,
+    tag string,
+    score int,
+    dt date
+) using iceberg
+partitioned by (days(dt))
+tblproperties (
+    'format-version' = '2',
+    'write.format.default' = 'orc',
+    'write.delete.mode' = 'merge-on-read',
+    'write.update.mode' = 'merge-on-read',
+    'write.merge.mode' = 'merge-on-read'
+);
+
+insert into v2v3_doris_upd_case5_orc values (1, 'base', 100, date '2024-01-01'),(2, 'base', 200, date '2024-01-02');
+insert into v2v3_doris_upd_case5_orc values (3, 'base', 300, date '2024-01-03');
+update      v2v3_doris_upd_case5_orc set tag = 'base_u', score = score + 10 where id = 1;
+delete from v2v3_doris_upd_case5_orc where id = 2;
+alter table v2v3_doris_upd_case5_orc set tblproperties ('format-version' = '3');
+
+drop table if exists v2v3_doris_unpart_case1_parquet;
+drop table if exists v2v3_doris_unpart_case2_parquet;
+drop table if exists v2v3_doris_unpart_case3_parquet;
+drop table if exists v2v3_doris_unpart_case4_parquet;
+drop table if exists v2v3_doris_unpart_case5_parquet;
+drop table if exists v2v3_doris_unpart_case1_orc;
+drop table if exists v2v3_doris_unpart_case2_orc;
+drop table if exists v2v3_doris_unpart_case3_orc;
+drop table if exists v2v3_doris_unpart_case4_orc;
+drop table if exists v2v3_doris_unpart_case5_orc;
+
+create table v2v3_doris_unpart_case1_parquet (
+    id int,
+    tag string,
+    score int,
+    dt date
+) using iceberg
+tblproperties (
+    'format-version' = '2',
+    'write.format.default' = 'parquet',
+    'write.delete.mode' = 'merge-on-read',
+    'write.update.mode' = 'merge-on-read',
+    'write.merge.mode' = 'merge-on-read'
+);
+
+insert into v2v3_doris_unpart_case1_parquet values (1, 'base', 100, date '2024-01-01'),(2, 'base', 200, date '2024-01-02');
+insert into v2v3_doris_unpart_case1_parquet values (3, 'base', 300, date '2024-01-03');
+update      v2v3_doris_unpart_case1_parquet set tag = 'base_u', score = score + 10 where id = 1;
+delete from v2v3_doris_unpart_case1_parquet where id = 2;
+alter table v2v3_doris_unpart_case1_parquet set tblproperties ('format-version' = '3');
+
+create table v2v3_doris_unpart_case2_parquet (
+    id int,
+    tag string,
+    score int,
+    dt date
+) using iceberg
+tblproperties (
+    'format-version' = '2',
+    'write.format.default' = 'parquet',
+    'write.delete.mode' = 'merge-on-read',
+    'write.update.mode' = 'merge-on-read',
+    'write.merge.mode' = 'merge-on-read'
+);
+
+insert into v2v3_doris_unpart_case2_parquet values (1, 'base', 100, date '2024-01-01'),(2, 'base', 200, date '2024-01-02');
+insert into v2v3_doris_unpart_case2_parquet values (3, 'base', 300, date '2024-01-03');
+update      v2v3_doris_unpart_case2_parquet set tag = 'base_u', score = score + 10 where id = 1;
+delete from v2v3_doris_unpart_case2_parquet where id = 2;
+alter table v2v3_doris_unpart_case2_parquet set tblproperties ('format-version' = '3');
+
+create table v2v3_doris_unpart_case3_parquet (
+    id int,
+    tag string,
+    score int,
+    dt date
+) using iceberg
+tblproperties (
+    'format-version' = '2',
+    'write.format.default' = 'parquet',
+    'write.delete.mode' = 'merge-on-read',
+    'write.update.mode' = 'merge-on-read',
+    'write.merge.mode' = 'merge-on-read'
+);
+
+insert into v2v3_doris_unpart_case3_parquet values (1, 'base', 100, date '2024-01-01'),(2, 'base', 200, date '2024-01-02');
+insert into v2v3_doris_unpart_case3_parquet values (3, 'base', 300, date '2024-01-03');
+update      v2v3_doris_unpart_case3_parquet set tag = 'base_u', score = score + 10 where id = 1;
+delete from v2v3_doris_unpart_case3_parquet where id = 2;
+alter table v2v3_doris_unpart_case3_parquet set tblproperties ('format-version' = '3');
+
+create table v2v3_doris_unpart_case4_parquet (
+    id int,
+    tag string,
+    score int,
+    dt date
+) using iceberg
+tblproperties (
+    'format-version' = '2',
+    'write.format.default' = 'parquet',
+    'write.delete.mode' = 'merge-on-read',
+    'write.update.mode' = 'merge-on-read',
+    'write.merge.mode' = 'merge-on-read'
+);
+
+insert into v2v3_doris_unpart_case4_parquet values (1, 'base', 100, date '2024-01-01'),(2, 'base', 200, date '2024-01-02');
+insert into v2v3_doris_unpart_case4_parquet values (3, 'base', 300, date '2024-01-03');
+update      v2v3_doris_unpart_case4_parquet set tag = 'base_u', score = score + 10 where id = 1;
+delete from v2v3_doris_unpart_case4_parquet where id = 2;
+alter table v2v3_doris_unpart_case4_parquet set tblproperties ('format-version' = '3');
+
+create table v2v3_doris_unpart_case5_parquet (
+    id int,
+    tag string,
+    score int,
+    dt date
+) using iceberg
+tblproperties (
+    'format-version' = '2',
+    'write.format.default' = 'parquet',
+    'write.delete.mode' = 'merge-on-read',
+    'write.update.mode' = 'merge-on-read',
+    'write.merge.mode' = 'merge-on-read'
+);
+
+insert into v2v3_doris_unpart_case5_parquet values (1, 'base', 100, date '2024-01-01'),(2, 'base', 200, date '2024-01-02');
+insert into v2v3_doris_unpart_case5_parquet values (3, 'base', 300, date '2024-01-03');
+update      v2v3_doris_unpart_case5_parquet set tag = 'base_u', score = score + 10 where id = 1;
+delete from v2v3_doris_unpart_case5_parquet where id = 2;
+alter table v2v3_doris_unpart_case5_parquet set tblproperties ('format-version' = '3');
+
+create table v2v3_doris_unpart_case1_orc (
+    id int,
+    tag string,
+    score int,
+    dt date
+) using iceberg
+tblproperties (
+    'format-version' = '2',
+    'write.format.default' = 'orc',
+    'write.delete.mode' = 'merge-on-read',
+    'write.update.mode' = 'merge-on-read',
+    'write.merge.mode' = 'merge-on-read'
+);
+
+insert into v2v3_doris_unpart_case1_orc values (1, 'base', 100, date '2024-01-01'),(2, 'base', 200, date '2024-01-02');
+insert into v2v3_doris_unpart_case1_orc values (3, 'base', 300, date '2024-01-03');
+update      v2v3_doris_unpart_case1_orc set tag = 'base_u', score = score + 10 where id = 1;
+delete from v2v3_doris_unpart_case1_orc where id = 2;
+alter table v2v3_doris_unpart_case1_orc set tblproperties ('format-version' = '3');
+
+create table v2v3_doris_unpart_case2_orc (
+    id int,
+    tag string,
+    score int,
+    dt date
+) using iceberg
+tblproperties (
+    'format-version' = '2',
+    'write.format.default' = 'orc',
+    'write.delete.mode' = 'merge-on-read',
+    'write.update.mode' = 'merge-on-read',
+    'write.merge.mode' = 'merge-on-read'
+);
+
+insert into v2v3_doris_unpart_case2_orc values (1, 'base', 100, date '2024-01-01'),(2, 'base', 200, date '2024-01-02');
+insert into v2v3_doris_unpart_case2_orc values (3, 'base', 300, date '2024-01-03');
+update      v2v3_doris_unpart_case2_orc set tag = 'base_u', score = score + 10 where id = 1;
+delete from v2v3_doris_unpart_case2_orc where id = 2;
+alter table v2v3_doris_unpart_case2_orc set tblproperties ('format-version' = '3');
+
+create table v2v3_doris_unpart_case3_orc (
+    id int,
+    tag string,
+    score int,
+    dt date
+) using iceberg
+tblproperties (
+    'format-version' = '2',
+    'write.format.default' = 'orc',
+    'write.delete.mode' = 'merge-on-read',
+    'write.update.mode' = 'merge-on-read',
+    'write.merge.mode' = 'merge-on-read'
+);
+
+insert into v2v3_doris_unpart_case3_orc values (1, 'base', 100, date '2024-01-01'),(2, 'base', 200, date '2024-01-02');
+insert into v2v3_doris_unpart_case3_orc values (3, 'base', 300, date '2024-01-03');
+update      v2v3_doris_unpart_case3_orc set tag = 'base_u', score = score + 10 where id = 1;
+delete from v2v3_doris_unpart_case3_orc where id = 2;
+alter table v2v3_doris_unpart_case3_orc set tblproperties ('format-version' = '3');
+
+create table v2v3_doris_unpart_case4_orc (
+    id int,
+    tag string,
+    score int,
+    dt date
+) using iceberg
+tblproperties (
+    'format-version' = '2',
+    'write.format.default' = 'orc',
+    'write.delete.mode' = 'merge-on-read',
+    'write.update.mode' = 'merge-on-read',
+    'write.merge.mode' = 'merge-on-read'
+);
+
+insert into v2v3_doris_unpart_case4_orc values (1, 'base', 100, date '2024-01-01'),(2, 'base', 200, date '2024-01-02');
+insert into v2v3_doris_unpart_case4_orc values (3, 'base', 300, date '2024-01-03');
+update      v2v3_doris_unpart_case4_orc set tag = 'base_u', score = score + 10 where id = 1;
+delete from v2v3_doris_unpart_case4_orc where id = 2;
+alter table v2v3_doris_unpart_case4_orc set tblproperties ('format-version' = '3');
+
+create table v2v3_doris_unpart_case5_orc (
+    id int,
+    tag string,
+    score int,
+    dt date
+) using iceberg
+tblproperties (
+    'format-version' = '2',
+    'write.format.default' = 'orc',
+    'write.delete.mode' = 'merge-on-read',
+    'write.update.mode' = 'merge-on-read',
+    'write.merge.mode' = 'merge-on-read'
+);
+
+insert into v2v3_doris_unpart_case5_orc values (1, 'base', 100, date '2024-01-01'),(2, 'base', 200, date '2024-01-02');
+insert into v2v3_doris_unpart_case5_orc values (3, 'base', 300, date '2024-01-03');
+update      v2v3_doris_unpart_case5_orc set tag = 'base_u', score = score + 10 where id = 1;
+delete from v2v3_doris_unpart_case5_orc where id = 2;
+alter table v2v3_doris_unpart_case5_orc set tblproperties ('format-version' = '3');

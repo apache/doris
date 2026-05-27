@@ -1697,6 +1697,46 @@ class Suite implements GroovyInterceptable {
     }
 
     /**
+     * Execute Spark SQL on the Spark ThriftServer via Hive JDBC.
+     *
+     * Usage in test suite:
+     *   spark_iceberg_jdbc "CREATE TABLE demo.test_db.t1 (id INT) USING iceberg"
+     *   def result = spark_iceberg_jdbc "SELECT * FROM demo.test_db.t1"
+     */
+    List<List<Object>> spark_iceberg_jdbc(String sqlStr, boolean isOrder = false) {
+        Class.forName("org.apache.hive.jdbc.HiveDriver")
+        String sparkHost = context.config.otherConfigs.get("externalEnvIp")
+        String sparkPort = context.config.otherConfigs.get("iceberg_spark_thrift_port") ?: "11000"
+        String sparkJdbcUrl = "jdbc:hive2://${sparkHost}:${sparkPort}/;auth=noSasl"
+        String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
+        logger.info("Execute Spark Iceberg JDBC SQL: ${cleanedSqlStr}".toString())
+        logger.info("Spark Iceberg JDBC URL: ${sparkJdbcUrl}".toString())
+        return connect("hadoop", "hadoop", sparkJdbcUrl) {
+            return sql(cleanedSqlStr, isOrder)
+        }
+    }
+
+    /**
+     * Execute multiple Spark SQL statements on the Spark ThriftServer via Hive JDBC.
+     */
+    List spark_iceberg_jdbc_multi(String sqlStatements, boolean isOrder = false) {
+        def statements = sqlStatements.split(';').collect { it.trim() }.findAll { it }
+
+        if (statements.isEmpty()) {
+            return []
+        }
+
+        String sparkHost = context.config.otherConfigs.get("externalEnvIp")
+        String sparkPort = context.config.otherConfigs.get("iceberg_spark_thrift_port") ?: "11000"
+        String sparkJdbcUrl = "jdbc:hive2://${sparkHost}:${sparkPort}/"
+        Class.forName("org.apache.hive.jdbc.HiveDriver")
+        logger.info("Execute Spark Iceberg JDBC SQL statements via ${sparkJdbcUrl}: ${statements}".toString())
+        return connect("hadoop", "hadoop", sparkJdbcUrl) {
+            return statements.collect { statement -> sql(statement, isOrder) }
+        }
+    }
+
+    /**
      * Execute Spark SQL on the spark-iceberg container with Paimon extensions enabled.
      *
      * Usage in test suite:

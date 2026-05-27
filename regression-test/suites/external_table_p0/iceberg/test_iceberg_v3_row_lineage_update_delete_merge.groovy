@@ -134,6 +134,8 @@ suite("test_iceberg_v3_row_lineage_update_delete_merge", "p0,external,iceberg,ex
     try {
         formats.each { format ->
             String updateDeleteTable = "test_row_lineage_v3_update_delete_${format}"
+            String advancedUpdateDeleteTable = "test_row_lineage_v3_update_delete_adv_${format}"
+            String advancedSourceTable = "test_row_lineage_v3_update_delete_src_${format}"
             String mergeTable = "test_row_lineage_v3_merge_${format}"
             log.info("Run row lineage update/delete/merge test with format ${format}")
 
@@ -200,6 +202,97 @@ suite("test_iceberg_v3_row_lineage_update_delete_merge", "p0,external,iceberg,ex
                 """
                 log.info("Checking _row_id filter after UPDATE/DELETE on ${updateDeleteTable}: minRowId=${minRowIdAfterUpdate}, result=${rowIdFilterResult}")
                 assertEquals(1, rowIdFilterResult[0][0].toString().toInteger())
+
+                sql """drop table if exists ${advancedSourceTable}"""
+                sql """drop table if exists ${advancedUpdateDeleteTable}"""
+                sql """
+                    create table ${advancedUpdateDeleteTable} (
+                        id int,
+                        name string,
+                        score int,
+                        dt date
+                    ) engine=iceberg
+                    partition by list (day(dt)) ()
+                    properties (
+                        "format-version" = "3",
+                        "write.format.default" = "${format}",
+                        "write.delete.mode" = "merge-on-read",
+                        "write.update.mode" = "merge-on-read"
+                    )
+                """
+                sql """
+                    create table ${advancedSourceTable} (
+                        id int,
+                        action string
+                    ) engine=iceberg
+                    properties (
+                        "format-version" = "3",
+                        "write.format.default" = "${format}"
+                    )
+                """
+                sql """
+                    insert into ${advancedUpdateDeleteTable} values
+                    (10, 'a', 10, date '2024-02-01'),
+                    (11, 'b', 20, date '2024-02-01'),
+                    (12, 'c', 30, date '2024-02-02'),
+                    (13, 'd', 40, date '2024-02-02'),
+                    (14, 'e', 50, date '2024-02-03')
+                """
+                sql """insert into ${advancedSourceTable} values (12, 'U'), (13, 'D')"""
+
+                def advancedLineageBefore = lineageMap(advancedUpdateDeleteTable)
+                sql """
+                    update ${advancedUpdateDeleteTable}
+                    set name = concat(name, '_multi'), score = score + 100
+                    where score >= 10 and dt = date '2024-02-01'
+                """
+                def advancedLineageAfterMultiUpdate = lineageMap(advancedUpdateDeleteTable)
+                [10, 11].each { id ->
+                    assertEquals(advancedLineageBefore[id][0], advancedLineageAfterMultiUpdate[id][0])
+                    assertTrue(advancedLineageAfterMultiUpdate[id][1].toLong() > advancedLineageBefore[id][1].toLong(),
+                            "partition multi-row UPDATE should advance sequence for id=${id}")
+                }
+                assertEquals(advancedLineageBefore[12], advancedLineageAfterMultiUpdate[12])
+
+                sql """
+                    update ${advancedUpdateDeleteTable}
+                    set name = 'sub_u', score = score + 7
+                    where id in (select id from ${advancedSourceTable} where action = 'U')
+                """
+                def advancedLineageAfterSubqueryUpdate = lineageMap(advancedUpdateDeleteTable)
+                assertEquals(advancedLineageAfterMultiUpdate[12][0], advancedLineageAfterSubqueryUpdate[12][0])
+                assertTrue(advancedLineageAfterSubqueryUpdate[12][1].toLong()
+                                > advancedLineageAfterMultiUpdate[12][1].toLong(),
+                        "subquery UPDATE should advance sequence for id=12")
+
+                sql """
+                    delete from ${advancedUpdateDeleteTable}
+                    where id in (select id from ${advancedSourceTable} where action = 'D')
+                """
+
+                def advancedRows = sql """select id, name, score, dt from ${advancedUpdateDeleteTable} order by id"""
+                def normalizedAdvancedRows = advancedRows.collect {
+                    [it[0].toString().toInteger(), it[1].toString(), it[2].toString().toInteger(), it[3].toString()]
+                }
+                assertEquals([
+                        [10, "a_multi", 110, "2024-02-01"],
+                        [11, "b_multi", 120, "2024-02-01"],
+                        [12, "sub_u", 37, "2024-02-02"],
+                        [14, "e", 50, "2024-02-03"]
+                ], normalizedAdvancedRows)
+                def partitionRowsAfterDelete = sql """
+                    select id
+                    from ${advancedUpdateDeleteTable}
+                    where dt = date '2024-02-02'
+                    order by id
+                """
+                assertEquals(1, partitionRowsAfterDelete.size())
+                assertEquals(12, partitionRowsAfterDelete[0][0].toString().toInteger())
+                assertExplicitRowLineageNonNull(advancedUpdateDeleteTable, 4)
+                def advancedLineageAfterDelete = lineageMap(advancedUpdateDeleteTable)
+                assertTrue(!advancedLineageAfterDelete.containsKey(13),
+                        "subquery DELETE should remove id=13 from ${advancedUpdateDeleteTable}")
+                assertDeleteFilesArePuffin(advancedUpdateDeleteTable)
 
                 sql """drop table if exists ${mergeTable}"""
                 sql """
@@ -282,6 +375,8 @@ suite("test_iceberg_v3_row_lineage_update_delete_merge", "p0,external,iceberg,ex
                 assertTrue(insertedRowLineage[0][1] != null, "Inserted MERGE row should get generated _last_updated_sequence_number")
             } finally {
                 sql """drop table if exists ${mergeTable}"""
+                sql """drop table if exists ${advancedSourceTable}"""
+                sql """drop table if exists ${advancedUpdateDeleteTable}"""
                 sql """drop table if exists ${updateDeleteTable}"""
             }
         }
