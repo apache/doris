@@ -135,7 +135,7 @@ suite("query_stats_test") {
         assertEquals(0, row[2] as int)
     }
 
-    // Alias gap: k1.queryHit = 0 until Part 2 walks Project nodes.
+    // Alias: k1.queryHit >= 1 now that alias is unwrapped; k2.filterHit >= 1 from WHERE.
     sql "clean all query stats"
     sql "select k1 as x from ${tbName} where k2 = 1"
     def aliasResult = sql "show query stats from ${tbName}"
@@ -143,14 +143,61 @@ suite("query_stats_test") {
     def arK2 = aliasResult.find { it[0] == "k2" }
     assertNotNull(arK1)
     assertNotNull(arK2)
-    assertEquals(0, arK1[1] as int)
+    assertTrue((arK1[1] as int) >= 1)
     assertTrue((arK2[2] as int) >= 1)
+
+    // GROUP BY: k1 queryHit from GROUP BY key, k2 queryHit from SUM(k2) aggregate input.
+    sql "clean all query stats"
+    sql "select k1, sum(k2) from ${tbName} group by k1"
+    def gbResult = sql "show query stats from ${tbName}"
+    def gbK1 = gbResult.find { it[0] == "k1" }
+    def gbK2 = gbResult.find { it[0] == "k2" }
+    assertNotNull(gbK1)
+    assertNotNull(gbK2)
+    assertTrue((gbK1[1] as int) >= 1)
+    assertTrue((gbK2[1] as int) >= 1)
+
+    // ORDER BY: k3 queryHit from SELECT, k4 queryHit from ORDER BY.
+    sql "clean all query stats"
+    sql "select k3 from ${tbName} order by k4"
+    def obResult = sql "show query stats from ${tbName}"
+    def obK3 = obResult.find { it[0] == "k3" }
+    def obK4 = obResult.find { it[0] == "k4" }
+    assertNotNull(obK3)
+    assertNotNull(obK4)
+    assertTrue((obK3[1] as int) >= 1)
+    assertTrue((obK4[1] as int) >= 1)
+
+    // JOIN: k1 and k2 both filterHit from ON condition.
+    sql "clean all query stats"
+    sql """select a.k3 from ${tbName} a join ${tbName} b on a.k1 = b.k2"""
+    def joinOnResult = sql "show query stats from ${tbName}"
+    def jK1 = joinOnResult.find { it[0] == "k1" }
+    def jK2 = joinOnResult.find { it[0] == "k2" }
+    assertNotNull(jK1)
+    assertNotNull(jK2)
+    assertTrue((jK1[2] as int) >= 1)
+    assertTrue((jK2[2] as int) >= 1)
+
+    // Window value column: k2 queryHit from SUM(k2), k0 from PARTITION BY, k1 from ORDER BY.
+    sql "clean all query stats"
+    sql "select sum(k2) over (partition by k0 order by k1) from ${tbName}"
+    def winResult = sql "show query stats from ${tbName}"
+    def wK0 = winResult.find { it[0] == "k0" }
+    def wK1 = winResult.find { it[0] == "k1" }
+    def wK2 = winResult.find { it[0] == "k2" }
+    assertNotNull(wK0)
+    assertNotNull(wK1)
+    assertNotNull(wK2)
+    assertTrue((wK0[1] as int) >= 1)
+    assertTrue((wK1[1] as int) >= 1)
+    assertTrue((wK2[1] as int) >= 1)
 
     // Self-join: StatsDelta dedup keeps table count = 1 per FE.
     sql "clean all query stats"
     sql "select a.k1 from ${tbName} a, ${tbName} b where a.k1 = b.k1"
     def joinResult = sql "show query stats from ${tbName} all"
-    assertTrue((joinResult[0][1] as int) >= 1)
+    assertEquals(1, joinResult[0][1] as int)
 
     sql "admin set all frontends config (\"enable_query_hit_stats\"=\"false\");"
     sql "set enable_nereids_planner = ${origNereids}"
