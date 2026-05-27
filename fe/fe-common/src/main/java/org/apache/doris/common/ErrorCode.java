@@ -1235,7 +1235,10 @@ public enum ErrorCode {
     ERR_NO_CLUSTER_ERROR(5099, new byte[]{'4', '2', '0', '0', '0'}, "No compute group (cloud cluster) selected"),
 
     ERR_NOT_CLOUD_MODE(6000, new byte[]{'4', '2', '0', '0', '0'},
-            "Command only support in cloud mode.");
+            "Command only support in cloud mode."),
+
+    ERR_EMPTY_PASSWORD(6001, new byte[]{'4', '2', '0', '0', '0'},
+            "Access with empty password is prohibited for LDAP user '%s'. Set ldap_allow_empty_pass=true to allow.");
 
     // This is error code
     private final int code;
