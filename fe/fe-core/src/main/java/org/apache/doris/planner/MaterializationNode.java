@@ -172,7 +172,7 @@ public class MaterializationNode extends PlanNode {
         output.append(detailPrefix).append("column_idxs_lists: ").append(columnIdxsLists).append("\n");
         output.append(detailPrefix).append("row_ids: ").append(rowIds).append("\n");
         output.append(detailPrefix).append("isTopMaterializeNode: ").append(isTopMaterializeNode).append("\n");
-        printNestedColumns(output, detailPrefix, outputTupleDesc);
+        printNestedColumns(output, detailPrefix, materializeTupleDescriptor);
 
         return output.toString();
     }
