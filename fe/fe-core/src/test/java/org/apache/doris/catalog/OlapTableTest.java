@@ -162,8 +162,8 @@ public class OlapTableTest {
         olapTable.setTableProperty(tableProperty);
 
         try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
-                MockedStatic<PropertyAnalyzer> mockedPA = 
-                        Mockito.mockStatic(PropertyAnalyzer.class, Mockito.CALLS_REAL_METHODS)) {
+                    MockedStatic<PropertyAnalyzer> mockedPA = 
+                            Mockito.mockStatic(PropertyAnalyzer.class, Mockito.CALLS_REAL_METHODS)) {
             mockedConfig.when(Config::isCloudMode).thenReturn(true);
             mockedConfig.when(Config::isNotCloudMode).thenReturn(false);
             mockedPA.when(PropertyAnalyzer::getInstance).thenReturn(new CloudPropertyAnalyzer());
@@ -183,7 +183,6 @@ public class OlapTableTest {
             Assert.assertNull(olapTable.getTableProperty().getStorageMedium());
             Assert.assertEquals("", olapTable.getTableProperty().getStoragePolicy());
             Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
-            DynamicPartitionProperty dynProp = olapTable.getTableProperty().getDynamicPartitionProperty();
             Assert.assertTrue(resultProps.containsKey(DynamicPartitionProperty.REPLICATION_NUM));
             Assert.assertTrue(resultProps.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION));
             Assert.assertFalse(resultProps.containsKey(DynamicPartitionProperty.STORAGE_MEDIUM));
@@ -226,7 +225,7 @@ public class OlapTableTest {
         DataProperty origDataProperty = new DataProperty(TStorageMedium.SSD, 1735689600000L, "s3_policy");
         ReplicaAllocation origReplicaAlloc = new ReplicaAllocation((short) 3);
         partitionInfo.addPartition(origPartId, origDataProperty, origReplicaAlloc, true, true);
-        
+
         Map<Long, Long> partitionIdMap = Maps.newHashMap();
         long newPartId = 2000L;
         partitionIdMap.put(newPartId, origPartId);
@@ -234,8 +233,8 @@ public class OlapTableTest {
         ReplicaAllocation cloudReplicaAlloc = new ReplicaAllocation((short) 1);
 
         try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
-                MockedStatic<PropertyAnalyzer> mockedPA =                     
-                        Mockito.mockStatic(PropertyAnalyzer.class, Mockito.CALLS_REAL_METHODS)) {
+                    MockedStatic<PropertyAnalyzer> mockedPA =                     
+                            Mockito.mockStatic(PropertyAnalyzer.class, Mockito.CALLS_REAL_METHODS)) {
             mockedConfig.when(Config::isCloudMode).thenReturn(true);
             mockedConfig.when(Config::isNotCloudMode).thenReturn(false);
             mockedPA.when(PropertyAnalyzer::getInstance).thenReturn(new CloudPropertyAnalyzer());
