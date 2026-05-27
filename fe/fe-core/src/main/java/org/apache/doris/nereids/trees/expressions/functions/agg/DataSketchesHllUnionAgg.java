@@ -67,6 +67,7 @@ public class DataSketchesHllUnionAgg extends NotNullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        DataType inputType = getArgumentType(0);
         if (!(inputType.isStringType() || inputType.isVarcharType() || inputType.isVarBinaryType()
                 || inputType.isNullType())) {
             throw new AnalysisException(getName()
