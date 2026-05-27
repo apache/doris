@@ -55,9 +55,6 @@ public final class JdbcDriverUtils {
         if (StringUtils.isBlank(driverClassName)) {
             throw new IllegalArgumentException("JDBC driver class is required when driver url is specified.");
         }
-        if (StringUtils.isNotBlank(expectedChecksum)) {
-            validateDriverChecksum(driverUrl, expectedChecksum);
-        }
 
         try {
             URL url = new URL(driverUrl);
@@ -66,7 +63,7 @@ public final class JdbcDriverUtils {
                 return;
             }
             try {
-                ClassLoader driverClassLoader = prepareDriverClassLoader(url, classLoader);
+                ClassLoader driverClassLoader = prepareDriverClassLoader(url, expectedChecksum, classLoader);
                 Class<?> loadedDriverClass = Class.forName(driverClassName, true, driverClassLoader);
                 Driver driver = (Driver) loadedDriverClass.getDeclaredConstructor().newInstance();
                 DriverManager.registerDriver(new DriverShim(driver));
@@ -77,6 +74,15 @@ public final class JdbcDriverUtils {
                 REGISTERED_DRIVER_KEYS.remove(driverKey);
                 throw new RuntimeException("Failed to register JDBC driver: " + driverClassName, e);
             }
+        } catch (MalformedURLException e) {
+            throw new IllegalArgumentException("Invalid JDBC driver URL: " + driverUrl, e);
+        }
+    }
+
+    public static ClassLoader prepareDriverClassLoader(String driverUrl, String expectedChecksum,
+            ClassLoader classLoader) {
+        try {
+            return prepareDriverClassLoader(new URL(driverUrl), expectedChecksum, classLoader);
         } catch (MalformedURLException e) {
             throw new IllegalArgumentException("Invalid JDBC driver URL: " + driverUrl, e);
         }
@@ -120,7 +126,11 @@ public final class JdbcDriverUtils {
         }
     }
 
-    private static ClassLoader prepareDriverClassLoader(URL driverUrl, ClassLoader classLoader) {
+    private static ClassLoader prepareDriverClassLoader(URL driverUrl, String expectedChecksum,
+            ClassLoader classLoader) {
+        if (StringUtils.isNotBlank(expectedChecksum)) {
+            validateDriverChecksum(driverUrl.toString(), expectedChecksum);
+        }
         if (classLoader instanceof JniScannerClassLoader) {
             JniScannerClassLoader scannerClassLoader = (JniScannerClassLoader) classLoader;
             scannerClassLoader.addURLIfAbsent(driverUrl);

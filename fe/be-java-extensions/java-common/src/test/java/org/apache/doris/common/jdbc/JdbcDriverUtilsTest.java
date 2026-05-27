@@ -67,6 +67,20 @@ public class JdbcDriverUtilsTest {
         Assert.assertTrue(driver.acceptsURL(DUMMY_JDBC_URL));
     }
 
+    @Test
+    public void testPrepareDriverClassLoaderValidatesChecksum() throws Exception {
+        runWithDriverUrl(driverUrl -> {
+            ClassLoader classLoader = JdbcDriverUtils.prepareDriverClassLoader(
+                    driverUrl, DRIVER_CHECKSUM, getClass().getClassLoader());
+            Assert.assertNotNull(classLoader);
+
+            IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+                    () -> JdbcDriverUtils.prepareDriverClassLoader(
+                            driverUrl, "bad-checksum", getClass().getClassLoader()));
+            Assert.assertTrue(exception.getMessage().contains("Checksum mismatch for JDBC driver"));
+        });
+    }
+
     private void runWithDriverUrl(ThrowingConsumer<String> consumer) throws Exception {
         Path driverPath = Files.createTempFile("doris-jdbc-driver", ".jar");
         try {
