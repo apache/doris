@@ -64,6 +64,33 @@ protected:
     MockRuntimeState state;
 };
 
+class Int64ChildGreaterThanExpr final : public VExpr {
+public:
+    explicit Int64ChildGreaterThanExpr(int64_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {}
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        ColumnPtr child_column;
+        RETURN_IF_ERROR(get_child(0)->execute_column(context, block, selector, count, child_column));
+        const auto& input = assert_cast<const ColumnInt64&>(*child_column);
+        auto result = ColumnUInt8::create();
+        auto& result_data = result->get_data();
+        result_data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            result_data[row] = input.get_element(row) > _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    const int64_t _value;
+    const std::string _expr_name = "Int64ChildGreaterThanExpr";
+};
+
 TEST_F(CastTest, CastIntSlotToBigInt) {
     auto source_type = std::make_shared<DataTypeInt32>();
     auto return_type = std::make_shared<DataTypeInt64>();
@@ -189,6 +216,9 @@ TEST_F(CastTest, ColumnMapperBuildsCastProjectionForTypeMismatch) {
     auto status = mapper.create_mapping(projected_columns, {}, file_schema);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(mapper.mappings().size(), 1);
+    reader::FileScanRequest file_request;
+    status = mapper.create_scan_request({}, {}, projected_columns, &file_request);
+    ASSERT_TRUE(status.ok()) << status;
     const auto& mapping = mapper.mappings()[0];
     EXPECT_FALSE(mapping.is_trivial);
     ASSERT_NE(mapping.projection, nullptr);
@@ -205,6 +235,65 @@ TEST_F(CastTest, ColumnMapperBuildsCastProjectionForTypeMismatch) {
     EXPECT_EQ(result_column.get_data()[1], 22);
 
     mapping.projection->close();
+}
+
+TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
+    reader::TableColumnMapper mapper;
+    reader::TableColumn table_column;
+    table_column.id = 7;
+    table_column.name = "value";
+    table_column.type = std::make_shared<DataTypeInt64>();
+    std::vector<reader::TableColumn> projected_columns {table_column};
+
+    reader::SchemaField file_field;
+    file_field.id = 0;
+    file_field.name = "value";
+    file_field.type = std::make_shared<DataTypeInt32>();
+    std::vector<reader::SchemaField> file_schema {file_field};
+
+    auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto predicate = std::make_shared<Int64ChildGreaterThanExpr>(15);
+    predicate->add_child(TableSlotRef::create_shared(7, 7, -1, table_column.type, "value"));
+    reader::TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(predicate);
+    table_filter.slot_ids = {7};
+
+    reader::FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request)
+                        .ok());
+    ASSERT_EQ(file_request.expression_filters.size(), 1);
+    ASSERT_EQ(file_request.predicate_columns, std::vector<reader::ColumnId>({0}));
+    const auto& localized_expr = file_request.expression_filters[0].conjunct->root();
+    ASSERT_EQ(localized_expr->get_num_children(), 1);
+    const auto& localized_child = localized_expr->children()[0];
+    ASSERT_NE(dynamic_cast<const Cast*>(localized_child.get()), nullptr);
+    ASSERT_EQ(localized_child->get_num_children(), 1);
+    const auto* localized_slot =
+            assert_cast<const TableSlotRef*>(localized_child->children()[0].get());
+    EXPECT_EQ(localized_slot->column_id(), 0);
+    EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
+    EXPECT_TRUE(localized_child->data_type()->equals(*table_column.type));
+
+    Block block;
+    block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({11, 22}));
+    auto* conjunct = file_request.expression_filters[0].conjunct.get();
+    status = conjunct->prepare(&state, RowDescriptor());
+    ASSERT_TRUE(status.ok()) << status;
+    status = conjunct->open(&state);
+    ASSERT_TRUE(status.ok()) << status;
+    IColumn::Filter filter(block.rows(), 1);
+    bool can_filter_all = false;
+    status = conjunct->execute_filter(&block, filter.data(), block.rows(), false,
+                                      &can_filter_all);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_FALSE(can_filter_all);
+    ASSERT_EQ(filter.size(), 2);
+    EXPECT_EQ(filter[0], 0);
+    EXPECT_EQ(filter[1], 1);
+
+    file_request.expression_filters[0].conjunct->close();
 }
 
 } // namespace doris

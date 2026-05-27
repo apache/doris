@@ -36,18 +36,33 @@
 
 namespace doris::reader {
 
+struct FileSlotRewriteInfo {
+    size_t block_position = 0;
+    DataTypePtr file_type;
+    DataTypePtr table_type;
+    std::string file_column_name;
+};
+
 static VExprSPtr rewrite_table_expr_to_file_expr(
-        const VExprSPtr& expr, const std::map<int32_t, size_t>& table_column_to_file_position) {
+        const VExprSPtr& expr,
+        const std::map<int32_t, FileSlotRewriteInfo>& table_column_to_file_slot) {
     if (expr == nullptr) {
         return nullptr;
     }
     if (expr->is_slot_ref()) {
         const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
-        const auto position_it = table_column_to_file_position.find(slot_ref->slot_id());
-        if (position_it != table_column_to_file_position.end()) {
-            return TableSlotRef::create_shared(slot_ref->slot_id(),
-                                               cast_set<int>(position_it->second), -1,
-                                               slot_ref->data_type(), slot_ref->expr_name());
+        const auto rewrite_it = table_column_to_file_slot.find(slot_ref->slot_id());
+        if (rewrite_it != table_column_to_file_slot.end()) {
+            const auto& rewrite_info = rewrite_it->second;
+            auto file_slot = TableSlotRef::create_shared(
+                    slot_ref->slot_id(), cast_set<int>(rewrite_info.block_position), -1,
+                    rewrite_info.file_type, rewrite_info.file_column_name);
+            if (rewrite_info.file_type->equals(*rewrite_info.table_type)) {
+                return file_slot;
+            }
+            auto cast_expr = Cast::create_shared(rewrite_info.table_type);
+            cast_expr->add_child(std::move(file_slot));
+            return cast_expr;
         }
         return expr;
     }
@@ -59,7 +74,7 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
     rewritten_children.reserve(expr->children().size());
     for (const auto& child : expr->children()) {
         rewritten_children.push_back(
-                rewrite_table_expr_to_file_expr(child, table_column_to_file_position));
+                rewrite_table_expr_to_file_expr(child, table_column_to_file_slot));
     }
     expr->set_children(std::move(rewritten_children));
     return expr;
@@ -95,19 +110,25 @@ static void rebuild_projection(ColumnMapping* mapping, size_t block_position) {
     mapping->projection = VExprContext::create_shared(expr);
 }
 
-static std::map<int32_t, size_t> build_file_position_map(const std::vector<ColumnMapping>& mappings,
-                                                         const FileScanRequest& file_request) {
-    std::map<int32_t, size_t> table_column_to_file_position;
+// Build a map from table column id to file slot rewrite info for all columns in the given mappings that have a file column id and are present in the file request.
+static std::map<int32_t, FileSlotRewriteInfo> build_file_slot_rewrite_map(
+        const std::vector<ColumnMapping>& mappings, const FileScanRequest& file_request) {
+    std::map<int32_t, FileSlotRewriteInfo> table_column_to_file_slot;
     for (const auto& mapping : mappings) {
         if (!mapping.file_column_id.has_value()) {
             continue;
         }
         const auto position_it = file_request.column_positions.find(*mapping.file_column_id);
         if (position_it != file_request.column_positions.end()) {
-            table_column_to_file_position.emplace(mapping.table_column_id, position_it->second);
+            table_column_to_file_slot.emplace(
+                    mapping.table_column_id,
+                    FileSlotRewriteInfo {.block_position = position_it->second,
+                                         .file_type = mapping.file_type,
+                                         .table_type = mapping.table_type,
+                                         .file_column_name = mapping.file_column_name});
         }
     }
-    return table_column_to_file_position;
+    return table_column_to_file_slot;
 }
 
 static bool is_complex_type(const DataTypePtr& type) {
@@ -348,9 +369,9 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         add_scan_column(file_request, *mapping->file_column_id, &file_request->predicate_columns);
     }
 
-    // Build the complete table-slot to file-block position map after all predicate columns have
-    // been assigned. This keeps expression localization independent from filter iteration order.
-    const auto table_column_to_file_position = build_file_position_map(_mappings, *file_request);
+    // Build the complete table-slot rewrite map after all predicate columns have been assigned.
+    // This keeps expression localization independent from filter iteration order.
+    const auto table_column_to_file_slot = build_file_slot_rewrite_map(_mappings, *file_request);
     for (const auto& table_filter : table_filters) {
         if (!table_filter.can_be_localized()) {
             continue;
@@ -359,7 +380,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             FileExpressionFilter expression_filter;
             expression_filter.conjunct =
                     VExprContext::create_shared(rewrite_table_expr_to_file_expr(
-                            table_filter.conjunct->root(), table_column_to_file_position));
+                            table_filter.conjunct->root(), table_column_to_file_slot));
             expression_filter.file_column_ids.reserve(table_filter.slot_ids.size());
             for (const auto table_column_id : table_filter.slot_ids) {
                 const auto* mapping = _find_mapping(table_column_id);
