@@ -97,7 +97,7 @@ public class ExternalRowCountCache {
                             + "Reason %s",
                     rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId, e.getMessage());
             if (LOG.isDebugEnabled()) {
-                LOG.debug(message, e);
+                LOG.warn(message, e);
             } else {
                 LOG.warn(message);
             }
