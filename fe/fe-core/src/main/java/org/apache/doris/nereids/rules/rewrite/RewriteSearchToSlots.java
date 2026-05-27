@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -131,22 +131,24 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                                 "Field '%s' is not VARIANT type for subcolumn access: %s",
                                 parentFieldName, search.getDslString()));
                     }
+                    String normalizedParentFieldName = parentSlot.getName();
 
                     // Check the parent variant column has at least one INVERTED index. The concrete
                     // subcolumn binding is resolved per-segment in BE, so we only enforce the parent
                     // level here. See function_search.cpp is_variant_sub branch.
-                    checkInvertedIndexExists(scan.getTable(), parentFieldName, search.getDslString(), true);
+                    checkInvertedIndexExists(scan.getTable(), normalizedParentFieldName,
+                            search.getDslString(), true);
 
                     // Create ElementAt expression for variant subcolumn
                     // This will be converted to an extracted column slot by VariantSubPathPruning rule
                     // If the subcolumn doesn't exist, ElementAt will remain and BE will handle it gracefully
                     childExpr = new ElementAt(parentSlot, new StringLiteral(subcolumnPath));
-                    normalizedFieldName = originalFieldName; // Keep full path for field binding
+                    normalizedFieldName = normalizedParentFieldName + "." + subcolumnPath;
 
                     LOG.info(
                             "Created ElementAt expression for variant subcolumn: parent='{}', "
                                     + "subcolumn='{}', field_name='{}'",
-                            parentFieldName, subcolumnPath, normalizedFieldName);
+                            normalizedParentFieldName, subcolumnPath, normalizedFieldName);
                 } else {
                     // Normal field - find slot directly
                     Slot slot = findSlotByName(originalFieldName, scan);
