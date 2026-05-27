@@ -18,19 +18,24 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
@@ -41,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -60,6 +66,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -79,8 +86,10 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
 
     private static final Set<Class<? extends LogicalPlan>> OUTER_SUPPORTED_PLAN = ImmutableSet.of(
             LogicalJoin.class,
+            LogicalFilter.class,
             LogicalProject.class,
-            LogicalRelation.class
+            LogicalRelation.class,
+            LogicalSubQueryAlias.class
     );
 
     private static final Set<Class<? extends LogicalPlan>> INNER_SUPPORTED_PLAN = ImmutableSet.of(
@@ -88,13 +97,18 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
             LogicalFilter.class,
             LogicalJoin.class,
             LogicalProject.class,
-            LogicalRelation.class
+            LogicalRelation.class,
+            LogicalSubQueryAlias.class
     );
 
     private final List<LogicalPlan> outerPlans = Lists.newArrayList();
     private final List<LogicalPlan> innerPlans = Lists.newArrayList();
     private final List<AggregateFunction> functions = Lists.newArrayList();
     private final Map<Expression, Expression> innerOuterSlotMap = Maps.newHashMap();
+    // Outer conjuncts that were matched against inner subquery filter conjuncts
+    // by checkFilter().  These must stay BELOW the window because they are part
+    // of the inner aggregate's filter, not extra outer-only predicates.
+    private final Set<Expression> matchedInnerFilterConjuncts = Sets.newHashSet();
 
     /**
      * the entrance of this rule. we only override one visitor: visitLogicalFilter
@@ -130,6 +144,14 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
     }
 
     private boolean check(LogicalFilter<? extends Plan> outerFilter, LogicalApply<Plan, Plan> apply) {
+        // Clear per-candidate state: the same rule instance visits every
+        // LogicalFilter in one rewriteRoot() call, and earlier rejected
+        // candidates must not leak into later ones.
+        outerPlans.clear();
+        innerPlans.clear();
+        functions.clear();
+        innerOuterSlotMap.clear();
+
         outerPlans.addAll(apply.child(0).collect(LogicalPlan.class::isInstance));
         innerPlans.addAll(apply.child(1).collect(LogicalPlan.class::isInstance));
 
@@ -139,7 +161,8 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
                 && checkJoin()
                 && checkProject()
                 && checkRelation(apply.getCorrelationSlot())
-                && checkFilter(outerFilter);
+                && checkFilter(outerFilter)
+                && checkUniqueCorrelatedTable(apply.getCorrelationSlot());
     }
 
     // check children's nodes because query process will be changed
@@ -184,17 +207,26 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
     }
 
     /**
-     * check inner scope only have one filter. and inner filter is a sub collection of outer filter
+     * check inner filter conjuncts are a sub collection of outer filter.
+     * Also records which outer conjuncts were matched against inner conjuncts so that rewrite()
+     * can force them below the window — they are part of the inner aggregate's filter, not extra
+     * outer-only predicates.
+     * <p>
+     * PushDownFilterThroughProject can split a single LogicalFilter into multiple filters
+     * (correlated predicates that reference slots not in a project's output stay above,
+     * while non-correlated predicates can be pushed below).  We collect conjuncts from ALL
+     * inner filters rather than requiring exactly one.
      */
     private boolean checkFilter(LogicalFilter<? extends Plan> outerFilter) {
         List<LogicalFilter<Plan>> innerFilters = innerPlans.stream()
                 .filter(LogicalFilter.class::isInstance)
                 .map(p -> (LogicalFilter<Plan>) p).collect(Collectors.toList());
-        if (innerFilters.size() != 1) {
-            return false;
-        }
+        matchedInnerFilterConjuncts.clear();
         Set<Expression> outerConjunctSet = Sets.newHashSet(outerFilter.getConjuncts());
-        Set<Expression> innerConjunctSet = innerFilters.get(0).getConjuncts().stream()
+        // Collect conjuncts from ALL inner filter nodes — PushDownFilterThroughProject
+        // may split correlated and non-correlated predicates into separate filters.
+        Set<Expression> innerConjunctSet = innerFilters.stream()
+                .flatMap(f -> f.getConjuncts().stream())
                 .map(e -> ExpressionUtils.replace(e, innerOuterSlotMap))
                 .collect(Collectors.toSet());
         Iterator<Expression> innerIterator = innerConjunctSet.iterator();
@@ -205,8 +237,24 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
             while (outerIterator.hasNext()) {
                 Expression outerExpr = outerIterator.next();
                 if (ExpressionIdenticalChecker.INSTANCE.check(innerExpr, outerExpr)) {
+                    // Volatile and NoneMovableFunction predicates must never
+                    // be matched as inner-filter conjuncts: two syntactically
+                    // identical calls are independent evaluations.
+                    if (isVolatileOrNoneMovable(innerExpr)
+                            || isVolatileOrNoneMovable(outerExpr)) {
+                        continue;
+                    }
                     innerIterator.remove();
                     outerIterator.remove();
+                    // Remember this outer conjunct came from the inner subquery
+                    // filter — it must go below the window, not above.
+                    matchedInnerFilterConjuncts.add(outerExpr);
+                    // Each inner conjunct matches at most one outer conjunct.
+                    // Break to the next inner predicate to avoid matching the
+                    // same inner conjunct against a second outer conjunct
+                    // (which would call innerIterator.remove() twice and
+                    // throw IllegalStateException).
+                    break;
                 }
             }
         }
@@ -215,19 +263,30 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
     }
 
     /**
-     * check join to ensure no condition on it.
-     * this is because we cannot do accurate pattern match between outer scope and inner scope
-     * so, we currently forbid join with condition here.
+     * Reject joins that are unsafe for the WinMagic window rewrite.
+     * <p>
+     * Only {@link JoinType#INNER_JOIN} and {@link JoinType#CROSS_JOIN} are
+     * accepted.  Semi/anti joins output only one side and would cause the
+     * window to reference slots not produced by its child; outer joins
+     * introduce null-extended rows that corrupt {@code COUNT(*)} and other
+     * aggregates (a null-padded outer-join row makes {@code COUNT(*) OVER (…)}
+     * return 1 where the original scalar subquery would return 0).
+     * <p>
+     * Additionally, any ON clause condition is forbidden because the rule
+     * cannot accurately pattern-match predicates between outer and inner scope
+     * when the join carries its own condition.
      */
     private boolean checkJoin() {
         return outerPlans.stream()
                 .filter(LogicalJoin.class::isInstance)
                 .map(p -> (LogicalJoin<Plan, Plan>) p)
-                .noneMatch(j -> j.getOnClauseCondition().isPresent())
+                .allMatch(j -> j.getJoinType().isInnerOrCrossJoin()
+                        && !j.getOnClauseCondition().isPresent())
                 && innerPlans.stream()
                 .filter(LogicalJoin.class::isInstance)
                 .map(p -> (LogicalJoin<Plan, Plan>) p)
-                .noneMatch(j -> j.getOnClauseCondition().isPresent());
+                .allMatch(j -> j.getJoinType().isInnerOrCrossJoin()
+                        && !j.getOnClauseCondition().isPresent());
     }
 
     /**
@@ -281,6 +340,55 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         return correlatedSlots.stream().allMatch(e -> correlatedRelationOutput.contains(e.getExprId()));
     }
 
+    /**
+     * The correlated columns of the outer-only table must form a unique, non-null
+     * key for the WinMagic window-function rewrite to be correct. Without unique
+     * and non-null keys, the window function may aggregate over duplicated or
+     * null-grouped outer rows, producing wrong results for aggregates like SUM
+     * and COUNT.
+     * <p>
+     * In particular, nullable correlated keys are unsafe even with a uniqueness
+     * guarantee: PARTITION BY groups all null-key outer rows into a single
+     * partition.  Under a null-safe equality ({@code <=>}) correlation, those
+     * rows can join the same null-key inner rows and multiply the window
+     * aggregate, whereas the original scalar subquery is evaluated per outer row.
+     * <p>
+     * Uses {@link DataTrait#isUniqueAndNotNull(Set)} which covers OLAP key
+     * metadata (PRIMARY_KEYS / UNIQUE_KEYS), declared constraints
+     * (PRIMARY KEY / UNIQUE), and rejects nullable slots.
+     */
+    private boolean checkUniqueCorrelatedTable(List<Slot> correlatedSlots) {
+        List<CatalogRelation> outerTables = outerPlans.stream()
+                .filter(CatalogRelation.class::isInstance)
+                .map(CatalogRelation.class::cast)
+                .collect(Collectors.toList());
+        List<CatalogRelation> innerTables = innerPlans.stream()
+                .filter(CatalogRelation.class::isInstance)
+                .map(CatalogRelation.class::cast)
+                .collect(Collectors.toList());
+
+        List<Long> outerIds = outerTables.stream().map(node -> node.getTable().getId()).collect(Collectors.toList());
+        List<Long> innerIds = innerTables.stream().map(node -> node.getTable().getId()).collect(Collectors.toList());
+
+        innerIds.forEach(outerIds::remove);
+        if (outerIds.size() != 1) {
+            return true;
+        }
+
+        CatalogRelation outerOnlyTable = outerTables.stream()
+                .filter(node -> outerIds.contains(node.getTable().getId()))
+                .findFirst().orElse(null);
+        if (outerOnlyTable == null) {
+            return true;
+        }
+
+        // Check uniqueness and non-nullability via DataTrait on the correlated (outer-only) table.
+        // Must use isUniqueAndNotNull: nullable unique keys are unsafe for window-rewrite
+        // because PARTITION BY groups all null-key rows together.
+        DataTrait dataTrait = outerOnlyTable.getLogicalProperties().getTrait();
+        return dataTrait.isUniqueAndNotNull(Sets.newHashSet(correlatedSlots));
+    }
+
     private void createSlotMapping(List<CatalogRelation> outerTables, List<CatalogRelation> innerTables) {
         for (CatalogRelation outerTable : outerTables) {
             for (CatalogRelation innerTable : innerTables) {
@@ -299,6 +407,56 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         }
     }
 
+    /**
+     * Rewrite a correlated scalar subquery into a Window function.
+     *
+     * <h3>Input Plan Shape</h3>
+     * <pre>
+     * Filter(pred_shared + pred_outer-only + pred_correlated)
+     *   Apply(correlation: outer-only.col)
+     *     Join / CrossJoin
+     *       Scan(shared_tbl)   -- appears in both outer & inner
+     *       Scan(outer-only_tbl)  -- only in outer, correlated table
+     *     Aggregate(agg_func)
+     *       Filter(inner_correlated_pred)
+     *         Scan(shared_tbl)
+     * </pre>
+     *
+     * <h3>Output Plan Shape</h3>
+     * <pre>
+     * Filter(pred_shared + window_comparison)  -- shared-only preds stay ABOVE window
+     *   Window(agg_func OVER (PARTITION BY outer-only.cols))
+     *     Filter(pred_outer-only + join_cond)  -- outer-only preds go BELOW window
+     *       Join / CrossJoin
+     *         Scan(shared_tbl)
+     *         Scan(outer-only_tbl)
+     * </pre>
+     *
+     * <h3>Key Correctness Rule</h3>
+     * Predicates that reference ONLY shared-table columns (tables appearing in both
+     * outer and inner plans) and were NOT matched against inner subquery filter
+     * conjuncts MUST stay above the Window. Otherwise the window function would
+     * see fewer rows than the original scalar subquery.
+     * <p>
+     * Conversely, predicates that were matched against inner subquery filter
+     * conjuncts (tracked by {@link #checkFilter}) MUST stay below the Window, even
+     * if they reference only shared-table columns.  These predicates are
+     * semantically part of the inner aggregate's filter — placing them above the
+     * window would let the window aggregate over rows that the original scalar
+     * subquery excluded.
+     *
+     * <p>Example: Given fact(f) as shared table and dim(d) as outer-only table,
+     * with the query:
+     * <pre>
+     *   SELECT ... FROM fact f, dim d
+     *   WHERE f.k = d.k AND f.v > 6
+     *     AND f.v * 2 > (SELECT SUM(f2.v) FROM fact f2 WHERE f2.k = d.k)
+     * </pre>
+     *
+     * The predicate {@code f.v > 6} references only shared-table columns, so it
+     * must stay above the window. The window computes SUM over ALL fact rows
+     * per d.k, matching the original scalar subquery semantics.
+     */
     private Plan rewrite(LogicalFilter<? extends Plan> filter, LogicalApply<Plan, Plan> apply) {
         Preconditions.checkArgument(apply.right() instanceof LogicalAggregate,
                 "right child of Apply should be LogicalAggregate");
@@ -362,16 +520,244 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         windowFilterConjunct = ExpressionUtils.replace(windowFilterConjunct,
                 ImmutableMap.of(aggOut.toSlot(), aggOutExpr));
 
-        LogicalFilter<Plan> newFilter = filter.withConjunctsAndChild(conjuncts.get(true), apply.left());
+        // Split uncorrelated conjuncts: predicates that reference ONLY shared
+        // relation slots (tables appearing in both outer and inner plans) must
+        // stay ABOVE the window. Otherwise the window function would see a
+        // different set of rows than the original scalar subquery.
+        //
+        // For example, with fact(f) as shared table and dim(d) as outer-only:
+        //   f.v > 6        → shared-only → must stay above the window
+        //   d.tag > 0      → outer-only  → safe below the window
+        //   f.k = d.k      → join cond   → needed below the window
+        //
+        // We find shared tables by comparing table IDs that appear in both
+        // outer and inner plans, then collect ALL output slots of those
+        // tables (not just columns referenced in the inner query).
+        List<CatalogRelation> outerRels = outerPlans.stream()
+                .filter(CatalogRelation.class::isInstance)
+                .map(CatalogRelation.class::cast)
+                .collect(Collectors.toList());
+        List<CatalogRelation> innerRels = innerPlans.stream()
+                .filter(CatalogRelation.class::isInstance)
+                .map(CatalogRelation.class::cast)
+                .collect(Collectors.toList());
+        Set<Long> innerTableIds = innerRels.stream()
+                .map(r -> r.getTable().getId())
+                .collect(Collectors.toSet());
+        Set<ExprId> sharedOuterExprIds = outerRels.stream()
+                .filter(r -> innerTableIds.contains(r.getTable().getId()))
+                .flatMap(r -> r.getOutput().stream())
+                .map(Slot::getExprId)
+                .collect(Collectors.toSet());
+        Set<Expression> uncorrelatedConjuncts = conjuncts.get(true);
+        Set<Expression> belowWindowConjuncts = Sets.newHashSet();
+        Set<Expression> aboveWindowConjuncts = Sets.newHashSet();
+        if (uncorrelatedConjuncts != null) {
+            for (Expression conj : uncorrelatedConjuncts) {
+                // Conjuncts that were matched against inner subquery filter
+                // conjuncts (tracked by checkFilter) must stay BELOW the
+                // window.  They are semantically part of the inner aggregate's
+                // filter, not extra outer-only predicates.  Placing them above
+                // the window would let the window see more rows than the
+                // original scalar subquery, producing wrong aggregate results.
+                if (matchedInnerFilterConjuncts.contains(conj)) {
+                    belowWindowConjuncts.add(conj);
+                    continue;
+                }
+                // Volatile and NoneMovableFunction predicates must stay
+                // ABOVE the window — pushing them below would change
+                // evaluation frequency or move a side-effecting call.
+                if (isVolatileOrNoneMovable(conj)) {
+                    aboveWindowConjuncts.add(conj);
+                    continue;
+                }
+                // Predicates referencing shared-table columns must stay
+                // ABOVE the window; otherwise the window sees fewer rows
+                // than the original scalar subquery.
+                if (referencesSharedTable(conj, sharedOuterExprIds)) {
+                    aboveWindowConjuncts.add(conj);
+                } else {
+                    belowWindowConjuncts.add(conj);
+                }
+            }
+        }
+
+        // Extract and classify conjuncts from any LogicalFilter nodes nested
+        // inside the outer child (apply.left()).  Nested shared-table filters
+        // (e.g. f.v > 6 under a CrossJoin) must be hoisted ABOVE the window;
+        // otherwise the window would aggregate over a filtered subset of rows
+        // while the original scalar subquery sees all rows for the key.
+        //
+        // Nested outer-only filters (e.g. d.tag > 0) are safe below and can
+        // stay in place after the filters are stripped.
+        List<LogicalFilter<Plan>> nestedOuterFilters = apply.left()
+                .collectToList(LogicalFilter.class::isInstance);
+        Set<ExprId> extractedConjunctExprIds = Sets.newHashSet();
+        for (LogicalFilter<Plan> nf : nestedOuterFilters) {
+            for (Expression conj : nf.getConjuncts()) {
+                // Matched inner-filter conjuncts always go below.
+                if (matchedInnerFilterConjuncts.contains(conj)) {
+                    belowWindowConjuncts.add(conj);
+                    extractedConjunctExprIds.addAll(conj.getInputSlotExprIds());
+                    continue;
+                }
+                // Volatile / NoneMovable on a shared table would restrict
+                // the window's input — reject the rewrite.
+                if (isVolatileOrNoneMovable(conj)) {
+                    if (nf.collect(CatalogRelation.class::isInstance).stream()
+                            .map(r -> ((CatalogRelation) r).getTable().getId())
+                            .anyMatch(innerTableIds::contains)) {
+                        return filter;
+                    }
+                    continue;
+                }
+                if (referencesSharedTable(conj, sharedOuterExprIds)) {
+                    aboveWindowConjuncts.add(conj);
+                } else {
+                    belowWindowConjuncts.add(conj);
+                }
+                extractedConjunctExprIds.addAll(conj.getInputSlotExprIds());
+            }
+        }
+        // Strip all nested LogicalFilter nodes from the outer child so the
+        // window operates on the unfiltered scan/join.
+        Plan strippedOuterChild = stripOuterFilters(apply.left());
+
+        // The window function's aggregate references shared-table slots
+        // (e.g. f.v for SUM(f.v) after slot replacement).  A pruning
+        // project inside apply.left() may have dropped those slots even
+        // when there are no nested filters to extract.  Collect the
+        // replaced aggregate's input slot ExprIds and include them in
+        // the project-expansion set so ensureProjectOutput carries them
+        // through.
+        Set<ExprId> allNeededExprIds = Sets.newHashSet(extractedConjunctExprIds);
+        allNeededExprIds.addAll(ExpressionUtils.replace(function, innerOuterSlotMap)
+                .getInputSlotExprIds());
+        strippedOuterChild = ensureProjectOutput(strippedOuterChild,
+                allNeededExprIds);
+
+        LogicalFilter<Plan> newFilter = filter.withConjunctsAndChild(
+                belowWindowConjuncts, strippedOuterChild);
         LogicalWindow<Plan> newWindow = new LogicalWindow<>(ImmutableList.of(windowFunctionAlias), newFilter);
-        LogicalFilter<Plan> windowFilter = new LogicalFilter<>(ImmutableSet.of(windowFilterConjunct), newWindow);
+
+        // Combine shared-table predicates with the window comparison predicate above the window
+        Set<Expression> topConjuncts = Sets.newHashSet(windowFilterConjunct);
+        topConjuncts.addAll(aboveWindowConjuncts);
+        LogicalFilter<Plan> windowFilter = new LogicalFilter<>(ImmutableSet.copyOf(topConjuncts), newWindow);
         return windowFilter;
+    }
+
+    /**
+     * Ensure that every LogicalProject in the plan tree outputs all slots
+     * referenced by extracted conjuncts (ExprIds in {@code neededExprIds}).
+     * If a project prunes away a needed slot, the reinserted filter
+     * predicates would have dangling references.
+     *
+     * <p>Recursively walks the tree depth-first; expands each project to
+     * include any missing slots as simple identity projections (SlotReference →
+     * SlotReference).  Recursing into the child before computing the current
+     * project's {@code childOutput} ensures that stacked pruning projects
+     * (e.g. {@code Project(k) → Project(k) → Scan(k, v)}) are expanded
+     * bottom-up — the inner project is expanded first, and then the outer
+     * project can see the expanded slots in its child output.
+     */
+    private Plan ensureProjectOutput(Plan plan, Set<ExprId> neededExprIds) {
+        if (neededExprIds.isEmpty()) {
+            return plan;
+        }
+        if (plan instanceof LogicalProject) {
+            LogicalProject<Plan> project = (LogicalProject<Plan>) plan;
+            // Recurse into the child first so stacked pruning projects
+            // are expanded bottom-up.  The child's output after expansion
+            // determines which slots the current project can pull through.
+            Plan newChild = ensureProjectOutput(project.child(), neededExprIds);
+            Set<ExprId> projectOutputExprIds = project.getOutputExprIdSet();
+            Set<Slot> childOutput = newChild.getOutputSet();
+            List<NamedExpression> newProjects = Lists.newArrayList(project.getProjects());
+            boolean expanded = false;
+            for (ExprId id : neededExprIds) {
+                if (!projectOutputExprIds.contains(id)) {
+                    for (Slot slot : childOutput) {
+                        if (slot.getExprId().equals(id)) {
+                            newProjects.add(slot);
+                            expanded = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (expanded) {
+                return project.withProjectsAndChild(newProjects, newChild);
+            }
+            if (newChild != project.child()) {
+                return project.withChildren(ImmutableList.of(newChild));
+            }
+            return plan;
+        }
+        if (plan.children().isEmpty()) {
+            return plan;
+        }
+        List<Plan> newChildren = plan.children().stream()
+                .map(c -> ensureProjectOutput(c, neededExprIds))
+                .collect(Collectors.toList());
+        return plan.withChildren(newChildren);
     }
 
     private WindowExpression createWindowFunction(List<Slot> correlatedSlots, AggregateFunction function) {
         // partition by clause is set by all the correlated slots.
         return new WindowExpression(function, ImmutableList.copyOf(correlatedSlots), Collections.emptyList());
     }
+
+    /** Recursively strip deterministic, movable LogicalFilter nodes from the
+     *  plan tree.  Filters containing volatile predicates (e.g. random()) or
+     *  NoneMovableFunction predicates (e.g. assert_true()) are left in place —
+     *  moving such predicates across a join/window changes their evaluation
+     *  context and can alter query results. */
+    private Plan stripOuterFilters(Plan plan) {
+        if (plan instanceof LogicalFilter) {
+            LogicalFilter<?> filter = (LogicalFilter<?>) plan;
+            // Separate unsafe-to-move conjuncts from safe ones.
+            // Volatile and NoneMovableFunction predicates stay at their
+            // original position; deterministic movable predicates have been
+            // extracted and can be stripped.
+            Set<Expression> keepConjuncts = filter.getConjuncts().stream()
+                    .filter(AggScalarSubQueryToWindowFunction::isVolatileOrNoneMovable)
+                    .collect(Collectors.toSet());
+            if (keepConjuncts.isEmpty()) {
+                // All conjuncts are safe to strip.
+                return stripOuterFilters(filter.child(0));
+            }
+            // Keep only unsafe-to-move conjuncts at this position.
+            Plan strippedChild = stripOuterFilters(filter.child(0));
+            return new LogicalFilter<>(ImmutableSet.copyOf(keepConjuncts), strippedChild);
+        }
+        if (plan.children().isEmpty()) {
+            return plan;
+        }
+        return plan.withChildren(
+                plan.children().stream().map(this::stripOuterFilters).collect(Collectors.toList()));
+    }
+
+    // ---- helper methods ----------------------------------------------------
+
+    /** An expression that must not be moved or pruned by plan rewrites. */
+    private static boolean isVolatileOrNoneMovable(Expression expr) {
+        return expr.containsVolatileExpression()
+                || expr.containsType(NoneMovableFunction.class);
+    }
+
+    /** True when {@code expr} references any column of a shared table
+     *  (a table appearing in both outer and inner plans). */
+    private static boolean referencesSharedTable(Expression expr, Set<ExprId> sharedOuterExprIds) {
+        for (ExprId id : expr.getInputSlotExprIds()) {
+            if (sharedOuterExprIds.contains(id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ---- ExpressionIdenticalChecker ----------------------------------------
 
     private static class ExpressionIdenticalChecker extends DefaultExpressionVisitor<Boolean, Expression> {
         public static final ExpressionIdenticalChecker INSTANCE = new ExpressionIdenticalChecker();
@@ -399,6 +785,32 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         @Override
         public Boolean visit(Expression expression, Expression expression1) {
             return isClassMatch(expression, expression1) && isSameChild(expression, expression1);
+        }
+
+        @Override
+        public Boolean visitBoundFunction(BoundFunction boundFunction, Expression other) {
+            // BoundFunction equality requires matching function names
+            // (via extraEquals), not just matching class and children.
+            // Two UDF wrapper nodes (e.g. JavaUdf / PythonUdf) with the
+            // same runtime class and same children but different function
+            // names are different functions — they must not be matched.
+            return isClassMatch(boundFunction, other)
+                    && Objects.equals(boundFunction.getName(), ((BoundFunction) other).getName())
+                    && isSameChild(boundFunction, other);
+        }
+
+        @Override
+        public Boolean visitMatch(Match match, Expression other) {
+            // Match predicates (MATCH_ANY, MATCH_ALL, …) carry an analyzer
+            // (USING ANALYZER clause) that changes which rows are included.
+            // Two structurally identical MATCH nodes with different
+            // analyzers are semantically different predicates.
+            if (!isClassMatch(match, other)) {
+                return false;
+            }
+            Match otherMatch = (Match) other;
+            return Objects.equals(match.getAnalyzer(), otherMatch.getAnalyzer())
+                    && isSameChild(match, other);
         }
 
         @Override
