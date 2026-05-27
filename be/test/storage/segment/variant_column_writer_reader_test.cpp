@@ -231,7 +231,7 @@ protected:
         _tablet_schema->init_from_pb(schema_pb);
 
         TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
-        _tablet_schema->set_external_segment_meta_used_default(true);
+        _tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
         tablet_meta->_tablet_id = tablet_id;
         _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
 
@@ -510,7 +510,7 @@ TEST_F(VariantColumnWriterReaderTest, test_legacy_flat_dot_key_reader_init) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
-    _tablet_schema->set_external_segment_meta_used_default(false);
+    _tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 20000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -535,7 +535,9 @@ TEST_F(VariantColumnWriterReaderTest, test_legacy_flat_dot_key_reader_init) {
     opts.rowset_ctx = &rowset_ctx;
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     TabletColumn column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
@@ -663,7 +665,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    _tablet_schema->set_storage_format(external_segment_meta_used_default
+                                               ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                               : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
 
@@ -689,7 +693,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     opts.rowset_ctx = &rowset_ctx;
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     TabletColumn column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
@@ -1220,7 +1226,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_and_read_hierarchical_doc) 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
     bool external_segment_meta_used_default = false;
-    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    _tablet_schema->set_storage_format(external_segment_meta_used_default
+                                               ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                               : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 31000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1245,7 +1253,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_and_read_hierarchical_doc) 
     opts.rowset_ctx = &rowset_ctx;
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     TabletColumn parent_column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, parent_column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, parent_column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &parent_column, file_writer.get(), &writer).ok());
@@ -1355,7 +1365,7 @@ TEST_F(VariantColumnWriterReaderTest,
     _tablet_schema->init_from_pb(schema_pb);
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
-    _tablet_schema->set_external_segment_meta_used_default(false);
+    _tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 31002;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1378,7 +1388,9 @@ TEST_F(VariantColumnWriterReaderTest,
     opts.rowset_ctx = &rowset_ctx;
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     TabletColumn parent_column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, parent_column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, parent_column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &parent_column, file_writer.get(), &writer).ok());
@@ -1483,7 +1495,7 @@ TEST_F(VariantColumnWriterReaderTest, test_read_doc_compact_from_doc_value_bucke
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
-    _tablet_schema->set_external_segment_meta_used_default(false);
+    _tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 32000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1507,7 +1519,9 @@ TEST_F(VariantColumnWriterReaderTest, test_read_doc_compact_from_doc_value_bucke
     opts.rowset_ctx = &rowset_ctx;
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     TabletColumn parent_column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, parent_column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, parent_column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &parent_column, file_writer.get(), &writer).ok());
@@ -1633,7 +1647,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_compact_writer_and_read_doc
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
-    _tablet_schema->set_external_segment_meta_used_default(false);
+    _tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 33000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1659,7 +1673,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_compact_writer_and_read_doc
     root_opts.file_writer = file_writer.get();
     root_opts.footer = &footer;
     root_opts.rowset_ctx = &rowset_ctx;
-    _init_column_meta(root_opts.meta, 0, parent_column, CompressionTypePB::LZ4);
+    root_opts.compression_type = CompressionTypePB::LZ4;
+    root_opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(root_opts.meta, 0, parent_column, root_opts);
 
     std::unique_ptr<ColumnWriter> root_writer;
     EXPECT_TRUE(
@@ -1669,7 +1685,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_compact_writer_and_read_doc
     TabletColumn extracted_doc_bucket_col = _tablet_schema->column(1);
     ColumnWriterOptions doc_compact_opts = root_opts;
     doc_compact_opts.meta = footer.add_columns();
-    _init_column_meta(doc_compact_opts.meta, 0, extracted_doc_bucket_col, CompressionTypePB::LZ4);
+    doc_compact_opts.compression_type = CompressionTypePB::LZ4;
+    doc_compact_opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(doc_compact_opts.meta, 0, extracted_doc_bucket_col, doc_compact_opts);
     std::unique_ptr<ColumnWriter> doc_compact_writer;
     EXPECT_TRUE(ColumnWriter::create(doc_compact_opts, &extracted_doc_bucket_col, file_writer.get(),
                                      &doc_compact_writer)
@@ -1831,7 +1849,7 @@ TEST_F(VariantColumnWriterReaderTest, test_doc_compact_sparse_write_array_gap) {
     _tablet_schema->append_column(extracted_doc_bucket);
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
-    _tablet_schema->set_external_segment_meta_used_default(false);
+    _tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 33001;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1855,7 +1873,9 @@ TEST_F(VariantColumnWriterReaderTest, test_doc_compact_sparse_write_array_gap) {
     doc_compact_opts.file_writer = file_writer.get();
     doc_compact_opts.footer = &footer;
     doc_compact_opts.rowset_ctx = &rowset_ctx;
-    _init_column_meta(doc_compact_opts.meta, 0, extracted_doc_bucket_col, CompressionTypePB::LZ4);
+    doc_compact_opts.compression_type = CompressionTypePB::LZ4;
+    doc_compact_opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(doc_compact_opts.meta, 0, extracted_doc_bucket_col, doc_compact_opts);
 
     std::unique_ptr<ColumnWriter> doc_compact_writer;
     EXPECT_TRUE(ColumnWriter::create(doc_compact_opts, &extracted_doc_bucket_col, file_writer.get(),
@@ -1933,7 +1953,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_sparse_write_array_gap_and_
     _tablet_schema->init_from_pb(schema_pb);
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
-    _tablet_schema->set_external_segment_meta_used_default(false);
+    _tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 33002;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1957,7 +1977,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_sparse_write_array_gap_and_
     opts.file_writer = file_writer.get();
     opts.footer = &footer;
     opts.rowset_ctx = &rowset_ctx;
-    _init_column_meta(opts.meta, 0, parent_column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, parent_column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &parent_column, file_writer.get(), &writer).ok());
@@ -2077,7 +2099,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    _tablet_schema->set_storage_format(external_segment_meta_used_default
+                                               ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                               : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -2102,7 +2126,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
     opts.rowset_ctx = &rowset_ctx;
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     TabletColumn column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
@@ -2278,7 +2304,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_sub_index) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    _tablet_schema->set_storage_format(external_segment_meta_used_default
+                                               ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                               : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -2303,7 +2331,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_sub_index) {
     opts.rowset_ctx = &rowset_ctx;
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     TabletColumn column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
@@ -2349,7 +2379,7 @@ TEST_F(VariantColumnWriterReaderTest, test_find_subcolumn_tablet_indexes_inherit
     _tablet_schema->init_from_pb(schema_pb);
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
-    _tablet_schema->set_external_segment_meta_used_default(false);
+    _tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 10001;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     ASSERT_TRUE(_tablet->init().ok());
@@ -2372,7 +2402,9 @@ TEST_F(VariantColumnWriterReaderTest, test_find_subcolumn_tablet_indexes_inherit
     rowset_ctx.tablet_schema = _tablet_schema;
     opts.rowset_ctx = &rowset_ctx;
     TabletColumn column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     ASSERT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
@@ -2436,7 +2468,7 @@ TEST_F(VariantColumnWriterReaderTest, test_find_subcolumn_tablet_indexes_branch_
     _tablet_schema->init_from_pb(schema_pb);
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
-    _tablet_schema->set_external_segment_meta_used_default(false);
+    _tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 10002;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     ASSERT_TRUE(_tablet->init().ok());
@@ -2459,7 +2491,9 @@ TEST_F(VariantColumnWriterReaderTest, test_find_subcolumn_tablet_indexes_branch_
     rowset_ctx.tablet_schema = _tablet_schema;
     opts.rowset_ctx = &rowset_ctx;
     TabletColumn root_column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, root_column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, root_column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     ASSERT_TRUE(ColumnWriter::create(opts, &root_column, file_writer.get(), &writer).ok());
@@ -2622,7 +2656,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    _tablet_schema->set_storage_format(external_segment_meta_used_default
+                                               ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                               : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -2648,7 +2684,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     // nullable variant column
     TabletColumn column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
@@ -2756,7 +2794,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable_without_finalize)
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    _tablet_schema->set_storage_format(external_segment_meta_used_default
+                                               ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                               : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -2782,7 +2822,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable_without_finalize)
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     // nullable variant column
     TabletColumn column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
@@ -2832,7 +2874,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_bm_with_finalize) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    _tablet_schema->set_storage_format(external_segment_meta_used_default
+                                               ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                               : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -2858,7 +2902,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_bm_with_finalize) {
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     // nullable variant column
     TabletColumn column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
@@ -2908,7 +2954,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_bf_with_finalize) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    _tablet_schema->set_storage_format(external_segment_meta_used_default
+                                               ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                               : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -2934,7 +2982,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_bf_with_finalize) {
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     // nullable variant column
     TabletColumn column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
@@ -2986,7 +3036,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_zm_with_finalize) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    _tablet_schema->set_storage_format(external_segment_meta_used_default
+                                               ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                               : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -3012,7 +3064,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_zm_with_finalize) {
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     // nullable variant column
     TabletColumn column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
@@ -3064,7 +3118,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_inverted_with_finalize) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    _tablet_schema->set_storage_format(external_segment_meta_used_default
+                                               ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                               : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -3090,7 +3146,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_inverted_with_finalize) {
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     // nullable variant column
     TabletColumn column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
@@ -3141,7 +3199,9 @@ TEST_F(VariantColumnWriterReaderTest, test_no_sub_in_sparse_column) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    _tablet_schema->set_storage_format(external_segment_meta_used_default
+                                               ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                               : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 10001;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -3166,7 +3226,9 @@ TEST_F(VariantColumnWriterReaderTest, test_no_sub_in_sparse_column) {
     opts.rowset_ctx = &rowset_ctx;
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     TabletColumn column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
@@ -3274,7 +3336,9 @@ TEST_F(VariantColumnWriterReaderTest, test_prefix_in_sub_and_sparse) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    _tablet_schema->set_storage_format(external_segment_meta_used_default
+                                               ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                               : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 10001;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -3299,7 +3363,9 @@ TEST_F(VariantColumnWriterReaderTest, test_prefix_in_sub_and_sparse) {
     opts.rowset_ctx = &rowset_ctx;
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     TabletColumn column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
@@ -3421,7 +3487,9 @@ void test_write_variant_column(StorageEngine* _engine_ref, std::string _absolute
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    _tablet_schema->set_storage_format(external_segment_meta_used_default
+                                               ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                               : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 10000;
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_absolute_dir).ok());
@@ -3452,7 +3520,9 @@ void test_write_variant_column(StorageEngine* _engine_ref, std::string _absolute
     opts.rowset_ctx = &rowset_ctx;
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     TabletColumn tablet_column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, tablet_column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, tablet_column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &tablet_column, file_writer.get(), &writer).ok());
@@ -3839,7 +3909,9 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    _tablet_schema->set_storage_format(external_segment_meta_used_default
+                                               ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                               : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
 
@@ -3865,7 +3937,9 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
     opts.rowset_ctx = &rowset_ctx;
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     TabletColumn column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
@@ -3994,7 +4068,9 @@ TEST_F(VariantColumnWriterReaderTest, test_concurrent_load_external_meta_and_get
     // VariantColumnReader builds a VariantExternalMetaReader.
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
     bool external_segment_meta_used_default = true;
-    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    _tablet_schema->set_storage_format(external_segment_meta_used_default
+                                               ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                               : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 20000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
 
@@ -4020,7 +4096,9 @@ TEST_F(VariantColumnWriterReaderTest, test_concurrent_load_external_meta_and_get
     opts.rowset_ctx = &rowset_ctx;
     opts.rowset_ctx->tablet_schema = _tablet_schema;
     TabletColumn column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
@@ -4155,7 +4233,9 @@ TEST_F(VariantColumnWriterReaderTest,
     opts.rowset_ctx = &rowset_ctx;
 
     TabletColumn column = _tablet_schema->column(0);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
 
     std::unique_ptr<ColumnWriter> writer;
     ASSERT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
