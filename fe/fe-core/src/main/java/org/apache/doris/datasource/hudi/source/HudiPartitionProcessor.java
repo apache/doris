@@ -33,9 +33,19 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Collectors;
 
 public abstract class HudiPartitionProcessor {
+
+    private static final int HUDI_PARTITION_FORK_JOIN_PARALLELISM =
+            Math.max(1, ForkJoinPool.getCommonPoolParallelism());
+    private static final ForkJoinPool HUDI_PARTITION_FORK_JOIN_POOL = new ForkJoinPool(
+            HUDI_PARTITION_FORK_JOIN_PARALLELISM,
+            new LegacyForkJoinWorkerThreadFactory(),
+            null,
+            false);
 
     public abstract void cleanUp();
 
@@ -48,16 +58,32 @@ public abstract class HudiPartitionProcessor {
     }
 
     public List<String> getAllPartitionNames(HoodieTableMetaClient tableMetaClient) throws IOException {
-        HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder()
-                .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(tableMetaClient))
-                .build();
+        try {
+            return HUDI_PARTITION_FORK_JOIN_POOL.submit(() -> {
+                HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder()
+                        .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(tableMetaClient))
+                        .build();
 
-        HoodieTableMetadata newTableMetadata = HoodieTableMetadata.createFSBackedTableMetadata(
-                new HoodieLocalEngineContext(tableMetaClient.getHadoopConf()),
-                metadataConfig,
-                tableMetaClient.getBasePath());
+                HoodieTableMetadata newTableMetadata = HoodieTableMetadata.createFSBackedTableMetadata(
+                        new HoodieLocalEngineContext(tableMetaClient.getHadoopConf()),
+                        metadataConfig,
+                        tableMetaClient.getBasePath());
 
-        return newTableMetadata.getAllPartitionPaths();
+                return newTableMetadata.getAllPartitionPaths();
+            }).get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException(e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof IOException) {
+                throw (IOException) cause;
+            }
+            if (cause instanceof RuntimeException) {
+                throw (RuntimeException) cause;
+            }
+            throw new IOException(cause);
+        }
     }
 
     public List<String> getPartitionNamesBeforeOrEquals(HoodieTimeline timeline, String timestamp) {
