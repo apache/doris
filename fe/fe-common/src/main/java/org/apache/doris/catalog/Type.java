@@ -268,6 +268,12 @@ public abstract class Type {
         structSubTypes.add(MAP);
         structSubTypes.add(STRUCT);
 
+        // Before adding a type here, the BE side must implement these three serde
+        // adapters for the type so values falling to the variant sparse path can
+        // round-trip correctly. Omitting any of them silently corrupts sparse reads.
+        //   * DataTypeXxxSerDe::write_one_cell_to_binary
+        //   * DataTypeXxxSerDe::deserialize_binary_to_field
+        //   * DataTypeXxxSerDe::deserialize_binary_to_column
         variantSubTypes = Lists.newArrayList();
         variantSubTypes.add(BOOLEAN);
         variantSubTypes.addAll(integerTypes);
