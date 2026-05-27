@@ -160,6 +160,37 @@ public class ConfigBase {
         }
         replacedByEnv(props);
         setFields(props, isLdapConfig);
+        warnDeprecatedKeys(confFile, props);
+    }
+
+    // Keys that were previously valid configuration entries but have been removed.
+    // If a user still has any of these in fe.conf after upgrade, we emit a warning
+    // so they know the value is no longer honored, but the FE will continue to start.
+    private static final Set<String> DEPRECATED_CONFIG_KEYS = Sets.newHashSet(
+            "meta_publish_timeout_ms",
+            "backup_plugin_path",
+            "max_unfinished_load_job",
+            "use_new_tablet_scheduler",
+            "enable_concurrent_update",
+            "cbo_max_statistics_job_num",
+            "max_cbo_statistics_task_timeout_sec",
+            "cbo_concurrency_statistics_task_num",
+            "cbo_default_sample_percentage",
+            "finish_job_max_saved_second",
+            "enable_array_type",
+            "period_analyze_simultaneously_running_task_num",
+            "maximum_parallelism_of_export_job");
+
+    private static void warnDeprecatedKeys(String confFile, Properties props) {
+        for (String key : props.stringPropertyNames()) {
+            if (DEPRECATED_CONFIG_KEYS.contains(key)) {
+                String msg = String.format(
+                        "FE config '%s' in %s is deprecated and no longer takes effect; "
+                                + "please remove it.",
+                        key, confFile);
+                System.err.println("[WARN] " + msg);
+            }
+        }
     }
 
     public static HashMap<String, String> dump() {

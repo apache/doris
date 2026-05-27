@@ -749,11 +749,6 @@ public class Config extends ConfigBase {
             "Whether to allow colocate balance between all groups."})
     public static boolean disable_colocate_balance_between_groups = false;
 
-    /**
-     * The default user resource publishing timeout.
-     */
-    @Deprecated
-    @ConfField public static int meta_publish_timeout_ms = 1000;
     @ConfField public static boolean proxy_auth_enable = false;
     @ConfField public static String proxy_auth_magic_prefix = "x@8";
     /**
@@ -772,12 +767,6 @@ public class Config extends ConfigBase {
     public static int expr_depth_limit = 3000;
 
     // Configurations for backup and restore
-    /**
-     * Plugins' path for BACKUP and RESTORE operations. Currently deprecated.
-     */
-    @Deprecated
-    @ConfField public static String backup_plugin_path = "/tools/trans_file_tool/trans_files.sh";
-
     // For forward compatibility, will be removed later.
     // check token when download image file.
     @ConfField public static boolean enable_token_check = true;
@@ -843,14 +832,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long max_bytes_per_broker_scanner = 500 * 1024 * 1024 * 1024L; // 500G
-
-    /**
-     * Max number of load jobs, include PENDING、ETL、LOADING、QUORUM_FINISHED.
-     * If exceed this number, load job is not allowed to be submitted.
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static long max_unfinished_load_job = 1000;
 
     /**
      * If set to true, Planner will try to select replica of tablet on same host as this Frontend.
@@ -1013,12 +994,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = true)
     public static long tablet_schedule_interval_ms = 1000;
-
-    /**
-     * Deprecated after 0.10
-     */
-    @Deprecated
-    @ConfField public static boolean use_new_tablet_scheduler = true;
 
     /**
      * the threshold of cluster balance score, if a backend's load score is 10% lower than average score,
@@ -1692,10 +1667,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true)
     public static int partition_info_update_interval_secs = 60;
 
-    @Deprecated
-    @ConfField(masterOnly = true)
-    public static boolean enable_concurrent_update = false;
-
     /**
      * This configuration can only be configured during cluster initialization and cannot be modified during cluster
      * restart and upgrade after initialization is complete.
@@ -1804,33 +1775,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long min_bytes_indicate_replica_too_large = 2 * 1024 * 1024 * 1024L;
-
-    // statistics
-    /*
-     * the max unfinished statistics job number
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static int cbo_max_statistics_job_num = 20;
-    /*
-     * the max timeout of a statistics task
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static int max_cbo_statistics_task_timeout_sec = 300;
-    /*
-     * the concurrency of statistics task
-     */
-    @Deprecated
-    @ConfField(mutable = false, masterOnly = true)
-    public static int cbo_concurrency_statistics_task_num = 10;
-    /*
-     * default sample percentage
-     * The value from 0 ~ 100. The 100 means no sampling and fetch all data.
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static int cbo_default_sample_percentage = 10;
 
     /*
      * the system automatically checks the time interval for statistics
@@ -1953,15 +1897,6 @@ public class Config extends ConfigBase {
     @ConfField
     public static int async_task_consumer_thread_num = 64;
 
-    /**
-     * When job is finished, it will be saved in job manager for a while.
-     * This configuration is used to control the max saved time.
-     * Default is 3 days.
-     */
-    @Deprecated
-    @ConfField
-    public static int finish_job_max_saved_second = 60 * 60 * 24 * 3;
-
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_workload_group = true;
@@ -2008,13 +1943,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean enable_decimal_conversion = true;
-
-    /**
-     * Support complex data type ARRAY.
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_array_type = false;
 
     /**
      * The timeout of executing async remote fragment.
@@ -2577,10 +2505,6 @@ public class Config extends ConfigBase {
                     + "not guarded for correctness reasons; see the NOTE in BaseAnalysisTask."})
     public static long statistics_max_string_column_length = 1024;
 
-    @Deprecated
-    @ConfField
-    public static final int period_analyze_simultaneously_running_task_num = 1;
-
     @ConfField(mutable = false)
     public static boolean allow_analyze_statistics_info_polluting_file_cache = true;
 
@@ -2592,10 +2516,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {"The maximum number of partitions allowed for an Export job"})
     public static int maximum_number_of_export_partitions = 2000;
-
-    @Deprecated
-    @ConfField(mutable = true, description = {"The maximum parallelism allowed for an Export job"})
-    public static int maximum_parallelism_of_export_job = 50;
 
     @ConfField(mutable = true, description = {"Whether to use MySQL's BIGINT type to return Doris's LARGEINT type"})
     public static boolean use_mysql_bigint_for_largeint = false;

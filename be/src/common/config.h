@@ -402,8 +402,6 @@ DECLARE_mInt32(doris_scan_range_max_mb);
 DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
 DECLARE_mInt32(doris_scanner_row_bytes);
-// Deprecated. single read execute fragment max run time millseconds
-DECLARE_mInt32(doris_scanner_max_run_time_ms);
 // Minimum interval in milliseconds between adaptive scanner concurrency adjustments
 DECLARE_mInt32(doris_scanner_dynamic_interval_ms);
 // (Advanced) Maximum size of per-query receive-side buffer
@@ -578,9 +576,6 @@ DECLARE_mInt64(cumulative_compaction_min_deltas);
 DECLARE_mInt64(cumulative_compaction_max_deltas);
 DECLARE_mInt32(cumulative_compaction_max_deltas_factor);
 
-// This config can be set to limit thread number in  multiget thread pool.
-DECLARE_mInt32(multi_get_max_threads);
-
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 DECLARE_mInt64(total_permits_for_compaction_score);
 
@@ -743,13 +738,10 @@ DECLARE_Int32(fragment_mgr_async_work_pool_thread_num_min);
 DECLARE_Int32(fragment_mgr_async_work_pool_thread_num_max);
 DECLARE_Int32(fragment_mgr_async_work_pool_queue_size);
 
-// Control the number of disks on the machine.  If 0, this comes from the system settings.
-DECLARE_Int32(num_disks);
 // The read size is the size of the reads sent to os.
 // There is a trade off of latency and throughout, trying to keep disks busy but
 // not introduce seeks.  The literature seems to agree that with 8 MB reads, random
 // io and sequential io perform similarly.
-DECLARE_Int32(read_size);       // 8 * 1024 * 1024, Read Size (in bytes)
 DECLARE_Int32(min_buffer_size); // 1024, The minimum read buffer size (in bytes)
 
 // for pprof
@@ -807,9 +799,6 @@ DECLARE_Int32(load_process_soft_mem_limit_percent);
 // If load memory consumption is within load_process_safe_mem_permit_percent,
 // memtable memory limiter will do nothing.
 DECLARE_Int32(load_process_safe_mem_permit_percent);
-
-// If there are a lot of memtable memory, then wait them flush finished.
-DECLARE_mDouble(load_max_wg_active_memtable_percent);
 
 // result buffer cancelled time (unit: second)
 DECLARE_mInt32(result_buffer_cancelled_interval_time);
@@ -1036,9 +1025,6 @@ DECLARE_mInt32(max_segment_num_per_rowset);
 // segment_compression_threshold_kb.
 DECLARE_mInt32(segment_compression_threshold_kb);
 
-// Time to clean up useless JDBC connection pool cache
-DECLARE_mInt32(jdbc_connection_pool_cache_clear_time_sec);
-
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DECLARE_Int64(delete_bitmap_agg_cache_capacity);
 DECLARE_String(delete_bitmap_dynamic_agg_cache_limit);
@@ -1114,8 +1100,6 @@ DECLARE_mInt32(merged_hdfs_min_io_size);
 
 // OrcReader
 DECLARE_mInt32(orc_natural_read_size_mb);
-DECLARE_mInt64(big_column_size_buffer);
-DECLARE_mInt64(small_column_size_buffer);
 
 DECLARE_mInt32(runtime_filter_sampling_frequency);
 DECLARE_mInt32(execution_max_rpc_timeout_sec);
@@ -1153,13 +1137,6 @@ DECLARE_Bool(enable_brpc_builtin_services);
 DECLARE_Bool(enable_brpc_connection_check);
 
 DECLARE_mInt64(brpc_connection_check_timeout_ms);
-
-// Max waiting time to wait the "plan fragment start" rpc.
-// If timeout, the fragment will be cancelled.
-// This parameter is usually only used when the FE loses connection,
-// and the BE can automatically cancel the relevant fragment after the timeout,
-// so as to avoid occupying the execution thread for a long time.
-DECLARE_mInt32(max_fragment_start_wait_time_seconds);
 
 DECLARE_Int32(fragment_mgr_cancel_worker_interval_seconds);
 
@@ -1248,9 +1225,6 @@ DECLARE_mInt64(file_cache_evict_in_advance_batch_bytes);
 DECLARE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold);
 DECLARE_mBool(enable_read_cache_file_directly);
 DECLARE_Bool(file_cache_enable_evict_from_other_queue_by_size);
-// If true, evict the ttl cache using LRU when full.
-// Otherwise, only expiration can evict ttl and new data won't add to cache when full.
-DECLARE_Bool(enable_ttl_cache_evict_using_lru);
 DECLARE_mBool(enbale_dump_error_file);
 // limit the max size of error log on disk
 DECLARE_mInt64(file_cache_error_log_limit_bytes);
@@ -1281,7 +1255,6 @@ DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_info_update_interval_ms);
 DECLARE_mInt64(file_cache_background_tablet_id_flush_interval_ms);
-DECLARE_mInt64(file_cache_background_ttl_gc_batch);
 DECLARE_Int32(file_cache_downloader_thread_num_min);
 DECLARE_Int32(file_cache_downloader_thread_num_max);
 // used to persist lru information before be reboot and load the info back
@@ -1391,8 +1364,6 @@ DECLARE_mBool(allow_invalid_decimalv2_literal);
 DECLARE_mString(kerberos_ccache_path);
 // set krb5.conf path, use "/etc/krb5.conf" by default
 DECLARE_mString(kerberos_krb5_conf_path);
-// the interval for renew kerberos ticket cache
-DECLARE_mInt32(kerberos_refresh_interval_second);
 
 // JDK-8153057: avoid StackOverflowError thrown from the UncaughtExceptionHandler in thread "process reaper"
 DECLARE_mBool(jdk_process_reaper_use_default_stack_size);
@@ -1420,12 +1391,6 @@ DECLARE_mInt64(lookup_connection_cache_capacity);
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
-// Threshold of a column as sparse column
-// Notice: TEST ONLY
-DECLARE_mBool(variant_use_cloud_schema_dict_cache);
-// Threshold to estimate a column is sparsed
-// Notice: TEST ONLY
-DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 // Max json key length in bytes when parsing json into variant subcolumns/jsonb.
 DECLARE_mInt32(variant_max_json_key_length);
 // Treat invalid json format str as string, instead of throwing exception if false
@@ -1435,9 +1400,6 @@ DECLARE_mBool(variant_enable_duplicate_json_path_check);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
 DECLARE_mBool(enable_variant_doc_sparse_write_subcolumns);
-// Maximum depth of nested arrays to track with NestedGroup
-// Reserved for future use when NestedGroup expansion moves to storage layer
-DECLARE_mInt32(variant_nested_group_max_depth);
 // When true, discard scalar data that conflicts with NestedGroup array<object>
 // data at the same path. This simplifies compaction by always prioritizing
 // nested structure over scalar. When false, report an error on conflict.
@@ -1553,8 +1515,6 @@ DECLARE_Bool(enable_snapshot_action);
 DECLARE_mInt32(variant_max_merged_tablet_schema_size);
 
 DECLARE_mInt64(local_exchange_buffer_mem_limit);
-
-DECLARE_mInt64(enable_debug_log_timeout_secs);
 
 DECLARE_mBool(enable_column_type_check);
 
@@ -1752,7 +1712,6 @@ DECLARE_mInt32(max_automatic_compaction_num_per_round);
 DECLARE_mInt32(check_tablet_delete_bitmap_interval_seconds);
 DECLARE_mInt32(check_tablet_delete_bitmap_score_top_n);
 DECLARE_mBool(enable_check_tablet_delete_bitmap_score);
-DECLARE_mInt32(schema_dict_cache_capacity);
 
 // whether to prune rows with delete sign = 1 in base compaction
 // ATTN: this config is only for test
@@ -1833,8 +1792,6 @@ DECLARE_mBool(enable_cloud_make_rs_visible_on_be);
 DECLARE_mInt32(file_handles_deplenish_frequency_times);
 
 #ifdef BE_TEST
-// test s3
-DECLARE_String(test_s3_resource);
 DECLARE_String(test_s3_ak);
 DECLARE_String(test_s3_sk);
 DECLARE_String(test_s3_endpoint);
@@ -1934,6 +1891,8 @@ public:
 
     // dump props to conf file
     Status dump(const std::string& conffile);
+
+    const std::map<std::string, std::string>& conf_map() const { return file_conf_map; }
 
 private:
     std::map<std::string, std::string> file_conf_map;
