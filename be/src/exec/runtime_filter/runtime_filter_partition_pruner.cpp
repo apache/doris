@@ -345,21 +345,6 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
                 filter_id, leaf_slot_id, target_expr->expr_name());
     }
 
-    // LIST partitions require regrouping projected values per partition and
-    // should not be marked as expression-prunable by FE yet.
-    for (const auto& selected_boundary : selected_boundaries) {
-        bool is_list = false;
-        std::visit([&](const auto& cvr) { is_list = cvr.is_fixed_value_range(); },
-                   orig_boundaries[selected_boundary.first].boundary_cvr);
-        if (is_list) {
-            return Status::InternalError(
-                    "Runtime filter partition pruning expression target does not support LIST "
-                    "partition boundaries, filter_id={}, partition_id={}, target_expr={}",
-                    filter_id, orig_boundaries[selected_boundary.first].partition_id,
-                    target_expr->expr_name());
-        }
-    }
-
     const DataTypePtr& input_type = slot_type_it->second;
     bool input_is_nullable = input_type->is_nullable();
     DataTypePtr inner_type = input_is_nullable ? remove_nullable(input_type) : input_type;
@@ -368,14 +353,19 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
     size_t N = selected_boundaries.size();
     std::vector<bool> lo_open(N, false);
     std::vector<bool> hi_open(N, false);
+    std::vector<bool> boundary_is_list(N, false);
     std::vector<size_t> lo_result_row(N, 0);
     std::vector<size_t> hi_result_row(N, 0);
+    std::vector<size_t> list_result_begin(N, 0);
+    std::vector<size_t> list_result_end(N, 0);
     size_t lo_row_count = 0;
     size_t hi_row_count = 0;
+    size_t list_row_count = 0;
 
-    // Build input blocks for lo and hi
+    // Build input blocks for RANGE endpoints and LIST values.
     Block lo_block;
     Block hi_block;
+    Block list_block;
 
     // Pad columns 0..leaf_column_id-1 with placeholder columns so the leaf
     // VSlotRef (whose column_id is leaf_column_id) reads our typed column.
@@ -388,22 +378,28 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
     };
 
     // Macro-dispatch on input PrimitiveType to build finite RANGE endpoint
-    // columns. Open endpoints are not executed through target_expr; they stay
-    // open after projection and swap sides for monotonic decreasing targets.
+    // columns and LIST value columns. Unbounded RANGE endpoints are not executed
+    // through target_expr; they stay unbounded after projection and swap sides
+    // for monotonic decreasing targets.
     bool input_built = false;
 #define BUILD_INPUT_COLUMNS(INPUT_PT)                                                            \
     case TYPE_##INPUT_PT: {                                                                      \
         using InCol = typename PrimitiveTypeTraits<TYPE_##INPUT_PT>::ColumnType;                 \
         MutableColumnPtr lo_inner_base = inner_type->create_column();                            \
         MutableColumnPtr hi_inner_base = inner_type->create_column();                            \
+        MutableColumnPtr list_inner_base = inner_type->create_column();                          \
         auto* lo_inner = assert_cast<InCol*>(lo_inner_base.get());                               \
         auto* hi_inner = assert_cast<InCol*>(hi_inner_base.get());                               \
+        auto* list_inner = assert_cast<InCol*>(list_inner_base.get());                           \
         lo_inner->reserve(N);                                                                    \
         hi_inner->reserve(N);                                                                    \
+        list_inner->reserve(N);                                                                  \
         auto lo_nulls = ColumnUInt8::create();                                                   \
         auto hi_nulls = ColumnUInt8::create();                                                   \
+        auto list_nulls = ColumnUInt8::create();                                                 \
         lo_nulls->reserve(N);                                                                    \
         hi_nulls->reserve(N);                                                                    \
+        list_nulls->reserve(N);                                                                  \
         for (size_t i = 0; i < N; ++i) {                                                         \
             const auto& boundary = orig_boundaries[selected_boundaries[i].first];                \
             const auto* cvr =                                                                    \
@@ -411,6 +407,17 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
             DCHECK(cvr != nullptr);                                                              \
             DCHECK(!boundary.only_null);                                                         \
             DCHECK(!boundary.contains_null);                                                     \
+            boundary_is_list[i] = cvr->is_fixed_value_range();                                   \
+            if (boundary_is_list[i]) {                                                           \
+                list_result_begin[i] = list_row_count;                                           \
+                for (const auto& value : cvr->get_fixed_value_set()) {                           \
+                    list_inner->insert_value(value);                                             \
+                    list_nulls->get_data().push_back(0);                                         \
+                    ++list_row_count;                                                            \
+                }                                                                                \
+                list_result_end[i] = list_row_count;                                             \
+                continue;                                                                        \
+            }                                                                                    \
             lo_open[i] = cvr->is_low_value_minimum();                                            \
             hi_open[i] = cvr->is_high_value_maximum();                                           \
             if (!lo_open[i]) {                                                                   \
@@ -426,14 +433,19 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
         }                                                                                        \
         add_dummy_columns(lo_block, lo_row_count);                                               \
         add_dummy_columns(hi_block, hi_row_count);                                               \
+        add_dummy_columns(list_block, list_row_count);                                           \
         if (input_is_nullable) {                                                                 \
             auto lo_col = ColumnNullable::create(std::move(lo_inner_base), std::move(lo_nulls)); \
             auto hi_col = ColumnNullable::create(std::move(hi_inner_base), std::move(hi_nulls)); \
+            auto list_col =                                                                      \
+                    ColumnNullable::create(std::move(list_inner_base), std::move(list_nulls));   \
             lo_block.insert({std::move(lo_col), input_type, "leaf_slot"});                       \
             hi_block.insert({std::move(hi_col), input_type, "leaf_slot"});                       \
+            list_block.insert({std::move(list_col), input_type, "leaf_slot"});                   \
         } else {                                                                                 \
             lo_block.insert({std::move(lo_inner_base), input_type, "leaf_slot"});                \
             hi_block.insert({std::move(hi_inner_base), input_type, "leaf_slot"});                \
+            list_block.insert({std::move(list_inner_base), input_type, "leaf_slot"});            \
         }                                                                                        \
         input_built = true;                                                                      \
         break;                                                                                   \
@@ -477,8 +489,10 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
 
     int lo_result_id = -1;
     int hi_result_id = -1;
+    int list_result_id = -1;
     ColumnPtr lo_result_col;
     ColumnPtr hi_result_col;
+    ColumnPtr list_result_col;
     if (lo_row_count > 0) {
         RETURN_IF_ERROR(target_expr->execute(ctx, &lo_block, &lo_result_id));
         if (lo_result_id < 0) {
@@ -499,6 +513,16 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
         }
         hi_result_col = hi_block.get_by_position(hi_result_id).column;
     }
+    if (list_row_count > 0) {
+        RETURN_IF_ERROR(target_expr->execute(ctx, &list_block, &list_result_id));
+        if (list_result_id < 0) {
+            return Status::InternalError(
+                    "Runtime filter partition pruning failed to project LIST boundary, "
+                    "filter_id={}, target_expr={}",
+                    filter_id, target_expr->expr_name());
+        }
+        list_result_col = list_block.get_by_position(list_result_id).column;
+    }
     int out_precision = cast_set<int>(target_expr->data_type()->get_precision());
     int out_scale = cast_set<int>(target_expr->data_type()->get_scale());
     bool out_nullable = target_expr->data_type()->is_nullable();
@@ -517,11 +541,40 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
         for (size_t i = 0; i < N; ++i) {                                                        \
             const auto& orig_boundary = orig_boundaries[selected_boundaries[i].first];          \
             TTargetExprMonotonicity::type direction = selected_boundaries[i].second;            \
+            if (boundary_is_list[i]) {                                                          \
+                auto cvr = ColumnValueRange<TYPE_##OUTPUT_PT>::create_empty_column_value_range( \
+                        out_nullable, out_precision, out_scale);                                \
+                bool list_has_value = false;                                                    \
+                bool list_has_null = false;                                                     \
+                for (size_t row = list_result_begin[i]; row < list_result_end[i]; ++row) {      \
+                    if (list_result_col->is_null_at(row)) {                                     \
+                        list_has_null = true;                                                   \
+                        continue;                                                               \
+                    }                                                                           \
+                    auto projected_list_value = projected_value(list_result_col, row);          \
+                    static_cast<void>(cvr.add_fixed_value(projected_list_value));               \
+                    list_has_value = true;                                                      \
+                }                                                                               \
+                if (!list_has_value && !list_has_null) {                                        \
+                    continue;                                                                   \
+                }                                                                               \
+                ParsedBoundary projected_boundary;                                              \
+                projected_boundary.partition_id = orig_boundary.partition_id;                   \
+                projected_boundary.slot_id = leaf_slot_id;                                      \
+                projected_boundary.is_nullable = out_nullable;                                  \
+                projected_boundary.contains_null = list_has_null;                               \
+                projected_boundary.only_null = list_has_null && !list_has_value;                \
+                projected_boundary.boundary_cvr = std::move(cvr);                               \
+                projected.emplace_back(std::move(projected_boundary));                          \
+                continue;                                                                       \
+            }                                                                                   \
             if ((!lo_open[i] && lo_result_col->is_null_at(lo_result_row[i])) ||                 \
                 (!hi_open[i] && hi_result_col->is_null_at(hi_result_row[i]))) {                 \
                 continue;                                                                       \
             }                                                                                   \
             ColumnValueRange<TYPE_##OUTPUT_PT> cvr("", out_nullable, out_precision, out_scale); \
+            /* Use closed projected finite bounds as a conservative envelope for */             \
+            /* non-strict monotonic expressions such as date ceil/floor/cast.    */             \
             if (direction == TTargetExprMonotonicity::MONOTONIC_DECREASING) {                   \
                 if (!hi_open[i]) {                                                              \
                     auto hi_projected = projected_value(hi_result_col, hi_result_row[i]);       \
@@ -638,28 +691,8 @@ void RuntimeFilterPartitionPruner::_try_prune_by_single_rf(
         rf_contains_null = true;
     }
 
-    for (const auto& pb : boundaries) {
-        if (_pruned_partition_ids.contains(pb.partition_id) ||
-            newly_pruned.contains(pb.partition_id)) {
-            continue;
-        }
-
-        // NULL handling:
-        //   A partition row whose key is NULL matches the RF iff `rf_contains_null`.
-        //   - only_null partition (rows are exclusively NULL): prunable iff !rf_contains_null.
-        //   - mixed (NULL + concrete values): if rf_contains_null, NULL rows alone
-        //     prevent pruning. Otherwise NULL rows can never match, so we ignore
-        //     the NULL portion and let the regular non-NULL intersection decide.
-        if (pb.only_null) {
-            if (!rf_contains_null) {
-                newly_pruned.insert(pb.partition_id);
-            }
-            continue;
-        }
-        if (pb.contains_null && rf_contains_null) {
-            continue;
-        }
-
+    std::optional<ColumnValueRangeType> rf_cvr;
+    if (!boundaries.empty()) {
         std::visit(
                 [&](const auto& boundary_cvr) {
                     using CvrType = std::decay_t<decltype(boundary_cvr)>;
@@ -667,9 +700,9 @@ void RuntimeFilterPartitionPruner::_try_prune_by_single_rf(
 
                     auto hybrid_set = impl->get_set_func();
                     if (hybrid_set) {
-                        // IN filter: build a fixed-value CVR from the HybridSet
-                        auto rf_cvr = CvrType::create_empty_column_value_range(
-                                pb.is_nullable, boundary_cvr.precision(), boundary_cvr.scale());
+                        auto typed_rf_cvr = CvrType::create_empty_column_value_range(
+                                boundaries.front().is_nullable, boundary_cvr.precision(),
+                                boundary_cvr.scale());
                         auto* iter = hybrid_set->begin();
                         while (iter->has_next()) {
                             const void* value = iter->get_value();
@@ -679,24 +712,20 @@ void RuntimeFilterPartitionPruner::_try_prune_by_single_rf(
                                     // ColumnValueRange<String>::CppType is
                                     // std::string. Construct from the bytes.
                                     const auto* str_val = reinterpret_cast<const StringRef*>(value);
-                                    static_cast<void>(rf_cvr.add_fixed_value(
+                                    static_cast<void>(typed_rf_cvr.add_fixed_value(
                                             CppType(str_val->data, str_val->size)));
                                 } else if constexpr (std::is_same_v<CppType, StringRef>) {
                                     const auto* str_val = reinterpret_cast<const StringRef*>(value);
-                                    static_cast<void>(rf_cvr.add_fixed_value(
+                                    static_cast<void>(typed_rf_cvr.add_fixed_value(
                                             CppType(str_val->data, str_val->size)));
                                 } else {
-                                    static_cast<void>(rf_cvr.add_fixed_value(
+                                    static_cast<void>(typed_rf_cvr.add_fixed_value(
                                             *reinterpret_cast<const CppType*>(value)));
                                 }
                             }
                             iter->next();
                         }
-                        auto boundary_copy = boundary_cvr;
-                        boundary_copy.intersection(rf_cvr);
-                        if (boundary_copy.is_empty_value_range()) {
-                            newly_pruned.insert(pb.partition_id);
-                        }
+                        rf_cvr.emplace(std::move(typed_rf_cvr));
                     } else if ((impl->node_type() == TExprNodeType::BINARY_PRED ||
                                 impl->node_type() == TExprNodeType::NULL_AWARE_BINARY_PRED) &&
                                impl->children().size() == 2 && impl->children()[1]->is_literal()) {
@@ -722,15 +751,55 @@ void RuntimeFilterPartitionPruner::_try_prune_by_single_rf(
                             return; // unrecognized opcode, skip
                         }
 
-                        CvrType rf_cvr(boundary_cvr.column_name(), pb.is_nullable,
-                                       boundary_cvr.precision(), boundary_cvr.scale());
-                        static_cast<void>(rf_cvr.add_range(op, val));
+                        CvrType typed_rf_cvr(boundary_cvr.column_name(),
+                                             boundaries.front().is_nullable,
+                                             boundary_cvr.precision(), boundary_cvr.scale());
+                        static_cast<void>(typed_rf_cvr.add_range(op, val));
+                        rf_cvr.emplace(std::move(typed_rf_cvr));
+                    }
+                },
+                boundaries.front().boundary_cvr);
+    }
+    if (!rf_cvr.has_value()) {
+        return;
+    }
 
-                        auto boundary_copy = boundary_cvr;
-                        boundary_copy.intersection(rf_cvr);
-                        if (boundary_copy.is_empty_value_range()) {
-                            newly_pruned.insert(pb.partition_id);
-                        }
+    for (const auto& pb : boundaries) {
+        if (_pruned_partition_ids.contains(pb.partition_id) ||
+            newly_pruned.contains(pb.partition_id)) {
+            continue;
+        }
+
+        // NULL handling:
+        //   A partition row whose key is NULL matches the RF iff `rf_contains_null`.
+        //   - only_null partition (rows are exclusively NULL): prunable iff !rf_contains_null.
+        //   - mixed (NULL + concrete values): if rf_contains_null, NULL rows alone
+        //     prevent pruning. Otherwise NULL rows can never match, so we ignore
+        //     the NULL portion and let the regular non-NULL intersection decide.
+        if (pb.only_null) {
+            if (!rf_contains_null) {
+                newly_pruned.insert(pb.partition_id);
+            }
+            continue;
+        }
+        if (pb.contains_null && rf_contains_null) {
+            continue;
+        }
+
+        std::visit(
+                [&](const auto& boundary_cvr) {
+                    using CvrType = std::decay_t<decltype(boundary_cvr)>;
+
+                    const auto* typed_rf_cvr = std::get_if<CvrType>(&rf_cvr.value());
+                    if (typed_rf_cvr == nullptr) {
+                        return;
+                    }
+
+                    auto boundary_copy = boundary_cvr;
+                    auto rf_cvr_copy = *typed_rf_cvr;
+                    boundary_copy.intersection(rf_cvr_copy);
+                    if (boundary_copy.is_empty_value_range()) {
+                        newly_pruned.insert(pb.partition_id);
                     }
                 },
                 pb.boundary_cvr);

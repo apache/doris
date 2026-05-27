@@ -95,11 +95,19 @@ final class RuntimeFilterPartitionPruneClassifier {
         if (leafSlot == null || !isPartitionColumnSlot(leafSlot, partitionInfo.getPartitionColumns())) {
             return Classification.unsupported("target expression is not rooted on one partition column");
         }
-        if (partType != PartitionType.RANGE) {
-            return Classification.unsupported("local monotonicity is only supported for RANGE partition");
-        }
         if (!hasSerializedBoundary(leafSlot, partitionInfo, partType)) {
             return Classification.unsupported("target expression has no serialized partition boundary");
+        }
+        if (partType == PartitionType.LIST) {
+            if (nereidsTargetExpr.containsNondeterministic()) {
+                return Classification.unsupported("target expression contains non-deterministic function");
+            }
+            Map<Long, TTargetExprMonotonicity> partitionMonotonicity =
+                    allSelectedPartitionsIncreasing(olapScanNode, partitionInfo);
+            if (partitionMonotonicity.isEmpty()) {
+                return Classification.unsupported("target expression has no prunable selected partitions");
+            }
+            return Classification.supportedPartitions(leafSlot, partitionMonotonicity);
         }
 
         Map<Long, TTargetExprMonotonicity> partitionMonotonicity =

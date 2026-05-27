@@ -323,6 +323,43 @@ TEST_F(RuntimeFilterPartitionPrunerTest, ProjectedBoundariesPreserveOpenRangeBou
     EXPECT_EQ(dec_upper_unbounded.get_range_max_value(), ten);
 }
 
+TEST_F(RuntimeFilterPartitionPrunerTest, ProjectedBoundariesSupportListValues) {
+    int32_t one = 1;
+    int32_t two = 2;
+    int32_t three = 3;
+    std::vector<TPartitionBoundary> boundaries {
+            list_boundary<TYPE_INT>(1, {literal_node<TYPE_INT>(one), literal_node<TYPE_INT>(two)}),
+            list_boundary<TYPE_INT>(2, {literal_node<TYPE_INT>(three)})};
+    auto parsed = parse_boundaries(TYPE_INT, boundaries);
+    auto slot = slot_desc(TYPE_INT, false);
+    auto target_expr = identity_wrapper_expr(slot.type());
+    VExprContext ctx(target_expr);
+
+    std::unordered_map<int64_t, TTargetExprMonotonicity::type> increasing_directions {
+            {1, TTargetExprMonotonicity::MONOTONIC_INCREASING},
+            {2, TTargetExprMonotonicity::MONOTONIC_INCREASING}};
+    std::shared_ptr<const std::vector<ParsedBoundary>> projected;
+    ASSERT_TRUE(parsed->get_or_compute_projected_boundaries(
+                              /*filter_id=*/201, target_expr, SLOT_ID, /*leaf_column_id=*/0,
+                              increasing_directions, &ctx, &projected)
+                        .ok());
+    ASSERT_EQ(projected->size(), 2);
+
+    const auto& first = std::get<ColumnValueRange<TYPE_INT>>(projected->at(0).boundary_cvr);
+    EXPECT_TRUE(first.is_fixed_value_range());
+    EXPECT_TRUE(first.get_fixed_value_set().contains(one));
+    EXPECT_TRUE(first.get_fixed_value_set().contains(two));
+    const auto& second = std::get<ColumnValueRange<TYPE_INT>>(projected->at(1).boundary_cvr);
+    EXPECT_TRUE(second.is_fixed_value_range());
+    EXPECT_TRUE(second.get_fixed_value_set().contains(three));
+
+    RuntimeFilterPartitionPruner pruner;
+    phmap::flat_hash_set<int64_t> pruned;
+    pruner._try_prune_by_single_rf(*projected, in_predicate<TYPE_INT>(two), pruned);
+    EXPECT_FALSE(pruned.contains(1));
+    EXPECT_TRUE(pruned.contains(2));
+}
+
 TEST_F(RuntimeFilterPartitionPrunerTest, InvalidPartitionBoundaryRejected) {
     TPartitionBoundary boundary;
     boundary.__set_partition_id(1);

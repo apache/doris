@@ -669,8 +669,14 @@ suite("rf_partition_pruning", "nonConcurrent") {
         "* FROM rf_prune_list_50 f JOIN rf_prune_dim_50 d ON f.cat_id = d.dim_cat",
         "IN_OR_BLOOM_FILTER", 50, 45)
 
+    // Test 15b: LIST partition + expression target. LIST values are finite, so
+    // abs(cat_id) can be projected value-by-value without monotonicity.
+    assertPruningProfile(
+        "* FROM rf_prune_list_50 f JOIN rf_prune_dim_50 d ON abs(f.cat_id) = d.dim_cat",
+        "IN_OR_BLOOM_FILTER", 50, 45)
+
     // ---- Non-monotonic expression tests ----
-    // Test 16: Join on abs(part_col) — target expr is NOT a SlotRef → 0 pruned
+    // Test 16: RANGE join on abs(part_col) — non-monotonic target expr → 0 pruned
     // Using existing rf_prune_range_int (4 partitions), dim has value 50
     sql "drop table if exists rf_prune_dim_abs"
     sql """
