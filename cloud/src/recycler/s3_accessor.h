@@ -162,6 +162,9 @@ protected:
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _get_aws_credentials_provider_v2(
             const S3Conf& s3_conf);
 
+    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _create_credentials_provider(
+            CredProviderType type);
+
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> get_aws_credentials_provider(
             const S3Conf& s3_conf);
 
