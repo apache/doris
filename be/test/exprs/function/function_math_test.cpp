@@ -18,14 +18,17 @@
 #include <climits>
 #include <cstdint>
 #include <limits>
+#include <random>
 #include <string>
 
+#include "core/column/column_const.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
 #include "testutil/any_type.h"
+#include "testutil/column_helper.h"
 
 namespace doris {
 
@@ -550,6 +553,56 @@ TEST(MathFunctionTest, random_test) {
         DataSet data_line = {data};
         static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_line));
     }
+}
+
+TEST(MathFunctionTest, uniform_mixed_const_probe_test) {
+    auto input_type = std::make_shared<DataTypeInt64>();
+    auto return_type = std::make_shared<DataTypeInt64>();
+
+    Block block;
+    auto min_data = ColumnHelper::create_column<DataTypeInt64>({1});
+    auto max_data = ColumnHelper::create_column<DataTypeInt64>({10});
+    auto seed_column = ColumnHelper::create_column<DataTypeInt64>({101, 202, 303});
+
+    block.insert({ColumnConst::create(min_data, 3), input_type, "min"});
+    block.insert({ColumnConst::create(max_data, 3), input_type, "max"});
+    block.insert({seed_column, input_type, "seed"});
+
+    FunctionBasePtr function = SimpleFunctionFactory::instance().get_function(
+            "uniform", block.get_columns_with_type_and_name(), return_type);
+    ASSERT_TRUE(function != nullptr);
+
+    block.insert({nullptr, return_type, "result"});
+
+    FunctionUtils fn_utils(return_type, {input_type, input_type, input_type}, false);
+    auto* fn_ctx = fn_utils.get_fn_ctx();
+    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols {
+            std::make_shared<ColumnPtrWrapper>(block.get_by_position(0).column),
+            std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column),
+            nullptr,
+    };
+    fn_ctx->set_constant_cols(constant_cols);
+
+    ASSERT_TRUE(function->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+
+    auto exec_status = function->execute(fn_ctx, block, {0, 1, 2}, 3, 3);
+
+    static_cast<void>(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+    static_cast<void>(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+
+    const auto& result_column = assert_cast<const ColumnInt64&>(*block.get_by_position(3).column);
+    auto expected_uniform = [](int64_t seed) {
+        std::mt19937_64 generator(seed);
+        std::uniform_int_distribution<int64_t> distribution(1, 10);
+        return distribution(generator);
+    };
+
+    EXPECT_EQ(result_column.get_element(0), expected_uniform(101));
+    EXPECT_EQ(result_column.get_element(1), expected_uniform(202));
+    EXPECT_EQ(result_column.get_element(2), expected_uniform(303));
 }
 
 TEST(MathFunctionTest, conv_test) {
