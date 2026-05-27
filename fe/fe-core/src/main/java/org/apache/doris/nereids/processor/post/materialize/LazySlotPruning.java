@@ -89,6 +89,9 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
         return child.getOutput().containsAll(context.lazySlots);
     }
 
+    /**
+     * visit
+     */
     public Plan visit(Plan plan, Context context) {
         ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(plan.arity());
         boolean hasNewChildren = false;
