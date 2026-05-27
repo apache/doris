@@ -295,17 +295,34 @@ public class Predicates {
         if (compensationCandidates == null) {
             return null;
         }
-        Expression combinedCompensationCandidates = buildCombinedPredicate(
-                compensationCandidates.getEquals().keySet(),
-                compensationCandidates.getRanges().keySet(),
-                compensationCandidates.getResiduals().keySet());
-
         Set<Expression> queryBasedViewResidualPredicates = collectNonInferredQueryBasedExpressions(
                 viewStructInfo.getSplitPredicate().getResidualPredicateMap().keySet(), viewToQuerySlotMapping);
-        Expression combinedQueryBasedViewResidual = buildCombinedPredicate(queryBasedViewResidualPredicates);
+        Set<Expression> exactCoveredPredicates = new LinkedHashSet<>();
+        exactCoveredPredicates.addAll(Sets.intersection(
+                compensationCandidates.getEquals().keySet(), queryBasedViewResidualPredicates));
+        exactCoveredPredicates.addAll(Sets.intersection(
+                compensationCandidates.getRanges().keySet(), queryBasedViewResidualPredicates));
+        exactCoveredPredicates.addAll(Sets.intersection(
+                compensationCandidates.getResiduals().keySet(), queryBasedViewResidualPredicates));
+        Set<Expression> remainingQueryBasedViewResidualPredicates = new LinkedHashSet<>(
+                Sets.difference(queryBasedViewResidualPredicates, exactCoveredPredicates));
+
+        // Exact-covered predicates are enforced by both query and view. Preserve that fast path before
+        // proving implication for the remaining residuals, because DNF expansion is only needed for
+        // non-exact implication.
+        PredicateCompensation exactPrunedCompensationCandidates = new PredicateCompensation(
+                removeExactCoveredPredicates(compensationCandidates.getEquals(), exactCoveredPredicates),
+                removeExactCoveredPredicates(compensationCandidates.getRanges(), exactCoveredPredicates),
+                removeExactCoveredPredicates(compensationCandidates.getResiduals(), exactCoveredPredicates));
+
+        Expression combinedCompensationCandidates = buildCombinedPredicate(
+                exactPrunedCompensationCandidates.getEquals().keySet(),
+                exactPrunedCompensationCandidates.getRanges().keySet(),
+                exactPrunedCompensationCandidates.getResiduals().keySet());
+        Expression combinedQueryBasedViewResidual = buildCombinedPredicate(remainingQueryBasedViewResidualPredicates);
         if (BooleanLiteral.TRUE.equals(combinedQueryBasedViewResidual)) {
             // The target residual is TRUE, so implication always holds and DNF expansion is unnecessary.
-            return rejectUnsafeResidualCompensation(compensationCandidates);
+            return rejectUnsafeResidualCompensation(exactPrunedCompensationCandidates);
         }
 
         try {
@@ -317,11 +334,11 @@ public class Predicates {
 
             PredicateCompensation finalCompensation = new PredicateCompensation(
                     removePredicatesImpliedByViewResidual(
-                            compensationCandidates.getEquals(), combinedQueryBasedViewResidual),
+                            exactPrunedCompensationCandidates.getEquals(), combinedQueryBasedViewResidual),
                     removePredicatesImpliedByViewResidual(
-                            compensationCandidates.getRanges(), combinedQueryBasedViewResidual),
+                            exactPrunedCompensationCandidates.getRanges(), combinedQueryBasedViewResidual),
                     removePredicatesImpliedByViewResidual(
-                            compensationCandidates.getResiduals(), combinedQueryBasedViewResidual));
+                            exactPrunedCompensationCandidates.getResiduals(), combinedQueryBasedViewResidual));
             return rejectUnsafeResidualCompensation(finalCompensation);
         } catch (DnfBranchOverflowException e) {
             // DNF branch expansion may explode exponentially; fail compensation conservatively.
@@ -390,6 +407,19 @@ public class Predicates {
             if (!impliesByDnf(viewResidual, entry.getKey())) {
                 remainingPredicates.put(entry.getKey(), entry.getValue());
             }
+        }
+        return ImmutableMap.copyOf(remainingPredicates);
+    }
+
+    private static Map<Expression, ExpressionInfo> removeExactCoveredPredicates(
+            Map<Expression, ExpressionInfo> predicates,
+            Set<Expression> exactCoveredPredicates) {
+        Map<Expression, ExpressionInfo> remainingPredicates = new LinkedHashMap<>();
+        for (Map.Entry<Expression, ExpressionInfo> entry : predicates.entrySet()) {
+            if (exactCoveredPredicates.contains(entry.getKey())) {
+                continue;
+            }
+            remainingPredicates.put(entry.getKey(), entry.getValue());
         }
         return ImmutableMap.copyOf(remainingPredicates);
     }

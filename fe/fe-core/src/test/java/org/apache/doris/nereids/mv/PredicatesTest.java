@@ -288,7 +288,7 @@ public class PredicatesTest extends SqlTestBase {
     }
 
     @Test
-    public void testCompensateCandidatesByViewResidualReturnsNullWhenDnfBranchesOverflow() {
+    public void testCompensateCandidatesByViewResidualKeepsExactResidualWhenDnfBranchesOverflow() {
         String overflowResidual = buildDnfOverflowResidual();
         String sql = "select id, score from T1 where " + overflowResidual;
         PredicateRewriteContext rewriteContext = buildRewriteContext(sql, sql);
@@ -315,7 +315,29 @@ public class PredicatesTest extends SqlTestBase {
                 "OR[(id = 11),(score = 111)]");
 
         PredicateCompensation finalPredicateCompensation = compensatePredicates(rewriteContext);
-        // DNF branches exceed the guard threshold, so implication falls back conservatively.
+        Assertions.assertNotNull(finalPredicateCompensation);
+        Assertions.assertTrue(finalPredicateCompensation.getEquals().isEmpty());
+        Assertions.assertTrue(finalPredicateCompensation.getRanges().isEmpty());
+        Assertions.assertTrue(finalPredicateCompensation.getResiduals().isEmpty());
+    }
+
+    @Test
+    public void testCompensateCandidatesByViewResidualReturnsNullWhenDnfBranchesOverflow() {
+        PredicateRewriteContext rewriteContext = buildRewriteContext(
+                "select id, score from T1 where id = 999 or score = 999",
+                "select id, score from T1 where " + buildDnfOverflowResidual());
+
+        PredicateCompensation compensationCandidates = Predicates.collectCompensationCandidates(
+                rewriteContext.queryStructInfo,
+                rewriteContext.viewStructInfo,
+                rewriteContext.viewToQuerySlotMapping,
+                rewriteContext.comparisonResult,
+                rewriteContext.queryContext);
+        Assertions.assertNotNull(compensationCandidates);
+        Assertions.assertEquals(11, compensationCandidates.getResiduals().size());
+
+        PredicateCompensation finalPredicateCompensation = compensatePredicates(rewriteContext);
+        // Non-exact DNF branches exceed the guard threshold, so implication falls back conservatively.
         Assertions.assertNull(finalPredicateCompensation);
     }
 
