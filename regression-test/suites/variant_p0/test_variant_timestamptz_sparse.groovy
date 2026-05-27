@@ -22,6 +22,7 @@
 //   instead of the full timestamp.
 suite("test_variant_timestamptz_sparse", "p0"){
     sql " set time_zone = '+08:00' "
+    sql " set default_variant_enable_doc_mode = false "
 
     sql "DROP TABLE IF EXISTS test_variant_timestamptz_sparse_repro"
 
