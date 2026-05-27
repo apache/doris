@@ -46,14 +46,14 @@ namespace doris {
 class Block;
 class VExprContext;
 
-class VRuntimeFilterWrapper final : public VExpr {
-    ENABLE_FACTORY_CREATOR(VRuntimeFilterWrapper);
+class RuntimeFilterExpr final : public VExpr {
+    ENABLE_FACTORY_CREATOR(RuntimeFilterExpr);
 
 public:
-    VRuntimeFilterWrapper(const TExprNode& node, VExprSPtr impl, double ignore_thredhold,
-                          bool null_aware, int filter_id,
-                          int sampling_frequency = RuntimeFilterSelectivity::DISABLE_SAMPLING);
-    ~VRuntimeFilterWrapper() override = default;
+    RuntimeFilterExpr(const TExprNode& node, VExprSPtr impl, double ignore_thredhold,
+                      bool null_aware, int filter_id,
+                      int sampling_frequency = RuntimeFilterSelectivity::DISABLE_SAMPLING);
+    ~RuntimeFilterExpr() override = default;
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
@@ -130,6 +130,6 @@ private:
     int _sampling_frequency;
 };
 
-using VRuntimeFilterPtr = std::shared_ptr<VRuntimeFilterWrapper>;
+using RuntimeFilterExprPtr = std::shared_ptr<RuntimeFilterExpr>;
 
 } // namespace doris

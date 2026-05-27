@@ -150,5 +150,61 @@ suite("test_black_list","nonConcurrent,p0") {
             GetDebugPoint().disableDebugPointForAllBEs(inject)
             sql "stop routine load for ${job}"
         }
+
+        def invalidBrokerTableName = "test_black_list_invalid_broker"
+        def invalidBrokerJob = "test_black_list_invalid_broker_job"
+        sql """ DROP TABLE IF EXISTS ${invalidBrokerTableName} """
+        sql """
+            CREATE TABLE IF NOT EXISTS ${invalidBrokerTableName} (
+                `k1` int(20) NULL,
+                `k2` string NULL,
+                `v1` date  NULL,
+                `v2` string  NULL,
+                `v3` datetime  NULL,
+                `v4` string  NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+        """
+
+        try {
+            sql """
+                CREATE ROUTINE LOAD ${invalidBrokerJob} ON ${invalidBrokerTableName}
+                COLUMNS TERMINATED BY ","
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "127.0.0.1:1",
+                    "kafka_topic" = "${kafkaCsvTpoics[0]}",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+
+            def count = 0
+            while (true) {
+                sleep(1000)
+                def state = sql "show routine load for ${invalidBrokerJob}"
+                def stateChangedReason = state[0][17].toString()
+                def otherMsg = state[0][19].toString()
+                def errorMsg = "${stateChangedReason} ${otherMsg}"
+                log.info("invalid broker routine load state: ${state[0][8].toString()}".toString())
+                log.info("invalid broker reason of state changed: ${stateChangedReason}".toString())
+                log.info("invalid broker other msg: ${otherMsg}".toString())
+                if (errorMsg.contains("Failed to get all partitions of kafka topic")) {
+                    assertTrue(errorMsg.contains("failed to get info"))
+                    assertTrue(errorMsg.contains("failed to get partition meta: Local: Broker transport failure"))
+                    break
+                }
+                if (count >= 90) {
+                    log.error("routine load invalid broker test fail")
+                    assertEquals(1, 2)
+                    break
+                }
+                count++
+            }
+        } finally {
+            try_sql "stop routine load for ${invalidBrokerJob}"
+        }
     }
 }

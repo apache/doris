@@ -63,8 +63,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerWideningConversions) {
         src_data.push_back(std::numeric_limits<int8_t>::max());
         src_data.push_back(std::numeric_limits<int8_t>::min());
 
-        auto dst_col = dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
@@ -96,8 +95,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerWideningConversions) {
         src_data.push_back(std::numeric_limits<int16_t>::max());
         src_data.push_back(std::numeric_limits<int16_t>::min());
 
-        auto dst_col = dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
@@ -130,8 +128,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerNarrowingConversions) {
         src_data.push_back(std::numeric_limits<int16_t>::max());
         src_data.push_back(std::numeric_limits<int16_t>::min());
 
-        auto dst_col = dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
@@ -160,8 +157,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerNarrowingConversions) {
         src_data.push_back(std::numeric_limits<int16_t>::max() + 1);
         src_data.push_back(std::numeric_limits<int16_t>::min() - 1);
 
-        auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(!st.ok());
@@ -189,8 +185,7 @@ TEST_F(ColumnTypeConverterTest, TestFloatingPointConversions) {
         src_data.push_back((1L << 23) - 1);
         src_data.push_back(1L << 23);
         src_data.push_back((1L << 23) + 1);
-        auto dst_nullable_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_nullable_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnFloat32&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
@@ -232,8 +227,7 @@ TEST_F(ColumnTypeConverterTest, TestFloatingPointConversions) {
         src_col->insert_data("invalid", 7);       // Invalid string
         src_col->insert_data("", 0);              // Empty string
 
-        auto dst_nullable_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_nullable_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnFloat32&>(nullable_col.get_nested_column());
@@ -289,8 +283,7 @@ TEST_F(ColumnTypeConverterTest, TestFloatingPointConversions) {
         src_data.push_back(-std::numeric_limits<float>::infinity());
         src_data.push_back(std::numeric_limits<float>::quiet_NaN());
 
-        auto dst_col = dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
@@ -325,8 +318,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         src_data.push_back(Decimal32(12345));  // 123.45
         src_data.push_back(Decimal32(-12345)); // -123.45
 
-        auto dst_col = dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
@@ -354,8 +346,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         src_data.push_back(Decimal32(12345));  // 123.45
         src_data.push_back(Decimal32(-67890)); // -678.90
 
-        auto dst_col = dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
@@ -385,8 +376,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         src_data.push_back(Decimal64(12345678901234));  // Normal value: 1234567890.1234
         src_data.push_back(Decimal64(-98765432109876)); // Negative value: -9876543210.9876
 
-        auto dst_col = dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
 
         // Perform conversion
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
@@ -419,8 +409,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         src_data.push_back(Decimal32(-12345)); // -123.45
         src_data.push_back(Decimal32(23345));  // Too large 233.45
 
-        auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnInt8&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
@@ -458,8 +447,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         src_data.push_back(Decimal128V3(-102345));
         src_data.push_back(Decimal128V3(203345));
 
-        auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnInt8&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
@@ -499,8 +487,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         src_data.push_back(Decimal256(655363345));
         src_data.push_back(Decimal256(3333333333332345));
 
-        auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnInt16&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
@@ -539,8 +526,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         src_data.push_back(-67890); // -678.90 after scaling
         src_data.push_back(0);      // Zero check
 
-        auto dst_col = dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
@@ -569,8 +555,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         src_data.push_back(-67890);
         src_data.push_back(0);
 
-        auto dst_col = dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
@@ -598,8 +583,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         src_data.push_back(-123); // -678.90 after scaling
         src_data.push_back(0);    // Zero check
 
-        auto dst_col = dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
@@ -628,8 +612,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         src_data.push_back(-123); // -678.90 after scaling
         src_data.push_back(0);    // Zero check
 
-        auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& null_map = nullable_col.get_null_map_data();
@@ -667,8 +650,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         src_data.push_back(Decimal64(-999999999));  // Edge case: negative max for Decimal32
         src_data.push_back(Decimal64(-1000000000)); // Out of range (underflow)
 
-        auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& null_map = nullable_col.get_null_map_data();
@@ -698,9 +680,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         src_data.push_back(Decimal64(999999999));  // Edge case: max for Decimal32
         src_data.push_back(Decimal64(-999999999)); // Edge case: negative max for Decimal32
         ASSERT_EQ(3, src_data.size());
-        auto dst_col = nullable_dst_type->create_column();
-        dst_col->resize(0);
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
+        mutable_dst->resize(0);
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnDecimal32&>(nullable_col.get_nested_column());
@@ -743,9 +724,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         src_data.push_back(std::numeric_limits<float>::infinity());  // Infinity
         src_data.push_back(std::numeric_limits<float>::quiet_NaN()); // NaN
 
-        auto dst_col = nullable_dst_type->create_column();
-        dst_col->resize(0);
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
+        mutable_dst->resize(0);
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnDecimal64&>(nullable_col.get_nested_column());
@@ -791,9 +771,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         src_col->insert_data("0.0", 3);            // Zero value
         src_col->insert_data("9999999999.99", 13); // Edge case: max valid value within precision
 
-        auto dst_col = nullable_dst_type->create_column();
-        dst_col->resize(0);
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
+        mutable_dst->resize(0);
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnDecimal64&>(nullable_col.get_nested_column());
@@ -837,8 +816,7 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
         src_data.push_back(std::numeric_limits<int32_t>::min());
         src_data.push_back(0);
 
-        auto dst_col = dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
@@ -869,8 +847,7 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
         src_data.push_back(std::numeric_limits<double>::infinity());
         src_data.push_back(std::numeric_limits<double>::quiet_NaN());
 
-        auto dst_col = dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
@@ -901,8 +878,7 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
         src_col->insert_data("not a number", 11);
         src_col->insert_data("2147483648", 10); // Greater than INT32_MAX
 
-        auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnInt32&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
@@ -935,9 +911,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
         src_data.push_back(Decimal32(-67890)); // -678.90
         src_data.push_back(Decimal32(0));      // Zero
 
-        auto dst_col = dst_type->create_column();
-        dst_col->resize(0);
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
+        mutable_dst->resize(0);
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
@@ -972,9 +947,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
         value.unchecked_set_time(2070, 1, 1, 0, 0, 0);
         src_data.push_back(*reinterpret_cast<UInt32*>(&value)); // "2070-01-01" in days format
 
-        auto dst_col = dst_type->create_column();
-        dst_col->resize(0);
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
+        mutable_dst->resize(0);
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
@@ -1005,8 +979,7 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
         src_data.push_back(1); // true
         src_data.push_back(0); // false
 
-        auto dst_col = dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
@@ -1041,8 +1014,7 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
         src_col->insert_data("1.5", 3);           // Hive: null (not an integer)
         src_col->insert_data("", 0);              // Hive: null
 
-        auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnUInt8&>(
@@ -1090,8 +1062,7 @@ TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
         src_col->insert_data("abc", 3);  // Invalid - should be NULL
         src_col->insert_data("", 0);     // Empty - should be NULL
 
-        auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnInt8&>(nullable_col.get_nested_column());
@@ -1137,8 +1108,7 @@ TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
         src_col->insert_data("-32769", 6); // Underflow - should be NULL
         src_col->insert_data("123.45", 6); // Decimal - should be NULL
 
-        auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnInt16&>(nullable_col.get_nested_column());
@@ -1182,8 +1152,7 @@ TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
         src_col->insert_data("1000000", 7);      // Million
         src_col->insert_data("2147483648", 10);  // Overflow - should be NULL
 
-        auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnInt32&>(nullable_col.get_nested_column());
@@ -1227,8 +1196,7 @@ TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
         src_col->insert_data("9223372036854775808", 19);  // Overflow - should be NULL
         src_col->insert_data("123abc", 6);                // Invalid - should be NULL
 
-        auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnInt64&>(nullable_col.get_nested_column());
@@ -1270,8 +1238,7 @@ TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
         src_col->insert_data("0", 1);                                // Zero
         src_col->insert_data("123e45", 6); // Scientific notation - should be NULL
 
-        auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnInt128&>(nullable_col.get_nested_column());
@@ -1460,8 +1427,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
 
         // 2024-01-01 00:00:00.123456
         auto src_col = make_datetimev2_col({{2024, 1, 1, 0, 0, 0, 123456}});
-        auto dst_col = dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
@@ -1484,8 +1450,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
         // 1970-01-01 00:00:00.000000
         // 3000-01-01 00:00:00.000000
         auto src_col = make_datetimev2_col({{1970, 1, 1, 0, 0, 0, 0}, {3000, 1, 1, 0, 0, 0, 0}});
-        auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& null_map = nullable_col.get_null_map_data();
         null_map.resize_fill(src_col->size(), 0);
@@ -1512,8 +1477,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
 
         // 3000-01-01 00:00:00.000000（会溢出int32）
         auto src_col = make_datetimev2_col({{3000, 1, 1, 0, 0, 0, 0}});
-        auto dst_col = dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_FALSE(st.ok());
@@ -1545,8 +1509,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
         src_col->get_data().push_back(parse_datetimev2_str("2022-05-01 13:00:00"));
         src_col->get_data().push_back(parse_datetimev2_str("2022-05-01 14:00:00"));
 
-        auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = nullable_dst_type->create_column();
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& null_map = nullable_col.get_null_map_data();
         null_map.resize_fill(src_col->size(), 0);
@@ -1606,7 +1569,7 @@ TEST_F(ColumnTypeConverterTest, TestStringToDateLikeConversions) {
         src_col->insert_data("bad-date", 8);
 
         auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_col->assert_mutable();
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnDate&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
@@ -1634,7 +1597,7 @@ TEST_F(ColumnTypeConverterTest, TestStringToDateLikeConversions) {
         src_col->insert_data("bad-datev2", 10);
 
         auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_col->assert_mutable();
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnDateV2&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
@@ -1660,7 +1623,7 @@ TEST_F(ColumnTypeConverterTest, TestStringToDateLikeConversions) {
         src_col->insert_data("bad-datetime", 12);
 
         auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_col->assert_mutable();
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnDateTime&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
@@ -1688,7 +1651,7 @@ TEST_F(ColumnTypeConverterTest, TestStringToDateLikeConversions) {
         src_col->insert_data("bad-datetimev2", 14);
 
         auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_col->assert_mutable();
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnDateTimeV2&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
@@ -1715,10 +1678,9 @@ TEST_F(ColumnTypeConverterTest, TestEmptyColumnConversions) {
         ASSERT_FALSE(converter->is_consistent());
 
         auto src_col = ColumnInt32::create(); // Empty column (no data)
-        auto dst_col = dst_type->create_column();
-        auto mutable_dst = dst_col->assume_mutable();
+        auto mutable_dst = dst_type->create_column();
         src_col->resize(0);
-        dst_col->resize(0);
+        mutable_dst->resize(0);
         // Perform conversion
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());

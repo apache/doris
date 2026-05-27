@@ -276,7 +276,7 @@ TimeSharingTaskExecutor::~TimeSharingTaskExecutor() {
         }
         {
             std::unique_lock<std::mutex> l(_lock);
-            _tokenless->_entries->remove_all(splits_to_destroy);
+            _remove_queued_splits_unlocked(splits_to_destroy);
         }
     }
 
@@ -421,7 +421,7 @@ Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunne
     DCHECK(state == SplitThreadPoolToken::State::IDLE ||
            state == SplitThreadPoolToken::State::RUNNING);
     split->submit_time_watch().start();
-    _tokenless->_entries->offer(std::move(split));
+    _offer_split_unlocked(std::move(split));
     if (state == SplitThreadPoolToken::State::IDLE) {
         _tokenless->transition(SplitThreadPoolToken::State::RUNNING);
     }
@@ -433,8 +433,6 @@ Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunne
     //    1. If it is a SERIAL token, and there are unsubmitted tasks, submit them to the queue.
     //    2. If it is a CONCURRENT token, and there are still unsubmitted tasks, and the upper limit of concurrency is not reached,
     //       then submitted to the queue.
-    _total_queued_tasks++;
-
     // Wake up an idle thread for this task. Choosing the thread at the front of
     // the list ensures LIFO semantics as idling threads are also added to the front.
     //
@@ -570,7 +568,8 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
                         lock.unlock();
                         l.lock();
                         if (_tokenless->state() == SplitThreadPoolToken::State::RUNNING) {
-                            _tokenless->_entries->offer(split);
+                            split->submit_time_watch().reset();
+                            _offer_split_unlocked(split);
                         }
                         l.unlock();
                     } else {
@@ -586,7 +585,8 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
                                 split->reset_level_priority();
                                 std::unique_lock<std::mutex> l(_lock);
                                 if (_tokenless->state() == SplitThreadPoolToken::State::RUNNING) {
-                                    _tokenless->_entries->offer(split);
+                                    split->submit_time_watch().reset();
+                                    _offer_split_unlocked(split);
                                 }
                             } else {
                                 LOG(WARNING) << "blocked split is failed, split_id: "
@@ -770,7 +770,7 @@ Status TimeSharingTaskExecutor::remove_task(std::shared_ptr<TaskHandle> task_han
         }
         {
             std::unique_lock<std::mutex> l(_lock);
-            _tokenless->_entries->remove_all(splits_to_destroy);
+            _remove_queued_splits_unlocked(splits_to_destroy);
         }
     }
 
@@ -844,6 +844,36 @@ Status TimeSharingTaskExecutor::re_enqueue_split(std::shared_ptr<TaskHandle> tas
             handle->get_split(split, intermediate);
     prioritized_split->reset_level_priority();
     return _do_submit(prioritized_split);
+}
+
+void TimeSharingTaskExecutor::_offer_split_unlocked(std::shared_ptr<PrioritizedSplitRunner> split) {
+    _tokenless->_entries->offer(std::move(split));
+    ++_total_queued_tasks;
+}
+
+void TimeSharingTaskExecutor::_remove_queued_splits_unlocked(
+        const std::vector<std::shared_ptr<PrioritizedSplitRunner>>& splits) {
+    if (splits.empty()) {
+        return;
+    }
+
+    const size_t queue_size_before = _tokenless->_entries->size();
+    _tokenless->_entries->remove_all(splits);
+    const size_t queue_size_after = _tokenless->_entries->size();
+    DCHECK_GE(queue_size_before, queue_size_after);
+
+    const auto removed = static_cast<int>(queue_size_before - queue_size_after);
+    DCHECK_GE(_total_queued_tasks, removed);
+    _total_queued_tasks -= removed;
+
+    if (_tokenless->state() == SplitThreadPoolToken::State::RUNNING &&
+        _tokenless->_active_threads == 0 && _tokenless->_entries->size() == 0) {
+        _tokenless->transition(SplitThreadPoolToken::State::IDLE);
+    }
+
+    if (_total_queued_tasks == 0 && _active_threads == 0) {
+        _idle_cond.notify_all();
+    }
 }
 
 void TimeSharingTaskExecutor::_split_finished(std::shared_ptr<PrioritizedSplitRunner> split,

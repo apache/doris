@@ -195,7 +195,7 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                 // first row is mocked
                 for (int i = 0; i < block.columns(); i++) {
                     auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-                    assert_cast<ColumnNullable*>(column->assume_mutable().get())
+                    assert_cast<ColumnNullable*>(column->assert_mutable().get())
                             ->get_null_map_column()
                             .get_data()
                             .data()[0] = 1;
@@ -576,7 +576,9 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
     for (auto& data : block) {
         data.column = std::move(*data.column).mutate()->convert_column_if_overflow();
         if (p._need_finalize_variant_column) {
-            std::move(*data.column).mutate()->finalize();
+            auto mutable_column = IColumn::mutate(std::move(data.column));
+            mutable_column->finalize();
+            data.column = std::move(mutable_column);
         }
     }
 
@@ -588,7 +590,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
         // first row is mocked
         for (int i = 0; i < block.columns(); i++) {
             auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-            assert_cast<ColumnNullable*>(column->assume_mutable().get())
+            assert_cast<ColumnNullable*>(column->assert_mutable().get())
                     ->get_null_map_column()
                     .get_data()
                     .data()[0] = 1;
@@ -700,6 +702,11 @@ HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int ope
 Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX::init(tnode, state));
     DCHECK(tnode.__isset.hash_join_node);
+    if (_is_mark_join && _join_op == TJoinOp::RIGHT_ANTI_JOIN) {
+        return Status::InternalError(
+                "Hash join does not support right anti mark join, query={}, node={}, join_op={}",
+                print_id(state->query_id()), node_id(), to_string(_join_op));
+    }
 
     if (tnode.hash_join_node.__isset.hash_output_slot_ids) {
         _hash_output_slot_ids = tnode.hash_join_node.hash_output_slot_ids;
@@ -825,7 +832,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, Block* in_block, bo
                                                      *local_state._build_expr_call_timer,
                                                      local_state._build_col_ids));
             local_state._build_side_mutable_block =
-                    MutableBlock::build_mutable_block(&tmp_build_block);
+                    MutableBlock::build_mutable_block(std::move(tmp_build_block));
         }
 
         if (!in_block->empty()) {

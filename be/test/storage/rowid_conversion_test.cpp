@@ -192,7 +192,7 @@ protected:
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rowset_data[i].size(); ++rid) {
                 int32_t c1 = std::get<0>(rowset_data[i][rid]);
                 int32_t c2 = std::get<1>(rowset_data[i][rid]);
@@ -205,6 +205,7 @@ protected:
                 }
                 num_rows++;
             }
+            block.set_columns(std::move(columns));
             auto s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();

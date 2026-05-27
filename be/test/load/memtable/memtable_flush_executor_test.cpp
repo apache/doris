@@ -253,13 +253,16 @@ protected:
             block.insert(ColumnWithTypeAndName(slot->get_empty_mutable_column(), slot->type(),
                                                slot->col_name()));
         }
-        auto cols = block.mutate_columns();
-        int8_t k1 = -127;
-        int16_t k2 = -32767;
-        int32_t k3 = -2147483647;
-        cols[0]->insert_data((const char*)&k1, sizeof(k1));
-        cols[1]->insert_data((const char*)&k2, sizeof(k2));
-        cols[2]->insert_data((const char*)&k3, sizeof(k3));
+        {
+            auto cols_guard = block.mutate_columns_scoped();
+            auto& cols = cols_guard.mutable_columns();
+            int8_t k1 = -127;
+            int16_t k2 = -32767;
+            int32_t k3 = -2147483647;
+            cols[0]->insert_data((const char*)&k1, sizeof(k1));
+            cols[1]->insert_data((const char*)&k2, sizeof(k2));
+            cols[2]->insert_data((const char*)&k3, sizeof(k3));
+        }
         ASSERT_TRUE(ctx->memtable->insert(&block, {0}).ok());
     }
 

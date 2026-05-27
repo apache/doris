@@ -103,7 +103,7 @@ class ColumnConst final : public COWHelper<IColumn, ColumnConst> {
 private:
     friend class COWHelper<IColumn, ColumnConst>;
     using Self = ColumnConst;
-    WrappedPtr data;
+    IColumn::WrappedPtr data;
     size_t s;
 
     ColumnConst(const ColumnPtr& data, size_t s_, bool create_with_empty = false,
@@ -240,7 +240,8 @@ public:
     bool has_enough_capacity(const IColumn& src) const override { return true; }
 
     int compare_at(size_t, size_t, const IColumn& rhs, int nan_direction_hint) const override {
-        auto rhs_const_column = assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(rhs);
+        const auto& rhs_const_column =
+                assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(rhs);
 
         const auto* this_nullable = check_and_get_column<ColumnNullable>(data.get());
         const auto* rhs_nullable =
@@ -321,7 +322,11 @@ public:
 
     size_t deserialize_impl(const char* pos) override {
         ++s;
-        return data->deserialize_impl(pos);
+        ColumnPtr owned = std::move(static_cast<ColumnPtr&>(data));
+        auto mutable_data = IColumn::mutate(std::move(owned));
+        size_t ret = mutable_data->deserialize_impl(pos);
+        data = std::move(mutable_data);
+        return ret;
     }
 
     void replace_float_special_values() override;

@@ -72,6 +72,10 @@ public:
                                int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
+    // Override needed: paired reader skips a scale byte; the inherited number-serde writer omits it.
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
+                                  int64_t row_num) const override;
+
     std::string to_olap_string(const Field& field) const override;
 
 protected:

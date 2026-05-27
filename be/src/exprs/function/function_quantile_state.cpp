@@ -91,8 +91,7 @@ public:
         const NullMap* nullmap = nullptr;
         if constexpr (is_nullable) {
             col_nullable = assert_cast<const ColumnNullable*>(column.get());
-            col_nullmap =
-                    assert_cast<const ColumnUInt8*>(col_nullable->get_null_map_column_ptr().get());
+            col_nullmap = col_nullable->get_null_map_column_ptr().get();
             col = assert_cast<const ColumnFloat64*>(col_nullable->get_nested_column_ptr().get());
 
             nullmap = &col_nullmap->get_data();
