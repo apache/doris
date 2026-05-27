@@ -575,6 +575,87 @@ Status DataTypeStructSerDe::_from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeStructSerDe::from_fe_string(const std::string& str, Field& field) const {
+    StringRef slice(str);
+    slice = slice.trim_whitespace();
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
+    if (slice.front() != '{') {
+        std::stringstream ss;
+        ss << slice.front() << '\'';
+        return Status::InvalidArgument("Struct does not start with '{' character, found '" +
+                                       ss.str());
+    }
+    if (slice.back() != '}') {
+        std::stringstream ss;
+        ss << slice.back() << '\'';
+        return Status::InvalidArgument("Struct does not end with '}' character, found '" +
+                                       ss.str());
+    }
+
+    Struct struct_field;
+    if (slice.size > 2) {
+        slice = slice.substring(1, slice.size - 2);
+        slice = slice.trim_whitespace();
+        if (!slice.empty()) {
+            FormatOptions options;
+            auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(slice, [&](char c) {
+                return c == options.map_key_delim || c == options.collection_delim;
+            });
+
+            const auto elem_size = elem_serdes_ptrs.size();
+            std::vector<StringRef> field_values;
+            field_values.reserve(elem_size);
+            if (split_result.size() == elem_size) {
+                for (int i = 0; i < split_result.size(); i++) {
+                    if (i != split_result.size() - 1 &&
+                        split_result[i].delimiter != options.collection_delim) {
+                        return Status::InvalidArgument(
+                                "Struct field value {} is not separated by collection_delim.", i);
+                    }
+                    field_values.push_back(split_result[i].element);
+                }
+            } else if (split_result.size() == 2 * elem_size) {
+                int field_pos = 0;
+                for (int i = 0; i < split_result.size(); i += 2) {
+                    if (split_result[i].delimiter != options.map_key_delim) {
+                        return Status::InvalidArgument(
+                                "Struct name-value pair does not have map key delimiter");
+                    }
+                    if (i != 0 && split_result[i - 1].delimiter != options.collection_delim) {
+                        return Status::InvalidArgument(
+                                "Struct name-value pair does not have collection delimiter");
+                    }
+                    auto field_name = split_result[i].element.trim_quote();
+                    if (!field_name.eq(StringRef(elem_names[field_pos]))) {
+                        return Status::InvalidArgument(
+                                "Cannot find struct field name {} in schema.",
+                                split_result[i].element.to_string());
+                    }
+                    field_values.push_back(split_result[i + 1].element);
+                    field_pos++;
+                }
+            } else {
+                return Status::InvalidArgument(
+                        "Struct field number {} is not equal to schema field number {}.",
+                        split_result.size(), elem_size);
+            }
+
+            struct_field.reserve(elem_size);
+            for (int field_pos = 0; field_pos < elem_size; ++field_pos) {
+                Field elem_field;
+                RETURN_IF_ERROR(ComplexTypeDeserializeUtil::process_field(
+                        elem_serdes_ptrs[field_pos], field_values[field_pos], elem_field));
+                struct_field.push_back(std::move(elem_field));
+            }
+        }
+    }
+
+    field = Field::create_field<TYPE_STRUCT>(std::move(struct_field));
+    return Status::OK();
+}
+
 Status DataTypeStructSerDe::from_string(StringRef& str, IColumn& column,
                                         const FormatOptions& options) const {
     return _from_string<false>(str, column, options);

@@ -558,6 +558,68 @@ Status DataTypeMapSerDe::_from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeMapSerDe::from_fe_string(const std::string& str, Field& field) const {
+    StringRef slice(str);
+    slice = slice.trim_whitespace();
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
+    if (slice.front() != '{') {
+        std::stringstream ss;
+        ss << slice.front() << '\'';
+        return Status::InvalidArgument("Map does not start with '{' character, found '" + ss.str());
+    }
+    if (slice.back() != '}') {
+        std::stringstream ss;
+        ss << slice.back() << '\'';
+        return Status::InvalidArgument("Map does not end with '}' character, found '" + ss.str());
+    }
+
+    Array keys;
+    Array values;
+    if (slice.size > 2) {
+        slice = slice.substring(1, slice.size - 2);
+        slice = slice.trim_whitespace();
+        if (!slice.empty()) {
+            FormatOptions options;
+            auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(slice, [&](char c) {
+                return c == options.map_key_delim || c == options.collection_delim;
+            });
+            if (split_result.size() % 2 != 0) {
+                return Status::InvalidArgument("Map does not have even number of key-value pairs");
+            }
+            keys.reserve(split_result.size() / 2);
+            values.reserve(split_result.size() / 2);
+            for (int i = 0; i < split_result.size(); i += 2) {
+                if (split_result[i].delimiter != options.map_key_delim) {
+                    return Status::InvalidArgument(
+                            "Map key-value pair does not have map key delimiter");
+                }
+                if (i != 0 && split_result[i - 1].delimiter != options.collection_delim) {
+                    return Status::InvalidArgument(
+                            "Map key-value pair does not have collection delimiter");
+                }
+
+                Field key_field;
+                Field value_field;
+                RETURN_IF_ERROR(ComplexTypeDeserializeUtil::process_field(
+                        key_serde, split_result[i].element, key_field));
+                RETURN_IF_ERROR(ComplexTypeDeserializeUtil::process_field(
+                        value_serde, split_result[i + 1].element, value_field));
+                keys.push_back(std::move(key_field));
+                values.push_back(std::move(value_field));
+            }
+        }
+    }
+
+    Map map;
+    map.reserve(2);
+    map.push_back(Field::create_field<TYPE_ARRAY>(std::move(keys)));
+    map.push_back(Field::create_field<TYPE_ARRAY>(std::move(values)));
+    field = Field::create_field<TYPE_MAP>(std::move(map));
+    return Status::OK();
+}
+
 Status DataTypeMapSerDe::from_string(StringRef& str, IColumn& column,
                                      const FormatOptions& options) const {
     return _from_string<false>(str, column, options);

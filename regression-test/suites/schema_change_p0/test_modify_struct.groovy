@@ -305,10 +305,10 @@ suite ("test_modify_struct") {
             String[][] descRes = sql """ desc ${table_name} """
             logger.info(descRes[2][2])
             assertEquals(descRes[2][2].toString().toLowerCase(), "no")
-            // sc do not support new struct type with not null.
-            def changeNotNullErr = "Struct type column default value just support null"
+            // Invalid struct default value is rejected.
+            def changeNotNullErr = "Struct type column default value only supports struct literals or DEFAULT NULL"
             expectExceptionLike({
-                sql """ alter table ${table_name} add column c_s_not_null1 struct<col:varchar(30),col1:int,col2:decimal(10,2)> NOT NULL default '{}'"""
+                sql """ alter table ${table_name} add column c_s_not_null1 struct<col:varchar(30),col1:int,col2:decimal(10,2)> NOT NULL default 'x'"""
                 waitUntilSchemaChangeDone.call(table_name, "")
             }, changeNotNullErr)
 

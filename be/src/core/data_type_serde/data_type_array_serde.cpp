@@ -445,6 +445,42 @@ Status DataTypeArraySerDe::_from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeArraySerDe::from_fe_string(const std::string& str, Field& field) const {
+    StringRef slice(str);
+    slice = slice.trim_whitespace();
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
+    if (slice.front() != '[') {
+        return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
+                                       slice.to_string());
+    }
+    if (slice.back() != ']') {
+        return Status::InvalidArgument("Array does not end with ']' character, found '{}'",
+                                       slice.to_string());
+    }
+
+    Array array;
+    if (slice.size > 2) {
+        slice = slice.substring(1, slice.size - 2);
+        slice = slice.trim_whitespace();
+        if (!slice.empty()) {
+            FormatOptions options;
+            auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(
+                    slice, [&](char c) { return c == options.collection_delim; });
+            array.reserve(split_result.size());
+            for (auto& item : split_result) {
+                Field item_field;
+                RETURN_IF_ERROR(ComplexTypeDeserializeUtil::process_field(
+                        nested_serde, item.element, item_field));
+                array.push_back(std::move(item_field));
+            }
+        }
+    }
+    field = Field::create_field<TYPE_ARRAY>(std::move(array));
+    return Status::OK();
+}
+
 Status DataTypeArraySerDe::from_string(StringRef& str, IColumn& column,
                                        const FormatOptions& options) const {
     return _from_string<false>(str, column, options);
