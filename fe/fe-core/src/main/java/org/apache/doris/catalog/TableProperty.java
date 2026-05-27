@@ -195,27 +195,21 @@ public class TableProperty implements GsonPostProcessable {
      */
     public TableProperty resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, boolean reserveReplica,
                                                    ReplicaAllocation replicaAlloc) {
+        if (Config.isCloudMode()) {
+            // In cloud mode, rewrite all properties that are not supported or need to be forced.
+            // This handles: replication_num, replication_allocation, dynamic_partition.replication_num,
+            // dynamic_partition.replication_allocation, storage_policy, storage_medium, in_memory, etc.
+            PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
+        }
         // disable dynamic partition
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
             if (!reserveDynamicPartitionEnable) {
                 properties.put(DynamicPartitionProperty.ENABLE, "false");
             }
+            executeBuildDynamicProperty();
         }
         if (!reserveReplica) {
             setReplicaAlloc(replicaAlloc);
-        }
-        if (Config.isCloudMode()) {
-            // In cloud mode, remove all unsupported dynamic partition properties from the source
-            // cluster. These properties (e.g., replication_num, replication_allocation, storage_policy)
-            // are not applicable in cloud mode. If kept, they would cause dynamic partition scheduler
-            // to create new partitions with incorrect settings, leading to write failures like:
-            // "alive replica num < 1 load required replica num 2".
-            properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
-            properties.remove(DynamicPartitionProperty.REPLICATION_ALLOCATION);
-            properties.remove(DynamicPartitionProperty.STORAGE_POLICY);
-            executeBuildDynamicProperty();
-        } else if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
-            executeBuildDynamicProperty();
         }
         // reset storage vault
         clearStorageVault();

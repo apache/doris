@@ -427,15 +427,33 @@ public class PartitionInfo {
         idToStoragePolicy = Maps.newHashMap();
 
         for (Map.Entry<Long, Long> entry : partitionIdMap.entrySet()) {
-            idToDataProperty.put(entry.getKey(), origIdToDataProperty.get(entry.getValue()));
-            idToReplicaAllocation.put(entry.getKey(),
-                    restoreReplicaAlloc == null ? origIdToReplicaAllocation.get(entry.getValue())
+            long newPartId = entry.getKey();
+            long origPartId = entry.getValue();
+
+            if (Config.isCloudMode()) {
+                // In cloud mode, storage_medium, cooldown_time, and storage_policy are not applicable.
+                // Reset DataProperty to default and clear storage policy to avoid carrying over
+                // source cluster's storage settings that have no meaning in cloud mode.
+                DataProperty origDataProperty = origIdToDataProperty.get(origPartId);
+                idToDataProperty.put(newPartId, new DataProperty(
+                        DataProperty.DEFAULT_STORAGE_MEDIUM,
+                        DataProperty.MAX_COOLDOWN_TIME_MS,
+                        "",
+                        origDataProperty != null ? origDataProperty.isMutable() : true));
+                idToStoragePolicy.put(newPartId, "");
+                idToInMemory.put(newPartId, false);
+            } else {
+                idToDataProperty.put(newPartId, origIdToDataProperty.get(origPartId));
+                idToStoragePolicy.put(newPartId, origIdToStoragePolicy.getOrDefault(origPartId, ""));
+                idToInMemory.put(newPartId, origIdToInMemory.get(origPartId));
+            }
+
+            idToReplicaAllocation.put(newPartId,
+                    restoreReplicaAlloc == null ? origIdToReplicaAllocation.get(origPartId)
                             : restoreReplicaAlloc);
             if (!isSinglePartitioned) {
-                idToItem.put(entry.getKey(), origIdToItem.get(entry.getValue()));
+                idToItem.put(newPartId, origIdToItem.get(origPartId));
             }
-            idToInMemory.put(entry.getKey(), origIdToInMemory.get(entry.getValue()));
-            idToStoragePolicy.put(entry.getKey(), origIdToStoragePolicy.getOrDefault(entry.getValue(), ""));
         }
     }
 
