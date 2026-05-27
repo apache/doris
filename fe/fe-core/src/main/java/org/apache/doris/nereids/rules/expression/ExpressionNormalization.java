@@ -30,6 +30,7 @@ import org.apache.doris.nereids.rules.expression.rules.MedianConvert;
 import org.apache.doris.nereids.rules.expression.rules.MergeDateTrunc;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeStructElement;
+import org.apache.doris.nereids.rules.expression.rules.PercentileApproxConvert;
 import org.apache.doris.nereids.rules.expression.rules.RewriteDefaultExpression;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticComparisonRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticRule;
@@ -71,6 +72,7 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 SimplifyCastRule.INSTANCE,
                 DigitalMaskingConvert.INSTANCE,
                 MedianConvert.INSTANCE,
+                PercentileApproxConvert.INSTANCE,
                 SimplifyArithmeticComparisonRule.INSTANCE,
                 ConvertAggStateCast.INSTANCE,
                 MergeDateTrunc.INSTANCE,

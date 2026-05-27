@@ -490,6 +490,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String TOPN_FILTER_RATIO = "topn_filter_ratio";
     public static final String ENABLE_SNAPSHOT_POINT_QUERY = "enable_snapshot_point_query";
 
+    public static final String PERCENTILE_APPROX_DEFAULT_COMPRESSION = "percentile_approx_default_compression";
+
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
 
     public static final String DISABLE_FILE_CACHE = "disable_file_cache";
@@ -2256,7 +2258,6 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableSnapshotPointQuery = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_SERVER_SIDE_PREPARED_STATEMENT, needForward = true, description = {
-            "是否启用开启服务端 prepared statement", "Set whether to enable server side prepared statement."})
     public boolean enableServeSidePreparedStatement = true;
 
     @VarAttrDef.VarAttr(name = MAX_PREPARED_STMT_COUNT,  flag = VarAttrDef.GLOBAL,
@@ -3738,6 +3739,13 @@ public class SessionVariable implements Serializable, Writable {
                     "Enable merge partitioning for Iceberg UPDATE/DELETE (INSERT by partition columns, "
                             + "DELETE by row_id)."})
     public boolean enableIcebergMergePartitioning = true;
+
+    @VarAttrDef.VarAttr(name = PERCENTILE_APPROX_DEFAULT_COMPRESSION,
+        description = {"percentile_approx 函数默认的 compression 参数值，范围为 [1000, 10000]；默认 -1 表示不自动补参",
+                    "Default compression value for percentile_approx function, ranging in [1000, 10000]. "
+                        + "Default -1 means do not auto-append; only takes effect when value > 0."})
+    public int percentileApproxDefaultCompression = -1;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
 
