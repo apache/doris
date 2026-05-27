@@ -204,6 +204,48 @@ TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatch) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, ProjectedColumnsRejectSameNameDifferentIdParquetSchemaMismatch) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_same_name_diff_id_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_parquet_file(file_path, 1, "one");
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(
+            {.id = 99, .name = "id", .type = std::make_shared<DataTypeInt32>()});
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader
+                        .init({
+                                .projected_columns = projected_columns,
+                                .conjuncts = VExprContext(nullptr),
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                        })
+                        .ok());
+
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    // The table column has the same name as the Parquet field, but a different field id.
+    // TableReader configures ColumnMapper in BY_FIELD_ID mode, so the name match must not hide
+    // the id mismatch.
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("does not have a matching file column"), std::string::npos);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismatch) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_mapper_expr_test";
