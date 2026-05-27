@@ -111,6 +111,9 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
                 }
             } else if (newQualifier.isEmpty()) {
                 newQualifier.addAll(qualifier);
+            } else {
+                newQualifier.clear();
+                newQualifier.addAll(qualifier);
             }
 
             // Subquery alias outputs are synthetic slots. They should keep the aliased

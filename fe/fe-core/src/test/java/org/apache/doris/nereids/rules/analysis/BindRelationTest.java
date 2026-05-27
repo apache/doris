@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -149,6 +150,72 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
 
         // Qualifier should be catalog.db.table
         Assertions.assertEquals(ImmutableList.of("hms_ctl", "hms_db", "hms_view1"), alias.getQualifier());
+    }
+
+    // Computed column in Hive view: UPPER(t.k1) AS upper_k1
+    // When the inner query uses a short table alias "t", the view's fully-qualified
+    // qualifier ["hms_ctl2", "hms_db", "hms_view_computed"] must replace the short
+    // alias qualifier on the output slot. This is the exact scenario from the
+    // qualifier replacement bug.
+    @Test
+    void bindHiveViewWithComputedColumns() throws Exception {
+        Config.enable_query_hive_views = true;
+
+        BDPAuthContext authContext = new BDPAuthContext("erp", "source", "bdp_user", "token", true);
+        connectContext.setBdpAuthContext(authContext);
+        authContext.setThreadLocalInfo();
+
+        String createStmt = "create catalog hms_ctl2 properties("
+                + "'type' = 'hms', "
+                + "'hive.metastore.uris' = 'thrift://192.168.0.1:9083'"
+                + ");";
+        createCatalog(createStmt);
+
+        HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) Env.getCurrentEnv()
+                .getCatalogMgr().getCatalog("hms_ctl2");
+        hmsCatalog.setInitializedForTest(true);
+
+        HMSExternalDatabase hmsDb = new HMSExternalDatabase(hmsCatalog, 20000L, "hms_db", "hms_db");
+        hmsCatalog.addDatabaseForTest(hmsDb);
+
+        java.util.List<Column> computedSchema = new ArrayList<>();
+        computedSchema.add(new Column("upper_k1", PrimitiveType.VARCHAR));
+        computedSchema.add(new Column("col2", PrimitiveType.INT));
+
+        HMSExternalTable viewMock = Mockito.mock(HMSExternalTable.class);
+        Mockito.when(viewMock.getId()).thenReturn(20002L);
+        // IMPORTANT: use suffixed local name compatible with HMSExternalDatabase.getTableNullable()
+        Mockito.when(viewMock.getName()).thenReturn("hms_view_computed$bdp_user$true");
+        Mockito.when(viewMock.getDbName()).thenReturn("hms_db");
+        Mockito.when(viewMock.isView()).thenReturn(true);
+        Mockito.when(viewMock.getCatalog()).thenReturn(hmsCatalog);
+        Mockito.when(viewMock.getType()).thenReturn(TableIf.TableType.HMS_EXTERNAL_TABLE);
+        Mockito.when(viewMock.getFullSchema()).thenReturn(computedSchema);
+        Mockito.when(viewMock.getViewText()).thenReturn(
+                "SELECT 'hello' AS upper_k1, 42 AS col2");
+        Mockito.when(viewMock.isSupportedHmsTable()).thenReturn(true);
+        Mockito.when(viewMock.getDatabase()).thenReturn(hmsDb);
+        Mockito.when(viewMock.getNewestUpdateVersionOrTime()).thenReturn(System.currentTimeMillis());
+
+        hmsDb.addTableForTest(viewMock);
+
+        Plan plan = PlanRewriter.bottomUpRewrite(
+                new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
+                        ImmutableList.of("hms_ctl2", "hms_db", "hms_view_computed")),
+                connectContext, new BindRelation());
+
+        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, plan);
+        LogicalSubQueryAlias<?> alias = (LogicalSubQueryAlias<?>) plan;
+
+        ImmutableList<String> expectedQualifier =
+                ImmutableList.of("hms_ctl2", "hms_db", "hms_view_computed");
+        Assertions.assertEquals(expectedQualifier, alias.getQualifier());
+
+        for (Slot slot : alias.computeOutput()) {
+            Assertions.assertEquals(expectedQualifier, slot.getQualifier(),
+                    "Slot '" + slot.getName() + "' should have view qualifier " + expectedQualifier
+                            + " but has " + slot.getQualifier());
+        }
     }
 
     @Test
