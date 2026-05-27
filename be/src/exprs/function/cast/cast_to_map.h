@@ -21,15 +21,53 @@
 #include "exprs/function/cast/cast_base.h"
 
 namespace doris::CastWrapper {
+
+inline Status deduplicate_map_keys_in_result(Block& block, uint32_t result) {
+    auto result_column_name = block.get_by_position(result).column->get_name();
+    auto mutable_result_column = IColumn::mutate(std::move(block.get_by_position(result).column));
+
+    if (auto* nullable_column = check_and_get_column<ColumnNullable>(*mutable_result_column)) {
+        auto nested_column = IColumn::mutate(nullable_column->get_nested_column_ptr());
+        auto* map_column = check_and_get_column<ColumnMap>(*nested_column);
+        if (!map_column) {
+            return Status::RuntimeError("Illegal column {} for function CAST AS MAP",
+                                        result_column_name);
+        }
+
+        RETURN_IF_ERROR(map_column->deduplicate_keys());
+        ColumnPtr nested_column_ptr = std::move(nested_column);
+        nullable_column->change_nested_column(nested_column_ptr);
+    } else {
+        auto* map_column = check_and_get_column<ColumnMap>(*mutable_result_column);
+        if (!map_column) {
+            return Status::RuntimeError("Illegal column {} for function CAST AS MAP",
+                                        result_column_name);
+        }
+
+        RETURN_IF_ERROR(map_column->deduplicate_keys());
+    }
+
+    block.get_by_position(result).column = std::move(mutable_result_column);
+    return Status::OK();
+}
+
+inline WrapperType wrap_string_to_map_wrapper(WrapperType wrapper) {
+    return [wrapper = std::move(wrapper)](FunctionContext* context, Block& block,
+                                          const ColumnNumbers& arguments, uint32_t result,
+                                          size_t input_rows_count,
+                                          const NullMap::value_type* null_map = nullptr) {
+        RETURN_IF_ERROR(wrapper(context, block, arguments, result, input_rows_count, null_map));
+        return deduplicate_map_keys_in_result(block, result);
+    };
+}
+
 //TODO(Amory) . Need support more cast for key , value for map
 WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from_type,
                                const DataTypeMap& to_type) {
     if (is_string_type(from_type->get_primitive_type())) {
-        if (context->enable_strict_mode()) {
-            return cast_from_string_to_complex_type_strict_mode;
-        } else {
-            return cast_from_string_to_complex_type;
-        }
+        auto wrapper = context->enable_strict_mode() ? cast_from_string_to_complex_type_strict_mode
+                                                     : cast_from_string_to_complex_type;
+        return wrap_string_to_map_wrapper(wrapper);
     }
     const auto* from = check_and_get_data_type<DataTypeMap>(from_type.get());
     if (!from) {

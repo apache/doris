@@ -159,6 +159,12 @@ suite("map-md", "p0") {
 
     qt_sql """ SELECT CAST('{"key1":1,"key2":2}' AS MAP<STRING, INT>) """
 
+    qt_sql """ SELECT CAST('{"a":1,"a":2}' AS MAP<STRING, INT>) """
+
+    qt_sql """ SELECT size(CAST('{"a":1,"a":2}' AS MAP<STRING, INT>)) """
+
+    qt_sql """ SELECT element_at(CAST('{"a":1,"a":2}' AS MAP<STRING, INT>), 'a') """
+
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
