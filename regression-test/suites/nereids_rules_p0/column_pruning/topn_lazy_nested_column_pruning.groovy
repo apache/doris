@@ -133,4 +133,149 @@ suite("topn_lazy_nested_column_pruning") {
         order by id
         limit 3
     """
+
+    // =============================================
+    // Test 6: MAP subscript - lazy mat + nested column pruning
+    // =============================================
+    explain {
+        sql """
+            select id, element_at(map_col, 'a') as val
+            from ncp_tbl
+            order by id
+            limit 3
+        """
+        contains("VMaterializeNode")
+        // map_col lazy, scan only outputs id + rowId
+        contains("final projections: id[#0], __DORIS_GLOBAL_ROWID_COL__ncp_tbl[#6]")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__ncp_tbl]")
+    }
+
+    // =============================================
+    // Test 7: MAP subscript - verify actual query results
+    // =============================================
+    qt_map_result """
+        select id, element_at(map_col, 'a') as val
+        from ncp_tbl
+        order by id
+        limit 3
+    """
+
+    // =============================================
+    // Test 8: ARRAY subscript - lazy mat + nested column pruning
+    // =============================================
+    explain {
+        sql """
+            select id, element_at(arr_col, 1) as val
+            from ncp_tbl
+            order by id
+            limit 3
+        """
+        contains("VMaterializeNode")
+        // arr_col lazy, scan only outputs id + rowId
+        contains("final projections: id[#0], __DORIS_GLOBAL_ROWID_COL__ncp_tbl[#6]")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__ncp_tbl]")
+    }
+
+    // =============================================
+    // Test 9: ARRAY subscript - verify actual query results
+    // =============================================
+    qt_array_result """
+        select id, element_at(arr_col, 1) as val
+        from ncp_tbl
+        order by id
+        limit 3
+    """
+
+    // =============================================
+    // Test 10: Multi-level VARIANT nested - insert nested data
+    // =============================================
+    sql """
+        INSERT INTO vt VALUES
+            (4, 'ddd', '{"address": {"city": "上海", "zip": "200000"}}'),
+            (5, 'eee', '{"address": {"city": "北京", "zip": "100000"}}')
+    """
+
+    // =============================================
+    // Test 11: Multi-level VARIANT nested - explain
+    //   Access payload['address']['city'] via two levels:
+    //   inner payload['address'] → variant with subColPath [address]
+    //   outer element_at(..., 'city') → final value
+    // =============================================
+    explain {
+        sql """
+            select id, element_at(payload['address'], 'city') as city
+            from vt
+            where id >= 4
+            order by id
+            limit 3
+        """
+        contains("VMaterializeNode")
+        // payload lazy, scan only outputs id + rowId
+        contains("final projections: id[#0], __DORIS_GLOBAL_ROWID_COL__vt[#4]")
+        // sub path pruning for variant: only read address sub-path during materialization
+        contains("nested columns:")
+        contains("sub path: [address.city]")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__vt]")
+    }
+
+    // =============================================
+    // Test 12: Multi-level VARIANT nested - verify query results
+    // =============================================
+    qt_variant_nested_result """
+        select id, element_at(payload['address'], 'city') as city
+        from vt
+        where id >= 4
+        order by id
+        limit 3
+    """
+
+    // =============================================
+    // Test 13: using_index=true with MAP subscript
+    //   Verify that map/array lazy mat still works when
+    //   topn_lazy_materialization_using_index is enabled.
+    //   Regression test for the risk that MaterializeProbeVisitor
+    //   .visitPhysicalProject skips alias→child slot tracing
+    //   when using_index=true, which could prevent base columns
+    //   from being probed as lazy candidates.
+    // =============================================
+    sql """ set topn_lazy_materialization_using_index = true; """
+    explain {
+        sql """
+            select id, element_at(map_col, 'a') as val
+            from ncp_tbl
+            order by id
+            limit 3
+        """
+        contains("VMaterializeNode")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__ncp_tbl]")
+    }
+    qt_map_using_index_result """
+        select id, element_at(map_col, 'a') as val
+        from ncp_tbl
+        order by id
+        limit 3
+    """
+    sql """ set topn_lazy_materialization_using_index = false; """
+
+    // =============================================
+    // Test 14: using_index=true with ARRAY subscript
+    // =============================================
+    sql """ set topn_lazy_materialization_using_index = true; """
+    explain {
+        sql """
+            select id, element_at(arr_col, 1) as val
+            from ncp_tbl
+            order by id
+            limit 3
+        """
+        contains("VMaterializeNode")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__ncp_tbl]")
+    }
+    qt_array_using_index_result """
+        select id, element_at(arr_col, 1) as val
+        from ncp_tbl
+        order by id
+        limit 3
+    """
+    sql """ set topn_lazy_materialization_using_index = false; """
 }

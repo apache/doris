@@ -7,3 +7,19 @@
 2	bbb	李四
 3	ccc	王五
 
+-- !map_result --
+1	1
+
+-- !array_result --
+1	1
+
+-- !variant_nested_result --
+4	上海
+5	北京
+
+-- !map_using_index_result --
+1	1
+
+-- !array_using_index_result --
+1	1
+
