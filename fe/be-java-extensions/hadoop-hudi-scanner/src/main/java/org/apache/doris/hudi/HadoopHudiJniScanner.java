@@ -20,8 +20,6 @@ package org.apache.doris.hudi;
 import org.apache.doris.common.classloader.ThreadClassLoaderContext;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -112,8 +110,6 @@ public class HadoopHudiJniScanner extends JniScanner {
     private final int fetchSize;
     private final ClassLoader classLoader;
 
-    private final PreExecutionAuthenticator preExecutionAuthenticator;
-
     private static final ThreadPoolExecutor hudiReaderInitExecutorService = buildHudiReaderInitExecutor();
 
     private static ThreadPoolExecutor buildHudiReaderInitExecutor() {
@@ -171,7 +167,6 @@ public class HadoopHudiJniScanner extends JniScanner {
                 LOG.debug("get hudi params {}: {}", entry.getKey(), entry.getValue());
             }
         }
-        this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(fsOptionsProps);
 
         ZoneId zoneId;
         if (Strings.isNullOrEmpty(params.get("time_zone"))) {
