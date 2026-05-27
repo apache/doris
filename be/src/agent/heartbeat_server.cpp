@@ -251,6 +251,23 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 master_info.network_address.hostname, master_info.network_address.port);
     }
 
+    // Propagate the cluster-level "graceful shutdown" flag pushed from FE master
+    // (set via SET GLOBAL enable_graceful_shutdown = true). When true, BE
+    // FragmentMgr::cancel_worker will skip cancelling queries for reasons related
+    // to coord FE process_uuid change / missing, so rolling restart does not kill
+    // in-flight stream load / select.
+    {
+        const bool new_flag =
+                master_info.__isset.in_graceful_shutdown ? master_info.in_graceful_shutdown : false;
+        if (new_flag != doris::k_in_graceful_shutdown) {
+            LOG(INFO) << "cluster in_graceful_shutdown flag changed: "
+                      << doris::k_in_graceful_shutdown << " -> " << new_flag
+                      << " (master=" << master_info.network_address.hostname << ":"
+                      << master_info.network_address.port << ")";
+            doris::k_in_graceful_shutdown = new_flag;
+        }
+    }
+
     if (master_info.__isset.meta_service_endpoint != config::is_cloud_mode()) {
         LOG(WARNING) << "Detected mismatch in cloud mode configuration between FE and BE. "
                      << "FE cloud mode: "

@@ -50,6 +50,13 @@ struct TMasterInfo {
     12: optional i64 tablet_report_inactive_duration_ms;
     13: optional string auth_token;
     14: optional TCloudClusterInfo cloud_cluster_info;
+    // True when the FE master cluster is in "graceful shutdown" mode
+    // (SessionVariable.enable_graceful_shutdown set to true via SET GLOBAL).
+    // When true, BE.fragment_mgr cancel_worker MUST skip cancelling queries
+    // due to "Coordinator restarted" / "Source frontend is not running",
+    // so that in-flight stream load / select can finish or be retried via
+    // master-failover instead of being killed within 1s of FE restart.
+    15: optional bool in_graceful_shutdown
 }
 
 struct TBackendInfo {

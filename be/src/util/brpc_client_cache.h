@@ -217,21 +217,18 @@ public:
     }
 
     std::shared_ptr<T> get_client(const std::string& host, int port) {
-        // Default: read the global config switch. Callers with session context
-        // (e.g. a RuntimeState query option) should call the 3-arg overload
-        // below and pass an explicit bool — that's the integration point for a
-        // future session-level "enable handshake on get_client" variable.
-        return get_client(host, port, config::enable_brpc_get_client_handshake);
+        // The handshake-and-retry path is only enabled while the cluster-level
+        // graceful shutdown flag is on (operator did
+        // `SET GLOBAL enable_graceful_shutdown=true` before rolling restart).
+        // Outside of rolling restart, get_client stays one-shot.
+        return get_client(host, port, doris::k_in_graceful_shutdown);
     }
 
     // Explicit-override entry point. Pass `enable_handshake=true` to force the
     // handshake-and-retry path (paid only on cache miss / rebuild — warm cache
-    // hits stay free). Pass `false` to disable. Max attempts is governed by
-    // config::brpc_get_client_handshake_max_retries (default 3).
+    // hits stay free). Pass `false` to disable. Max attempts is 3.
     std::shared_ptr<T> get_client(const std::string& host, int port, bool enable_handshake) {
-        const int max_attempts = enable_handshake
-                                         ? std::max(1, config::brpc_get_client_handshake_max_retries)
-                                         : 1;
+        const int max_attempts = enable_handshake ? 3 : 1;
         std::string host_port;
         for (int attempt = 1; attempt <= max_attempts; ++attempt) {
             std::string realhost = host;

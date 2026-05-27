@@ -188,6 +188,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String MAX_PREPARED_STMT_COUNT = "max_prepared_stmt_count";
+    public static final String ENABLE_GRACEFUL_SHUTDOWN = "enable_graceful_shutdown";
     public static final String ENABLE_GROUP_COMMIT_FULL_PREPARE = "enable_group_commit_full_prepare";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
@@ -2311,6 +2312,23 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true, description = {
                 "服务端 prepared statement 最大个数", "the maximum prepared statements server holds."})
     public int maxPreparedStmtCount = 100000;
+
+    @VarAttrDef.VarAttr(name = ENABLE_GRACEFUL_SHUTDOWN, flag = VarAttrDef.GLOBAL, needForward = true,
+            description = {
+            "集群级别开关：当 FE 或 BE 准备做滚动重启 / 优雅退出时，由运维 SET GLOBAL 打开。"
+                    + "打开后：(1) FE QueryCancelWorker / Coordinator.shouldCancel 不再因 BE alive=false "
+                    + "或 process epoch 变化 cancel in-flight query；(2) FE master 通过心跳把该标记下发"
+                    + "给所有 BE，BE 端 FragmentMgr::cancel_worker 也跳过 'Coordinator restarted' / "
+                    + "'Source frontend is not running' cancel。timeout / 用户主动 KILL / pipeline task "
+                    + "leak 等其他 cancel 不受影响。滚动结束后必须 SET GLOBAL ... = false 复位。",
+            "Cluster-level switch operators flip on via SET GLOBAL before performing a rolling restart "
+                    + "or graceful shutdown. When true: (1) FE QueryCancelWorker / Coordinator.shouldCancel "
+                    + "skip cancelling in-flight queries on BEs whose alive=false or process_epoch changed; "
+                    + "(2) FE master propagates the flag to all BEs via heartbeat so that BE "
+                    + "FragmentMgr::cancel_worker also skips 'Coordinator restarted' / 'Source frontend is "
+                    + "not running' cancel. Timeout / explicit KILL / pipeline-task-leak cancels are not "
+                    + "affected. Operators MUST flip it back to false after rolling restart finishes."})
+    public boolean enableGracefulShutdown = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_GROUP_COMMIT_FULL_PREPARE)
     public boolean enableGroupCommitFullPrepare = true;

@@ -48,6 +48,8 @@ class TTransport;
 
 namespace doris {
 
+using namespace std::chrono_literals;
+
 using apache::thrift::protocol::TProtocol;
 using apache::thrift::protocol::TBinaryProtocol;
 using apache::thrift::transport::TSocket;
@@ -225,6 +227,17 @@ Status ThriftRpcHelper::rpc_fe_with_master_refresh(
     // rpc<FrontendServiceClient>.
     Status st = rpc<FrontendServiceClient>(address_provider, callback, timeout_ms);
 
+    // Outside of a graceful rolling restart (operator-controlled
+    // `SET GLOBAL enable_graceful_shutdown=true`), keep strictly one-shot
+    // behavior: return the first-attempt result as-is, without probing
+    // followers or refreshing the cached master. The caller will see the
+    // raw TStatus (including NOT_MASTER) and decide what to do. This is
+    // equivalent to the legacy behavior before rpc_fe_with_master_refresh
+    // was introduced.
+    if (!doris::k_in_graceful_shutdown) {
+        return st;
+    }
+
     bool transport_failed = !st.ok();
     bool not_master = false;
     TNetworkAddress new_master;
@@ -259,12 +272,6 @@ Status ThriftRpcHelper::rpc_fe_with_master_refresh(
         // Scenario A: transport failure; or NOT_MASTER without master_address
         // (old FE without thrift change).
         //
-        // Replace the previous "sleep & re-read heartbeat" fallback with a
-        // bounded follower-probe loop: enumerate live FEs from
-        // get_running_frontends() (heartbeat-fresh, not just configured), skip
-        // the failed master, and try up to kMaxProbes candidates within a
-        // small time budget.
-        //
         //   * candidate RPC returns ok          -> candidate IS current master,
         //                                          cache it and return OK
         //                                          (the response was filled by
@@ -274,22 +281,13 @@ Status ThriftRpcHelper::rpc_fe_with_master_refresh(
         //                                          retry against new master.
         //   * candidate transport-failed        -> try the next one.
         //
-        // We do NOT sleep, do NOT scan the whole FE list (max 2 probes), and
-        // give up to the caller if no candidate yields recovery within the
-        // budget.
-        constexpr int kMaxProbes = 2;
-        const auto deadline = std::chrono::steady_clock::now()
-                + std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 4);
-
+        constexpr int kMaxProbes = 3;
         auto running = _s_exec_env->get_running_frontends();
         int probed = 0;
         bool master_refreshed = false;
 
         for (const auto& kv : running) {
             if (probed >= kMaxProbes) {
-                break;
-            }
-            if (std::chrono::steady_clock::now() >= deadline) {
                 break;
             }
             const TNetworkAddress& candidate_addr = kv.first;
@@ -302,12 +300,6 @@ Status ThriftRpcHelper::rpc_fe_with_master_refresh(
             }
             ++probed;
 
-            // Each probe goes through the existing rpc<T>() helper. Its
-            // built-in one-shot transport retry is acceptable because it
-            // only re-reads address_provider() which here returns the
-            // constant candidate address; the worst case is one extra
-            // sleep of thrift_client_retry_interval_ms, still bounded by
-            // our deadline.
             auto candidate_provider = [candidate_addr]() { return candidate_addr; };
             Status probe_st = rpc<FrontendServiceClient>(
                     candidate_provider, callback, timeout_ms);
@@ -315,6 +307,9 @@ Status ThriftRpcHelper::rpc_fe_with_master_refresh(
                 LOG(INFO) << "fe RPC probe to " << candidate_addr
                           << " transport-failed after master " << old_master
                           << " was unreachable: " << probe_st;
+                if (probed < kMaxProbes) {
+                    std::this_thread::sleep_for(1000ms); // Back off a bit before the next probe.
+                }
                 continue;
             }
 
@@ -329,6 +324,9 @@ Status ThriftRpcHelper::rpc_fe_with_master_refresh(
                                   << " returned NOT_MASTER with stale master_address "
                                   << *hinted << ", same as failed master " << old_master
                                   << "; trying next";
+                        if (probed < kMaxProbes) {
+                            std::this_thread::sleep_for(1000ms); // Back off a bit before the next probe.
+                        }
                         continue;
                     }
                     _s_exec_env->cluster_info()->master_fe_addr = *hinted;
@@ -341,6 +339,9 @@ Status ThriftRpcHelper::rpc_fe_with_master_refresh(
                 // NOT_MASTER without master_address (old FE). Try next candidate.
                 LOG(INFO) << "fe RPC probe to " << candidate_addr
                           << " returned NOT_MASTER without master_address, trying next";
+                if (probed < kMaxProbes) {
+                    std::this_thread::sleep_for(2000ms); // Back off a bit before the next probe.
+                }
                 continue;
             }
 

@@ -143,6 +143,13 @@ inline bool k_doris_exit = false;
 // set to true once FE Master has pulled a heartbeat carrying is_shutdown=true.
 // Used by Phase A of graceful shutdown to know FE has been informed.
 inline bool k_shutdown_fe_known = false;
+// Cluster-level "graceful shutdown" flag pushed by FE master via
+// TMasterInfo.in_graceful_shutdown (operator does `SET GLOBAL
+// enable_graceful_shutdown=true` before rolling restart). When true,
+// FragmentMgr::cancel_worker will skip cancelling queries for reasons related to
+// coord FE process_uuid change / coord-missing. Timeout / pipeline_task_leak
+// cancels are NOT affected. Updated in HeartbeatServer::_heartbeat.
+inline bool k_in_graceful_shutdown = false;
 // set to true after BE start ready
 inline bool k_is_server_ready = false;
 

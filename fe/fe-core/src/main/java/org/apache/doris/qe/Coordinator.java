@@ -1347,10 +1347,24 @@ public class Coordinator implements CoordInterface {
     // We use a very conservative cancel strategy.
     // 0. If backends has zero process epoch, do not cancel. Zero process epoch usually arises in cluster upgrading.
     // 1. If process epoch is same, do not cancel. Means backends does not restart or die.
+    // 2. If process epoch is different, but cluster-level "graceful shutdown" flag is set, do not cancel.
+    //    Means backends may restart, but we want to defer cancel until
+    //    the backend actually restarts and becomes unavailable.
     public Status shouldCancel(List<Backend> currentBackends) {
         Map<Long, Backend> curBeMap = Maps.newHashMap();
         for (Backend be : currentBackends) {
             curBeMap.put(be.getId(), be);
+        }
+
+        // Cluster-level "graceful shutdown" flag set via `SET GLOBAL enable_graceful_shutdown`.
+        // When true, fully skip cancel for BE-death / epoch-change reasons cluster-wide
+        // so a rolling restart does not kill in-flight queries / stream loads.
+        // Timeout / explicit KILL paths are NOT affected by this flag.
+        boolean clusterGraceful = false;
+        try {
+            clusterGraceful = VariableMgr.getDefaultSessionVariable().enableGracefulShutdown;
+        } catch (Throwable t) {
+            // Defensive: ignore.
         }
 
         try {
@@ -1358,6 +1372,12 @@ public class Coordinator implements CoordInterface {
             for (PipelineExecContext pipelineExecContext : pipelineExecContexts.values()) {
                 Backend be = curBeMap.get(pipelineExecContext.backend.getId());
                 if (be == null || !be.isAlive()) {
+                    if (clusterGraceful) {
+                        LOG.info("enable_graceful_shutdown=true, defer cancel for query {} "
+                                + "(BE {} not alive)", DebugUtil.printId(queryId),
+                                pipelineExecContext.backend.toString());
+                        continue;
+                    }
                     Status errorStatus = new Status(TStatusCode.CANCELLED,
                             "Backend {} not exists or dead, query {} should be cancelled",
                             pipelineExecContext.backend.toString(), DebugUtil.printId(queryId));
@@ -1369,6 +1389,12 @@ public class Coordinator implements CoordInterface {
                 // Check zero since during upgrading, older version oplog will not persistent be start time
                 // so newer version follower will get zero epoch when replaying oplog or snapshot
                 if (pipelineExecContext.beProcessEpoch != be.getProcessEpoch() && be.getProcessEpoch() != 0) {
+                    if (clusterGraceful) {
+                        LOG.info("enable_graceful_shutdown=true, defer cancel for query {} "
+                                + "(BE {} epoch {} -> {})", DebugUtil.printId(queryId),
+                                be.toString(), pipelineExecContext.beProcessEpoch, be.getProcessEpoch());
+                        continue;
+                    }
                     Status errorStatus = new Status(TStatusCode.CANCELLED,
                             "Backend process epoch changed, previous {} now {}, "
                             + "means this be has already restarted, should cancel this coordinator,"

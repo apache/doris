@@ -51,7 +51,10 @@ import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -64,6 +67,21 @@ public class BackendServiceProxy {
     private static Executor grpcThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(
             Config.grpc_threadmgr_threads_nums,
             "grpc_thread_pool", true);
+
+    // Single-threaded scheduler used to *deferred-shutdown* gRPC channels that were
+    // invalidated by removeProxy / removeProxyForAll on BE restart. We MUST NOT call
+    // BackendServiceClient.shutdown() inline because it triggers channel.shutdownNow()
+    // (after a 5s grace) and instantly kills any in-flight RPC on the old channel with
+    // "UNAVAILABLE: Channel shutdownNow invoked". Instead we drop the client from the
+    // serviceMap (so new RPCs go to a freshly-created channel pointing at the new BE IP)
+    // and asynchronously close the old channel after a grace period long enough for
+    // in-flight RPCs to finish or fail naturally.
+    private static final ScheduledExecutorService deferredShutdownExecutor =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "grpc-deferred-shutdown");
+                t.setDaemon(true);
+                return t;
+            });
 
     private final Map<TNetworkAddress, BackendServiceClientExtIp> serviceMap;
 
@@ -115,7 +133,7 @@ public class BackendServiceProxy {
         if (serviceClientExtIp != null) {
             LOG.info("remove gRPC proxy on shard, address={}, cachedRealIp={}, channelState={}",
                     address, serviceClientExtIp.realIp, serviceClientExtIp.client.getConnectivityState());
-            serviceClientExtIp.client.shutdown();
+            scheduleDeferredShutdown(address, serviceClientExtIp.client, "removeProxy");
         } else {
             LOG.info("remove gRPC proxy on shard, address={}, no cached channel", address);
         }
@@ -140,12 +158,58 @@ public class BackendServiceProxy {
                 LOG.info("removeProxyForAll shard={}, address={}, cachedRealIp={}, channelState={}",
                         i, address, serviceClientExtIp.realIp,
                         serviceClientExtIp.client.getConnectivityState());
-                serviceClientExtIp.client.shutdown();
+                scheduleDeferredShutdown(address, serviceClientExtIp.client, "removeProxyForAll");
                 removed++;
             }
         }
         LOG.info("removeProxyForAll done, address={}, removedShardCount={}, totalShardCount={}",
                 address, removed, shardCount);
+    }
+
+    // Schedule a deferred shutdown of the given gRPC client. The client has already been
+    // removed from serviceMap, so new RPCs will create a fresh client (pointing at the
+    // possibly-new BE IP). The old channel is kept alive for a grace window so that
+    // in-flight RPCs can either complete naturally or fail with the real underlying
+    // brpc error (e.g. "Network closed" when the BE socket RSTs) instead of being killed
+    // by a synchronous channel.shutdownNow().
+    private static void scheduleDeferredShutdown(TNetworkAddress address,
+            BackendServiceClient client, String cause) {
+        // 120 seconds, should be long enough for in-flight RPCs to finish or fail naturally.
+        long delayMs = 120 * 1000L;
+        if (delayMs <= 0) {
+            // Disabled: fall back to legacy synchronous shutdown.
+            LOG.info("deferred shutdown disabled (delayMs={}), shutdown inline. address={}, cause={}",
+                    delayMs, address, cause);
+            try {
+                client.shutdown();
+            } catch (Throwable t) {
+                LOG.warn("inline client shutdown failed, address={}, err={}", address, t.getMessage(), t);
+            }
+            return;
+        }
+        LOG.info("schedule deferred gRPC channel shutdown, address={}, delayMs={}, cause={}, "
+                + "channelState={}", address, delayMs, cause, client.getConnectivityState());
+        try {
+            deferredShutdownExecutor.schedule(() -> {
+                try {
+                    LOG.info("deferred gRPC channel shutdown firing, address={}, cause={}, "
+                            + "channelState={}", address, cause, client.getConnectivityState());
+                    client.shutdown();
+                } catch (Throwable t) {
+                    LOG.warn("deferred client shutdown failed, address={}, err={}",
+                            address, t.getMessage(), t);
+                }
+            }, delayMs, TimeUnit.MILLISECONDS);
+        } catch (Throwable t) {
+            LOG.warn("failed to schedule deferred shutdown, fallback to inline. address={}, err={}",
+                    address, t.getMessage(), t);
+            try {
+                client.shutdown();
+            } catch (Throwable inner) {
+                LOG.warn("inline fallback shutdown failed, address={}, err={}",
+                        address, inner.getMessage(), inner);
+            }
+        }
     }
 
     private BackendServiceClient getProxy(TNetworkAddress address) throws UnknownHostException {
@@ -215,7 +279,10 @@ public class BackendServiceProxy {
         } finally {
             lock.unlock();
             if (removedClient != null) {
-                removedClient.shutdown();
+                // Use deferred shutdown to avoid killing in-flight RPCs on the old channel
+                // (same rationale as removeProxy/removeProxyForAll).
+                scheduleDeferredShutdown(address, removedClient,
+                        removedCause == null ? "getProxy-replace" : "getProxy-" + removedCause);
             }
         }
     }
