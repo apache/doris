@@ -31,6 +31,7 @@
 #include "common/exception.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_nullable.h"
+#include "exprs/vexpr_context.h"
 #include "format/new_parquet/column_reader.h"
 #include "format/new_parquet/parquet_column_schema.h"
 #include "format/new_parquet/parquet_statistics.h"
