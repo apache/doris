@@ -53,7 +53,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -180,7 +179,6 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         return false;
     }
 
-    /** Is this expression a candidate for lazy pull-up? PPD or variant subPath. */
     /**
      * Create a LazySlotPruning instance that bypasses the containsAll guard.
      *
