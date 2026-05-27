@@ -262,6 +262,16 @@ TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
                         .ok());
     ASSERT_EQ(file_request.expression_filters.size(), 1);
     ASSERT_EQ(file_request.predicate_columns, std::vector<reader::ColumnId>({0}));
+    const auto& localized_expr = file_request.expression_filters[0].conjunct->root();
+    ASSERT_EQ(localized_expr->get_num_children(), 1);
+    const auto& localized_child = localized_expr->children()[0];
+    ASSERT_NE(dynamic_cast<const Cast*>(localized_child.get()), nullptr);
+    ASSERT_EQ(localized_child->get_num_children(), 1);
+    const auto* localized_slot =
+            assert_cast<const TableSlotRef*>(localized_child->children()[0].get());
+    EXPECT_EQ(localized_slot->column_id(), 0);
+    EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
+    EXPECT_TRUE(localized_child->data_type()->equals(*table_column.type));
 
     Block block;
     block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({11, 22}));
