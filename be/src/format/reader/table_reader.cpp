@@ -97,6 +97,7 @@ Status TableReader::init(TableReadOptions options) {
     _profile = std::move(options.profile);
     TableColumnMapperOptions mapper_options;
     mapper_options.mode = TableColumnMappingMode::BY_FIELD_ID;
+    mapper_options.allow_missing_columns = options.allow_missing_columns;
     _data_reader.column_mapper = TableColumnMapper(mapper_options);
     _conjuncts = std::move(options.conjuncts);
     return Status::OK();
@@ -105,11 +106,17 @@ Status TableReader::init(TableReadOptions options) {
 Status TableReader::_build_table_filters_from_conjuncts() {
     _table_filters.clear();
     build_table_filters_from_conjunct(_conjuncts.root(), &_table_filters);
+    return Status::OK();
+}
+
+Status TableReader::_open_local_filter_exprs(const FileScanRequest& file_request) {
     RowDescriptor row_desc;
-    for (auto& [_, table_filter] : _table_filters) {
-        DORIS_CHECK(table_filter.conjunct != nullptr);
-        RETURN_IF_ERROR(table_filter.conjunct->prepare(_runtime_state, row_desc));
-        RETURN_IF_ERROR(table_filter.conjunct->open(_runtime_state));
+    for (const auto& local_filter : file_request.local_filters) {
+        if (local_filter.conjunct == nullptr) {
+            continue;
+        }
+        RETURN_IF_ERROR(local_filter.conjunct->prepare(_runtime_state, row_desc));
+        RETURN_IF_ERROR(local_filter.conjunct->open(_runtime_state));
     }
     return Status::OK();
 }

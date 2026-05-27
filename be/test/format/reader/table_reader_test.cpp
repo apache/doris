@@ -44,9 +44,7 @@ namespace {
 class TableInt32GreaterThanExpr final : public VExpr {
 public:
     TableInt32GreaterThanExpr(int slot_id, int column_id, int32_t value)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false),
-              _column_id(column_id),
-              _value(value) {
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {
         add_child(TableSlotRef::create_shared(slot_id, column_id, -1,
                                               std::make_shared<DataTypeInt32>(), "id"));
         set_node_type(TExprNodeType::BINARY_PRED);
@@ -55,8 +53,10 @@ public:
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
+        const auto* slot_ref = assert_cast<const VSlotRef*>(get_child(0).get());
         const auto& input =
-                assert_cast<const ColumnInt32&>(*block->get_by_position(_column_id).column);
+                assert_cast<const ColumnInt32&>(
+                        *block->get_by_position(slot_ref->column_id()).column);
         auto result = ColumnUInt8::create();
         auto& result_data = result->get_data();
         result_data.resize(count);
@@ -71,7 +71,6 @@ public:
     const std::string& expr_name() const override { return _expr_name; }
 
 private:
-    const int _column_id;
     const int32_t _value;
     const std::string _expr_name = "TableInt32GreaterThanExpr";
 };
@@ -134,6 +133,14 @@ SplitReadOptions build_split_options(const std::string& file_path) {
     return options;
 }
 
+TableColumn make_table_column(ColumnId id, const std::string& name, const DataTypePtr& type) {
+    TableColumn column;
+    column.id = id;
+    column.name = name;
+    column.type = type;
+    return column;
+}
+
 TEST(TableReaderTest, ReopenSplitAfterClose) {
     const auto test_dir = std::filesystem::temp_directory_path() / "doris_table_reader_test";
     std::filesystem::remove_all(test_dir);
@@ -149,21 +156,23 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
     write_parquet_file(file_paths[2], 3, "three");
 
     std::vector<TableColumn> projected_columns;
-    projected_columns.push_back({.id = 0, .name = "id", .type = std::make_shared<DataTypeInt32>()});
-    projected_columns.push_back(
-            {.id = 1, .name = "value", .type = std::make_shared<DataTypeString>()});
+    projected_columns.push_back(make_table_column(1, "value", std::make_shared<DataTypeString>()));
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
     ASSERT_TRUE(reader
                         .init({
                                 .projected_columns = projected_columns,
-                                .conjuncts = VExprContext(nullptr),
+                                .conjuncts = VExprContext(
+                                        std::make_shared<TableInt32GreaterThanExpr>(0, 0, 0)),
                                 .format = FileFormat::PARQUET,
                                 .scan_params = nullptr,
                                 .io_ctx = nullptr,
                                 .runtime_state = &state,
                                 .scanner_profile = nullptr,
+                                .allow_missing_columns = true,
+                                .profile = nullptr,
                         })
                         .ok());
 
@@ -171,6 +180,9 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
     // init() once, then repeat prepare_split() -> get_block() -> close().
     // This verifies TableReader::close() fully releases the previous low-level reader and task
     // state, so a later prepare_split() can open and read a new split on the same TableReader.
+    // The table-level conjunct is also rebuilt for each split. The projection order puts value
+    // before id, so the pushed conjunct has to be rewritten to the ParquetReader file-local block
+    // position every time a new split is opened.
     std::vector<int32_t> ids;
     std::vector<std::string> values;
     for (const auto& file_path : file_paths) {
@@ -182,9 +194,9 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
         ASSERT_TRUE(reader.get_block(&block, &eos).ok());
         ASSERT_FALSE(eos);
 
-        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
         const auto& value_column =
-                assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+                assert_cast<const ColumnString&>(*block.get_by_position(0).column);
+        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
         ASSERT_EQ(id_column.size(), 1);
         ASSERT_EQ(value_column.size(), 1);
         ids.push_back(id_column.get_element(0));
@@ -209,9 +221,8 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
     write_parquet_file(file_path, 3, "three");
 
     std::vector<TableColumn> projected_columns;
-    projected_columns.push_back({.id = 0, .name = "id", .type = std::make_shared<DataTypeInt32>()});
-    projected_columns.push_back(
-            {.id = 1, .name = "value", .type = std::make_shared<DataTypeString>()});
+    projected_columns.push_back(make_table_column(1, "value", std::make_shared<DataTypeString>()));
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
@@ -225,19 +236,23 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
                                 .io_ctx = nullptr,
                                 .runtime_state = &state,
                                 .scanner_profile = nullptr,
+                                .allow_missing_columns = true,
+                                .profile = nullptr,
                         })
                         .ok());
 
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
 
     // open_reader() should convert the table-level conjunct on projected column id 0 into
-    // _table_filters before ColumnMapper creates the FileScanRequest. ParquetReader then receives
-    // that localized conjunct and filters rows through its predicate-column path.
+    // _table_filters before ColumnMapper creates the FileScanRequest. ColumnMapper then rewrites
+    // the conjunct's slot ref from table column id 0 to the file-local block position used by
+    // ParquetReader. The projection order intentionally puts value before id, so the id filter
+    // column is not at position 0 in the file block.
     Block block = build_table_block(projected_columns);
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
     ASSERT_EQ(id_column.size(), 1);
     EXPECT_EQ(id_column.get_element(0), 3);
 
@@ -254,6 +269,8 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
                                 .io_ctx = nullptr,
                                 .runtime_state = &state,
                                 .scanner_profile = nullptr,
+                                .allow_missing_columns = true,
+                                .profile = nullptr,
                         })
                         .ok());
     ASSERT_TRUE(filtered_reader.prepare_split(build_split_options(file_path)).ok());
@@ -262,13 +279,13 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
     eos = false;
     ASSERT_TRUE(filtered_reader.get_block(&block, &eos).ok());
     EXPECT_TRUE(eos);
-    EXPECT_EQ(block.get_by_position(0).column->size(), 0);
+    EXPECT_EQ(block.get_by_position(1).column->size(), 0);
 
     ASSERT_TRUE(filtered_reader.close().ok());
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatch) {
+TEST(TableReaderTest, ProjectedColumnsFillDefaultForParquetSchemaMismatch) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_schema_mismatch_test";
     std::filesystem::remove_all(test_dir);
@@ -279,7 +296,7 @@ TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatch) {
 
     std::vector<TableColumn> projected_columns;
     projected_columns.push_back(
-            {.id = 99, .name = "missing_value", .type = std::make_shared<DataTypeString>()});
+            make_table_column(99, "missing_value", std::make_shared<DataTypeString>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
@@ -292,14 +309,59 @@ TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatch) {
                                 .io_ctx = nullptr,
                                 .runtime_state = &state,
                                 .scanner_profile = nullptr,
+                                .allow_missing_columns = true,
+                                .profile = nullptr,
                         })
                         .ok());
 
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
 
     // The table projection asks for field id 99, but the ParquetReader exposes only file-local
-    // fields 0 and 1. get_block() opens the split lazily, so this is where TableReader must reject
-    // the mismatch between TableReadOptions::projected_columns and the Parquet file schema.
+    // fields 0 and 1. Missing columns are allowed by the current mapper options, so TableReader
+    // should still use the Parquet row count and fill a default column in table schema.
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    EXPECT_EQ(block.get_by_position(0).column->size(), 1);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatchWhenMissingColumnsDisallowed) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_schema_mismatch_reject_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_parquet_file(file_path, 1, "one");
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(
+            make_table_column(99, "missing_value", std::make_shared<DataTypeString>()));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader
+                        .init({
+                                .projected_columns = projected_columns,
+                                .conjuncts = VExprContext(nullptr),
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                                .allow_missing_columns = false,
+                                .profile = nullptr,
+                        })
+                        .ok());
+
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    // With allow_missing_columns disabled, the same missing projected column should fail while
+    // opening the split instead of being materialized as a default column.
     Block block = build_table_block(projected_columns);
     bool eos = false;
     const auto status = reader.get_block(&block, &eos);
@@ -310,7 +372,7 @@ TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatch) {
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(TableReaderTest, ProjectedColumnsRejectSameNameDifferentIdParquetSchemaMismatch) {
+TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionForSameNameDifferentIdParquetSchema) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_same_name_diff_id_test";
     std::filesystem::remove_all(test_dir);
@@ -320,8 +382,7 @@ TEST(TableReaderTest, ProjectedColumnsRejectSameNameDifferentIdParquetSchemaMism
     write_parquet_file(file_path, 1, "one");
 
     std::vector<TableColumn> projected_columns;
-    projected_columns.push_back(
-            {.id = 99, .name = "id", .type = std::make_shared<DataTypeInt32>()});
+    projected_columns.push_back(make_table_column(99, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
@@ -334,19 +395,24 @@ TEST(TableReaderTest, ProjectedColumnsRejectSameNameDifferentIdParquetSchemaMism
                                 .io_ctx = nullptr,
                                 .runtime_state = &state,
                                 .scanner_profile = nullptr,
+                                .allow_missing_columns = true,
+                                .profile = nullptr,
                         })
                         .ok());
 
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
 
     // The table column has the same name as the Parquet field, but a different field id.
-    // TableReader configures ColumnMapper in BY_FIELD_ID mode, so the name match must not hide
-    // the id mismatch.
+    // ColumnMapper should still resolve it by name and build a SlotRef projection from the file
+    // column into the requested table column.
     Block block = build_table_block(projected_columns);
     bool eos = false;
-    const auto status = reader.get_block(&block, &eos);
-    ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("does not have a matching file column"), std::string::npos);
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    ASSERT_EQ(id_column.size(), 1);
+    EXPECT_EQ(id_column.get_element(0), 1);
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
@@ -363,9 +429,9 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismat
 
     std::vector<TableColumn> projected_columns;
     projected_columns.push_back(
-            {.id = 0, .name = "table_id", .type = std::make_shared<DataTypeInt64>()});
+            make_table_column(0, "table_id", std::make_shared<DataTypeInt64>()));
     projected_columns.push_back(
-            {.id = 1, .name = "table_value", .type = std::make_shared<DataTypeString>()});
+            make_table_column(1, "table_value", std::make_shared<DataTypeString>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
@@ -378,6 +444,8 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismat
                                 .io_ctx = nullptr,
                                 .runtime_state = &state,
                                 .scanner_profile = nullptr,
+                                .allow_missing_columns = true,
+                                .profile = nullptr,
                         })
                         .ok());
 
