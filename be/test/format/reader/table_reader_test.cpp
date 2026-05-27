@@ -204,5 +204,58 @@ TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatch) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismatch) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_mapper_expr_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_parquet_file(file_path, 7, "seven");
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(
+            {.id = 0, .name = "table_id", .type = std::make_shared<DataTypeInt64>()});
+    projected_columns.push_back(
+            {.id = 1, .name = "table_value", .type = std::make_shared<DataTypeString>()});
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader
+                        .init({
+                                .projected_columns = projected_columns,
+                                .conjuncts = VExprContext(nullptr),
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                        })
+                        .ok());
+
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    // The table projection is intentionally different from the Parquet schema:
+    // field id 0 is requested as BIGINT instead of the file INT, so ColumnMapper should build a
+    // Cast expression; field id 1 has a different table name but the same type, so it should build
+    // a SlotRef projection. Both columns should still materialize in table schema order.
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    ASSERT_EQ(block.get_by_position(0).name, "table_id");
+    ASSERT_EQ(block.get_by_position(1).name, "table_value");
+    const auto& id_column = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+    const auto& value_column = assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+    ASSERT_EQ(id_column.size(), 1);
+    ASSERT_EQ(value_column.size(), 1);
+    EXPECT_EQ(id_column.get_element(0), 7);
+    EXPECT_EQ(value_column.get_data_at(0).to_string(), "seven");
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 } // namespace
 } // namespace doris::reader
