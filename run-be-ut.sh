@@ -252,7 +252,12 @@ if [[ -z "${USE_LIBCPP}" ]]; then
 fi
 
 if [[ -z "${USE_AVX2}" ]]; then
-    USE_AVX2='ON'
+    # AVX2 is x86-only; arm64 and other non-x86 architectures do not have it
+    if [[ "$(uname -m)" == "x86_64" ]]; then
+        USE_AVX2='ON'
+    else
+        USE_AVX2='OFF'
+    fi
 fi
 
 if [[ -z "${ARM_MARCH}" ]]; then
