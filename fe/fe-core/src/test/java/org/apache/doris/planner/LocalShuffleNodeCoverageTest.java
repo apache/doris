@@ -88,9 +88,14 @@ public class LocalShuffleNodeCoverageTest {
                 Collections.singletonList(Collections.emptyList()));
         Pair<PlanNode, LocalExchangeType> output = repeatNode.enforceAndDeriveLocalExchange(
                 ctx, null, LocalExchangeTypeRequire.requireHash());
-        // resolveExchangeType with RequireHash always returns LOCAL_EXECUTION_HASH_SHUFFLE
-        Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, output.second);
-        assertChildLocalExchangeType(repeatNode, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+        // RepeatNode must NOT forward the parent's HASH require to its child: it recurses
+        // with noRequire (so no hash LE is pushed below the Repeat) and reports the child's
+        // own distribution (NOOP) so the parent places the hash LE ABOVE the Repeat instead.
+        // Pre-fix this forwarded RequireHash and inserted a LOCAL_HASH LE below the Repeat
+        // (tpcds q67 skew).
+        Assertions.assertEquals(LocalExchangeNode.NoRequire.class, childNoop.lastRequire.getClass());
+        Assertions.assertEquals(LocalExchangeType.NOOP, output.second);
+        Assertions.assertSame(childNoop, repeatNode.getChild(0));
     }
 
     @Test
