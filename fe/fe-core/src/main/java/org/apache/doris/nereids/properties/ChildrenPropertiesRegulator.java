@@ -143,6 +143,9 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         if (ctx != null && ctx.getSessionVariable().aggPhase == 1) {
             return false;
         }
+        if (ctx != null && AggregateUtils.isSingleExecutionInstance(ctx)) {
+            return false;
+        }
         if (!onePhaseAggWithDistribute(aggregate)) {
             return false;
         }
