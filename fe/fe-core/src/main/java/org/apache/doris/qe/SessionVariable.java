@@ -1369,9 +1369,9 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = COLOCATE_MAX_PARALLEL_NUM, needForward = true, fuzzy = false)
     public int colocateMaxParallelNum = 128;
 
-    @VarAttrDef.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true,
+    @VarAttrDef.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = false, needForward = true,
                         setter = "setPipelineTaskNum")
-    public int parallelPipelineTaskNum = 0;
+    public int parallelPipelineTaskNum = 1;
 
 
     public enum IgnoreSplitType {
@@ -3718,7 +3718,6 @@ public class SessionVariable implements Serializable, Writable {
         Random random = new SecureRandom();
         this.feDebug = true;
         this.enableConditionCache = Config.pull_request_id % 2 == 0;
-        this.parallelPipelineTaskNum = random.nextInt(8);
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
         // enable fuzzy after we clean all case of
