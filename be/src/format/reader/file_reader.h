@@ -106,7 +106,7 @@ struct FileScanRequest {
 
     std::vector<ColumnId> predicate_columns;
     std::vector<ColumnId> non_predicate_columns;
-    std::map<ColumnId, size_t> column_positions;
+    std::map<ColumnId, size_t> column_positions; // file_column_id -> file-local block position
     std::map<ColumnId, FieldProjection> complex_projections;
     std::vector<FileExpressionFilter> expression_filters;
     std::vector<FileColumnPredicateFilter> column_predicate_filters;

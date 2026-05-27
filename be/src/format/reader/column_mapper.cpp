@@ -110,6 +110,7 @@ static void rebuild_projection(ColumnMapping* mapping, size_t block_position) {
     mapping->projection = VExprContext::create_shared(expr);
 }
 
+// Build a map from table column id to file slot rewrite info for all columns in the given mappings that have a file column id and are present in the file request.
 static std::map<int32_t, FileSlotRewriteInfo> build_file_slot_rewrite_map(
         const std::vector<ColumnMapping>& mappings, const FileScanRequest& file_request) {
     std::map<int32_t, FileSlotRewriteInfo> table_column_to_file_slot;
