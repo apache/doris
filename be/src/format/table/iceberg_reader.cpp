@@ -196,18 +196,22 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
         } else if (desc.category == ColumnCategory::GENERATED) {
             _init_row_lineage_columns();
             if (desc.name == ROW_LINEAGE_ROW_ID) {
+                bool column_exists_in_file = ctx->table_info_node->children_column_exists(desc.name);
                 ctx->column_names.push_back(desc.name);
                 this->register_generated_column_handler(
-                        ROW_LINEAGE_ROW_ID, [this](Block* block, size_t rows) -> Status {
-                            return _fill_row_lineage_row_id(block, rows);
+                        ROW_LINEAGE_ROW_ID,
+                        [this, column_exists_in_file](Block* block, size_t rows) -> Status {
+                            return _fill_row_lineage_row_id(block, rows, column_exists_in_file);
                         });
                 continue;
             } else if (desc.name == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
+                bool column_exists_in_file = ctx->table_info_node->children_column_exists(desc.name);
                 ctx->column_names.push_back(desc.name);
                 this->register_generated_column_handler(
                         ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER,
-                        [this](Block* block, size_t rows) -> Status {
-                            return _fill_row_lineage_last_updated_sequence_number(block, rows);
+                        [this, column_exists_in_file](Block* block, size_t rows) -> Status {
+                            return _fill_row_lineage_last_updated_sequence_number(
+                                    block, rows, column_exists_in_file);
                         });
                 continue;
             }
@@ -483,18 +487,22 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
         } else if (desc.category == ColumnCategory::GENERATED) {
             _init_row_lineage_columns();
             if (desc.name == ROW_LINEAGE_ROW_ID) {
+                bool column_exists_in_file = ctx->table_info_node->children_column_exists(desc.name);
                 ctx->column_names.push_back(desc.name);
                 this->register_generated_column_handler(
-                        ROW_LINEAGE_ROW_ID, [this](Block* block, size_t rows) -> Status {
-                            return _fill_row_lineage_row_id(block, rows);
+                        ROW_LINEAGE_ROW_ID,
+                        [this, column_exists_in_file](Block* block, size_t rows) -> Status {
+                            return _fill_row_lineage_row_id(block, rows, column_exists_in_file);
                         });
                 continue;
             } else if (desc.name == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
+                bool column_exists_in_file = ctx->table_info_node->children_column_exists(desc.name);
                 ctx->column_names.push_back(desc.name);
                 this->register_generated_column_handler(
                         ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER,
-                        [this](Block* block, size_t rows) -> Status {
-                            return _fill_row_lineage_last_updated_sequence_number(block, rows);
+                        [this, column_exists_in_file](Block* block, size_t rows) -> Status {
+                            return _fill_row_lineage_last_updated_sequence_number(
+                                    block, rows, column_exists_in_file);
                         });
                 continue;
             }

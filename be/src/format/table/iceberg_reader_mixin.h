@@ -154,7 +154,7 @@ protected:
         }
     }
 
-    Status _fill_row_lineage_row_id(Block* block, size_t rows) {
+    Status _fill_row_lineage_row_id(Block* block, size_t rows, bool column_exists_in_file) {
         int col_pos = block->get_position_by_name(ROW_LINEAGE_ROW_ID);
         DORIS_CHECK(col_pos >= 0);
 
@@ -165,9 +165,13 @@ protected:
             auto& null_map = nullable_column->get_null_map_data();
             auto& data =
                     assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+            if (!column_exists_in_file) {
+                null_map.resize_fill(rows, 0);
+                data.resize(rows);
+            }
             const auto& row_ids = this->current_batch_row_positions();
             for (size_t i = 0; i < rows; ++i) {
-                if (null_map[i] != 0) {
+                if (!column_exists_in_file || null_map[i] != 0) {
                     null_map[i] = 0;
                     data[i] = _row_lineage_columns.first_row_id + static_cast<int64_t>(row_ids[i]);
                 }
@@ -176,7 +180,8 @@ protected:
         return Status::OK();
     }
 
-    Status _fill_row_lineage_last_updated_sequence_number(Block* block, size_t rows) {
+    Status _fill_row_lineage_last_updated_sequence_number(Block* block, size_t rows,
+                                                          bool column_exists_in_file) {
         int col_pos = block->get_position_by_name(ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER);
         DORIS_CHECK(col_pos >= 0);
 
@@ -187,8 +192,12 @@ protected:
             auto& null_map = nullable_column->get_null_map_data();
             auto& data =
                     assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+            if (!column_exists_in_file) {
+                null_map.resize_fill(rows, 0);
+                data.resize(rows);
+            }
             for (size_t i = 0; i < rows; ++i) {
-                if (null_map[i] != 0) {
+                if (!column_exists_in_file || null_map[i] != 0) {
                     null_map[i] = 0;
                     data[i] = _row_lineage_columns.last_updated_sequence_number;
                 }
