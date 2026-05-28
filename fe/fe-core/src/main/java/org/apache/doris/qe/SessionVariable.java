@@ -1965,7 +1965,7 @@ public class SessionVariable implements Serializable, Writable {
                     + "within the same session, that is, changes to data within the same session are visible in "
                     + "real time. If you want strong consistent reads between sessions, set this variable to true. "
     })
-    public boolean enableStrongConsistencyRead = false;
+    public boolean enableStrongConsistencyRead = true;
 
     @VariableMgr.VarAttr(name = PARALLEL_SYNC_ANALYZE_TASK_NUM)
     public int parallelSyncAnalyzeTaskNum = 2;
