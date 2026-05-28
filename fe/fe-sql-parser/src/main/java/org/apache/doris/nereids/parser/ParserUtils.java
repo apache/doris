@@ -33,7 +33,16 @@ public class ParserUtils {
 
     /** getOrigin */
     public static Optional<Origin> getOrigin() {
-        return Optional.ofNullable(threadLocal.get());
+        Thread thread = Thread.currentThread();
+        Origin origin;
+        if (thread instanceof OriginAware) {
+            // fast path
+            origin = ((OriginAware) thread).getOrigin();
+        } else {
+            // slow path
+            origin = threadLocal.get();
+        }
+        return Optional.ofNullable(origin);
     }
 
     /** withOrigin */
@@ -43,15 +52,30 @@ public class ParserUtils {
                 Optional.of(startToken.getLine()),
                 Optional.of(startToken.getCharPositionInLine())
         );
-        Origin outerOrigin = threadLocal.get();
-        try {
-            threadLocal.set(origin);
-            return f.get();
-        } finally {
-            if (outerOrigin != null) {
-                threadLocal.set(outerOrigin);
-            } else {
-                threadLocal.remove();
+
+        Thread thread = Thread.currentThread();
+        if (thread instanceof OriginAware) {
+            // fast path
+            OriginAware aware = (OriginAware) thread;
+            Origin outerOrigin = aware.getOrigin();
+            try {
+                aware.setOrigin(origin);
+                return f.get();
+            } finally {
+                aware.setOrigin(outerOrigin);
+            }
+        } else {
+            // slow path
+            Origin outerOrigin = threadLocal.get();
+            try {
+                threadLocal.set(origin);
+                return f.get();
+            } finally {
+                if (outerOrigin != null) {
+                    threadLocal.set(outerOrigin);
+                } else {
+                    threadLocal.remove();
+                }
             }
         }
     }
