@@ -27,6 +27,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
+import org.apache.doris.qe.QueryState;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -40,6 +41,16 @@ import java.util.Optional;
 public class MysqlProto {
     private static final Logger LOG = LogManager.getLogger(MysqlProto.class);
     public static final boolean SERVER_USE_SSL = Config.enable_ssl;
+    private static final String CLIENT_CLOSED_CONNECTION_DURING_HANDSHAKE =
+            "Client closed connection during handshake";
+
+    private static boolean failHandshake(ConnectContext context, String errMsg) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("{}: remote={}", errMsg, context.getMysqlChannel().getRemoteHostPortString());
+        }
+        context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, errMsg);
+        return false;
+    }
 
 
     private static String parseUser(ConnectContext context, byte[] scramble, String user) {
@@ -105,6 +116,9 @@ public class MysqlProto {
 
         // Server receive request packet from client, we need to determine which request type it is.
         ByteBuffer clientRequestPacket = channel.fetchOnePacket();
+        if (clientRequestPacket == null) {
+            return failHandshake(context, CLIENT_CLOSED_CONNECTION_DURING_HANDSHAKE);
+        }
         MysqlCapability capability = new MysqlCapability(MysqlProto.readLowestInt4(clientRequestPacket));
 
         // Server receive SSL connection request packet from client.
@@ -125,10 +139,6 @@ public class MysqlProto {
                 mysqlSslContext.init();
                 channel.initSslBuffer();
                 sslConnectionRequest = clientRequestPacket;
-                if (sslConnectionRequest == null) {
-                    // receive response failed.
-                    return false;
-                }
                 MysqlSslPacket sslPacket = new MysqlSslPacket();
                 if (!sslPacket.readFrom(sslConnectionRequest)) {
                     ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
@@ -158,15 +168,17 @@ public class MysqlProto {
                 }
                 handshakeResponse = channel.fetchOnePacket();
             } else {
-                handshakeResponse = clientRequestPacket;
+                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
+                        "Client requested TLS/SSL, but Doris FE MySQL SSL is disabled");
+                sendResponsePacket(context);
+                return false;
             }
         } else {
             handshakeResponse = clientRequestPacket;
         }
 
         if (handshakeResponse == null) {
-            // receive response failed.
-            return false;
+            return failHandshake(context, CLIENT_CLOSED_CONNECTION_DURING_HANDSHAKE);
         }
         if (capability.isDeprecatedEOF()) {
             context.getMysqlChannel().setClientDeprecatedEOF();
@@ -205,6 +217,9 @@ public class MysqlProto {
         //  authenticate
         if (!Env.getCurrentEnv().getAuthenticatorManager()
                 .authenticate(context, qualifiedUser, channel, serializer, authPacket, handshakePacket)) {
+            if (context.getState().getStateType() == QueryState.MysqlStateType.ERR && !channel.isSend()) {
+                sendResponsePacket(context);
+            }
             return false;
         }
         context.setConnectAttributes(authPacket.getConnectAttributes());

@@ -18,6 +18,7 @@
 package org.apache.doris.authentication.plugin.ldap;
 
 import org.apache.doris.authentication.AuthenticationException;
+import org.apache.doris.authentication.AuthenticationFailureType;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
 import org.apache.doris.authentication.AuthenticationResult;
@@ -125,14 +126,18 @@ public class LdapAuthenticationPlugin implements AuthenticationPlugin {
             String userDn = ldapClient.getUserDn(username);
             if (userDn == null) {
                 LOG.info("LDAP user not found: {}", username);
-                return AuthenticationResult.failure("User not found in LDAP: " + username);
+                return AuthenticationResult.failure(
+                        AuthenticationFailureType.USER_NOT_FOUND,
+                        "User not found in LDAP: " + username);
             }
 
             // Step 2: Validate password
             boolean passwordValid = ldapClient.checkPassword(username, password);
             if (!passwordValid) {
                 LOG.info("LDAP password validation failed for user: {}", username);
-                return AuthenticationResult.failure("Invalid LDAP password");
+                return AuthenticationResult.failure(
+                        AuthenticationFailureType.BAD_CREDENTIAL,
+                        "Invalid LDAP password");
             }
 
             // Step 3: Extract LDAP groups
@@ -157,7 +162,10 @@ public class LdapAuthenticationPlugin implements AuthenticationPlugin {
 
         } catch (Exception e) {
             LOG.error("LDAP authentication error for user: {}", username, e);
-            throw new AuthenticationException("LDAP authentication failed: " + e.getMessage(), e);
+            throw new AuthenticationException(
+                    "LDAP authentication failed: " + e.getMessage(),
+                    e,
+                    AuthenticationFailureType.SOURCE_UNAVAILABLE);
         }
     }
 
@@ -168,12 +176,12 @@ public class LdapAuthenticationPlugin implements AuthenticationPlugin {
         // Validate required configuration
         String server = properties.get("server");
         if (Strings.isNullOrEmpty(server)) {
-            throw new AuthenticationException("LDAP server is required");
+            throw new AuthenticationException("LDAP server is required", AuthenticationFailureType.MISCONFIGURED);
         }
 
         String baseDn = properties.get("base_dn");
         if (Strings.isNullOrEmpty(baseDn)) {
-            throw new AuthenticationException("LDAP base_dn is required");
+            throw new AuthenticationException("LDAP base_dn is required", AuthenticationFailureType.MISCONFIGURED);
         }
 
         // Optional but recommended: bind credentials for group lookup
@@ -191,7 +199,10 @@ public class LdapAuthenticationPlugin implements AuthenticationPlugin {
             ldapClient = createClient(integration.getProperties());
             LOG.info("LDAP client initialized for integration: {}", integration.getName());
         } catch (Exception e) {
-            throw new AuthenticationException("Failed to initialize LDAP client: " + e.getMessage(), e);
+            throw new AuthenticationException(
+                    "Failed to initialize LDAP client: " + e.getMessage(),
+                    e,
+                    AuthenticationFailureType.MISCONFIGURED);
         }
     }
 
@@ -217,7 +228,10 @@ public class LdapAuthenticationPlugin implements AuthenticationPlugin {
                 try {
                     ldapClient = createClient(config);
                 } catch (Exception e) {
-                    throw new AuthenticationException("Failed to create LDAP client: " + e.getMessage(), e);
+                    throw new AuthenticationException(
+                            "Failed to create LDAP client: " + e.getMessage(),
+                            e,
+                            AuthenticationFailureType.MISCONFIGURED);
                 }
             }
             return ldapClient;

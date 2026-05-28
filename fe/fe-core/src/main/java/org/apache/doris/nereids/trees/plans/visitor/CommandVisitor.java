@@ -93,6 +93,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateRoleMappingCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateStageCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
@@ -129,6 +130,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropRoleMappingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStageCommand;
@@ -964,6 +966,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(createRoleCommand, context);
     }
 
+    default R visitCreateRoleMappingCommand(CreateRoleMappingCommand createRoleMappingCommand, C context) {
+        return visitCommand(createRoleMappingCommand, context);
+    }
+
     default R visitDropTableCommand(DropTableCommand dropTableCommand, C context) {
         return visitCommand(dropTableCommand, context);
     }
@@ -974,6 +980,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropRoleCommand(DropRoleCommand dropRoleCommand, C context) {
         return visitCommand(dropRoleCommand, context);
+    }
+
+    default R visitDropRoleMappingCommand(DropRoleMappingCommand dropRoleMappingCommand, C context) {
+        return visitCommand(dropRoleMappingCommand, context);
     }
 
     default R visitDropEncryptKeyCommand(DropEncryptkeyCommand dropEncryptkeyCommand, C context) {
