@@ -386,9 +386,12 @@ TEST_F(RuntimeFilterPartitionPrunerTest, InvalidPartitionMonotonicityRejected) {
 
     RuntimeFilterPartitionPruner pruner;
     int64_t newly_pruned = 0;
-    EXPECT_FALSE(
-            pruner.prune_by_runtime_filters(*parsed, {}, {desc}, /*scan_node_id=*/0, &newly_pruned)
-                    .ok());
+    EXPECT_DEATH(
+            {
+                static_cast<void>(pruner.prune_by_runtime_filters(
+                        *parsed, {}, {desc}, /*scan_node_id=*/0, &newly_pruned));
+            },
+            "Check failed");
 }
 
 TEST_F(RuntimeFilterPartitionPrunerTest, ParseAndPrunePrimitiveTypeMatrix) {

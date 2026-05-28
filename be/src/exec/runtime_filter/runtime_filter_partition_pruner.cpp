@@ -271,18 +271,8 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
         boundary_partition_ids.insert(boundary.partition_id);
     }
     for (const auto& [partition_id, direction] : partition_directions) {
-        if (direction == TTargetExprMonotonicity::NON_MONOTONIC) {
-            return Status::InternalError(
-                    "Runtime filter partition pruning received NON_MONOTONIC partition "
-                    "metadata, filter_id={}, partition_id={}",
-                    filter_id, partition_id);
-        }
-        if (!boundary_partition_ids.contains(partition_id)) {
-            return Status::InternalError(
-                    "Runtime filter partition pruning received monotonicity for a partition "
-                    "without boundary, filter_id={}, partition_id={}, slot_id={}",
-                    filter_id, partition_id, leaf_slot_id);
-        }
+        DORIS_CHECK(direction != TTargetExprMonotonicity::NON_MONOTONIC);
+        DORIS_CHECK(boundary_partition_ids.contains(partition_id));
     }
 
     if (target_expr->is_slot_ref()) {
@@ -791,9 +781,7 @@ void RuntimeFilterPartitionPruner::_try_prune_by_single_rf(
                     using CvrType = std::decay_t<decltype(boundary_cvr)>;
 
                     const auto* typed_rf_cvr = std::get_if<CvrType>(&rf_cvr.value());
-                    if (typed_rf_cvr == nullptr) {
-                        return;
-                    }
+                    DORIS_CHECK(typed_rf_cvr != nullptr);
 
                     auto boundary_copy = boundary_cvr;
                     auto rf_cvr_copy = *typed_rf_cvr;
@@ -825,32 +813,13 @@ Status RuntimeFilterPartitionPruner::prune_by_runtime_filters(
             if (it != desc.planId_to_partition_target_monotonicity.end()) {
                 auto& partition_monotonicity = filter_id_to_partition_monotonicity[desc.filter_id];
                 for (const auto& partition_entry : it->second) {
-                    if (!partition_entry.__isset.partition_id) {
-                        return Status::InternalError(
-                                "Runtime filter partition pruning monotonicity entry misses "
-                                "partition_id, filter_id={}",
-                                desc.filter_id);
-                    }
-                    if (!partition_entry.__isset.monotonicity) {
-                        return Status::InternalError(
-                                "Runtime filter partition pruning monotonicity entry misses "
-                                "monotonicity, filter_id={}, partition_id={}",
-                                desc.filter_id, partition_entry.partition_id);
-                    }
-                    if (partition_entry.monotonicity == TTargetExprMonotonicity::NON_MONOTONIC) {
-                        return Status::InternalError(
-                                "Runtime filter partition pruning monotonicity entry must not be "
-                                "NON_MONOTONIC, filter_id={}, partition_id={}",
-                                desc.filter_id, partition_entry.partition_id);
-                    }
+                    DORIS_CHECK(partition_entry.__isset.partition_id);
+                    DORIS_CHECK(partition_entry.__isset.monotonicity);
+                    DORIS_CHECK(partition_entry.monotonicity !=
+                                TTargetExprMonotonicity::NON_MONOTONIC);
                     auto [_, inserted] = partition_monotonicity.emplace(
                             partition_entry.partition_id, partition_entry.monotonicity);
-                    if (!inserted) {
-                        return Status::InternalError(
-                                "Runtime filter partition pruning monotonicity entry has "
-                                "duplicate partition_id, filter_id={}, partition_id={}",
-                                desc.filter_id, partition_entry.partition_id);
-                    }
+                    DORIS_CHECK(inserted);
                 }
             }
         }
