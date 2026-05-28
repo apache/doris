@@ -485,9 +485,38 @@ Status FieldDescriptor::parse_list_field(const std::vector<tparquet::SchemaEleme
 
     size_t num_children = num_children_node(second_level);
     if (num_children > 0) {
-        if (num_children == 1 && !is_struct_list_node(second_level)) {
+        if (num_children == 1 && is_map_node(second_level)) {
+            // LIST<MAP<...>> (old Spark/Hudi layout): repeated list element is a MAP group
+            // (often named "array") with a single MAP_KEY_VALUE child. is_struct_list_node()
+            // would treat "array" as a list wrapper and call parse_struct_field on the MAP node,
+            // which mis-invokes parse_map_field on MAP_KEY_VALUE. Skip the MAP wrapper and parse
+            // MAP_KEY_VALUE as a plain struct (key + value), then build DataTypeMap on the element.
+            set_child_node_level(list_field, list_field->definition_level);
+            bool is_map_optional = is_optional_node(second_level);
+            if (is_map_optional) {
+                list_child->definition_level++;
+            }
+            list_child->repetition_level++;
+            list_child->definition_level++;
+
+            FieldSchema map_kv_field;
+            RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos + 2, &map_kv_field));
+            list_child->children.resize(2);
+            list_child->children[0] = std::move(map_kv_field.children[0]);
+            list_child->children[1] = std::move(map_kv_field.children[1]);
+            list_child->name = second_level.name;
+            list_child->lower_case_name = to_lower(second_level.name);
+            list_child->data_type = std::make_shared<DataTypeMap>(
+                    make_nullable(list_child->children[0].data_type),
+                    make_nullable(list_child->children[1].data_type));
+            if (is_map_optional) {
+                list_child->data_type = make_nullable(list_child->data_type);
+            }
+            list_child->field_id =
+                    second_level.__isset.field_id ? second_level.field_id : -1;
+        } else if (num_children == 1 && !is_struct_list_node(second_level)) {
             // optional field, and the third level element is the nested structure in list
-            // produce nested structure like: LIST<INT>, LIST<MAP>, LIST<LIST<...>>
+            // produce nested structure like: LIST<INT>, LIST<LIST<...>>
             // skip bag/list, it's a repeated element.
             set_child_node_level(list_field, list_field->definition_level);
             RETURN_IF_ERROR(parse_node_field(t_schemas, curr_pos + 2, list_child));
