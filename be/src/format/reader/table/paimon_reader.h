@@ -30,7 +30,8 @@ public:
     ~PaimonReader() final = default;
 
 protected:
-    bool _parse_delete_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc& desc) override;
+    Status _parse_delete_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
+                              bool* has_delete_file) override;
 };
 
 } // namespace doris::paimon

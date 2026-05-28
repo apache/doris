@@ -209,8 +209,12 @@ public:
     }
 
 protected:
-    virtual bool _parse_delete_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc& desc) {
-        return false;
+    virtual Status _parse_delete_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
+                                      bool* has_delete_file) {
+        DORIS_CHECK(desc != nullptr);
+        DORIS_CHECK(has_delete_file != nullptr);
+        *has_delete_file = false;
+        return Status::OK();
     }
     // 切换到下一个 reader 的通用流程。
     // 该方法先关闭当前 reader，再打开下一个具体 reader；子类不应重复实现这个循环。

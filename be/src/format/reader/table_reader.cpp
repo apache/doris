@@ -20,16 +20,22 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 
+#include <algorithm>
+#include <cstring>
+#include <stdexcept>
 #include <set>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
+#include "exec/common/endian.h"
 #include "exprs/vslot_ref.h"
 #include "format/new_parquet/parquet_reader.h"
 #include "format/reader/column_mapper.h"
 #include "format/table/deletion_vector_reader.h"
 #include "io/io_common.h"
+#include "roaring/roaring64map.hh"
 
 namespace doris::reader {
 namespace {
@@ -68,6 +74,79 @@ void build_table_filters_from_conjunct(const VExprSPtr& conjunct,
         table_filters->push_back(std::move(table_filter));
         return;
     }
+}
+
+Status parse_paimon_deletion_vector(const char* buf, size_t bytes_read, DeleteRows* delete_rows) {
+    DORIS_CHECK(buf != nullptr);
+    DORIS_CHECK(delete_rows != nullptr);
+    uint32_t actual_length;
+    std::memcpy(reinterpret_cast<char*>(&actual_length), buf, 4);
+    std::reverse(reinterpret_cast<char*>(&actual_length),
+                 reinterpret_cast<char*>(&actual_length) + 4);
+    buf += 4;
+    if (actual_length != bytes_read - 4) [[unlikely]] {
+        return Status::RuntimeError(
+                "DeletionVector deserialize error: length not match, "
+                "actual length: {}, expect length: {}",
+                actual_length, bytes_read - 4);
+    }
+    uint32_t magic_number;
+    std::memcpy(reinterpret_cast<char*>(&magic_number), buf, 4);
+    std::reverse(reinterpret_cast<char*>(&magic_number),
+                 reinterpret_cast<char*>(&magic_number) + 4);
+    buf += 4;
+    const static uint32_t MAGIC_NUMBER = 1581511376;
+    if (magic_number != MAGIC_NUMBER) [[unlikely]] {
+        return Status::RuntimeError("DeletionVector deserialize error: invalid magic number {}",
+                                    magic_number);
+    }
+
+    roaring::Roaring roaring_bitmap;
+    try {
+        roaring_bitmap = roaring::Roaring::readSafe(buf, bytes_read - 4);
+    } catch (const std::runtime_error& e) {
+        return Status::RuntimeError(
+                "DeletionVector deserialize error: failed to deserialize roaring bitmap, {}",
+                e.what());
+    }
+    delete_rows->reserve(roaring_bitmap.cardinality());
+    for (auto it = roaring_bitmap.begin(); it != roaring_bitmap.end(); it++) {
+        delete_rows->push_back(*it);
+    }
+    return Status::OK();
+}
+
+Status parse_iceberg_deletion_vector(const char* buf, size_t buffer_size,
+                                     DeleteRows* delete_rows) {
+    DORIS_CHECK(buf != nullptr);
+    DORIS_CHECK(delete_rows != nullptr);
+    if (buffer_size < 12) [[unlikely]] {
+        return Status::DataQualityError("Deletion vector file size too small: {}", buffer_size);
+    }
+
+    auto total_length = BigEndian::Load32(buf);
+    if (total_length + 8 != buffer_size) [[unlikely]] {
+        return Status::DataQualityError("Deletion vector length mismatch, expected: {}, actual: {}",
+                                        total_length + 8, buffer_size);
+    }
+
+    constexpr static char MAGIC_NUMBER[] = {'\xD1', '\xD3', '\x39', '\x64'};
+    if (memcmp(buf + sizeof(total_length), MAGIC_NUMBER, 4) != 0) [[unlikely]] {
+        return Status::DataQualityError("Deletion vector magic number mismatch");
+    }
+
+    roaring::Roaring64Map bitmap;
+    try {
+        bitmap = roaring::Roaring64Map::readSafe(buf + 8, buffer_size - 12);
+    } catch (const std::runtime_error& e) {
+        return Status::DataQualityError("Decode roaring bitmap failed, {}", e.what());
+    }
+
+    delete_rows->reserve(bitmap.cardinality());
+    for (auto it = bitmap.begin(); it != bitmap.end(); it++) {
+        delete_rows->push_back(cast_set<int64_t>(*it));
+    }
+    return Status::OK();
 }
 
 } // namespace
@@ -176,12 +255,17 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _partition_values = std::move(options.partition_values);
     _current_task = std::make_unique<ScanTask>();
     _current_task->data_file = create_file_description(options.current_range);
+    _delete_rows = nullptr;
     return _parse_delete_predicates(options);
 }
 
 Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
     DeleteFileDesc desc {.fs_name = options.current_range.fs_name};
-    if (_parse_delete_file(options.current_range.table_format_params, desc)) {
+    bool has_delete_file = false;
+    RETURN_IF_ERROR(
+            _parse_delete_file(options.current_range.table_format_params, &desc, &has_delete_file));
+    if (has_delete_file) {
+        DORIS_CHECK(options.cache != nullptr);
         Status create_status = Status::OK();
 
         _delete_rows = options.cache->get<DeleteRows>(desc.key, [&]() -> DeleteRows* {
@@ -202,44 +286,15 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
             }
 
             const char* buf = buffer.data();
-            uint32_t actual_length;
-            std::memcpy(reinterpret_cast<char*>(&actual_length), buf, 4);
-            std::reverse(reinterpret_cast<char*>(&actual_length),
-                         reinterpret_cast<char*>(&actual_length) + 4);
-            buf += 4;
-            if (actual_length != bytes_read - 4) [[unlikely]] {
-                create_status = Status::RuntimeError(
-                        "DeletionVector deserialize error: length not match, "
-                        "actual length: {}, expect length: {}",
-                        actual_length, bytes_read - 4);
-                return nullptr;
-            }
-            uint32_t magic_number;
-            std::memcpy(reinterpret_cast<char*>(&magic_number), buf, 4);
-            std::reverse(reinterpret_cast<char*>(&magic_number),
-                         reinterpret_cast<char*>(&magic_number) + 4);
-            buf += 4;
-            const static uint32_t MAGIC_NUMBER = 1581511376;
-            if (magic_number != MAGIC_NUMBER) [[unlikely]] {
-                create_status = Status::RuntimeError(
-                        "DeletionVector deserialize error: invalid magic number {}", magic_number);
-                return nullptr;
-            }
-
-            roaring::Roaring roaring_bitmap;
             SCOPED_TIMER(_profile->parse_delete_file_time);
-            try {
-                roaring_bitmap = roaring::Roaring::readSafe(buf, bytes_read - 4);
-            } catch (const std::runtime_error& e) {
-                create_status = Status::RuntimeError(
-                        "DeletionVector deserialize error: failed to deserialize roaring bitmap, "
-                        "{}",
-                        e.what());
-                return nullptr;
+            if (desc.format == DeleteFileDesc::Format::PAIMON) {
+                create_status = parse_paimon_deletion_vector(buf, bytes_read, delete_rows);
+            } else {
+                DORIS_CHECK(desc.format == DeleteFileDesc::Format::ICEBERG);
+                create_status = parse_iceberg_deletion_vector(buf, bytes_read, delete_rows);
             }
-            delete_rows->reserve(roaring_bitmap.cardinality());
-            for (auto it = roaring_bitmap.begin(); it != roaring_bitmap.end(); it++) {
-                delete_rows->push_back(*it);
+            if (!create_status.ok()) [[unlikely]] {
+                return nullptr;
             }
             COUNTER_UPDATE(_profile->num_delete_rows, delete_rows->size());
             return delete_rows;

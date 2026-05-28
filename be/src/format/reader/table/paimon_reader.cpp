@@ -17,26 +17,39 @@
 
 #include "format/reader/table/paimon_reader.h"
 
+#include <cstring>
+#include <string>
+
 #include "format/table/deletion_vector_reader.h"
 
 namespace doris::paimon {
 
-bool PaimonReader::_parse_delete_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc& desc) {
+Status PaimonReader::_parse_delete_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
+                                        bool* has_delete_file) {
+    DORIS_CHECK(desc != nullptr);
+    DORIS_CHECK(has_delete_file != nullptr);
+    *has_delete_file = false;
     const auto& table_desc = t_desc.paimon_params;
     if (!table_desc.__isset.deletion_file) {
-        return false;
+        return Status::OK();
     }
     const auto& deletion_file = table_desc.deletion_file;
 
-    desc.key.resize(deletion_file.path.size() + sizeof(deletion_file.offset));
-    memcpy(desc.key.data(), deletion_file.path.data(), deletion_file.path.size());
-    memcpy(desc.key.data() + deletion_file.path.size(), &deletion_file.offset,
-           sizeof(deletion_file.offset));
-    desc.path = deletion_file.path;
-    desc.start_offset = deletion_file.offset;
-    desc.size = deletion_file.length + 4;
-    desc.file_size = -1;
-    return true;
+    const std::string key_prefix = "paimon_dv:";
+    desc->key.resize(key_prefix.size() + deletion_file.path.size() + sizeof(deletion_file.offset));
+    char* key_data = desc->key.data();
+    memcpy(key_data, key_prefix.data(), key_prefix.size());
+    key_data += key_prefix.size();
+    memcpy(key_data, deletion_file.path.data(), deletion_file.path.size());
+    key_data += deletion_file.path.size();
+    memcpy(key_data, &deletion_file.offset, sizeof(deletion_file.offset));
+    desc->path = deletion_file.path;
+    desc->start_offset = deletion_file.offset;
+    desc->size = deletion_file.length + 4;
+    desc->file_size = -1;
+    desc->format = DeleteFileDesc::Format::PAIMON;
+    *has_delete_file = true;
+    return Status::OK();
 }
 
 } // namespace doris::paimon

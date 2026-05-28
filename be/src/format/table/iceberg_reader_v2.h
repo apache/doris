@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <map>
 #include <memory>
 #include <string>
@@ -41,6 +42,7 @@
 #include "format/reader/expr/delete_predicate.h"
 #include "format/reader/expr/slot_ref.h"
 #include "format/reader/table_reader.h"
+#include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "gen_cpp/PlanNodes_types.h"
 
@@ -144,6 +146,49 @@ protected:
         return Status::OK();
     }
 
+    Status _parse_delete_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
+                              bool* has_delete_file) override {
+        DORIS_CHECK(desc != nullptr);
+        DORIS_CHECK(has_delete_file != nullptr);
+        *has_delete_file = false;
+        if (!t_desc.__isset.iceberg_params) {
+            return Status::OK();
+        }
+        const auto& iceberg_params = t_desc.iceberg_params;
+        if (!iceberg_params.__isset.format_version ||
+            iceberg_params.format_version < MIN_SUPPORT_DELETE_FILES_VERSION ||
+            !iceberg_params.__isset.delete_files || iceberg_params.delete_files.empty()) {
+            return Status::OK();
+        }
+
+        const TIcebergDeleteFileDesc* deletion_vector = nullptr;
+        for (const auto& delete_file : iceberg_params.delete_files) {
+            if (!delete_file.__isset.content || delete_file.content != DELETION_VECTOR) {
+                continue;
+            }
+            if (deletion_vector != nullptr) {
+                return Status::DataQualityError("This iceberg data file has multiple DVs.");
+            }
+            deletion_vector = &delete_file;
+        }
+        if (deletion_vector == nullptr) {
+            return Status::OK();
+        }
+        if (!deletion_vector->__isset.content_offset ||
+            !deletion_vector->__isset.content_size_in_bytes) {
+            return Status::InternalError("Deletion vector is missing content offset or length");
+        }
+
+        desc->key = _iceberg_delete_vector_cache_key(*deletion_vector);
+        desc->path = deletion_vector->path;
+        desc->start_offset = deletion_vector->content_offset;
+        desc->size = deletion_vector->content_size_in_bytes;
+        desc->file_size = -1;
+        desc->format = DeleteFileDesc::Format::ICEBERG;
+        *has_delete_file = true;
+        return Status::OK();
+    }
+
     // 在 table block 上应用 equality delete。
     // equality delete 依赖 table-level 列语义，因此不能下沉到 ParquetReader。
     Status apply_equality_deletes(Block* block) {
@@ -188,6 +233,22 @@ private:
             next_position = std::max(next_position, block_position + 1);
         }
         return next_position;
+    }
+
+    static std::string _iceberg_delete_vector_cache_key(const TIcebergDeleteFileDesc& delete_file) {
+        const std::string key_prefix = "iceberg_dv:";
+        std::string key;
+        key.resize(key_prefix.size() + delete_file.path.size() + sizeof(delete_file.content_offset) +
+                   sizeof(delete_file.content_size_in_bytes));
+        char* data = key.data();
+        memcpy(data, key_prefix.data(), key_prefix.size());
+        data += key_prefix.size();
+        memcpy(data, delete_file.path.data(), delete_file.path.size());
+        data += delete_file.path.size();
+        memcpy(data, &delete_file.content_offset, sizeof(delete_file.content_offset));
+        data += sizeof(delete_file.content_offset);
+        memcpy(data, &delete_file.content_size_in_bytes, sizeof(delete_file.content_size_in_bytes));
+        return key;
     }
 
     void _append_file_scan_column(reader::FileScanRequest* request, reader::ColumnId column_id,
@@ -250,10 +311,10 @@ private:
         }
 
         if (!deletion_vector_files.empty()) {
-            if (deletion_vector_files.size() != 1) {
-                return Status::DataQualityError("This iceberg data file has multiple DVs.");
+            DORIS_CHECK(deletion_vector_files.size() == 1);
+            if (_delete_rows != nullptr) {
+                _position_delete_rows = *_delete_rows;
             }
-            RETURN_IF_ERROR(_read_deletion_vector(deletion_vector_files[0]));
         } else if (!position_delete_files.empty()) {
             RETURN_IF_ERROR(_read_position_delete_files(position_delete_files));
         }
@@ -305,22 +366,6 @@ private:
         _position_delete_rows.erase(
                 std::unique(_position_delete_rows.begin(), _position_delete_rows.end()),
                 _position_delete_rows.end());
-        return Status::OK();
-    }
-
-    Status _read_deletion_vector(const TIcebergDeleteFileDesc& delete_file) {
-        TFileScanRangeParams delete_scan_params = _scan_params == nullptr
-                                                          ? TFileScanRangeParams()
-                                                          : *_scan_params;
-        IcebergDeleteFileIOContext delete_io_ctx(_runtime_state);
-        auto options = _delete_file_reader_options(&delete_io_ctx, &delete_scan_params);
-        roaring::Roaring64Map rows_to_delete;
-        RETURN_IF_ERROR(read_iceberg_deletion_vector(delete_file, options, &rows_to_delete));
-        _position_delete_rows.clear();
-        _position_delete_rows.reserve(rows_to_delete.cardinality());
-        for (auto it = rows_to_delete.begin(); it != rows_to_delete.end(); ++it) {
-            _position_delete_rows.push_back(cast_set<int64_t>(*it));
-        }
         return Status::OK();
     }
 

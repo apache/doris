@@ -39,6 +39,7 @@
 #include "core/data_type/data_type_string.h"
 #include "exprs/vexpr.h"
 #include "format/reader/expr/slot_ref.h"
+#include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_reader_v2.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
@@ -78,6 +79,14 @@ public:
 private:
     const int32_t _value;
     const std::string _expr_name = "TableInt32GreaterThanExpr";
+};
+
+class IcebergTableReaderDeleteFileTestHelper final : public doris::iceberg::IcebergTableReader {
+public:
+    Status parse_delete_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
+                             bool* has_delete_file) {
+        return _parse_delete_file(t_desc, desc, has_delete_file);
+    }
 };
 
 class TableInt32SumGreaterThanExpr final : public VExpr {
@@ -264,6 +273,16 @@ void set_iceberg_row_lineage_params(SplitReadOptions* split_options, int64_t fir
     iceberg_params.__set_last_updated_sequence_number(last_updated_sequence_number);
     table_format_params.__set_iceberg_params(iceberg_params);
     split_options->current_range.__set_table_format_params(table_format_params);
+}
+
+TIcebergDeleteFileDesc make_iceberg_deletion_vector(const std::string& path, int64_t offset,
+                                                    int64_t size) {
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_content(3);
+    delete_file.__set_path(path);
+    delete_file.__set_content_offset(offset);
+    delete_file.__set_content_size_in_bytes(size);
+    return delete_file;
 }
 
 int64_t parquet_column_start_offset(const ::parquet::ColumnChunkMetaData& column_metadata) {
@@ -934,6 +953,42 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredicateP
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, IcebergDeletionVectorUsesTableReaderDeleteFileInterface) {
+    TTableFormatFileDesc table_format_desc;
+    TIcebergFileDesc iceberg_desc;
+    iceberg_desc.__set_format_version(2);
+    iceberg_desc.__set_delete_files({make_iceberg_deletion_vector("dv.bin", 8, 128)});
+    table_format_desc.__set_iceberg_params(iceberg_desc);
+
+    IcebergTableReaderDeleteFileTestHelper reader;
+    DeleteFileDesc desc;
+    bool has_delete_file = false;
+    ASSERT_TRUE(reader.parse_delete_file(table_format_desc, &desc, &has_delete_file).ok());
+
+    EXPECT_TRUE(has_delete_file);
+    EXPECT_EQ(desc.path, "dv.bin");
+    EXPECT_EQ(desc.start_offset, 8);
+    EXPECT_EQ(desc.size, 128);
+    EXPECT_EQ(desc.file_size, -1);
+    EXPECT_EQ(desc.format, DeleteFileDesc::Format::ICEBERG);
+}
+
+TEST(TableReaderTest, IcebergDeletionVectorRejectsMultipleDeleteFiles) {
+    TTableFormatFileDesc table_format_desc;
+    TIcebergFileDesc iceberg_desc;
+    iceberg_desc.__set_format_version(2);
+    iceberg_desc.__set_delete_files({make_iceberg_deletion_vector("dv-a.bin", 8, 128),
+                                     make_iceberg_deletion_vector("dv-b.bin", 16, 256)});
+    table_format_desc.__set_iceberg_params(iceberg_desc);
+
+    IcebergTableReaderDeleteFileTestHelper reader;
+    DeleteFileDesc desc;
+    bool has_delete_file = false;
+    auto status = reader.parse_delete_file(table_format_desc, &desc, &has_delete_file);
+
+    EXPECT_FALSE(status.ok());
 }
 
 TEST(TableReaderTest, ParquetReaderReadsOnlyRowGroupsInFileRange) {
