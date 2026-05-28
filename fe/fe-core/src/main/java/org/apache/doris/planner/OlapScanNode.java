@@ -370,9 +370,20 @@ public class OlapScanNode extends ScanNode {
             DistributionInfo distributionInfo,
             boolean pruneTablesByNereids) throws AnalysisException {
         if (pruneTablesByNereids) {
-            return nereidsPrunedTabletIds.isEmpty()
-                    ? null
-                    : new ArrayList<>(nereidsPrunedTabletIds);
+            if (nereidsPrunedTabletIds.isEmpty()) {
+                return null;
+            }
+            // Filter to tablets belonging to this partition. Without this, the caller's
+            // per-partition loop in computeTabletInfo becomes O(partitionNum * globalPrunedSize)
+            // getTablet hash lookups (most returning null), which dominates plan time
+            // when both partition count and pruned tablet count are large.
+            List<Long> result = new ArrayList<>();
+            for (Long id : tabletIdsInOrder) {
+                if (nereidsPrunedTabletIds.contains(id)) {
+                    result.add(id);
+                }
+            }
+            return result;
         }
         DistributionPruner distributionPruner = null;
         switch (distributionInfo.getType()) {
@@ -918,8 +929,9 @@ public class OlapScanNode extends ScanNode {
             boolean notExistsSampleAndPrunedTablets = sampleTabletIds.isEmpty() && nereidsPrunedTabletIds.isEmpty();
             if (prunedTabletIds != null) {
                 for (Long id : prunedTabletIds) {
-                    if (selectedTable.getTablet(id) != null) {
-                        tablets.add(selectedTable.getTablet(id));
+                    Tablet tablet = selectedTable.getTablet(id);
+                    if (tablet != null) {
+                        tablets.add(tablet);
                         scanTabletIds.add(id);
                     } else if (notExistsSampleAndPrunedTablets) {
                         // The tabletID specified in query does not exist in this partition, skip scan partition.
