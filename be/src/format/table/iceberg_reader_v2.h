@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
@@ -166,11 +167,10 @@ private:
             return Status::OK();
         }
         const auto rows = table_block->rows();
-        auto column = table_block->get_by_position(column_idx)
-                              .type->create_column_const(
-                                      rows, Field::create_field<TYPE_BIGINT>(
-                                                    _row_lineage_columns
-                                                            .last_updated_sequence_number));
+        auto data_column = table_block->get_by_position(column_idx).type->create_column();
+        data_column->insert(Field::create_field<TYPE_BIGINT>(
+                _row_lineage_columns.last_updated_sequence_number));
+        auto column = ColumnConst::create(std::move(data_column), rows);
         table_block->replace_by_position(column_idx, std::move(column));
         return Status::OK();
     }
