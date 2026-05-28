@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
+import org.apache.doris.analysis.SetVar;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
@@ -37,15 +38,15 @@ public class UserVariableAnalysisTest {
     public void testUserVarIntegerType() {
         ConnectContext ctx = MemoTestUtils.createConnectContext();
         // set user var @a = TINY_INT_MAX (tiny int)
-        ctx.setUserVar("a", new IntLiteral(Byte.MAX_VALUE));
+        ctx.setUserVar(new SetVar("a", new IntLiteral(Byte.MAX_VALUE)));
         // set user var @a = SMALL_INT_MAX (small int)
-        ctx.setUserVar("b", new IntLiteral(Short.MAX_VALUE));
+        ctx.setUserVar(new SetVar("b", new IntLiteral(Short.MAX_VALUE)));
         // set user var @b = Long.MAX_VALUE (bigint)
-        ctx.setUserVar("c", new IntLiteral(Integer.MAX_VALUE));
+        ctx.setUserVar(new SetVar("c", new IntLiteral(Integer.MAX_VALUE)));
         // set user var @b = Long.MAX_VALUE (bigint)
-        ctx.setUserVar("d", new IntLiteral(Long.MAX_VALUE));
+        ctx.setUserVar(new SetVar("d", new IntLiteral(Long.MAX_VALUE)));
         // set user var @b = Long.MAX_VALUE (bigint)
-        ctx.setUserVar("e", new LargeIntLiteral(LargeIntLiteral.LARGE_INT_MAX));
+        ctx.setUserVar(new SetVar("e", new LargeIntLiteral(LargeIntLiteral.LARGE_INT_MAX)));
 
         Assertions.assertEquals(TinyIntType.INSTANCE, ConnectContext.get().getLiteralForUserVar("a").getDataType());
         Assertions.assertEquals(SmallIntType.INSTANCE, ConnectContext.get().getLiteralForUserVar("b").getDataType());
