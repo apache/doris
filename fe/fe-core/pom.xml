@@ -854,7 +854,7 @@ under the License.
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
-                    <release>8</release>
+                    <release>17</release>
                 </configuration>
                 <executions>
                     <!-- first: compile annotation and annotation processor -->
