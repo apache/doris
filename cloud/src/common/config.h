@@ -96,9 +96,9 @@ CONF_mInt64(compacted_rowset_retention_seconds, "10800");  // 3h
 CONF_mInt64(dropped_index_retention_seconds, "10800");     // 3h
 CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 // Which instance should be recycled. If empty, recycle all instances.
-CONF_Strings(recycle_whitelist, ""); // Comma seprated list
+CONF_mStrings(recycle_whitelist, ""); // Comma seprated list
 // These instances will not be recycled, only effective when whitelist is empty.
-CONF_Strings(recycle_blacklist, ""); // Comma seprated list
+CONF_mStrings(recycle_blacklist, ""); // Comma seprated list
 // IO worker thread pool concurrency: object list, delete
 CONF_mInt32(instance_recycler_worker_pool_size, "32");
 // Max number of delete tasks per batch when recycling objects.
