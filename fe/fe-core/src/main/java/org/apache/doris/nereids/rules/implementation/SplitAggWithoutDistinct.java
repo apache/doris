@@ -89,12 +89,16 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
                 candidates.addAll(splitTwoPhase(aggregate));
                 break;
             default:
-                candidates.addAll(implementOnePhase(aggregate));
-                if (!AggregateUtils.isSingleExecutionInstance(ctx)) {
+                List<Plan> onePhaseCandidates = implementOnePhase(aggregate);
+                candidates.addAll(onePhaseCandidates);
+                boolean singleExecutionInstance = AggregateUtils.isSingleExecutionInstance(ctx);
+                if (!singleExecutionInstance || onePhaseCandidates.isEmpty()) {
                     candidates.addAll(splitTwoPhase(aggregate));
                     // Only add bucketed agg candidate in auto mode (aggPhase == 0).
                     // When the user forces a specific phase, respect that choice.
-                    candidates.addAll(implementBucketedPhase(aggregate, ctx));
+                    if (!singleExecutionInstance) {
+                        candidates.addAll(implementBucketedPhase(aggregate, ctx));
+                    }
                 }
                 break;
         }

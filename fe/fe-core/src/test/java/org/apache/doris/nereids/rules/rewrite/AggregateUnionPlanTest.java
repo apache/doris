@@ -61,6 +61,13 @@ public class AggregateUnionPlanTest extends TestWithFeService implements MemoPat
                 + ") ENGINE=OLAP DUPLICATE KEY(a, b)"
                 + " DISTRIBUTED BY HASH(a) BUCKETS 3"
                 + " PROPERTIES ('replication_allocation' = 'tag.location.default: 1');");
+        createTable("CREATE TABLE test_agg_union.bitmap_tbl ("
+                + "  id INT,"
+                + "  tag INT,"
+                + "  user_id BITMAP BITMAP_UNION"
+                + ") ENGINE=OLAP AGGREGATE KEY(id, tag)"
+                + " DISTRIBUTED BY HASH(id) BUCKETS 1"
+                + " PROPERTIES ('replication_allocation' = 'tag.location.default: 1');");
     }
 
     @Test
@@ -112,6 +119,25 @@ public class AggregateUnionPlanTest extends TestWithFeService implements MemoPat
                     "SELECT * FROM (SELECT 1 a INTERSECT SELECT 1 a) t1"
                             + " UNION "
                             + "SELECT * FROM (SELECT 2 a EXCEPT SELECT 3 a) t2");
+        } finally {
+            connectContext.getSessionVariable().setBeNumberForTest(beNumberForTest);
+            connectContext.getSessionVariable().parallelPipelineTaskNum = parallelPipelineTaskNum;
+        }
+    }
+
+    @Test
+    public void testTwoPhaseOnlyAggregateSingleInstance() {
+        int beNumberForTest = connectContext.getSessionVariable().getBeNumberForTest();
+        int parallelPipelineTaskNum = connectContext.getSessionVariable().parallelPipelineTaskNum;
+        connectContext.getSessionVariable().setBeNumberForTest(1);
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 1;
+        try {
+            PlanChecker.from(connectContext).checkPlannerResult(
+                    "SELECT orthogonal_bitmap_expr_calculate(user_id, tag, '(100&200)')"
+                            + " FROM test_agg_union.bitmap_tbl");
+            PlanChecker.from(connectContext).checkPlannerResult(
+                    "SELECT orthogonal_bitmap_expr_calculate_count(user_id, tag, '(100&200)')"
+                            + " FROM test_agg_union.bitmap_tbl");
         } finally {
             connectContext.getSessionVariable().setBeNumberForTest(beNumberForTest);
             connectContext.getSessionVariable().parallelPipelineTaskNum = parallelPipelineTaskNum;
