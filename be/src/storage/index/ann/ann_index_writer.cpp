@@ -91,8 +91,7 @@ Status AnnIndexColumnWriter::init() {
     const size_t chunk_elements = AnnIndexColumnWriter::chunk_size() * build_parameter.dim;
     const Int64 min_train_rows = _vector_index->get_min_train_rows();
     if (min_train_rows > 0) {
-        _training_sample.reserve(_training_sample_rows_limit(min_train_rows) *
-                                 build_parameter.dim);
+        _training_sample.reserve(_training_sample_rows_limit(min_train_rows) * build_parameter.dim);
     }
     _buffered_vectors.reserve(chunk_elements);
     _training_sample_seen_rows = 0;
@@ -163,8 +162,8 @@ Status AnnIndexColumnWriter::finish() {
     }
 
     const Int64 min_train_rows = _vector_index->get_min_train_rows();
-    Status st = min_train_rows == 0 ? _vector_index->save(_dir.get())
-                                    : _train_and_add(min_train_rows);
+    Status st =
+            min_train_rows == 0 ? _vector_index->save(_dir.get()) : _train_and_add(min_train_rows);
     _delete_spool_file();
     return st;
 }
@@ -200,9 +199,8 @@ Status AnnIndexColumnWriter::_append_vectors_need_train(const float* vectors, si
 
 size_t AnnIndexColumnWriter::_training_sample_rows_limit(Int64 min_train_rows) const {
     DCHECK(min_train_rows > 0);
-    const Int64 bounded_rows =
-            std::min<Int64>(AnnIndexColumnWriter::chunk_size(),
-                            config::ann_index_build_max_train_rows);
+    const Int64 bounded_rows = std::min<Int64>(AnnIndexColumnWriter::chunk_size(),
+                                               config::ann_index_build_max_train_rows);
     return cast_set<size_t>(std::max<Int64>(min_train_rows, bounded_rows));
 }
 
@@ -244,9 +242,8 @@ Status AnnIndexColumnWriter::_spill_buffered_vectors() {
                        fmt::format("ann_index_build_{}.spool", UniqueId::gen_uid().to_string());
     io::FileWriterOptions opts;
     opts.sync_file_data = false;
-    RETURN_IF_ERROR(
-            io::global_local_filesystem()->create_file(_spool_file_path, &_spool_file_writer,
-                                                       &opts));
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(_spool_file_path,
+                                                               &_spool_file_writer, &opts));
     if (!_buffered_vectors.empty()) {
         RETURN_IF_ERROR(_append_to_spool_file(_buffered_vectors.data(), _buffered_vectors.size()));
         _buffered_vectors.clear();

@@ -517,9 +517,9 @@ TEST_F(AnnIndexWriterTest, TestTrainRequiredSmallDataStaysInMemory) {
         offsets.push_back(i * dim);
     }
 
-    Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                             reinterpret_cast<const uint8_t*>(offsets.data()),
-                                             num_rows);
+    Status status =
+            writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                     reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
     EXPECT_TRUE(status.ok());
     EXPECT_FALSE(writer->has_spool_file());
     EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(mock_index.get()));
@@ -543,9 +543,8 @@ TEST_F(AnnIndexWriterTest, TestTrainRequiredSmallDataStaysInMemory) {
 TEST_F(AnnIndexWriterTest, TestTrainingSampleUsesReservoirAndMaxRows) {
     const int64_t old_max_train_rows = config::ann_index_build_max_train_rows;
     config::ann_index_build_max_train_rows = 6;
-    doris::Defer restore_config {[&] {
-        config::ann_index_build_max_train_rows = old_max_train_rows;
-    }};
+    doris::Defer restore_config {
+            [&] { config::ann_index_build_max_train_rows = old_max_train_rows; }};
 
     auto mock_index = std::make_shared<MockVectorIndex>();
     auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
@@ -576,9 +575,9 @@ TEST_F(AnnIndexWriterTest, TestTrainingSampleUsesReservoirAndMaxRows) {
         offsets.push_back(row * dim);
     }
 
-    Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                             reinterpret_cast<const uint8_t*>(offsets.data()),
-                                             num_rows);
+    Status status =
+            writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                     reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
     EXPECT_TRUE(status.ok());
     EXPECT_TRUE(writer->has_spool_file());
     EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(mock_index.get()));
