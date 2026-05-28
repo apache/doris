@@ -485,7 +485,8 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         int index = 0;
         for (auto& t : compact_tablets) {
             ASSERT_EQ(t.tablet->tablet_id(), 10100 - index);
-            ASSERT_EQ(t.tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION), 100 - index);
+            ASSERT_EQ(t.tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION),
+                      100 - index);
             index++;
         }
         k_engine->_compaction_num_per_round = 1;
@@ -509,10 +510,14 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         ASSERT_EQ(compact_tablets.size(), 11);
         for (int i = 0; i < 10; ++i) {
             ASSERT_EQ(compact_tablets[i].tablet->tablet_id(), 20100 - i);
-            ASSERT_EQ(compact_tablets[i].tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION), 100 - i);
+            ASSERT_EQ(compact_tablets[i].tablet->calc_compaction_score(
+                              CompactionType::CUMULATIVE_COMPACTION),
+                      100 - i);
         }
         ASSERT_EQ(compact_tablets[10].tablet->tablet_id(), 20102);
-        ASSERT_EQ(compact_tablets[10].tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION), 200);
+        ASSERT_EQ(compact_tablets[10].tablet->calc_compaction_score(
+                          CompactionType::CUMULATIVE_COMPACTION),
+                  200);
 
         k_engine->_compaction_num_per_round = 1;
         // drop all tablets
@@ -537,7 +542,9 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         ASSERT_EQ(compact_tablets.size(), 5);
         for (int i = 0; i < 5; ++i) {
             ASSERT_EQ(compact_tablets[i].tablet->tablet_id(), 30000 + 5 - i);
-            ASSERT_EQ(compact_tablets[i].tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION), 10 - i);
+            ASSERT_EQ(compact_tablets[i].tablet->calc_compaction_score(
+                              CompactionType::CUMULATIVE_COMPACTION),
+                      10 - i);
         }
 
         k_engine->_compaction_num_per_round = 1;
