@@ -29,9 +29,11 @@
 
 #include "core/assert_cast.h"
 #include "core/column/column.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -324,6 +326,147 @@ public:
         auto cume_dist = (double)data(place).numerator * 1.0 / (double)data(place).denominator;
         for (size_t i = start; i < end; ++i) {
             column.get_data()[i] = cume_dist;
+        }
+    }
+
+    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena&) const override {}
+    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {}
+    void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena&) const override {}
+};
+
+struct RatioToReportData {
+    double partition_sum = 0.0;
+    double current_value = 0.0;
+    int64_t partition_start = -1;
+    int64_t rows = 0;
+    bool current_is_null = true;
+    bool partition_sum_is_zero = true;
+};
+
+struct RatioToReportColumnView {
+    const ColumnFloat64* data_column = nullptr;
+    const NullMap* null_map = nullptr;
+    bool is_const = false;
+};
+
+class WindowFunctionRatioToReport final
+        : public IAggregateFunctionDataHelper<RatioToReportData, WindowFunctionRatioToReport> {
+private:
+    static RatioToReportColumnView _extract_column(const IColumn** columns) {
+        const IColumn* column = columns[0];
+        RatioToReportColumnView column_view;
+        if (const auto* const_column = check_and_get_column<ColumnConst>(column)) {
+            column = &const_column->get_data_column();
+            column_view.is_const = true;
+        }
+        if (column->is_nullable()) {
+            const auto& nullable_column =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*column);
+            column_view.data_column = &assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(
+                    nullable_column.get_nested_column());
+            column_view.null_map = &nullable_column.get_null_map_data();
+            return column_view;
+        }
+        column_view.data_column =
+                &assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*column);
+        return column_view;
+    }
+
+    static size_t _row_index(const RatioToReportColumnView& column_view, int64_t row) {
+        return column_view.is_const ? 0 : row;
+    }
+
+    static bool _is_null(const RatioToReportColumnView& column_view, int64_t row) {
+        return column_view.null_map != nullptr &&
+               (*column_view.null_map)[_row_index(column_view, row)] != 0;
+    }
+
+    static double _value_at(const RatioToReportColumnView& column_view, int64_t row) {
+        return column_view.data_column->get_data()[_row_index(column_view, row)];
+    }
+
+    static void _set_nullable_result(IColumn& to, size_t row, bool is_null, double value) {
+        auto& nullable_column = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to);
+        auto& data_column = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(
+                nullable_column.get_nested_column());
+        data_column.get_data()[row] = value;
+        nullable_column.get_null_map_data()[row] = is_null;
+    }
+
+    static void _insert_nullable_result(IColumn& to, bool is_null, double value) {
+        auto& nullable_column = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to);
+        if (is_null) {
+            nullable_column.insert_default();
+            return;
+        }
+        auto& data_column = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(
+                nullable_column.get_nested_column());
+        data_column.get_data().push_back(value);
+        nullable_column.get_null_map_data().push_back(0);
+    }
+
+public:
+    WindowFunctionRatioToReport(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper(argument_types_) {}
+
+    String get_name() const override { return "ratio_to_report"; }
+
+    DataTypePtr get_return_type() const override {
+        return make_nullable(std::make_shared<DataTypeFloat64>());
+    }
+
+    void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena&) const override {}
+
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena&, UInt8*, UInt8*) const override {
+        RatioToReportColumnView column_view = _extract_column(columns);
+        auto& state = data(place);
+        if (state.partition_start != partition_start) {
+            state.partition_start = partition_start;
+            state.rows = 0;
+            state.partition_sum = 0.0;
+            for (int64_t row = partition_start; row < partition_end; ++row) {
+                if (!_is_null(column_view, row)) {
+                    state.partition_sum += _value_at(column_view, row);
+                }
+            }
+            state.partition_sum_is_zero = state.partition_sum == 0.0;
+        }
+
+        int64_t current_row = partition_start + state.rows;
+        DCHECK_LT(current_row, partition_end);
+        ++state.rows;
+        state.current_is_null = _is_null(column_view, current_row);
+        state.current_value = state.current_is_null ? 0.0 : _value_at(column_view, current_row);
+    }
+
+    void reset(AggregateDataPtr place) const override {
+        auto& state = WindowFunctionRatioToReport::data(place);
+        state.partition_sum = 0.0;
+        state.current_value = 0.0;
+        state.partition_start = -1;
+        state.rows = 0;
+        state.current_is_null = true;
+        state.partition_sum_is_zero = true;
+    }
+
+    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+        const auto& state = data(place);
+        bool is_null = state.current_is_null || state.partition_sum_is_zero;
+        double value = is_null ? 0.0 : state.current_value / state.partition_sum;
+        _insert_nullable_result(to, is_null, value);
+    }
+
+    bool result_column_could_resize() const override { return true; }
+
+    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                  const size_t start, const size_t end) const override {
+        const auto& state = data(place);
+        bool is_null = state.current_is_null || state.partition_sum_is_zero;
+        double value = is_null ? 0.0 : state.current_value / state.partition_sum;
+        for (size_t i = start; i < end; ++i) {
+            _set_nullable_result(to, i, is_null, value);
         }
     }
 

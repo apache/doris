@@ -88,6 +88,14 @@ void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& fac
     factory.register_function("row_number", create_empty_arg_window<WindowFunctionRowNumber>);
     factory.register_function("ntile", creator_without_type::creator<WindowFunctionNTile>);
     factory.register_function("cume_dist", create_empty_arg_window<WindowFunctionCumeDist>);
+    factory.register_function_both(
+            "ratio_to_report",
+            [](const std::string&, const DataTypes& argument_types, const DataTypePtr&,
+               const bool result_is_nullable,
+               const AggregateFunctionAttr& attr) -> AggregateFunctionPtr {
+                return creator_without_type::create_ignore_nullable<WindowFunctionRatioToReport>(
+                        argument_types, result_is_nullable, attr);
+            });
 }
 
 void register_aggregate_function_window_lead_lag_first_last(

@@ -58,7 +58,8 @@ public:
 };
 
 // those function cacluate need partition info, so can't be used in streaming mode
-static const std::set<std::string> PARTITION_FUNCTION_SET {"ntile", "cume_dist", "percent_rank"};
+static const std::set<std::string> PARTITION_FUNCTION_SET {
+        "ntile", "cume_dist", "percent_rank", "ratio_to_report"};
 
 class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticSharedState> {
     ENABLE_FACTORY_CREATOR(AnalyticSinkLocalState);

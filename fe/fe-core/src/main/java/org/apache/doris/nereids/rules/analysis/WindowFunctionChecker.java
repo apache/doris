@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.NthValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.PercentRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
+import org.apache.doris.nereids.trees.expressions.functions.window.RatioToReport;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -400,6 +401,18 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
 
         checkAndCompleteWindowFrame(requiredFrame, cumeDist.getName());
         return cumeDist;
+    }
+
+    /**
+     * required WindowFrame: (ROWS, UNBOUNDED PRECEDING, CURRENT ROW)
+     */
+    @Override
+    public RatioToReport visitRatioToReport(RatioToReport ratioToReport, Void ctx) {
+        WindowFrame requiredFrame = new WindowFrame(FrameUnitsType.ROWS,
+                FrameBoundary.newPrecedingBoundary(), FrameBoundary.newCurrentRowBoundary());
+
+        checkAndCompleteWindowFrame(requiredFrame, ratioToReport.getName());
+        return ratioToReport;
     }
 
     /**

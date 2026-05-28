@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.NthValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.PercentRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
+import org.apache.doris.nereids.trees.expressions.functions.window.RatioToReport;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 
 import com.google.common.collect.ImmutableList;
@@ -49,6 +50,7 @@ public class BuiltinWindowFunctions implements FunctionHelper {
             window(NthValue.class, "nth_value"),
             window(PercentRank.class, "percent_rank"),
             window(Rank.class, "rank"),
+            window(RatioToReport.class, "ratio_to_report"),
             window(RowNumber.class, "row_number"),
             window(CumeDist.class, "cume_dist")
     );
