@@ -18,12 +18,15 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -35,6 +38,11 @@ import org.apache.doris.nereids.types.VarcharType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.time.DateTimeException;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.zone.ZoneOffsetTransition;
 import java.util.List;
 
 /**
@@ -90,7 +98,36 @@ public class ConvertTz extends ScalarFunction
 
     @Override
     public boolean isMonotonic(Literal lower, Literal upper) {
-        return child(1).isConstant() && child(2).isConstant();
+        if (!(child(1) instanceof StringLikeLiteral) || !(child(2) instanceof StringLikeLiteral)) {
+            return false;
+        }
+        ZoneId fromZone = parseZoneId((StringLikeLiteral) child(1));
+        ZoneId toZone = parseZoneId((StringLikeLiteral) child(2));
+        if (fromZone == null || toZone == null) {
+            return false;
+        }
+        if (fromZone.getRules().isFixedOffset() && toZone.getRules().isFixedOffset()) {
+            return true;
+        }
+        if (lower == null || upper == null) {
+            return false;
+        }
+        LocalDateTime lowerDateTime = toLocalDateTime(lower);
+        LocalDateTime upperDateTime = toLocalDateTime(upper);
+        if (lowerDateTime == null || upperDateTime == null || upperDateTime.isBefore(lowerDateTime)) {
+            return false;
+        }
+        // Partition pruning folds both endpoints as inclusive values, so a transition touching either boundary
+        // must disable the monotonic shortcut.
+        if (hasTransitionInLocalRange(fromZone, lowerDateTime, upperDateTime)) {
+            return false;
+        }
+        Instant lowerInstant = lowerDateTime.atZone(fromZone).toInstant();
+        Instant upperInstant = upperDateTime.atZone(fromZone).toInstant();
+        if (upperInstant.isBefore(lowerInstant)) {
+            return false;
+        }
+        return !hasTransitionInInstantRange(toZone, lowerInstant, upperInstant);
     }
 
     @Override
@@ -106,5 +143,60 @@ public class ConvertTz extends ScalarFunction
     @Override
     public Expression withConstantArgs(Expression literal) {
         return new ConvertTz(literal, child(1), child(2));
+    }
+
+    private ZoneId parseZoneId(StringLikeLiteral timeZone) {
+        try {
+            String standardizedTimeZone = TimeUtils.checkTimeZoneValidAndStandardize(timeZone.getStringValue());
+            return ZoneId.of(standardizedTimeZone, TimeUtils.timeZoneAliasMap);
+        } catch (DdlException | DateTimeException e) {
+            return null;
+        }
+    }
+
+    private LocalDateTime toLocalDateTime(Literal literal) {
+        return literal instanceof DateLiteral ? ((DateLiteral) literal).toJavaDateType() : null;
+    }
+
+    private boolean hasTransitionInLocalRange(ZoneId zoneId, LocalDateTime lower, LocalDateTime upper) {
+        if (zoneId.getRules().isFixedOffset() || !lower.isBefore(upper)) {
+            return false;
+        }
+        ZoneOffsetTransition transition = zoneId.getRules()
+                .previousTransition(lower.atZone(zoneId).toInstant().plusNanos(1));
+        if (transition == null) {
+            transition = zoneId.getRules().nextTransition(lower.atZone(zoneId).toInstant());
+        }
+        while (transition != null) {
+            LocalDateTime transitionStart = min(transition.getDateTimeBefore(), transition.getDateTimeAfter());
+            if (upper.isBefore(transitionStart)) {
+                return false;
+            }
+            LocalDateTime transitionEnd = max(transition.getDateTimeBefore(), transition.getDateTimeAfter());
+            if (!transitionEnd.isBefore(lower) && !upper.isBefore(transitionStart)) {
+                return true;
+            }
+            transition = zoneId.getRules().nextTransition(transition.getInstant());
+        }
+        return false;
+    }
+
+    private boolean hasTransitionInInstantRange(ZoneId zoneId, Instant lower, Instant upper) {
+        if (zoneId.getRules().isFixedOffset()) {
+            return false;
+        }
+        ZoneOffsetTransition transition = zoneId.getRules().previousTransition(lower.plusNanos(1));
+        if (transition == null || transition.getInstant().isBefore(lower)) {
+            transition = zoneId.getRules().nextTransition(lower);
+        }
+        return transition != null && !transition.getInstant().isAfter(upper);
+    }
+
+    private LocalDateTime min(LocalDateTime left, LocalDateTime right) {
+        return left.isBefore(right) ? left : right;
+    }
+
+    private LocalDateTime max(LocalDateTime left, LocalDateTime right) {
+        return left.isAfter(right) ? left : right;
     }
 }
