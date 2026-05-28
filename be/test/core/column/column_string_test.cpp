@@ -957,6 +957,31 @@ TEST_F(ColumnStringTest, filter) {
         EXPECT_THROW(column_str64->filter(filter), Exception);
     }
 }
+
+TEST_F(ColumnStringTest, get_data) {
+    auto test_func = [](const auto& source_column) {
+        const auto& data = source_column->get_data();
+        ASSERT_EQ(data.size(), source_column->size());
+        for (size_t i = 0; i != source_column->size(); ++i) {
+            EXPECT_EQ(data[i], source_column->get_data_at(i));
+        }
+    };
+
+    test_func(column_str32);
+    test_func(column_str64);
+
+    auto mutable_column = ColumnString::create();
+    mutable_column->insert_data("abc", 3);
+    ASSERT_EQ(mutable_column->get_data().size(), 1);
+    EXPECT_EQ(mutable_column->get_data()[0], StringRef("abc"));
+
+    mutable_column->insert_data("de", 2);
+    const auto& updated_data = mutable_column->get_data();
+    ASSERT_EQ(updated_data.size(), 2);
+    EXPECT_EQ(updated_data[0], StringRef("abc"));
+    EXPECT_EQ(updated_data[1], StringRef("de"));
+}
+
 TEST_F(ColumnStringTest, filter_by_selector) {
     auto test_func = [&](const auto& source_column) {
         auto src_size = source_column->size();
@@ -971,7 +996,6 @@ TEST_F(ColumnStringTest, filter_by_selector) {
         std::shuffle(indices.begin(), indices.end(), g);
         size_t sel_size = src_size / 2;
         indices.resize(sel_size);
-        std::sort(indices.begin(), indices.end());
         std::cout << "selection count: " << sel_size << ", indices: ";
         for (auto i : indices) {
             std::cout << i << ",";

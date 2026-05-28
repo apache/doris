@@ -23,7 +23,6 @@
 
 #include "core/column/column.h"
 #include "core/column/column_string.h"
-#include "core/column/predicate_column.h"
 #include "core/pod_array.h"
 #include "core/string_ref.h"
 #include "core/types.h"
@@ -39,7 +38,7 @@ namespace doris {
  * For range comparison predicates, it is necessary to sort the dictionary
  * contents, convert the encoding column, and then compare the encoding directly.
  * If the read data page contains plain-encoded data pages, the dictionary
- * columns are converted into PredicateColumn for processing.
+ * columns are converted into ordinary string columns for processing.
  * Currently ColumnDictionary is only used for storage layer.
  */
 class ColumnDictI32 final : public COWHelper<IColumn, ColumnDictI32> {
@@ -256,16 +255,7 @@ public:
         if (is_dict_sorted() && !is_dict_code_converted()) {
             convert_dict_codes_if_necessary();
         }
-        // if type is OLAP_FIELD_TYPE_CHAR, we need to construct TYPE_CHAR PredicateColumnType,
-        // because the string length will different from varchar and string which needed to be processed after.
-        auto create_column = [this]() -> MutableColumnPtr {
-            if (_type == FieldType::OLAP_FIELD_TYPE_CHAR) {
-                return PredicateColumnType<TYPE_CHAR>::create();
-            }
-            return PredicateColumnType<TYPE_STRING>::create();
-        };
-
-        auto res = create_column();
+        auto res = ColumnString::create();
         res->reserve(_codes.capacity());
         for (int code : _codes) {
             auto value = _dict.get_value(code);

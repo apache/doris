@@ -22,7 +22,11 @@
 
 #include "common/compiler_util.h"
 #include "common/exception.h"
+#include "core/assert_cast.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_dictionary.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
@@ -67,6 +71,8 @@ class InListPredicateBase final : public ColumnPredicate {
 public:
     ENABLE_FACTORY_CREATOR(InListPredicateBase);
     using T = typename PrimitiveTypeTraits<Type>::CppType;
+    using PredicateEvaluateColumnType =
+            typename PrimitiveTypeTraits<PredicateEvaluateType<Type>>::ColumnType;
     InListPredicateBase(uint32_t column_id, std::string col_name,
                         const std::shared_ptr<HybridSetBase>& hybrid_set, bool is_opposite,
                         size_t char_length = 0)
@@ -536,20 +542,26 @@ private:
                 __builtin_unreachable();
             }
         } else {
-            auto& pred_col =
-                    assert_cast<const PredicateColumnType<PredicateEvaluateType<Type>>*>(column)
-                            ->get_data();
-            auto pred_col_data = pred_col.data();
-
-#define EVALUATE_WITH_NULL_IMPL(IDX) \
-    is_opposite ^                    \
-            (!(*null_map)[IDX] &&    \
-             _operator(_values->find(reinterpret_cast<const T*>(&pred_col_data[IDX])), false))
+            const auto& pred_col =
+                    assert_cast<const PredicateEvaluateColumnType&>(*column).get_data();
+            if constexpr (is_string_type(Type)) {
+#define EVALUATE_WITH_NULL_IMPL(IDX)    \
+    is_opposite ^ (!(*null_map)[IDX] && \
+                   _operator(_values->find(pred_col[IDX].data, pred_col[IDX].size), false))
 #define EVALUATE_WITHOUT_NULL_IMPL(IDX) \
-    is_opposite ^ _operator(_values->find(reinterpret_cast<const T*>(&pred_col_data[IDX])), false)
-            EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
+    is_opposite ^ _operator(_values->find(pred_col[IDX].data, pred_col[IDX].size), false)
+                EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
 #undef EVALUATE_WITH_NULL_IMPL
 #undef EVALUATE_WITHOUT_NULL_IMPL
+            } else {
+#define EVALUATE_WITH_NULL_IMPL(IDX) \
+    is_opposite ^ (!(*null_map)[IDX] && _operator(_values->find(&pred_col[IDX]), false))
+#define EVALUATE_WITHOUT_NULL_IMPL(IDX) \
+    is_opposite ^ _operator(_values->find(&pred_col[IDX]), false)
+                EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
+#undef EVALUATE_WITH_NULL_IMPL
+#undef EVALUATE_WITHOUT_NULL_IMPL
+            }
         }
         return new_size;
     }
@@ -597,41 +609,55 @@ private:
                 __builtin_unreachable();
             }
         } else {
-            auto* nested_col_ptr =
-                    check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(column);
-            if (nested_col_ptr == nullptr) {
-                throw Exception(ErrorCode::INTERNAL_ERROR,
-                                "InListPredicateBase: _base_evaluate_bit get invalid column type");
-            }
-
-            auto& data_array = nested_col_ptr->get_data();
-
-            for (uint16_t i = 0; i < size; i++) {
-                if (is_and ^ flags[i]) {
-                    continue;
-                }
-                uint16_t idx = sel[i];
-                if constexpr (is_nullable) {
-                    if ((*null_map)[idx]) {
-                        if (is_and ^ is_opposite) {
-                            flags[i] = !is_and;
-                        }
-                        continue;
-                    }
-                }
-
+            auto update_flag = [&](bool found, uint16_t flag_idx) {
                 if constexpr (!is_opposite) {
-                    if (is_and ^
-                        _operator(_values->find(reinterpret_cast<const T*>(&data_array[idx])),
-                                  false)) {
-                        flags[i] = !is_and;
+                    if (is_and ^ _operator(found, false)) {
+                        flags[flag_idx] = !is_and;
                     }
                 } else {
-                    if (is_and ^
-                        !_operator(_values->find(reinterpret_cast<const T*>(&data_array[idx])),
-                                   false)) {
-                        flags[i] = !is_and;
+                    if (is_and ^ !_operator(found, false)) {
+                        flags[flag_idx] = !is_and;
                     }
+                }
+            };
+            if constexpr (!is_string_type(Type)) {
+                const auto* fixed_data_array =
+                        assert_cast<const PredicateEvaluateColumnType&>(*column).get_data().data();
+                for (uint16_t i = 0; i < size; i++) {
+                    if (is_and ^ flags[i]) {
+                        continue;
+                    }
+                    uint16_t idx = sel[i];
+                    if constexpr (is_nullable) {
+                        if ((*null_map)[idx]) {
+                            if (is_and ^ is_opposite) {
+                                flags[i] = !is_and;
+                            }
+                            continue;
+                        }
+                    }
+
+                    update_flag(_values->find(&fixed_data_array[idx]), i);
+                }
+            } else {
+                const auto& string_data_array =
+                        assert_cast<const PredicateEvaluateColumnType&>(*column).get_data();
+                for (uint16_t i = 0; i < size; i++) {
+                    if (is_and ^ flags[i]) {
+                        continue;
+                    }
+                    uint16_t idx = sel[i];
+                    if constexpr (is_nullable) {
+                        if ((*null_map)[idx]) {
+                            if (is_and ^ is_opposite) {
+                                flags[i] = !is_and;
+                            }
+                            continue;
+                        }
+                    }
+
+                    const auto& value = string_data_array[idx];
+                    update_flag(_values->find(value.data, value.size), i);
                 }
             }
         }

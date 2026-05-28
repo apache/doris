@@ -28,6 +28,7 @@
 
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_dictionary.h"
 #include "core/column/column_map.h"
 #include "core/cow.h"
@@ -2292,7 +2293,7 @@ public:
     // column_dictionary funcs
     // is_column_dictionary
     // convert_to_predicate_column_if_dictionary
-    // If column isn't ColumnDictionary, return itself. Otherwise, transforms is to predicate column.
+    // If column isn't ColumnDictionary, return itself. Otherwise, transform it to ColumnString.
     static void assert_convert_to_predicate_column_if_dictionary_callback(
             MutableColumns& load_cols, DataTypes typs, std::function<void(IColumn*)> assert_func) {
         // Create an empty column to verify `convert_to_predicate_column_if_dictionary` functionality

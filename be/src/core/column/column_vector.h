@@ -331,6 +331,17 @@ public:
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
 
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
+        auto* res_col = assert_cast<ColumnVector<T>*>(col_ptr);
+        auto& res_data = res_col->get_data();
+        const auto old_size = res_data.size();
+        res_data.resize(old_size + sel_size);
+        for (size_t i = 0; i < sel_size; ++i) {
+            res_data[old_size + i] = data[sel[i]];
+        }
+        return Status::OK();
+    }
+
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     StringRef get_raw_data() const override {

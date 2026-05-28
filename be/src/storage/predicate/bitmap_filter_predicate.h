@@ -19,8 +19,10 @@
 
 #include <cstdint>
 
+#include "core/assert_cast.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
-#include "core/column/predicate_column.h"
+#include "core/column/column_vector.h"
 #include "exprs/bitmapfilter_predicate.h"
 #include "storage/predicate/column_predicate.h"
 
@@ -31,6 +33,8 @@ public:
     ENABLE_FACTORY_CREATOR(BitmapFilterColumnPredicate);
     using CppType = typename PrimitiveTypeTraits<T>::CppType;
     using SpecificFilter = BitmapFilterFunc<T>;
+    using PredicateEvaluateColumnType =
+            typename PrimitiveTypeTraits<PredicateEvaluateType<T>>::ColumnType;
 
     BitmapFilterColumnPredicate(uint32_t column_id, std::string col_name,
                                 const std::shared_ptr<BitmapFilterFuncBase>& filter)
@@ -89,11 +93,10 @@ private:
         }
 
         uint16_t new_size = 0;
+        static_assert(!is_string_type(T), "bitmap filter predicate expects fixed-length data");
+        const auto& data = assert_cast<const PredicateEvaluateColumnType&>(column).get_data();
         new_size = _specific_filter->find_fixed_len_olap_engine(
-                (char*)assert_cast<const PredicateColumnType<PredicateEvaluateType<T>>*>(&column)
-                        ->get_data()
-                        .data(),
-                null_map, sel, size);
+                const_cast<char*>(reinterpret_cast<const char*>(data.data())), null_map, sel, size);
         return new_size;
     }
 

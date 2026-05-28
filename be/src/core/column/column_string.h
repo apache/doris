@@ -60,6 +60,8 @@ class ColumnStr final : public COWHelper<IColumn, ColumnStr<T>> {
 public:
     using Char = UInt8;
     using Chars = PaddedPODArray<UInt8>;
+    using value_type = StringRef;
+    using Container = PaddedPODArray<value_type>;
 
     static constexpr size_t MAX_STRINGS_OVERFLOW_SIZE = 128;
 
@@ -88,6 +90,9 @@ private:
     /// Bytes of strings, placed contiguously.
     /// For convenience, every string ends with terminating zero byte. Note that strings could contain zero bytes in the middle.
     Chars chars;
+
+    /// Lazily materialized StringRef view used by predicate batch paths.
+    mutable Container string_refs;
 
     // Start position of i-th element.
     T ALWAYS_INLINE offset_at(ssize_t i) const { return offsets[i - 1]; }
@@ -140,7 +145,7 @@ public:
     bool has_enough_capacity(const IColumn& src) const override;
 
     size_t allocated_bytes() const override {
-        return chars.allocated_bytes() + offsets.allocated_bytes();
+        return chars.allocated_bytes() + offsets.allocated_bytes() + string_refs.allocated_bytes();
     }
 
     MutableColumnPtr clone_resized(size_t to_size) const override;
@@ -155,6 +160,15 @@ public:
         DCHECK_LT(n, size());
         sanity_check_simple();
         return StringRef(&chars[offset_at(n)], size_at(n));
+    }
+
+    const Container& get_data() const {
+        sanity_check_simple();
+        string_refs.resize(offsets.size());
+        for (size_t i = 0; i < offsets.size(); ++i) {
+            string_refs[i] = StringRef(&chars[offset_at(i)], size_at(i));
+        }
+        return string_refs;
     }
 
     String get_element(size_t n) const { return get_data_at(n).to_string(); }

@@ -32,7 +32,7 @@
 
 #include "common/status.h"
 #include "core/column/column.h"
-#include "core/column/predicate_column.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "core/type_limit.h"
@@ -77,7 +77,7 @@ public:
 
 TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {
     MutableColumns block;
-    block.push_back(PredicateColumnType<TYPE_INT>::create());
+    block.push_back(ColumnInt32::create());
 
     auto value = Field::create_field<TYPE_INT>(5);
     int rows = 10;
@@ -97,13 +97,13 @@ TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {
 
     selected_size = single_column_block_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 1);
-    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<ColumnInt32*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], value.template get<TYPE_INT>());
 }
 
 TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN_VEC) {
     MutableColumns block;
-    block.push_back(PredicateColumnType<TYPE_INT>::create());
+    block.push_back(ColumnInt32::create());
 
     auto less_value = Field::create_field<TYPE_INT>(5);
     auto great_value = Field::create_field<TYPE_INT>(3);
@@ -131,13 +131,13 @@ TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN_VEC) {
 
     selected_size = and_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 1);
-    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<ColumnInt32*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 4);
 }
 
 TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN_VEC) {
     MutableColumns block;
-    block.push_back(PredicateColumnType<TYPE_INT>::create());
+    block.push_back(ColumnInt32::create());
 
     auto less_value = Field::create_field<TYPE_INT>(5);
     auto great_value = Field::create_field<TYPE_INT>(3);
@@ -165,13 +165,13 @@ TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN_VEC) {
 
     selected_size = or_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 10);
-    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<ColumnInt32*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 0);
 }
 
 TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
     MutableColumns block;
-    block.push_back(PredicateColumnType<TYPE_INT>::create());
+    block.push_back(ColumnInt32::create());
 
     auto less_value = Field::create_field<TYPE_INT>(5);
     auto great_value = Field::create_field<TYPE_INT>(3);
@@ -208,7 +208,7 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
 
     selected_size = or_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 4);
-    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<ColumnInt32*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 0);
     EXPECT_EQ(pred_col->get_data()[sel_idx[1]], 1);
     EXPECT_EQ(pred_col->get_data()[sel_idx[2]], 2);
@@ -237,7 +237,7 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
 
 TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
     MutableColumns block;
-    block.push_back(PredicateColumnType<TYPE_INT>::create());
+    block.push_back(ColumnInt32::create());
 
     auto less_value = Field::create_field<TYPE_INT>(5);
     auto great_value = Field::create_field<TYPE_INT>(3);
@@ -274,7 +274,7 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
 
     selected_size = and_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
 
-    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<ColumnInt32*>(block[col_idx].get());
     EXPECT_EQ(selected_size, 1);
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 4);
 
@@ -1427,585 +1427,587 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_bloom_filter) {
 }
 
 TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
-    { // INT
-     {// EQ
-      auto value = Field::create_field<TYPE_INT>(5);
-    int col_idx = 0;
-    std::shared_ptr<ColumnPredicate> pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
-    SingleColumnBlockPredicate single_column_block_pred(pred);
-    std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
-    parquet_field_col1->name = "col1";
-    parquet_field_col1->data_type =
-            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
-    parquet_field_col1->field_id = -1;
-    parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
+    {     // INT
+        { // EQ
+            auto value = Field::create_field<TYPE_INT>(5);
+            int col_idx = 0;
+            std::shared_ptr<ColumnPredicate> pred(
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
+            SingleColumnBlockPredicate single_column_block_pred(pred);
+            std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
+            parquet_field_col1->name = "col1";
+            parquet_field_col1->data_type =
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+            parquet_field_col1->field_id = -1;
+            parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
-    ParquetPredicate::ColumnStat stat;
-    cctz::time_zone tmp_ctz;
-    stat.ctz = &tmp_ctz;
+            ParquetPredicate::ColumnStat stat;
+            cctz::time_zone tmp_ctz;
+            stat.ctz = &tmp_ctz;
 
-    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
-    {
-        // 5 belongs to [5, 5]
-        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-            stat->col_schema = parquet_field_col1.get();
-            stat->is_all_null = false;
-            stat->has_null = false;
-            auto tmp = std::string(reinterpret_cast<const char*>(&value), sizeof(value));
-            stat->encoded_min_value = tmp;
-            stat->encoded_max_value = tmp;
-            return true;
-        };
-        stat.get_stat_func = &get_stat_func;
-        EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
-    }
-    {
-        // 5 not belongs to [6, 7]
-        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-            int lower = 6;
-            int upper = 7;
-            stat->col_schema = parquet_field_col1.get();
-            stat->is_all_null = false;
-            stat->has_null = false;
-            stat->encoded_min_value =
-                    std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-            stat->encoded_max_value =
-                    std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-            return true;
-        };
-        stat.get_stat_func = &get_stat_func;
-        EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
-    }
-    {
-        // 5 not belongs to [1, 4]
-        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-            int lower = 1;
-            int upper = 4;
-            stat->col_schema = parquet_field_col1.get();
-            stat->is_all_null = false;
-            stat->has_null = false;
-            stat->encoded_min_value =
-                    std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-            stat->encoded_max_value =
-                    std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-            return true;
-        };
-        stat.get_stat_func = &get_stat_func;
-        EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
-    }
-    {
-        // get stat failed
-        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) { return false; };
-        stat.get_stat_func = &get_stat_func;
-        EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
-    }
-}
-{
-    // NE
-    auto value = Field::create_field<TYPE_INT>(5);
-    int col_idx = 0;
-    std::shared_ptr<ColumnPredicate> pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
-    SingleColumnBlockPredicate single_column_block_pred(pred);
-    std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
-    parquet_field_col1->name = "col1";
-    parquet_field_col1->data_type =
-            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
-    parquet_field_col1->field_id = -1;
-    parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
-
-    ParquetPredicate::ColumnStat stat;
-    cctz::time_zone tmp_ctz;
-    stat.ctz = &tmp_ctz;
-
-    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
-    {
-        // 5 belongs to [5, 5]
-        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-            stat->col_schema = parquet_field_col1.get();
-            stat->is_all_null = false;
-            stat->has_null = false;
-            auto tmp = std::string(reinterpret_cast<const char*>(&value), sizeof(value));
-            stat->encoded_min_value = tmp;
-            stat->encoded_max_value = tmp;
-            return true;
-        };
-        stat.get_stat_func = &get_stat_func;
-        EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
-    }
-    {
-        // 5 not belongs to [6, 7]
-        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-            int lower = 6;
-            int upper = 7;
-            stat->col_schema = parquet_field_col1.get();
-            stat->is_all_null = false;
-            stat->has_null = false;
-            stat->encoded_min_value =
-                    std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-            stat->encoded_max_value =
-                    std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-            return true;
-        };
-        stat.get_stat_func = &get_stat_func;
-        EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
-    }
-    {
-        // 5 not belongs to [1, 4]
-        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-            int lower = 1;
-            int upper = 4;
-            stat->col_schema = parquet_field_col1.get();
-            stat->is_all_null = false;
-            stat->has_null = false;
-            stat->encoded_min_value =
-                    std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-            stat->encoded_max_value =
-                    std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-            return true;
-        };
-        stat.get_stat_func = &get_stat_func;
-        EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
-    }
-}
-{
-    // GE
-    auto value = Field::create_field<TYPE_INT>(5);
-    int col_idx = 0;
-    std::shared_ptr<ColumnPredicate> pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::GE>(col_idx, "", value));
-    SingleColumnBlockPredicate single_column_block_pred(pred);
-    std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
-    parquet_field_col1->name = "col1";
-    parquet_field_col1->data_type =
-            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
-    parquet_field_col1->field_id = -1;
-    parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
-
-    ParquetPredicate::ColumnStat stat;
-    cctz::time_zone tmp_ctz;
-    stat.ctz = &tmp_ctz;
-
-    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
-    {
-        // 5 belongs to [5, 5]
-        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-            stat->col_schema = parquet_field_col1.get();
-            stat->is_all_null = false;
-            stat->has_null = false;
-            auto tmp = std::string(reinterpret_cast<const char*>(&value), sizeof(value));
-            stat->encoded_min_value = tmp;
-            stat->encoded_max_value = tmp;
-            return true;
-        };
-        stat.get_stat_func = &get_stat_func;
-        EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
-    }
-    {
-        // 5 not belongs to [6, 7]
-        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-            int lower = 6;
-            int upper = 7;
-            stat->col_schema = parquet_field_col1.get();
-            stat->is_all_null = false;
-            stat->has_null = false;
-            stat->encoded_min_value =
-                    std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-            stat->encoded_max_value =
-                    std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-            return true;
-        };
-        stat.get_stat_func = &get_stat_func;
-        EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
-    }
-    {
-        // 5 not belongs to [1, 4]
-        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-            int lower = 1;
-            int upper = 4;
-            stat->col_schema = parquet_field_col1.get();
-            stat->is_all_null = false;
-            stat->has_null = false;
-            stat->encoded_min_value =
-                    std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-            stat->encoded_max_value =
-                    std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-            return true;
-        };
-        stat.get_stat_func = &get_stat_func;
-        EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
-    }
-}
-{
-    // LE
-    auto value = Field::create_field<TYPE_INT>(5);
-    int col_idx = 0;
-    std::shared_ptr<ColumnPredicate> pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::LE>(col_idx, "", value));
-    SingleColumnBlockPredicate single_column_block_pred(pred);
-    std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
-    parquet_field_col1->name = "col1";
-    parquet_field_col1->data_type =
-            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
-    parquet_field_col1->field_id = -1;
-    parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
-
-    ParquetPredicate::ColumnStat stat;
-    cctz::time_zone tmp_ctz;
-    stat.ctz = &tmp_ctz;
-
-    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
-    {
-        // 5 belongs to [5, 5]
-        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-            stat->col_schema = parquet_field_col1.get();
-            stat->is_all_null = false;
-            stat->has_null = false;
-            auto tmp = std::string(reinterpret_cast<const char*>(&value), sizeof(value));
-            stat->encoded_min_value = tmp;
-            stat->encoded_max_value = tmp;
-            return true;
-        };
-        stat.get_stat_func = &get_stat_func;
-        EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
-    }
-    {
-        // 5 not belongs to [6, 7]
-        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-            int lower = 6;
-            int upper = 7;
-            stat->col_schema = parquet_field_col1.get();
-            stat->is_all_null = false;
-            stat->has_null = false;
-            stat->encoded_min_value =
-                    std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-            stat->encoded_max_value =
-                    std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-            return true;
-        };
-        stat.get_stat_func = &get_stat_func;
-        EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
-    }
-    {
-        // 5 not belongs to [1, 4]
-        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-            int lower = 1;
-            int upper = 4;
-            stat->col_schema = parquet_field_col1.get();
-            stat->is_all_null = false;
-            stat->has_null = false;
-            stat->encoded_min_value =
-                    std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-            stat->encoded_max_value =
-                    std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-            return true;
-        };
-        stat.get_stat_func = &get_stat_func;
-        EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
-    }
-}
-} // namespace doris
-{
-    // FLOAT
-    {
-        // EQ
-        auto value = Field::create_field<TYPE_FLOAT>(5.0);
-        int col_idx = 0;
-        std::shared_ptr<ColumnPredicate> pred(
-                new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::EQ>(col_idx, "", value));
-        SingleColumnBlockPredicate single_column_block_pred(pred);
-        std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
-        parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type =
-                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_FLOAT, true);
-        parquet_field_col1->field_id = -1;
-        parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
-
-        ParquetPredicate::ColumnStat stat;
-        cctz::time_zone tmp_ctz;
-        stat.ctz = &tmp_ctz;
-
-        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
-        {
-            // 5 belongs to [5, 5]
-            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                stat->col_schema = parquet_field_col1.get();
-                stat->is_all_null = false;
-                stat->has_null = false;
-                auto tmp = std::string(reinterpret_cast<const char*>(&value), sizeof(value));
-                stat->encoded_min_value = tmp;
-                stat->encoded_max_value = tmp;
-                return true;
-            };
-            stat.get_stat_func = &get_stat_func;
-            EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
+            {
+                // 5 belongs to [5, 5]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    auto tmp = std::string(reinterpret_cast<const char*>(&value), sizeof(value));
+                    stat->encoded_min_value = tmp;
+                    stat->encoded_max_value = tmp;
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // 5 not belongs to [6, 7]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    int lower = 6;
+                    int upper = 7;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // 5 not belongs to [1, 4]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    int lower = 1;
+                    int upper = 4;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // get stat failed
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    return false;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
         }
         {
-            // 5 not belongs to [6, 7]
-            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                float lower = 6.0;
-                float upper = 7.0;
-                stat->col_schema = parquet_field_col1.get();
-                stat->is_all_null = false;
-                stat->has_null = false;
-                stat->encoded_min_value =
-                        std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-                stat->encoded_max_value =
-                        std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-                return true;
-            };
-            stat.get_stat_func = &get_stat_func;
-            EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+            // NE
+            auto value = Field::create_field<TYPE_INT>(5);
+            int col_idx = 0;
+            std::shared_ptr<ColumnPredicate> pred(
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
+            SingleColumnBlockPredicate single_column_block_pred(pred);
+            std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
+            parquet_field_col1->name = "col1";
+            parquet_field_col1->data_type =
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+            parquet_field_col1->field_id = -1;
+            parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
+
+            ParquetPredicate::ColumnStat stat;
+            cctz::time_zone tmp_ctz;
+            stat.ctz = &tmp_ctz;
+
+            std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
+            {
+                // 5 belongs to [5, 5]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    auto tmp = std::string(reinterpret_cast<const char*>(&value), sizeof(value));
+                    stat->encoded_min_value = tmp;
+                    stat->encoded_max_value = tmp;
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // 5 not belongs to [6, 7]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    int lower = 6;
+                    int upper = 7;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // 5 not belongs to [1, 4]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    int lower = 1;
+                    int upper = 4;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
         }
         {
-            // 5 not belongs to [1, 4]
-            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                float lower = 1.0;
-                float upper = 4.0;
-                stat->col_schema = parquet_field_col1.get();
-                stat->is_all_null = false;
-                stat->has_null = false;
-                stat->encoded_min_value =
-                        std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-                stat->encoded_max_value =
-                        std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-                return true;
-            };
-            stat.get_stat_func = &get_stat_func;
-            EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+            // GE
+            auto value = Field::create_field<TYPE_INT>(5);
+            int col_idx = 0;
+            std::shared_ptr<ColumnPredicate> pred(
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::GE>(col_idx, "", value));
+            SingleColumnBlockPredicate single_column_block_pred(pred);
+            std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
+            parquet_field_col1->name = "col1";
+            parquet_field_col1->data_type =
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+            parquet_field_col1->field_id = -1;
+            parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
+
+            ParquetPredicate::ColumnStat stat;
+            cctz::time_zone tmp_ctz;
+            stat.ctz = &tmp_ctz;
+
+            std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
+            {
+                // 5 belongs to [5, 5]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    auto tmp = std::string(reinterpret_cast<const char*>(&value), sizeof(value));
+                    stat->encoded_min_value = tmp;
+                    stat->encoded_max_value = tmp;
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // 5 not belongs to [6, 7]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    int lower = 6;
+                    int upper = 7;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // 5 not belongs to [1, 4]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    int lower = 1;
+                    int upper = 4;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+            }
         }
         {
-            // get stat failed
-            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                return false;
-            };
-            stat.get_stat_func = &get_stat_func;
-            EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            // LE
+            auto value = Field::create_field<TYPE_INT>(5);
+            int col_idx = 0;
+            std::shared_ptr<ColumnPredicate> pred(
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::LE>(col_idx, "", value));
+            SingleColumnBlockPredicate single_column_block_pred(pred);
+            std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
+            parquet_field_col1->name = "col1";
+            parquet_field_col1->data_type =
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+            parquet_field_col1->field_id = -1;
+            parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
+
+            ParquetPredicate::ColumnStat stat;
+            cctz::time_zone tmp_ctz;
+            stat.ctz = &tmp_ctz;
+
+            std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
+            {
+                // 5 belongs to [5, 5]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    auto tmp = std::string(reinterpret_cast<const char*>(&value), sizeof(value));
+                    stat->encoded_min_value = tmp;
+                    stat->encoded_max_value = tmp;
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // 5 not belongs to [6, 7]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    int lower = 6;
+                    int upper = 7;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // 5 not belongs to [1, 4]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    int lower = 1;
+                    int upper = 4;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
         }
-        {
-            // get min max failed
-            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                float lower = nanf("");
-                float upper = 4.0;
-                stat->col_schema = parquet_field_col1.get();
-                stat->is_all_null = false;
-                stat->has_null = false;
-                stat->encoded_min_value =
-                        std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-                stat->encoded_max_value =
-                        std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-                return true;
-            };
-            stat.get_stat_func = &get_stat_func;
-            EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
-        }
-    }
+    } // namespace doris
     {
-        // NE
-        auto value = Field::create_field<TYPE_FLOAT>(5.0);
-        int col_idx = 0;
-        std::shared_ptr<ColumnPredicate> pred(
-                new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::NE>(col_idx, "", value));
-        SingleColumnBlockPredicate single_column_block_pred(pred);
-        std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
-        parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type =
-                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_FLOAT, true);
-        parquet_field_col1->field_id = -1;
-        parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
-
-        ParquetPredicate::ColumnStat stat;
-        cctz::time_zone tmp_ctz;
-        stat.ctz = &tmp_ctz;
-
-        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
+        // FLOAT
         {
-            // 5 belongs to [5, 5]
-            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                stat->col_schema = parquet_field_col1.get();
-                stat->is_all_null = false;
-                stat->has_null = false;
-                auto tmp = std::string(reinterpret_cast<const char*>(&value), sizeof(value));
-                stat->encoded_min_value = tmp;
-                stat->encoded_max_value = tmp;
-                return true;
-            };
-            stat.get_stat_func = &get_stat_func;
-            EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+            // EQ
+            auto value = Field::create_field<TYPE_FLOAT>(5.0);
+            int col_idx = 0;
+            std::shared_ptr<ColumnPredicate> pred(
+                    new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::EQ>(col_idx, "", value));
+            SingleColumnBlockPredicate single_column_block_pred(pred);
+            std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
+            parquet_field_col1->name = "col1";
+            parquet_field_col1->data_type =
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_FLOAT, true);
+            parquet_field_col1->field_id = -1;
+            parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
+
+            ParquetPredicate::ColumnStat stat;
+            cctz::time_zone tmp_ctz;
+            stat.ctz = &tmp_ctz;
+
+            std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
+            {
+                // 5 belongs to [5, 5]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    auto tmp = std::string(reinterpret_cast<const char*>(&value), sizeof(value));
+                    stat->encoded_min_value = tmp;
+                    stat->encoded_max_value = tmp;
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // 5 not belongs to [6, 7]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    float lower = 6.0;
+                    float upper = 7.0;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // 5 not belongs to [1, 4]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    float lower = 1.0;
+                    float upper = 4.0;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // get stat failed
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    return false;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // get min max failed
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    float lower = nanf("");
+                    float upper = 4.0;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
         }
         {
-            // 5 not belongs to [6, 7]
-            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                float lower = 6.0;
-                float upper = 7.0;
-                stat->col_schema = parquet_field_col1.get();
-                stat->is_all_null = false;
-                stat->has_null = false;
-                stat->encoded_min_value =
-                        std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-                stat->encoded_max_value =
-                        std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-                return true;
-            };
-            stat.get_stat_func = &get_stat_func;
-            EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            // NE
+            auto value = Field::create_field<TYPE_FLOAT>(5.0);
+            int col_idx = 0;
+            std::shared_ptr<ColumnPredicate> pred(
+                    new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::NE>(col_idx, "", value));
+            SingleColumnBlockPredicate single_column_block_pred(pred);
+            std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
+            parquet_field_col1->name = "col1";
+            parquet_field_col1->data_type =
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_FLOAT, true);
+            parquet_field_col1->field_id = -1;
+            parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
+
+            ParquetPredicate::ColumnStat stat;
+            cctz::time_zone tmp_ctz;
+            stat.ctz = &tmp_ctz;
+
+            std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
+            {
+                // 5 belongs to [5, 5]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    auto tmp = std::string(reinterpret_cast<const char*>(&value), sizeof(value));
+                    stat->encoded_min_value = tmp;
+                    stat->encoded_max_value = tmp;
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // 5 not belongs to [6, 7]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    float lower = 6.0;
+                    float upper = 7.0;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // 5 not belongs to [1, 4]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    float lower = 1.0;
+                    float upper = 4.0;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
         }
         {
-            // 5 not belongs to [1, 4]
-            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                float lower = 1.0;
-                float upper = 4.0;
-                stat->col_schema = parquet_field_col1.get();
-                stat->is_all_null = false;
-                stat->has_null = false;
-                stat->encoded_min_value =
-                        std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-                stat->encoded_max_value =
-                        std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-                return true;
-            };
-            stat.get_stat_func = &get_stat_func;
-            EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            // GE
+            auto value = Field::create_field<TYPE_FLOAT>(5.0);
+            int col_idx = 0;
+            std::shared_ptr<ColumnPredicate> pred(
+                    new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::GE>(col_idx, "", value));
+            SingleColumnBlockPredicate single_column_block_pred(pred);
+            std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
+            parquet_field_col1->name = "col1";
+            parquet_field_col1->data_type =
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+            parquet_field_col1->field_id = -1;
+            parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
+
+            ParquetPredicate::ColumnStat stat;
+            cctz::time_zone tmp_ctz;
+            stat.ctz = &tmp_ctz;
+
+            std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
+            {
+                // 5 belongs to [5, 5]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    auto tmp = std::string(reinterpret_cast<const char*>(&value), sizeof(value));
+                    stat->encoded_min_value = tmp;
+                    stat->encoded_max_value = tmp;
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // 5 not belongs to [6, 7]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    float lower = 6.0;
+                    float upper = 7.0;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // 5 not belongs to [1, 4]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    float lower = 1.0;
+                    float upper = 4.0;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+            }
+        }
+        {
+            // LE
+            auto value = Field::create_field<TYPE_FLOAT>(5.0);
+            int col_idx = 0;
+            std::shared_ptr<ColumnPredicate> pred(
+                    new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::LE>(col_idx, "", value));
+            SingleColumnBlockPredicate single_column_block_pred(pred);
+            std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
+            parquet_field_col1->name = "col1";
+            parquet_field_col1->data_type =
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_FLOAT, true);
+            parquet_field_col1->field_id = -1;
+            parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
+
+            ParquetPredicate::ColumnStat stat;
+            cctz::time_zone tmp_ctz;
+            stat.ctz = &tmp_ctz;
+
+            std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
+            {
+                // 5 belongs to [5, 5]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    auto tmp = std::string(reinterpret_cast<const char*>(&value), sizeof(value));
+                    stat->encoded_min_value = tmp;
+                    stat->encoded_max_value = tmp;
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // 5 not belongs to [6, 7]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    float lower = 6.0;
+                    float upper = 7.0;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+            }
+            {
+                // 5 not belongs to [1, 4]
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    float lower = 1.0;
+                    float upper = 4.0;
+                    stat->col_schema = parquet_field_col1.get();
+                    stat->is_all_null = false;
+                    stat->has_null = false;
+                    stat->encoded_min_value =
+                            std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
+                    stat->encoded_max_value =
+                            std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
+                    return true;
+                };
+                stat.get_stat_func = &get_stat_func;
+                EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            }
         }
     }
-    {
-        // GE
-        auto value = Field::create_field<TYPE_FLOAT>(5.0);
-        int col_idx = 0;
-        std::shared_ptr<ColumnPredicate> pred(
-                new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::GE>(col_idx, "", value));
-        SingleColumnBlockPredicate single_column_block_pred(pred);
-        std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
-        parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type =
-                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
-        parquet_field_col1->field_id = -1;
-        parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
-
-        ParquetPredicate::ColumnStat stat;
-        cctz::time_zone tmp_ctz;
-        stat.ctz = &tmp_ctz;
-
-        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
-        {
-            // 5 belongs to [5, 5]
-            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                stat->col_schema = parquet_field_col1.get();
-                stat->is_all_null = false;
-                stat->has_null = false;
-                auto tmp = std::string(reinterpret_cast<const char*>(&value), sizeof(value));
-                stat->encoded_min_value = tmp;
-                stat->encoded_max_value = tmp;
-                return true;
-            };
-            stat.get_stat_func = &get_stat_func;
-            EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
-        }
-        {
-            // 5 not belongs to [6, 7]
-            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                float lower = 6.0;
-                float upper = 7.0;
-                stat->col_schema = parquet_field_col1.get();
-                stat->is_all_null = false;
-                stat->has_null = false;
-                stat->encoded_min_value =
-                        std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-                stat->encoded_max_value =
-                        std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-                return true;
-            };
-            stat.get_stat_func = &get_stat_func;
-            EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
-        }
-        {
-            // 5 not belongs to [1, 4]
-            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                float lower = 1.0;
-                float upper = 4.0;
-                stat->col_schema = parquet_field_col1.get();
-                stat->is_all_null = false;
-                stat->has_null = false;
-                stat->encoded_min_value =
-                        std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-                stat->encoded_max_value =
-                        std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-                return true;
-            };
-            stat.get_stat_func = &get_stat_func;
-            EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
-        }
-    }
-    {
-        // LE
-        auto value = Field::create_field<TYPE_FLOAT>(5.0);
-        int col_idx = 0;
-        std::shared_ptr<ColumnPredicate> pred(
-                new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::LE>(col_idx, "", value));
-        SingleColumnBlockPredicate single_column_block_pred(pred);
-        std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
-        parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type =
-                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_FLOAT, true);
-        parquet_field_col1->field_id = -1;
-        parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
-
-        ParquetPredicate::ColumnStat stat;
-        cctz::time_zone tmp_ctz;
-        stat.ctz = &tmp_ctz;
-
-        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
-        {
-            // 5 belongs to [5, 5]
-            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                stat->col_schema = parquet_field_col1.get();
-                stat->is_all_null = false;
-                stat->has_null = false;
-                auto tmp = std::string(reinterpret_cast<const char*>(&value), sizeof(value));
-                stat->encoded_min_value = tmp;
-                stat->encoded_max_value = tmp;
-                return true;
-            };
-            stat.get_stat_func = &get_stat_func;
-            EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
-        }
-        {
-            // 5 not belongs to [6, 7]
-            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                float lower = 6.0;
-                float upper = 7.0;
-                stat->col_schema = parquet_field_col1.get();
-                stat->is_all_null = false;
-                stat->has_null = false;
-                stat->encoded_min_value =
-                        std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-                stat->encoded_max_value =
-                        std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-                return true;
-            };
-            stat.get_stat_func = &get_stat_func;
-            EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
-        }
-        {
-            // 5 not belongs to [1, 4]
-            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                float lower = 1.0;
-                float upper = 4.0;
-                stat->col_schema = parquet_field_col1.get();
-                stat->is_all_null = false;
-                stat->has_null = false;
-                stat->encoded_min_value =
-                        std::string(reinterpret_cast<const char*>(&lower), sizeof(lower));
-                stat->encoded_max_value =
-                        std::string(reinterpret_cast<const char*>(&upper), sizeof(upper));
-                return true;
-            };
-            stat.get_stat_func = &get_stat_func;
-            EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
-        }
-    }
-}
 }
 
 TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE) {

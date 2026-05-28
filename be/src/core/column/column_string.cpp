@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstring>
+#include <vector>
 
 #include "core/arena.h"
 #include "core/assert_cast.h"
@@ -391,21 +392,18 @@ template <typename T>
 Status ColumnStr<T>::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
     if constexpr (std::is_same_v<UInt32, T>) {
         auto* col = static_cast<ColumnStr<T>*>(col_ptr);
-        Chars& res_chars = col->chars;
-        IColumn::Offsets& res_offsets = col->offsets;
-        IColumn::Filter filter;
-        filter.resize_fill(offsets.size(), 0);
-        // CAUTION: the order of the returned rows DOES NOT match
-        // the order of row indices that are specified in the sel parameter,
-        // instead, the result rows are picked from start to end if the index
-        // appears in sel parameter.
-        // e.g., sel: [3, 0, 1], the result rows are: [0, 1, 3]
+        const auto& data_array = get_data();
+        Container refs;
+        refs.resize(sel_size);
+        size_t total_size = 0;
         for (size_t i = 0; i < sel_size; i++) {
-            filter[sel[i]] = 1;
+            refs[i] = data_array[sel[i]];
+            total_size += refs[i].size;
         }
-        filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, res_chars, res_offsets, filter,
-                                                   sel_size);
-        sanity_check();
+        col->get_offsets().reserve(sel_size + col->get_offsets().size());
+        col->get_chars().reserve(total_size + col->get_chars().size());
+        col->insert_many_strings_without_reserve(refs.data(), sel_size);
+        col->sanity_check();
         return Status::OK();
     } else {
         return Status::InternalError("should not call filter_by_selector in ColumnStr<UInt64>");

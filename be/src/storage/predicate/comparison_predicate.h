@@ -21,7 +21,11 @@
 #include <type_traits>
 
 #include "common/compare.h"
+#include "core/assert_cast.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_dictionary.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/field.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/inverted/inverted_index_cache.h" // IWYU pragma: keep
@@ -34,6 +38,8 @@ class ComparisonPredicateBase final : public ColumnPredicate {
 public:
     ENABLE_FACTORY_CREATOR(ComparisonPredicateBase);
     using T = typename PrimitiveTypeTraits<Type>::CppType;
+    using PredicateEvaluateColumnType =
+            typename PrimitiveTypeTraits<PredicateEvaluateType<Type>>::ColumnType;
     ComparisonPredicateBase(uint32_t column_id, std::string col_name, const Field& value,
                             bool opposite = false)
             : ColumnPredicate(column_id, col_name, Type, opposite),
@@ -419,12 +425,10 @@ public:
                     __builtin_unreachable();
                 }
             } else {
-                auto* data_array =
-                        assert_cast<const PredicateColumnType<PredicateEvaluateType<Type>>*>(
-                                &nested_column)
-                                ->get_data()
+                const auto* data_array =
+                        assert_cast<const PredicateEvaluateColumnType&>(nested_column)
+                                .get_data()
                                 .data();
-
                 _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array, _value);
             }
         } else {
@@ -448,12 +452,8 @@ public:
                     __builtin_unreachable();
                 }
             } else {
-                auto* data_array =
-                        assert_cast<const PredicateColumnType<PredicateEvaluateType<Type>>*>(
-                                &column)
-                                ->get_data()
-                                .data();
-
+                const auto* data_array =
+                        assert_cast<const PredicateEvaluateColumnType&>(column).get_data().data();
                 _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, _value);
             }
         }
@@ -610,11 +610,8 @@ private:
                 __builtin_unreachable();
             }
         } else {
-            auto* data_array =
-                    assert_cast<const PredicateColumnType<PredicateEvaluateType<Type>>*>(column)
-                            ->get_data()
-                            .data();
-
+            const auto* data_array =
+                    assert_cast<const PredicateEvaluateColumnType&>(*column).get_data().data();
             _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array, _value);
         }
     }
@@ -648,11 +645,10 @@ private:
                 return 0;
             }
         } else {
-            auto& pred_col =
-                    assert_cast<const PredicateColumnType<PredicateEvaluateType<Type>>*>(column)
-                            ->get_data();
-            auto pred_col_data = pred_col.data();
             uint16_t new_size = 0;
+            const auto& pred_col =
+                    assert_cast<const PredicateEvaluateColumnType&>(*column).get_data();
+            auto pred_col_data = pred_col.data();
 #define EVALUATE_WITH_NULL_IMPL(IDX) \
     _opposite ^ (!null_map[IDX] && _operator(pred_col_data[IDX], _value))
 #define EVALUATE_WITHOUT_NULL_IMPL(IDX) _opposite ^ _operator(pred_col_data[IDX], _value)

@@ -138,7 +138,8 @@ public:
 
     static DataTypePtr get_data_type_ptr(const TabletColumn& column);
 
-    static IColumn::MutablePtr get_predicate_column_ptr(const FieldType& type, bool is_nullable,
+    static IColumn::MutablePtr get_predicate_column_ptr(const TabletColumn& column,
+                                                        const FieldType& type, bool is_nullable,
                                                         const ReaderType reader_type);
 
     const std::vector<TabletColumnPtr>& columns() const { return _cols; }

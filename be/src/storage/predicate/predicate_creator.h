@@ -20,6 +20,9 @@
 #include <memory>
 #include <string>
 
+#include "core/column/column_decimal.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
@@ -51,7 +54,8 @@ std::shared_ptr<HybridSetBase> build_set() {
     return std::make_shared<std::conditional_t<
             is_string_type(TYPE), StringSet<DynamicContainer<std::string>>,
             HybridSet<TYPE, DynamicContainer<typename PrimitiveTypeTraits<TYPE>::CppType>,
-                      PredicateColumnType<PredicateEvaluateType<TYPE>>>>>(false);
+                      typename PrimitiveTypeTraits<PredicateEvaluateType<TYPE>>::ColumnType>>>(
+            false);
 }
 
 std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(

@@ -92,7 +92,7 @@ public:
     virtual Ptr convert_column_if_overflow() { return get_ptr(); }
 
     /// If column isn't ColumnDictionary, return itself.
-    /// If column is ColumnDictionary, transforms is to predicate column.
+    /// If column is ColumnDictionary, transform it to the corresponding ordinary column.
     virtual MutablePtr convert_to_predicate_column_if_dictionary() { return get_ptr(); }
 
     /// If column is ColumnDictionary, and is a range comparison predicate, convert dict encoding
@@ -452,14 +452,15 @@ public:
      *  convert(convert MutablePtr to ImmutablePtr or convert ImmutablePtr to MutablePtr)
      *  happends in filter_by_selector because of mem-reuse logic or ColumnNullable, I think this is meaningless;
      *  So using raw ptr directly here.
-     *  NOTICE: only column_nullable and predict_column, column_dictionary now support filter_by_selector
-     *  // nullable -> predict_column
+     *  NOTICE: only column_nullable, column_dictionary and fixed/string value columns now support
+     *  filter_by_selector
+     *  // nullable -> nested value column
      *  // string (dictionary) -> column_dictionary
      */
     virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method filter_by_selector is not supported for {}, only "
-                               "column_nullable, column_dictionary and predict_column support",
+                               "column_nullable, column_dictionary and value columns support",
                                get_name());
     }
 

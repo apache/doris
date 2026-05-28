@@ -17,13 +17,24 @@
 
 #include "storage/predicate/like_column_predicate.h"
 
-#include "core/column/predicate_column.h"
+#include <cstring>
+
+#include "core/column/column_string.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/string_ref.h"
 #include "exprs/function/like.h"
 #include "exprs/function_context.h"
 
 namespace doris {
+
+template <PrimitiveType T>
+StringRef like_column_string_at(const StringRef* data, size_t row) {
+    auto value = data[row];
+    if constexpr (T == TYPE_CHAR) {
+        value.size = strnlen(value.data, value.size);
+    }
+    return value;
+}
 
 template <PrimitiveType T>
 LikeColumnPredicate<T>::LikeColumnPredicate(bool opposite, uint32_t column_id, std::string col_name,
@@ -80,7 +91,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t
                 }
             }
         } else {
-            auto* str_col = assert_cast<const PredicateColumnType<T>*>(&nested_col);
+            const auto& data_array = assert_cast<const ColumnString&>(nested_col).get_data();
             if (!nullable_col->has_null()) {
                 ColumnUInt8::Container res(size, 0);
                 for (uint16_t i = 0; i != size; i++) {
@@ -88,7 +99,8 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t
                     sel[new_size] = idx;
                     unsigned char flag = 0;
                     THROW_IF_ERROR((_state->scalar_function)(
-                            &_like_state, str_col->get_data_at(idx), pattern, &flag));
+                            &_like_state, like_column_string_at<T>(data_array.data(), idx), pattern,
+                            &flag));
                     new_size += _opposite ^ flag;
                 }
             } else {
@@ -100,7 +112,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t
                         continue;
                     }
 
-                    StringRef cell_value = str_col->get_data_at(idx);
+                    StringRef cell_value = like_column_string_at<T>(data_array.data(), idx);
                     unsigned char flag = 0;
                     THROW_IF_ERROR((_state->scalar_function)(
                             &_like_state, StringRef(cell_value.data, cell_value.size), pattern,
@@ -121,15 +133,15 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t
                 new_size += _opposite ^ flag;
             }
         } else {
-            const auto* str_col = assert_cast<const PredicateColumnType<T>*>(&column);
-
             ColumnUInt8::Container res(size, 0);
+            const auto& data_array = assert_cast<const ColumnString&>(column).get_data();
             for (uint16_t i = 0; i != size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
                 unsigned char flag = 0;
-                THROW_IF_ERROR((_state->scalar_function)(&_like_state, str_col->get_data_at(idx),
-                                                         pattern, &flag));
+                THROW_IF_ERROR((_state->scalar_function)(
+                        &_like_state, like_column_string_at<T>(data_array.data(), idx), pattern,
+                        &flag));
                 new_size += _opposite ^ flag;
             }
         }

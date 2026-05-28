@@ -250,7 +250,7 @@ TEST_F(ColumnVectorTest, insert_range_of_integer) {
                                                                        column_float64->get_ptr());
 }
 // void insert_date_column(const char* data_ptr, size_t num) {
-// decimal, vector, nullable, PredicateColumnType
+// decimal, vector, nullable
 TEST_F(ColumnVectorTest, insert_many_fix_len_data) {
     assert_column_vector_insert_many_fix_len_data_callback<TYPE_TINYINT>((Int8)0,
                                                                          column_int8->get_ptr());
