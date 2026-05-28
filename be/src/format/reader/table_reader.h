@@ -19,12 +19,14 @@
 
 #include <bvar/status.h>
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -32,11 +34,14 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
+#include "format/new_parquet/column_reader.h"
 #include "format/reader/column_mapper.h"
 #include "format/reader/expr/delete_predicate.h"
+#include "format/reader/expr/slot_ref.h"
 #include "format/reader/file_reader.h"
 #include "runtime/descriptors.h"
 
@@ -265,6 +270,53 @@ protected:
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
 
     virtual Status customize_file_scan_request(FileScanRequest* file_request) {
+        return _append_position_delete_predicate(file_request);
+    }
+
+    static size_t _next_block_position(const FileScanRequest& request) {
+        size_t next_position = 0;
+        for (const auto& [_, block_position] : request.column_positions) {
+            next_position = std::max(next_position, block_position + 1);
+        }
+        return next_position;
+    }
+
+    void _append_file_scan_column(FileScanRequest* request, ColumnId column_id,
+                                  std::vector<ColumnId>* scan_columns) {
+        DORIS_CHECK(request != nullptr);
+        DORIS_CHECK(scan_columns != nullptr);
+        const bool newly_added = request->column_positions.count(column_id) == 0;
+        if (newly_added) {
+            request->column_positions.emplace(column_id, _next_block_position(*request));
+            scan_columns->push_back(column_id);
+        }
+        if (column_id == doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID &&
+            _find_schema_field(_data_reader.block_schema, column_id) == nullptr) {
+            _data_reader.block_schema.push_back(
+                    doris::parquet::ParquetColumnReaderFactory::row_position_schema_field());
+        }
+    }
+
+    Status _append_position_delete_predicate(FileScanRequest* request) {
+        DORIS_CHECK(request != nullptr);
+        if (_delete_rows == nullptr || _delete_rows->empty()) {
+            return Status::OK();
+        }
+        const auto row_position_column_id =
+                doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
+        _append_file_scan_column(request, row_position_column_id, &request->predicate_columns);
+
+        auto delete_predicate = std::make_shared<DeletePredicate>(*_delete_rows);
+        const auto block_position = request->column_positions.at(row_position_column_id);
+        delete_predicate->add_child(TableSlotRef::create_shared(
+                cast_set<int>(block_position), cast_set<int>(block_position), -1,
+                std::make_shared<DataTypeInt64>(),
+                doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME));
+
+        FileExpressionFilter delete_filter;
+        delete_filter.delete_conjunct = VExprContext::create_shared(std::move(delete_predicate));
+        delete_filter.file_column_ids.push_back(row_position_column_id);
+        request->expression_filters.push_back(std::move(delete_filter));
         return Status::OK();
     }
 
@@ -356,8 +408,8 @@ protected:
     TableColumnPredicates _table_column_predicates;
     VExprContext _conjuncts {nullptr};
     std::unique_ptr<ReadProfile> _profile;
-    // Parsed from DELETION_VECTOR in Iceberg and Paimon
-    DeleteRows* _delete_rows;
+    // Parsed from row-position based delete files, including position delete and deletion vector.
+    DeleteRows* _delete_rows = nullptr;
     TFileScanRangeParams* _scan_params;
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeState* _runtime_state;
