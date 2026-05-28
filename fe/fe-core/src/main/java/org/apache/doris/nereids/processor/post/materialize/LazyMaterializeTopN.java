@@ -145,13 +145,19 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             if (pulledUpExprs.isEmpty()) {
                 result = new PhysicalProject(ImmutableList.copyOf(userVisibleOutput), null, result);
             } else {
+                Map<ExprId, NamedExpression> pulledUpExprMap = new HashMap<>();
+                for (NamedExpression ne : pulledUpExprs) {
+                    pulledUpExprMap.put(ne.getExprId(), ne);
+                }
                 List<NamedExpression> outputExprs = new ArrayList<>();
                 for (Slot slot : userVisibleOutput) {
-                    if (!pulledUpExprIds.contains(slot.getExprId())) {
+                    NamedExpression pulledUpExpr = pulledUpExprMap.get(slot.getExprId());
+                    if (pulledUpExpr != null) {
+                        outputExprs.add(pulledUpExpr);
+                    } else {
                         outputExprs.add(slot);
                     }
                 }
-                outputExprs.addAll(pulledUpExprs);
                 result = new PhysicalProject(ImmutableList.copyOf(outputExprs), null, result);
             }
             return result;
