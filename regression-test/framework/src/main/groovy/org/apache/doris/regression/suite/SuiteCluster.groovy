@@ -74,6 +74,9 @@ class ClusterOptions {
     // cloud store overrides for cloud docker clusters, each item should be 'name=value'
     List<String> cloudStoreConfigs = []
 
+    // environment variables passed to docker clusters, each item should be 'name=value'
+    List<String> environments = []
+
     boolean connectToFollower = false
 
     // 1. cloudMode = true, only create cloud cluster.
@@ -97,6 +100,26 @@ class ClusterOptions {
 
     String tdeAk = "";
     String tdeSk = "";
+
+    // Use external meta service cluster (shared MS/FDB)
+    // Specify the cluster name that provides MS/FDB services
+    // When set, this cluster will not create its own MS/FDB/Recycler
+    // Example: externalMsCluster = "shared-meta" (Cloud mode only)
+    String externalMsCluster = null
+
+    // Specify the instance id.
+    // When not set, "default_instance_id" will be used. (Cloud mode only)
+    String instanceId = null;
+
+    // Cluster snapshot JSON content for FE-1 first startup in cloud mode only.
+    // The JSON will be written to FE conf/cluster_snapshot.json and passed to start_fe.sh
+    // with --cluster_snapshot parameter. Only effective on first startup.
+    // Example: clusterSnapshot = '{"cloud_unique_id":"1:instance_id:xxx"}'
+    String clusterSnapshot = null;
+
+    // Create cloud instance in storage-vault mode instead of legacy obj_info mode.
+    // Docker framework will also create a default storage vault automatically for new clusters.
+    Boolean enableStorageVault = false;
 
     void enableDebugPoints() {
         feConfigs.add('enable_debug_points=true')
@@ -356,6 +379,14 @@ class SuiteCluster {
             cmd += ['--extra-hosts']
             cmd += options.extraHosts
         }
+        def envs = new ArrayList<String>(options.environments)
+        if (options.enableStorageVault) {
+            envs.add('ENABLE_STORAGE_VAULT=1')
+        }
+        if (!envs.isEmpty()) {
+            cmd += ['--env']
+            cmd += envs
+        }
         if (!options.cloudStoreConfigs.isEmpty()) {
             cmd += ['--cloud-config']
             cmd += options.cloudStoreConfigs
@@ -389,6 +420,23 @@ class SuiteCluster {
         if (options.tdeSk != null && options.tdeSk != "") {
             cmd += ['--tde-sk']
             cmd += options.tdeSk
+        }
+
+        if (options.externalMsCluster != null && options.externalMsCluster != "") {
+            cmd += ['--external-ms', options.externalMsCluster]
+        }
+
+        if (options.instanceId != null && options.instanceId != "") {
+            cmd += ['--instance-id', options.instanceId]
+        }
+
+        if (options.clusterSnapshot != null && options.clusterSnapshot != "") {
+            // Remove newlines and extra whitespace to make it a compact JSON string
+            def compactJson = options.clusterSnapshot
+                .replaceAll(/\s+/, ' ')  // Replace all whitespace sequences with single space
+                .trim()                   // Remove leading/trailing spaces
+            // No need to escape when using list-based execution
+            cmd += ['--cluster-snapshot', compactJson]
         }
 
         cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]
