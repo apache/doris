@@ -1057,7 +1057,9 @@ public abstract class ExternalCatalog
             boolean res = metadataOps.createTable(createTableInfo);
             if (!res) {
                 // res == false means the table does not exist before, and we create it.
-                // we should get the table stored in Doris, and use local name in edit log.
+                // Register the new table into meta cache so it is immediately visible
+                // without requiring a manual REFRESH CATALOG.
+                registerTableFromCreate(createTableInfo.getDbName(), createTableInfo.getTableName());
                 org.apache.doris.persist.CreateTableInfo info = new org.apache.doris.persist.CreateTableInfo(
                         getName(),
                         createTableInfo.getDbName(),
@@ -1076,6 +1078,14 @@ public abstract class ExternalCatalog
     public void replayCreateTable(String dbName, String tblName) {
         if (metadataOps != null) {
             metadataOps.afterCreateTable(dbName, tblName);
+            registerTableFromCreate(dbName, tblName);
+        }
+    }
+
+    private void registerTableFromCreate(String dbName, String tblName) {
+        Optional<ExternalDatabase<? extends ExternalTable>> db = getDbForReplay(dbName);
+        if (db.isPresent()) {
+            db.get().registerTableFromCreate(tblName);
         }
     }
 
@@ -1087,6 +1097,7 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.renameTable(dbName, oldTableName, newTableName);
+            registerTableFromCreate(dbName, newTableName);
             Env.getCurrentEnv().getConstraintManager().renameTable(
                     new TableNameInfo(getName(), dbName, oldTableName),
                     new TableNameInfo(getName(), dbName, newTableName));
