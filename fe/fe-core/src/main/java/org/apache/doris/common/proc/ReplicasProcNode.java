@@ -20,6 +20,7 @@ package org.apache.doris.common.proc;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
@@ -77,13 +78,18 @@ public class ReplicasProcNode implements ProcNodeInterface {
         result.setNames(TITLE_NAMES);
         TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(tabletId);
         Tablet tablet = null;
+        long partitionVisibleVersion = -1L;
         try {
             OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
                     .getTableNullable(tabletMeta.getTableId());
             table.readLock();
             try {
-                tablet = table.getPartition(tabletMeta.getPartitionId()).getIndex(tabletMeta.getIndexId())
-                        .getTablet(tabletId);
+                Partition partition = table.getPartition(tabletMeta.getPartitionId());
+                if (partition == null) {
+                    return result;
+                }
+                partitionVisibleVersion = Config.isCloudMode() ? partition.getCachedVisibleVersion() : -1L;
+                tablet = partition.getIndex(tabletMeta.getIndexId()).getTablet(tabletId);
             } finally {
                 table.readUnlock();
             }
@@ -126,10 +132,13 @@ public class ReplicasProcNode implements ProcNodeInterface {
             if (Config.enable_query_hit_stats) {
                 queryHits = QueryStatsUtil.getMergedReplicaStats(replica.getId());
             }
+            long displayVersion = ProcReplicaVersionDisplay.getDisplayReplicaVersion(replica, partitionVisibleVersion);
+            long displayLastSuccessVersion = ProcReplicaVersionDisplay.getDisplayReplicaLastSuccessVersion(
+                    replica, partitionVisibleVersion);
             List<String> replicaInfo = Lists.newArrayList(String.valueOf(replica.getId()),
                     String.valueOf(beId),
-                    String.valueOf(replica.getVersion()),
-                    String.valueOf(replica.getLastSuccessVersion()),
+                    String.valueOf(displayVersion),
+                    String.valueOf(displayLastSuccessVersion),
                     String.valueOf(replica.getLastFailedVersion()),
                     TimeUtils.longToTimeString(replica.getLastFailedTimestamp()),
                     String.valueOf(replica.getSchemaHash()),
