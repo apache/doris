@@ -349,9 +349,10 @@ inline const char* find_last_symbols_sse2(const char* const begin, const char* c
     }
 #endif
 
-    --pos;
-    for (; pos >= begin; --pos)
-        if (maybe_negate<positive>(is_in(*pos, symbols, num_chars))) return pos;
+    for (const char* p = pos; p != begin;) {
+        --p;
+        if (maybe_negate<positive>(is_in(*p, symbols, num_chars))) return p;
+    }
 
     return return_mode == ReturnMode::End ? end : nullptr;
 }

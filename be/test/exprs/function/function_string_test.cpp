@@ -800,6 +800,31 @@ TEST(function_string_test, function_string_repeat_test) {
     }
 }
 
+TEST(function_string_test, function_string_repeat_overflow_vector_test) {
+    std::string func_name = "repeat";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_INT};
+    DataSet data_set = {
+            {{std::string(65536, 'a'), std::int32_t(65536)}, std::string("")},
+    };
+
+    Status st = check_function<DataTypeString, true>(func_name, input_types, data_set);
+    EXPECT_NE(Status::OK(), st);
+}
+
+TEST(function_string_test, function_string_repeat_overflow_const_test) {
+    std::string func_name = "repeat";
+    InputTypeSet input_types = {
+            PrimitiveType::TYPE_VARCHAR,
+            Consted {PrimitiveType::TYPE_INT},
+    };
+    DataSet data_set = {
+            {{std::string(65536, 'a'), std::int32_t(65536)}, std::string("")},
+    };
+
+    Status st = check_function<DataTypeString, true>(func_name, input_types, data_set);
+    EXPECT_NE(Status::OK(), st);
+}
+
 TEST(function_string_test, function_string_reverse_test) {
     std::string func_name = "reverse";
     {

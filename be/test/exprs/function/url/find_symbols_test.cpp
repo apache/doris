@@ -182,6 +182,14 @@ TEST_F(FindSymbolsTest, LastNotSymbols_LongAllTrim) {
     EXPECT_EQ(result, nullptr);
 }
 
+TEST_F(FindSymbolsTest, LastNotSymbols_SSE2_AllTrim_ScalarTailAfterSimd) {
+    // 20 spaces -> one 16-byte SIMD chunk followed by a 4-byte scalar all-trim tail
+    std::string s(20, ' ');
+    SearchSymbols symbols(" ");
+    const char* result = find_last_not_symbols_or_null(s.data(), s.data() + s.size(), symbols);
+    EXPECT_EQ(result, nullptr);
+}
+
 TEST_F(FindSymbolsTest, LastNotSymbols_LongNoTrim) {
     // 200 'x' chars -> last char
     std::string s(200, 'x');

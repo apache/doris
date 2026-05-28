@@ -636,18 +636,19 @@ private:
         res_offsets.resize(input_row_size);
         null_map.resize_fill(input_row_size, 0);
 
-        uint32_t total_size = 0;
+        size_t total_size = 0;
         for (size_t i = 0; i < input_row_size; ++i) {
             const int repeat = repeat_getter(i);
             if (repeat <= 0) {
-                res_offsets[i] = total_size;
+                res_offsets[i] = static_cast<ColumnString::Offset>(total_size);
                 continue;
             }
 
             const auto str_ref = source_column.get_data_at(i);
-            const uint32_t size = str_ref.size;
-            total_size += size * repeat;
-            res_offsets[i] = total_size;
+            const size_t repeated_size = str_ref.size * static_cast<size_t>(repeat);
+            total_size += repeated_size;
+            ColumnString::check_chars_length(total_size, input_row_size);
+            res_offsets[i] = static_cast<ColumnString::Offset>(total_size);
         }
 
         ColumnString::check_chars_length(total_size, input_row_size);
