@@ -111,7 +111,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
     static class CollectorContext {
         final Map<LogicalTopN, PullUpInfo> topNToPullUpInfo = new LinkedHashMap<>();
         boolean insideQualifyingTopN = false;
-        boolean insideCTEProducer = false;
+        int cteProducerDepth = 0;
 
         boolean hasPullUpInfo(LogicalTopN topN) {
             return topNToPullUpInfo.containsKey(topN);
@@ -149,17 +149,17 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         @Override
         public Plan visitLogicalCTEProducer(
                 LogicalCTEProducer<? extends Plan> cteProducer, CollectorContext context) {
-            context.insideCTEProducer = true;
+            context.cteProducerDepth++;
             try {
                 return visit(cteProducer, context);
             } finally {
-                context.insideCTEProducer = false;
+                context.cteProducerDepth--;
             }
         }
 
         @Override
         public Plan visitLogicalTopN(LogicalTopN topN, CollectorContext context) {
-            if (context.insideCTEProducer
+            if (context.cteProducerDepth > 0
                     || !qualifiesForLazyMat(topN)
                     || context.insideQualifyingTopN) {
                 return visit(topN, context);
@@ -188,8 +188,9 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             Set<ExprId> collectedOutputExprIds) {
         if (node instanceof LogicalProject) {
             LogicalProject<? extends Plan> project = (LogicalProject<? extends Plan>) node;
+            Set<ExprId> orderKeyExprIds = buildOrderKeyExprIds(topN);
             for (NamedExpression ne : project.getProjects()) {
-                if (canPullUp(ne, topN)) {
+                if (canPullUp(ne, orderKeyExprIds)) {
                     info.addPulledUpExpr(project, ne);
                     collectedOutputExprIds.add(ne.getExprId());
                 }
@@ -323,7 +324,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
      * Check if a named expression can be pulled up above TopN.
      * Eligible: Alias with non-trivial child, not in order keys, no NoneMovableFunction.
      */
-    static boolean canPullUp(NamedExpression ne, LogicalTopN topN) {
+    static boolean canPullUp(NamedExpression ne, Set<ExprId> orderKeyExprIds) {
         if (!(ne instanceof Alias)) {
             return false;
         }
@@ -331,8 +332,16 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         if (child instanceof Slot || child instanceof Literal) {
             return false;
         }
+        if (orderKeyExprIds.contains(ne.getExprId())) {
+            return false;
+        }
+        if (ne.anyMatch(e -> e instanceof NoneMovableFunction)) {
+            return false;
+        }
+        return true;
+    }
 
-        // Not referenced by order keys (including via input slots)
+    private static Set<ExprId> buildOrderKeyExprIds(LogicalTopN topN) {
         Set<ExprId> orderKeyExprIds = new HashSet<>();
         for (Object obj : topN.getOrderKeys()) {
             OrderKey ok = (OrderKey) obj;
@@ -344,16 +353,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                 orderKeyExprIds.add(slot.getExprId());
             }
         }
-        if (orderKeyExprIds.contains(ne.getExprId())) {
-            return false;
-        }
-
-        // No NoneMovableFunction
-        if (ne.anyMatch(e -> e instanceof NoneMovableFunction)) {
-            return false;
-        }
-
-        return true;
+        return orderKeyExprIds;
     }
 
     // =========================================================================
@@ -393,7 +393,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
     /** Remove pulled-up expressions from project and add their base input slots. */
     private static LogicalProject<? extends Plan> simplifyProject(
             LogicalProject<? extends Plan> project, PullUpInfo info, LogicalProject<? extends Plan> original) {
-        List<NamedExpression> pulledUpExprs = info.projectToPulledUpExprs.get(original != null ? original : project);
+        List<NamedExpression> pulledUpExprs = info.projectToPulledUpExprs.get(original);
         if (pulledUpExprs == null) {
             pulledUpExprs = info.projectToPulledUpExprs.get(project);
         }
