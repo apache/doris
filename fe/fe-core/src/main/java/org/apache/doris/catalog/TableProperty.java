@@ -220,13 +220,27 @@ public class TableProperty implements GsonPostProcessable {
             if (entry.getKey().startsWith(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
                 if (!DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTIES.contains(entry.getKey())) {
                     LOG.warn("Ignore invalid dynamic property key: {}: value: {}", entry.getKey(), entry.getValue());
+                    continue;
                 }
                 dynamicPartitionProperties.put(entry.getKey(), entry.getValue());
             }
         }
 
+        if (!dynamicPartitionProperties.isEmpty()
+                && !hasRequiredDynamicPartitionProperties(dynamicPartitionProperties)) {
+            LOG.warn("Ignore incomplete dynamic partition properties: {}", dynamicPartitionProperties);
+            dynamicPartitionProperty = EnvFactory.getInstance().createDynamicPartitionProperty(Maps.newHashMap());
+            return this;
+        }
         dynamicPartitionProperty = EnvFactory.getInstance().createDynamicPartitionProperty(dynamicPartitionProperties);
         return this;
+    }
+
+    private boolean hasRequiredDynamicPartitionProperties(Map<String, String> dynamicPartitionProperties) {
+        return dynamicPartitionProperties.containsKey(DynamicPartitionProperty.TIME_UNIT)
+                && dynamicPartitionProperties.containsKey(DynamicPartitionProperty.END)
+                && dynamicPartitionProperties.containsKey(DynamicPartitionProperty.PREFIX)
+                && dynamicPartitionProperties.containsKey(DynamicPartitionProperty.BUCKETS);
     }
 
     public TableProperty buildInMemory() {
