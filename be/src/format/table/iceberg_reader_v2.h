@@ -33,8 +33,8 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
-#include "core/data_type/define_primitive_type.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "format/new_parquet/column_reader.h"
 #include "format/reader/file_reader.h"
@@ -82,15 +82,12 @@ protected:
     // 将 file-local block 转换为 table/global schema block。
     // 这里执行 ColumnMapping 中的 finalize_expr、缺失列填充、partition/generated 列
     // 物化以及复杂列 remap。
-    Status finalize_chunk(Block* block) override {
-        // 真实实现会根据 ColumnMapping 执行 finalize_expr/default/partition/generated
-        // expressions，把 file-local block 写成 table block。
+    Status finalize_chunk(Block* block, const size_t rows) override {
+        RETURN_IF_ERROR(reader::TableReader::finalize_chunk(block, rows));
         RETURN_IF_ERROR(apply_equality_deletes(block));
         return Status::OK();
     }
 
-    // 物化 Iceberg 虚拟列。
-    // 例如 _row_id、_last_updated_sequence_number 等，它们不来自 Parquet 文件物理列。
     Status materialize_virtual_columns(Block* table_block) override {
         for (size_t column_idx = 0; column_idx < _data_reader.column_mapper.mappings().size();
              ++column_idx) {
@@ -111,7 +108,6 @@ protected:
     }
 
     Status customize_file_scan_request(reader::FileScanRequest* file_request) override {
-        DORIS_CHECK(file_request != nullptr);
         RETURN_IF_ERROR(TableReader::customize_file_scan_request(file_request));
         if (_row_lineage_columns.first_row_id >= 0 && _need_row_lineage_row_id()) {
             RETURN_IF_ERROR(_append_row_position_output_column(file_request));
@@ -240,8 +236,8 @@ private:
     static std::string _iceberg_delete_vector_cache_key(const TIcebergDeleteFileDesc& delete_file) {
         const std::string key_prefix = "iceberg_dv:";
         std::string key;
-        key.resize(key_prefix.size() + delete_file.path.size() + sizeof(delete_file.content_offset) +
-                   sizeof(delete_file.content_size_in_bytes));
+        key.resize(key_prefix.size() + delete_file.path.size() +
+                   sizeof(delete_file.content_offset) + sizeof(delete_file.content_size_in_bytes));
         char* data = key.data();
         memcpy(data, key_prefix.data(), key_prefix.size());
         data += key_prefix.size();
@@ -284,9 +280,8 @@ private:
     }
 
     Status _read_position_delete_files(const std::vector<TIcebergDeleteFileDesc>& delete_files) {
-        TFileScanRangeParams delete_scan_params = _scan_params == nullptr
-                                                          ? TFileScanRangeParams()
-                                                          : *_scan_params;
+        TFileScanRangeParams delete_scan_params =
+                _scan_params == nullptr ? TFileScanRangeParams() : *_scan_params;
         IcebergDeleteFileIOContext delete_io_ctx(_runtime_state);
         auto options = _delete_file_reader_options(&delete_io_ctx, &delete_scan_params);
         std::map<std::string, reader::DeleteRows> rows_by_file;
@@ -305,10 +300,9 @@ private:
         _position_delete_rows_storage.insert(_position_delete_rows_storage.end(),
                                              rows_it->second.begin(), rows_it->second.end());
         std::sort(_position_delete_rows_storage.begin(), _position_delete_rows_storage.end());
-        _position_delete_rows_storage.erase(
-                std::unique(_position_delete_rows_storage.begin(),
-                            _position_delete_rows_storage.end()),
-                _position_delete_rows_storage.end());
+        _position_delete_rows_storage.erase(std::unique(_position_delete_rows_storage.begin(),
+                                                        _position_delete_rows_storage.end()),
+                                            _position_delete_rows_storage.end());
         _delete_rows = &_position_delete_rows_storage;
         return Status::OK();
     }

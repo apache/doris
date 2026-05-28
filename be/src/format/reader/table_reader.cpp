@@ -71,7 +71,6 @@ void build_table_filters_from_conjunct(const VExprSPtr& conjunct,
         table_filter.conjunct = VExprContext::create_shared(conjunct);
         table_filter.slot_ids.assign(slot_ids.begin(), slot_ids.end());
         table_filters->push_back(std::move(table_filter));
-        return;
     }
 }
 

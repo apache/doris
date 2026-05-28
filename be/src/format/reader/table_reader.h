@@ -184,19 +184,9 @@ public:
                 }
                 continue;
             }
-            DCHECK_EQ(_data_reader.block_template.columns(), _data_reader.scan_schema.size());
-
+            DCHECK_EQ(_data_reader.block_template.columns(), _data_reader.block_schema.size());
             DORIS_CHECK(block->columns() == _data_reader.column_mapper.mappings().size());
-            size_t idx = 0;
-            for (const auto& mapping : _data_reader.column_mapper.mappings()) {
-                ColumnPtr column;
-                RETURN_IF_ERROR(_materialize_mapping_column(mapping, &_data_reader.block_template,
-                                                            current_rows, &column));
-                block->replace_by_position(idx, std::move(column));
-                idx++;
-            }
-            RETURN_IF_ERROR(finalize_chunk(block));
-            RETURN_IF_ERROR(materialize_virtual_columns(block));
+            RETURN_IF_ERROR(finalize_chunk(block, current_rows));
             if (current_eof) {
                 RETURN_IF_ERROR(close_current_reader());
             }
@@ -217,8 +207,6 @@ protected:
     // Parse deletion vector information from table format specific file description.
     virtual Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,
                                                DeleteFileDesc* desc, bool* has_delete_file) {
-        DORIS_CHECK(desc != nullptr);
-        DORIS_CHECK(has_delete_file != nullptr);
         *has_delete_file = false;
         return Status::OK();
     }
@@ -230,36 +218,45 @@ protected:
     // 打开当前具体 reader。
     // 子类在这里基于当前 split/task 初始化底层 FileReader。
     virtual Status open_reader() {
+        // 1. Get file schema and create column mapping.
         std::vector<SchemaField> file_schema;
         RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
-        _data_reader.block_schema = file_schema;
+        _data_reader.file_schema = file_schema;
         RETURN_IF_ERROR(_data_reader.column_mapper.create_mapping(_projected_columns,
                                                                   _partition_values, file_schema));
         DORIS_CHECK(_data_reader.column_mapper.mappings().size() == _projected_columns.size());
+
+        // 2. Build table filters based on conjuncts and column predicates.
         RETURN_IF_ERROR(_build_table_filters_from_conjuncts());
 
+        // 3. Create file scan request based on column mapping and table filters, then open file reader with the request.
+        // file scan request is the main carrier of file-level pruning information, including column mapping, column-level filters and expression filters. The file reader will evaluate the filters and only return rows that satisfy the filters to table reader.
         auto file_request = std::make_unique<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper.create_scan_request(
                 _table_filters, _table_column_predicates, _projected_columns, file_request.get()));
         RETURN_IF_ERROR(customize_file_scan_request(file_request.get()));
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
-        _data_reader.scan_schema.clear();
+        _data_reader.block_schema.clear();
         _data_reader.block_template.clear();
-        _data_reader.scan_schema.resize(file_request->column_positions.size());
+        _data_reader.block_schema.resize(file_request->column_positions.size());
+
+        // 4. Build block schema based on file schema and column mapping. The scan schema describes the column layout of the block returned by file reader, which is determined by the column mapping and file schema.
         for (const auto& [file_column_id, block_position] : file_request->column_positions) {
-            DORIS_CHECK(block_position < _data_reader.scan_schema.size());
-            const auto* field = _find_schema_field(_data_reader.block_schema, file_column_id);
+            DORIS_CHECK(block_position < _data_reader.block_schema.size());
+            const auto* field = _find_schema_field(_data_reader.file_schema, file_column_id);
             DORIS_CHECK(field != nullptr);
             auto projection_it = file_request->complex_projections.find(file_column_id);
             if (projection_it == file_request->complex_projections.end()) {
-                _data_reader.scan_schema[block_position] = *field;
+                _data_reader.block_schema[block_position] = *field;
             } else {
                 RETURN_IF_ERROR(_project_schema_field(*field, projection_it->second,
-                                                      &_data_reader.scan_schema[block_position]));
+                                                      &_data_reader.block_schema[block_position]));
             }
         }
-        _data_reader.block_template.reserve(_data_reader.scan_schema.size());
-        for (const auto& field : _data_reader.scan_schema) {
+
+        // 5. Prepare block template based on block schema. The block template is used to store the block returned by file reader before finalize; it has the same column layout as the file reader output block, which is determined by the column mapping and file schema.
+        _data_reader.block_template.reserve(_data_reader.block_schema.size());
+        for (const auto& field : _data_reader.block_schema) {
             _data_reader.block_template.insert(
                     {field.type->create_column(), field.type, field.name});
         }
@@ -307,19 +304,20 @@ protected:
                     request->non_predicate_columns.end());
         }
         if (column_id == doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID &&
-            _find_schema_field(_data_reader.block_schema, column_id) == nullptr) {
-            _data_reader.block_schema.push_back(
+            _find_schema_field(_data_reader.file_schema, column_id) == nullptr) {
+            _data_reader.file_schema.push_back(
                     doris::parquet::ParquetColumnReaderFactory::row_position_schema_field());
         }
     }
 
+    // Append DeletePredicate to file scan request if there are deletes. The predicate will be evaluated in file reader level and filter out deleted rows before returning data to table reader.
     Status _append_delete_predicate(FileScanRequest* request) {
         DORIS_CHECK(request != nullptr);
         if (_delete_rows == nullptr || _delete_rows->empty()) {
             return Status::OK();
         }
         const auto row_position_column_id =
-                doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
+                parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
         _append_file_scan_column(request, row_position_column_id, &request->predicate_columns);
 
         auto delete_predicate = std::make_shared<DeletePredicate>(*_delete_rows);
@@ -327,7 +325,7 @@ protected:
         delete_predicate->add_child(TableSlotRef::create_shared(
                 cast_set<int>(block_position), cast_set<int>(block_position), -1,
                 std::make_shared<DataTypeInt64>(),
-                doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME));
+                parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME));
 
         FileExpressionFilter delete_filter;
         delete_filter.delete_conjunct = VExprContext::create_shared(std::move(delete_predicate));
@@ -344,27 +342,32 @@ protected:
         _data_reader.column_mapper.clear();
         _table_filters.clear();
         _table_column_predicates.clear();
+        _data_reader.file_schema.clear();
         _data_reader.block_schema.clear();
-        _data_reader.scan_schema.clear();
         _data_reader.block_template.clear();
         _current_task.reset();
         return Status::OK();
     }
 
-    // 将 file-local block 转换为 table/global schema block。
-    // 这里执行 ColumnMapping 中的 finalize_expr、缺失列填充、partition/generated 列
-    // 物化以及复杂列 remap。
-    virtual Status finalize_chunk(Block* block) { return Status::OK(); }
-
-    // 物化虚拟列。
-    // 例如 _row_id、_last_updated_sequence_number 等，它们不来自文件物理列。
-    virtual Status materialize_virtual_columns(Block* table_block) {
-        // 真实实现会物化 _row_id、_last_updated_sequence_number 等 Iceberg 虚拟列。
+    // Finalize file-local block to table/global schema block.
+    virtual Status finalize_chunk(Block* block, const size_t rows) {
+        size_t idx = 0;
+        for (const auto& mapping : _data_reader.column_mapper.mappings()) {
+            ColumnPtr column;
+            RETURN_IF_ERROR(_materialize_mapping_column(mapping, &_data_reader.block_template, rows,
+                                                        &column));
+            block->replace_by_position(idx, std::move(column));
+            idx++;
+        }
+        RETURN_IF_ERROR(materialize_virtual_columns(block));
         return Status::OK();
     }
 
+    // Materialize virtual columns in table block, such as _row_id and _last_updated_sequence_number in Iceberg. This is called after finalize_chunk, so the virtual column can be referenced in finalize_expr.
+    virtual Status materialize_virtual_columns(Block* table_block) { return Status::OK(); }
+
     Status _materialize_mapping_column(const ColumnMapping& mapping, Block* current_block,
-                                       size_t current_rows, ColumnPtr* column) {
+                                       const size_t rows, ColumnPtr* column) {
         if (mapping.projection != nullptr) {
             int res_id;
             RETURN_IF_ERROR(mapping.projection->execute(current_block, &res_id));
@@ -372,23 +375,22 @@ protected:
             return Status::OK();
         }
         if (mapping.default_expr != nullptr) {
-            if (current_block->rows() == current_rows) {
+            if (current_block->rows() == rows) {
                 int res_id;
                 RETURN_IF_ERROR(mapping.default_expr->execute(current_block, &res_id));
                 *column = current_block->get_columns()[res_id];
             } else {
                 DORIS_CHECK(mapping.is_constant);
                 Block eval_block;
-                eval_block.insert(
-                        {mapping.table_type->create_column_const_with_default_value(current_rows),
-                         mapping.table_type, "__table_reader_const_rows"});
+                eval_block.insert({mapping.table_type->create_column_const_with_default_value(rows),
+                                   mapping.table_type, "__table_reader_const_rows"});
                 int res_id;
                 RETURN_IF_ERROR(mapping.default_expr->execute(&eval_block, &res_id));
                 *column = eval_block.get_columns()[res_id];
             }
             return Status::OK();
         }
-        *column = mapping.table_type->create_column_const_with_default_value(current_rows);
+        *column = mapping.table_type->create_column_const_with_default_value(rows);
         return Status::OK();
     }
 
@@ -410,8 +412,10 @@ protected:
     struct DataReader {
         std::unique_ptr<FileReader> reader;
         TableColumnMapper column_mapper;
-        std::vector<SchemaField> block_schema;
-        std::vector<SchemaField> scan_schema;
+        std::vector<SchemaField>
+                file_schema; // Schema of the data file, also including virtual column (row position).
+        std::vector<SchemaField>
+                block_schema; // Schema of the block returned by file reader, determined by column mapping and file schema. It is used for file reader to materialize columns into correct type and position.
         Block block_template;
     };
     DataReader _data_reader;
