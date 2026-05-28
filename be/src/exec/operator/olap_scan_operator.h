@@ -208,6 +208,7 @@ private:
     RuntimeProfile::Counter* _lazy_read_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_seek_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_seek_counter = nullptr;
+    RuntimeProfile::Counter* _deferred_nested_read_timer = nullptr;
 
     // total pages read
     // used by segment v2
