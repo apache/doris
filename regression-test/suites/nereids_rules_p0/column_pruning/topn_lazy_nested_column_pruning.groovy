@@ -278,4 +278,65 @@ suite("topn_lazy_nested_column_pruning") {
         limit 3
     """
     sql """ set topn_lazy_materialization_using_index = false; """
+
+    // =============================================
+    // Test 15: STRUCT nested expr BEFORE id — verify column order preserved
+    //   SELECT city_expr, id should produce [city, id] not [id, city]
+    // =============================================
+    explain {
+        sql """
+            select substring(struct_element(struct_col, 'city'), 1) as city, id
+            from ncp_tbl
+            order by id
+            limit 3
+        """
+        contains("VMaterializeNode")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__ncp_tbl]")
+    }
+    qt_struct_col_order_result """
+        select substring(struct_element(struct_col, 'city'), 1) as city, id
+        from ncp_tbl
+        order by id
+        limit 3
+    """
+
+    // =============================================
+    // Test 16: VARIANT nested expr BEFORE id — verify column order preserved
+    // =============================================
+    explain {
+        sql """
+            select substring(element_at(payload, 'name'), 1) as name, id, s
+            from vt
+            order by id
+            limit 3
+        """
+        contains("VMaterializeNode")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__vt]")
+    }
+    qt_variant_col_order_result """
+        select substring(element_at(payload, 'name'), 1) as name, id, s
+        from vt
+        order by id
+        limit 3
+    """
+
+    // =============================================
+    // Test 17: MAP nested expr BEFORE id — verify column order preserved
+    // =============================================
+    explain {
+        sql """
+            select element_at(map_col, 'a') as val, id
+            from ncp_tbl
+            order by id
+            limit 3
+        """
+        contains("VMaterializeNode")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__ncp_tbl]")
+    }
+    qt_map_col_order_result """
+        select element_at(map_col, 'a') as val, id
+        from ncp_tbl
+        order by id
+        limit 3
+    """
 }
