@@ -47,7 +47,7 @@ __int128_t murmur_hash3_128_for_test(const std::vector<std::string>& values) {
     uint64_t h1 = 0;
     uint64_t h2 = 0;
     for (const std::string& value : values) {
-        murmur_hash3_x64_process(value.data(), static_cast<int>(value.size()), h1, h2);
+        murmur_hash3_x64_process(value.data(), value.size(), h1, h2);
     }
     return pack_murmur_hash3_128_for_test(h1, h2);
 }
@@ -170,6 +170,27 @@ TEST(HashFunctionTest, murmur_hash_3_128_test) {
 
         check_function_all_arg_comb<DataTypeInt128, true>(func_name, input_types, data_set);
     };
+}
+
+TEST(HashFunctionTest, murmur_hash_3_128_empty_arguments_test) {
+    Block block;
+    auto return_type = std::make_shared<DataTypeInt128>();
+    FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
+            "murmur_hash3_128", block.get_columns_with_type_and_name(), return_type);
+    ASSERT_TRUE(func != nullptr);
+
+    FunctionUtils fn_utils(return_type, {}, false);
+    auto* fn_ctx = fn_utils.get_fn_ctx();
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+
+    block.insert({nullptr, return_type, "result"});
+    const auto st = func->execute(fn_ctx, block, {}, 0, 1);
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("requires at least one argument"), std::string::npos);
+
+    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
 }
 
 TEST(HashFunctionTest, murmur_hash_get_name_test) {

@@ -136,10 +136,8 @@ using FunctionMurmurHash3U64V2 =
 struct MurmurHash3128Impl {
     static constexpr auto name = "murmur_hash3_128";
 
-    static Status empty_apply(IColumn& icolumn, size_t input_rows_count) {
-        ColumnVector<TYPE_LARGEINT>& vec_to = assert_cast<ColumnVector<TYPE_LARGEINT>&>(icolumn);
-        vec_to.get_data().assign(input_rows_count, pack_hash(emtpy_value, emtpy_value));
-        return Status::OK();
+    static Status empty_apply(IColumn& /*icolumn*/, size_t /*input_rows_count*/) {
+        return Status::InvalidArgument("Function {} requires at least one argument", name);
     }
 
     static Status first_apply(const IDataType* type, const IColumn* column, size_t input_rows_count,
@@ -217,7 +215,7 @@ private:
         uint64_t hash[2] = {0, 0};
         // The first SQL argument starts from seed 0, so it can use the existing 128-bit primitive
         // directly. Later arguments must use update_hash() to continue from the saved (h1, h2).
-        murmur_hash3_x64_128(data, static_cast<int>(size), 0, hash);
+        murmur_hash3_x64_128(data, size, 0, hash);
         value = pack_hash(hash[0], hash[1]);
     }
 
@@ -227,7 +225,7 @@ private:
         // Variadic hash functions feed each argument with the previous argument's hash state.
         // For 128-bit MurmurHash3 that state is the pair (h1, h2), packed in the LARGEINT column.
         unpack_hash(value, h1, h2);
-        murmur_hash3_x64_process(data, static_cast<int>(size), h1, h2);
+        murmur_hash3_x64_process(data, size, h1, h2);
         value = pack_hash(h1, h2);
     }
 };
