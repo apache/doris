@@ -82,7 +82,6 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private long loadBytes = 0L;
     private long filteredRows = 0L;
     private long loadedRows = 0L;
-    private long timeoutMs;
     private long runningBackendId;
 
     public StreamingMultiTblTask(Long jobId,
@@ -103,7 +102,6 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         this.jobProperties = jobProperties;
         this.targetDb = targetDb;
         this.cloudCluster = cloudCluster;
-        this.timeoutMs = Config.streaming_task_timeout_multiplier * jobProperties.getMaxIntervalSecond() * 1000L;
     }
 
     @Override
@@ -327,6 +325,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             // It's still pending, waiting for scheduling.
             return false;
         }
+        // Read multiplier live so config changes affect already-running tasks.
+        long timeoutMs = Config.streaming_task_timeout_multiplier
+                * jobProperties.getMaxIntervalSecond() * 1000L;
         long elapsed = System.currentTimeMillis() - startTimeMs;
         if (elapsed > timeoutMs) {
             log.info("Task {} timeout detected: elapsed={}ms, timeoutMs={}ms", taskId, elapsed, timeoutMs);
