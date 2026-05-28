@@ -3264,6 +3264,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 定期刷新 table-level warmup 任务匹配的 table ID 集合的时间间隔（毫秒）",
+            "en: Interval in milliseconds to refresh matched table IDs for table-level warmup jobs"})
+    public static long cloud_warm_up_table_filter_refresh_interval_ms = 60000; // 60 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 定期从 BE 拉取主动增量预热 SyncStats 并缓存到 FE job 的时间间隔（毫秒）",
+            "en: Interval in milliseconds to collect event-driven warmup SyncStats from BEs and cache it in FE jobs"})
+    public static long cloud_warm_up_sync_stats_refresh_interval_ms = 15000; // 15 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: SHOW WARM UP JOB 和 FE 日志中 MatchedTables 最多展示的表数量",
+            "en: Maximum number of MatchedTables entries displayed in SHOW WARM UP JOB and FE logs"})
+    public static int cloud_warm_up_matched_tables_display_limit = 100;
+
     @ConfField(mutable = true, masterOnly = true)
     public static boolean cloud_warm_up_force_all_partitions = false;
 
