@@ -35,15 +35,15 @@ TEST_F(FunctionCastToStringTest, from_float) {
     std::vector<std::pair<float, std::string>> input_values = {
             {
                     0.0,
-                    "0",
+                    "0.0",
             },
             {
                     -0.0,
-                    "-0",
+                    "-0.0",
             },
             {
                     1.230F,
-                    "1.23", // trailing zero of fractional part is not printed
+                    "1.23",
             },
             {
                     123.456000F,
@@ -51,11 +51,11 @@ TEST_F(FunctionCastToStringTest, from_float) {
             },
             {
                     123.000F,
-                    "123", // decimal point is printed if fractional part is zero
+                    "123.0",
             },
             {
                     1234567.000F,
-                    "1234567",
+                    "1234567.0",
             },
             // 7 > e >= -4: decimal format.
             // e < -4 or e >= 7: scientific format.
@@ -65,7 +65,7 @@ TEST_F(FunctionCastToStringTest, from_float) {
             },
             {
                     1234567.12345F,
-                    "1234567",
+                    "1234567.0",
             },
             {
                     12345678.12345F,
@@ -101,7 +101,7 @@ TEST_F(FunctionCastToStringTest, from_float) {
             },
             {
                     1234567.123456789F,
-                    "1234567",
+                    "1234567.0",
             },
             {
                     987654336.0F,
@@ -186,15 +186,15 @@ TEST_F(FunctionCastToStringTest, from_double) {
     std::vector<std::pair<double, std::string>> input_values = {
             {
                     0.0,
-                    "0",
+                    "0.0",
             },
             {
                     -0.0,
-                    "-0",
+                    "-0.0",
             },
             {
                     1.230,
-                    "1.23", // trailing zero of fractional part is not printed
+                    "1.23",
             },
             {
                     123.456000,
@@ -202,11 +202,11 @@ TEST_F(FunctionCastToStringTest, from_double) {
             },
             {
                     123.000,
-                    "123", // decimal point is printed if fractional part is zero
+                    "123.0",
             },
             {
                     1234567.000,
-                    "1234567",
+                    "1234567.0",
             },
             // 16 > e >= -4: decimal format.
             // e < -4 or e >= 16: scientific format.
@@ -256,11 +256,11 @@ TEST_F(FunctionCastToStringTest, from_double) {
             },
             {
                     987654336.0,
-                    "987654336",
+                    "987654336.0",
             },
             {
                     16777216.0,
-                    "16777216",
+                    "16777216.0",
             },
             {
                     0.000123456,
@@ -305,7 +305,7 @@ TEST_F(FunctionCastToStringTest, from_double) {
 
             {
                     1234567890123456.12345,
-                    "1234567890123456",
+                    "1234567890123456.0",
             },
             {
                     12345678901234567.12345,

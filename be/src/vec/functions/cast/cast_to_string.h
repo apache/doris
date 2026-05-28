@@ -118,6 +118,24 @@ private:
                 end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
                                      std::numeric_limits<double>::digits10 + 1);
             }
+            // Ensure integer-like floats like 3.0 are rendered as "3.0" not "3",
+            // so they are distinguishable from integer types.
+            bool has_decimal = false;
+            bool has_exponent = false;
+            for (char* p = buffer; p < end; ++p) {
+                if (*p == '.') {
+                    has_decimal = true;
+                    break;
+                }
+                if (*p == 'e' || *p == 'E') {
+                    has_exponent = true;
+                    break;
+                }
+            }
+            if (!has_decimal && !has_exponent) {
+                *end++ = '.';
+                *end++ = '0';
+            }
         }
         *end = '\0';
         return int(end - buffer);
@@ -288,7 +306,7 @@ inline void CastToString::push_number(const Int128& num, BufferWritable& bw) {
 
 template <>
 inline std::string CastToString::from_number(const Float32& num) {
-    char buf[MAX_FLOAT_STR_LENGTH + 2];
+    char buf[MAX_FLOAT_STR_LENGTH + 4]; // +4 for potential ".0" suffix and NUL
     int len = _fast_to_buffer(num, buf);
     return std::string(buf, buf + len);
 }
@@ -301,14 +319,14 @@ inline int CastToString::from_number(const T& from, char* buffer) {
 
 template <>
 inline void CastToString::push_number(const Float32& num, ColumnString::Chars& chars) {
-    char buf[MAX_FLOAT_STR_LENGTH + 2];
+    char buf[MAX_FLOAT_STR_LENGTH + 4]; // +4 for potential ".0" suffix and NUL
     int len = _fast_to_buffer(num, buf);
     chars.insert(buf, buf + len);
 }
 
 template <>
 inline void CastToString::push_number(const Float32& num, BufferWritable& bw) {
-    char buf[MAX_FLOAT_STR_LENGTH + 2];
+    char buf[MAX_FLOAT_STR_LENGTH + 4]; // +4 for potential ".0" suffix and NUL
     int len = _fast_to_buffer(num, buf);
     bw.write(buf, len);
 }
@@ -316,21 +334,21 @@ inline void CastToString::push_number(const Float32& num, BufferWritable& bw) {
 // DOUBLE
 template <>
 inline std::string CastToString::from_number(const Float64& num) {
-    char buf[MAX_DOUBLE_STR_LENGTH + 2];
+    char buf[MAX_DOUBLE_STR_LENGTH + 4]; // +4 for potential ".0" suffix and NUL
     int len = _fast_to_buffer(num, buf);
     return std::string(buf, len);
 }
 
 template <>
 inline void CastToString::push_number(const Float64& num, ColumnString::Chars& chars) {
-    char buf[MAX_DOUBLE_STR_LENGTH + 2];
+    char buf[MAX_DOUBLE_STR_LENGTH + 4]; // +4 for potential ".0" suffix and NUL
     int len = _fast_to_buffer(num, buf);
     chars.insert(buf, buf + len);
 }
 
 template <>
 inline void CastToString::push_number(const Float64& num, BufferWritable& bw) {
-    char buf[MAX_DOUBLE_STR_LENGTH + 2];
+    char buf[MAX_DOUBLE_STR_LENGTH + 4]; // +4 for potential ".0" suffix and NUL
     int len = _fast_to_buffer(num, buf);
     bw.write(buf, len);
 }

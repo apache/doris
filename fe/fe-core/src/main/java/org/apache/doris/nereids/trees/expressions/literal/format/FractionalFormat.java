@@ -40,14 +40,12 @@ public class FractionalFormat {
         if (Double.isInfinite(value)) {
             return value > 0 ? "Infinity" : "-Infinity";
         }
-        if (Double.compare(value, 0.0) == 0) {
-            return "0";
-        }
-        if (Double.compare(value, -0.0) == 0) {
-            return "-0";
-        }
         int expLower = -4;
         int exponent = (int) Math.floor(Math.log10(Math.abs(value)));
+        if (value == 0.0 || Double.compare(value, -0.0) == 0) {
+            // exponent is undefined for zero; treat as decimal format
+            return value < 0 ? "-0.0" : "0.0";
+        }
         if (exponent < precision && exponent >= expLower) {
             BigDecimal bd = new BigDecimal(value);
             bd = bd.setScale(precision - bd.precision() + bd.scale(), RoundingMode.HALF_UP);
@@ -55,8 +53,10 @@ public class FractionalFormat {
             if (result.contains(".")) {
                 result = result.replaceAll("0+$", "");
                 if (result.endsWith(".")) {
-                    result = result.substring(0, result.length() - 1);
+                    result += "0";
                 }
+            } else {
+                result += ".0";
             }
             return result;
         } else {
