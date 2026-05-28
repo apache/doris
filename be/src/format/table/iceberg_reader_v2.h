@@ -32,16 +32,19 @@
 #include "core/block/block.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "format/new_parquet/column_reader.h"
+#include "format/new_parquet/parquet_reader.h"
 #include "format/reader/file_reader.h"
 #include "format/reader/table_reader.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "io/file_factory.h"
 
 namespace doris {
 class Block;
@@ -215,15 +218,32 @@ private:
         int64_t last_updated_sequence_number = -1;
     };
 
-    class PositionDeleteCollector final : public IcebergPositionDeleteVisitor {
+    static constexpr const char* ICEBERG_FILE_PATH = "file_path";
+    static constexpr const char* ICEBERG_ROW_POS = "pos";
+    static constexpr size_t ICEBERG_FILE_PATH_BLOCK_POSITION = 0;
+    static constexpr size_t ICEBERG_ROW_POS_BLOCK_POSITION = 1;
+
+    class PositionDeleteBlockCollector final {
     public:
-        PositionDeleteCollector(std::string data_file_path,
-                                std::map<std::string, reader::DeleteRows>* rows)
+        PositionDeleteBlockCollector(std::string data_file_path,
+                                     std::map<std::string, reader::DeleteRows>* rows)
                 : _data_file_path(std::move(data_file_path)), _rows(rows) {}
 
-        Status visit(const std::string& file_path, int64_t pos) override {
-            if (file_path == _data_file_path) {
-                (*_rows)[file_path].push_back(pos);
+        Status collect(const Block& block, size_t read_rows) {
+            if (read_rows == 0) {
+                return Status::OK();
+            }
+            const auto& file_path_column =
+                    assert_cast<const ColumnString&>(*block.get_by_position(
+                            ICEBERG_FILE_PATH_BLOCK_POSITION)
+                                                              .column);
+            const auto& pos_column = assert_cast<const ColumnInt64&>(
+                    *block.get_by_position(ICEBERG_ROW_POS_BLOCK_POSITION).column);
+            for (size_t row = 0; row < read_rows; ++row) {
+                const auto file_path = file_path_column.get_data_at(row).to_string();
+                if (file_path == _data_file_path) {
+                    (*_rows)[file_path].push_back(pos_column.get_element(row));
+                }
             }
             return Status::OK();
         }
@@ -249,6 +269,52 @@ private:
         return key;
     }
 
+    static std::shared_ptr<io::FileSystemProperties> _delete_file_system_properties(
+            const TFileScanRangeParams& scan_params) {
+        auto system_properties = std::make_shared<io::FileSystemProperties>();
+        system_properties->system_type =
+                scan_params.__isset.file_type ? scan_params.file_type : TFileType::FILE_LOCAL;
+        system_properties->properties = scan_params.properties;
+        system_properties->hdfs_params = scan_params.hdfs_params;
+        if (scan_params.__isset.broker_addresses) {
+            system_properties->broker_addresses.assign(scan_params.broker_addresses.begin(),
+                                                       scan_params.broker_addresses.end());
+        }
+        return system_properties;
+    }
+
+    static std::unique_ptr<io::FileDescription> _delete_file_description(
+            const TFileRangeDesc& range) {
+        auto file_description = std::make_unique<io::FileDescription>();
+        file_description->path = range.path;
+        file_description->file_size = range.__isset.file_size ? range.file_size : -1;
+        file_description->range_start_offset = range.__isset.start_offset ? range.start_offset : 0;
+        file_description->range_size = range.__isset.size ? range.size : -1;
+        if (range.__isset.fs_name) {
+            file_description->fs_name = range.fs_name;
+        }
+        return file_description;
+    }
+
+    static const reader::SchemaField* _find_delete_field(
+            const std::vector<reader::SchemaField>& schema, const std::string& name) {
+        for (const auto& field : schema) {
+            if (field.name == name) {
+                return &field;
+            }
+        }
+        return nullptr;
+    }
+
+    static Block _build_position_delete_block(const reader::SchemaField& file_path_field,
+                                              const reader::SchemaField& pos_field) {
+        Block block;
+        block.insert({file_path_field.type->create_column(), file_path_field.type,
+                      ICEBERG_FILE_PATH});
+        block.insert({pos_field.type->create_column(), pos_field.type, ICEBERG_ROW_POS});
+        return block;
+    }
+
     Status _append_row_position_output_column(reader::FileScanRequest* request) {
         const auto row_position_column_id =
                 doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
@@ -266,29 +332,69 @@ private:
         return _current_task->data_file->path;
     }
 
-    IcebergDeleteFileReaderOptions _delete_file_reader_options(IcebergDeleteFileIOContext* io_ctx,
-                                                               TFileScanRangeParams* scan_params) {
-        IcebergDeleteFileReaderOptions options;
-        options.state = _runtime_state;
-        options.profile = _scanner_profile;
-        options.scan_params = scan_params;
-        options.io_ctx = &io_ctx->io_ctx;
-        options.fs_name = _current_task != nullptr && _current_task->data_file != nullptr
-                                  ? &_current_task->data_file->fs_name
-                                  : nullptr;
-        return options;
+    Status _read_parquet_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
+                                              const TFileScanRangeParams& scan_params,
+                                              IcebergDeleteFileIOContext* delete_io_ctx,
+                                              PositionDeleteBlockCollector* collector) {
+        if (!delete_file.__isset.file_format) {
+            return Status::InternalError("Iceberg position delete file is missing file format");
+        }
+        if (delete_file.file_format == TFileFormatType::FORMAT_ORC) {
+            return Status::NotSupported("Iceberg ORC position delete file is not supported");
+        }
+        if (delete_file.file_format != TFileFormatType::FORMAT_PARQUET) {
+            return Status::NotSupported("Unsupported Iceberg delete file format {}",
+                                        delete_file.file_format);
+        }
+
+        auto delete_range = build_iceberg_delete_file_range(delete_file.path);
+        if (_current_task != nullptr && _current_task->data_file != nullptr &&
+            !_current_task->data_file->fs_name.empty()) {
+            delete_range.__set_fs_name(_current_task->data_file->fs_name);
+        }
+        auto system_properties = _delete_file_system_properties(scan_params);
+        auto file_description = _delete_file_description(delete_range);
+        std::shared_ptr<io::IOContext> io_ctx(&delete_io_ctx->io_ctx, [](io::IOContext*) {});
+        parquet::ParquetReader reader(system_properties, file_description, io_ctx,
+                                      _scanner_profile);
+        RETURN_IF_ERROR(reader.init(_runtime_state));
+
+        std::vector<reader::SchemaField> schema;
+        RETURN_IF_ERROR(reader.get_schema(&schema));
+        const auto* file_path_field = _find_delete_field(schema, ICEBERG_FILE_PATH);
+        const auto* pos_field = _find_delete_field(schema, ICEBERG_ROW_POS);
+        if (file_path_field == nullptr || pos_field == nullptr) {
+            return Status::InternalError("Position delete parquet file is missing required columns");
+        }
+
+        auto request = std::make_unique<reader::FileScanRequest>();
+        request->non_predicate_columns = {file_path_field->id, pos_field->id};
+        request->column_positions = {
+                {file_path_field->id, ICEBERG_FILE_PATH_BLOCK_POSITION},
+                {pos_field->id, ICEBERG_ROW_POS_BLOCK_POSITION},
+        };
+        RETURN_IF_ERROR(reader.open(request));
+
+        bool eof = false;
+        while (!eof) {
+            Block block = _build_position_delete_block(*file_path_field, *pos_field);
+            size_t read_rows = 0;
+            RETURN_IF_ERROR(reader.get_block(&block, &read_rows, &eof));
+            RETURN_IF_ERROR(collector->collect(block, read_rows));
+        }
+        return reader.close();
     }
 
     Status _read_position_delete_files(const std::vector<TIcebergDeleteFileDesc>& delete_files) {
         TFileScanRangeParams delete_scan_params =
                 _scan_params == nullptr ? TFileScanRangeParams() : *_scan_params;
-        IcebergDeleteFileIOContext delete_io_ctx(_runtime_state);
-        auto options = _delete_file_reader_options(&delete_io_ctx, &delete_scan_params);
         std::map<std::string, reader::DeleteRows> rows_by_file;
         const auto data_file_path = _data_file_path();
-        PositionDeleteCollector visitor(data_file_path, &rows_by_file);
+        IcebergDeleteFileIOContext delete_io_ctx(_runtime_state);
+        PositionDeleteBlockCollector collector(data_file_path, &rows_by_file);
         for (const auto& delete_file : delete_files) {
-            RETURN_IF_ERROR(read_iceberg_position_delete_file(delete_file, options, &visitor));
+            RETURN_IF_ERROR(_read_parquet_position_delete_file(delete_file, delete_scan_params,
+                                                               &delete_io_ctx, &collector));
         }
         auto rows_it = rows_by_file.find(data_file_path);
         if (rows_it == rows_by_file.end()) {
