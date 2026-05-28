@@ -256,6 +256,16 @@ SplitReadOptions build_split_options(const std::string& file_path) {
     return options;
 }
 
+void set_iceberg_row_lineage_params(SplitReadOptions* split_options, int64_t first_row_id,
+                                    int64_t last_updated_sequence_number) {
+    TTableFormatFileDesc table_format_params;
+    TIcebergFileDesc iceberg_params;
+    iceberg_params.__set_first_row_id(first_row_id);
+    iceberg_params.__set_last_updated_sequence_number(last_updated_sequence_number);
+    table_format_params.__set_iceberg_params(iceberg_params);
+    split_options->current_range.__set_table_format_params(table_format_params);
+}
+
 int64_t parquet_column_start_offset(const ::parquet::ColumnChunkMetaData& column_metadata) {
     return column_metadata.has_dictionary_page()
                    ? static_cast<int64_t>(column_metadata.dictionary_page_offset())
@@ -793,10 +803,7 @@ TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
                         .ok());
 
     auto split_options = build_split_options(file_path);
-    TIcebergFileDesc iceberg_params;
-    iceberg_params.__set_first_row_id(1000);
-    iceberg_params.__set_last_updated_sequence_number(77);
-    split_options.current_range.table_format_params.__set_iceberg_params(iceberg_params);
+    set_iceberg_row_lineage_params(&split_options, 1000, 77);
     ASSERT_TRUE(reader.prepare_split(split_options).ok());
 
     Block block = build_table_block(projected_columns);
@@ -852,10 +859,7 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFiltering)
                         .ok());
 
     auto split_options = build_split_options(file_path);
-    TIcebergFileDesc iceberg_params;
-    iceberg_params.__set_first_row_id(3000);
-    iceberg_params.__set_last_updated_sequence_number(88);
-    split_options.current_range.table_format_params.__set_iceberg_params(iceberg_params);
+    set_iceberg_row_lineage_params(&split_options, 3000, 88);
     ASSERT_TRUE(reader.prepare_split(split_options).ok());
 
     Block block = build_table_block(projected_columns);
@@ -917,10 +921,7 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredicateP
                         .ok());
 
     auto split_options = build_split_options(file_path);
-    TIcebergFileDesc iceberg_params;
-    iceberg_params.__set_first_row_id(4000);
-    iceberg_params.__set_last_updated_sequence_number(99);
-    split_options.current_range.table_format_params.__set_iceberg_params(iceberg_params);
+    set_iceberg_row_lineage_params(&split_options, 4000, 99);
     ASSERT_TRUE(reader.prepare_split(split_options).ok());
 
     Block block = build_table_block(projected_columns);
