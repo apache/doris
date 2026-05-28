@@ -15,68 +15,79 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.apache.doris.regression.suite.ClusterOptions
+suite("test_stream_load_fe_redirect_chunked_e2e", "p0") {
+    String dbName = context.config.getDbNameByFile(context.file)
+    String tableName = "test_stream_load_fe_redirect_chunked_e2e"
+    String helperPath = "${context.file.parent}/scripts/stream_load_redirect_chunked_e2e.py"
+    String feHttpAddress = context.config.feHttpAddress
+    int feAddressSeparator = feHttpAddress.lastIndexOf(":")
+    assertTrue(feAddressSeparator > 0)
+    String feHost = feHttpAddress.substring(0, feAddressSeparator)
+    String fePort = feHttpAddress.substring(feAddressSeparator + 1)
 
-suite("test_stream_load_fe_redirect_chunked_e2e", "docker") {
-    def options = new ClusterOptions()
-    options.feNum = 1
-    options.beNum = 1
-    options.cloudMode = false
+    sql """ CREATE DATABASE IF NOT EXISTS ${dbName} """
+    sql """ DROP TABLE IF EXISTS ${dbName}.${tableName} """
+    sql """
+        CREATE TABLE ${dbName}.${tableName} (
+            k1 BIGINT,
+            v1 STRING
+        )
+        DUPLICATE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
 
-    docker(options) {
-        String dbName = context.config.getDbNameByFile(context.file)
-        def feIp = cluster.getMasterFe().getHttpAddress()[0]
-        def fePort = cluster.getMasterFe().getHttpAddress()[1]
-        def helperPath = "${context.file.parent}/scripts/stream_load_redirect_chunked_e2e.py"
+    // Read the current FE values first so the ordinary suite can restore shared settings.
+    def getFrontendConfigValue = { configKey ->
+        def configRows = sql """ admin show frontend config """
+        def configRow = configRows.find { it[0] == configKey }
+        assertTrue(configRow != null)
+        return configRow[1].toString()
+    }
 
-        sql """ CREATE DATABASE IF NOT EXISTS ${dbName} """
-        sql """ DROP TABLE IF EXISTS ${dbName}.test_stream_load_fe_redirect_chunked_e2e """
-        sql """
-            CREATE TABLE ${dbName}.test_stream_load_fe_redirect_chunked_e2e (
-                k1 BIGINT,
-                v1 STRING
-            )
-            DUPLICATE KEY(k1)
-            DISTRIBUTED BY HASH(k1) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1"
-            )
-        """
+    String originalDrainMaxBytes = getFrontendConfigValue("stream_load_redirect_bounded_drain_max_bytes")
+    String originalDrainMaxIdleTimeMs = getFrontendConfigValue("stream_load_redirect_bounded_drain_max_idle_time_ms")
 
-        // Keep the helper single-shot and let the regression test control retries and assertions.
-        def runChunkedStreamLoad = {
-            def command = [
-                "python3",
-                helperPath,
-                "--host", feIp.toString(),
-                "--fe-http-port", fePort.toString(),
-                "--user", context.config.feHttpUser,
-                "--password", context.config.feHttpPassword == null ? "" : context.config.feHttpPassword,
-                "--db", dbName,
-                "--table", "test_stream_load_fe_redirect_chunked_e2e",
-                "--payload-mb", "8",
-                "--chunk-kb", "8",
-                "--sleep-ms", "10"
-            ]
-            def process = command.execute()
-            def code = process.waitFor()
-            def out = process.in.text.trim()
-            def err = process.err.text.trim()
-            log.info("stream load redirect helper stdout: ${out}")
-            if (!err.isEmpty()) {
-                log.info("stream load redirect helper stderr: ${err}")
-            }
-            return [code: code, result: parseJson(out)]
+    // Treat common client-side disconnects as the reproduced historical failure signal.
+    def reproducedExceptionTypes = ["BrokenPipeError", "ConnectionResetError"] as Set
+
+    // Keep the helper single-shot and let the regression test control retries and assertions.
+    def runChunkedStreamLoad = {
+        def command = [
+            "python3",
+            helperPath,
+            "--host", feHost,
+            "--fe-http-port", fePort,
+            "--user", context.config.feHttpUser,
+            "--password", context.config.feHttpPassword == null ? "" : context.config.feHttpPassword,
+            "--db", dbName,
+            "--table", tableName,
+            "--payload-mb", "8",
+            "--chunk-kb", "8",
+            "--sleep-ms", "10"
+        ]
+        def process = command.execute()
+        def code = process.waitFor()
+        def out = process.in.text.trim()
+        def err = process.err.text.trim()
+        log.info("stream load redirect helper stdout: ${out}")
+        if (!err.isEmpty()) {
+            log.info("stream load redirect helper stderr: ${err}")
         }
+        return [code: code, result: parseJson(out)]
+    }
 
-        // First disable the drain and reproduce the historical broken-pipe behavior.
+    try {
+        // First disable the drain and reproduce the historical client disconnect behavior.
         sql """ admin set frontend config("stream_load_redirect_bounded_drain_max_bytes" = "0") """
-        sql """ admin set frontend config("stream_load_redirect_bounded_drain_max_idle_time_ms" = "2000") """
+        sql """ admin set frontend config("stream_load_redirect_bounded_drain_max_idle_time_ms" = "1") """
         boolean brokenPipeObserved = false
         for (int i = 0; i < 5; i++) {
             def attempt = runChunkedStreamLoad()
             def result = attempt.result
-            if (result.exception_type == "BrokenPipeError") {
+            if (reproducedExceptionTypes.contains(result.exception_type)) {
                 brokenPipeObserved = true
                 break
             }
@@ -96,7 +107,11 @@ suite("test_stream_load_fe_redirect_chunked_e2e", "docker") {
             assertEquals(307, result.status_code as Integer)
             assertTrue(result.exception_type == null)
             assertTrue(result.exception == null)
-            assertTrue(result.headers.Location.contains("/api/${dbName}/test_stream_load_fe_redirect_chunked_e2e/_stream_load"))
+            assertTrue(result.headers.Location.contains("/api/${dbName}/${tableName}/_stream_load"))
         }
+    } finally {
+        // Restore the shared FE settings before leaving the ordinary regression environment.
+        sql """ admin set frontend config("stream_load_redirect_bounded_drain_max_bytes" = "${originalDrainMaxBytes}") """
+        sql """ admin set frontend config("stream_load_redirect_bounded_drain_max_idle_time_ms" = "${originalDrainMaxIdleTimeMs}") """
     }
 }
