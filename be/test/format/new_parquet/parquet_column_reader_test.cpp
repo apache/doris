@@ -31,12 +31,14 @@
 #include "core/assert_cast.h"
 #include "core/column/column_array.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/types.h"
@@ -155,6 +157,26 @@ protected:
         for (const auto& row : values) {
             EXPECT_TRUE(builder.Append().ok());
             for (const auto value : row) {
+                EXPECT_TRUE(value_builder->Append(value).ok());
+            }
+        }
+        return finish_array(&builder);
+    }
+
+    std::shared_ptr<arrow::Array> build_required_int_string_map_array() {
+        auto key_builder = std::make_shared<arrow::Int32Builder>();
+        auto value_builder = std::make_shared<arrow::StringBuilder>();
+        auto map_type = arrow::map(arrow::int32(), arrow::field("value", arrow::utf8(), false));
+        arrow::MapBuilder builder(arrow::default_memory_pool(), key_builder, value_builder,
+                                  map_type);
+        const std::vector<std::vector<std::pair<int32_t, std::string>>> values = {
+                {{1, "a"}, {2, "b"}}, {{3, "c"}},           {{4, "d"}, {5, "e"}, {6, "f"}},
+                {{7, "g"}},           {{8, "h"}, {9, "i"}},
+        };
+        for (const auto& row : values) {
+            EXPECT_TRUE(builder.Append().ok());
+            for (const auto& [key, value] : row) {
+                EXPECT_TRUE(key_builder->Append(key).ok());
                 EXPECT_TRUE(value_builder->Append(value).ok());
             }
         }
@@ -394,15 +416,54 @@ protected:
                               TYPE_INT);
                       const auto& array_column = assert_cast<const ColumnArray&>(column);
                       ASSERT_EQ(array_column.size(), ROW_COUNT);
-                      EXPECT_EQ(array_column.size_at(0), 2);
-                      EXPECT_EQ(array_column.size_at(1), 1);
-                      EXPECT_EQ(array_column.size_at(2), 3);
-                      EXPECT_EQ(array_column.size_at(4), 2);
+                      const auto array_size_at = [&array_column](size_t row_idx) {
+                          return array_column.get_offsets()[row_idx] -
+                                 (row_idx == 0 ? 0 : array_column.get_offsets()[row_idx - 1]);
+                      };
+                      EXPECT_EQ(array_size_at(0), 2);
+                      EXPECT_EQ(array_size_at(1), 1);
+                      EXPECT_EQ(array_size_at(2), 3);
+                      EXPECT_EQ(array_size_at(4), 2);
                       const auto& values = assert_cast<const ColumnInt32&>(array_column.get_data());
                       ASSERT_EQ(values.size(), 9);
                       EXPECT_EQ(values.get_element(0), 1);
                       EXPECT_EQ(values.get_element(5), 6);
                       EXPECT_EQ(values.get_element(8), 9);
+                  });
+        add_field(arrow::field(
+                          "map_int_string_col",
+                          arrow::map(arrow::int32(), arrow::field("value", arrow::utf8(), false)),
+                          false),
+                  build_required_int_string_map_array(),
+                  [](const ParquetColumnSchema& schema, const IColumn& column) {
+                      EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(), TYPE_MAP);
+                      const auto* map_type =
+                              assert_cast<const DataTypeMap*>(remove_nullable(schema.type).get());
+                      EXPECT_EQ(remove_nullable(map_type->get_key_type())->get_primitive_type(),
+                                TYPE_INT);
+                      EXPECT_EQ(remove_nullable(map_type->get_value_type())->get_primitive_type(),
+                                TYPE_STRING);
+                      const auto& map_column = assert_cast<const ColumnMap&>(column);
+                      ASSERT_EQ(map_column.size(), ROW_COUNT);
+                      const auto map_size_at = [&map_column](size_t row_idx) {
+                          return map_column.get_offsets()[row_idx] -
+                                 (row_idx == 0 ? 0 : map_column.get_offsets()[row_idx - 1]);
+                      };
+                      EXPECT_EQ(map_size_at(0), 2);
+                      EXPECT_EQ(map_size_at(1), 1);
+                      EXPECT_EQ(map_size_at(2), 3);
+                      EXPECT_EQ(map_size_at(4), 2);
+                      const auto& keys = assert_cast<const ColumnInt32&>(map_column.get_keys());
+                      const auto& values =
+                              assert_cast<const ColumnString&>(map_column.get_values());
+                      ASSERT_EQ(keys.size(), 9);
+                      ASSERT_EQ(values.size(), 9);
+                      EXPECT_EQ(keys.get_element(0), 1);
+                      EXPECT_EQ(keys.get_element(5), 6);
+                      EXPECT_EQ(keys.get_element(8), 9);
+                      EXPECT_EQ(values.get_data_at(0).to_string(), "a");
+                      EXPECT_EQ(values.get_data_at(5).to_string(), "f");
+                      EXPECT_EQ(values.get_data_at(8).to_string(), "i");
                   });
 
         auto schema = arrow::schema(_arrow_fields);
@@ -437,6 +498,16 @@ protected:
         ASSERT_EQ(rows_read, ROW_COUNT);
         ASSERT_EQ(column->size(), ROW_COUNT);
         _expected_by_field[field_idx](*_fields[field_idx], *column);
+    }
+
+    size_t find_field_idx(const std::string& name) const {
+        for (size_t field_idx = 0; field_idx < _fields.size(); ++field_idx) {
+            if (_fields[field_idx]->name == name) {
+                return field_idx;
+            }
+        }
+        ADD_FAILURE() << "Cannot find parquet test field " << name;
+        return _fields.size();
     }
 
     std::filesystem::path _test_dir;
@@ -496,7 +567,8 @@ TEST_F(ParquetColumnReaderTest, SelectReadsOnlySelectedRanges) {
 }
 
 TEST_F(ParquetColumnReaderTest, ReadProjectedStructChildren) {
-    const auto field_idx = _fields.size() - 1;
+    const auto field_idx = find_field_idx("struct_col");
+    ASSERT_LT(field_idx, _fields.size());
     const auto& struct_schema = *_fields[field_idx];
     ASSERT_EQ(struct_schema.name, "struct_col");
     ASSERT_EQ(struct_schema.children.size(), 2);
@@ -533,7 +605,8 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedStructChildren) {
 }
 
 TEST_F(ParquetColumnReaderTest, BuildComplexSchemaPathMetadata) {
-    const auto field_idx = _fields.size() - 1;
+    const auto field_idx = find_field_idx("struct_col");
+    ASSERT_LT(field_idx, _fields.size());
     const auto& struct_schema = *_fields[field_idx];
     ASSERT_EQ(struct_schema.name, "struct_col");
     ASSERT_EQ(struct_schema.children.size(), 2);

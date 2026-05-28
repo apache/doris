@@ -32,6 +32,7 @@
 
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_map.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
@@ -176,6 +177,35 @@ private:
     int64_t _next_row_position = 0;
     DataTypePtr _type = std::make_shared<DataTypeInt64>();
     std::string _name = ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME;
+};
+
+class MapColumnReader final : public ParquetColumnReader {
+public:
+    MapColumnReader(const ParquetColumnSchema& schema, DataTypePtr type,
+                    std::unique_ptr<ParquetColumnReader> key_reader,
+                    std::unique_ptr<ParquetColumnReader> value_reader)
+            : _field_id(schema.top_level_field_id),
+              _repeated_repetition_level(schema.repeated_repetition_level),
+              _type(std::move(type)),
+              _name(schema.name),
+              _key_reader(std::move(key_reader)),
+              _value_reader(std::move(value_reader)) {}
+
+    int file_column_id() const override { return _field_id; }
+    int parquet_leaf_column_id() const override { return -1; }
+    const DataTypePtr& type() const override { return _type; }
+    const std::string& name() const override { return _name; }
+
+    Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
+    Status skip(int64_t rows) override;
+
+private:
+    int _field_id = -1;
+    int16_t _repeated_repetition_level = 0;
+    DataTypePtr _type;
+    std::string _name;
+    std::unique_ptr<ParquetColumnReader> _key_reader;
+    std::unique_ptr<ParquetColumnReader> _value_reader;
 };
 
 Status read_records(ScalarColumnReader& column_reader, int64_t batch_rows,
@@ -567,6 +597,135 @@ Status ListColumnReader::skip(int64_t rows) {
     return _element_reader->skip(rows);
 }
 
+Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
+    if (column.get() == nullptr || rows_read == nullptr) {
+        return Status::InvalidArgument("Invalid parquet map read result pointer for column {}",
+                                       _name);
+    }
+    if (_key_reader == nullptr || _value_reader == nullptr) {
+        return Status::InternalError("Parquet map child reader is not initialized for column {}",
+                                     _name);
+    }
+    auto* key_reader = dynamic_cast<ScalarColumnReader*>(_key_reader.get());
+    auto* value_reader = dynamic_cast<ScalarColumnReader*>(_value_reader.get());
+    if (key_reader == nullptr || value_reader == nullptr) {
+        return Status::NotSupported(
+                "Current parquet MAP reader only supports scalar key/value for column {}", _name);
+    }
+    if (key_reader->descriptor()->max_definition_level() != 1 ||
+        value_reader->descriptor()->max_definition_level() != 1) {
+        return Status::NotSupported(
+                "Current parquet MAP reader only supports required key/value entries for column {}",
+                _name);
+    }
+
+    ::parquet::internal::RecordReader* key_record_reader = nullptr;
+    int64_t records_read = 0;
+    RETURN_IF_ERROR(read_records(*key_reader, rows, &key_record_reader, &records_read));
+    const int64_t levels_written = key_record_reader->levels_written();
+    if (records_read != rows || levels_written < records_read) {
+        return Status::Corruption(
+                "Invalid parquet MAP key read result for column {}: rows={}, levels={}", _name,
+                records_read, levels_written);
+    }
+    if (key_record_reader->values_written() != levels_written) {
+        return Status::NotSupported(
+                "Current parquet MAP reader only supports non-empty maps with required entries "
+                "for column {}",
+                _name);
+    }
+
+    const int16_t max_definition_level = key_reader->descriptor()->max_definition_level();
+    if (auto* def_levels = key_record_reader->def_levels(); def_levels != nullptr) {
+        for (int64_t level_idx = 0; level_idx < levels_written; ++level_idx) {
+            if (def_levels[level_idx] != max_definition_level) {
+                return Status::NotSupported(
+                        "Current parquet MAP reader only supports non-empty maps with required "
+                        "entries for column {}",
+                        _name);
+            }
+        }
+    }
+
+    ::parquet::internal::RecordReader* value_record_reader = nullptr;
+    int64_t value_records_read = 0;
+    RETURN_IF_ERROR(
+            read_records(*value_reader, records_read, &value_record_reader, &value_records_read));
+    if (value_records_read != records_read ||
+        value_record_reader->levels_written() != levels_written ||
+        value_record_reader->values_written() != levels_written) {
+        return Status::Corruption(
+                "Invalid parquet MAP value read result for column {}: rows={}, levels={}, "
+                "values={}, expected={}",
+                _name, value_records_read, value_record_reader->levels_written(),
+                value_record_reader->values_written(), levels_written);
+    }
+    if (auto* def_levels = value_record_reader->def_levels(); def_levels != nullptr) {
+        for (int64_t level_idx = 0; level_idx < levels_written; ++level_idx) {
+            if (def_levels[level_idx] != max_definition_level) {
+                return Status::NotSupported(
+                        "Current parquet MAP reader only supports non-empty maps with required "
+                        "entries for column {}",
+                        _name);
+            }
+        }
+    }
+
+    const auto* key_rep_levels = key_record_reader->rep_levels();
+    const auto* value_rep_levels = value_record_reader->rep_levels();
+    if ((key_rep_levels == nullptr || value_rep_levels == nullptr) && levels_written > 0) {
+        return Status::Corruption(
+                "Parquet MAP reader returned null repetition levels for column {}", _name);
+    }
+    for (int64_t level_idx = 0; level_idx < levels_written; ++level_idx) {
+        if (key_rep_levels[level_idx] != value_rep_levels[level_idx]) {
+            return Status::Corruption(
+                    "Parquet MAP key/value repetition levels are not aligned for column {}", _name);
+        }
+    }
+
+    auto& map_column = assert_cast<ColumnMap&>(*column);
+    auto key_column = map_column.get_keys_ptr()->assume_mutable();
+    RETURN_IF_ERROR(append_scalar_values(*key_reader, *key_record_reader, levels_written, nullptr,
+                                         key_column));
+    map_column.get_keys_ptr() = std::move(key_column);
+
+    auto value_column = map_column.get_values_ptr()->assume_mutable();
+    RETURN_IF_ERROR(append_scalar_values(*value_reader, *value_record_reader, levels_written,
+                                         nullptr, value_column));
+    map_column.get_values_ptr() = std::move(value_column);
+
+    auto& offsets = map_column.get_offsets();
+    offsets.reserve(offsets.size() + static_cast<size_t>(records_read));
+    size_t current_offset = offsets.empty() ? 0 : offsets.back();
+    int64_t current_record = 0;
+    for (int64_t level_idx = 0; level_idx < levels_written; ++level_idx) {
+        if (level_idx == 0 || key_rep_levels[level_idx] < _repeated_repetition_level) {
+            if (level_idx != 0) {
+                offsets.push_back(current_offset);
+                current_record++;
+            }
+        }
+        current_offset++;
+    }
+    while (current_record < records_read) {
+        offsets.push_back(current_offset);
+        current_record++;
+    }
+    *rows_read = records_read;
+    return Status::OK();
+}
+
+Status MapColumnReader::skip(int64_t rows) {
+    if (rows <= 0) {
+        return Status::OK();
+    }
+    DORIS_CHECK(_key_reader != nullptr);
+    DORIS_CHECK(_value_reader != nullptr);
+    RETURN_IF_ERROR(_key_reader->skip(rows));
+    return _value_reader->skip(rows);
+}
+
 Status ParquetColumnReader::skip(int64_t rows) {
     return Status::NotSupported("Parquet column skip is not implemented, rows={}", rows);
 }
@@ -811,6 +970,35 @@ Status ParquetColumnReaderFactory::create_list_column_reader(
     return Status::OK();
 }
 
+Status ParquetColumnReaderFactory::create_map_column_reader(
+        const ParquetColumnSchema& column_schema, const reader::FieldProjection* projection,
+        std::unique_ptr<ParquetColumnReader>* reader) const {
+    if (reader == nullptr) {
+        return Status::InvalidArgument("reader is null");
+    }
+    if (projection != nullptr && !projection->project_all_children) {
+        return Status::NotSupported("Parquet MAP projection is not implemented for column {}",
+                                    column_schema.name);
+    }
+    if (column_schema.type != nullptr && column_schema.type->is_nullable()) {
+        return Status::NotSupported("Nullable parquet MAP reader is not implemented for column {}",
+                                    column_schema.name);
+    }
+    if (column_schema.children.size() != 1 || column_schema.children[0]->children.size() != 2) {
+        return Status::NotSupported("Unsupported parquet MAP layout for column {}",
+                                    column_schema.name);
+    }
+    const auto& key_value_schema = *column_schema.children[0];
+    std::unique_ptr<ParquetColumnReader> key_reader;
+    RETURN_IF_ERROR(create_nested_scalar_column_reader(*key_value_schema.children[0], &key_reader));
+    std::unique_ptr<ParquetColumnReader> value_reader;
+    RETURN_IF_ERROR(
+            create_nested_scalar_column_reader(*key_value_schema.children[1], &value_reader));
+    *reader = std::make_unique<MapColumnReader>(column_schema, column_schema.type,
+                                                std::move(key_reader), std::move(value_reader));
+    return Status::OK();
+}
+
 Status ParquetColumnReaderFactory::create(const ParquetColumnSchema& column_schema,
                                           const reader::FieldProjection* projection,
                                           std::unique_ptr<ParquetColumnReader>* reader) const {
@@ -825,8 +1013,7 @@ Status ParquetColumnReaderFactory::create(const ParquetColumnSchema& column_sche
     case ParquetColumnSchemaKind::LIST:
         return create_list_column_reader(column_schema, projection, reader);
     case ParquetColumnSchemaKind::MAP:
-        return Status::NotSupported("Parquet MAP reader is not implemented for column {}",
-                                    column_schema.name);
+        return create_map_column_reader(column_schema, projection, reader);
     }
     return Status::NotSupported("Unsupported parquet column schema kind for column {}",
                                 column_schema.name);

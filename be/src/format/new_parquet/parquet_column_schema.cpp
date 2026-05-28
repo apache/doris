@@ -187,11 +187,44 @@ Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
             return Status::NotSupported("Unsupported parquet MAP encoding for column {}",
                                         node.name());
         }
-        std::unique_ptr<ParquetColumnSchema> key_value;
-        RETURN_IF_ERROR(build_node_schema(
-                schema, *group.field(0),
-                child_context(context, *group.field(0), 0, column_schema->schema_node_id),
-                &key_value));
+        const auto& key_value_node = *group.field(0);
+        if (!key_value_node.is_repeated()) {
+            return Status::NotSupported("Unsupported parquet MAP encoding for column {}",
+                                        node.name());
+        }
+        auto key_value_context =
+                child_context(context, key_value_node, 0, column_schema->schema_node_id);
+        column_schema->repeated_repetition_level = key_value_context.repeated_repetition_level;
+        if (key_value_node.is_primitive()) {
+            return Status::NotSupported("Unsupported parquet MAP key_value layout for column {}",
+                                        node.name());
+        }
+        const auto& key_value_group =
+                static_cast<const ::parquet::schema::GroupNode&>(key_value_node);
+        if (key_value_group.field_count() != 2) {
+            return Status::NotSupported("Unsupported parquet MAP key_value layout for column {}",
+                                        node.name());
+        }
+        auto key_value = std::make_unique<ParquetColumnSchema>();
+        inherit_common_schema_state(key_value_node, key_value_context, key_value.get());
+        key_value->kind = ParquetColumnSchemaKind::STRUCT;
+        DataTypes child_types;
+        Strings child_names;
+        child_types.reserve(key_value_group.field_count());
+        child_names.reserve(key_value_group.field_count());
+        for (int child_idx = 0; child_idx < key_value_group.field_count(); ++child_idx) {
+            std::unique_ptr<ParquetColumnSchema> child;
+            RETURN_IF_ERROR(build_node_schema(
+                    schema, *key_value_group.field(child_idx),
+                    child_context(key_value_context, *key_value_group.field(child_idx), child_idx,
+                                  key_value->schema_node_id),
+                    &child));
+            child_types.push_back(child->type);
+            child_names.push_back(child->name);
+            key_value->children.push_back(std::move(child));
+        }
+        key_value->type = std::make_shared<DataTypeStruct>(child_types, child_names);
+        propagate_child_levels(key_value.get());
         if (key_value->children.size() != 2) {
             return Status::NotSupported("Unsupported parquet MAP key_value layout for column {}",
                                         node.name());

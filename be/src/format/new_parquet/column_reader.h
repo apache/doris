@@ -124,6 +124,10 @@ private:
                                      const reader::FieldProjection* projection,
                                      std::unique_ptr<ParquetColumnReader>* reader) const;
 
+    Status create_map_column_reader(const ParquetColumnSchema& column_schema,
+                                    const reader::FieldProjection* projection,
+                                    std::unique_ptr<ParquetColumnReader>* reader) const;
+
     Status get_record_reader(int leaf_column_id, const ::parquet::ColumnDescriptor* descriptor,
                              const std::string& name,
                              std::shared_ptr<::parquet::internal::RecordReader>* reader) const;
