@@ -25,6 +25,8 @@ suite("rf_partition_pruning_type_matrix", "nonConcurrent") {
     sql "set enable_profile=true"
     sql "set profile_level=2"
     sql "set parallel_pipeline_task_num=1"
+    // Keep IN_OR_BLOOM_FILTER on the IN path so pruning counters are deterministic.
+    sql "set runtime_filter_max_in_num=1024"
 
     def profileAction = new ProfileAction(context)
     def rfPruningCounterNames = ["TotalPartitionsForRFPruning", "PartitionsPrunedByRuntimeFilter"]
