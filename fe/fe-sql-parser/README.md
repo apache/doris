@@ -305,6 +305,201 @@ while ((token = lexer.nextToken()).getType() != Token.EOF) {
 }
 ```
 
+## Extending the Parser
+
+Downstream projects can plug in custom logic (lineage tracking, policy enforcement, audit, SQL rewriting, metrics) **without modifying `fe-sql-parser` itself**. There are four extension points:
+
+| Mechanism | When it fires | Typical use |
+|-----------|---------------|-------------|
+| Subclass `DorisParserBaseVisitor<T>` | After parsing, when you call `visitor.visit(tree)` | Extract information, rewrite, lineage |
+| Subclass `DorisParserBaseListener` | After parsing, when you call `ParseTreeWalker.walk(...)` | Simple `enter`/`exit` interception |
+| `parser.addParseListener(...)` | Live, while the parser is building the tree | Token-level processing, on-the-fly mutation |
+| Wrap `DorisSqlParser` | Around the `parseStatement` call | Metrics, caching, request-level policy |
+
+All ANTLR-generated classes (`DorisParser`, `DorisParserBaseVisitor`, `DorisParserBaseListener`) and the `DorisSqlParser` facade are `public`, so downstream code uses them directly.
+
+### Example 1: Visitor — SQL lineage (source → target)
+
+The most common pattern. Extract "which tables were read" and "which table was written" from a single statement.
+
+```java
+import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.DorisParserBaseVisitor;
+import org.apache.doris.sqlparser.DorisSqlParser;
+
+import java.util.LinkedHashSet;
+import java.util.Set;
+
+public class LineageExtractor extends DorisParserBaseVisitor<Void> {
+    public final Set<String> sources = new LinkedHashSet<>();
+    public String target;
+
+    // INSERT INTO target_db.target_tbl SELECT ... FROM source ...
+    @Override
+    public Void visitInsertTable(DorisParser.InsertTableContext ctx) {
+        target = ctx.tableName.getText();
+        return super.visitInsertTable(ctx);   // keep descending to collect sources
+    }
+
+    // Any FROM <table> / JOIN <table> hits this
+    @Override
+    public Void visitTableName(DorisParser.TableNameContext ctx) {
+        sources.add(ctx.multipartIdentifier().getText());
+        return null;
+    }
+}
+
+// Usage
+DorisSqlParser parser = new DorisSqlParser();
+LineageExtractor lineage = new LineageExtractor();
+lineage.visit(parser.parseStatement(
+        "INSERT INTO sink SELECT a.x, b.y FROM src1 a JOIN src2 b ON a.id = b.id"));
+
+System.out.println(lineage.target);   // sink
+System.out.println(lineage.sources);  // [src1, src2]
+```
+
+For **column-level lineage**, also override `visitColumnReference` / `visitNamedExpression` and maintain a stack of "current SELECT scope" so each column reference can be attributed to the right output column.
+
+### Example 2: Listener — policy enforcement / audit
+
+Use the listener pattern when you only care whether the parser entered a certain rule, not its return value.
+
+```java
+import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.DorisParserBaseListener;
+import org.antlr.v4.runtime.tree.ParseTreeWalker;
+
+public class DropGuardListener extends DorisParserBaseListener {
+    @Override
+    public void enterSupportedDropStatement(DorisParser.SupportedDropStatementContext ctx) {
+        throw new SecurityException("DROP statements are not allowed: " + ctx.getText());
+    }
+}
+
+// Usage
+ParseTreeWalker.DEFAULT.walk(
+        new DropGuardListener(),
+        parser.parseStatement(userSql));
+```
+
+Audit-style collection:
+
+```java
+public class AuditListener extends DorisParserBaseListener {
+    public final List<String> writes = new ArrayList<>();
+
+    @Override public void enterInsertTable(DorisParser.InsertTableContext ctx) {
+        writes.add("INSERT " + ctx.tableName.getText());
+    }
+    @Override public void enterUpdate(DorisParser.UpdateContext ctx) {
+        writes.add("UPDATE " + ctx.tableName.getText());
+    }
+    @Override public void enterDelete(DorisParser.DeleteContext ctx) {
+        writes.add("DELETE " + ctx.tableName.getText());
+    }
+    @Override public void enterSupportedDropStatement(DorisParser.SupportedDropStatementContext ctx) {
+        writes.add("DROP " + ctx.getText());
+    }
+}
+```
+
+### Example 3: Live `ParseTreeListener` — fire during parsing
+
+Most cases are covered by Examples 1 and 2. If you need to intervene **while the parser is building each node** (mutating tokens, injecting metadata, streaming work), attach a listener with `parser.addParseListener(...)`. This is exactly how `fe-sql-parser`'s internal `PostProcessor` rewrites identifier case at parse time.
+
+`DorisSqlParser.parseStatement` does not expose the parser instance; use `newLexer` + `newParser` to take ownership:
+
+```java
+import org.apache.doris.nereids.DorisLexer;
+import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.DorisParserBaseListener;
+import org.apache.doris.sqlparser.DorisSqlParser;
+
+public class HintCollectorListener extends DorisParserBaseListener {
+    public final List<String> hints = new ArrayList<>();
+
+    @Override
+    public void exitOptimizeHint(DorisParser.OptimizeHintContext ctx) {
+        hints.add(ctx.getText());
+    }
+}
+
+DorisSqlParser facade = new DorisSqlParser();
+DorisLexer lexer = facade.newLexer(sql);
+DorisParser parser = facade.newParser(lexer);
+
+HintCollectorListener hintListener = new HintCollectorListener();
+parser.addParseListener(hintListener);
+
+DorisParser.SingleStatementContext tree = parser.singleStatement();
+System.out.println(hintListener.hints);
+```
+
+`newParser` already attaches `PostProcessor` and `ParseErrorListener`; your listener is added on top.
+
+### Example 4: Wrap the facade — metrics, caching, rewriting
+
+For "do something before and after every parse" (instrumentation, PII redaction, request-level routing), composition is the cleanest pattern:
+
+```java
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.sqlparser.DorisSqlParser;
+
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
+
+public class InstrumentedDorisSqlParser {
+    private final DorisSqlParser delegate;
+    private final Cache<String, DorisParser.SingleStatementContext> cache;
+    private final MeterRegistry metrics;
+
+    public InstrumentedDorisSqlParser(MeterRegistry metrics) {
+        this.delegate = new DorisSqlParser();
+        this.cache = Caffeine.newBuilder().maximumSize(10_000).build();
+        this.metrics = metrics;
+    }
+
+    public DorisParser.SingleStatementContext parse(String sql) {
+        // pre-hook: redact literals so semantically equivalent queries share a cache entry
+        String normalized = redactLiterals(sql);
+        return cache.get(normalized, key -> {
+            long start = System.nanoTime();
+            try {
+                return delegate.parseStatement(key);
+            } finally {
+                metrics.timer("sql.parse").record(System.nanoTime() - start, NANOSECONDS);
+            }
+        });
+    }
+}
+```
+
+### Example 5: Stack multiple hooks on the same tree
+
+Different teams can maintain their own hook classes; you do not need to merge them into one giant visitor. `ParseTreeWalker` can walk the same tree multiple times:
+
+```java
+ParseTree tree = parser.parseStatement(sql);
+
+LineageExtractor     lineage = new LineageExtractor();
+AuditListener        audit   = new AuditListener();
+HintCollectorListener hints  = new HintCollectorListener();
+
+lineage.visit(tree);
+ParseTreeWalker.DEFAULT.walk(audit, tree);
+ParseTreeWalker.DEFAULT.walk(hints, tree);
+```
+
+### Tips
+
+- **Finding the rule names**: every overrideable `visitXxx` / `enterXxx` / `exitXxx` corresponds 1:1 to a `xxx:` rule in `DorisParser.g4`. Open `DorisParserBaseVisitor` in your IDE to see the full list, or run the CLI with `--pretty` to see the actual rule names that appear in the tree for your SQL, then target them in your visitor.
+- **Remember to call `super.visitXxx(ctx)`**: a visitor's default behavior is to recurse into children. If you forget `super`, nothing below the current node will be visited. Either `return super.visitXxx(ctx)` to keep recursing, or `return null` to explicitly prune.
+- **Don't throw arbitrary runtime exceptions from hooks**: they bypass `fe-sql-parser`'s own error-location plumbing. If you need to fail inside a visitor, throw an exception that carries `Origin`-style line/column info (see `ParserUtils.position(Token)`).
+- **Debug your visitor with the CLI first**: the CLI doesn't know about your visitor, but `--pretty` output tells you exactly what rule names show up for any SQL — much faster than guessing.
+
 ## Configuration Knobs
 
 `DorisSqlParser` is configured via constructor flags. Both default to `false`, which matches the most common Doris query behavior.
