@@ -920,28 +920,29 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
         int16_t key_max_definition_level = 0;
         int16_t value_max_definition_level = 0;
 
-        Status read_value_batch(int64_t batch_rows, NestedScalarBatch* value_batch) {
+        Status read_value_batch(int64_t batch_rows, NestedScalarBatch* out_value_batch) {
             if (!self->_value_overflow.empty()) {
-                *value_batch = std::move(self->_value_overflow.batch);
+                *out_value_batch = std::move(self->_value_overflow.batch);
                 self->_value_overflow.clear();
                 return Status::OK();
             }
             return read_nested_scalar_batch(*value_reader, batch_rows,
-                                            self->_nullable_definition_level + 1, value_batch);
+                                            self->_nullable_definition_level + 1, out_value_batch);
         }
 
         Status validate_value_alignment(const NestedScalarBatch& key_batch,
-                                        const NestedScalarBatch& value_batch) {
-            if (value_batch.records_read != key_batch.records_read ||
-                value_batch.levels_written != key_batch.levels_written) {
+                                        const NestedScalarBatch& candidate_value_batch) {
+            if (candidate_value_batch.records_read != key_batch.records_read ||
+                candidate_value_batch.levels_written != key_batch.levels_written) {
                 return Status::Corruption(
                         "Parquet MAP key/value levels are not aligned for column {}: key rows={}, "
                         "key levels={}, value rows={}, value levels={}",
                         self->_name, key_batch.records_read, key_batch.levels_written,
-                        value_batch.records_read, value_batch.levels_written);
+                        candidate_value_batch.records_read, candidate_value_batch.levels_written);
             }
             for (int64_t level_idx = 0; level_idx < key_batch.levels_written; ++level_idx) {
-                if (value_batch.rep_levels[level_idx] != key_batch.rep_levels[level_idx]) {
+                if (candidate_value_batch.rep_levels[level_idx] !=
+                    key_batch.rep_levels[level_idx]) {
                     return Status::Corruption(
                             "Parquet MAP key/value repetition levels are not aligned for column {}",
                             self->_name);
@@ -1008,15 +1009,16 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
         NestedScalarBatch value_batch;
     };
 
-    MapSink sink {this,
-                  key_reader,
-                  value_reader,
-                  &key_column,
-                  &value_column,
-                  &entry_counts,
-                  &parent_nulls,
-                  key_max_definition_level,
-                  value_max_definition_level};
+    MapSink sink;
+    sink.self = this;
+    sink.key_reader = key_reader;
+    sink.value_reader = value_reader;
+    sink.key_column = &key_column;
+    sink.value_column = &value_column;
+    sink.entry_counts = &entry_counts;
+    sink.parent_nulls = &parent_nulls;
+    sink.key_max_definition_level = key_max_definition_level;
+    sink.value_max_definition_level = value_max_definition_level;
     RETURN_IF_ERROR(assemble_repeated_levels(*key_reader, _repeated_repetition_level,
                                              entry_definition_level, rows, &_key_overflow, sink,
                                              rows_read));
@@ -1050,27 +1052,28 @@ Status MapColumnReader::skip(int64_t rows) {
         MapColumnReader* self = nullptr;
         ScalarColumnReader* value_reader = nullptr;
 
-        Status read_value_batch(int64_t batch_rows, NestedScalarBatch* value_batch) {
+        Status read_value_batch(int64_t batch_rows, NestedScalarBatch* out_value_batch) {
             if (!self->_value_overflow.empty()) {
-                *value_batch = std::move(self->_value_overflow.batch);
+                *out_value_batch = std::move(self->_value_overflow.batch);
                 self->_value_overflow.clear();
                 return Status::OK();
             }
             return read_nested_scalar_batch(*value_reader, batch_rows,
-                                            self->_nullable_definition_level + 1, value_batch);
+                                            self->_nullable_definition_level + 1, out_value_batch);
         }
 
         Status validate_value_alignment(const NestedScalarBatch& key_batch,
-                                        const NestedScalarBatch& value_batch) {
-            if (value_batch.records_read != key_batch.records_read ||
-                value_batch.levels_written != key_batch.levels_written) {
+                                        const NestedScalarBatch& candidate_value_batch) {
+            if (candidate_value_batch.records_read != key_batch.records_read ||
+                candidate_value_batch.levels_written != key_batch.levels_written) {
                 return Status::Corruption(
                         "Parquet MAP key/value levels are not aligned for column {} while "
                         "skipping",
                         self->_name);
             }
             for (int64_t level_idx = 0; level_idx < key_batch.levels_written; ++level_idx) {
-                if (value_batch.rep_levels[level_idx] != key_batch.rep_levels[level_idx]) {
+                if (candidate_value_batch.rep_levels[level_idx] !=
+                    key_batch.rep_levels[level_idx]) {
                     return Status::Corruption(
                             "Parquet MAP key/value repetition levels are not aligned for column {}",
                             self->_name);
@@ -1091,7 +1094,9 @@ Status MapColumnReader::skip(int64_t rows) {
 
         NestedScalarBatch value_batch;
     };
-    SkipSink sink {this, value_reader};
+    SkipSink sink;
+    sink.self = this;
+    sink.value_reader = value_reader;
     int64_t rows_read = 0;
     RETURN_IF_ERROR(assemble_repeated_levels(*key_reader, _repeated_repetition_level,
                                              _nullable_definition_level + 1, rows, &_key_overflow,
