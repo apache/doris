@@ -793,6 +793,7 @@ TEST(function_string_test, function_string_repeat_test) {
                              "ll_heh1h2!u@u@i$o%ll_heh1h2!u@u@i$o%ll_heh1h2!u@u@i$o%ll_heh1h2!u@u@"
                              "i$o%ll_heh1h2!u@u@i$o%ll_heh1h2!u@u@i$o%ll_")},
                 {{std::string("heh1h2!u@u@i$o%ll_"), std::int32_t(-1)}, std::string("")},
+                {{std::string("a"), std::int32_t(256)}, std::string(256, 'a')},
         };
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
