@@ -152,7 +152,8 @@ private:
         auto& null_map = nullable_column->get_null_map_data();
         auto& data =
                 assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
-        null_map.resize_fill(row_position_column.size(), 0);
+        null_map.resize(row_position_column.size());
+        std::fill(null_map.begin(), null_map.end(), 0);
         data.resize(row_position_column.size());
         for (size_t row = 0; row < row_position_column.size(); ++row) {
             data[row] = _row_lineage_columns.first_row_id + row_position_column.get_element(row);
