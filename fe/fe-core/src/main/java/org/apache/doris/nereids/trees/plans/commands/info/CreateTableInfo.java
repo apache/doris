@@ -49,6 +49,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -92,6 +93,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.iceberg.TableProperties;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -791,6 +793,10 @@ public class CreateTableInfo {
                         + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
             }
 
+            if (engineName.equalsIgnoreCase(ENGINE_ICEBERG)) {
+                validateIcebergRowLineageColumns();
+            }
+
             // Validate Iceberg sort order columns
             if (sortOrderFields != null && !sortOrderFields.isEmpty()) {
                 if (!engineName.equalsIgnoreCase(ENGINE_ICEBERG)) {
@@ -1101,6 +1107,27 @@ public class CreateTableInfo {
                         throw new AnalysisException("Order key column[" + name + "] doesn't exist.");
                     }
                 }
+            }
+        }
+    }
+
+    private void validateIcebergRowLineageColumns() {
+        int formatVersion = 2;
+        String formatVersionProperty = properties.get(TableProperties.FORMAT_VERSION);
+        if (formatVersionProperty != null) {
+            try {
+                formatVersion = Integer.parseInt(formatVersionProperty);
+            } catch (NumberFormatException ignored) {
+                // keep default value
+            }
+        }
+        if (formatVersion < IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            return;
+        }
+        for (ColumnDefinition columnDef : columns) {
+            if (IcebergUtils.isIcebergRowLineageColumn(columnDef.getName())) {
+                throw new AnalysisException("Cannot create Iceberg v" + formatVersion
+                        + " table with reserved row lineage column: " + columnDef.getName());
             }
         }
     }
