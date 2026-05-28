@@ -38,6 +38,8 @@ public class DataSourceConfigKeys {
     public static final String SNAPSHOT_SPLIT_KEY = "snapshot_split_key";
     public static final String SNAPSHOT_PARALLELISM = "snapshot_parallelism";
     public static final String SNAPSHOT_PARALLELISM_DEFAULT = "1";
+    // MySQL CDC client identity. Single value "5400" or range "5400-5408".
+    public static final String SERVER_ID = "server_id";
     public static final String SSL_MODE = "ssl_mode";
     public static final String SSL_ROOTCERT = "ssl_rootcert";
     // PG-style spelling; MySQL normalizes to underscore form.

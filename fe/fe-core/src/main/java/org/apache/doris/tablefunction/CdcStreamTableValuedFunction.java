@@ -156,6 +156,12 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         }
         validatePositiveIntIfPresent(properties, DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE);
         validatePositiveIntIfPresent(properties, DataSourceConfigKeys.SNAPSHOT_PARALLELISM);
+        // TVF entrypoint shares server_id checks with the from-to path's validateSource.
+        try {
+            DataSourceConfigValidator.validateServerIdConfig(properties);
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException(e.getMessage());
+        }
     }
 
     private static void validatePositiveIntIfPresent(Map<String, String> properties, String key)

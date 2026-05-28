@@ -19,6 +19,7 @@ package org.apache.doris.cdcclient.utils;
 
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
+import org.apache.flink.cdc.connectors.mysql.source.config.ServerIdRange;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
@@ -32,22 +33,60 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Unit tests for {@link ConfigUtil}. */
 class ConfigUtilTest {
 
-    // ─── getServerId ──────────────────────────────────────────────────────────
+    // ─── resolveServerIdRange ─────────────────────────────────────────────────
+
+    // Value/format validation lives in FE DataSourceConfigValidator; here we only verify the
+    // derivation algorithm and that valid input is passed through to flink-cdc's ServerIdRange.
 
     @Test
-    void serverIdIsNonNegative() {
-        // Any jobId hash should produce a non-negative result (bitwise AND strips sign bit).
-        String result = ConfigUtil.getServerId("12345");
-        assertTrue(Long.parseLong(result) >= 0, "serverId must be non-negative");
+    void resolveDefaultDeriveSingle() {
+        ServerIdRange range = ConfigUtil.resolveServerIdRange("12345", 1, null);
+        assertEquals(1, range.getNumberOfServerIds());
+        assertTrue(range.getStartServerId() >= 1);
     }
 
     @Test
-    void serverIdHandlesMinHashCode() {
-        // Find a string whose hashCode() == Integer.MIN_VALUE to exercise the edge case
-        // where Math.abs(Integer.MIN_VALUE) would return a negative number.
-        // "polygenelubricants" is a well-known such string.
-        String result = ConfigUtil.getServerId("polygenelubricants");
-        assertTrue(Long.parseLong(result) >= 0, "serverId must be non-negative for MIN_VALUE hash");
+    void resolveDefaultDeriveExpandsToParallelism() {
+        ServerIdRange range = ConfigUtil.resolveServerIdRange("12345", 4, null);
+        assertEquals(4, range.getNumberOfServerIds());
+        assertEquals(range.getStartServerId() + 3, range.getEndServerId());
+    }
+
+    @Test
+    void resolveDefaultDeriveHandlesMinHashCode() {
+        // "polygenelubricants" hashCode() == Integer.MIN_VALUE; & MAX_VALUE strips sign bit.
+        ServerIdRange range =
+                ConfigUtil.resolveServerIdRange("polygenelubricants", 4, null);
+        assertTrue(range.getStartServerId() >= 1);
+        assertTrue(range.getEndServerId() <= Integer.MAX_VALUE);
+    }
+
+    @Test
+    void resolveDefaultDeriveBumpsZeroHashToOne() {
+        // Empty string hashCode() == 0; bump to 1 because MySQL server_id=0 disables replication.
+        ServerIdRange range = ConfigUtil.resolveServerIdRange("", 1, null);
+        assertEquals(1, range.getStartServerId());
+    }
+
+    @Test
+    void resolveUserSingleValue() {
+        ServerIdRange range = ConfigUtil.resolveServerIdRange("anyjob", 1, "5400");
+        assertEquals(5400L, range.getStartServerId());
+        assertEquals(5400L, range.getEndServerId());
+    }
+
+    @Test
+    void resolveUserRange() {
+        ServerIdRange range = ConfigUtil.resolveServerIdRange("anyjob", 4, "5400-5408");
+        assertEquals(5400L, range.getStartServerId());
+        assertEquals(5408L, range.getEndServerId());
+    }
+
+    @Test
+    void resolveRejectsWidthLessThanParallelism() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> ConfigUtil.resolveServerIdRange("anyjob", 4, "5400"));
+        assertTrue(ex.getMessage().contains("snapshot_parallelism"));
     }
 
     // ─── getTableList ─────────────────────────────────────────────────────────

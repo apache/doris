@@ -49,6 +49,7 @@ import org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlChunkSplitter
 import org.apache.flink.cdc.connectors.mysql.source.assigners.state.ChunkSplitterState;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory;
+import org.apache.flink.cdc.connectors.mysql.source.config.ServerIdRange;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetKind;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetUtils;
@@ -143,7 +144,6 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
 
-        // Initialize thread pool for parallel polling
         int parallelism =
                 Integer.parseInt(
                         config.getOrDefault(
@@ -815,39 +815,49 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     }
 
     private SnapshotSplitReader getSnapshotSplitReader(JobBaseConfig config, int subtaskId) {
-        MySqlSourceConfig sourceConfig = getSourceConfig(config);
+        MySqlSourceConfig sourceConfig = getSourceConfig(config, subtaskId);
+        LOG.info(
+                "MySQL CDC snapshot reader[{}] for job {} using server_id={}",
+                subtaskId,
+                config.getJobId(),
+                sourceConfig.getServerIdRange().getServerId(subtaskId));
         final MySqlConnection jdbcConnection = DebeziumUtils.createMySqlConnection(sourceConfig);
         final BinaryLogClient binaryLogClient =
                 DebeziumUtils.createBinaryClient(sourceConfig.getDbzConfiguration());
         final StatefulTaskContext statefulTaskContext =
                 new StatefulTaskContext(sourceConfig, binaryLogClient, jdbcConnection);
-        SnapshotSplitReader snapshotReader =
-                new SnapshotSplitReader(statefulTaskContext, subtaskId);
-        return snapshotReader;
+        return new SnapshotSplitReader(statefulTaskContext, subtaskId);
     }
 
     private BinlogSplitReader getBinlogSplitReader(JobBaseConfig config) {
-        MySqlSourceConfig sourceConfig = getSourceConfig(config);
+        MySqlSourceConfig sourceConfig = getSourceConfig(config, 0);
+        LOG.info(
+                "MySQL CDC binlog reader for job {} using server_id={}",
+                config.getJobId(),
+                sourceConfig.getServerIdRange().getStartServerId());
         final MySqlConnection jdbcConnection = DebeziumUtils.createMySqlConnection(sourceConfig);
         final BinaryLogClient binaryLogClient =
                 DebeziumUtils.createBinaryClient(sourceConfig.getDbzConfiguration());
         final StatefulTaskContext statefulTaskContext =
                 new StatefulTaskContext(sourceConfig, binaryLogClient, jdbcConnection);
-        BinlogSplitReader binlogReader = new BinlogSplitReader(statefulTaskContext, 0);
-        return binlogReader;
+        return new BinlogSplitReader(statefulTaskContext, 0);
     }
 
     private MySqlSourceConfig getSourceConfig(JobBaseConfig config) {
         return generateMySqlConfig(config);
     }
 
-    /** Generate MySQL source config from JobBaseConfig */
-    private MySqlSourceConfig generateMySqlConfig(JobBaseConfig config) {
-        return generateMySqlConfig(config.getConfig(), ConfigUtil.getServerId(config.getJobId()));
+    private MySqlSourceConfig getSourceConfig(JobBaseConfig config, int subtaskId) {
+        return generateMySqlConfig(config.getConfig(), config.getJobId(), subtaskId);
     }
 
-    /** Generate MySQL source config from Map config */
-    private MySqlSourceConfig generateMySqlConfig(Map<String, String> cdcConfig, String serverId) {
+    private MySqlSourceConfig generateMySqlConfig(JobBaseConfig config) {
+        return generateMySqlConfig(config.getConfig(), config.getJobId(), 0);
+    }
+
+    // Per-subtask config so each reader binds a distinct server_id from the resolved range.
+    private MySqlSourceConfig generateMySqlConfig(
+            Map<String, String> cdcConfig, String jobId, int subtaskId) {
         MySqlSourceConfigFactory configFactory = new MySqlSourceConfigFactory();
         ConnectionUrl cu =
                 ConnectionUrl.getConnectionUrlInstance(
@@ -858,7 +868,15 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         configFactory.password(cdcConfig.get(DataSourceConfigKeys.PASSWORD));
         String databaseName = cdcConfig.get(DataSourceConfigKeys.DATABASE);
         configFactory.databaseList(databaseName);
-        configFactory.serverId(serverId);
+        int parallelism =
+                Integer.parseInt(
+                        cdcConfig.getOrDefault(
+                                DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
+                                DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
+        ServerIdRange serverIdRange =
+                ConfigUtil.resolveServerIdRange(
+                        jobId, parallelism, cdcConfig.get(DataSourceConfigKeys.SERVER_ID));
+        configFactory.serverId(serverIdRange.toString());
         configFactory.serverTimeZone(
                 ConfigUtil.getTimeZoneFromProps(cu.getOriginalProperties()).toString());
 
@@ -974,7 +992,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                     objectPath, cdcConfig.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY));
         }
 
-        return configFactory.createConfig(0);
+        return configFactory.createConfig(subtaskId);
     }
 
     private BinlogOffset initializeEffectiveOffset(
