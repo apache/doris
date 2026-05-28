@@ -380,6 +380,9 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
             # std::string objects in RELRO, then crash while initializing them.
             patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-status-inline-static-fix.patch"
 
+            # apache-arrow-17.0.0-force-write-int96-timestamps.patch : 
+            # Introducing the parameter that forces writing int96 timestampes for compatibility build branch-4.0. 
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-force-write-int96-timestamps.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
