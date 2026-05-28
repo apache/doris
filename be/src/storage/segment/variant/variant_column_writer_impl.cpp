@@ -452,7 +452,6 @@ Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnW
                                       const DataTypePtr& type, const ColumnPtr& values_column,
                                       const std::vector<uint32_t>& rowids, size_t total_rows) {
     DCHECK_EQ(values_column->size(), rowids.size());
-    const size_t cell_size = writer->get_field()->size();
 
     auto base_type = type;
     if (base_type->is_nullable()) {
@@ -511,6 +510,9 @@ Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnW
         DCHECK(tablet_column.is_nullable());
         return writer->append_nulls(total_rows);
     }
+
+    // Non-ARRAY scalar path: writer cell is strided by sizeof(CppType).
+    const size_t cell_size = field_type_size(writer->get_column()->type());
 
     converter->add_column_data_convertor(tablet_column);
     RETURN_IF_ERROR(converter->set_source_content_with_specifid_column({values_column, type, ""}, 0,
@@ -1178,7 +1180,9 @@ bool VariantColumnWriterImpl::_can_use_nested_group_streaming_compaction() const
 }
 
 Status VariantColumnWriterImpl::init() {
-    if (_can_use_nested_group_streaming_compaction()) {
+    const bool can_use_streaming = _can_use_nested_group_streaming_compaction();
+
+    if (can_use_streaming) {
         _streaming_compaction_writer = std::make_unique<VariantStreamingCompactionWriter>(
                 _opts, _tablet_column, _nested_group_provider.get(), &_statistics);
         return _streaming_compaction_writer->init();
@@ -1207,8 +1211,7 @@ Status VariantColumnWriterImpl::_process_root_column(ColumnVariant* ptr,
                                                      size_t num_rows, int& column_id) {
     // root column
     _root_writer = std::make_unique<ScalarColumnWriter>(
-            _opts, std::unique_ptr<StorageField>(StorageFieldFactory::create(*_tablet_column)),
-            _opts.file_writer);
+            _opts, std::make_shared<TabletColumn>(*_tablet_column), _opts.file_writer);
     RETURN_IF_ERROR(_root_writer->init());
 
     // make sure the root type
@@ -1218,8 +1221,14 @@ Status VariantColumnWriterImpl::_process_root_column(ColumnVariant* ptr,
     DCHECK_EQ(ptr->get_root()->get_ptr()->size(), num_rows);
     converter->add_column_data_convertor(*_tablet_column);
     const uint8_t* nullmap = nullptr;
-    auto& nullable_column = assert_cast<ColumnNullable&>(*ptr->get_root()->assume_mutable());
-    auto root_column = nullable_column.get_nested_column_ptr();
+    // get_root() already returns a MutableColumnPtr; store it to avoid dangling ref and
+    // to avoid calling assert_mutable() again (which would see use_count>1 and throw).
+    auto root_mut = ptr->get_root();
+    auto& nullable_column = assert_cast<ColumnNullable&>(*root_mut);
+    // Use const access to get the nested column ptr without bumping use_count in the
+    // non-const chameleon_ptr path, then mutate() to get exclusive ownership.
+    auto root_column = IColumn::mutate(
+            static_cast<const ColumnNullable&>(nullable_column).get_nested_column_ptr());
 
     const bool has_root_ng =
             std::ranges::any_of(_nested_group_routing_plan.ng_only_prefixes,
@@ -1231,13 +1240,15 @@ Status VariantColumnWriterImpl::_process_root_column(ColumnVariant* ptr,
     // If the root variant is nullable, then update the root column null column with the outer null column.
     if (_tablet_column->is_nullable()) {
         // use outer null column as final null column
+        // Move root_column (exclusive) directly into create() to avoid sharing ownership.
         root_column =
-                ColumnNullable::create(root_column->get_ptr(), ColumnUInt8::create(*_null_column));
+                ColumnNullable::create(std::move(root_column), ColumnUInt8::create(*_null_column));
         nullmap = _null_column->get_data().data();
     } else {
         // Otherwise setting to all not null.
-        root_column = ColumnNullable::create(root_column->get_ptr(),
-                                             ColumnUInt8::create(root_column->size(), 0));
+        size_t col_size = root_column->size();
+        root_column =
+                ColumnNullable::create(std::move(root_column), ColumnUInt8::create(col_size, 0));
     }
     // make sure the root_column is nullable
     RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
@@ -1606,10 +1617,8 @@ Status VariantColumnWriterImpl::append_nullable(const uint8_t* null_map, const u
 }
 
 VariantSubcolumnWriter::VariantSubcolumnWriter(const ColumnWriterOptions& opts,
-                                               const TabletColumn* column,
-                                               std::unique_ptr<StorageField> field)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta) {
-    _tablet_column = column;
+                                               TabletColumnPtr column)
+        : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta) {
     _opts = opts;
     _column = ColumnVariant::create(0, false);
 }
@@ -1643,7 +1652,7 @@ Status VariantSubcolumnWriter::finalize() {
 
     DCHECK(ptr->is_finalized());
     const auto& parent_column =
-            _opts.rowset_ctx->tablet_schema->column_by_uid(_tablet_column->parent_unique_id());
+            _opts.rowset_ctx->tablet_schema->column_by_uid(get_column()->parent_unique_id());
 
     TabletColumn flush_column;
     if (ptr->get_subcolumns().get_root()->data.get_least_common_base_type_id() ==
@@ -1653,10 +1662,10 @@ Status VariantSubcolumnWriter::finalize() {
         ptr->ensure_root_node_type(flush_type);
     }
     flush_column = variant_util::get_column_by_type(
-            ptr->get_root_type(), _tablet_column->name(),
+            ptr->get_root_type(), get_column()->name(),
             variant_util::ExtraInfo {.unique_id = -1,
-                                     .parent_unique_id = _tablet_column->parent_unique_id(),
-                                     .path_info = *_tablet_column->path_info_ptr()});
+                                     .parent_unique_id = get_column()->parent_unique_id(),
+                                     .path_info = *get_column()->path_info_ptr()});
 
     int64_t none_null_value_size = ptr->get_subcolumns().get_root()->data.get_non_null_value_size();
     bool need_record_none_null_value_size = (!flush_column.path_info_ptr()->get_is_typed()) &&
@@ -1732,11 +1741,9 @@ Status VariantSubcolumnWriter::append_nullable(const uint8_t* null_map, const ui
 }
 
 VariantDocCompactWriter::VariantDocCompactWriter(const ColumnWriterOptions& opts,
-                                                 const TabletColumn* column,
-                                                 std::unique_ptr<StorageField> field)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta) {
+                                                 TabletColumnPtr column)
+        : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta) {
     _opts = opts;
-    _tablet_column = column;
     _column = ColumnVariant::create(0, false);
 }
 
@@ -1839,7 +1846,7 @@ Status VariantDocCompactWriter::_write_doc_value_column(const TabletColumn& pare
                                                         ColumnVariant* variant_column,
                                                         OlapBlockDataConvertor* converter,
                                                         int column_id, size_t num_rows) {
-    std::string doc_value_column_path = _tablet_column->path_info_ptr()->get_path();
+    std::string doc_value_column_path = get_column()->path_info_ptr()->get_path();
     size_t pos = doc_value_column_path.rfind("b");
     int bucket_value = std::stoi(doc_value_column_path.substr(pos + 1));
     TabletColumn doc_value_column =
@@ -1865,7 +1872,7 @@ Status VariantDocCompactWriter::finalize() {
     auto* variant_column = assert_cast<ColumnVariant*>(_column.get());
 
     const auto& parent_column =
-            _opts.rowset_ctx->tablet_schema->column_by_uid(_tablet_column->parent_unique_id());
+            _opts.rowset_ctx->tablet_schema->column_by_uid(get_column()->parent_unique_id());
 
     size_t num_rows = variant_column->size();
     auto converter = std::make_unique<OlapBlockDataConvertor>();

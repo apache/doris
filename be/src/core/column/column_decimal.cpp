@@ -330,7 +330,7 @@ MutableColumnPtr ColumnDecimal<T>::clone_resized(size_t size) const {
     auto res = this->create(0, scale);
 
     if (size > 0) {
-        auto& new_col = assert_cast<Self&>(*res);
+        auto& new_col = *res;
         new_col.data.resize(size);
 
         size_t count = std::min(this->size(), size);

@@ -61,7 +61,7 @@ CloudSnapshotMgr::CloudSnapshotMgr(CloudStorageEngine& engine) : _engine(engine)
 Status CloudSnapshotMgr::make_snapshot(int64_t target_tablet_id, StorageResource& storage_resource,
                                        std::unordered_map<std::string, std::string>& file_mapping,
                                        bool is_restore, const Slice* slice) {
-    SCOPED_ATTACH_TASK(_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     if (is_restore && slice == nullptr) {
         return Status::Error<INVALID_ARGUMENT>("slice cannot be null in restore.");
     }
@@ -105,7 +105,7 @@ Status CloudSnapshotMgr::make_snapshot(int64_t target_tablet_id, StorageResource
 }
 
 Status CloudSnapshotMgr::commit_snapshot(int64_t tablet_id) {
-    SCOPED_ATTACH_TASK(_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     CloudTabletSPtr tablet = DORIS_TRY(_engine.tablet_mgr().get_tablet(tablet_id));
     if (tablet == nullptr) {
         return Status::Error<TABLE_NOT_FOUND>("failed to get tablet. tablet={}", tablet_id);
@@ -117,7 +117,7 @@ Status CloudSnapshotMgr::commit_snapshot(int64_t tablet_id) {
 }
 
 Status CloudSnapshotMgr::release_snapshot(int64_t tablet_id, bool is_completed) {
-    SCOPED_ATTACH_TASK(_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     RETURN_IF_ERROR(_engine.meta_mgr().finish_restore_job(tablet_id, is_completed));
     LOG(INFO) << "success to release snapshot. [tablet_id=" << tablet_id << "]";
     return Status::OK();
@@ -274,6 +274,14 @@ Status CloudSnapshotMgr::_create_rowset_meta(
     new_rowset_meta_pb->clear_segments_key_bounds();
     for (const auto& key_bound : source_meta_pb.segments_key_bounds()) {
         *new_rowset_meta_pb->add_segments_key_bounds() = key_bound;
+    }
+    if (source_meta_pb.has_segments_key_bounds_truncated()) {
+        new_rowset_meta_pb->set_segments_key_bounds_truncated(
+                source_meta_pb.segments_key_bounds_truncated());
+    }
+    if (source_meta_pb.has_segments_key_bounds_aggregated()) {
+        new_rowset_meta_pb->set_segments_key_bounds_aggregated(
+                source_meta_pb.segments_key_bounds_aggregated());
     }
     if (source_meta_pb.has_delete_predicate()) {
         DeletePredicatePB* new_delete_condition = new_rowset_meta_pb->mutable_delete_predicate();

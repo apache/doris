@@ -25,7 +25,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <random>
 #include <string>
 
@@ -214,7 +213,7 @@ void ExchangeSinkLocalState::_create_channels() {
 }
 
 void ExchangeSinkLocalState::on_channel_finished(InstanceLoId channel_id) {
-    std::lock_guard<std::mutex> lock(_finished_channels_mutex);
+    LockGuard lock(_finished_channels_mutex);
 
     if (_finished_channels.contains(channel_id)) {
         LOG(WARNING) << "Query: " << print_id(_state->query_id())
@@ -510,7 +509,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, Block* block, bool eos) 
                     } else {
                         cur_block.clear_column_data();
                         local_state._serializer.get_block()->set_mutable_columns(
-                                cur_block.mutate_columns());
+                                std::move(cur_block).mutate_columns());
                     }
                 }
             }

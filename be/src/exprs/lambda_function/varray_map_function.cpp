@@ -75,8 +75,8 @@ public:
 
     std::string get_name() const override { return name; }
 
-    Status execute(VExprContext* context, const Block* block, Selector* expr_selector, size_t count,
-                   ColumnPtr& result_column, const DataTypePtr& result_type,
+    Status execute(VExprContext* context, const Block* block, const Selector* expr_selector,
+                   size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
                    const VExprSPtrs& children) const override {
         LambdaArgs args_info;
         // collect used slot ref in lambda function body
@@ -146,9 +146,8 @@ public:
                                      ->get_nested_type();
 
                 // need to union nullmap from all columns
-                VectorizedUtils::update_null_map(
-                        outside_null_map->get_data(),
-                        assert_cast<const ColumnUInt8&>(*column_array_nullmap).get_data());
+                VectorizedUtils::update_null_map(outside_null_map->get_data(),
+                                                 column_array_nullmap->get_data());
             }
 
             // here is the array column
@@ -230,7 +229,7 @@ public:
             bool mem_reuse = lambda_block.mem_reuse();
             for (int i = 0; i < column_size; i++) {
                 if (mem_reuse) {
-                    columns[i] = lambda_block.get_by_position(i).column->assume_mutable();
+                    columns[i] = lambda_block.get_by_position(i).column->assert_mutable();
                 } else {
                     if (_contains_column_id(output_slot_ref_indexs, i) || i >= gap) {
                         // TODO: maybe could create const column, so not insert_many_from when extand data
@@ -239,7 +238,7 @@ public:
                     } else {
                         columns[i] = data_types[i]
                                              ->create_column_const_with_default_value(0)
-                                             ->assume_mutable();
+                                             ->assert_mutable();
                     }
                 }
             }

@@ -46,6 +46,7 @@ struct AggregateFunctionAttr {
     bool is_window_function {false};
     bool is_foreach {false};
     bool enable_aggregate_function_null_v2 {false};
+    bool new_version_percentile {false};
     std::vector<std::string> column_names;
 };
 
@@ -480,19 +481,21 @@ public:
                          size_t num_rows) const override {
         const Derived* derived = assert_cast<const Derived*>(this);
         const auto size_of_data = derived->size_of_data();
-        for (size_t i = 0; i != num_rows; ++i) {
-            try {
+        size_t created_count = 0;
+        try {
+            for (size_t i = 0; i != num_rows; ++i) {
                 auto place = places + size_of_data * i;
                 VectorBufferReader buffer_reader(column->get_data_at(i));
                 derived->create(place);
+                ++created_count;
                 derived->deserialize(place, buffer_reader, arena);
-            } catch (...) {
-                for (int j = 0; j < i; ++j) {
-                    auto place = places + size_of_data * j;
-                    derived->destroy(place);
-                }
-                throw;
             }
+        } catch (...) {
+            for (size_t j = 0; j < created_count; ++j) {
+                auto place = places + size_of_data * j;
+                derived->destroy(place);
+            }
+            throw;
         }
     }
 
@@ -503,19 +506,21 @@ public:
         const auto size_of_data = derived->size_of_data();
         const auto* column_string = assert_cast<const ColumnString*>(column);
 
-        for (size_t i = 0; i != num_rows; ++i) {
-            try {
+        size_t created_count = 0;
+        try {
+            for (size_t i = 0; i != num_rows; ++i) {
                 auto rhs_place = rhs + size_of_data * i;
                 VectorBufferReader buffer_reader(column_string->get_data_at(i));
                 derived->create(rhs_place);
+                ++created_count;
                 derived->deserialize_and_merge(places[i] + offset, rhs_place, buffer_reader, arena);
-            } catch (...) {
-                for (int j = 0; j < i; ++j) {
-                    auto place = rhs + size_of_data * j;
-                    derived->destroy(place);
-                }
-                throw;
             }
+        } catch (...) {
+            for (size_t j = 0; j < created_count; ++j) {
+                auto place = rhs + size_of_data * j;
+                derived->destroy(place);
+            }
+            throw;
         }
 
         derived->destroy_vec(rhs, num_rows);
@@ -527,22 +532,24 @@ public:
         const auto* derived = assert_cast<const Derived*>(this);
         const auto size_of_data = derived->size_of_data();
         const auto* column_string = assert_cast<const ColumnString*>(column);
-        for (size_t i = 0; i != num_rows; ++i) {
-            try {
+        size_t created_count = 0;
+        try {
+            for (size_t i = 0; i != num_rows; ++i) {
                 auto rhs_place = rhs + size_of_data * i;
                 VectorBufferReader buffer_reader(column_string->get_data_at(i));
                 derived->create(rhs_place);
+                ++created_count;
                 if (places[i]) {
                     derived->deserialize_and_merge(places[i] + offset, rhs_place, buffer_reader,
                                                    arena);
                 }
-            } catch (...) {
-                for (int j = 0; j < i; ++j) {
-                    auto place = rhs + size_of_data * j;
-                    derived->destroy(place);
-                }
-                throw;
             }
+        } catch (...) {
+            for (size_t j = 0; j < created_count; ++j) {
+                auto place = rhs + size_of_data * j;
+                derived->destroy(place);
+            }
+            throw;
         }
         derived->destroy_vec(rhs, num_rows);
     }

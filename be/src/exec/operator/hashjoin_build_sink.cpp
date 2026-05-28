@@ -32,6 +32,15 @@
 #include "util/uid_util.h"
 
 namespace doris {
+namespace {
+bool hash_table_built(const HashJoinSharedState* shared_state) {
+    DORIS_CHECK(shared_state != nullptr);
+    DORIS_CHECK(!shared_state->hash_table_variant_vector.empty());
+    return !std::holds_alternative<std::monostate>(
+            shared_state->hash_table_variant_vector.front()->method_variant);
+}
+} // namespace
+
 HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                          RuntimeState* state)
         : JoinBuildSinkLocalState(parent, state) {
@@ -66,7 +75,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
         _dependency->block();
         _finish_dependency->block();
         {
-            std::lock_guard<std::mutex> guard(p._mutex);
+            LockGuard guard(p._mutex);
             p._finish_dependencies.push_back(_finish_dependency);
         }
     } else {
@@ -118,7 +127,14 @@ Status HashJoinBuildSinkLocalState::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    // Defensive null-guard: other paths in this file already gate on
+    // `_runtime_filter_producer_helper` because cancel / early wake-up may
+    // run terminate before the helper is attached. The terminate path used
+    // to be the only one missing the guard, which would NPE inside
+    // skip_process() and surface as a generic crash deep in the allocator.
+    if (_runtime_filter_producer_helper) {
+        RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    }
     return JoinBuildSinkLocalState::terminate(state);
 }
 
@@ -179,7 +195,7 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                 // first row is mocked
                 for (int i = 0; i < block.columns(); i++) {
                     auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-                    assert_cast<ColumnNullable*>(column->assume_mutable().get())
+                    assert_cast<ColumnNullable*>(column->assert_mutable().get())
                             ->get_null_map_column()
                             .get_data()
                             .data()[0] = 1;
@@ -235,17 +251,10 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
 
         if (p._use_shared_hash_table) {
-            std::unique_lock lock(p._mutex);
-            // Only signal non-builder tasks when the builder actually built the hash table.
-            // When the builder is terminated (woken up early because the probe side finished
-            // first), it never called process_build_block() so the hash table variant is still
-            // monostate. Setting _signaled=true in that case would cause non-builder tasks to
-            // enter std::visit on monostate and crash with "Hash table type mismatch".
-            //
-            // _terminated is reliably true here when the task was woken up early, because
-            // operator terminate() is called from the execute() Defer in PipelineTask
-            // before close() is invoked.
-            if (!_terminated) {
+            LockGuard lock(p._mutex);
+            // Do not wake non-builders into a monostate hash table after early termination/errors.
+            const auto should_signal = !_terminated && hash_table_built(_shared_state);
+            if (should_signal) {
                 p._signaled = true;
             }
             for (auto& dep : _shared_state->sink_deps) {
@@ -567,7 +576,9 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
     for (auto& data : block) {
         data.column = std::move(*data.column).mutate()->convert_column_if_overflow();
         if (p._need_finalize_variant_column) {
-            std::move(*data.column).mutate()->finalize();
+            auto mutable_column = IColumn::mutate(std::move(data.column));
+            mutable_column->finalize();
+            data.column = std::move(mutable_column);
         }
     }
 
@@ -579,7 +590,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
         // first row is mocked
         for (int i = 0; i < block.columns(); i++) {
             auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-            assert_cast<ColumnNullable*>(column->assume_mutable().get())
+            assert_cast<ColumnNullable*>(column->assert_mutable().get())
                     ->get_null_map_column()
                     .get_data()
                     .data()[0] = 1;
@@ -691,6 +702,11 @@ HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int ope
 Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX::init(tnode, state));
     DCHECK(tnode.__isset.hash_join_node);
+    if (_is_mark_join && _join_op == TJoinOp::RIGHT_ANTI_JOIN) {
+        return Status::InternalError(
+                "Hash join does not support right anti mark join, query={}, node={}, join_op={}",
+                print_id(state->query_id()), node_id(), to_string(_join_op));
+    }
 
     if (tnode.hash_join_node.__isset.hash_output_slot_ids) {
         _hash_output_slot_ids = tnode.hash_join_node.hash_output_slot_ids;
@@ -765,6 +781,12 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
 
 Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::prepare(state));
+    if (_is_broadcast_join && (_match_all_build || _is_right_semi_anti)) {
+        return Status::NotSupported(
+                "Broadcast hash join does not support {} because build-side rows must be "
+                "finalized exactly once",
+                to_string(_join_op));
+    }
     _use_shared_hash_table =
             _is_broadcast_join && state->enable_share_hash_table_for_broadcast_join();
     auto init_keep_column_flags = [&](auto& tuple_descs, auto& output_slot_flags) {
@@ -810,7 +832,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, Block* in_block, bo
                                                      *local_state._build_expr_call_timer,
                                                      local_state._build_col_ids));
             local_state._build_side_mutable_block =
-                    MutableBlock::build_mutable_block(&tmp_build_block);
+                    MutableBlock::build_mutable_block(std::move(tmp_build_block));
         }
 
         if (!in_block->empty()) {

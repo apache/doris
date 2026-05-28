@@ -19,8 +19,11 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/call_on_type_index.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_bitmap.h"
@@ -96,6 +99,12 @@ template <typename T>
 constexpr static bool IsBaseCastFromType = IsBaseCastToType<T> || IsStringType<T>;
 
 } // namespace CastUtil
+
+inline ColumnNullable::MutablePtr create_empty_nullable_column(const DataTypePtr& nested_type) {
+    // Batch serde paths resize the nested column and null map together.
+    return ColumnNullable::create(remove_nullable(nested_type)->create_column(),
+                                  ColumnUInt8::create());
+}
 
 namespace CastWrapper {
 

@@ -68,10 +68,6 @@ public:
 
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 
-    Field get_default() const override {
-        return Field::create_field<TYPE_BITMAP>(BitmapValue::empty_bitmap());
-    }
-
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for BitMap");

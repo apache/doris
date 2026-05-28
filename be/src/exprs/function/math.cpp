@@ -732,8 +732,7 @@ public:
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
 
         auto& result_data = result_column->get_data();
-        NullMap& result_null_map =
-                assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnPtr argument_columns[3];
         bool col_const[3];

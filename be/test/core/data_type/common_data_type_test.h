@@ -145,7 +145,6 @@ public:
             EXPECT_EQ(data_type->get_scale(), 0);
         }
         ASSERT_EQ(data_type->is_null_literal(), meta_info.is_null_literal);
-        ASSERT_EQ(data_type->get_default(), meta_info.default_field);
     }
 
     // create column assert with default field is simple and can be used for all DataType

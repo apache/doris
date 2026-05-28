@@ -299,7 +299,7 @@ struct TQueryOptions {
   // max rows of each sub-queue in DataQueue.
   106: optional i64 data_queue_max_blocks = 0;
   
-  // expr pushdown for index filter rows
+  // deprecated
   107: optional bool enable_common_expr_pushdown_for_inverted_index = false;
   108: optional i64 local_exchange_free_blocks_limit;
 
@@ -474,6 +474,7 @@ struct TQueryOptions {
 
   210: optional double max_scan_mem_ratio = 0.3;
   211: optional bool enable_adaptive_scan = false;
+
   212: optional bool enable_local_exchange_before_agg = true;
 
   213: optional i64 file_presigned_url_ttl_seconds = 3600;
@@ -482,6 +483,16 @@ struct TQueryOptions {
 
   // Use Rust-based Lance reader for FORMAT_LANCE scan ranges
   216: optional bool enable_rust_lance_reader = false;
+  217: optional bool new_version_percentile = false
+
+  // Adaptive batch size: target output block size in bytes. Valid range [1MB, 512MB].
+  // Default 8MB. Sent by FE session variable preferred_block_size_bytes.
+  218: optional i64 preferred_block_size_bytes = 8388608
+
+  // Push LIMIT into SegmentIterator when safe.
+  219: optional bool enable_segment_limit_pushdown = true
+
+  220: optional bool enable_ann_index_result_cache = true
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

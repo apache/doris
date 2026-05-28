@@ -118,11 +118,12 @@ suite("test_hive_query_cache", "p0,external") {
             sql """use `tpch1_parquet`"""
             qt_tpch_1sf_q09 "${tpch_1sf_q09}"
             sql "${tpch_1sf_q09}"
-
-            test {
-                sql "${tpch_1sf_q09}"
-                time 20000
-            }
+            // NOTE: enable_sql_cache=false is set above, so a `test { ... time 20000 }` block here is
+            // NOT testing SQL cache — it is timing a cold TPC-H Q9 over containerized hive parquet,
+            // which routinely exceeds 20s under load. Run the query without the time guard; the qt_
+            // above already validates correctness. Cache behavior is verified in the blocks below
+            // that explicitly set enable_sql_cache=true.
+            sql "${tpch_1sf_q09}"
 
             // test sql cache with empty result
             try {

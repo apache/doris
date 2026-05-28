@@ -21,6 +21,7 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -99,6 +100,17 @@ TEST_F(DataTypeTimeStampTzTest, test_serder) {
         StringRef str {"2024-01-01 12:abc:00 +08:00"};
         EXPECT_FALSE(serder->from_string_strict_mode(str, *column, options).ok());
     }
+}
+
+TEST_F(DataTypeTimeStampTzTest, test_to_string_negative_sub_hour_offset) {
+    cctz::time_zone time_zone = cctz::fixed_time_zone(std::chrono::minutes(-30));
+
+    DateV2Value<DateTimeV2ValueType> local_dt;
+    local_dt.unchecked_set_time(2023, 12, 31, 23, 45, 0, 0);
+
+    TimestampTzValue value;
+    EXPECT_TRUE(value.from_datetime(local_dt, time_zone, 6, 6));
+    EXPECT_EQ(value.to_string(time_zone), "2023-12-31 23:45:00.000000-00:30");
 }
 
 TEST_F(DataTypeTimeStampTzTest, test_sort) {

@@ -24,10 +24,12 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.base.Objects;
+import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Optional;
 
 public class StreamTableInfo {
@@ -143,5 +145,9 @@ public class StreamTableInfo {
                 + ", dbName='" + dbName + '\''
                 + ", ctlName='" + ctlName + '\''
                 + '}';
+    }
+
+    public List<String> getFullQualifiers() {
+        return ImmutableList.of(ctlName, dbName, tableName);
     }
 }

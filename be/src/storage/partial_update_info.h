@@ -38,6 +38,9 @@ struct RowLocation;
 class Block;
 class MutableBlock;
 class IOlapColumnDataAccessor;
+namespace segment_v2 {
+struct HistoricalRowRetrieverContext;
+}
 
 struct RowsetWriterContext;
 struct RowsetId;
@@ -119,6 +122,7 @@ struct RidAndPos {
 class FixedReadPlan {
 public:
     bool empty() const;
+    void clear() { plan.clear(); }
     void prepare_to_read(const RowLocation& row_location, size_t pos);
     Status read_columns_by_plan(const TabletSchema& tablet_schema,
                                 std::vector<uint32_t> cids_to_read,
@@ -126,7 +130,7 @@ public:
                                 Block& block, std::map<uint32_t, uint32_t>* read_index,
                                 bool force_read_old_delete_signs,
                                 const signed char* __restrict cur_delete_signs = nullptr) const;
-    Status fill_missing_columns(RowsetWriterContext* rowset_ctx,
+    Status fill_missing_columns(const segment_v2::HistoricalRowRetrieverContext& historical_context,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 const TabletSchema& tablet_schema, Block& full_block,
                                 const std::vector<bool>& use_default_or_null_flag,
@@ -154,16 +158,16 @@ public:
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 Block& old_value_block,
                                 std::map<uint32_t, uint32_t>* read_index) const;
-    Status fill_non_primary_key_columns(RowsetWriterContext* rowset_ctx,
-                                        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-                                        const TabletSchema& tablet_schema, Block& full_block,
-                                        const std::vector<bool>& use_default_or_null_flag,
-                                        bool has_default_or_nullable, uint32_t segment_start_pos,
-                                        uint32_t block_start_pos, const Block* block,
-                                        std::vector<BitmapValue>* skip_bitmaps) const;
+    Status fill_non_primary_key_columns(
+            const segment_v2::HistoricalRowRetrieverContext& historical_context,
+            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+            const TabletSchema& tablet_schema, Block& full_block,
+            const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
+            uint32_t segment_start_pos, uint32_t block_start_pos, const Block* block,
+            std::vector<BitmapValue>* skip_bitmaps) const;
 
     Status fill_non_primary_key_columns_for_column_store(
-            RowsetWriterContext* rowset_ctx,
+            const segment_v2::HistoricalRowRetrieverContext& historical_context,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             const TabletSchema& tablet_schema, const std::vector<uint32_t>& non_sort_key_cids,
             Block& old_value_block, MutableColumns& mutable_full_columns,
@@ -171,7 +175,7 @@ public:
             uint32_t segment_start_pos, uint32_t block_start_pos, const Block* block,
             std::vector<BitmapValue>* skip_bitmaps) const;
     Status fill_non_primary_key_columns_for_row_store(
-            RowsetWriterContext* rowset_ctx,
+            const segment_v2::HistoricalRowRetrieverContext& historical_context,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             const TabletSchema& tablet_schema, const std::vector<uint32_t>& non_sort_key_cids,
             Block& old_value_block, MutableColumns& mutable_full_columns,

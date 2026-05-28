@@ -33,10 +33,12 @@ public:
     ~BitSetWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& /*context*/) override {
-        if (_bitmap == nullptr || _bitmap->isEmpty()) {
+        if ((_bitmap == nullptr || _bitmap->isEmpty()) &&
+            (_null_bitmap == nullptr || _null_bitmap->isEmpty())) {
             return std::make_shared<EmptyScorer>();
         }
-        return std::make_shared<BitSetScorer>(_bitmap, _null_bitmap);
+        auto bitmap = _bitmap ? _bitmap : std::make_shared<roaring::Roaring>();
+        return std::make_shared<BitSetScorer>(std::move(bitmap), _null_bitmap);
     }
 
 private:

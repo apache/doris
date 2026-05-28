@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <cstddef>
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace doris {
@@ -28,7 +31,18 @@ struct InvertedIndexQueryStatistics {
 };
 
 struct InvertedIndexStatistics {
+    void add_binding_diagnostic(std::string diagnostic) {
+        if (binding_diagnostics.size() >= kMaxBindingDiagnostics) {
+            return;
+        }
+        binding_diagnostics.emplace_back(std::move(diagnostic));
+    }
+
     std::vector<InvertedIndexQueryStatistics> stats;
+    std::vector<std::string> binding_diagnostics;
+
+private:
+    static constexpr size_t kMaxBindingDiagnostics = 64;
 };
 
 } // namespace doris

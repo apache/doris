@@ -216,7 +216,13 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) 
         std::lock_guard lock(_mtx);
         auto file_writer_map_key = std::make_pair(key.hash, key.offset);
         auto iter = _key_to_writer.find(file_writer_map_key);
-        DCHECK(iter != _key_to_writer.end());
+        if (iter == _key_to_writer.end()) {
+            return Status::InternalError(
+                    "file cache finalize missing writer, hash={}, offset={}, type={}, "
+                    "expiration={}",
+                    key.hash.to_string(), key.offset, cache_type_to_string(key.meta.type),
+                    key.meta.expiration_time);
+        }
         file_writer = std::move(iter->second);
         _key_to_writer.erase(iter);
     }
@@ -275,25 +281,39 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
 }
 
 Status FSFileCacheStorage::remove(const FileCacheKey& key) {
-    std::string dir = get_path_in_local_cache_v3(key.hash);
-    std::string file = get_path_in_local_cache_v3(dir, key.offset);
+    const std::string v3_dir = get_path_in_local_cache_v3(key.hash);
+    const std::string v3_file = get_path_in_local_cache_v3(v3_dir, key.offset);
     FDCache::instance()->remove_file_reader(std::make_pair(key.hash, key.offset));
-    RETURN_IF_ERROR(fs->delete_file(file));
+    RETURN_IF_ERROR(fs->delete_file(v3_file));
     // return OK not means the file is deleted, it may be not exist
 
+    std::string v2_dir;
     { // try to detect the file with old v2 format
-        dir = get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
-        file = get_path_in_local_cache_v2(dir, key.offset, key.meta.type);
-        RETURN_IF_ERROR(fs->delete_file(file));
+        v2_dir = get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
+        const std::string v2_file = get_path_in_local_cache_v2(v2_dir, key.offset, key.meta.type);
+        RETURN_IF_ERROR(fs->delete_file(v2_file));
     }
 
     BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
     _meta_store->delete_key(mkey);
     std::vector<FileInfo> files;
     bool exists {false};
-    RETURN_IF_ERROR(fs->list(dir, true, &files, &exists));
-    if (files.empty()) {
-        RETURN_IF_ERROR(fs->delete_directory(dir));
+    RETURN_IF_ERROR(fs->list(v2_dir, true, &files, &exists));
+    if (exists && files.empty()) {
+        auto st = fs->delete_empty_directory(v2_dir);
+        if (!st.ok()) {
+            LOG_WARNING("failed to remove cache directory {}", v2_dir).error(st);
+        }
+    }
+
+    files.clear();
+    exists = false;
+    RETURN_IF_ERROR(fs->list(v3_dir, true, &files, &exists));
+    if (exists && files.empty()) {
+        auto st = fs->delete_empty_directory(v3_dir);
+        if (!st.ok()) {
+            LOG_WARNING("failed to remove cache directory {}", v3_dir).error(st);
+        }
     }
     return Status::OK();
 }
@@ -695,6 +715,11 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* mgr
             context.expiration_time = expiration_time;
             for (; offset_it != std::filesystem::directory_iterator(); ++offset_it) {
                 size_t size = offset_it->file_size(ec);
+                if (ec) [[unlikely]] {
+                    LOG(WARNING) << "skip cache file, file_size failed, file="
+                                 << offset_it->path().native() << " err=" << ec.message();
+                    continue;
+                }
                 size_t offset = 0;
                 bool is_tmp = false;
                 FileCacheType cache_type = FileCacheType::NORMAL;

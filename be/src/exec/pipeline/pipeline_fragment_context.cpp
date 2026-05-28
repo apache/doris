@@ -62,7 +62,6 @@
 #include "exec/operator/dict_sink_operator.h"
 #include "exec/operator/distinct_streaming_aggregation_operator.h"
 #include "exec/operator/empty_set_operator.h"
-#include "exec/operator/es_scan_operator.h"
 #include "exec/operator/exchange_sink_operator.h"
 #include "exec/operator/exchange_source_operator.h"
 #include "exec/operator/file_scan_operator.h"
@@ -602,6 +601,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks(ThreadPool* thread_pool) {
     }
     _pipeline_parent_map.clear();
     _op_id_to_shared_state.clear();
+    // Record task cardinality once when this fragment context finishes task initialization.
+    _query_ctx->add_total_task_num(_total_tasks.load(std::memory_order_relaxed));
 
     return Status::OK();
 }
@@ -1096,7 +1097,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         int child_node_id = pipeline->operators().back()->node_id();
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_v1_or_partial_update(thrift_sink.olap_table_sink) &&
-            !config::is_cloud_mode()) {
+            !_has_row_binlog(thrift_sink.olap_table_sink) && !config::is_cloud_mode()) {
             _sink = std::make_shared<OlapTableSinkV2OperatorX>(
                     pool, next_sink_operator_id(), child_node_id + 1, row_desc, output_exprs);
         } else {
@@ -1338,14 +1339,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::FILE_SCAN_NODE: {
         op = std::make_shared<FileScanOperatorX>(pool, tnode, next_operator_id(), descs,
                                                  _num_instances);
-        RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
-        fe_with_old_version = !tnode.__isset.is_serial_operator;
-        break;
-    }
-    case TPlanNodeType::ES_SCAN_NODE:
-    case TPlanNodeType::ES_HTTP_SCAN_NODE: {
-        op = std::make_shared<EsScanOperatorX>(pool, tnode, next_operator_id(), descs,
-                                               _num_instances);
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
         fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;
@@ -1980,6 +1973,8 @@ void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
     {
         std::lock_guard<std::mutex> l(_task_mutex);
         ++_closed_tasks;
+        // Update query-level finished task progress in real time.
+        _query_ctx->inc_finished_task_num();
         if (_closed_tasks >= _total_tasks) {
             need_remove = _close_fragment_instance();
         }

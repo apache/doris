@@ -35,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -307,13 +306,6 @@ public class ShuffleKeyPruner extends PlanPostProcessor {
             boolean childAllowShuffleKeyPrune = dictionarySink.getRequirePhysicalProperties()
                     .equals(PhysicalProperties.ANY);
             return rewriteUnary(dictionarySink, ctx.withAllowShuffleKeyPrune(childAllowShuffleKeyPrune));
-        }
-
-        @Override
-        public Plan visitPhysicalDeferMaterializeResultSink(
-                PhysicalDeferMaterializeResultSink<? extends Plan> sink,
-                PruneCtx ctx) {
-            return rewriteUnary(sink, ctx.withAllowShuffleKeyPrune(false));
         }
 
         private <P extends PhysicalUnary<?>> P rewriteUnary(P plan, PruneCtx ctx) {

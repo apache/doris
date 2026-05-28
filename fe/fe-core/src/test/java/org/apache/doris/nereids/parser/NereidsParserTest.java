@@ -25,11 +25,15 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.exceptions.SyntaxParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -39,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
@@ -118,6 +123,15 @@ public class NereidsParserTest extends ParserTestBase {
         parsePlan("select * from t1 where a = 1 illegal_symbol")
                 .assertThrowsExactly(SyntaxParseException.class)
                 .assertMessageEquals("\nextraneous input 'illegal_symbol' expecting {<EOF>, ';'}(line 1, pos 29)\n");
+    }
+
+    @Test
+    public void testCancelAlterTableWithoutJobIdsBuildsEmptyJobIdList() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Plan plan = nereidsParser.parseSingle("CANCEL ALTER TABLE ROLLUP FROM db1.tbl1");
+        Assertions.assertInstanceOf(CancelAlterTableCommand.class, plan);
+        CancelAlterTableCommand command = (CancelAlterTableCommand) plan;
+        Assertions.assertTrue(command.getAlterJobIdList().isEmpty());
     }
 
     @Test
@@ -1353,6 +1367,17 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testCreateTableVariantNestedGroupPropertyIsRejected() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE TABLE t_variant_ng (k1 INT, v VARIANT<PROPERTIES("
+                + "\"variant_enable_nested_group\" = \"true\")>) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1";
+        NotSupportedException exception =
+                Assertions.assertThrowsExactly(NotSupportedException.class, () -> parser.parseSingle(sql));
+        Assertions.assertTrue(exception.getMessage().contains("variant_enable_nested_group is not supported now"));
+    }
+
+    @Test
     public void testCreateViewWithoutAs() {
         NereidsParser parser = new NereidsParser();
         String sql = "CREATE VIEW t1 SELECT * FROM t2";
@@ -1608,5 +1633,26 @@ public class NereidsParserTest extends ParserTestBase {
         sql = "UPDATE t SET c1 = 10 ORDER BY c2 ASC, c3 DESC NULLS LAST LIMIT 5";
         plan = nereidsParser.parseSingle(sql);
         Assertions.assertInstanceOf(UpdateCommand.class, plan);
+    }
+
+    @Test
+    public void testIsNullAndIsNotNullExpression() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "ISNULL(X) = 1";
+        Expression expression = nereidsParser.parseExpression(sql);
+
+        Assertions.assertInstanceOf(EqualTo.class, expression);
+        Assertions.assertInstanceOf(IsNull.class, expression.child(0));
+
+        sql = "IS_NULL_PRED(X) = 1";
+        expression = nereidsParser.parseExpression(sql);
+        Assertions.assertInstanceOf(EqualTo.class, expression);
+        Assertions.assertInstanceOf(IsNull.class, expression.child(0));
+
+        sql = "IS_NOT_NULL_PRED(X) = 1";
+        expression = nereidsParser.parseExpression(sql);
+        Assertions.assertInstanceOf(EqualTo.class, expression);
+        Assertions.assertInstanceOf(Not.class, expression.child(0));
+        Assertions.assertInstanceOf(IsNull.class, expression.child(0).child(0));
     }
 }

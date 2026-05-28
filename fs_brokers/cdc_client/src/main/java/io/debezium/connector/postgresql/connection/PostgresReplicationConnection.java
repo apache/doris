@@ -51,7 +51,7 @@ import static java.lang.Math.toIntExact;
 /**
  * Copied from Flink Cdc 3.5.0
  *
- * <p>Line 192~199: add publish_via_partition_root for partition table.
+ * <p>Line 248~251, 258: add publish_via_partition_root for partition table (FILTERED mode).
  */
 public class PostgresReplicationConnection extends JdbcConnection implements ReplicationConnection {
 
@@ -189,12 +189,8 @@ public class PostgresReplicationConnection extends JdbcConnection implements Rep
                                     throw new ConnectException(
                                             "Publication autocreation is disabled, please create one and restart the connector.");
                                 case ALL_TABLES:
-                                    boolean supportPartitionRoot = ((BaseConnection) conn).haveMinimumServerVersion(ServerVersion.v13);
-                                    createPublicationStmt = supportPartitionRoot
-                                            ? String.format(
-                                                    "CREATE PUBLICATION %s FOR ALL TABLES WITH (publish_via_partition_root = true);",
-                                                    publicationName)
-                                            : String.format(
+                                    createPublicationStmt =
+                                            String.format(
                                                     "CREATE PUBLICATION %s FOR ALL TABLES;",
                                                     publicationName);
                                     LOGGER.info(
@@ -248,14 +244,18 @@ public class PostgresReplicationConnection extends JdbcConnection implements Rep
                                 "No table filters found for filtered publication %s",
                                 publicationName));
             }
+            boolean supportPartitionRoot = !isUpdate
+                    && ((BaseConnection) pgConnection()).haveMinimumServerVersion(ServerVersion.v13);
+            String pubViaRootSuffix = supportPartitionRoot
+                    ? " WITH (publish_via_partition_root = true)" : "";
             createOrUpdatePublicationStmt =
                     isUpdate
                             ? String.format(
                             "ALTER PUBLICATION %s SET TABLE %s;",
                             publicationName, tableFilterString)
                             : String.format(
-                                    "CREATE PUBLICATION %s FOR TABLE %s;",
-                                    publicationName, tableFilterString);
+                                    "CREATE PUBLICATION %s FOR TABLE %s%s;",
+                                    publicationName, tableFilterString, pubViaRootSuffix);
             LOGGER.info(
                     isUpdate
                             ? "Updating Publication with statement '{}'"

@@ -35,6 +35,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/thread_safety_annotations.h"
 #include "core/block/block.h"
 #include "core/types.h"
 #include "exec/common/agg_utils.h"
@@ -194,6 +195,13 @@ public:
 
     void sub() {
         std::unique_lock<std::mutex> l(_mtx);
+        // _counter is unsigned: a stray sub() when counter is already 0 would
+        // underflow to UINT32_MAX and the dependency would never become ready,
+        // hanging the query forever. Fail loudly instead.
+        if (_counter == 0) [[unlikely]] {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "CountedFinishDependency::sub() underflow on {}", debug_string());
+        }
         _counter--;
         if (!_counter) {
             set_ready();
@@ -598,7 +606,7 @@ struct PartitionedAggSharedState : public BasicSharedState,
     ENABLE_FACTORY_CREATOR(PartitionedAggSharedState)
 
     PartitionedAggSharedState() = default;
-    ~PartitionedAggSharedState() override = default;
+    ~PartitionedAggSharedState() override { close(); }
 
     void close();
 
@@ -607,6 +615,10 @@ struct PartitionedAggSharedState : public BasicSharedState,
 
     // partition count is no longer stored in shared state; operators maintain their own
     std::atomic<bool> _is_spilled = false;
+    // This state is shared by the partitioned agg sink and source pipelines. Spill files left
+    // here are owned by the shared state until the source moves them into its local queue, so the
+    // cleanup must be tied to the shared state's lifetime and must be idempotent.
+    std::atomic_bool is_closed = false;
     std::deque<SpillFileSPtr> _spill_partitions;
 };
 
@@ -678,10 +690,10 @@ struct AnalyticSharedState : public BasicSharedState {
 
 public:
     AnalyticSharedState() = default;
-    std::queue<Block> blocks_buffer;
-    std::mutex buffer_mutex;
-    bool sink_eos = false;
-    std::mutex sink_eos_lock;
+    std::queue<Block> blocks_buffer GUARDED_BY(buffer_mutex);
+    AnnotatedMutex buffer_mutex;
+    bool sink_eos GUARDED_BY(sink_eos_lock) = false;
+    AnnotatedMutex sink_eos_lock;
     Arena agg_arena_pool;
 };
 
@@ -769,12 +781,12 @@ struct NestedLoopJoinSharedState : public JoinSharedState {
 struct PartitionSortNodeSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(PartitionSortNodeSharedState)
 public:
-    std::queue<Block> blocks_buffer;
-    std::mutex buffer_mutex;
+    std::queue<Block> blocks_buffer GUARDED_BY(buffer_mutex);
+    AnnotatedMutex buffer_mutex;
     std::vector<std::unique_ptr<PartitionSorter>> partition_sorts;
-    bool sink_eos = false;
-    std::mutex sink_eos_lock;
-    std::mutex prepared_finish_lock;
+    bool sink_eos GUARDED_BY(sink_eos_lock) = false;
+    AnnotatedMutex sink_eos_lock;
+    AnnotatedMutex prepared_finish_lock;
 };
 
 struct SetSharedState : public BasicSharedState {

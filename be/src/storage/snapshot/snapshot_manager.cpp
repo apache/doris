@@ -105,7 +105,7 @@ SnapshotManager::~SnapshotManager() = default;
 
 Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* snapshot_path,
                                       bool* allow_incremental_clone) {
-    SCOPED_ATTACH_TASK(_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     Status res = Status::OK();
     if (snapshot_path == nullptr) {
         return Status::Error<INVALID_ARGUMENT>("output parameter cannot be null");
@@ -151,7 +151,7 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 
     // If the requested snapshot_path is located in the root/snapshot folder, it is considered legal and can be deleted.
     // Otherwise, it is considered an illegal request and returns an error result.
-    SCOPED_ATTACH_TASK(_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     auto stores = _engine.get_stores();
     for (auto* store : stores) {
         std::string abs_path;
@@ -201,6 +201,7 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
     // keep this just for safety
     new_tablet_meta_pb.clear_inc_rs_metas();
     new_tablet_meta_pb.clear_stale_rs_metas();
+
     // should modify tablet id and schema hash because in restore process the tablet id is not
     // equal to tablet id in meta
     new_tablet_meta_pb.set_tablet_id(tablet_id);
@@ -226,8 +227,9 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
             // src be local rowset
             RowsetId rowset_id = _engine.next_rowset_id();
             guards.push_back(_engine.pending_local_rowsets().add(rowset_id));
-            RETURN_IF_ERROR_RESULT(_rename_rowset_id(visible_rowset, clone_dir, tablet_schema,
-                                                     rowset_id, rowset_meta));
+            RETURN_IF_ERROR_RESULT(_rename_rowset_id(
+                    visible_rowset, clone_dir, tablet_schema, rowset_id, rowset_meta,
+                    new_tablet_meta_pb.enable_unique_key_merge_on_write()));
             RowsetId src_rs_id;
             if (visible_rowset.rowset_id() > 0) {
                 src_rs_id.init(visible_rowset.rowset_id());
@@ -268,8 +270,9 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
             // src be local rowset
             RowsetId rowset_id = _engine.next_rowset_id();
             guards.push_back(_engine.pending_local_rowsets().add(rowset_id));
-            RETURN_IF_ERROR_RESULT(_rename_rowset_id(stale_rowset, clone_dir, tablet_schema,
-                                                     rowset_id, rowset_meta));
+            RETURN_IF_ERROR_RESULT(_rename_rowset_id(
+                    stale_rowset, clone_dir, tablet_schema, rowset_id, rowset_meta,
+                    new_tablet_meta_pb.enable_unique_key_merge_on_write()));
             RowsetId src_rs_id;
             if (stale_rowset.rowset_id() > 0) {
                 src_rs_id.init(stale_rowset.rowset_id());
@@ -323,7 +326,8 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
 Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
                                           const std::string& new_tablet_path,
                                           TabletSchemaSPtr tablet_schema, const RowsetId& rowset_id,
-                                          RowsetMetaPB* new_rs_meta_pb) {
+                                          RowsetMetaPB* new_rs_meta_pb,
+                                          bool enable_unique_key_merge_on_write) {
     Status st = Status::OK();
     RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
     rowset_meta->init_from_pb(rs_meta_pb);
@@ -349,6 +353,9 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     context.newest_write_timestamp = org_rowset_meta->newest_write_timestamp();
     // keep segments_overlap same as origin rowset
     context.segments_overlap = rowset_meta->segments_overlap();
+    // propagate MOW flag so that non-MOW key-bounds aggregation is not applied
+    // when restoring a MOW tablet's rowset
+    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write;
 
     auto rs_writer = DORIS_TRY(RowsetFactory::create_rowset_writer(_engine, context, false));
 
@@ -709,7 +716,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             break;
         }
 
-        if (!is_copy_binlog || !target_tablet->is_enable_binlog()) {
+        if (!is_copy_binlog || !target_tablet->enable_ccr_binlog()) {
             break;
         }
 

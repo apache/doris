@@ -36,8 +36,10 @@ import org.apache.doris.analysis.LambdaFunctionExpr;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SearchPredicate;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TryCastExpr;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function;
@@ -205,6 +207,27 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                .filter(OlapTable.class::isInstance)
                .map(OlapTable.class::cast)
                .orElse(null);
+    }
+
+    private Index getInvertedIndexFromTranslatedSlot(Expr translatedSlot, PlanTranslatorContext context) {
+        if (!(translatedSlot instanceof SlotRef)) {
+            return null;
+        }
+        SlotRef slotRef = (SlotRef) translatedSlot;
+        SlotDescriptor slotDesc = slotRef.getDesc();
+        if (slotDesc == null) {
+            return null;
+        }
+        TupleDescriptor tupleDesc = context.getTupleDesc(slotDesc.getParentId());
+        if (tupleDesc == null || !(tupleDesc.getTable() instanceof OlapTable)) {
+            return null;
+        }
+        Column column = slotRef.getColumn();
+        if (column == null) {
+            return null;
+        }
+        OlapTable olapTbl = (OlapTable) tupleDesc.getTable();
+        return olapTbl.getInvertedIndex(column, slotDesc.getSubColLables());
     }
 
     @Override
@@ -682,6 +705,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                         invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath());
                     }
                 }
+            }
+            if (invertedIndex == null) {
+                invertedIndex = getInvertedIndexFromTranslatedSlot(translatedSlot, context);
             }
             fieldIndexes.add(invertedIndex);
         }

@@ -30,7 +30,6 @@
 #include "common/config.h"
 #include "common/multi_version.h"
 #include "common/status.h"
-#include "exec/pipeline/pipeline_tracing.h"
 #include "information_schema/schema_routine_load_job_scanner.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "load/memtable/memtable_memory_limiter.h"
@@ -57,16 +56,20 @@ class TaskScheduler;
 struct RuntimeFilterTimerQueue;
 class WorkloadGroupMgr;
 struct WriteCooldownMetaExecutors;
-class S3RateLimiterHolder;
+class TokenBucketRateLimiterHolder;
+using S3RateLimiterHolder = TokenBucketRateLimiterHolder;
+class MSRpcRateLimitServices;
 namespace io {
 class FileCacheFactory;
 class HdfsMgr;
 class PackedFileManager;
 } // namespace io
+
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
 class ConditionCache;
+class AnnIndexResultCache;
 class TmpFileDirs;
 class EncodingInfoResolver;
 
@@ -309,6 +312,9 @@ public:
     io::PackedFileManager* packed_file_manager() { return _packed_file_manager; }
     IndexPolicyMgr* index_policy_mgr() { return _index_policy_mgr; }
     S3RateLimiterHolder* warmup_download_rate_limiter() { return _warmup_download_rate_limiter; }
+    MSRpcRateLimitServices* ms_rpc_rate_limit_services() {
+        return _ms_rpc_rate_limit_services.get();
+    }
 
 #ifdef BE_TEST
     void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
@@ -332,13 +338,8 @@ public:
             segment_v2::InvertedIndexQueryCache* inverted_index_query_cache) {
         _inverted_index_query_cache = inverted_index_query_cache;
     }
-    void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
     void set_process_profile(ProcessProfile* pp) { this->_process_profile = pp; }
-    void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
     void set_delete_bitmap_agg_cache(DeleteBitmapAggCache* c) { _delete_bitmap_agg_cache = c; }
-    void set_tablet_column_object_pool(TabletColumnObjectPool* c) {
-        this->_tablet_column_object_pool = c;
-    }
     void set_storage_page_cache(StoragePageCache* c) { this->_storage_page_cache = c; }
     void set_ann_index_ivf_list_cache(AnnIndexIVFListCache* c) {
         this->_ann_index_ivf_list_cache = c;
@@ -366,6 +367,15 @@ public:
         _file_cache_open_fd_cache = std::move(fd_cache);
     }
 #endif
+    // WARN: The following setter methods are intended for use in test code and
+    // offline tools (like meta_tool) ONLY. They should NOT be called in the
+    // production environment to avoid thread safety issues and undefined behaviors.
+    void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
+    void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
+    void set_tablet_column_object_pool(TabletColumnObjectPool* c) {
+        this->_tablet_column_object_pool = c;
+    }
+
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
 
     DeltaWriterV2Pool* delta_writer_v2_pool() { return _delta_writer_v2_pool.get(); }
@@ -403,10 +413,10 @@ public:
 
     DictionaryFactory* dict_factory() { return _dict_factory; }
 
-    PipelineTracerContext* pipeline_tracer_context() { return _pipeline_tracer_ctx.get(); }
-
     segment_v2::TmpFileDirs* get_tmp_file_dirs() { return _tmp_file_dirs.get(); }
     io::FDCache* file_cache_open_fd_cache() const { return _file_cache_open_fd_cache.get(); }
+
+    segment_v2::AnnIndexResultCache* ann_index_result_cache() { return _ann_index_result_cache; }
 
     orc::MemoryPool* orc_memory_pool() { return _orc_memory_pool; }
     arrow::MemoryPool* arrow_memory_pool() { return _arrow_memory_pool; }
@@ -553,6 +563,7 @@ private:
     QueryCache* _query_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
     DeleteBitmapAggCache* _delete_bitmap_agg_cache {nullptr};
+    segment_v2::AnnIndexResultCache* _ann_index_result_cache = nullptr;
 
     RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
     DictionaryFactory* _dict_factory = nullptr;
@@ -562,7 +573,6 @@ private:
 
     RuntimeQueryStatisticsMgr* _runtime_query_statistics_mgr = nullptr;
 
-    std::unique_ptr<PipelineTracerContext> _pipeline_tracer_ctx;
     std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;
 
     SpillFileManager* _spill_file_mgr = nullptr;
@@ -574,6 +584,7 @@ private:
     io::HdfsMgr* _hdfs_mgr = nullptr;
     io::PackedFileManager* _packed_file_manager = nullptr;
     S3RateLimiterHolder* _warmup_download_rate_limiter = nullptr;
+    std::unique_ptr<MSRpcRateLimitServices> _ms_rpc_rate_limit_services;
 };
 
 template <>

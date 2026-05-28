@@ -567,6 +567,84 @@ static void verify_instance_aksk(MetaServiceProxy* meta_service, const std::stri
     EXPECT_EQ(instance.obj_info(0).sk(), expected_sk);
 }
 
+static void create_instance_with_storage_vault(MetaServiceProxy* meta_service,
+                                               const std::string& instance_id,
+                                               const std::string& source_instance_id,
+                                               const std::string& vault_id,
+                                               const std::string& vault_name, const std::string& ak,
+                                               const std::string& sk, bool enable_snapshot = true) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_enable_storage_vault(true);
+    instance.add_resource_ids(vault_id);
+    instance.add_storage_vault_names(vault_name);
+    instance.set_default_storage_vault_id(vault_id);
+    instance.set_default_storage_vault_name(vault_name);
+
+    std::optional<Versionstamp> snapshot_version;
+    if (!source_instance_id.empty()) {
+        instance.set_source_instance_id(source_instance_id);
+        snapshot_version = next_test_snapshot_versionstamp();
+        instance.set_source_snapshot_id(snapshot_version->to_string());
+    }
+    instance.set_snapshot_switch_status(enable_snapshot ? SNAPSHOT_SWITCH_ON
+                                                        : SNAPSHOT_SWITCH_DISABLED);
+
+    StorageVaultPB vault;
+    vault.set_id(vault_id);
+    vault.set_name(vault_name);
+    auto* obj_info = vault.mutable_obj_info();
+    obj_info->set_id(vault_id);
+    obj_info->set_ak(ak);
+    obj_info->set_sk(sk);
+    obj_info->set_bucket("bucket");
+    obj_info->set_prefix("prefix");
+    obj_info->set_endpoint("endpoint");
+    obj_info->set_external_endpoint("external-endpoint");
+    obj_info->set_region("region");
+    obj_info->set_provider(ObjectStoreInfoPB::S3);
+
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    txn->put(storage_vault_key({instance_id, vault_id}), vault.SerializeAsString());
+
+    if (snapshot_version.has_value()) {
+        versioned::SnapshotReferenceKeyInfo ref_key_info {source_instance_id, *snapshot_version,
+                                                          instance_id};
+        txn->put(versioned::snapshot_reference_key(ref_key_info), "");
+    }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+static void verify_storage_vault(MetaServiceProxy* meta_service, const std::string& instance_id,
+                                 const std::string& vault_id, const std::string& expected_name,
+                                 const std::string& expected_ak, const std::string& expected_sk) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    std::string val;
+    ASSERT_EQ(txn->get(storage_vault_key({instance_id, vault_id}), &val), TxnErrorCode::TXN_OK);
+
+    StorageVaultPB vault;
+    ASSERT_TRUE(vault.ParseFromString(val));
+    ASSERT_TRUE(vault.has_obj_info());
+    EXPECT_EQ(vault.name(), expected_name);
+    EXPECT_EQ(vault.obj_info().ak(), expected_ak);
+    EXPECT_EQ(vault.obj_info().sk(), expected_sk);
+
+    ASSERT_EQ(txn->get(instance_key({instance_id}), &val), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance;
+    ASSERT_TRUE(instance.ParseFromString(val));
+    ASSERT_EQ(instance.resource_ids_size(), 1);
+    ASSERT_EQ(instance.storage_vault_names_size(), 1);
+    EXPECT_EQ(instance.resource_ids(0), vault_id);
+    EXPECT_EQ(instance.storage_vault_names(0), expected_name);
+    EXPECT_EQ(instance.default_storage_vault_id(), vault_id);
+    EXPECT_EQ(instance.default_storage_vault_name(), expected_name);
+}
+
 // Test AK/SK cascade update: two-level cascade
 TEST(AkSkCascadeTest, TwoLevelCascade) {
     auto meta_service = get_meta_service();
@@ -851,6 +929,94 @@ TEST(AkSkCascadeTest, ChildWithoutObjInfo) {
     ASSERT_EQ(txn->get(instance_key({"child_no_obj"}), &val), TxnErrorCode::TXN_OK);
     child_instance.ParseFromString(val);
     EXPECT_EQ(child_instance.obj_info_size(), 0); // Still no obj_info
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+TEST(StorageVaultCascadeTest, AlterS3VaultCascadesToDerivedInstances) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    create_instance_with_storage_vault(meta_service.get(), "vault_parent", "", "2", "vault_old",
+                                       "old_ak", "old_sk");
+    create_instance_with_storage_vault(meta_service.get(), "vault_child", "vault_parent", "2",
+                                       "vault_old", "old_ak", "old_sk");
+
+    AlterObjStoreInfoRequest req;
+    req.set_cloud_unique_id("1:vault_parent:test");
+    req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+    StorageVaultPB vault;
+    vault.set_name("vault_old");
+    vault.set_alter_name("vault_new");
+    vault.mutable_obj_info()->set_ak("new_ak");
+    vault.mutable_obj_info()->set_sk("new_sk");
+    req.mutable_vault()->CopyFrom(vault);
+
+    brpc::Controller cntl;
+    AlterObjStoreInfoResponse res;
+    meta_service->alter_storage_vault(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+    std::string cipher_sk = "HNAGUf23voYuuqV2BCX9Tw==";
+    verify_storage_vault(meta_service.get(), "vault_parent", "2", "vault_new", "new_ak", cipher_sk);
+    verify_storage_vault(meta_service.get(), "vault_child", "2", "vault_new", "new_ak", cipher_sk);
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+TEST(StorageVaultCascadeTest, SnapshotDisabledSkipsCascade) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    create_instance_with_storage_vault(meta_service.get(), "vault_parent_disabled", "", "2",
+                                       "vault_old", "old_ak", "old_sk",
+                                       /*enable_snapshot=*/false);
+    create_instance_with_storage_vault(meta_service.get(), "vault_child_disabled",
+                                       "vault_parent_disabled", "2", "vault_old", "old_ak",
+                                       "old_sk");
+
+    AlterObjStoreInfoRequest req;
+    req.set_cloud_unique_id("1:vault_parent_disabled:test");
+    req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+    StorageVaultPB vault;
+    vault.set_name("vault_old");
+    vault.set_alter_name("vault_new");
+    vault.mutable_obj_info()->set_ak("new_ak");
+    vault.mutable_obj_info()->set_sk("new_sk");
+    req.mutable_vault()->CopyFrom(vault);
+
+    brpc::Controller cntl;
+    AlterObjStoreInfoResponse res;
+    meta_service->alter_storage_vault(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+    std::string cipher_sk = "HNAGUf23voYuuqV2BCX9Tw==";
+    verify_storage_vault(meta_service.get(), "vault_parent_disabled", "2", "vault_new", "new_ak",
+                         cipher_sk);
+    verify_storage_vault(meta_service.get(), "vault_child_disabled", "2", "vault_old", "old_ak",
+                         "old_sk");
 
     sp->disable_processing();
     sp->clear_all_call_backs();

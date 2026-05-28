@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -72,6 +73,7 @@ public abstract class AbstractInsertExecutor {
     protected Optional<InsertCommandContext> insertCtx;
     protected final boolean emptyInsert;
     protected long txnId = INVALID_TXN_ID;
+    protected List<TableStreamUpdateInfo> streamUpdateInfos;
 
     /**
      * Insert executor listener
@@ -201,8 +203,8 @@ public abstract class AbstractInsertExecutor {
             coordinator.cancel(new Status(TStatusCode.CANCELLED, "insert timeout"));
             if (notTimeout) {
                 errMsg = coordinator.getExecStatus().getErrorMsg();
-                ErrorReport.reportDdlException("there exists unhealthy backend. "
-                        + errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
+                ErrorReport.reportDdlException("%s", ErrorCode.ERR_FAILED_WHEN_INSERT,
+                        "there exists unhealthy backend. " + errMsg);
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
             }
@@ -221,6 +223,9 @@ public abstract class AbstractInsertExecutor {
         }
         if (coordinator.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL) != null) {
             filteredRows = Integer.parseInt(coordinator.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
+        }
+        if (insertLoadJob != null) {
+            insertLoadJob.getLoadStatistic().setFilteredRows(filteredRows);
         }
     }
 
@@ -273,5 +278,13 @@ public abstract class AbstractInsertExecutor {
 
     public boolean isEmptyInsert() {
         return emptyInsert;
+    }
+
+    public void setStreamUpdateInfos(List<TableStreamUpdateInfo> streamUpdateInfos) {
+        this.streamUpdateInfos = streamUpdateInfos;
+    }
+
+    public List<TableStreamUpdateInfo> getStreamUpdateInfos() {
+        return streamUpdateInfos;
     }
 }

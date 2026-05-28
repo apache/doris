@@ -243,8 +243,6 @@ public:
                             int be_exec_version) const override;
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
-    Field get_default() const override;
-
     Field get_field(const TExprNode& node) const override {
         DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
         DCHECK(node.__isset.decimal_literal);

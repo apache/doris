@@ -91,7 +91,7 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, Block* block, bo
                 auto& type = block->get_by_position(i).type;
                 type = make_nullable(type);
                 column = type->create_column();
-                column->assume_mutable()->insert_default();
+                column->assert_mutable()->insert_default();
             }
             assert_res = true;
         }
@@ -101,7 +101,7 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, Block* block, bo
         auto to_string_lambda = [](TAssertion::type assertion) {
             auto it = _TAssertion_VALUES_TO_NAMES.find(assertion);
 
-            if (it == _TAggregationOp_VALUES_TO_NAMES.end()) {
+            if (it == _TAssertion_VALUES_TO_NAMES.end()) {
                 return "NULL";
             } else {
                 return it->second;
@@ -114,8 +114,8 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, Block* block, bo
         return Status::Cancelled(
                 "AssertOperator(node id: {}) Expected {} {} to be returned by expression {}(actual "
                 "rows: {}) ",
-                _node_id, to_string_lambda(_assertion), _desired_num_rows, num_rows_returned,
-                _subquery_string);
+                _node_id, to_string_lambda(_assertion), _desired_num_rows, _subquery_string,
+                num_rows_returned);
     }
     RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block));
     return Status::OK();

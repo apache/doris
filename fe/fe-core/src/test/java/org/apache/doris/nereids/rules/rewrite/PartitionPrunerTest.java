@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionItem;
-import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
@@ -29,35 +29,33 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.rules.OneListPartitionEvaluator;
 import org.apache.doris.nereids.rules.expression.rules.OnePartitionEvaluator;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
+import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionPruneResult;
+import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
-import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.RelationId;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 public class PartitionPrunerTest extends TestWithFeService {
     private Method canBePrunedOutMethod;
@@ -318,253 +316,42 @@ public class PartitionPrunerTest extends TestWithFeService {
         Assertions.assertFalse(result.second);
     }
 
-    // test prune predicate
-    // Test basis: some predicates are pruned
     @Test
-    public void testPrunePartialPredicates() {
-        Set<Expression> predicates = new LinkedHashSet<>();
-        GreaterThan gt = new GreaterThan(slotA, Literal.of(10));
-        LessThan lt = new LessThan(slotB, Literal.of(20));
-        predicates.add(gt);
-        predicates.add(lt);
+    public void testPruneWithResultIgnoresNonPruningPartitionPredicate() throws AnalysisException {
+        Map<String, PartitionItem> idToPartitions = ImmutableMap.of(
+                "p1", createListPartitionItem("1"),
+                "p2", createListPartitionItem("2"));
 
-        LogicalOlapScan scan = new LogicalOlapScan(new RelationId(1), new OlapTable());
-        LogicalFilter<Plan> filter = new LogicalFilter<>(predicates, scan);
+        PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
+                ImmutableList.of(slotA), new Not(new IsNull(slotA)), idToPartitions, cascadesContext,
+                PartitionTableType.OLAP, Optional.empty());
 
-        Plan prunedPlan = PartitionPruner.prunePredicate(false, Optional.of(gt), filter, scan);
-
-        Assertions.assertInstanceOf(LogicalFilter.class, prunedPlan);
-        LogicalFilter<?> prunedFilter = (LogicalFilter<?>) prunedPlan;
-        Assertions.assertEquals(1, prunedFilter.getConjuncts().size());
-        Assertions.assertTrue(prunedFilter.getConjuncts().contains(lt));
-        Assertions.assertFalse(prunedFilter.getConjuncts().contains(gt));
-    }
-
-    // all predicates are pruned
-    @Test
-    public void testPruneAllPredicates() {
-        Set<Expression> predicates = new LinkedHashSet<>();
-        GreaterThan gt = new GreaterThan(slotA, Literal.of(10));
-        predicates.add(gt);
-
-        LogicalOlapScan scan = new LogicalOlapScan(new RelationId(1), new OlapTable());
-        LogicalFilter<Plan> filter = new LogicalFilter<>(predicates, scan);
-
-        Plan prunedPlan = PartitionPruner.prunePredicate(false, Optional.of(gt), filter, scan);
-
-        Assertions.assertInstanceOf(LogicalOlapScan.class, prunedPlan);
-    }
-
-    // no predicates are pruned
-    @Test
-    public void testPruneNoPredicates() {
-        Set<Expression> predicates = new LinkedHashSet<>();
-        GreaterThan gt = new GreaterThan(slotA, Literal.of(10));
-        LessThan lt = new LessThan(slotB, Literal.of(20));
-        predicates.add(gt);
-        predicates.add(lt);
-
-        LogicalOlapScan scan = new LogicalOlapScan(new RelationId(1), new OlapTable());
-        LogicalFilter<Plan> filter = new LogicalFilter<>(predicates, scan);
-
-        EqualTo nonExistentPredicate = new EqualTo(slotC, Literal.of(30));
-        Plan prunedPlan = PartitionPruner.prunePredicate(false, Optional.of(nonExistentPredicate), filter, scan);
-
-        Assertions.assertInstanceOf(LogicalFilter.class, prunedPlan);
-        LogicalFilter<?> prunedFilter = (LogicalFilter<?>) prunedPlan;
-        Assertions.assertEquals(2, prunedFilter.getConjuncts().size());
-        Assertions.assertTrue(prunedFilter.getConjuncts().contains(gt));
-        Assertions.assertTrue(prunedFilter.getConjuncts().contains(lt));
+        Assertions.assertEquals(2, result.partitions.size());
+        Assertions.assertFalse(result.hasPartitionPredicate);
     }
 
     @Test
-    public void testPruneCompoundPredicate() {
-        Set<Expression> predicates = new LinkedHashSet<>();
-        GreaterThan gt = new GreaterThan(slotA, Literal.of(10));
-        LessThan lt = new LessThan(slotB, Literal.of(20));
-        EqualTo eq = new EqualTo(slotC, Literal.of(30));
-        predicates.add(gt);
-        predicates.add(lt);
-        predicates.add(eq);
+    public void testPruneWithResultMarksEffectivePartitionPredicate() throws AnalysisException {
+        Map<String, PartitionItem> idToPartitions = ImmutableMap.of(
+                "p1", createListPartitionItem("1"),
+                "p2", createListPartitionItem("2"));
 
-        LogicalOlapScan scan = new LogicalOlapScan(new RelationId(1), new OlapTable());
-        LogicalFilter<Plan> filter = new LogicalFilter<>(predicates, scan);
+        PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
+                ImmutableList.of(slotA), new EqualTo(slotA, Literal.of(1)), idToPartitions, cascadesContext,
+                PartitionTableType.OLAP, Optional.empty());
 
-        // (a > 10 AND b < 20)
-        And compoundPredicate = new And(gt, lt);
-        Plan prunedPlan = PartitionPruner.prunePredicate(false, Optional.of(compoundPredicate), filter, scan);
-
-        Assertions.assertInstanceOf(LogicalFilter.class, prunedPlan);
-        LogicalFilter<?> prunedFilter = (LogicalFilter<?>) prunedPlan;
-        Assertions.assertEquals(1, prunedFilter.getConjuncts().size());
-        Assertions.assertTrue(prunedFilter.getConjuncts().contains(eq));
-        Assertions.assertFalse(prunedFilter.getConjuncts().contains(gt));
-        Assertions.assertFalse(prunedFilter.getConjuncts().contains(lt));
+        Assertions.assertEquals(1, result.partitions.size());
+        Assertions.assertTrue(result.hasPartitionPredicate);
     }
 
-    @Test
-    public void testSkipPrunePredicate() {
-        Set<Expression> predicates = new LinkedHashSet<>();
-        GreaterThan gt = new GreaterThan(slotA, Literal.of(10));
-        predicates.add(gt);
-
-        LogicalOlapScan scan = new LogicalOlapScan(new RelationId(1), new OlapTable());
-        LogicalFilter<Plan> filter = new LogicalFilter<>(predicates, scan);
-
-        Plan prunedPlan = PartitionPruner.prunePredicate(true, Optional.of(gt), filter, scan);
-
-        Assertions.assertInstanceOf(LogicalFilter.class, prunedPlan);
-        LogicalFilter<?> prunedFilter = (LogicalFilter<?>) prunedPlan;
-        Assertions.assertEquals(1, prunedFilter.getConjuncts().size());
-        Assertions.assertTrue(prunedFilter.getConjuncts().contains(gt));
-    }
-
-    @Test
-    public void testEmptyPrunedPredicates() {
-        Set<Expression> predicates = new LinkedHashSet<>();
-        GreaterThan gt = new GreaterThan(slotA, Literal.of(10));
-        predicates.add(gt);
-
-        LogicalOlapScan scan = new LogicalOlapScan(new RelationId(1), new OlapTable());
-        LogicalFilter<Plan> filter = new LogicalFilter<>(predicates, scan);
-
-        // prunedPredicates is empty
-        Plan prunedPlan = PartitionPruner.prunePredicate(false, Optional.empty(), filter, scan);
-
-        Assertions.assertInstanceOf(LogicalFilter.class, prunedPlan);
-        LogicalFilter<?> prunedFilter = (LogicalFilter<?>) prunedPlan;
-        Assertions.assertEquals(1, prunedFilter.getConjuncts().size());
-        Assertions.assertTrue(prunedFilter.getConjuncts().contains(gt));
-    }
-
-    @Test
-    public void testPruneDuplicatePredicates() {
-        Set<Expression> predicates = new LinkedHashSet<>();
-        GreaterThan gt1 = new GreaterThan(slotA, Literal.of(10));
-        GreaterThan gt2 = new GreaterThan(slotA, Literal.of(10)); // duplicated predicate
-        predicates.add(gt1);
-        predicates.add(gt2);
-
-        LogicalOlapScan scan = new LogicalOlapScan(new RelationId(1), new OlapTable());
-        LogicalFilter<Plan> filter = new LogicalFilter<>(predicates, scan);
-
-        Plan prunedPlan = PartitionPruner.prunePredicate(false, Optional.of(gt1), filter, scan);
-
-        Assertions.assertInstanceOf(LogicalOlapScan.class, prunedPlan);
-    }
-
-    @Test
-    public void testPruneWithNullLiteral() {
-        Set<Expression> predicates = new LinkedHashSet<>();
-        GreaterThan gt = new GreaterThan(slotA, Literal.of(10));
-        EqualTo nullEq = new EqualTo(slotB, new NullLiteral());
-        predicates.add(gt);
-        predicates.add(nullEq);
-
-        LogicalOlapScan scan = new LogicalOlapScan(new RelationId(1), new OlapTable());
-        LogicalFilter<Plan> filter = new LogicalFilter<>(predicates, scan);
-
-        Plan prunedPlan = PartitionPruner.prunePredicate(false, Optional.of(gt), filter, scan);
-
-        Assertions.assertInstanceOf(LogicalFilter.class, prunedPlan);
-        LogicalFilter<?> prunedFilter = (LogicalFilter<?>) prunedPlan;
-        Assertions.assertEquals(1, prunedFilter.getConjuncts().size());
-        Assertions.assertTrue(prunedFilter.getConjuncts().contains(nullEq));
-    }
-
-    @Test
-    public void testPruneMultiplePredicatesPartially() {
-        Set<Expression> predicates = new LinkedHashSet<>();
-        GreaterThan gt = new GreaterThan(slotA, Literal.of(10));
-        LessThan lt = new LessThan(slotB, Literal.of(20));
-        EqualTo eq1 = new EqualTo(slotC, Literal.of(30));
-        EqualTo eq2 = new EqualTo(slotC, Literal.of(40));
-        predicates.add(gt);
-        predicates.add(lt);
-        predicates.add(eq1);
-        predicates.add(eq2);
-
-        LogicalOlapScan scan = new LogicalOlapScan(new RelationId(1), new OlapTable());
-        LogicalFilter<Plan> filter = new LogicalFilter<>(predicates, scan);
-
-        // (a > 10 AND b < 20)
-        And compoundPredicate = new And(gt, lt);
-        Plan prunedPlan = PartitionPruner.prunePredicate(false, Optional.of(compoundPredicate), filter, scan);
-
-        Assertions.assertInstanceOf(LogicalFilter.class, prunedPlan);
-        LogicalFilter<?> prunedFilter = (LogicalFilter<?>) prunedPlan;
-        Assertions.assertEquals(2, prunedFilter.getConjuncts().size());
-        Assertions.assertTrue(prunedFilter.getConjuncts().contains(eq1));
-        Assertions.assertTrue(prunedFilter.getConjuncts().contains(eq2));
-        Assertions.assertFalse(prunedFilter.getConjuncts().contains(gt));
-        Assertions.assertFalse(prunedFilter.getConjuncts().contains(lt));
-    }
-
-    @Test
-    public void testPruneNestedCompoundPredicate() {
-        Set<Expression> predicates = new LinkedHashSet<>();
-        GreaterThan gt = new GreaterThan(slotA, Literal.of(10));
-        LessThan lt = new LessThan(slotB, Literal.of(20));
-        EqualTo eq = new EqualTo(slotC, Literal.of(30));
-        predicates.add(gt);
-        predicates.add(lt);
-        predicates.add(eq);
-
-        LogicalOlapScan scan = new LogicalOlapScan(new RelationId(1), new OlapTable());
-        LogicalFilter<Plan> filter = new LogicalFilter<>(predicates, scan);
-
-        // (a > 10 AND (b < 20 AND c = 30))
-        And innerAnd = new And(lt, eq);
-        And outerAnd = new And(gt, innerAnd);
-
-        Plan prunedPlan = PartitionPruner.prunePredicate(false, Optional.of(outerAnd), filter, scan);
-
-        Assertions.assertInstanceOf(LogicalOlapScan.class, prunedPlan);
-    }
-
-    @Test
-    public void testPruneWhenFilterContainsOr() {
-        Set<Expression> predicates = new LinkedHashSet<>();
-        Or orPredicate = new Or(
-                new GreaterThan(slotA, Literal.of(10)),
-                new LessThan(slotB, Literal.of(20))
-        );
-        predicates.add(orPredicate);
-        LogicalOlapScan scan = new LogicalOlapScan(new RelationId(1), new OlapTable());
-        LogicalFilter<Plan> filter = new LogicalFilter<>(predicates, scan);
-
-        GreaterThan gt = new GreaterThan(slotA, Literal.of(10));
-        Plan prunedPlan = PartitionPruner.prunePredicate(false, Optional.of(gt), filter, scan);
-
-        Assertions.assertInstanceOf(LogicalFilter.class, prunedPlan);
-        LogicalFilter<?> prunedFilter = (LogicalFilter<?>) prunedPlan;
-        Assertions.assertEquals(1, prunedFilter.getConjuncts().size());
-        Assertions.assertTrue(prunedFilter.getConjuncts().contains(orPredicate));
-    }
-
-    @Test
-    public void testPruneWhenFilterContainsAndOrMix() {
-        Set<Expression> predicates = new LinkedHashSet<>();
-        // filter :a > 10 AND (b < 20 OR c = 30)
-        Or orPredicate = new Or(
-                new LessThan(slotB, Literal.of(20)),
-                new EqualTo(slotC, Literal.of(30))
-        );
-        GreaterThan gt = new GreaterThan(slotA, Literal.of(10));
-
-        predicates.add(gt);
-        predicates.add(orPredicate);
-
-        LogicalOlapScan scan = new LogicalOlapScan(new RelationId(1), new OlapTable());
-        LogicalFilter<Plan> filter = new LogicalFilter<>(predicates, scan);
-        // a > 10
-        Plan prunedPlan = PartitionPruner.prunePredicate(false, Optional.of(gt), filter, scan);
-        Assertions.assertInstanceOf(LogicalFilter.class, prunedPlan);
-        LogicalFilter<?> prunedFilter = (LogicalFilter<?>) prunedPlan;
-
-        Assertions.assertEquals(1, prunedFilter.getConjuncts().size());
-        Assertions.assertTrue(prunedFilter.getConjuncts().contains(orPredicate));
+    private ListPartitionItem createListPartitionItem(String... values) throws AnalysisException {
+        ImmutableList.Builder<PartitionKey> partitionKeys = ImmutableList.builder();
+        for (String value : values) {
+            PartitionValue partitionValue = new PartitionValue(value);
+            partitionKeys.add(PartitionKey.createPartitionKey(
+                    ImmutableList.of(partitionValue), ImmutableList.of(partitionColumn)));
+        }
+        return new ListPartitionItem(partitionKeys.build());
     }
 }
-
 

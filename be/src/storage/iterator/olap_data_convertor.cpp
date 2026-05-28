@@ -994,7 +994,6 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
     _value_convertor->set_source_column(value_typed_column, start_offset, elem_size);
     RETURN_IF_ERROR(_value_convertor->convert_to_olap());
 
-    // todo (Amory). put this value into MapValue
     _results[0] = (void*)elem_size;
     _results[1] = _offsets.data();
     _results[2] = _key_convertor->get_data();

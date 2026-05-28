@@ -49,6 +49,9 @@ class RuntimeState;
 class TPaloScanRange;
 class ScanLocalStateBase;
 struct FilterPredicates;
+#ifndef NDEBUG
+struct OlapReaderStatistics;
+#endif
 
 class Block;
 
@@ -65,11 +68,12 @@ public:
         TabletReadSource read_source;
         int64_t limit;
         bool aggregation;
+        bool read_row_binlog = false;
     };
 
     OlapScanner(ScanLocalStateBase* parent, Params&& params);
 
-    Status prepare() override;
+    Status _prepare_impl() override;
 
     Status _open_impl(RuntimeState* state) override;
 
@@ -93,6 +97,9 @@ private:
 
     [[nodiscard]] Status _init_return_columns();
     [[nodiscard]] Status _init_variant_columns();
+#ifndef NDEBUG
+    Status _check_ann_cache_hit_debug_points(const OlapReaderStatistics& stats);
+#endif
 
     std::vector<OlapScanRange*> _key_ranges;
 

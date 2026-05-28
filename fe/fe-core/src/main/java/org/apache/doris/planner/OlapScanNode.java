@@ -44,8 +44,11 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -87,6 +90,7 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -186,6 +190,9 @@ public class OlapScanNode extends ScanNode {
     private Set<Integer> distributionColumnIds;
 
     private long maxVersion = -1L;
+
+    // Only for debug: restrict tablets to scan.
+    private Set<Long> specifiedTabletIds = Sets.newHashSet();
     private SortInfo annSortInfo = null;
     private long annSortLimit = -1;
 
@@ -342,10 +349,9 @@ public class OlapScanNode extends ScanNode {
             if (isPointQuery() && partitionInfo.getPartitionColumns().size() == 1) {
                 // short circuit, a quick path to find partition
                 ColumnRange filterRange = columnNameToRange.get(partitionInfo.getPartitionColumns().get(0).getName());
-                LiteralExpr lowerBound = filterRange.getRangeSet().get().asRanges().stream()
-                        .findFirst().get().lowerEndpoint().getValue();
-                LiteralExpr upperBound = filterRange.getRangeSet().get().asRanges().stream()
-                        .findFirst().get().upperEndpoint().getValue();
+                Range<ColumnBound> range = filterRange.getRangeSet().get().span();
+                LiteralExpr lowerBound = range.lowerEndpoint().getValue();
+                LiteralExpr upperBound = range.upperEndpoint().getValue();
                 cachedPartitionPruner.update(keyItemMap);
                 return cachedPartitionPruner.prune(lowerBound, upperBound);
             }
@@ -400,7 +406,7 @@ public class OlapScanNode extends ScanNode {
                 .collect(Collectors.toMap(loc -> loc.getScanRange().getPaloScanRange().getTabletId(), loc -> loc));
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
-            final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
+            final MaterializedIndex selectedTable = olapTable.getPartitionIndex(partition, selectedIndexId);
             final List<Tablet> tablets = selectedTable.getTablets();
             Long visibleVersion = visibleVersionMap.get(partitionId);
             assert visibleVersion != null : "the acquried version is not exists in the visible version map";
@@ -425,6 +431,10 @@ public class OlapScanNode extends ScanNode {
         return maxVersion;
     }
 
+    public void setSpecifiedTabletIds(Set<Long> specifiedTabletIds) {
+        this.specifiedTabletIds = specifiedTabletIds;
+    }
+
     private void addScanRangeLocations(Partition partition,
             List<Tablet> tablets, Map<Long, Set<Long>> backendAlivePathHashs) throws UserException {
         long visibleVersion = Partition.PARTITION_INIT_VERSION;
@@ -433,6 +443,10 @@ public class OlapScanNode extends ScanNode {
         // assign a snapshot version of all partitions.
         if (!(Config.isCloudMode() && Config.enable_cloud_snapshot_version)) {
             visibleVersion = partition.getVisibleVersion();
+        }
+        // if partition offset is set, use the next offset to set the visible version
+        if (olapTable instanceof OlapTableStreamWrapper) {
+            visibleVersion = ((OlapTableStreamWrapper) olapTable).getStreamUpdate(partition.getId()).second;
         }
         // for non-cloud mode. for cloud mode see `updateScanRangeVersions`
         maxVersion = Math.max(maxVersion, visibleVersion);
@@ -655,10 +669,16 @@ public class OlapScanNode extends ScanNode {
             scanRange.setPaloScanRange(paloRange);
             locations.setScanRange(scanRange);
 
+            addBucketSeqStatsIfNeeded(tabletId, locations, oneReplicaBytes);
+            scanRangeLocations.add(locations);
+        }
+    }
+
+    private void addBucketSeqStatsIfNeeded(long tabletId, TScanRangeLocations locations, long oneReplicaBytes) {
+        if (!isPointQuery()) {
             Integer bucketSeq = tabletId2BucketSeq.get(tabletId);
             bucketSeq2locations.put(bucketSeq, locations);
             bucketSeq2Bytes.merge(bucketSeq, oneReplicaBytes, Long::sum);
-            scanRangeLocations.add(locations);
         }
     }
 
@@ -683,13 +703,16 @@ public class OlapScanNode extends ScanNode {
         return true;
     }
 
-    private void computePartitionInfo() throws AnalysisException {
+    public void computePartitionInfo() throws AnalysisException {
         long start = System.currentTimeMillis();
         // Step1: compute partition ids
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
+            setHasPartitionPredicate(ScanNode.containsPartitionPredicate(
+                    partitionInfo.getPartitionColumns(), desc, conjuncts, partitionInfo));
             selectedPartitionIds = partitionPrune(partitionInfo);
         } else {
+            setHasPartitionPredicate(false);
             selectedPartitionIds = olapTable.getPartitionIds();
         }
         selectedPartitionIds = olapTable.selectNonEmptyPartitionIds(selectedPartitionIds);
@@ -741,7 +764,7 @@ public class OlapScanNode extends ScanNode {
         Preconditions.checkState(selectedIndexId != -1);
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
-            final MaterializedIndex selectedIndex = partition.getIndex(selectedIndexId);
+            final MaterializedIndex selectedIndex = olapTable.getPartitionIndex(partition, selectedIndexId);
             // selectedIndex is not expected to be null, because MaterializedIndex ids in one rollup's partitions
             // are all same. skip this partition here.
             if (selectedIndex != null) {
@@ -772,7 +795,7 @@ public class OlapScanNode extends ScanNode {
         for (int i = 0; i < selectedPartitionList.size(); i++) {
             int seekPid = (int) ((i + partitionSeek) % selectedPartitionList.size());
             final Partition partition = olapTable.getPartition(selectedPartitionList.get(seekPid));
-            final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
+            final MaterializedIndex selectedTable = olapTable.getPartitionIndex(partition, selectedIndexId);
             List<Tablet> tablets = selectedTable.getTablets();
             if (tablets.isEmpty()) {
                 continue;
@@ -864,7 +887,7 @@ public class OlapScanNode extends ScanNode {
                 && connectContext.getStatementContext().isShortCircuitQuery();
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
-            final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
+            final MaterializedIndex selectedTable = olapTable.getPartitionIndex(partition, selectedIndexId);
             final List<Tablet> tablets = Lists.newArrayList();
             List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             // point query need prune tablets at this place
@@ -884,6 +907,14 @@ public class OlapScanNode extends ScanNode {
                 }
             }
 
+            if (specifiedTabletIds != null && !specifiedTabletIds.isEmpty()) {
+                if (prunedTabletIds != null) {
+                    prunedTabletIds.retainAll(specifiedTabletIds);
+                } else {
+                    prunedTabletIds = new ArrayList<>(specifiedTabletIds);
+                }
+            }
+
             boolean notExistsSampleAndPrunedTablets = sampleTabletIds.isEmpty() && nereidsPrunedTabletIds.isEmpty();
             if (prunedTabletIds != null) {
                 for (Long id : prunedTabletIds) {
@@ -900,8 +931,10 @@ public class OlapScanNode extends ScanNode {
                 scanTabletIds.addAll(allTabletIds);
             }
 
-            for (int i = 0; i < allTabletIds.size(); i++) {
-                tabletId2BucketSeq.put(allTabletIds.get(i), i);
+            if (!isPointQuery()) {
+                for (int i = 0; i < allTabletIds.size(); i++) {
+                    tabletId2BucketSeq.put(allTabletIds.get(i), i);
+                }
             }
 
             totalTabletsNum += selectedTable.getTablets().size();
@@ -928,7 +961,9 @@ public class OlapScanNode extends ScanNode {
         computePartitionInfo();
         scanBackendIds.clear();
         scanTabletIds.clear();
+        tabletId2BucketSeq.clear();
         bucketSeq2locations.clear();
+        bucketSeq2Bytes.clear();
         scanReplicaIds.clear();
         sampleTabletIds.clear();
         try {
@@ -1126,6 +1161,9 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         msg.olap_scan_node.setColumnsDesc(columnsDesc);
         msg.olap_scan_node.setIndexesDesc(indexDesc);
+        if (olapTable instanceof RowBinlogTableWrapper) {
+            msg.olap_scan_node.setReadRowBinlog(true);
+        }
         if (selectedIndexId != -1) {
             msg.olap_scan_node.setSchemaVersion(olapTable.getIndexSchemaVersion(selectedIndexId));
         }
@@ -1200,6 +1238,10 @@ public class OlapScanNode extends ScanNode {
         }
 
         msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
+
+        if (selectedIndexId != -1 && olapTable.getIndexMetaByIndexId(selectedIndexId).isRowBinlogIndex()) {
+            msg.olap_scan_node.setReadRowBinlog(true);
+        }
 
         super.toThrift(msg);
     }
@@ -1396,5 +1438,19 @@ public class OlapScanNode extends ScanNode {
             return olapTable.getCatalogId();
         }
         return super.getCatalogId();
+    }
+
+    public OlapTableStreamUpdate getStreamUpdate() {
+        Map<Long, Long> prev = Maps.newHashMap();
+        Map<Long, Long> next = Maps.newHashMap();
+        for (Long partitionId : getSelectedPartitionIds()) {
+            Pair<Long, Long> streamUpdate = ((OlapTableStreamWrapper) olapTable).getStreamUpdate(partitionId);
+            if (streamUpdate.first != null) {
+                // prev could be null, ignore
+                prev.put(partitionId, streamUpdate.first);
+            }
+            next.put(partitionId, streamUpdate.second);
+        }
+        return new OlapTableStreamUpdate(prev, next);
     }
 }

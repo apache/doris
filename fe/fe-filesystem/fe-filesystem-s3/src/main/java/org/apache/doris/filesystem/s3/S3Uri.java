@@ -32,29 +32,65 @@ public final class S3Uri {
 
     /**
      * Parses URIs of the form: s3://bucket/key, s3a://bucket/key, s3n://bucket/key.
-     * Also handles path-style: https://endpoint/bucket/key (when pathStyle=true).
+     *
+     * <p>When {@code pathStyleAccess} is {@code true} <strong>and</strong> the scheme is
+     * {@code http} or {@code https}, the URI is treated as path-style:
+     * {@code scheme://endpoint/bucket/key}. The first path segment after the host is the
+     * bucket, the remainder is the key. For all other schemes (including {@code s3://},
+     * {@code s3a://}, {@code s3n://}) the first authority component is always treated as
+     * the bucket, regardless of {@code pathStyleAccess}.
      */
     public static S3Uri parse(String path, boolean pathStyleAccess) {
         if (path == null) {
             throw new IllegalArgumentException("S3 path must not be null");
         }
-        // Handle virtual-hosted style: s3://bucket/key, s3a://bucket/key
         int schemeEnd = path.indexOf("://");
-        if (schemeEnd >= 0) {
-            String withoutScheme = path.substring(schemeEnd + 3);
-            int slashIdx = withoutScheme.indexOf('/');
-            if (slashIdx < 0) {
-                return new S3Uri(withoutScheme, "");
+        if (schemeEnd < 0) {
+            throw new IllegalArgumentException("Cannot parse S3 URI without scheme: " + path);
+        }
+        String scheme = path.substring(0, schemeEnd);
+        String withoutScheme = path.substring(schemeEnd + 3);
+
+        boolean httpScheme = "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
+        if (pathStyleAccess && httpScheme) {
+            // Path-style: scheme://host/bucket/key
+            int hostEnd = withoutScheme.indexOf('/');
+            if (hostEnd < 0) {
+                // scheme://host with no bucket
+                throw new IllegalArgumentException(
+                        "Path-style URI is missing bucket segment: " + path);
             }
-            String rawKey = withoutScheme.substring(slashIdx + 1);
-            // Strip leading slashes to normalize keys (e.g., "s3://bucket//path" → key "path")
+            String afterHost = withoutScheme.substring(hostEnd + 1);
+            // Strip extra leading slashes between host and bucket.
+            while (afterHost.startsWith("/")) {
+                afterHost = afterHost.substring(1);
+            }
+            int bucketEnd = afterHost.indexOf('/');
+            if (bucketEnd < 0) {
+                if (afterHost.isEmpty()) {
+                    throw new IllegalArgumentException(
+                            "Path-style URI is missing bucket segment: " + path);
+                }
+                return new S3Uri(afterHost, "");
+            }
+            String rawKey = afterHost.substring(bucketEnd + 1);
             while (rawKey.startsWith("/")) {
                 rawKey = rawKey.substring(1);
             }
-            return new S3Uri(withoutScheme.substring(0, slashIdx), rawKey);
+            return new S3Uri(afterHost.substring(0, bucketEnd), rawKey);
         }
-        // Treat bare string as key (shouldn't normally happen)
-        throw new IllegalArgumentException("Cannot parse S3 URI without scheme: " + path);
+
+        // Virtual-hosted style: scheme://bucket/key
+        int slashIdx = withoutScheme.indexOf('/');
+        if (slashIdx < 0) {
+            return new S3Uri(withoutScheme, "");
+        }
+        String rawKey = withoutScheme.substring(slashIdx + 1);
+        // Strip leading slashes to normalize keys (e.g., "s3://bucket//path" → key "path")
+        while (rawKey.startsWith("/")) {
+            rawKey = rawKey.substring(1);
+        }
+        return new S3Uri(withoutScheme.substring(0, slashIdx), rawKey);
     }
 
     public String bucket() {

@@ -133,7 +133,7 @@ public:
         bool direct_mode = false;
         bool aggregation = false;
         // for compaction, schema_change, check_sum: we don't use page cache
-        // for query and config::disable_storage_page_cache is false, we use page cache
+        // for query, when the BE config disable_storage_page_cache is false, we use page cache
         bool use_page_cache = false;
         Version version = Version(-1, 0);
 
@@ -166,7 +166,6 @@ public:
         std::vector<ColumnId>* origin_return_columns = nullptr;
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
-        std::vector<VExprSPtr> remaining_conjunct_roots;
         VExprContextSPtrs common_expr_ctxs_push_down;
 
         // used for compaction to record row ids
@@ -182,9 +181,6 @@ public:
         size_t read_orderby_key_num_prefix_columns = 0;
         // limit of rows for read_orderby_key
         size_t read_orderby_key_limit = 0;
-        // filter_block arguments
-        VExprContextSPtrs filter_block_conjuncts;
-
         // for vertical compaction
         bool is_key_column_group = false;
         std::vector<uint32_t> key_group_cluster_key_idxes;
@@ -214,9 +210,7 @@ public:
 
         uint64_t condition_cache_digest = 0;
 
-        // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW.
-        // When > 0, the storage layer (VCollectIterator) will stop reading
-        // after returning this many rows. -1 means no limit.
+        // General LIMIT budget forwarded to SegmentIterator. -1 means no limit.
         int64_t general_read_limit = -1;
     };
 
@@ -250,6 +244,17 @@ public:
     void set_batch_size(int batch_size) { _reader_context.batch_size = batch_size; }
 
     int batch_size() const { return _reader_context.batch_size; }
+
+    size_t batch_max_rows() const { return _reader_context.batch_size; }
+
+    void set_preferred_block_size_bytes(size_t bytes) {
+        _reader_context.preferred_block_size_bytes = bytes;
+    }
+
+    // Returns the preferred output block byte budget. Subclasses that support adaptive batch size
+    // should override this; the base returns 0 (disabled) so VCollectIterator degrades safely
+    // when called through a TabletReader* that has not been configured.
+    virtual size_t preferred_block_size_bytes() const { return 0; }
 
     const OlapReaderStatistics& stats() const { return _stats; }
     OlapReaderStatistics* mutable_stats() { return &_stats; }

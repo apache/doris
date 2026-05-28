@@ -77,10 +77,6 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "cloud/multi_cluster," + // run in specific regression pipeline
     "cloud_p0/multi_cluster," + // run in specific regression pipeline
     "cloud_p0/cache," +
-    "pythonudaf_p0," + // will cause a core when the third-party is compiled by clang
-    "pythonudtf_p0," + // will cause a core when the third-party is compiled by clang
-    "pythonudf_p0," + // will cause a core when the third-party is compiled by clang
-    "pythonudf_complex_p0," + // will cause a core when the third-party is compiled by clang
     "shape_check," + // run only in p0 is enough
     "query_p0/cache," + // run only in p0 is enough
     "nereids_rules_p0/mv/increment_create," + // run only in p0 is enough
@@ -98,6 +94,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "variant_p0/nested/sql," +
     "plsql_p0," + // plsql is not developped any more, add by sk.
     "restore_p0," + // 
+    "table_stream_p0," + // table stream is not supported for cloud mode now
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 max_failure_num = 50

@@ -19,6 +19,8 @@ package org.apache.doris.connector.es;
 
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -26,6 +28,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -45,10 +48,11 @@ public class EsScanRange implements ConnectorScanRange {
 
     private static final long serialVersionUID = 1L;
 
-    public static final String PROP_INDEX = "es.index";
-    public static final String PROP_TYPE = "es.type";
-    public static final String PROP_SHARD_ID = "es.shard_id";
-    public static final String PROP_HOSTS = "es.hosts";
+    public static final String PROP_INDEX = "index";
+    public static final String PROP_TYPE = "type";
+    public static final String PROP_SHARD_ID = "shard_id";
+    public static final String PROP_HOST_PORT = "host_port";
+    public static final String PROP_ES_HOSTS = "es_hosts";
 
     private final String indexName;
     private final String mappingType;
@@ -69,7 +73,22 @@ public class EsScanRange implements ConnectorScanRange {
 
     @Override
     public ConnectorScanRangeType getRangeType() {
-        return ConnectorScanRangeType.ES_SCAN;
+        return ConnectorScanRangeType.FILE_SCAN;
+    }
+
+    @Override
+    public Optional<String> getPath() {
+        return Optional.of("es://" + indexName + "/" + shardId);
+    }
+
+    @Override
+    public String getTableFormatType() {
+        return "es";
+    }
+
+    @Override
+    public String getFileFormat() {
+        return "es_http";
     }
 
     /**
@@ -89,7 +108,10 @@ public class EsScanRange implements ConnectorScanRange {
             props.put(PROP_TYPE, mappingType);
         }
         props.put(PROP_SHARD_ID, String.valueOf(shardId));
-        props.put(PROP_HOSTS, String.join(",", esHosts));
+        if (!esHosts.isEmpty()) {
+            props.put(PROP_HOST_PORT, esHosts.get(0));
+            props.put(PROP_ES_HOSTS, String.join(",", esHosts));
+        }
         return props;
     }
 
@@ -116,17 +138,7 @@ public class EsScanRange implements ConnectorScanRange {
     static List<String> extractHostnames(List<String> hostPorts) {
         Set<String> seen = new LinkedHashSet<>();
         for (String hp : hostPorts) {
-            String s = hp;
-            // Strip scheme (http:// or https://)
-            int schemeEnd = s.indexOf("://");
-            if (schemeEnd >= 0) {
-                s = s.substring(schemeEnd + 3);
-            }
-            // Strip port
-            int colonIdx = s.lastIndexOf(':');
-            if (colonIdx > 0) {
-                s = s.substring(0, colonIdx);
-            }
+            String s = EsHostAddress.extractHostname(hp);
             if (!s.isEmpty()) {
                 seen.add(s);
             }
@@ -139,5 +151,11 @@ public class EsScanRange implements ConnectorScanRange {
         return "EsScanRange{index='" + indexName
                 + "', shard=" + shardId
                 + ", hosts=" + esHosts + "}";
+    }
+
+    @Override
+    public void populateRangeParams(TTableFormatFileDesc formatDesc,
+            TFileRangeDesc rangeDesc) {
+        formatDesc.setEsParams(new HashMap<>(getProperties()));
     }
 }

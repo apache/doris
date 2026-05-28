@@ -47,6 +47,12 @@ namespace doris {
 class TabletSchema;
 class RuntimeProfile;
 
+// Pure-computation helper: estimate whether collected data meets the byte budget
+// after flushing rows_to_merge additional rows.  Extracted from Level1Iterator so
+// it can be unit-tested independently.
+bool estimate_collected_enough(size_t present_bytes, size_t present_rows, int rows_to_merge,
+                               size_t preferred_block_size_bytes);
+
 class VCollectIterator {
 public:
     // Hold reader point to get reader params
@@ -86,7 +92,8 @@ public:
     inline bool use_topn_next() const { return _topn_limit > 0; }
 
 private:
-    // next for topn query
+    // Scanner-local TopN merge. SegmentIterator has already applied all pushed filters and its
+    // per-segment row budget; this path only keeps the best local rows across rowsets.
     Status _topn_next(Block* block);
 
     class BlockRowPosComparator {
@@ -303,6 +310,8 @@ private:
 
         void init_level0_iterators_for_union();
 
+        bool collected_enough_rows(const MutableColumns& columns, int rows_to_merge) const;
+
     private:
         Status _merge_next(IteratorRowRef* ref);
 
@@ -348,13 +357,9 @@ private:
     // for topn next
     size_t _topn_limit = 0;
     bool _topn_eof = false;
+    // for forwarding general LIMIT to SegmentIterator
+    size_t _general_read_limit = 0;
     std::vector<RowSetSplits> _rs_splits;
-
-    // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW (non-merge path).
-    // When > 0, VCollectIterator will stop reading after returning this many rows.
-    int64_t _general_read_limit = -1;
-    // Number of rows already returned to the caller.
-    int64_t _general_rows_returned = 0;
 
     // Hold reader point to access read params, such as fetch conditions.
     TabletReader* _reader = nullptr;

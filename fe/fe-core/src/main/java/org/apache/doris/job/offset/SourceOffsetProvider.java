@@ -45,11 +45,11 @@ public interface SourceOffsetProvider {
     default void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {}
 
     /**
-     * Performs one-time initialization that must run only on fresh job creation, not on FE restart.
-     * For example, fetching and persisting snapshot splits to the meta table.
+     * One-time initialization on fresh job creation (not on FE restart). Subclasses may
+     * initialize split progress, fetch initial splits, or open remote readers.
      * Default: no-op (most providers need no extra setup).
      */
-    default void initOnCreate() throws JobException {}
+    default void initOnCreate(List<String> syncTables) throws JobException {}
 
     /**
      * Get next offset to consume
@@ -89,6 +89,12 @@ public interface SourceOffsetProvider {
     void updateOffset(Offset offset);
 
     /**
+     * Bind the compute group that should route FE-initiated RPCs.
+     * Default: no-op for providers that do not make BE RPCs.
+     */
+    default void setCloudCluster(String cloudCluster) {}
+
+    /**
      * Fetch remote meta information, such as listing files in S3 or getting latest offsets in Kafka.
      */
     void fetchRemoteMeta(Map<String, String> properties) throws Exception;
@@ -113,6 +119,13 @@ public interface SourceOffsetProvider {
      * @return
      */
     Offset deserializeOffsetProperty(String offset);
+
+    /**
+     * Validate the offset format for ALTER JOB.
+     * Each provider defines its own rules (e.g. CDC only allows JSON specific offset).
+     */
+    default void validateAlterOffset(String offset) throws Exception {
+    }
 
     /**
      * Replaying OffsetProvider is currently only required by JDBC.
@@ -165,6 +178,34 @@ public interface SourceOffsetProvider {
      */
     default boolean hasReachedEnd() {
         return false;
+    }
+
+    /**
+     * Advance one batch of split fetching, called by scheduler each tick during PENDING/RUNNING.
+     * For providers without async splitting work (e.g. S3, Kafka), default is no-op.
+     * Aligned with flink-cdc SnapshotSplitAssigner naming.
+     *
+     * @throws JobException if fetching splits fails fatally
+     */
+    default void advanceSplits() throws JobException {}
+
+    /**
+     * Returns true if no more splits will be produced.
+     * For providers without splitting concept, always returns true.
+     * Aligned with flink-cdc SnapshotSplitAssigner.noMoreSplits() naming.
+     */
+    default boolean noMoreSplits() {
+        return true;
+    }
+
+    /**
+     * Get the lag of the data source in seconds.
+     * For CDC sources, lag = (now - last consumed event timestamp) in seconds.
+     *
+     * @return lag in seconds as string, empty string if not applicable
+     */
+    default String getLag() {
+        return "";
     }
 
 }

@@ -239,7 +239,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
                                                   int64_t start, int64_t end) const {
     auto row_count = cast_set<int>(end - start);
     auto* ptype = result.mutable_type();
-    const auto* col = check_and_get_column<ColumnType>(column);
+    const auto* col = assert_cast<const ColumnType*>(&column);
     if constexpr (T == TYPE_LARGEINT) {
         ptype->set_id(PGenericType::INT128);
         result.mutable_bytes_value()->Reserve(row_count);

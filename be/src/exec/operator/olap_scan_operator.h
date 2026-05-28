@@ -101,7 +101,10 @@ private:
             VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
             const std::set<std::string> fn_name) const override;
 
-    bool _should_push_down_common_expr() override;
+    bool _should_push_down_common_expr(const VExprSPtr& expr) override;
+
+    enum class ExprStorageFilterCheckMode { HAS_SEGMENT_EVALUABLE_EXPR, HAS_NON_KEY_SLOT };
+    bool _check_expr_storage_filter(const VExprSPtr& expr, ExprStorageFilterCheckMode mode);
 
     bool _storage_no_merge() override;
 
@@ -235,6 +238,8 @@ private:
     // topn_search_costs = index_load_costs + engine_search_costs + pre_process_costs + post_process_costs
     RuntimeProfile::Counter* _ann_topn_search_costs = nullptr;
     RuntimeProfile::Counter* _ann_topn_search_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_cache_hit_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_range_cache_hit_cnt = nullptr;
 
     RuntimeProfile::Counter* _ann_index_load_costs = nullptr;
     RuntimeProfile::Counter* _ann_ivf_on_disk_load_costs = nullptr;
@@ -312,6 +317,9 @@ private:
     RuntimeProfile::Counter* _variant_subtree_sparse_iter_count = nullptr;
     // Variant subtree: times selecting doc snapshot all iterator (merge doc snapshot into root)
     RuntimeProfile::Counter* _variant_doc_value_column_iter_count = nullptr;
+
+    RuntimeProfile::Counter* _adaptive_batch_predict_min_rows_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_predict_max_rows_counter = nullptr;
 
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReadSource> _read_sources;

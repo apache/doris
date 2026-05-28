@@ -53,16 +53,16 @@ class Arena;
   */
 class ColumnMap final : public COWHelper<IColumn, ColumnMap> {
 public:
-    /** Create immutable column using immutable arguments. This arguments may be shared with other columns.
-      * Use IColumn::mutate in order to make mutable column and mutate shared nested columns.
+    /** Create a column from immutable/shared subcolumns without cloning them.
+      * Call IColumn::mutate before modifying the returned column tree.
       */
     using Base = COWHelper<IColumn, ColumnMap>;
     using COffsets = ColumnArray::ColumnOffsets;
+    struct SharedTag {};
 
     static MutablePtr create(const ColumnPtr& keys, const ColumnPtr& values,
                              const ColumnPtr& offsets) {
-        return ColumnMap::create(keys->assume_mutable(), values->assume_mutable(),
-                                 offsets->assume_mutable());
+        return Base::create(SharedTag {}, keys, values, offsets);
     }
 
     template <typename... Args,
@@ -240,11 +240,12 @@ public:
 private:
     friend class COWHelper<IColumn, ColumnMap>;
 
-    WrappedPtr keys_column;    // nullable
-    WrappedPtr values_column;  // nullable
-    WrappedPtr offsets_column; // offset
+    IColumn::WrappedPtr keys_column;    // nullable
+    IColumn::WrappedPtr values_column;  // nullable
+    IColumn::WrappedPtr offsets_column; // offset
 
     ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, MutableColumnPtr&& offsets);
+    ColumnMap(SharedTag, ColumnPtr keys, ColumnPtr values, ColumnPtr offsets);
 
     ColumnMap(const ColumnMap&) = default;
 };

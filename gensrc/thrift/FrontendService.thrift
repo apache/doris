@@ -65,6 +65,9 @@ struct TDescribeTablesParams {
   5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   6: optional bool show_hidden_columns = false
   7: optional string catalog
+  // Reserved for downstream field `current_roles` to keep thrift field ids
+  // wire-compatible across maintained branches. Do not reuse this id.
+  8: optional set<string> reserved_field_8
 }
 
 // Results of a call to describeTable()
@@ -95,6 +98,9 @@ struct TGetDbsParams {
   4: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   5: optional string catalog
   6: optional bool get_null_catalog  //if catalog is empty , get dbName ="NULL" and dbId = -1.
+  // Reserved for downstream field `current_roles` to keep thrift field ids
+  // wire-compatible across maintained branches. Do not reuse this id.
+  7: optional set<string> reserved_field_7
 }
 
 // getDbNames returns a list of database names , database ids and catalog names ,catalog ids
@@ -119,6 +125,9 @@ struct TGetTablesParams {
   6: optional string type
   7: optional string catalog
   8: optional string table
+  // Reserved for downstream field `current_roles` to keep thrift field ids
+  // wire-compatible across maintained branches. Do not reuse this id.
+  9: optional set<string> reserved_field_9
 }
 
 struct TTableStatus {
@@ -202,6 +211,9 @@ struct TQueryStatistics {
     12: optional i64 spill_write_bytes_to_local_storage
     13: optional i64 spill_read_bytes_from_local_storage
     14: optional i64 bytes_write_into_cache
+    15: optional i64 process_rows
+    16: optional i32 finished_tasks_num
+    17: optional i32 total_tasks_num
 }
 
 struct TQueryStatisticsResult {
@@ -396,6 +408,11 @@ struct TMasterOpRequest {
     31: optional binary prepareExecuteBuffer
     32: optional bool moreResultExists // Server has more result to send
     33: optional map<string, string> connect_attributes
+
+    // Reserved for downstream fields `current_roles` and `is_su_user` to keep
+    // thrift field ids wire-compatible across maintained branches. Do not reuse these ids.
+    34: optional set<string> reserved_field_34
+    35: optional bool reserved_field_35
 
     // selectdb cloud
     1000: optional string cloud_cluster
@@ -624,6 +641,19 @@ struct TKafkaRLTaskProgress {
     1: required map<i32,i64> partitionCmtOffset
 }
 
+// Kinesis routine load task progress
+// Maps shard ID to the last committed sequence number
+struct TKinesisRLTaskProgress {
+    1: required map<string,string> shardCmtSeqNum
+    // MillisBehindLatest per shard, returned by GetRecords API.
+    // Indicates how far behind the consumer is from the tip of the stream.
+    // 0 means the consumer has caught up; absent means unknown.
+    2: optional map<string,i64> shardMillsBehindLatest
+    // Set of shard IDs that have been closed (split/merge) during consumption.
+    // FE should remove these shards from tracking.
+    3: optional set<string> closedShardIds
+}
+
 struct TRLTaskTxnCommitAttachment {
     1: required Types.TLoadSourceType loadSourceType
     2: required Types.TUniqueId id
@@ -636,6 +666,7 @@ struct TRLTaskTxnCommitAttachment {
     9: optional i64 loadCostMs
     10: optional TKafkaRLTaskProgress kafkaRLTaskProgress
     11: optional string errorLogUrl
+    12: optional TKinesisRLTaskProgress kinesisRLTaskProgress
 }
 
 struct TTxnCommitAttachment {
@@ -892,6 +923,9 @@ struct TMetadataTableRequestParams {
   12: optional PlanNodes.TMetaCacheStatsParams meta_cache_stats_params
   13: optional PlanNodes.TPartitionValuesMetadataParams partition_values_metadata_params
   14: optional PlanNodes.THudiMetadataParams hudi_metadata_params
+  // Reserved for downstream field `current_roles` to keep thrift field ids
+  // wire-compatible across maintained branches. Do not reuse this id.
+  15: optional set<string> reserved_field_15
 }
 
 struct TSchemaTableRequestParams {
@@ -903,6 +937,9 @@ struct TSchemaTableRequestParams {
     6: optional string time_zone // used for DATETIME field
     7: optional string frontend_conjuncts
     8: optional i64 thread_id // mysql connection id for fetching ConnectContext if needed
+    // Reserved for downstream field `current_roles` to keep thrift field ids
+    // wire-compatible across maintained branches. Do not reuse this id.
+    9: optional set<string> reserved_field_9
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -1344,6 +1381,19 @@ struct TAutoIncrementRangeResult {
     4: optional Types.TNetworkAddress master_address
 }
 
+struct TMaxComputeBlockIdRequest {
+    1: optional i64 txn_id
+    2: optional string write_session_id
+    3: optional i64 length
+}
+
+struct TMaxComputeBlockIdResult {
+    1: optional Status.TStatus status
+    2: optional i64 start
+    3: optional i64 length
+    4: optional Types.TNetworkAddress master_address
+}
+
 struct TCreatePartitionRequest {
     1: optional i64 txn_id
     2: optional i64 db_id
@@ -1520,6 +1570,9 @@ struct TShowProcessListRequest {
     1: optional bool show_full_sql
     2: optional Types.TUserIdentity current_user_ident
     3: optional string time_zone
+    // Reserved for downstream field `current_roles` to keep thrift field ids
+    // wire-compatible across maintained branches. Do not reuse this id.
+    4: optional set<string> reserved_field_4
 }
 
 struct TShowProcessListResult {
@@ -1821,6 +1874,7 @@ struct TInsertOverwriteTaskRequest {
     7: optional i64 group_id
     8: optional i64 task_id
     9: optional bool is_success
+    10: optional bool force_drop_partition
 }
 
 struct TInsertOverwriteTaskResult {
@@ -1957,6 +2011,7 @@ service FrontendService {
     Status.TStatus updatePlanStatsCache(1: TUpdatePlanStatsCacheRequest request)
 
     TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
+    TMaxComputeBlockIdResult getMaxComputeBlockIdRange(1: TMaxComputeBlockIdRequest request)
 
     TCreatePartitionResult createPartition(1: TCreatePartitionRequest request)
     // insert overwrite partition(*)

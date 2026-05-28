@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.datasource.InternalCatalog;
@@ -72,8 +71,6 @@ public class EncryptSQLTest extends ParserTestBase {
                 })) {
             ctx.setEnv(env);
             ctx.setCurrentUserIdentity(UserIdentity.ROOT);
-            Config.enable_nereids_load = true;
-
             String sql = "EXPORT TABLE export_table TO \"s3://abc/aaa\" "
                     + "PROPERTIES("
                     + " \"format\" = \"csv\","
@@ -443,6 +440,68 @@ public class EncryptSQLTest extends ParserTestBase {
         } finally {
             Deencapsulation.setField(Env.getCurrentEnv(), "feType",
                     origFeType);
+        }
+    }
+
+    @Test
+    public void testCreateUserPasswordMasking() throws Exception {
+        ctx.setDatabase("test");
+        try (MockedConstruction<StmtExecutor> ignored = Mockito.mockConstruction(StmtExecutor.class,
+                Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
+                (mock, context) -> {
+                    Mockito.doReturn(false).when(mock).isForwardToMaster();
+                    Profile profile = new Profile(false, 0, 0);
+                    Deencapsulation.setField(mock, "profile", profile);
+                    Mockito.doReturn(profile).when(mock).getProfile();
+                    Mockito.doReturn(ctx).when(mock).getContext();
+                    Mockito.doNothing().when(mock).execute();
+                    Deencapsulation.setField(mock, "context", ctx);
+                    if (context.arguments().size() >= 2
+                            && context.arguments().get(1) instanceof StatementBase) {
+                        Deencapsulation.setField(mock, "parsedStmt",
+                                context.arguments().get(1));
+                    }
+                    if (ctx.getStatementContext() == null) {
+                        ctx.setStatementContext(new StatementContext());
+                    }
+                })) {
+            ctx.setEnv(env);
+            ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+            // testing for https://github.com/apache/doris/issues/62140
+            String sql = "CREATE USER 'test_user62140'@'%' IDENTIFIED BY '123456'";
+            String res = "CREATE USER 'test_user62140'@'%' IDENTIFIED BY '*XXX'";
+            parseAndCheck(sql, res);
+        }
+    }
+
+    @Test
+    public void testAlterUserPasswordMasking() throws Exception {
+        ctx.setDatabase("test");
+        try (MockedConstruction<StmtExecutor> ignored = Mockito.mockConstruction(StmtExecutor.class,
+                Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
+                (mock, context) -> {
+                    Mockito.doReturn(false).when(mock).isForwardToMaster();
+                    Profile profile = new Profile(false, 0, 0);
+                    Deencapsulation.setField(mock, "profile", profile);
+                    Mockito.doReturn(profile).when(mock).getProfile();
+                    Mockito.doReturn(ctx).when(mock).getContext();
+                    Mockito.doNothing().when(mock).execute();
+                    Deencapsulation.setField(mock, "context", ctx);
+                    if (context.arguments().size() >= 2
+                            && context.arguments().get(1) instanceof StatementBase) {
+                        Deencapsulation.setField(mock, "parsedStmt",
+                                context.arguments().get(1));
+                    }
+                    if (ctx.getStatementContext() == null) {
+                        ctx.setStatementContext(new StatementContext());
+                    }
+                })) {
+            ctx.setEnv(env);
+            ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+            // testing for https://github.com/apache/doris/issues/62140
+            String sql = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '123456'";
+            String res = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '*XXX'";
+            parseAndCheck(sql, res);
         }
     }
 

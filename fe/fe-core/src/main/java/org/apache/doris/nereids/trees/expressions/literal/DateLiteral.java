@@ -376,7 +376,7 @@ public class DateLiteral extends Literal implements ComparableLiteral {
     }
 
     protected static boolean checkRange(long year, long month, long day) {
-        return year > MAX_DATE.getYear() || month > MAX_DATE.getMonth() || day > MAX_DATE.getDay();
+        return year < 0 || year > MAX_DATE.getYear() || month > MAX_DATE.getMonth() || day > MAX_DATE.getDay();
     }
 
     protected static boolean checkDate(long year, long month, long day) {
