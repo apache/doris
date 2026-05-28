@@ -277,6 +277,6 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
         RETURN_IF_ERROR(create_status);
     }
 
-    return _collect_position_delete_rows(options.current_range.table_format_params);
+    return Status::OK();
 }
 } // namespace doris::reader

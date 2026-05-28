@@ -223,12 +223,6 @@ protected:
         return Status::OK();
     }
 
-    // Collect row-position deletes that are not represented as a deletion vector descriptor.
-    // TableReader uses the collected _delete_rows to plan a common DeletePredicate.
-    virtual Status _collect_position_delete_rows(const TTableFormatFileDesc& t_desc) {
-        (void)t_desc;
-        return Status::OK();
-    }
     // 切换到下一个 reader 的通用流程。
     // 该方法先关闭当前 reader，再打开下一个具体 reader；子类不应重复实现这个循环。
     Status create_next_reader(bool* eos);

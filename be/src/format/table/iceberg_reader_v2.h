@@ -74,7 +74,8 @@ public:
                         iceberg_params.last_updated_sequence_number;
             }
         }
-        return TableReader::prepare_split(options);
+        RETURN_IF_ERROR(TableReader::prepare_split(options));
+        return _collect_position_delete_rows(options.current_range.table_format_params);
     }
 
 protected:
@@ -161,7 +162,7 @@ protected:
         return Status::OK();
     }
 
-    Status _collect_position_delete_rows(const TTableFormatFileDesc& t_desc) override {
+    Status _collect_position_delete_rows(const TTableFormatFileDesc& t_desc) {
         if (!t_desc.__isset.iceberg_params || _delete_predicates_initialized) {
             _delete_predicates_initialized = true;
             return Status::OK();
