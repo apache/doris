@@ -23,13 +23,14 @@ should classify any inbound report.
   matching git tag).
 - **Reporting cross-reference**: per M1, security findings should be
   reported to **`security@apache.org`** (ASF security team will route
-  to Doris). A short `SECURITY.md` at the repo root will link to this
+  to Doris). A short `SECURITY.md` at the repo root links to this
   document as canonical scope (M16 (A)). Findings that fall under
   §4.3 / §4.9 / §4.11a will be closed with a citation to this
   document.
 - **Status**: v1.0 — technical model accepted. The four wave-4 (M15–M18)
-  meta/process answers are recorded below; physical artifacts
-  (`SECURITY.md`, model-version field policy text) are follow-up work.
+  meta/process answers are recorded below; the root `SECURITY.md`
+  coexistence artifact is complete, while model-version field policy
+  text remains follow-up work.
 - **Provenance legend**:
   - *(documented)* — stated in Doris' own README, code comments,
     `conf/*.conf`, or user docs
@@ -741,7 +742,6 @@ the body. Summary table:
 
 **Open follow-up items (not blocking v1.0 acceptance):**
 
-- Add `SECURITY.md` at repo root per M16. (Tracked separately.)
 - Add `model-version` field to top of this doc per M15. Currently
   bound to commit `1d1846591f7` / pre-3.x release. Update when
   cutting next release.
@@ -802,5 +802,5 @@ Not yet produced in v1.0. Optional follow-up.
 - [x] Document length: ~7 pages (within recommended 3–8). v0.1's
       §4.14 wave-3 collapsed into a 14-row summary table.
 
-**v1.0 status**: ACCEPTED for technical content; `SECURITY.md`
-follow-up artifact pending per M16.
+**v1.0 status**: ACCEPTED for technical content; root `SECURITY.md`
+coexistence artifact complete per M16.

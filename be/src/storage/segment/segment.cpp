@@ -811,8 +811,53 @@ Status Segment::new_index_iterator(const TabletColumn& tablet_column, const Tabl
         // after DorisCallOnce.call, _index_file_reader is guaranteed to be not nullptr
         const std::string rowset_id =
                 index_meta->index_type() == IndexType::ANN ? _rowset_id.to_string() : "";
-        RETURN_IF_ERROR(reader->new_index_iterator(_index_file_reader, index_meta, rowset_id,
-                                                   _segment_id, _num_rows, iter));
+        const bool need_binding_diagnostic = tablet_column.is_variant_type() ||
+                                             tablet_column.is_extracted_column() ||
+                                             !index_meta->get_index_suffix().empty();
+        bool index_file_exists = false;
+        Status probe_status;
+        if (need_binding_diagnostic) {
+            probe_status = _index_file_reader->init(config::inverted_index_read_buffer_size,
+                                                    &read_options.io_ctx);
+            if (probe_status.ok()) {
+                probe_status = _index_file_reader->index_file_exist(index_meta, &index_file_exists);
+            }
+            const auto diagnostic = fmt::format(
+                    "[VariantSearchBinding] phase=index_file_probe tablet_id={} rowset_id={} "
+                    "segment_id={} column={} logical_path={} index_id={} suffix={} exists={} "
+                    "status={}",
+                    read_options.tablet_id, _rowset_id.to_string(), _segment_id,
+                    tablet_column.name(),
+                    tablet_column.has_path_info() ? tablet_column.path_info_ptr()->get_path()
+                                                  : tablet_column.name(),
+                    index_meta->index_id(), index_meta->get_index_suffix(), index_file_exists,
+                    probe_status.ok() ? "OK" : probe_status.to_string());
+            VLOG_DEBUG << diagnostic;
+            if (read_options.stats != nullptr) {
+                read_options.stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
+            }
+        }
+        Status iter_status = reader->new_index_iterator(_index_file_reader, index_meta, rowset_id,
+                                                        _segment_id, _num_rows, iter);
+        if (!iter_status.ok()) {
+            if (need_binding_diagnostic) {
+                const auto diagnostic = fmt::format(
+                        "[VariantSearchBinding] phase=index_iterator_create result=reject "
+                        "tablet_id={} rowset_id={} segment_id={} column={} logical_path={} "
+                        "index_id={} suffix={} reason={}",
+                        read_options.tablet_id, _rowset_id.to_string(), _segment_id,
+                        tablet_column.name(),
+                        tablet_column.has_path_info() ? tablet_column.path_info_ptr()->get_path()
+                                                      : tablet_column.name(),
+                        index_meta->index_id(), index_meta->get_index_suffix(),
+                        iter_status.to_string());
+                VLOG_DEBUG << diagnostic;
+                if (read_options.stats != nullptr) {
+                    read_options.stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
+                }
+            }
+            return iter_status;
+        }
         return Status::OK();
     }
     return Status::OK();

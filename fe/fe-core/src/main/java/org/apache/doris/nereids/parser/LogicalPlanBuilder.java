@@ -5139,12 +5139,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitIsnull(IsnullContext context) {
-        return ParserUtils.withOrigin(context, () -> new IsNull(typedVisit(context.valueExpression())));
+        return ParserUtils.withOrigin(context, () -> new IsNull(typedVisit(context.expression())));
     }
 
     @Override
     public Expression visitIs_not_null_pred(Is_not_null_predContext context) {
-        return ParserUtils.withOrigin(context, () -> new Not(new IsNull(typedVisit(context.valueExpression()))));
+        return ParserUtils.withOrigin(context, () -> new Not(new IsNull(typedVisit(context.expression()))));
     }
 
     public List<Expression> withInList(PredicateContext ctx) {
@@ -8501,6 +8501,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             properties.put(AnalyzeProperties.PROPERTY_EXTERNAL_TABLE_USE_SQL, "true");
         } else if (ctx.HISTOGRAM() != null) {
             properties.put(AnalyzeProperties.PROPERTY_ANALYSIS_TYPE, AnalysisInfo.AnalysisType.HISTOGRAM.toString());
+        } else if (ctx.HOT() != null) {
+            properties.put(AnalyzeProperties.PROPERTY_COLLECT_HOT_VALUE, "true");
         } else if (ctx.SAMPLE() != null) {
             if (ctx.ROWS() != null) {
                 properties.put(AnalyzeProperties.PROPERTY_SAMPLE_ROWS, ctx.INTEGER_VALUE().getText());

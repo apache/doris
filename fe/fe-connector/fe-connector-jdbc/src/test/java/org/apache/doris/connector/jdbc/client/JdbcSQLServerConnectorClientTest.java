@@ -127,4 +127,11 @@ public class JdbcSQLServerConnectorClientTest {
         Assertions.assertEquals("STRING", ct.getTypeName(),
                 "SQL Server timestamp (rowversion) should map to STRING");
     }
+
+    @Test
+    void testUseWildcardSchemaPatternForDatabaseNameList() {
+        JdbcSQLServerConnectorClient client = createClient();
+
+        Assertions.assertEquals("%", client.getSchemaPatternForDatabaseNameList());
+    }
 }

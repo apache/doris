@@ -24,6 +24,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Frontend;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TGetQueryStatsRequest;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -171,8 +172,11 @@ public class QueryStatsUtil {
 
     private static List<TQueryStatsResult> getStats(TGetQueryStatsRequest request) {
         List<TQueryStatsResult> results = new ArrayList<>();
+        HostInfo selfHostInfo = Env.getCurrentEnv().getSelfNode();
         for (Frontend fe : Env.getCurrentEnv().getFrontends(null /* all */)) {
-            if (!fe.isAlive() || fe.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
+            if (!fe.isAlive()
+                    || (fe.getHost().equals(selfHostInfo.getHost())
+                        && fe.getEditLogPort() == selfHostInfo.getPort())) {
                 continue;
             }
             FrontendService.Client client = null;

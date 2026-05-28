@@ -85,11 +85,27 @@ suite("agg_4_phase") {
         from agg_4_phase_tbl2
         group by id
         order by id"""
+
+    sql "drop table if exists agg_4_phase_serial_exchange_tbl"
+    sql """
+        create table agg_4_phase_serial_exchange_tbl (
+            pk int,
+            x int,
+            y int
+        ) engine=olap
+        duplicate key(pk)
+        distributed by hash(pk) buckets 10
+        properties("replication_num"="1");
+    """
+    sql """
+        insert into agg_4_phase_serial_exchange_tbl
+        select number, number % 10, number from numbers("number" = "300");
+    """
     multi_sql """
 set runtime_filter_type= "BLOOM_FILTER,MIN_MAX";
 set enable_runtime_filter_prune= "false";
 set exchange_multi_blocks_byte_size= "4722978";
-set parallel_pipeline_task_num= "3";
+set parallel_pipeline_task_num= "4";
 set experimental_parallel_scan_min_rows_per_scanner= "256";
 set enable_strong_consistency_read= "true";
 set runtime_filter_wait_infinitely= "true";
@@ -97,6 +113,7 @@ set enable_share_hash_table_for_broadcast_join= "false";
 set experimental_parallel_scan_max_scanners_count= "8";
 set disable_streaming_preaggregations= "true";
 set experimental_use_serial_exchange= "true";
+set enable_local_exchange_before_agg= "false";
     """
         qt_phase4_multi_distinct """
         select
@@ -108,4 +125,10 @@ set experimental_use_serial_exchange= "true";
         from agg_4_phase_tbl2
         group by id
         order by id"""
+
+    qt_serial_exchange_distinct_sum """
+        select
+            sum(distinct x),
+            sum(y)
+        from agg_4_phase_serial_exchange_tbl"""
 }

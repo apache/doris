@@ -509,7 +509,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, Block* block, bool eos) 
                     } else {
                         cur_block.clear_column_data();
                         local_state._serializer.get_block()->set_mutable_columns(
-                                cur_block.mutate_columns());
+                                std::move(cur_block).mutate_columns());
                     }
                 }
             }

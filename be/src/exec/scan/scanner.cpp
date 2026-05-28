@@ -87,39 +87,36 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().vscanner_get_block);
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
-        if (_alreay_eos) {
-            *eos = true;
-            _padding_block.swap(_origin_block);
-        } else {
-            _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
-            const auto min_batch_size = std::max(state->batch_size() / 2, 1);
-            const auto block_max_bytes = state->preferred_block_size_bytes();
-            while (_padding_block.rows() < min_batch_size &&
-                   _padding_block.bytes() < block_max_bytes && !*eos) {
-                RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
-                if (_origin_block.rows() >= min_batch_size) {
-                    break;
-                }
+        _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+        const auto min_batch_size = std::max(state->batch_size() / 2, 1);
+        const auto block_max_bytes = state->preferred_block_size_bytes();
+        while (_padding_block.rows() < min_batch_size && _padding_block.bytes() < block_max_bytes &&
+               !*eos) {
+            RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
+            if (*eos) {
+                // For the final block, merge any padding directly and return eos in this call.
+                // The merged tail can be larger than the target batch, but each source block is
+                // already bounded by the lower scanner.
+                RETURN_IF_ERROR(_merge_padding_block());
+                _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+                break;
+            }
+            if (_origin_block.rows() >= min_batch_size) {
+                break;
+            }
 
-                if (_origin_block.rows() + _padding_block.rows() <= state->batch_size() &&
-                    _origin_block.bytes() + _padding_block.bytes() <= block_max_bytes) {
-                    RETURN_IF_ERROR(_merge_padding_block());
-                    _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
-                } else {
-                    if (_origin_block.rows() < _padding_block.rows()) {
-                        _padding_block.swap(_origin_block);
-                    }
-                    break;
+            if (_origin_block.rows() + _padding_block.rows() <= state->batch_size() &&
+                _origin_block.bytes() + _padding_block.bytes() <= block_max_bytes) {
+                RETURN_IF_ERROR(_merge_padding_block());
+                _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+            } else {
+                if (_origin_block.rows() < _padding_block.rows()) {
+                    _padding_block.swap(_origin_block);
                 }
+                break;
             }
         }
 
-        // first output the origin block change eos = false, next time output padding block
-        // set the eos to true
-        if (*eos && !_padding_block.empty() && !_origin_block.empty()) {
-            _alreay_eos = true;
-            *eos = false;
-        }
         if (_origin_block.empty() && !_padding_block.empty()) {
             _padding_block.swap(_origin_block);
         }
@@ -225,8 +222,9 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
     }
 
     DCHECK_EQ(rows, input_block.rows());
-    MutableBlock mutable_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
+    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+            output_block, *_output_row_descriptor);
+    auto& mutable_block = scoped_mutable_block.mutable_block();
 
     auto& mutable_columns = mutable_block.mutable_columns();
 
@@ -239,10 +237,10 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
         if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
         }
-        mutable_columns[i] = column_ptr->assume_mutable();
+        mutable_columns[i] = IColumn::mutate(std::move(column_ptr));
     }
 
-    output_block->set_columns(std::move(mutable_columns));
+    scoped_mutable_block.restore();
 
     // origin columns was moved into output_block, so we need to set origin_block to empty columns
     auto empty_columns = origin_block->clone_empty_columns();

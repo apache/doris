@@ -106,6 +106,14 @@ protected:
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
+    Status add_block_with_columns(RowsetWriter* rowset_writer, Block* block,
+                                  MutableColumns* columns) {
+        block->set_columns(std::move(*columns));
+        auto st = rowset_writer->add_block(block);
+        *columns = std::move(*block).mutate_columns();
+        return st;
+    }
+
     TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS, bool without_key = false) {
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
         TabletSchemaPB tablet_schema_pb;
@@ -241,7 +249,7 @@ protected:
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rowset_data[i].size(); ++rid) {
                 int32_t c1 = std::get<0>(rowset_data[i][rid]);
                 int32_t c2 = std::get<1>(rowset_data[i][rid]);
@@ -254,7 +262,7 @@ protected:
                 }
                 num_rows++;
             }
-            auto s = rowset_writer->add_block(&block);
+            auto s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_TRUE(s.ok());
@@ -1202,7 +1210,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMergeWithNullableSparseColum
 
         // Create block with nullable c2 column
         Block block = tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         for (int rid = 0; rid < rows_per_segment; ++rid) {
             int32_t c1 = i * rows_per_segment + rid;
@@ -1222,7 +1230,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMergeWithNullableSparseColum
             columns[2]->insert_data((const char*)&delete_sign, sizeof(delete_sign));
         }
 
-        auto s = rowset_writer->add_block(&block);
+        auto s = add_block_with_columns(rowset_writer.get(), &block, &columns);
         ASSERT_TRUE(s.ok()) << s;
         s = rowset_writer->flush();
         ASSERT_TRUE(s.ok()) << s;
@@ -1381,13 +1389,13 @@ TEST_F(VerticalCompactionTest, TestFooterRawDataBytesAccuracy) {
     auto rowset_writer = std::move(res).value();
 
     Block block = tablet_schema->create_block();
-    auto columns = block.mutate_columns();
+    auto columns = std::move(block).mutate_columns();
     for (int i = 0; i < kNumRows; i++) {
         int32_t int_val = i;
         columns[0]->insert_data(reinterpret_cast<const char*>(&int_val), sizeof(int_val));
         columns[1]->insert_data(fixed_string.data(), fixed_string.size());
     }
-    ASSERT_TRUE(rowset_writer->add_block(&block).ok());
+    ASSERT_TRUE(add_block_with_columns(rowset_writer.get(), &block, &columns).ok());
     ASSERT_TRUE(rowset_writer->flush().ok());
 
     RowsetSharedPtr rowset;
@@ -1477,7 +1485,7 @@ TEST_F(VerticalCompactionTest, TestFooterRawDataBytesNullableSparse) {
     auto rowset_writer = std::move(res).value();
 
     Block block = tablet_schema->create_block();
-    auto columns = block.mutate_columns();
+    auto columns = std::move(block).mutate_columns();
     for (int i = 0; i < kNumRows; i++) {
         int32_t key_val = i;
         columns[0]->insert_data(reinterpret_cast<const char*>(&key_val), sizeof(key_val));
@@ -1488,7 +1496,7 @@ TEST_F(VerticalCompactionTest, TestFooterRawDataBytesNullableSparse) {
             columns[1]->insert_default(); // ColumnNullable default is null
         }
     }
-    ASSERT_TRUE(rowset_writer->add_block(&block).ok());
+    ASSERT_TRUE(add_block_with_columns(rowset_writer.get(), &block, &columns).ok());
     ASSERT_TRUE(rowset_writer->flush().ok());
 
     RowsetSharedPtr rowset;

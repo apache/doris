@@ -224,4 +224,56 @@ public class DataSourceConfigValidatorTest {
             DataSourceConfigValidator.validateSource(props, DataSourceType.POSTGRES.name());
         }
     }
+
+    @Test
+    public void testSnapshotSplitSizeAcceptsPositiveInteger() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://host/db");
+        props.put(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE, "8192");
+        DataSourceConfigValidator.validateSource(props, DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testSnapshotSplitSizeRejectsNonNumeric() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://host/db");
+        props.put(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE, "abc");
+        assertReject(props);
+    }
+
+    @Test
+    public void testSnapshotSplitSizeRejectsZeroAndNegative() {
+        for (String v : new String[]{"0", "-1"}) {
+            Map<String, String> props = new HashMap<>();
+            props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://host/db");
+            props.put(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE, v);
+            assertReject(props);
+        }
+    }
+
+    @Test
+    public void testSnapshotParallelismAcceptsPositiveInteger() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://host/db");
+        props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "4");
+        DataSourceConfigValidator.validateSource(props, DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testSnapshotParallelismRejectsNonNumeric() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://host/db");
+        props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "abc");
+        assertReject(props);
+    }
+
+    @Test
+    public void testSnapshotParallelismRejectsZeroAndNegative() {
+        for (String v : new String[]{"0", "-2"}) {
+            Map<String, String> props = new HashMap<>();
+            props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://host/db");
+            props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, v);
+            assertReject(props);
+        }
+    }
 }

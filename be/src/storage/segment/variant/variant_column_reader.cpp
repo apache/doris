@@ -17,6 +17,7 @@
 
 #include "storage/segment/variant/variant_column_reader.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <algorithm>
@@ -28,6 +29,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column_array.h"
@@ -41,6 +43,7 @@
 #include "io/fs/file_reader.h"
 #include "runtime/descriptors.h"
 #include "storage/key_coder.h"
+#include "storage/olap_common.h"
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
@@ -63,6 +66,14 @@ namespace {
 bool is_compaction_or_checksum_reader(const StorageReadOptions* opts) {
     return opts != nullptr && (ColumnReader::is_compaction_reader_type(opts->io_ctx.reader_type) ||
                                opts->io_ctx.reader_type == ReaderType::READER_CHECKSUM);
+}
+
+void add_variant_search_binding_diagnostic(OlapReaderStatistics* stats,
+                                           const std::string& diagnostic) {
+    VLOG_DEBUG << diagnostic;
+    if (stats != nullptr) {
+        stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
+    }
 }
 
 // Nested-group whole/root-merge iterators dereference NestedGroupReader state that is owned by
@@ -1416,11 +1427,14 @@ Status VariantColumnReader::load_external_meta_once() {
 }
 
 TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletColumn& column,
-                                                                 const DataTypePtr& data_type) {
+                                                                 const DataTypePtr& data_type,
+                                                                 OlapReaderStatistics* stats) {
     TabletSchema::SubColumnInfo sub_column_info;
     const auto& parent_index = _tablet_schema->inverted_indexs(column.parent_unique_id());
     auto relative_path = column.path_info_ptr()->copy_pop_front();
     DataTypePtr index_data_type = data_type;
+    const std::string logical_path = column.path_info_ptr()->get_path();
+    const std::string relative_path_str = relative_path.get_path();
 
     if (!relative_path.empty()) {
         auto [found, group_chain, child_path] =
@@ -1441,6 +1455,16 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletCol
     if (variant_util::generate_sub_column_info(*_tablet_schema, column.parent_unique_id(),
                                                relative_path.get_path(), &sub_column_info) &&
         !sub_column_info.indexes.empty()) {
+        for (const auto& index : sub_column_info.indexes) {
+            add_variant_search_binding_diagnostic(
+                    stats,
+                    fmt::format("[VariantSearchBinding] phase=subcolumn_index_candidates "
+                                "source=direct logical_path={} relative_path={} "
+                                "materialized_column={} index_id={} suffix={} field_pattern={} "
+                                "reason=generated_subcolumn_info",
+                                logical_path, relative_path_str, column.name(), index->index_id(),
+                                index->get_index_suffix(), index->field_pattern()));
+        }
         return sub_column_info.indexes;
     }
 
@@ -1456,6 +1480,31 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletCol
                                                   .parent_unique_id = column.parent_unique_id(),
                                                   .path_info = index_path});
         variant_util::inherit_index(parent_index, sub_column_info.indexes, target_column);
+        for (const auto& index : sub_column_info.indexes) {
+            add_variant_search_binding_diagnostic(
+                    stats,
+                    fmt::format("[VariantSearchBinding] phase=subcolumn_index_candidates "
+                                "source=parent_inherited logical_path={} relative_path={} "
+                                "materialized_column={} index_id={} suffix={} field_pattern={} "
+                                "reason=no_direct_subcolumn_index",
+                                logical_path, relative_path_str, column.name(), index->index_id(),
+                                index->get_index_suffix(), index->field_pattern()));
+        }
+    } else if (parent_index.empty()) {
+        add_variant_search_binding_diagnostic(
+                stats,
+                fmt::format("[VariantSearchBinding] phase=subcolumn_index_candidates "
+                            "source=none logical_path={} relative_path={} materialized_column={} "
+                            "reason=parent_index_missing",
+                            logical_path, relative_path_str, column.name()));
+    } else {
+        add_variant_search_binding_diagnostic(
+                stats,
+                fmt::format("[VariantSearchBinding] phase=subcolumn_index_candidates "
+                            "source=none logical_path={} relative_path={} materialized_column={} "
+                            "data_type={} reason=unsupported_inherited_index_type",
+                            logical_path, relative_path_str, column.name(),
+                            index_data_type ? index_data_type->get_name() : "null"));
     }
     // Return shared_ptr directly to maintain object lifetime
     return sub_column_info.indexes;
@@ -1518,7 +1567,7 @@ Status VariantRootColumnIterator::_process_root_column(MutableColumnPtr& dst,
     auto tmp = ColumnVariant::create(0, obj.enable_doc_mode(), root_column->size());
     auto& tmp_obj = *tmp;
     tmp_obj.add_sub_column({}, std::move(root_column), most_common_type);
-    // tmp_obj.get_sparse_column()->assume_mutable()->insert_many_defaults(root_column->size());
+    // tmp_obj.get_sparse_column()->assert_mutable()->insert_many_defaults(root_column->size());
 
     // merge tmp object column to dst
     obj.insert_range_from(*tmp, 0, tmp_obj.rows());
@@ -1587,8 +1636,9 @@ static void fill_nested_with_defaults(MutableColumnPtr& dst, MutableColumnPtr& s
     }
     auto new_nested =
             dst_array->get_data_ptr()->clone_resized(sibling_array->get_data_ptr()->size());
-    auto new_array = make_nullable(ColumnArray::create(
-            new_nested->assume_mutable(), sibling_array->get_offsets_ptr()->assume_mutable()));
+    ColumnPtr nested_column = std::move(new_nested);
+    auto new_array =
+            make_nullable(ColumnArray::create(nested_column, sibling_array->get_offsets_ptr()));
     dst->insert_range_from(*new_array, 0, new_array->size());
 #ifndef NDEBUG
     if (!dst_array->has_equal_offsets(*sibling_array)) {

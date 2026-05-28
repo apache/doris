@@ -20,12 +20,12 @@
 
 #include "exec/runtime_filter/runtime_filter_selectivity.h"
 #include "exec/runtime_filter/runtime_filter_test_utils.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vexpr_context.h"
-#include "exprs/vruntimefilter_wrapper.h"
 
 namespace doris {
 
-// Minimal VExpr implementation for testing VRuntimeFilterWrapper in isolation.
+// Minimal VExpr implementation for testing RuntimeFilterExpr in isolation.
 class StubVExpr : public VExpr {
 public:
     StubVExpr() : VExpr(make_texpr_node()) {}
@@ -61,13 +61,13 @@ private:
     }
 };
 
-class VRuntimeFilterWrapperSamplingTest : public RuntimeFilterTest {};
+class RuntimeFilterExprSamplingTest : public RuntimeFilterTest {};
 
-// Test that VRuntimeFilterWrapper stores and propagates sampling_frequency
+// Test that RuntimeFilterExpr stores and propagates sampling_frequency
 // through open() to VExprContext. This is the core fix for the bug where
 // sampling_frequency was lost when _append_rf_into_conjuncts creates a new
 // VExprContext via VExprContext::create_shared(expr).
-TEST_F(VRuntimeFilterWrapperSamplingTest, open_propagates_sampling_frequency) {
+TEST_F(RuntimeFilterExprSamplingTest, open_propagates_sampling_frequency) {
     auto stub = std::make_shared<StubVExpr>();
     auto node = TExprNodeBuilder(TExprNodeType::SLOT_REF,
                                  TTypeDescBuilder()
@@ -80,8 +80,8 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, open_propagates_sampling_frequency) {
                         .build();
 
     const int expected_frequency = 32;
-    auto wrapper = VRuntimeFilterWrapper::create_shared(node, stub, 0.4, false, /*filter_id=*/1,
-                                                        expected_frequency);
+    auto wrapper = RuntimeFilterExpr::create_shared(node, stub, 0.4, false, /*filter_id=*/1,
+                                                    expected_frequency);
 
     // Simulate the VExprContext recreation that happens in _append_rf_into_conjuncts.
     // A fresh VExprContext has default sampling_frequency = DISABLE_SAMPLING (-1).
@@ -94,7 +94,7 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, open_propagates_sampling_frequency) {
             wrapper->open(_runtime_states[0].get(), context.get(), FunctionContext::FRAGMENT_LOCAL)
                     .ok());
 
-    // After open(), sampling_frequency should be propagated from VRuntimeFilterWrapper
+    // After open(), sampling_frequency should be propagated from RuntimeFilterExpr
     // to VExprContext. Verify by accumulating low-selectivity data and checking
     // that always_true can now be detected.
     auto& selectivity = context->get_runtime_filter_selectivity();
@@ -104,7 +104,7 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, open_propagates_sampling_frequency) {
 
 // Test that default sampling_frequency (DISABLE_SAMPLING) disables the always_true
 // optimization, matching the behavior when disable_always_true_logic is set.
-TEST_F(VRuntimeFilterWrapperSamplingTest, default_sampling_frequency_disables_optimization) {
+TEST_F(RuntimeFilterExprSamplingTest, default_sampling_frequency_disables_optimization) {
     auto stub = std::make_shared<StubVExpr>();
     auto node = TExprNodeBuilder(TExprNodeType::SLOT_REF,
                                  TTypeDescBuilder()
@@ -117,7 +117,7 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, default_sampling_frequency_disables_op
                         .build();
 
     // No sampling_frequency argument - uses default DISABLE_SAMPLING
-    auto wrapper = VRuntimeFilterWrapper::create_shared(node, stub, 0.4, false, /*filter_id=*/1);
+    auto wrapper = RuntimeFilterExpr::create_shared(node, stub, 0.4, false, /*filter_id=*/1);
 
     auto context = std::make_shared<VExprContext>(wrapper);
     RowDescriptor row_desc;
@@ -135,7 +135,7 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, default_sampling_frequency_disables_op
 
 // Test that sampling_frequency survives VExprContext recreation, which is the
 // exact scenario that caused the original bug.
-TEST_F(VRuntimeFilterWrapperSamplingTest, sampling_frequency_survives_context_recreation) {
+TEST_F(RuntimeFilterExprSamplingTest, sampling_frequency_survives_context_recreation) {
     auto stub = std::make_shared<StubVExpr>();
     auto node = TExprNodeBuilder(TExprNodeType::SLOT_REF,
                                  TTypeDescBuilder()
@@ -148,8 +148,8 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, sampling_frequency_survives_context_re
                         .build();
 
     const int expected_frequency = 32;
-    auto wrapper = VRuntimeFilterWrapper::create_shared(node, stub, 0.4, false, /*filter_id=*/1,
-                                                        expected_frequency);
+    auto wrapper = RuntimeFilterExpr::create_shared(node, stub, 0.4, false, /*filter_id=*/1,
+                                                    expected_frequency);
 
     // First context - prepare and open work
     auto context1 = std::make_shared<VExprContext>(wrapper);
@@ -159,7 +159,7 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, sampling_frequency_survives_context_re
             wrapper->open(_runtime_states[0].get(), context1.get(), FunctionContext::FRAGMENT_LOCAL)
                     .ok());
 
-    // Create a brand new non-clone VExprContext with the same VRuntimeFilterWrapper,
+    // Create a brand new non-clone VExprContext with the same RuntimeFilterExpr,
     // matching the production path in _append_rf_into_conjuncts which calls
     // VExprContext::create_shared(expr) then conjunct->prepare() and conjunct->open().
     auto context2 = std::make_shared<VExprContext>(wrapper);
@@ -170,7 +170,7 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, sampling_frequency_survives_context_re
     ASSERT_TRUE(context2->prepare(_runtime_states[0].get(), row_desc).ok());
     ASSERT_TRUE(context2->open(_runtime_states[0].get()).ok());
 
-    // After open(), sampling_frequency should be propagated from VRuntimeFilterWrapper
+    // After open(), sampling_frequency should be propagated from RuntimeFilterExpr
     // to context2. Verify by accumulating low-selectivity data and checking that
     // always_true can be detected — this is the actual behavior the fix protects.
     auto& selectivity = context2->get_runtime_filter_selectivity();

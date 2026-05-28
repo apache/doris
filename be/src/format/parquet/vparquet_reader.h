@@ -187,7 +187,8 @@ public:
         if (col_pos < 0) {
             return Status::InternalError("Column {} not found in block", col_name);
         }
-        auto col = block->get_by_position(col_pos).column->assume_mutable();
+        auto column_guard = block->mutate_column_scoped(col_pos);
+        auto& col = column_guard.mutable_column();
         const auto& row_ids = this->current_batch_row_positions();
         RETURN_IF_ERROR(
                 _row_id_column_iterator->read_by_rowids(row_ids.data(), row_ids.size(), col));
