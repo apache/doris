@@ -323,10 +323,6 @@ ParquetTypeDescriptor resolve_parquet_type(const ::parquet::ColumnDescriptor* co
             !result.is_decimal && (result.physical_type == ::parquet::Type::BYTE_ARRAY ||
                                    result.physical_type == ::parquet::Type::FIXED_LEN_BYTE_ARRAY);
 
-    if (column->max_repetition_level() != 0 || column->max_definition_level() > 1) {
-        result.supports_record_reader = false;
-        return result;
-    }
     if (!record_reader_physical_type_supported(result.physical_type)) {
         result.supports_record_reader = false;
         return result;

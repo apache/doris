@@ -29,12 +29,14 @@
 #include <vector>
 
 #include "core/assert_cast.h"
+#include "core/column/column_array.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/types.h"
@@ -140,6 +142,21 @@ protected:
             EXPECT_TRUE(builder.Append().ok());
             EXPECT_TRUE(a_builder->Append(a_values[row]).ok());
             EXPECT_TRUE(b_builder->Append(b_values[row]).ok());
+        }
+        return finish_array(&builder);
+    }
+
+    std::shared_ptr<arrow::Array> build_required_int_list_array() {
+        auto value_builder = std::make_shared<arrow::Int32Builder>();
+        arrow::ListBuilder builder(arrow::default_memory_pool(), value_builder);
+        const std::vector<std::vector<int32_t>> values = {
+                {1, 2}, {3}, {4, 5, 6}, {7}, {8, 9},
+        };
+        for (const auto& row : values) {
+            EXPECT_TRUE(builder.Append().ok());
+            for (const auto value : row) {
+                EXPECT_TRUE(value_builder->Append(value).ok());
+            }
         }
         return finish_array(&builder);
     }
@@ -364,6 +381,28 @@ protected:
                       EXPECT_EQ(a_values.get_element(4), 105);
                       EXPECT_EQ(b_values.get_data_at(1).to_string(), "sb");
                       EXPECT_EQ(b_values.get_data_at(4).to_string(), "se");
+                  });
+        add_field(arrow::field("list_int_col",
+                               arrow::list(arrow::field("element", arrow::int32(), false)), false),
+                  build_required_int_list_array(),
+                  [](const ParquetColumnSchema& schema, const IColumn& column) {
+                      EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(), TYPE_ARRAY);
+                      const auto* array_type =
+                              assert_cast<const DataTypeArray*>(remove_nullable(schema.type).get());
+                      EXPECT_EQ(
+                              remove_nullable(array_type->get_nested_type())->get_primitive_type(),
+                              TYPE_INT);
+                      const auto& array_column = assert_cast<const ColumnArray&>(column);
+                      ASSERT_EQ(array_column.size(), ROW_COUNT);
+                      EXPECT_EQ(array_column.size_at(0), 2);
+                      EXPECT_EQ(array_column.size_at(1), 1);
+                      EXPECT_EQ(array_column.size_at(2), 3);
+                      EXPECT_EQ(array_column.size_at(4), 2);
+                      const auto& values = assert_cast<const ColumnInt32&>(array_column.get_data());
+                      ASSERT_EQ(values.size(), 9);
+                      EXPECT_EQ(values.get_element(0), 1);
+                      EXPECT_EQ(values.get_element(5), 6);
+                      EXPECT_EQ(values.get_element(8), 9);
                   });
 
         auto schema = arrow::schema(_arrow_fields);
