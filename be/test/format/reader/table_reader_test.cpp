@@ -235,6 +235,19 @@ Block build_table_block(const std::vector<TableColumn>& columns) {
     return block;
 }
 
+void expect_nullable_int64_column_values(const IColumn& column,
+                                         const std::vector<int64_t>& expected_values) {
+    const auto full_column = column.convert_to_full_column_if_const();
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*full_column);
+    const auto& values =
+            assert_cast<const ColumnInt64&>(nullable_column.get_nested_column()).get_data();
+    ASSERT_EQ(nullable_column.size(), expected_values.size());
+    for (size_t row = 0; row < expected_values.size(); ++row) {
+        EXPECT_EQ(nullable_column.get_null_map_data()[row], 0);
+        EXPECT_EQ(values[row], expected_values[row]);
+    }
+}
+
 SplitReadOptions build_split_options(const std::string& file_path) {
     SplitReadOptions options;
     options.current_range.__set_path(file_path);
@@ -793,25 +806,18 @@ TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
 
     const auto& row_id_nullable =
             assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
-    const auto& sequence_nullable =
-            assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(2).column);
     const auto& row_ids =
             assert_cast<const ColumnInt64&>(row_id_nullable.get_nested_column()).get_data();
-    const auto& sequences =
-            assert_cast<const ColumnInt64&>(sequence_nullable.get_nested_column()).get_data();
 
     ASSERT_EQ(block.rows(), 2);
     EXPECT_EQ(id_column.get_element(0), 2);
     EXPECT_EQ(id_column.get_element(1), 3);
     EXPECT_EQ(row_id_nullable.get_null_map_data()[0], 0);
     EXPECT_EQ(row_id_nullable.get_null_map_data()[1], 0);
-    EXPECT_EQ(sequence_nullable.get_null_map_data()[0], 0);
-    EXPECT_EQ(sequence_nullable.get_null_map_data()[1], 0);
     EXPECT_EQ(row_ids[0], 1001);
     EXPECT_EQ(row_ids[1], 1002);
-    EXPECT_EQ(sequences[0], 77);
-    EXPECT_EQ(sequences[1], 77);
+    expect_nullable_int64_column_values(*block.get_by_position(1).column, {77, 77});
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
@@ -866,25 +872,18 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFiltering)
 
     const auto& row_id_nullable =
             assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
-    const auto& sequence_nullable =
-            assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(2).column);
     const auto& row_ids =
             assert_cast<const ColumnInt64&>(row_id_nullable.get_nested_column()).get_data();
-    const auto& sequences =
-            assert_cast<const ColumnInt64&>(sequence_nullable.get_nested_column()).get_data();
 
     ASSERT_EQ(block.rows(), 2);
     EXPECT_EQ(id_column.get_element(0), 2);
     EXPECT_EQ(id_column.get_element(1), 3);
     EXPECT_EQ(row_id_nullable.get_null_map_data()[0], 0);
     EXPECT_EQ(row_id_nullable.get_null_map_data()[1], 0);
-    EXPECT_EQ(sequence_nullable.get_null_map_data()[0], 0);
-    EXPECT_EQ(sequence_nullable.get_null_map_data()[1], 0);
     EXPECT_EQ(row_ids[0], 3001);
     EXPECT_EQ(row_ids[1], 3002);
-    EXPECT_EQ(sequences[0], 88);
-    EXPECT_EQ(sequences[1], 88);
+    expect_nullable_int64_column_values(*block.get_by_position(1).column, {88, 88});
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
@@ -945,20 +944,15 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredicateP
 
     const auto& row_id_nullable =
             assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
-    const auto& sequence_nullable =
-            assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(2).column);
     const auto& row_ids =
             assert_cast<const ColumnInt64&>(row_id_nullable.get_nested_column()).get_data();
-    const auto& sequences =
-            assert_cast<const ColumnInt64&>(sequence_nullable.get_nested_column()).get_data();
 
     ASSERT_EQ(block.rows(), 1);
     EXPECT_EQ(id_column.get_element(0), 3);
     EXPECT_EQ(row_id_nullable.get_null_map_data()[0], 0);
-    EXPECT_EQ(sequence_nullable.get_null_map_data()[0], 0);
     EXPECT_EQ(row_ids[0], 4002);
-    EXPECT_EQ(sequences[0], 99);
+    expect_nullable_int64_column_values(*block.get_by_position(1).column, {99});
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
