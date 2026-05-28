@@ -148,6 +148,33 @@ protected:
         return finish_array(&builder);
     }
 
+    std::shared_ptr<arrow::Array> build_nullable_struct_array() {
+        auto struct_type = arrow::struct_(
+                {arrow::field("a", arrow::int32(), false), arrow::field("b", arrow::utf8(), true)});
+        std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders;
+        auto a_array_builder = std::make_unique<arrow::Int32Builder>();
+        field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(a_array_builder)));
+        auto b_array_builder = std::make_unique<arrow::StringBuilder>();
+        field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(b_array_builder)));
+        arrow::StructBuilder builder(struct_type, arrow::default_memory_pool(),
+                                     std::move(field_builders));
+        auto* a_builder = assert_cast<arrow::Int32Builder*>(builder.field_builder(0));
+        auto* b_builder = assert_cast<arrow::StringBuilder*>(builder.field_builder(1));
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(a_builder->Append(201).ok());
+        EXPECT_TRUE(b_builder->Append("nsa").ok());
+        EXPECT_TRUE(builder.AppendNull().ok());
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(a_builder->Append(203).ok());
+        EXPECT_TRUE(b_builder->AppendNull().ok());
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(a_builder->Append(204).ok());
+        EXPECT_TRUE(b_builder->Append("nsd").ok());
+        EXPECT_TRUE(builder.AppendNull().ok());
+        return finish_array(&builder);
+    }
+
     std::shared_ptr<arrow::Array> build_required_int_list_array() {
         auto value_builder = std::make_shared<arrow::Int32Builder>();
         arrow::ListBuilder builder(arrow::default_memory_pool(), value_builder);
@@ -480,6 +507,41 @@ protected:
                       EXPECT_EQ(b_values.get_data_at(1).to_string(), "sb");
                       EXPECT_EQ(b_values.get_data_at(4).to_string(), "se");
                   });
+        add_field(arrow::field("nullable_struct_col",
+                               arrow::struct_({
+                                       arrow::field("a", arrow::int32(), false),
+                                       arrow::field("b", arrow::utf8(), true),
+                               }),
+                               true),
+                  build_nullable_struct_array(),
+                  [](const ParquetColumnSchema& schema, const IColumn& column) {
+                      EXPECT_TRUE(schema.type->is_nullable());
+                      const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+                      ASSERT_EQ(nullable_column.size(), ROW_COUNT);
+                      EXPECT_FALSE(nullable_column.is_null_at(0));
+                      EXPECT_TRUE(nullable_column.is_null_at(1));
+                      EXPECT_FALSE(nullable_column.is_null_at(2));
+                      EXPECT_FALSE(nullable_column.is_null_at(3));
+                      EXPECT_TRUE(nullable_column.is_null_at(4));
+
+                      const auto& struct_column =
+                              assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
+                      ASSERT_EQ(struct_column.get_columns().size(), 2);
+                      const auto& a_values =
+                              assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+                      const auto& b_values =
+                              assert_cast<const ColumnNullable&>(struct_column.get_column(1));
+                      const auto& b_nested =
+                              assert_cast<const ColumnString&>(b_values.get_nested_column());
+                      EXPECT_EQ(a_values.get_element(0), 201);
+                      EXPECT_EQ(a_values.get_element(2), 203);
+                      EXPECT_EQ(a_values.get_element(3), 204);
+                      EXPECT_FALSE(b_values.is_null_at(0));
+                      EXPECT_TRUE(b_values.is_null_at(2));
+                      EXPECT_FALSE(b_values.is_null_at(3));
+                      EXPECT_EQ(b_nested.get_data_at(0).to_string(), "nsa");
+                      EXPECT_EQ(b_nested.get_data_at(3).to_string(), "nsd");
+                  });
         add_field(arrow::field("list_int_col",
                                arrow::list(arrow::field("element", arrow::int32(), false)), false),
                   build_required_int_list_array(),
@@ -717,6 +779,7 @@ TEST_F(ParquetColumnReaderTest, ReadAllSupportedPhysicalAndLogicalTypes) {
 
 TEST_F(ParquetColumnReaderTest, ReadSupportedComplexTypes) {
     read_and_validate(find_field_idx("struct_col"));
+    read_and_validate(find_field_idx("nullable_struct_col"));
     read_and_validate(find_field_idx("list_int_col"));
     read_and_validate(find_field_idx("nullable_list_int_col"));
     read_and_validate(find_field_idx("required_nullable_list_int_col"));
@@ -796,6 +859,56 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedStructChildren) {
     const auto& values = assert_cast<const ColumnString&>(struct_column.get_column(0));
     EXPECT_EQ(values.get_data_at(0).to_string(), "sa");
     EXPECT_EQ(values.get_data_at(4).to_string(), "se");
+}
+
+TEST_F(ParquetColumnReaderTest, ReadProjectedNullableStructChildren) {
+    const auto field_idx = find_field_idx("nullable_struct_col");
+    ASSERT_LT(field_idx, _fields.size());
+    const auto& struct_schema = *_fields[field_idx];
+    ASSERT_EQ(struct_schema.name, "nullable_struct_col");
+    ASSERT_EQ(struct_schema.children.size(), 2);
+
+    reader::FieldProjection projection;
+    projection.file_column_id = struct_schema.top_level_field_id;
+    projection.file_path = struct_schema.file_path;
+    projection.project_all_children = false;
+    reader::FieldProjection child_projection;
+    child_projection.file_column_id = struct_schema.top_level_field_id;
+    child_projection.file_path = struct_schema.children[1]->file_path;
+    projection.children.push_back(std::move(child_projection));
+
+    ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
+    std::unique_ptr<ParquetColumnReader> reader;
+    auto st = factory.create(struct_schema, &projection, &reader);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_TRUE(reader->type()->is_nullable());
+    ASSERT_EQ(remove_nullable(reader->type())->get_primitive_type(), TYPE_STRUCT);
+    const auto* projected_type =
+            assert_cast<const DataTypeStruct*>(remove_nullable(reader->type()).get());
+    ASSERT_EQ(projected_type->get_elements().size(), 1);
+    EXPECT_EQ(projected_type->get_element_name(0), "b");
+
+    MutableColumnPtr column = reader->type()->create_column();
+    int64_t rows_read = 0;
+    st = reader->read(ROW_COUNT, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, ROW_COUNT);
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    EXPECT_FALSE(nullable_column.is_null_at(0));
+    EXPECT_TRUE(nullable_column.is_null_at(1));
+    EXPECT_FALSE(nullable_column.is_null_at(2));
+    EXPECT_FALSE(nullable_column.is_null_at(3));
+    EXPECT_TRUE(nullable_column.is_null_at(4));
+    const auto& struct_column =
+            assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
+    ASSERT_EQ(struct_column.get_columns().size(), 1);
+    const auto& values = assert_cast<const ColumnNullable&>(struct_column.get_column(0));
+    const auto& nested_values = assert_cast<const ColumnString&>(values.get_nested_column());
+    EXPECT_FALSE(values.is_null_at(0));
+    EXPECT_TRUE(values.is_null_at(2));
+    EXPECT_FALSE(values.is_null_at(3));
+    EXPECT_EQ(nested_values.get_data_at(0).to_string(), "nsa");
+    EXPECT_EQ(nested_values.get_data_at(3).to_string(), "nsd");
 }
 
 TEST_F(ParquetColumnReaderTest, ReadListWithOverflowAcrossChunks) {
