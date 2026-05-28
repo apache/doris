@@ -17,7 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.task.PublishVersionTask;
 
@@ -101,7 +100,7 @@ public class CheckReplicaContinuousVersionSuccTest {
     @Test
     public void testNoNpeWhenSuccTabletsIsNull() throws Exception {
         PublishVersionTask task = newFinishedTaskWithNullSuccTablets();
-        Replica replica = new LocalReplica(REPLICA_ID, BACKEND_ID, /*version*/100L, /*schemaHash*/0,
+        Replica replica = new Replica(REPLICA_ID, BACKEND_ID, /*version*/100L, /*schemaHash*/0,
                 /*dataSize*/0L, /*remoteDataSize*/0L, /*rowCount*/0L,
                 Replica.ReplicaState.NORMAL, /*lastFailedVersion*/-1L, /*lastSuccessVersion*/100L);
 
@@ -135,7 +134,7 @@ public class CheckReplicaContinuousVersionSuccTest {
         populated.put(TABLET_ID, 100L);
         task.setSuccTablets(populated);
 
-        Replica replica = new LocalReplica(REPLICA_ID, BACKEND_ID, /*version*/100L, /*schemaHash*/0,
+        Replica replica = new Replica(REPLICA_ID, BACKEND_ID, /*version*/100L, /*schemaHash*/0,
                 /*dataSize*/0L, /*remoteDataSize*/0L, /*rowCount*/0L,
                 Replica.ReplicaState.NORMAL, /*lastFailedVersion*/-1L, /*lastSuccessVersion*/100L);
 
@@ -160,7 +159,7 @@ public class CheckReplicaContinuousVersionSuccTest {
      */
     @Test
     public void testNoNpeWhenTaskIsNull() throws Exception {
-        Replica replica = new LocalReplica(REPLICA_ID, BACKEND_ID, /*version*/100L, /*schemaHash*/0,
+        Replica replica = new Replica(REPLICA_ID, BACKEND_ID, /*version*/100L, /*schemaHash*/0,
                 /*dataSize*/0L, /*remoteDataSize*/0L, /*rowCount*/0L,
                 Replica.ReplicaState.NORMAL, /*lastFailedVersion*/-1L, /*lastSuccessVersion*/100L);
 
