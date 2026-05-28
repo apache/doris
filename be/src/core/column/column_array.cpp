@@ -58,6 +58,21 @@ const ColumnArray::ColumnOffsets& check_array_offsets_column(const IColumn& offs
     return *offsets_concrete;
 }
 
+ColumnArray::ColumnOffsets::Ptr check_array_offsets_column_ptr(const ColumnPtr& offsets_column) {
+    return ColumnArray::ColumnOffsets::cast_to_column_ptr(
+            &check_array_offsets_column(*offsets_column));
+}
+
+ColumnArray::ColumnOffsets::MutablePtr assert_mutable_array_offsets(
+        MutableColumnPtr&& offsets_column) {
+    check_array_offsets_column(*offsets_column);
+    auto mutable_offsets = ColumnArray::ColumnOffsets::cast_to_column_mutptr(
+            assert_cast<ColumnArray::ColumnOffsets*, TypeCheckOnRelease::DISABLE>(
+                    offsets_column.get()));
+    offsets_column = nullptr;
+    return mutable_offsets;
+}
+
 void validate_array_offsets(const IColumn& nested_column, const IColumn& offsets_column) {
     const auto& offsets_concrete = check_array_offsets_column(offsets_column);
     if (!offsets_concrete.empty()) {
@@ -84,7 +99,9 @@ void check_empty_array_data_without_offsets(const IColumn& nested_column) {
 } // namespace
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column)
-        : data(std::move(nested_column)), offsets(std::move(offsets_column)) {
+        : data(std::move(nested_column)) {
+    static_cast<ColumnOffsets::Ptr&>(offsets) =
+            assert_mutable_array_offsets(std::move(offsets_column));
     // TODO(lihangyu) : we need to check the nullable attribute of array's data column.
     // but currently ColumnMap<ColumnString, ColumnString> is used to store sparse data of variant type,
     // so I temporarily disable this check.
@@ -99,7 +116,7 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
     // #endif
     check_const_only_in_top_level();
     validate_array_offsets(*static_cast<const IColumn::Ptr&>(data),
-                           *static_cast<const IColumn::Ptr&>(offsets));
+                           *static_cast<const ColumnOffsets::Ptr&>(offsets));
 
     /** NOTE
       * Arrays with constant value are possible and used in implementation of higher order functions (see FunctionReplicate).
@@ -110,15 +127,15 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nested_column)) {
     data = data->convert_to_full_column_if_const();
     check_empty_array_data_without_offsets(*data);
-    offsets = ColumnOffsets::create();
+    static_cast<ColumnOffsets::Ptr&>(offsets) = ColumnOffsets::create();
 }
 
 ColumnArray::ColumnArray(SharedTag, ColumnPtr nested_column, ColumnPtr offsets_column) {
     static_cast<IColumn::Ptr&>(data) = std::move(nested_column);
-    static_cast<IColumn::Ptr&>(offsets) = std::move(offsets_column);
+    static_cast<ColumnOffsets::Ptr&>(offsets) = check_array_offsets_column_ptr(offsets_column);
     check_const_only_in_top_level();
     validate_array_offsets(*static_cast<const IColumn::Ptr&>(data),
-                           *static_cast<const IColumn::Ptr&>(offsets));
+                           *static_cast<const ColumnOffsets::Ptr&>(offsets));
 }
 
 void ColumnArray::shrink_padding_chars() {
@@ -884,7 +901,7 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
                                      res_null_map->get_data(), filt, result_size_hint);
 
         auto src_data = nullable_data_column->get_nested_column_ptr();
-        const auto* src_offsets = assert_cast<const ColumnOffsets*>(offsets.get());
+        const auto* src_offsets = offsets.get();
         auto array_of_nested =
                 filter_return_new_dispatch(filt, result_size_hint, src_data, src_offsets);
 
@@ -893,7 +910,7 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
                 array_of_nested.offsets);
     } else {
         // filter offsets
-        const auto* src_offsets = assert_cast<const ColumnOffsets*>(offsets.get());
+        const auto* src_offsets = offsets.get();
         auto array_of_nested =
                 filter_return_new_dispatch(filt, result_size_hint, data, src_offsets);
         return ColumnArray::create(array_of_nested.data, std::move(array_of_nested.offsets));
@@ -945,12 +962,12 @@ size_t ColumnArray::filter(const Filter& filter) {
                 nullable_data_column->get_null_map_data(), get_offsets(), filter);
 
         auto& src_data = nullable_data_column->get_nested_column();
-        auto& src_offsets = assert_cast<ColumnOffsets&>(*offsets);
+        auto& src_offsets = *offsets;
         filter_inplace_dispatch(filter, src_data, src_offsets);
         return result_size;
     } else {
         auto& src_data = get_data();
-        auto& src_offsets = assert_cast<ColumnOffsets&>(*offsets);
+        auto& src_offsets = *offsets;
 
         return filter_inplace_dispatch(filter, src_data, src_offsets);
     }

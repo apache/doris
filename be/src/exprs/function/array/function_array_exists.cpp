@@ -68,8 +68,7 @@ public:
         const auto first_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const ColumnArray& first_col_array = assert_cast<const ColumnArray&>(*first_column);
-        const auto& first_off_data = assert_cast<const ColumnArray::ColumnOffsets&>(
-                first_col_array.get_offsets_column());
+        const auto& first_off_data = first_col_array.get_offsets_column();
 
         const auto& nested_nullable_column =
                 assert_cast<const ColumnNullable&>(*first_col_array.get_data_ptr());

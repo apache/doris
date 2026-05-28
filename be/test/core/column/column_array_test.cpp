@@ -1000,8 +1000,8 @@ TEST_F(ColumnArrayTest, ArrayTypeTesterase) {
     // std::cout << tmp2.dump_data(0, tmp2.rows());
     auto* column_result = assert_cast<ColumnArray*>(column_res.get());
     auto& column_offsets_res = column_result->get_offsets_column();
-    auto& offset_data_res = assert_cast<ColumnOffset64&>(column_offsets_res);
-    auto& offset_data = assert_cast<ColumnOffset64&>(column_offsets);
+    auto& offset_data_res = column_offsets_res;
+    auto& offset_data = column_offsets;
     auto& column_data_res = assert_cast<ColumnInt32&>(
             assert_cast<ColumnNullable&>(column_result->get_data()).get_nested_column());
     auto& column_data_origin = assert_cast<ColumnInt32&>(
@@ -1065,8 +1065,8 @@ TEST_F(ColumnArrayTest, ArrayTypeTest2erase) {
 
     auto* column_result = assert_cast<ColumnArray*>(column_res.get());
     auto& column_offsets_res = column_result->get_offsets_column();
-    auto& offset_data_res = assert_cast<ColumnOffset64&>(column_offsets_res);
-    auto& offset_data = assert_cast<ColumnOffset64&>(column_offsets);
+    auto& offset_data_res = column_offsets_res;
+    auto& offset_data = column_offsets;
     auto& column_data_res = assert_cast<ColumnInt32&>(
             assert_cast<ColumnNullable&>(column_result->get_data()).get_nested_column());
     auto& column_data_origin = assert_cast<ColumnInt32&>(
