@@ -17,7 +17,9 @@
 
 #include "storage/index/ann/ann_index_writer.h"
 
+#include <algorithm>
 #include <cstddef>
+#include <limits>
 #include <memory>
 #include <string>
 
@@ -77,9 +79,6 @@ Status AnnIndexColumnWriter::init() {
             index_type, build_parameter.dim, metric_type, build_parameter.max_degree,
             build_parameter.ef_construction, quantizer);
 
-    size_t block_size = AnnIndexColumnWriter::chunk_size() * build_parameter.dim;
-    _float_array.reserve(block_size);
-
     return Status::OK();
 }
 
@@ -88,6 +87,30 @@ Status AnnIndexColumnWriter::add_values(const std::string fn, const void* values
 }
 
 void AnnIndexColumnWriter::close_on_error() {}
+
+size_t AnnIndexColumnWriter::_effective_chunk_rows(size_t dim, Int64 min_train_rows) const {
+    DCHECK(dim > 0);
+    DCHECK(min_train_rows >= 0);
+    static constexpr Int64 FLOAT_BYTES = static_cast<Int64>(sizeof(float));
+    DORIS_CHECK(dim <= static_cast<size_t>(std::numeric_limits<Int64>::max() / FLOAT_BYTES));
+    const Int64 vector_bytes = cast_set<Int64>(dim) * FLOAT_BYTES;
+    const Int64 rows_by_bytes =
+            std::max<Int64>(1, AnnIndexColumnWriter::chunk_bytes() / vector_bytes);
+    Int64 bounded_rows = std::min<Int64>(AnnIndexColumnWriter::chunk_size(), rows_by_bytes);
+    if (min_train_rows > 0 && bounded_rows < min_train_rows) {
+        bounded_rows = min_train_rows;
+    }
+    return cast_set<size_t>(bounded_rows);
+}
+
+Status AnnIndexColumnWriter::_flush_chunk(Int64 chunk_rows) {
+    DCHECK(chunk_rows > 0);
+    RETURN_IF_ERROR(_vector_index->train(chunk_rows, _float_array.data()));
+    RETURN_IF_ERROR(_vector_index->add(chunk_rows, _float_array.data()));
+    _float_array.clear();
+    _need_save_index = true;
+    return Status::OK();
+}
 
 Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* value_ptr,
                                               const uint8_t* null_map, const uint8_t* offsets_ptr,
@@ -109,7 +132,9 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
 
     const float* p = reinterpret_cast<const float*>(value_ptr);
 
-    const size_t full_elements = AnnIndexColumnWriter::chunk_size() * dim;
+    const Int64 min_train_rows = _vector_index->get_min_train_rows();
+    const size_t effective_chunk_rows = _effective_chunk_rows(dim, min_train_rows);
+    const size_t full_elements = effective_chunk_rows * dim;
     size_t remaining_elements = num_rows * dim;
     size_t src_offset = 0;
     while (remaining_elements > 0) {
@@ -121,12 +146,7 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
         remaining_elements -= elements_to_add;
 
         if (_float_array.size() == full_elements) {
-            RETURN_IF_ERROR(
-                    _vector_index->train(AnnIndexColumnWriter::chunk_size(), _float_array.data()));
-            RETURN_IF_ERROR(
-                    _vector_index->add(AnnIndexColumnWriter::chunk_size(), _float_array.data()));
-            _float_array.clear();
-            _need_save_index = true;
+            RETURN_IF_ERROR(_flush_chunk(cast_set<Int64>(effective_chunk_rows)));
         }
     }
 
@@ -146,7 +166,7 @@ int64_t AnnIndexColumnWriter::size() const {
 }
 
 Status AnnIndexColumnWriter::finish() {
-    Int64 min_train_rows = _vector_index->get_min_train_rows();
+    const Int64 min_train_rows = _vector_index->get_min_train_rows();
 
     // Check if we have enough rows to train the index
     // train/add the remaining data
@@ -163,12 +183,11 @@ Status AnnIndexColumnWriter::finish() {
     } else {
         DCHECK(_float_array.size() % _vector_index->get_dimension() == 0);
 
-        Int64 num_rows = _float_array.size() / _vector_index->get_dimension();
+        const Int64 num_rows =
+                cast_set<Int64>(_float_array.size() / _vector_index->get_dimension());
 
         if (num_rows >= min_train_rows) {
-            RETURN_IF_ERROR(_vector_index->train(num_rows, _float_array.data()));
-            RETURN_IF_ERROR(_vector_index->add(num_rows, _float_array.data()));
-            _float_array.clear();
+            RETURN_IF_ERROR(_flush_chunk(num_rows));
             return _vector_index->save(_dir.get());
         } else {
             // It happens to have not enough data to train.

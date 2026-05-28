@@ -26,10 +26,12 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "storage/index/ann/vector_search_utils.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
 
 using namespace doris::vector_search_utils;
 
@@ -61,6 +63,10 @@ public:
 
     void set_vector_index(std::shared_ptr<VectorIndex> index) { _vector_index = index; }
     void set_need_save_index(bool value) { _need_save_index = value; }
+    size_t buffered_vector_capacity() const { return _float_array.capacity(); }
+    size_t effective_chunk_rows(size_t dim, Int64 min_train_rows) const {
+        return _effective_chunk_rows(dim, min_train_rows);
+    }
 };
 
 class AnnIndexWriterTest : public ::testing::Test {
@@ -163,6 +169,18 @@ TEST_F(AnnIndexWriterTest, TestInitWithDifferentProperties) {
         Status status = writer->init();
         EXPECT_TRUE(status.ok());
     }
+}
+
+TEST_F(AnnIndexWriterTest, TestInitDoesNotPreallocateBuildChunk) {
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             _tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    EXPECT_EQ(writer->buffered_vector_capacity(), 0);
 }
 
 TEST_F(AnnIndexWriterTest, TestAddArrayValuesSuccess) {
@@ -476,6 +494,81 @@ TEST_F(AnnIndexWriterTest, TestAddMoreThanChunkSize) {
 
     Status status = writer->finish();
     EXPECT_TRUE(status.ok());
+}
+
+TEST_F(AnnIndexWriterTest, TestBuildChunkBytesCapsRows) {
+    const int64_t old_chunk_bytes = config::ann_index_build_chunk_bytes;
+    config::ann_index_build_chunk_bytes = 32;
+    doris::Defer restore_config {[&] { config::ann_index_build_chunk_bytes = old_chunk_bytes; }};
+
+    auto mock_index = std::make_shared<MockVectorIndex>();
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             _tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    writer->set_vector_index(mock_index);
+
+    // dim=4, ann_index_build_chunk_bytes=32, so the effective chunk is 2 rows.
+    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(0));
+    {
+        testing::InSequence sequence;
+        EXPECT_CALL(*mock_index, train(2, testing::_))
+                .Times(1)
+                .WillOnce(testing::Return(Status::OK()));
+        EXPECT_CALL(*mock_index, add(2, testing::_))
+                .Times(1)
+                .WillOnce(testing::Return(Status::OK()));
+        EXPECT_CALL(*mock_index, train(2, testing::_))
+                .Times(1)
+                .WillOnce(testing::Return(Status::OK()));
+        EXPECT_CALL(*mock_index, add(2, testing::_))
+                .Times(1)
+                .WillOnce(testing::Return(Status::OK()));
+        EXPECT_CALL(*mock_index, train(2, testing::_))
+                .Times(1)
+                .WillOnce(testing::Return(Status::OK()));
+        EXPECT_CALL(*mock_index, add(2, testing::_))
+                .Times(1)
+                .WillOnce(testing::Return(Status::OK()));
+        EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    }
+
+    const size_t dim = 4;
+    const size_t num_rows = 6;
+    std::vector<float> vectors(num_rows * dim);
+    for (size_t i = 0; i < vectors.size(); ++i) {
+        vectors[i] = static_cast<float>(i);
+    }
+    std::vector<size_t> offsets;
+    for (size_t row = 0; row <= num_rows; ++row) {
+        offsets.push_back(row * dim);
+    }
+
+    Status status =
+            writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                     reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
+    EXPECT_TRUE(status.ok());
+
+    status = writer->finish();
+    EXPECT_TRUE(status.ok());
+}
+
+TEST_F(AnnIndexWriterTest, TestBuildChunkBytesKeepsMinTrainRows) {
+    const int64_t old_chunk_bytes = config::ann_index_build_chunk_bytes;
+    config::ann_index_build_chunk_bytes = 32;
+    doris::Defer restore_config {[&] { config::ann_index_build_chunk_bytes = old_chunk_bytes; }};
+
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             _tablet_index.get());
+
+    // dim=4 and 32 bytes allow 2 rows by byte cap. Training-required indexes must still
+    // buffer enough rows to satisfy the minimum FAISS training requirement.
+    EXPECT_EQ(writer->effective_chunk_rows(4, 0), 2);
+    EXPECT_EQ(writer->effective_chunk_rows(4, 5), 5);
 }
 
 TEST_F(AnnIndexWriterTest, TestCreateFromIndexColumnWriter) {
@@ -922,19 +1015,12 @@ TEST_F(AnnIndexWriterTest, TestPQMinTrainRows) {
     ASSERT_TRUE(writer->init().ok());
     writer->set_vector_index(mock_index);
 
-    // Set up expectations: mock a very large min_train_rows threshold.
-    // Since we only provide 1000 vectors, which is less than 131072, training will happen in batches
-    // but finish() will skip saving since remaining data is insufficient
+    // The effective chunk keeps at least min_train_rows to avoid training with an
+    // invalid sample size. Since only 1000 rows are provided, no train/add/save happens.
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(131072));
-    // 1000 vectors will be processed in 100 batches of 10 vectors each
-    EXPECT_CALL(*mock_index, train(10, testing::_))
-            .Times(100)
-            .WillRepeatedly(testing::Return(Status::OK()));
-    EXPECT_CALL(*mock_index, add(10, testing::_))
-            .Times(100)
-            .WillRepeatedly(testing::Return(Status::OK()));
-    // Since we have trained data in batches, the index will be saved even though total data is insufficient
-    EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, train(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, add(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, save(testing::_)).Times(0);
 
     const size_t dim = 4;
 
@@ -956,7 +1042,6 @@ TEST_F(AnnIndexWriterTest, TestPQMinTrainRows) {
         EXPECT_TRUE(status.ok());
     }
 
-    // Finish should skip index building due to insufficient training data
     Status status = writer->finish();
     EXPECT_TRUE(status.ok());
 }
@@ -976,17 +1061,12 @@ TEST_F(AnnIndexWriterTest, TestSQMinTrainRows) {
     ASSERT_TRUE(writer->init().ok());
     writer->set_vector_index(mock_index);
 
-    // Set up expectations: SQ should require at least 20 training vectors
-    // Since we only provide 15 vectors, training will happen in batches but finish() will skip saving
+    // The effective chunk keeps at least min_train_rows to avoid training with an
+    // invalid sample size. Since only 15 rows are provided, no train/add/save happens.
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(20));
-    // 15 vectors will be processed in 1 batch of 10 vectors and remaining 5 vectors
-    EXPECT_CALL(*mock_index, train(10, testing::_))
-            .Times(1)
-            .WillOnce(testing::Return(Status::OK()));
-    EXPECT_CALL(*mock_index, add(10, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
-    EXPECT_CALL(*mock_index, add(5, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
-    // Since we have trained data, the index will be saved even though total data is insufficient
-    EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, train(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, add(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, save(testing::_)).Times(0);
 
     const size_t dim = 4;
 
@@ -1008,7 +1088,6 @@ TEST_F(AnnIndexWriterTest, TestSQMinTrainRows) {
         EXPECT_TRUE(status.ok());
     }
 
-    // Finish should skip index building due to insufficient training data
     Status status = writer->finish();
     EXPECT_TRUE(status.ok());
 }
@@ -1029,16 +1108,12 @@ TEST_F(AnnIndexWriterTest, TestPQWithSufficientData) {
 
     // Mock min_train_rows to 131072 and provide exactly that amount.
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(131072));
-    // Since we provide exactly 131072 vectors, they will be trained and added in chunks
-    // Each chunk is 10 vectors, so we expect 13107 train calls and 13107 add calls for full chunks
-    EXPECT_CALL(*mock_index, train(10, testing::_))
-            .Times(13107)
-            .WillRepeatedly(testing::Return(Status::OK()));
-    EXPECT_CALL(*mock_index, add(10, testing::_))
-            .Times(13107)
-            .WillRepeatedly(testing::Return(Status::OK()));
-    // The remaining 2 vectors will be added without training since min_train_rows > 2
-    EXPECT_CALL(*mock_index, add(2, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, train(131072, testing::_))
+            .Times(1)
+            .WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, add(131072, testing::_))
+            .Times(1)
+            .WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
 
     const size_t dim = 4;

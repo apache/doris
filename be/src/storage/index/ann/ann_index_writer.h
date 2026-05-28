@@ -45,6 +45,7 @@ public:
         return config::ann_index_build_chunk_size;
 #endif
     }
+    static inline int64_t chunk_bytes() { return config::ann_index_build_chunk_bytes; }
     static constexpr const char* INDEX_TYPE = "index_type";
     static constexpr const char* METRIC_TYPE = "metric_type";
     static constexpr const char* DIM = "dim";
@@ -71,6 +72,13 @@ public:
     Status finish() override;
 
 private:
+    size_t _effective_chunk_rows(size_t dim, Int64 min_train_rows) const;
+    Status _flush_chunk(Int64 chunk_rows);
+
+#ifdef BE_TEST
+    friend class TestAnnIndexColumnWriter;
+#endif
+
     // VectorIndex shoule be managed by some cache.
     // VectorIndex should be weak shared by AnnIndexWriter and VectorIndexReader
     // This should be a weak_ptr
