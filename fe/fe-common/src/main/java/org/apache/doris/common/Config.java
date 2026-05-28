@@ -2284,6 +2284,15 @@ public class Config extends ConfigBase {
             "Max number of hive partition values to return while list partitions, -1 means no limitation."})
     public static short max_hive_list_partition_num = -1;
 
+    @ConfField(mutable = true, masterOnly = false, description = {
+            "当 Hive 分区裁剪中的 IN 谓词字面量个数超过该阈值时，不再向 HMS 下推完整 IN/OR 过滤条件，"
+                    + "而是改为下推 min/max 范围作为候选分区预过滤。<= 0 表示关闭该优化。",
+            "When the number of literals in a Hive partition-pruning IN predicate exceeds this threshold, "
+                    + "Doris will stop pushing the full IN/OR filter to HMS and instead push a min/max range "
+                    + "as a candidate-partition prefilter. <= 0 disables this optimization."
+    })
+    public static int hive_metastore_partition_pruning_in_predicate_threshold = 50;
+
     @ConfField(mutable = false, masterOnly = false, description = {"远程文件系统缓存的最大数量",
             "Max cache number of remote file system."})
     public static long max_remote_file_system_cache_num = 100;

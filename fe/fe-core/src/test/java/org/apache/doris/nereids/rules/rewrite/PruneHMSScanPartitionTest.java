@@ -17,21 +17,23 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -55,6 +57,8 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -65,6 +69,7 @@ import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -87,7 +92,7 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
      * Test executePartitionFilterQuery method with successful execution
      */
     @Test
-    void testExecutePartitionFilterQuerySuccess() throws Exception {
+    void testExecutePartitionFilterQuerySuccess(@Injectable HMSExternalTable mockTable) throws Exception {
         List<ResultRow> mockResults = Lists.newArrayList();
         mockResults.add(new ResultRow(Lists.newArrayList("2023-01-01", "us")));
         mockResults.add(new ResultRow(Lists.newArrayList("2023-01-02", "eu")));
@@ -99,7 +104,6 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
             }
         };
 
-        HMSExternalTable mockTable = new HMSExternalTable(1L, "test_table", "test_db", null, null);
         List<ResultRow> result;
         try (AutoCloseConnectContext context = new AutoCloseConnectContext(connectContext)) {
             result = PruneHMSScanPartition.executePartitionFilterQuery(mockTable, context, "SELECT * FROM test");
@@ -117,7 +121,7 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
      * Test executePartitionFilterQuery method exception handling
      */
     @Test
-    void testExecutePartitionFilterQueryExceptionHandling() throws Exception {
+    void testExecutePartitionFilterQueryExceptionHandling(@Injectable HMSExternalTable mockTable) throws Exception {
         new MockUp<StmtExecutor>() {
             @Mock
             public List<ResultRow> executeInternalQuery() throws Exception {
@@ -125,7 +129,15 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
             }
         };
 
-        HMSExternalTable mockTable = new HMSExternalTable(1L, "test_table", "test_db", null, null);
+        new Expectations(mockTable) {
+            {
+                mockTable.getDbName();
+                result = "test_db";
+
+                mockTable.getName();
+                result = "test_table";
+            }
+        };
         InternalQueryExecutionException exception = Assertions.assertThrows(
                 InternalQueryExecutionException.class,
                 () -> {
@@ -143,8 +155,18 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
      * Test executePartitionFilterQuery with different exception types
      */
     @Test
-    void testExecutePartitionFilterQueryDifferentExceptions() throws Exception {
-        HMSExternalTable mockTable = new HMSExternalTable(1L, "test_table", "test_db", null, null);
+    void testExecutePartitionFilterQueryDifferentExceptions(@Injectable HMSExternalTable mockTable) throws Exception {
+        new Expectations(mockTable) {
+            {
+                mockTable.getDbName();
+                result = "test_db";
+                minTimes = 1;
+
+                mockTable.getName();
+                result = "test_table";
+                minTimes = 1;
+            }
+        };
 
         new MockUp<StmtExecutor>() {
             @Mock
@@ -188,7 +210,7 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
      * Test executePartitionFilterQuery with empty result
      */
     @Test
-    void testExecutePartitionFilterQueryEmptyResult() throws Exception {
+    void testExecutePartitionFilterQueryEmptyResult(@Injectable HMSExternalTable mockTable) throws Exception {
         new MockUp<StmtExecutor>() {
             @Mock
             public List<ResultRow> executeInternalQuery() throws Exception {
@@ -196,7 +218,6 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
             }
         };
 
-        HMSExternalTable mockTable = new HMSExternalTable(1L, "test_table", "test_db", null, null);
         List<ResultRow> result;
         try (AutoCloseConnectContext context = new AutoCloseConnectContext(connectContext)) {
             result = PruneHMSScanPartition.executePartitionFilterQuery(mockTable, context, "SELECT * FROM test");
@@ -208,7 +229,8 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
 
     @Test
     void testGetConjunctsWithoutPartitionPredicate(@Injectable LogicalFileScan logicalFileScan,
-                                                   @Injectable HMSExternalTable table) {
+                                                   @Injectable HMSExternalTable table,
+                                                   @Injectable LogicalFilter<LogicalFileScan> logicalFilter) {
         Slot slot1 = new SlotReference("col1", IntegerType.INSTANCE);
         Slot slot2 = new SlotReference("col2", IntegerType.INSTANCE);
         Slot slot3 = new SlotReference("col3", StringType.INSTANCE);
@@ -234,10 +256,12 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
                 table.getPartitionColumns();
                 result = Lists.newArrayList(col1, col2);
                 minTimes = 1;
+
+                logicalFilter.getConjuncts();
+                result = Sets.newHashSet(expression1, expression2, expression3);
+                minTimes = 1;
             }
         };
-        LogicalFilter<LogicalFileScan> logicalFilter = new LogicalFilter<>(
-                Sets.newHashSet(expression1, expression2, expression3), logicalFileScan);
         PruneHMSScanPartition pruneHMSScanPartition = new PruneHMSScanPartition();
         Set<Expression> conjuncts = pruneHMSScanPartition.getConjunctsWithoutPartitionPredicate(logicalFileScan,
                 logicalFilter);
@@ -266,16 +290,15 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
                 result = "test";
                 minTimes = 1;
 
-                table.getDlaType();
-                result = DLAType.HUDI;
+                table.supportInternalPartitionPruned();
+                result = true;
                 minTimes = 1;
             }
         };
         new MockUp<PruneHMSScanPartition>() {
             @Mock
-            private SelectedPartitions pruneHMSPartitions(HMSExternalTable hiveTbl,
-                                                           LogicalFilter<LogicalFileScan> filter, LogicalFileScan scan, CascadesContext ctx,
-                                                           boolean isViewBased) {
+            SelectedPartitions pruneHMSPartitions(HMSExternalTable hiveTbl,
+                                                           LogicalFilter<LogicalFileScan> filter, LogicalFileScan scan, CascadesContext ctx) {
                 return selectedPartitions;
             }
 
@@ -286,7 +309,7 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
             }
         };
         LogicalFilter<LogicalFileScan> filter = new LogicalFilter<>(conjuncts, logicalFileScan);
-        List<Plan> planList = new PruneFileScanPartition().build().transform(filter,
+        List<Plan> planList = new PruneHMSScanPartition().build().transform(filter,
                 MemoTestUtils.createCascadesContext(filter));
         Assertions.assertEquals(1, planList.size());
         Assertions.assertTrue(planList.get(0) instanceof LogicalFileScan);
@@ -314,14 +337,14 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
                 result = "test";
                 minTimes = 1;
 
-                table.getDlaType();
-                result = DLAType.HIVE;
+                table.supportInternalPartitionPruned();
+                result = true;
                 minTimes = 1;
             }
         };
         new MockUp<PruneHMSScanPartition>() {
             @Mock
-            private SelectedPartitions pruneHMSPartitions(HMSExternalTable hiveTbl,
+            SelectedPartitions pruneHMSPartitions(HMSExternalTable hiveTbl,
                                                           LogicalFilter<LogicalFileScan> filter,
                                                           LogicalFileScan scan,
                                                           CascadesContext ctx) {
@@ -353,8 +376,6 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
         Map<Long, PartitionItem> mockPartitionItemMap2 = new HashMap<>();
         mockPartitionItemMap2.put(1L, new ListPartitionItem(Lists.newArrayList(new PartitionKey())));
 
-        Config.max_partition_num_for_single_hive_table_without_filter = 2;
-
         Map<Long, PartitionItem> mockPartitionItemMap3 = new HashMap<>();
         mockPartitionItemMap3.put(1L, new ListPartitionItem(Lists.newArrayList(new PartitionKey())));
         mockPartitionItemMap3.put(2L, new ListPartitionItem(Lists.newArrayList(new PartitionKey())));
@@ -363,14 +384,6 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
 
         new Expectations() {
             {
-                table.getOrBuildNameMapping();
-                result = new NameMapping(1, "test", "test", "test", "test");
-                minTimes = 1;
-
-                table.isViewBased();
-                result = false;
-                minTimes = 1;
-
                 table.getPartitionColumnTypes();
                 result = Lists.newArrayList(Type.VARCHAR);
                 minTimes = 1;
@@ -380,20 +393,35 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
                 result = mockPartitionItemMap;
                 minTimes = 1;
 
+                // getPartitionItems is called twice: partitionNum=1 and partitionNum=4,
+                // both go through cache.getPartitionValues since partitionNum < 3000.
+                // Second call returns hivePartitionValues1 (1 entry),
+                // third call returns hivePartitionValues2 (4 entries).
                 cache.getPartitionValues(table, Lists.newArrayList(Type.VARCHAR));
                 result = hivePartitionValues1;
-                minTimes = 1;
-
-                cache.getPartitionValuesWithoutCache(table, Lists.newArrayList(Type.VARCHAR));
                 result = hivePartitionValues2;
-                minTimes = 1;
 
                 hivePartitionValues1.getIdToPartitionItem();
                 result = mockPartitionItemMap2;
                 minTimes = 1;
 
+                BiMap<String, Long> nameToIdMap1 = HashBiMap.create();
+                nameToIdMap1.put("p1", 1L);
+                hivePartitionValues1.getPartitionNameToIdMap();
+                result = nameToIdMap1;
+                minTimes = 1;
+
                 hivePartitionValues2.getIdToPartitionItem();
                 result = mockPartitionItemMap3;
+                minTimes = 1;
+
+                BiMap<String, Long> nameToIdMap2 = HashBiMap.create();
+                nameToIdMap2.put("p1", 1L);
+                nameToIdMap2.put("p2", 2L);
+                nameToIdMap2.put("p3", 3L);
+                nameToIdMap2.put("p4", 4L);
+                hivePartitionValues2.getPartitionNameToIdMap();
+                result = nameToIdMap2;
                 minTimes = 1;
 
             }
@@ -426,8 +454,6 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
         Map<Long, PartitionItem> mockPartitionItemMap2 = new HashMap<>();
         mockPartitionItemMap2.put(1L, new ListPartitionItem(Lists.newArrayList(new PartitionKey())));
 
-        Config.max_partition_num_for_single_hive_table_without_filter = 2;
-
         Map<Long, PartitionItem> mockPartitionItemMap3 = new HashMap<>();
         mockPartitionItemMap3.put(1L, new ListPartitionItem(Lists.newArrayList(new PartitionKey())));
         mockPartitionItemMap3.put(2L, new ListPartitionItem(Lists.newArrayList(new PartitionKey())));
@@ -436,14 +462,6 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
 
         new Expectations() {
             {
-                table.getOrBuildNameMapping();
-                result = new NameMapping(1, "test", "test", "test", "test");
-                minTimes = 1;
-
-                table.isViewBased();
-                result = true;
-                minTimes = 1;
-
                 table.getPartitionColumnTypes();
                 result = Lists.newArrayList(Type.VARCHAR);
                 minTimes = 1;
@@ -453,20 +471,35 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
                 result = mockPartitionItemMap;
                 minTimes = 1;
 
+                // getPartitionItems is called twice: partitionNum=1 and partitionNum=4,
+                // both go through cache.getPartitionValues since partitionNum < 3000.
+                // Second call returns hivePartitionValues1 (1 entry),
+                // third call returns hivePartitionValues2 (4 entries).
                 cache.getPartitionValues(table, Lists.newArrayList(Type.VARCHAR));
                 result = hivePartitionValues1;
-                minTimes = 1;
-
-                cache.getPartitionValuesWithoutCache(table, Lists.newArrayList(Type.VARCHAR));
                 result = hivePartitionValues2;
-                minTimes = 1;
 
                 hivePartitionValues1.getIdToPartitionItem();
                 result = mockPartitionItemMap2;
                 minTimes = 1;
 
+                BiMap<String, Long> viewNameToIdMap1 = HashBiMap.create();
+                viewNameToIdMap1.put("p1", 1L);
+                hivePartitionValues1.getPartitionNameToIdMap();
+                result = viewNameToIdMap1;
+                minTimes = 1;
+
                 hivePartitionValues2.getIdToPartitionItem();
                 result = mockPartitionItemMap3;
+                minTimes = 1;
+
+                BiMap<String, Long> viewNameToIdMap2 = HashBiMap.create();
+                viewNameToIdMap2.put("p1", 1L);
+                viewNameToIdMap2.put("p2", 2L);
+                viewNameToIdMap2.put("p3", 3L);
+                viewNameToIdMap2.put("p4", 4L);
+                hivePartitionValues2.getPartitionNameToIdMap();
+                result = viewNameToIdMap2;
                 minTimes = 1;
 
             }
@@ -484,5 +517,101 @@ class PruneHMSScanPartitionTest extends TestWithFeService implements MemoPattern
             new EqualTo(new Lower(new SlotReference("dt", VarcharType.SYSTEM_DEFAULT)),
                     new StringLiteral("2025-10-10")), 4, cache);
         Assertions.assertEquals(4, partitionItemMap.size());
+    }
+
+    /**
+     * Test applyExactPartitionPruneOnCandidates returns the subset of partitions that
+     * actually satisfy the exact partition predicate. The HMS prefilter intentionally
+     * over-approximates with range predicates, so this helper is required to drop the
+     * false positives before scanning.
+     */
+    @Test
+    void testApplyExactPartitionPruneOnCandidates() throws Exception {
+        Slot dt = new SlotReference("dt", VarcharType.SYSTEM_DEFAULT);
+        Expression exactPartitionPredicate = new InPredicate(dt, Lists.newArrayList(
+                new StringLiteral("2023-01-01"), new StringLiteral("2023-01-03")));
+
+        Map<String, PartitionItem> candidatePartitionItems = new HashMap<>();
+        candidatePartitionItems.put("p1", createListPartitionItem("2023-01-01"));
+        candidatePartitionItems.put("p2", createListPartitionItem("2023-01-02"));
+        candidatePartitionItems.put("p3", createListPartitionItem("2023-01-03"));
+
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
+                new UnboundRelation(new RelationId(1), Lists.newArrayList("test_table")));
+        Map<String, PartitionItem> selectedPartitionItems = new PruneHMSScanPartition()
+                .applyExactPartitionPruneOnCandidates(Lists.newArrayList(dt), exactPartitionPredicate,
+                        candidatePartitionItems, cascadesContext);
+
+        Assertions.assertNotNull(selectedPartitionItems);
+        Assertions.assertEquals(2, selectedPartitionItems.size());
+        Assertions.assertTrue(selectedPartitionItems.containsKey("p1"));
+        Assertions.assertTrue(selectedPartitionItems.containsKey("p3"));
+        Assertions.assertFalse(selectedPartitionItems.containsKey("p2"));
+    }
+
+    /**
+     * Test applyExactPartitionPruneOnCandidates returns null when PartitionPruner.tryPrune
+     * cannot determine the result (e.g. predicate involves a non-partition expression).
+     * Callers must treat null as "could not prune exactly" and keep the HMS-prefiltered set.
+     */
+    @Test
+    void testApplyExactPartitionPruneOnCandidatesFailure() throws Exception {
+        Slot dt = new SlotReference("dt", VarcharType.SYSTEM_DEFAULT);
+        Expression exactPartitionPredicate = new EqualTo(new Lower(dt), new StringLiteral("2023-01-01"));
+        Map<String, PartitionItem> candidatePartitionItems = new HashMap<>();
+        candidatePartitionItems.put("p1", createListPartitionItem("2023-01-01"));
+
+        new MockUp<PartitionPruner>() {
+            @Mock
+            public boolean tryPrune(List<Slot> partitionSlots, Expression predicate,
+                    Map<String, PartitionItem> candidateItems, List<String> prunedPartitions,
+                    CascadesContext ctx) {
+                return false;
+            }
+        };
+
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
+                new UnboundRelation(new RelationId(1), Lists.newArrayList("test_table")));
+        Map<String, PartitionItem> selectedPartitionItems = new PruneHMSScanPartition()
+                .applyExactPartitionPruneOnCandidates(Lists.newArrayList(dt), exactPartitionPredicate,
+                        candidatePartitionItems, cascadesContext);
+
+        Assertions.assertNull(selectedPartitionItems);
+    }
+
+    /**
+     * Test partitionPredicateToSql outputs both predicates when IN rewrite happened,
+     * and only the exact predicate otherwise.
+     */
+    @Test
+    void testPartitionPredicateToSql() throws Exception {
+        Method method = PruneHMSScanPartition.class.getDeclaredMethod("partitionPredicateToSql",
+                Expression.class, Expression.class, boolean.class);
+        method.setAccessible(true);
+        PruneHMSScanPartition pruneHMSScanPartition = new PruneHMSScanPartition();
+        Expression exactPredicate = new EqualTo(new SlotReference("dt", VarcharType.SYSTEM_DEFAULT),
+                new StringLiteral("2023-01-01"));
+        Expression hmsPredicate = new EqualTo(new SlotReference("dt", VarcharType.SYSTEM_DEFAULT),
+                new StringLiteral("2023-01-01"));
+
+        // without IN rewrite, only output exactPredicate
+        Assertions.assertEquals(exactPredicate.toSql(),
+                method.invoke(pruneHMSScanPartition, hmsPredicate, exactPredicate, false));
+
+        // with IN rewrite, output both hmsPredicate and exactPredicate
+        Assertions.assertEquals("hmsPredicate: " + hmsPredicate.toSql()
+                        + ", exactPredicate: " + exactPredicate.toSql(),
+                method.invoke(pruneHMSScanPartition, hmsPredicate, exactPredicate, true));
+
+        // hmsPredicate is null, only output exactPredicate
+        Assertions.assertEquals(exactPredicate.toSql(),
+                method.invoke(pruneHMSScanPartition, null, exactPredicate, false));
+    }
+
+    private ListPartitionItem createListPartitionItem(String value) throws AnalysisException {
+        PartitionKey partitionKey = PartitionKey.createListPartitionKeyWithTypes(
+                Lists.newArrayList(new PartitionValue(value)),
+                Lists.newArrayList(Type.VARCHAR), true);
+        return new ListPartitionItem(Lists.newArrayList(partitionKey));
     }
 }

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.HMSPartitionsUtil;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -30,6 +31,7 @@ import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.rules.LargeInPredicateToRangeRewriter;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruneExpressionExtractor;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
 import org.apache.doris.nereids.rules.expression.rules.PredicateRewriteForPartitionFilter;
@@ -161,7 +163,7 @@ public class PruneHMSScanPartition extends OneRewriteRuleFactory {
         return partitionRows;
     }
 
-    private SelectedPartitions pruneHMSPartitions(HMSExternalTable hiveTable,
+    SelectedPartitions pruneHMSPartitions(HMSExternalTable hiveTable,
             LogicalFilter<LogicalFileScan> filter, LogicalFileScan scan, CascadesContext ctx) {
         Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMap();
         if (CollectionUtils.isEmpty(hiveTable.getPartitionColumns())) {
@@ -180,33 +182,47 @@ public class PruneHMSScanPartition extends OneRewriteRuleFactory {
                 .getMetaStoreCache((HMSExternalCatalog) hiveTable.getCatalog());
         int partitionNum = cache.getPartitionNum(hiveTable);
         boolean allPartitionValuesByFilter = true;
-        Expression partitionPredicate = null;
+        Expression exactPartitionPredicate = null;
+        Expression hmsPartitionPredicate = null;
+        boolean requiresExactPartitionPrune = false;
         try {
-            partitionPredicate = PartitionPruneExpressionExtractor.extract(filter.getPredicate(),
+            exactPartitionPredicate = PartitionPruneExpressionExtractor.extract(filter.getPredicate(),
                 ImmutableSet.copyOf(partitionSlots), ctx);
             List<String> partitionColumnNames = partitionSlots.stream().map(e -> e.getName())
                     .collect(Collectors.toList());
-            partitionPredicate = PredicateRewriteForPartitionPrune.rewrite(partitionPredicate, ctx);
-            partitionPredicate = PredicateRewriteForPartitionFilter.rewrite(partitionPredicate, ctx);
-            if (BooleanLiteral.TRUE.equals(partitionPredicate)) {
+            exactPartitionPredicate = PredicateRewriteForPartitionPrune.rewrite(exactPartitionPredicate, ctx);
+            Pair<Expression, Boolean> hmsPrefilterResult =
+                    LargeInPredicateToRangeRewriter.rewrite(exactPartitionPredicate, ctx);
+            requiresExactPartitionPrune = hmsPrefilterResult.second;
+            hmsPartitionPredicate = PredicateRewriteForPartitionFilter.rewrite(hmsPrefilterResult.first, ctx);
+            if (BooleanLiteral.TRUE.equals(hmsPartitionPredicate)) {
                 HMSPartitionsUtil.checkSelectedPartitionNumLimit(hiveTable, partitionNum);
-                selectedPartitionItems = getSelectedPartitionItems(hiveTable, partitionColumnNames, partitionPredicate,
-                        partitionNum, cache);
-            } else if (BooleanLiteral.FALSE.equals(partitionPredicate) || partitionPredicate.isNullLiteral()) {
+                selectedPartitionItems = getSelectedPartitionItems(hiveTable, partitionColumnNames,
+                        hmsPartitionPredicate, partitionNum, cache);
+            } else if (BooleanLiteral.FALSE.equals(hmsPartitionPredicate) || hmsPartitionPredicate.isNullLiteral()) {
                 // do nothing
             } else {
-                if (HMSPartitionsUtil.isFilterSupportedByListPartitions(partitionPredicate)) {
+                if (HMSPartitionsUtil.isFilterSupportedByListPartitions(hmsPartitionPredicate)) {
                     selectedPartitionItems = cache.getPartitionValuesByFilter(hiveTable,
-                        partitionPredicate.toSql(), partitionColumnNames, hiveTable.getPartitionColumnTypes());
+                        hmsPartitionPredicate.toSql(), partitionColumnNames, hiveTable.getPartitionColumnTypes());
+                    if (requiresExactPartitionPrune) {
+                        Map<String, PartitionItem> exactSelectedPartitionItems =
+                                applyExactPartitionPruneOnCandidates(
+                                        partitionSlots, exactPartitionPredicate, selectedPartitionItems, ctx);
+                        if (exactSelectedPartitionItems == null) {
+                            allPartitionValuesByFilter = false;
+                        } else {
+                            selectedPartitionItems = exactSelectedPartitionItems;
+                        }
+                    }
                 } else {
                     Map<String, PartitionItem> nameToPartitionItem = getSelectedPartitionItems(hiveTable,
-                            partitionColumnNames, partitionPredicate, partitionNum, cache);
-                    List<String> prunedPartitions = Lists.newArrayList();
-                    if (PartitionPruner.tryPrune(partitionSlots, partitionPredicate, nameToPartitionItem,
-                            prunedPartitions, ctx)) {
-                        for (String name : prunedPartitions) {
-                            selectedPartitionItems.put(name, nameToPartitionItem.get(name));
-                        }
+                            partitionColumnNames, hmsPartitionPredicate, partitionNum, cache);
+                    Map<String, PartitionItem> exactSelectedPartitionItems =
+                            applyExactPartitionPruneOnCandidates(
+                                    partitionSlots, exactPartitionPredicate, nameToPartitionItem, ctx);
+                    if (exactSelectedPartitionItems != null) {
+                        selectedPartitionItems = exactSelectedPartitionItems;
                     } else {
                         allPartitionValuesByFilter = false;
                     }
@@ -215,7 +231,9 @@ public class PruneHMSScanPartition extends OneRewriteRuleFactory {
         } catch (Exception e) {
             // for some unexpected cases listPartitionsByFilter may not support
             LOG.warn("get selected partition items by listPartitionsByFilter failed, filter sql is "
-                    + partitionPredicate.toSql() + ", use getPartitionValues instead");
+                    + partitionPredicateToSql(hmsPartitionPredicate, exactPartitionPredicate,
+                            requiresExactPartitionPrune)
+                    + ", use getPartitionValues instead");
             allPartitionValuesByFilter = false;
         }
         if (!allPartitionValuesByFilter) {
@@ -225,8 +243,8 @@ public class PruneHMSScanPartition extends OneRewriteRuleFactory {
                     bdpAuthContext.getUserToken(), true, bdpAuthContext.getUserType(),
                     bdpAuthContext.getBusinessLine(), bdpAuthContext.getQueryId()) : bdpAuthContext;
             try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(partitionFilterAuthContext)) {
-                partitionPredicate = PartitionPruneExpressionExtractor.extract(filter.getPredicate(),
-                    ImmutableSet.copyOf(partitionSlots), ctx);
+                Expression partitionPredicate = PartitionPruneExpressionExtractor.extract(filter.getPredicate(),
+                        ImmutableSet.copyOf(partitionSlots), ctx);
                 Map<String, String> params = new HashMap<>();
                 params.put("catalogName", hiveTable.getCatalog().getName());
                 params.put("dbName", hiveTable.getDbName());
@@ -263,5 +281,30 @@ public class PruneHMSScanPartition extends OneRewriteRuleFactory {
             }
         }
         return new SelectedPartitions(partitionNum, selectedPartitionItems, true);
+    }
+
+    @VisibleForTesting
+    protected Map<String, PartitionItem> applyExactPartitionPruneOnCandidates(List<Slot> partitionSlots,
+            Expression exactPartitionPredicate, Map<String, PartitionItem> candidatePartitionItems,
+            CascadesContext ctx) {
+        List<String> prunedPartitions = Lists.newArrayList();
+        if (!PartitionPruner.tryPrune(partitionSlots, exactPartitionPredicate, candidatePartitionItems,
+                prunedPartitions, ctx)) {
+            return null;
+        }
+        Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMapWithExpectedSize(prunedPartitions.size());
+        for (String name : prunedPartitions) {
+            selectedPartitionItems.put(name, candidatePartitionItems.get(name));
+        }
+        return selectedPartitionItems;
+    }
+
+    private String partitionPredicateToSql(Expression hmsPartitionPredicate,
+            Expression exactPartitionPredicate, boolean requiresExactPartitionPrune) {
+        if (hmsPartitionPredicate != null && requiresExactPartitionPrune) {
+            return "hmsPredicate: " + hmsPartitionPredicate.toSql()
+                    + ", exactPredicate: " + exactPartitionPredicate.toSql();
+        }
+        return exactPartitionPredicate.toSql();
     }
 }
