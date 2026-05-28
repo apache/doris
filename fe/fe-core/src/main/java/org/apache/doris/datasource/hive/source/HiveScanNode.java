@@ -67,6 +67,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
 import org.apache.doris.thrift.TTransactionalHiveDesc;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -396,7 +397,7 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     private long determineTargetFileSplitSize(List<FileCacheValue> fileCaches,
-            boolean isBatchMode) {
+            boolean isBatchMode) throws AnalysisException {
         if (sessionVariable.getFileSplitSize() > 0) {
             return sessionVariable.getFileSplitSize();
         }
@@ -407,29 +408,45 @@ public class HiveScanNode extends FileQueryScanNode {
             return 0;
         }
         long result = sessionVariable.getMaxInitialSplitSize();
-        long totalFileSize = 0;
-        for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
-            if (fileCacheValue.getFiles() == null) {
-                continue;
-            }
-            for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
-                totalFileSize += status.getLength();
-            }
-        }
-        if (totalFileSize <= Config.file_size_range_to_decide_split_size[0]) {
+        long selectedFileSize = getSelectedFileSize(fileCaches);
+        if (selectedFileSize <= Config.file_size_range_to_decide_split_size[0]) {
             result = TINY_SPLIT_FILE_SIZE;
-        } else if (totalFileSize <= Config.file_size_range_to_decide_split_size[1]) {
+        } else if (selectedFileSize <= Config.file_size_range_to_decide_split_size[1]) {
             result = SMALL_SPLIT_FILE_SIZE;
-        } else if (totalFileSize <= Config.file_size_range_to_decide_split_size[2]) {
+        } else if (selectedFileSize <= Config.file_size_range_to_decide_split_size[2]) {
             result = MEDIUM_SPLIT_FILE_SIZE;
-        } else if (totalFileSize <= Config.file_size_range_to_decide_split_size[3]) {
+        } else if (selectedFileSize <= Config.file_size_range_to_decide_split_size[3]) {
             result = LARGE_SPLIT_FILE_SIZE;
-        } else if (totalFileSize <= Config.file_size_range_to_decide_split_size[4]) {
+        } else if (selectedFileSize <= Config.file_size_range_to_decide_split_size[4]) {
             result = HUGE_SPLIT_FILE_SIZE;
         } else {
             result = DEFAULT_SPLIT_SIZE;
         }
         return result;
+    }
+
+    @VisibleForTesting
+    protected long getSelectedFileSize(List<FileCacheValue> fileCaches) throws AnalysisException {
+        long selectedFileSize = 0L;
+        for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
+            if (fileCacheValue.getFiles() != null) {
+                for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
+                    selectedFileSize += status.getLength();
+                }
+            }
+        }
+
+        if (ConnectContext.get() != null) {
+            ConnectContext.get().addToTotalScanBytes(selectedFileSize);
+            if (ConnectContext.get().getTotalScanBytes()
+                    > sessionVariable.maxSelectedTotalScanBytes) {
+                throw new AnalysisException("the total scan bytes: "
+                        + ConnectContext.get().getTotalScanBytes()
+                        + " has exceed max bytes for total scan: "
+                        + sessionVariable.maxSelectedTotalScanBytes);
+            }
+        }
+        return selectedFileSize;
     }
 
     private void splitAllFiles(List<Split> allFiles,

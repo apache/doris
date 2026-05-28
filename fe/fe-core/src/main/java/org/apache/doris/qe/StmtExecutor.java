@@ -608,6 +608,7 @@ public class StmtExecutor {
         }
         context.setQueryId(queryId);
         context.setStartTime();
+        context.resetTotalScanBytes();
 
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
         // short circuit query should not dump changed session var since it will impact the performance.

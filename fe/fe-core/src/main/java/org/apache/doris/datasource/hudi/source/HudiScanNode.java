@@ -47,6 +47,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.BDPAuthContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -564,11 +565,15 @@ public class HudiScanNode extends HiveScanNode {
         for (PartitionMetadata metadata : metadataList) {
             totalFileSize += metadata.totalSize;
         }
-        if (totalFileSize > sessionVariable.maxSelectedTotalFileSizeForLakehouseTable) {
-            throw new AnalysisException("the total scan bytes: " + totalFileSize
-                + " for " + hmsTable.getDbName() + "." + hmsTable.getName()
-                + " has exceed max bytes for single hive/hudi table: "
-                + sessionVariable.maxSelectedTotalFileSizeForLakehouseTable);
+        if (ConnectContext.get() != null) {
+            ConnectContext.get().addToTotalScanBytes(totalFileSize);
+            if (ConnectContext.get().getTotalScanBytes()
+                    > sessionVariable.maxSelectedTotalScanBytes) {
+                throw new AnalysisException("the total scan bytes: "
+                        + ConnectContext.get().getTotalScanBytes()
+                        + " has exceed max bytes for total scan: "
+                        + sessionVariable.maxSelectedTotalScanBytes);
+            }
         }
         MetricRepo.COUNTER_HMS_SCAN_SIZE_BYTES.increase(totalFileSize);
     }

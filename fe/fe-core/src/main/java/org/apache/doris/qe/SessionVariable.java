@@ -785,13 +785,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_STATS = "enable_stats";
 
-    public static final String MAX_SELECTED_TOTAL_FILE_SIZE_FOR_HIVE_TABLE =
-            "max_selected_total_file_size_for_hive_table";
-
-    public static final String MAX_SELECTED_FILE_SIZE_FOR_UNRECOMMENDED_HIVE_TABLE =
-            "max_selected_file_size_for_unrecommended_hive_table";
-    public static final String MAX_SELECTED_TOTAL_FILE_SIZE_FOR_LAKEHOUSE_TABLE =
-            "max_selected_total_file_size_for_lakehouse_table";
+    public static final String MAX_SELECTED_TOTAL_SCAN_BYTES =
+            "max_selected_total_scan_bytes";
 
     public static final String LIMIT_ROWS_FOR_SINGLE_INSTANCE = "limit_rows_for_single_instance";
 
@@ -1034,14 +1029,8 @@ public class SessionVariable implements Serializable, Writable {
     })
     public String maskingLineagePrintSuffix = "";
 
-    @VariableMgr.VarAttr(name = MAX_SELECTED_TOTAL_FILE_SIZE_FOR_HIVE_TABLE)
-    public long maxSelectedTotalFileSizeForHiveTable = 8796093022208L;
-
-    @VariableMgr.VarAttr(name = MAX_SELECTED_FILE_SIZE_FOR_UNRECOMMENDED_HIVE_TABLE)
-    public long maxSelectedFileSizeForUnrecommendedHiveTable = 8796093022208L;
-
-    @VariableMgr.VarAttr(name = MAX_SELECTED_TOTAL_FILE_SIZE_FOR_LAKEHOUSE_TABLE)
-    public long maxSelectedTotalFileSizeForLakehouseTable = 8796093022208L;
+    @VariableMgr.VarAttr(name = MAX_SELECTED_TOTAL_SCAN_BYTES)
+    public long maxSelectedTotalScanBytes = 109951162777600L; // 100TB
 
     // session origin value
     public Map<SessionVariableField, String> sessionOriginValue = new HashMap<>();

@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -824,6 +825,16 @@ public class IcebergScanNode extends FileQueryScanNode {
         long totalFileSize = 0L;
         for (Split split : splits) {
             totalFileSize += split.getLength();
+        }
+        if (ConnectContext.get() != null) {
+            ConnectContext.get().addToTotalScanBytes(totalFileSize);
+            if (ConnectContext.get().getTotalScanBytes()
+                    > sessionVariable.maxSelectedTotalScanBytes) {
+                throw new AnalysisException("the total scan bytes: "
+                        + ConnectContext.get().getTotalScanBytes()
+                        + " has exceed max bytes for total scan: "
+                        + sessionVariable.maxSelectedTotalScanBytes);
+            }
         }
         MetricRepo.COUNTER_HMS_SCAN_SIZE_BYTES.increase(totalFileSize);
         return splits;

@@ -760,4 +760,24 @@ public class ConnectContextTest {
         Assert.assertEquals(queryId3, ctx.queryId());
         Assert.assertEquals(queryId3, bdpAuthContext.getQueryId());
     }
+
+    @Test
+    public void testTotalScanBytes() {
+        ConnectContext context = new ConnectContext();
+
+        // Test initial value
+        Assert.assertEquals(0L, context.getTotalScanBytes());
+
+        // Test add scan bytes
+        context.addToTotalScanBytes(1000L);
+        Assert.assertEquals(1000L, context.getTotalScanBytes());
+
+        // Test accumulate
+        context.addToTotalScanBytes(2000L);
+        Assert.assertEquals(3000L, context.getTotalScanBytes());
+
+        // Test reset
+        context.resetTotalScanBytes();
+        Assert.assertEquals(0L, context.getTotalScanBytes());
+    }
 }

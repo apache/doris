@@ -133,6 +133,8 @@ public class ConnectContext {
 
     protected volatile TUniqueId queryId = null;
 
+    protected volatile long totalScanBytes = 0;
+
     // only be active one time. tell Coordinator to regenerate instance ids for certain query(when retry).
     protected volatile TUniqueId needRegenerateInstanceId = null;
     protected volatile AtomicInteger instanceIdGenerator = new AtomicInteger();
@@ -557,6 +559,18 @@ public class ConnectContext {
 
     public AuditEventBuilder getAuditEventBuilder() {
         return auditEventBuilder;
+    }
+
+    public void addToTotalScanBytes(long scanBytes) {
+        this.totalScanBytes = this.totalScanBytes + scanBytes;
+    }
+
+    public void resetTotalScanBytes() {
+        this.totalScanBytes = 0;
+    }
+
+    public long getTotalScanBytes() {
+        return totalScanBytes;
     }
 
     public void setThreadLocalInfo() {
