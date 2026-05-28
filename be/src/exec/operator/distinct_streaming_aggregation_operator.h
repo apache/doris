@@ -118,6 +118,11 @@ public:
         if (_needs_finalize && _probe_expr_ctxs.empty()) {
             return {ExchangeType::NOOP};
         }
+        if (!_needs_finalize && !state->enable_local_exchange_before_agg() &&
+            !child_breaks_local_key_distribution(state)) {
+            return StatefulOperatorX<DistinctStreamingAggLocalState>::required_data_distribution(
+                    state);
+        }
         if (_needs_finalize || (!_probe_expr_ctxs.empty() && !_is_streaming_preagg)) {
             return _is_colocate && _require_bucket_distribution
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
@@ -138,6 +143,7 @@ public:
 
 private:
     friend class DistinctStreamingAggLocalState;
+
     void init_make_nullable(RuntimeState* state);
     TupleId _output_tuple_id;
     TupleDescriptor* _output_tuple_desc = nullptr;
