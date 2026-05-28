@@ -804,19 +804,12 @@ TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
 
-    const auto& row_id_nullable =
-            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
     const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(2).column);
-    const auto& row_ids =
-            assert_cast<const ColumnInt64&>(row_id_nullable.get_nested_column()).get_data();
 
     ASSERT_EQ(block.rows(), 2);
     EXPECT_EQ(id_column.get_element(0), 2);
     EXPECT_EQ(id_column.get_element(1), 3);
-    EXPECT_EQ(row_id_nullable.get_null_map_data()[0], 0);
-    EXPECT_EQ(row_id_nullable.get_null_map_data()[1], 0);
-    EXPECT_EQ(row_ids[0], 1001);
-    EXPECT_EQ(row_ids[1], 1002);
+    expect_nullable_int64_column_values(*block.get_by_position(0).column, {1001, 1002});
     expect_nullable_int64_column_values(*block.get_by_position(1).column, {77, 77});
 
     ASSERT_TRUE(reader.close().ok());
@@ -870,19 +863,12 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFiltering)
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
 
-    const auto& row_id_nullable =
-            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
     const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(2).column);
-    const auto& row_ids =
-            assert_cast<const ColumnInt64&>(row_id_nullable.get_nested_column()).get_data();
 
     ASSERT_EQ(block.rows(), 2);
     EXPECT_EQ(id_column.get_element(0), 2);
     EXPECT_EQ(id_column.get_element(1), 3);
-    EXPECT_EQ(row_id_nullable.get_null_map_data()[0], 0);
-    EXPECT_EQ(row_id_nullable.get_null_map_data()[1], 0);
-    EXPECT_EQ(row_ids[0], 3001);
-    EXPECT_EQ(row_ids[1], 3002);
+    expect_nullable_int64_column_values(*block.get_by_position(0).column, {3001, 3002});
     expect_nullable_int64_column_values(*block.get_by_position(1).column, {88, 88});
 
     ASSERT_TRUE(reader.close().ok());
@@ -942,16 +928,11 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredicateP
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
 
-    const auto& row_id_nullable =
-            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
     const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(2).column);
-    const auto& row_ids =
-            assert_cast<const ColumnInt64&>(row_id_nullable.get_nested_column()).get_data();
 
     ASSERT_EQ(block.rows(), 1);
     EXPECT_EQ(id_column.get_element(0), 3);
-    EXPECT_EQ(row_id_nullable.get_null_map_data()[0], 0);
-    EXPECT_EQ(row_ids[0], 4002);
+    expect_nullable_int64_column_values(*block.get_by_position(0).column, {4002});
     expect_nullable_int64_column_values(*block.get_by_position(1).column, {99});
 
     ASSERT_TRUE(reader.close().ok());
