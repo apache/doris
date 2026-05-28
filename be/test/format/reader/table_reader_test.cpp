@@ -674,6 +674,57 @@ TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatchWhenMissingColu
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_partition_value_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_parquet_file(file_path, 1, "one");
+
+    std::vector<TableColumn> projected_columns;
+    auto partition_column = make_table_column(1, "value", std::make_shared<DataTypeString>());
+    partition_column.is_partition_key = true;
+    projected_columns.push_back(std::move(partition_column));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader
+                        .init({
+                                .projected_columns = projected_columns,
+                                .column_predicates = {},
+                                .conjuncts = VExprContext(nullptr),
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                                .allow_missing_columns = true,
+                                .profile = nullptr,
+                        })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.partition_values.emplace("value", Field::create_field<TYPE_STRING>("p1"));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    // The file has a physical column with the same id/name. The split partition value should still
+    // take precedence and be materialized by TableReader.
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    const auto& partition_value =
+            assert_cast<const ColumnString&>(*block.get_by_position(0).column);
+    ASSERT_EQ(partition_value.size(), 1);
+    EXPECT_EQ(partition_value.get_data_at(0).to_string(), "p1");
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionForSameNameDifferentIdParquetSchema) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_same_name_diff_id_test";

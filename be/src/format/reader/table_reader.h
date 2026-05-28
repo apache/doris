@@ -295,9 +295,20 @@ protected:
             return Status::OK();
         }
         if (mapping.default_expr != nullptr) {
-            int res_id;
-            RETURN_IF_ERROR(mapping.default_expr->execute(current_block, &res_id));
-            *column = current_block->get_columns()[res_id];
+            if (current_block->rows() == current_rows) {
+                int res_id;
+                RETURN_IF_ERROR(mapping.default_expr->execute(current_block, &res_id));
+                *column = current_block->get_columns()[res_id];
+            } else {
+                DORIS_CHECK(mapping.is_constant);
+                Block eval_block;
+                eval_block.insert({mapping.table_type->create_column_const_with_default_value(
+                                           current_rows),
+                                   mapping.table_type, "__table_reader_const_rows"});
+                int res_id;
+                RETURN_IF_ERROR(mapping.default_expr->execute(&eval_block, &res_id));
+                *column = eval_block.get_columns()[res_id];
+            }
             return Status::OK();
         }
         *column = mapping.table_type->create_column_const_with_default_value(current_rows);

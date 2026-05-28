@@ -249,12 +249,13 @@ Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& project
         ColumnMapping mapping;
         mapping.table_column_id = table_column.id;
         mapping.table_type = table_column.type;
-        if (const auto* file_field = _find_file_field(table_column, file_schema)) {
-            RETURN_IF_ERROR(_create_direct_mapping(table_column, *file_field, &mapping));
-        } else if (table_column.is_partition_key && partition_values.count(table_column.name) > 0) {
+        if (table_column.is_partition_key && partition_values.count(table_column.name) > 0) {
             // 3. Partition column, use partition value as a constant mapping. Note that partition column may also have default expression, but partition value should take precedence if it exists.
+            mapping.is_constant = true;
             mapping.default_expr = VExprContext::create_shared(TableLiteral::create_shared(
                     mapping.table_type, partition_values.at(table_column.name)));
+        } else if (const auto* file_field = _find_file_field(table_column, file_schema)) {
+            RETURN_IF_ERROR(_create_direct_mapping(table_column, *file_field, &mapping));
         } else if (table_column.default_expr != nullptr) {
             // 4. Table column does not exist in file (column adding by schema evolution), which has a default expression, use it as a constant mapping.
             mapping.is_constant = true;
