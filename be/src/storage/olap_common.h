@@ -77,6 +77,7 @@ struct DataDirInfo {
     int64_t local_used_capacity = 0;
     int64_t remote_used_capacity = 0;
     int64_t trash_used_capacity = 0;
+    int64_t trash_file_num = 0;
     bool is_used = false;                                      // whether available mark
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
     DataDirType data_dir_type = DataDirType::OLAP_DATA_DIR;

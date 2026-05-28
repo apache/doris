@@ -124,6 +124,7 @@ DataDir::DataDir(StorageEngine& engine, const std::string& path, int64_t capacit
           _available_bytes(0),
           _disk_capacity_bytes(0),
           _trash_used_bytes(0),
+          _trash_file_num(0),
           _storage_medium(storage_medium),
           _is_used(false),
           _cluster_id(-1),
@@ -1020,12 +1021,21 @@ void DataDir::update_trash_capacity() {
     auto trash_path = fmt::format("{}/{}", _path, TRASH_PREFIX);
     try {
         _trash_used_bytes = _engine.get_file_or_directory_size(trash_path);
+        _trash_file_num = 0;
+        if (std::filesystem::exists(trash_path)) {
+            for (const auto& entry : std::filesystem::directory_iterator(trash_path)) {
+                if (entry.is_directory()) {
+                    _trash_file_num++;
+                }
+            }
+        }
     } catch (const std::filesystem::filesystem_error& e) {
         LOG(WARNING) << "update trash capacity failed, path: " << _path << ", err: " << e.what();
         return;
     }
     disks_trash_used_capacity->set_value(_trash_used_bytes);
-    LOG(INFO) << "path: " << _path << " trash capacity: " << _trash_used_bytes;
+    LOG(INFO) << "path: " << _path << " trash capacity: " << _trash_used_bytes
+              << ", trash file num: " << _trash_file_num;
 }
 
 void DataDir::update_local_data_size(int64_t size) {
