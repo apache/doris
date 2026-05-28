@@ -56,9 +56,8 @@ public:
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
         const auto* slot_ref = assert_cast<const VSlotRef*>(get_child(0).get());
-        const auto& input =
-                assert_cast<const ColumnInt32&>(
-                        *block->get_by_position(slot_ref->column_id()).column);
+        const auto& input = assert_cast<const ColumnInt32&>(
+                *block->get_by_position(slot_ref->column_id()).column);
         auto result = ColumnUInt8::create();
         auto& result_data = result->get_data();
         result_data.resize(count);
@@ -184,8 +183,7 @@ void write_parquet_file(const std::string& file_path, int32_t id, const std::str
             arrow::field("id", arrow::int32(), false),
             arrow::field("value", arrow::utf8(), false),
     });
-    auto table =
-            arrow::Table::Make(schema, {build_int32_array({id}), build_string_array({value})});
+    auto table = arrow::Table::Make(schema, {build_int32_array({id}), build_string_array({value})});
 
     auto file_result = arrow::io::FileOutputStream::Open(file_path);
     ASSERT_TRUE(file_result.ok()) << file_result.status();
@@ -195,8 +193,8 @@ void write_parquet_file(const std::string& file_path, int32_t id, const std::str
     builder.version(::parquet::ParquetVersion::PARQUET_2_6);
     builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
     builder.compression(::parquet::Compression::UNCOMPRESSED);
-    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(
-            *table, arrow::default_memory_pool(), out, 1, builder.build()));
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
+                                                      builder.build()));
 }
 
 void write_int_pair_parquet_file(const std::string& file_path, const std::vector<int32_t>& ids,
@@ -221,8 +219,8 @@ void write_int_pair_parquet_file(const std::string& file_path, const std::vector
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     const auto write_row_group_size =
             row_group_size > 0 ? row_group_size : static_cast<int64_t>(ids.size());
-    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(
-            *table, arrow::default_memory_pool(), out, write_row_group_size, builder.build()));
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      write_row_group_size, builder.build()));
 }
 
 Block build_table_block(const std::vector<TableColumn>& columns) {
@@ -269,20 +267,19 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
-    ASSERT_TRUE(reader
-                        .init({
-                                .projected_columns = projected_columns,
-                                .column_predicates = {},
-                                .conjuncts = VExprContext(
-                                        std::make_shared<TableInt32GreaterThanExpr>(0, 0, 0)),
-                                .format = FileFormat::PARQUET,
-                                .scan_params = nullptr,
-                                .io_ctx = nullptr,
-                                .runtime_state = &state,
-                                .scanner_profile = nullptr,
-                                .allow_missing_columns = true,
-                                .profile = nullptr,
-                        })
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(
+                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 0)),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
                         .ok());
 
     // Simulate the scanner lifecycle for three different splits:
@@ -335,20 +332,19 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
-    ASSERT_TRUE(reader
-                        .init({
-                                .projected_columns = projected_columns,
-                                .column_predicates = {},
-                                .conjuncts = VExprContext(
-                                        std::make_shared<TableInt32GreaterThanExpr>(0, 0, 2)),
-                                .format = FileFormat::PARQUET,
-                                .scan_params = nullptr,
-                                .io_ctx = nullptr,
-                                .runtime_state = &state,
-                                .scanner_profile = nullptr,
-                                .allow_missing_columns = true,
-                                .profile = nullptr,
-                        })
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(
+                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 2)),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
                         .ok());
 
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -417,19 +413,18 @@ TEST(TableReaderTest, OpenReaderBuildsColumnPredicateFilters) {
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
-    ASSERT_TRUE(reader
-                        .init({
-                                .projected_columns = projected_columns,
-                                .column_predicates = std::move(column_predicates),
-                                .conjuncts = VExprContext(nullptr),
-                                .format = FileFormat::PARQUET,
-                                .scan_params = nullptr,
-                                .io_ctx = nullptr,
-                                .runtime_state = &state,
-                                .scanner_profile = nullptr,
-                                .allow_missing_columns = true,
-                                .profile = nullptr,
-                        })
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = std::move(column_predicates),
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
                         .ok());
 
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -509,8 +504,8 @@ TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
     });
 
     FileScanRequest file_request;
-    ASSERT_TRUE(mapper.create_scan_request(table_filters, {}, projected_columns, &file_request)
-                        .ok());
+    ASSERT_TRUE(
+            mapper.create_scan_request(table_filters, {}, projected_columns, &file_request).ok());
 
     // Both filters reference column a. It must still be read once as a predicate column, and a
     // predicate column must not be repeated as a non-predicate column.
@@ -544,21 +539,20 @@ TEST(TableReaderTest, OpenReaderPushesMultiColumnConjunctToParquetReader) {
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
-    ASSERT_TRUE(reader
-                        .init({
-                                .projected_columns = projected_columns,
-                                .column_predicates = {},
-                                .conjuncts = VExprContext(
-                                        std::make_shared<TableInt32SumGreaterThanExpr>(
-                                                0, 0, 1, 1, 8)),
-                                .format = FileFormat::PARQUET,
-                                .scan_params = nullptr,
-                                .io_ctx = nullptr,
-                                .runtime_state = &state,
-                                .scanner_profile = nullptr,
-                                .allow_missing_columns = true,
-                                .profile = nullptr,
-                        })
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(
+                                            std::make_shared<TableInt32SumGreaterThanExpr>(0, 0, 1,
+                                                                                           1, 8)),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
                         .ok());
 
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -600,19 +594,18 @@ TEST(TableReaderTest, ProjectedColumnsFillDefaultForParquetSchemaMismatch) {
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
-    ASSERT_TRUE(reader
-                        .init({
-                                .projected_columns = projected_columns,
-                                .column_predicates = {},
-                                .conjuncts = VExprContext(nullptr),
-                                .format = FileFormat::PARQUET,
-                                .scan_params = nullptr,
-                                .io_ctx = nullptr,
-                                .runtime_state = &state,
-                                .scanner_profile = nullptr,
-                                .allow_missing_columns = true,
-                                .profile = nullptr,
-                        })
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
                         .ok());
 
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -645,19 +638,18 @@ TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatchWhenMissingColu
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
-    ASSERT_TRUE(reader
-                        .init({
-                                .projected_columns = projected_columns,
-                                .column_predicates = {},
-                                .conjuncts = VExprContext(nullptr),
-                                .format = FileFormat::PARQUET,
-                                .scan_params = nullptr,
-                                .io_ctx = nullptr,
-                                .runtime_state = &state,
-                                .scanner_profile = nullptr,
-                                .allow_missing_columns = false,
-                                .profile = nullptr,
-                        })
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = false,
+                                    .profile = nullptr,
+                            })
                         .ok());
 
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -669,6 +661,56 @@ TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatchWhenMissingColu
     const auto status = reader.get_block(&block, &eos);
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("does not have a matching file column"), std::string::npos);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_partition_value_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_parquet_file(file_path, 1, "one");
+
+    std::vector<TableColumn> projected_columns;
+    auto partition_column = make_table_column(1, "value", std::make_shared<DataTypeString>());
+    partition_column.is_partition_key = true;
+    projected_columns.push_back(std::move(partition_column));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.partition_values.emplace("value", Field::create_field<TYPE_STRING>("p1"));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    // The file has a physical column with the same id/name. The split partition value should still
+    // take precedence and be materialized by TableReader.
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    const auto& partition_value =
+            assert_cast<const ColumnString&>(*block.get_by_position(0).column);
+    ASSERT_EQ(partition_value.size(), 1);
+    EXPECT_EQ(partition_value.get_data_at(0).to_string(), "p1");
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
@@ -688,19 +730,18 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionForSameNameDifferentIdP
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
-    ASSERT_TRUE(reader
-                        .init({
-                                .projected_columns = projected_columns,
-                                .column_predicates = {},
-                                .conjuncts = VExprContext(nullptr),
-                                .format = FileFormat::PARQUET,
-                                .scan_params = nullptr,
-                                .io_ctx = nullptr,
-                                .runtime_state = &state,
-                                .scanner_profile = nullptr,
-                                .allow_missing_columns = true,
-                                .profile = nullptr,
-                        })
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
                         .ok());
 
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -738,19 +779,18 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismat
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
-    ASSERT_TRUE(reader
-                        .init({
-                                .projected_columns = projected_columns,
-                                .column_predicates = {},
-                                .conjuncts = VExprContext(nullptr),
-                                .format = FileFormat::PARQUET,
-                                .scan_params = nullptr,
-                                .io_ctx = nullptr,
-                                .runtime_state = &state,
-                                .scanner_profile = nullptr,
-                                .allow_missing_columns = true,
-                                .profile = nullptr,
-                        })
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
                         .ok());
 
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());

@@ -17,10 +17,10 @@
 
 #include "core/data_type_serde/data_type_time_serde.h"
 
-#include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/value/time_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_time_impl.hpp"
@@ -44,12 +44,11 @@ TimeValue::TimeType read_time_decoded_value(const DecodedColumnView& view, int64
     }
     const bool negative = micros < 0;
     const int64_t abs_micros = std::abs(micros);
-    return TimeValue::make_time(abs_micros / TimeValue::ONE_HOUR_MICROSECONDS,
-                                (abs_micros % TimeValue::ONE_HOUR_MICROSECONDS) /
-                                        TimeValue::ONE_MINUTE_MICROSECONDS,
-                                (abs_micros % TimeValue::ONE_MINUTE_MICROSECONDS) /
-                                        TimeValue::ONE_SECOND_MICROSECONDS,
-                                abs_micros % TimeValue::ONE_SECOND_MICROSECONDS, negative);
+    return TimeValue::make_time(
+            abs_micros / TimeValue::ONE_HOUR_MICROSECONDS,
+            (abs_micros % TimeValue::ONE_HOUR_MICROSECONDS) / TimeValue::ONE_MINUTE_MICROSECONDS,
+            (abs_micros % TimeValue::ONE_MINUTE_MICROSECONDS) / TimeValue::ONE_SECOND_MICROSECONDS,
+            abs_micros % TimeValue::ONE_SECOND_MICROSECONDS, negative);
 }
 
 } // namespace
@@ -173,10 +172,9 @@ Status DataTypeTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn& col
     return Status::OK();
 }
 
-Status DataTypeTimeV2SerDe::read_column_from_decoded_values(
-        IColumn& column, const DecodedColumnView& view) const {
-    if (view.value_kind != DecodedValueKind::INT32 &&
-        view.value_kind != DecodedValueKind::INT64) {
+Status DataTypeTimeV2SerDe::read_column_from_decoded_values(IColumn& column,
+                                                            const DecodedColumnView& view) const {
+    if (view.value_kind != DecodedValueKind::INT32 && view.value_kind != DecodedValueKind::INT64) {
         return Status::NotSupported("TIMEV2 decoded reader expects INT32 or INT64 source");
     }
     if (view.values == nullptr && view.row_count > 0) {

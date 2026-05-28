@@ -18,8 +18,8 @@
 #include "core/data_type_serde/data_type_string_serde.h"
 
 #include "core/column/column_string.h"
-#include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"

@@ -237,7 +237,8 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadNullableInt32Values) {
     ASSERT_TRUE(st.ok()) << st;
 
     const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
-    const auto& nested_column = assert_cast<const ColumnInt32&>(nullable_column.get_nested_column());
+    const auto& nested_column =
+            assert_cast<const ColumnInt32&>(nullable_column.get_nested_column());
     ASSERT_EQ(nullable_column.size(), 4);
     EXPECT_FALSE(nullable_column.is_null_at(0));
     EXPECT_TRUE(nullable_column.is_null_at(1));

@@ -72,7 +72,8 @@ public:
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
         ColumnPtr child_column;
-        RETURN_IF_ERROR(get_child(0)->execute_column(context, block, selector, count, child_column));
+        RETURN_IF_ERROR(
+                get_child(0)->execute_column(context, block, selector, count, child_column));
         const auto& input = assert_cast<const ColumnInt64&>(*child_column);
         auto result = ColumnUInt8::create();
         auto& result_data = result->get_data();
@@ -261,8 +262,8 @@ TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
     table_filter.slot_ids = {7};
 
     reader::FileScanRequest file_request;
-    ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request)
-                        .ok());
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
     ASSERT_EQ(file_request.expression_filters.size(), 1);
     ASSERT_EQ(file_request.predicate_columns, std::vector<reader::ColumnId>({0}));
     const auto& localized_expr = file_request.expression_filters[0].conjunct->root();
@@ -285,8 +286,7 @@ TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
     ASSERT_TRUE(status.ok()) << status;
     IColumn::Filter filter(block.rows(), 1);
     bool can_filter_all = false;
-    status = conjunct->execute_filter(&block, filter.data(), block.rows(), false,
-                                      &can_filter_all);
+    status = conjunct->execute_filter(&block, filter.data(), block.rows(), false, &can_filter_all);
     ASSERT_TRUE(status.ok()) << status;
     EXPECT_FALSE(can_filter_all);
     ASSERT_EQ(filter.size(), 2);

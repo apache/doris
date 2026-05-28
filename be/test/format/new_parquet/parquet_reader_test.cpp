@@ -196,8 +196,8 @@ void write_int_pair_parquet_file(const std::string& file_path, int64_t row_group
     builder.version(::parquet::ParquetVersion::PARQUET_2_6);
     builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
     builder.compression(::parquet::Compression::UNCOMPRESSED);
-    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(
-            *table, arrow::default_memory_pool(), out, row_group_size, builder.build()));
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      row_group_size, builder.build()));
 }
 
 Block build_file_block(const std::vector<reader::SchemaField>& schema) {

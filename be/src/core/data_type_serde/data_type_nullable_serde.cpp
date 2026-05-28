@@ -29,9 +29,9 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
-#include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "exprs/function/cast/cast_base.h"
 #include "format/transformer/vcsv_transformer.h"
 #include "util/jsonb_document.h"
@@ -351,8 +351,8 @@ Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
                                                 ctz);
 }
 
-Status DataTypeNullableSerDe::read_column_from_decoded_values(
-        IColumn& column, const DecodedColumnView& view) const {
+Status DataTypeNullableSerDe::read_column_from_decoded_values(IColumn& column,
+                                                              const DecodedColumnView& view) const {
     auto& nullable_column = assert_cast<ColumnNullable&>(column);
     auto& null_map = nullable_column.get_null_map_data();
     const auto old_size = null_map.size();
