@@ -301,6 +301,9 @@ private:
         if (rows_it == rows_by_file.end()) {
             return Status::OK();
         }
+        // Position delete files and deletion vectors both become row-position deletes for the
+        // common TableReader DeletePredicate path. Keep the merged rows in a member vector because
+        // DeletePredicate stores a reference to the vector used by _delete_rows.
         _position_delete_rows_storage.insert(_position_delete_rows_storage.end(),
                                              rows_it->second.begin(), rows_it->second.end());
         std::sort(_position_delete_rows_storage.begin(), _position_delete_rows_storage.end());
