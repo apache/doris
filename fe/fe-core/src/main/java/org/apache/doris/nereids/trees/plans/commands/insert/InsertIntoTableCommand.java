@@ -91,6 +91,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
@@ -692,6 +693,12 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
         // if the insert stmt data source is empty, directly return, no need to be executed.
         if (insertExecutor.isEmptyInsert()) {
+            String label = this.labelName.orElse(
+                    String.format("label%s_%x_%x", "", ctx.queryId().hi, ctx.queryId().lo));
+            TableIf targetTableIf = insertExecutor.getTable();
+            ctx.setOrUpdateInsertResult(-1, label,
+                    targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
+                    TransactionStatus.VISIBLE, 0, 0);
             return;
         }
         if (insertExecutorListener != null) {
