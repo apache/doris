@@ -101,6 +101,23 @@ public class AggregateUnionPlanTest extends TestWithFeService implements MemoPat
         });
     }
 
+    @Test
+    public void testNestedSetOperationDistinctUnionSingleInstance() {
+        int beNumberForTest = connectContext.getSessionVariable().getBeNumberForTest();
+        int parallelPipelineTaskNum = connectContext.getSessionVariable().parallelPipelineTaskNum;
+        connectContext.getSessionVariable().setBeNumberForTest(1);
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 1;
+        try {
+            PlanChecker.from(connectContext).checkPlannerResult(
+                    "SELECT * FROM (SELECT 1 a INTERSECT SELECT 1 a) t1"
+                            + " UNION "
+                            + "SELECT * FROM (SELECT 2 a EXCEPT SELECT 3 a) t2");
+        } finally {
+            connectContext.getSessionVariable().setBeNumberForTest(beNumberForTest);
+            connectContext.getSessionVariable().parallelPipelineTaskNum = parallelPipelineTaskNum;
+        }
+    }
+
     /**
      * Walk up through PhysicalProject nodes to find if a PhysicalUnion sits below.
      * Used to handle optional project nodes that the optimizer may insert between

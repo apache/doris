@@ -136,15 +136,15 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
      * */
     private boolean shouldBanOnePhaseAgg(PhysicalHashAggregate<? extends Plan> aggregate,
             PhysicalProperties requiredChildProperty) {
-        if (banAggUnionAll(aggregate)) {
-            return true;
-        }
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null && ctx.getSessionVariable().aggPhase == 1) {
             return false;
         }
         if (ctx != null && AggregateUtils.isSingleExecutionInstance(ctx)) {
             return false;
+        }
+        if (banAggUnionAll(aggregate)) {
+            return true;
         }
         if (!onePhaseAggWithDistribute(aggregate)) {
             return false;
