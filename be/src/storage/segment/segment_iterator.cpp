@@ -235,8 +235,7 @@ SegmentIterator::~SegmentIterator() = default;
 
 void SegmentIterator::_init_row_bitmap_by_condition_cache() {
     // Only dispose need column predicate and expr cal in condition cache
-    if (!_col_predicates.empty() ||
-        (_enable_common_expr_pushdown && !_remaining_conjunct_roots.empty())) {
+    if (!_col_predicates.empty() || !_common_expr_ctxs_push_down.empty()) {
         if (_opts.condition_cache_digest) {
             auto* condition_cache = ConditionCache::instance();
             ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
@@ -522,8 +521,6 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _initial_block_row_max = _opts.block_row_max;
     _block_size_predictor = _make_block_size_predictor();
 
-    _remaining_conjunct_roots = opts.remaining_conjunct_roots;
-
     if (_schema->rowid_col_idx() > 0) {
         _record_rowids = true;
     }
@@ -580,7 +577,6 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     RETURN_IF_ERROR(init_iterators());
 
     RETURN_IF_ERROR(_construct_compound_expr_context());
-    _enable_common_expr_pushdown = !_common_expr_ctxs_push_down.empty();
     VLOG_DEBUG << fmt::format(
             "Segment iterator init, virtual_column_exprs size: {}, "
             "_vir_cid_to_idx_in_block size: {}, common_expr_pushdown size: {}",
@@ -597,7 +593,7 @@ void SegmentIterator::_initialize_predicate_results() {
         _column_predicate_index_exec_status[cid][pred] = false;
     }
 
-    _calculate_expr_in_remaining_conjunct_root();
+    _calculate_common_expr_index_exec_status();
 }
 
 Status SegmentIterator::init_iterators() {
@@ -928,12 +924,6 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                             (*it)->root().get());
                     if (result != nullptr) {
                         _row_bitmap &= *result->get_data_bitmap();
-                        auto root = (*it)->root();
-                        auto iter_find = std::find(_remaining_conjunct_roots.begin(),
-                                                   _remaining_conjunct_roots.end(), root);
-                        if (iter_find != _remaining_conjunct_roots.end()) {
-                            _remaining_conjunct_roots.erase(iter_find);
-                        }
                         it = _common_expr_ctxs_push_down.erase(it);
                     }
                 } else {
@@ -1404,8 +1394,6 @@ Status SegmentIterator::_apply_index_expr() {
             ++it;
         }
     }
-    // TODO：Do we need to remove these expr root from _remaining_conjunct_roots?
-
     return Status::OK();
 }
 
@@ -1734,8 +1722,8 @@ Status SegmentIterator::_init_index_iterators() {
                         data_type = inferred_type;
                     }
                 }
-                inverted_indexs_holder =
-                        variant_reader->find_subcolumn_tablet_indexes(column, data_type);
+                inverted_indexs_holder = variant_reader->find_subcolumn_tablet_indexes(
+                        column, data_type, _opts.stats);
                 // Extract raw pointers from shared_ptr for iteration
                 for (const auto& index_ptr : inverted_indexs_holder) {
                     inverted_indexs.push_back(index_ptr.get());
@@ -1745,9 +1733,38 @@ Status SegmentIterator::_init_index_iterators() {
             else {
                 inverted_indexs = _segment->_tablet_schema->inverted_indexs(column);
             }
+            if (column.is_extracted_column() && inverted_indexs.empty() && _opts.stats != nullptr) {
+                const auto relative_path = column.path_info_ptr()->copy_pop_front().get_path();
+                const auto diagnostic = fmt::format(
+                        "[VariantSearchBinding] phase=init_index_iterators "
+                        "result=no_candidate tablet_id={} rowset_id={} segment_id={} cid={} "
+                        "logical_path={} relative_path={} materialized_column={}",
+                        _tablet_id, _segment->rowset_id().to_string(), _segment->id(), cid,
+                        column.path_info_ptr()->get_path(), relative_path, column.name());
+                VLOG_DEBUG << diagnostic;
+                _opts.stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
+            }
             for (const auto& inverted_index : inverted_indexs) {
+                const bool had_iterator = _index_iterators[cid] != nullptr;
                 RETURN_IF_ERROR(_segment->new_index_iterator(column, inverted_index, _opts,
                                                              &_index_iterators[cid]));
+                if ((column.is_extracted_column() || column.is_variant_type()) &&
+                    _opts.stats != nullptr) {
+                    const auto diagnostic = fmt::format(
+                            "[VariantSearchBinding] phase=init_index_iterators "
+                            "result={} tablet_id={} rowset_id={} segment_id={} cid={} "
+                            "logical_path={} materialized_column={} index_id={} suffix={} "
+                            "field_pattern={} iterator_state={}",
+                            _index_iterators[cid] == nullptr ? "no_iterator" : "accepted",
+                            _tablet_id, _segment->rowset_id().to_string(), _segment->id(), cid,
+                            column.has_path_info() ? column.path_info_ptr()->get_path()
+                                                   : column.name(),
+                            column.name(), inverted_index->index_id(),
+                            inverted_index->get_index_suffix(), inverted_index->field_pattern(),
+                            had_iterator ? "preserved" : "created");
+                    VLOG_DEBUG << diagnostic;
+                    _opts.stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
+                }
             }
             if (_index_iterators[cid] != nullptr) {
                 _index_iterators[cid]->set_context(_index_query_context);
@@ -2065,9 +2082,9 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
 
     // Step2: extract columns that can execute expr context
     _is_common_expr_column.resize(_schema->columns().size(), false);
-    if (_enable_common_expr_pushdown && !_remaining_conjunct_roots.empty()) {
-        for (auto expr : _remaining_conjunct_roots) {
-            RETURN_IF_ERROR(_extract_common_expr_columns(expr));
+    if (!_common_expr_ctxs_push_down.empty()) {
+        for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
+            RETURN_IF_ERROR(_extract_common_expr_columns(expr_ctx->root()));
         }
         if (!_common_expr_columns.empty()) {
             _is_need_expr_eval = true;
@@ -3238,7 +3255,7 @@ Status SegmentIterator::_process_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
 Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                              Block* block) {
     SCOPED_RAW_TIMER(&_opts.stats->expr_filter_ns);
-    DCHECK(!_remaining_conjunct_roots.empty());
+    DCHECK(!_common_expr_ctxs_push_down.empty());
     DCHECK(block->rows() != 0);
     int prev_columns = block->columns();
     uint16_t original_size = selected_size;
@@ -3435,7 +3452,7 @@ Status SegmentIterator::_construct_compound_expr_context() {
     return Status::OK();
 }
 
-void SegmentIterator::_calculate_expr_in_remaining_conjunct_root() {
+void SegmentIterator::_calculate_common_expr_index_exec_status() {
     for (const auto& root_expr_ctx : _common_expr_ctxs_push_down) {
         const auto& root_expr = root_expr_ctx->root();
         if (root_expr == nullptr) {

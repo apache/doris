@@ -167,6 +167,26 @@ Status LocalFileSystem::delete_directory_or_file(const Path& path) {
     FILESYSTEM_M(delete_directory_or_file_impl(path));
 }
 
+Status LocalFileSystem::delete_empty_directory(const Path& dir) {
+    FILESYSTEM_M(delete_empty_directory_impl(dir));
+}
+
+Status LocalFileSystem::delete_empty_directory_impl(const Path& dir) {
+    Path path;
+    RETURN_IF_ERROR(absolute_path(dir, path));
+    VLOG_DEBUG << "delete empty directory: " << path.native();
+    int ret = 0;
+    RETRY_ON_EINTR(ret, rmdir(path.c_str()));
+    if (ret != 0) {
+        std::error_code ec(errno, std::generic_category());
+        if (ec == std::errc::no_such_file_or_directory) {
+            return Status::OK();
+        }
+        return localfs_error(ec, fmt::format("failed to delete empty directory {}", path.native()));
+    }
+    return Status::OK();
+}
+
 Status LocalFileSystem::delete_directory_or_file_impl(const Path& path) {
     bool is_dir;
     RETURN_IF_ERROR(is_directory(path, &is_dir));

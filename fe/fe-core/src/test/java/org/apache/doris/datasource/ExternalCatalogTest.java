@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -142,6 +143,52 @@ public class ExternalCatalogTest extends TestWithFeService {
         prop.put(ExternalCatalog.ENABLE_AUTO_ANALYZE, "TRUE");
         catalog.modifyCatalogProps(prop);
         Assertions.assertTrue(catalog.enableAutoAnalyze());
+    }
+
+    @Test
+    public void testShowCreateCatalogMasksSensitiveProperties() throws Exception {
+        String createStmt = "create catalog mask_iceberg_rest properties(\n"
+                + "    \"type\" = \"iceberg\",\n"
+                + "    \"iceberg.catalog.type\" = \"rest\",\n"
+                + "    \"iceberg.rest.uri\" = \"http://localhost:8181\",\n"
+                + "    \"warehouse\" = \"test_db\",\n"
+                + "    \"iceberg.rest.security.type\" = \"oauth2\",\n"
+                + "    \"iceberg.rest.oauth2.credential\" = \"super-secret-pat\",\n"
+                + "    \"iceberg.rest.oauth2.server-uri\" = \"http://localhost:8181/v1/oauth/tokens\",\n"
+                + "    \"iceberg.rest.oauth2.scope\" = \"session:role:TEST_ROLE\"\n"
+                + ");";
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createStmt);
+        Assertions.assertTrue(logicalPlan instanceof CreateCatalogCommand);
+        ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+
+        List<List<String>> rows = mgr.showCreateCatalog("mask_iceberg_rest");
+        Assertions.assertEquals(1, rows.size());
+        String ddl = rows.get(0).get(1);
+        Assertions.assertTrue(ddl.contains("\"iceberg.rest.oauth2.credential\" = \""
+                + DatasourcePrintableMap.PASSWORD_MASK + "\""));
+        Assertions.assertFalse(ddl.contains("super-secret-pat"));
+
+        String createTokenStmt = "create catalog mask_iceberg_rest_token properties(\n"
+                + "    \"type\" = \"iceberg\",\n"
+                + "    \"iceberg.catalog.type\" = \"rest\",\n"
+                + "    \"iceberg.rest.uri\" = \"http://localhost:8181\",\n"
+                + "    \"warehouse\" = \"test_db\",\n"
+                + "    \"iceberg.rest.security.type\" = \"oauth2\",\n"
+                + "    \"iceberg.rest.oauth2.token\" = \"super-secret-token\"\n"
+                + ");";
+
+        logicalPlan = nereidsParser.parseSingle(createTokenStmt);
+        Assertions.assertTrue(logicalPlan instanceof CreateCatalogCommand);
+        ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+
+        rows = mgr.showCreateCatalog("mask_iceberg_rest_token");
+        Assertions.assertEquals(1, rows.size());
+        ddl = rows.get(0).get(1);
+        Assertions.assertTrue(ddl.contains("\"iceberg.rest.oauth2.token\" = \""
+                + DatasourcePrintableMap.PASSWORD_MASK + "\""));
+        Assertions.assertFalse(ddl.contains("super-secret-token"));
     }
 
     @Test

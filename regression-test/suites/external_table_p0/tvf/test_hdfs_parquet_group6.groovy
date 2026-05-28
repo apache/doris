@@ -677,8 +677,8 @@ suite("test_hdfs_parquet_group6", "p0,external") {
                 sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
-                exception "Can't read byte array length from plain decoder"
+                        "format" = "parquet"); """
+                exception "Can't read enough bytes in plain decode"
             }
 
 

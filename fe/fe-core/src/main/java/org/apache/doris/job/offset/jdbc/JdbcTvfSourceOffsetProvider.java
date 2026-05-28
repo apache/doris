@@ -260,15 +260,15 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
      * adds it to finishedSplits. During txn replay remainingSplits is empty so removeIf returns
      * false naturally — chunkHighWatermarkMap is still updated for replayIfNeed to use later.
      *
-     * <p>Binlog: currentOffset is set above. Also mirror startingOffset into binlogOffsetPersist
-     * so it survives FE checkpoint via image (currentOffset has no @SerializedName).
+     * <p>Binlog: mirror startingOffset into binlogOffsetPersist so it survives FE checkpoint via
+     * image (currentOffset has no @SerializedName).
      */
     @Override
     public void updateOffset(Offset offset) {
-        this.currentOffset = (JdbcOffset) offset;
-        if (currentOffset.snapshotSplit()) {
+        JdbcOffset newOffset = (JdbcOffset) offset;
+        if (newOffset.snapshotSplit()) {
             synchronized (splitsLock) {
-                for (AbstractSourceSplit split : currentOffset.getSplits()) {
+                for (AbstractSourceSplit split : newOffset.getSplits()) {
                     SnapshotSplit ss = (SnapshotSplit) split;
                     boolean removed = remainingSplits.removeIf(v -> {
                         if (v.getSplitId().equals(ss.getSplitId())) {
@@ -289,12 +289,13 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
             }
         } else {
             // Mirror binlog offset into bop so it survives FE checkpoint
-            BinlogSplit bs = (BinlogSplit) currentOffset.getSplits().get(0);
+            BinlogSplit bs = (BinlogSplit) newOffset.getSplits().get(0);
             if (MapUtils.isNotEmpty(bs.getStartingOffset())) {
                 binlogOffsetPersist = new HashMap<>(bs.getStartingOffset());
                 binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
             }
         }
+        this.currentOffset = newOffset;
     }
 
     /**
