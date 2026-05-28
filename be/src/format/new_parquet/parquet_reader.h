@@ -68,7 +68,6 @@ public:
     // 该方法只能在 init() 成功后调用。
     // 返回列必须保持 file-local 语义，不能在这里补 default/generated/partition 列。
     Status get_block(Block* file_block, size_t* rows, bool* eof) override;
-    const std::vector<reader::FileRowPosition>& current_batch_row_positions() const override;
 
     Status close() override;
 
@@ -140,9 +139,6 @@ private:
                                          int64_t batch_rows);
     uint16_t _apply_filter_to_selection(const IColumn::Filter& filter, SelectionVector* selection,
                                         uint16_t selected_rows);
-    void _set_current_batch_row_positions(int64_t start_row, int64_t batch_rows);
-    void _set_current_batch_row_positions(int64_t start_row, const SelectionVector& selection,
-                                          uint16_t selected_rows);
     Status _open_next_row_group(bool* has_row_group);
     Status _read_current_row_group_batch(int64_t batch_rows, Block* file_block, size_t* rows);
     bool _is_row_group_outside_range(int row_group_idx) const;

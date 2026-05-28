@@ -41,6 +41,7 @@ class IColumn;
 
 namespace reader {
 struct FieldProjection;
+struct SchemaField;
 } // namespace reader
 
 namespace parquet {
@@ -89,6 +90,11 @@ public:
     ParquetColumnReaderFactory(std::shared_ptr<::parquet::RowGroupReader> row_group,
                                int num_leaf_columns);
 
+    static constexpr int ROW_POSITION_COLUMN_ID = -10001;
+    static constexpr const char* ROW_POSITION_COLUMN_NAME = "__parquet_row_position";
+
+    static reader::SchemaField row_position_schema_field();
+
     // 根据 file-local schema tree 创建 column reader。复杂类型会在这里递归创建
     // children。该入口只理解 Parquet file schema，不处理 table/global schema。
     Status create(const ParquetColumnSchema& column_schema,
@@ -99,6 +105,9 @@ public:
                   std::unique_ptr<ParquetColumnReader>* reader) const {
         return create(column_schema, nullptr, reader);
     }
+
+    std::unique_ptr<ParquetColumnReader> create_row_position_column_reader(
+            int64_t row_group_first_row) const;
 
 private:
     Status create_scalar_column_reader(const ParquetColumnSchema& column_schema,

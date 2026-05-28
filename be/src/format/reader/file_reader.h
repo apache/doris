@@ -43,7 +43,6 @@ struct IOContext;
 namespace doris::reader {
 
 using ColumnId = int32_t;
-using FileRowPosition = int64_t;
 
 enum ColumnType {
     DATA_COLUMN = 0, // normal data column
@@ -187,13 +186,6 @@ public:
         }
         _eof = true;
         return Status::OK();
-    }
-
-    // File-local physical row positions for the last returned batch after file-layer filtering.
-    // Table formats such as Iceberg may combine these positions with table-format metadata.
-    virtual const std::vector<FileRowPosition>& current_batch_row_positions() const {
-        static const std::vector<FileRowPosition> empty_row_positions;
-        return empty_row_positions;
     }
 
     // 关闭当前物理文件 reader 并释放文件层状态。

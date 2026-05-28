@@ -230,6 +230,7 @@ protected:
         auto file_request = std::make_unique<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper.create_scan_request(
                 _table_filters, _table_column_predicates, _projected_columns, file_request.get()));
+        RETURN_IF_ERROR(customize_file_scan_request(file_request.get()));
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
         _data_reader.scan_schema.clear();
         _data_reader.block_template.clear();
@@ -258,6 +259,10 @@ protected:
 
     Status _build_table_filters_from_conjuncts();
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
+
+    virtual Status customize_file_scan_request(FileScanRequest* file_request) {
+        return Status::OK();
+    }
 
     // 关闭当前具体 reader。
     // 该 hook 会被 create_next_reader 和 close 调用；实现应保持幂等。

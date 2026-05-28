@@ -33,7 +33,9 @@
 #include "core/column/column.h"
 #include "core/column/column_array.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/decoded_column_view.h"
@@ -128,6 +130,50 @@ private:
     DataTypePtr _type;
     std::string _name;
     std::unique_ptr<ParquetColumnReader> _element_reader;
+};
+
+class RowPositionColumnReader final : public ParquetColumnReader {
+public:
+    explicit RowPositionColumnReader(int64_t row_group_first_row)
+            : _row_group_first_row(row_group_first_row) {}
+
+    int file_column_id() const override { return ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID; }
+    int parquet_leaf_column_id() const override { return -1; }
+    const DataTypePtr& type() const override { return _type; }
+    const std::string& name() const override { return _name; }
+
+    Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override {
+        if (column.get() == nullptr || rows_read == nullptr) {
+            return Status::InvalidArgument("Invalid parquet row position read result pointer");
+        }
+        if (rows < 0) {
+            return Status::InvalidArgument("Invalid parquet row position read rows {}", rows);
+        }
+        auto* vector_column = assert_cast<ColumnInt64*>(column.get());
+        auto& data = vector_column->get_data();
+        const auto old_size = data.size();
+        data.resize(old_size + rows);
+        for (int64_t row = 0; row < rows; ++row) {
+            data[old_size + row] = _row_group_first_row + _next_row_position + row;
+        }
+        _next_row_position += rows;
+        *rows_read = rows;
+        return Status::OK();
+    }
+
+    Status skip(int64_t rows) override {
+        if (rows <= 0) {
+            return Status::OK();
+        }
+        _next_row_position += rows;
+        return Status::OK();
+    }
+
+private:
+    int64_t _row_group_first_row = 0;
+    int64_t _next_row_position = 0;
+    DataTypePtr _type = std::make_shared<DataTypeInt64>();
+    std::string _name = ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME;
 };
 
 Status read_records(ScalarColumnReader& column_reader, int64_t batch_rows,
@@ -557,6 +603,20 @@ ParquetColumnReaderFactory::ParquetColumnReaderFactory(
         std::shared_ptr<::parquet::RowGroupReader> row_group, int num_leaf_columns)
         : _row_group(std::move(row_group)),
           _record_readers(static_cast<size_t>(num_leaf_columns)) {}
+
+reader::SchemaField ParquetColumnReaderFactory::row_position_schema_field() {
+    reader::SchemaField field;
+    field.id = ROW_POSITION_COLUMN_ID;
+    field.name = ROW_POSITION_COLUMN_NAME;
+    field.type = std::make_shared<DataTypeInt64>();
+    field.column_type = reader::ColumnType::ROW_NUMBER;
+    return field;
+}
+
+std::unique_ptr<ParquetColumnReader> ParquetColumnReaderFactory::create_row_position_column_reader(
+        int64_t row_group_first_row) const {
+    return std::make_unique<RowPositionColumnReader>(row_group_first_row);
+}
 
 Status ParquetColumnReaderFactory::create_scalar_reader(
         int parquet_leaf_column_id, const ParquetTypeDescriptor& type_descriptor,

@@ -29,6 +29,9 @@
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/define_primitive_type.h"
+#include "core/field.h"
+#include "format/new_parquet/column_reader.h"
 #include "format/reader/file_reader.h"
 #include "format/reader/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -123,6 +126,24 @@ protected:
         return Status::OK();
     }
 
+    Status customize_file_scan_request(reader::FileScanRequest* file_request) override {
+        if (_row_lineage_columns.first_row_id < 0 || !_need_row_lineage_row_id()) {
+            return Status::OK();
+        }
+        DORIS_CHECK(file_request != nullptr);
+        const auto row_position_column_id =
+                doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
+        if (file_request->column_positions.count(row_position_column_id) > 0) {
+            return Status::OK();
+        }
+        _row_position_block_position = file_request->column_positions.size();
+        file_request->non_predicate_columns.push_back(row_position_column_id);
+        file_request->column_positions.emplace(row_position_column_id, _row_position_block_position);
+        _data_reader.block_schema.push_back(
+                doris::parquet::ParquetColumnReaderFactory::row_position_schema_field());
+        return Status::OK();
+    }
+
     // 在 table block 上应用 equality delete。
     // equality delete 依赖 table-level 列语义，因此不能下沉到 ParquetReader。
     Status apply_equality_deletes(Block* block) {
@@ -140,17 +161,19 @@ private:
         if (_row_lineage_columns.first_row_id < 0) {
             return Status::OK();
         }
-        const auto& row_positions = _data_reader.reader->current_batch_row_positions();
-        DORIS_CHECK(row_positions.size() == table_block->rows());
-        auto column = table_block->get_by_position(column_idx).type->create_column();
+        DORIS_CHECK(_row_position_block_position < _data_reader.block_template.columns());
+        const auto& row_position_column = assert_cast<const ColumnInt64&>(
+                *_data_reader.block_template.get_by_position(_row_position_block_position).column);
+        DORIS_CHECK(row_position_column.size() == table_block->rows());
+        auto column = table_block->get_by_position(column_idx).column->assume_mutable();
         auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
         auto& null_map = nullable_column->get_null_map_data();
         auto& data =
                 assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
-        null_map.resize_fill(row_positions.size(), 0);
-        data.resize(row_positions.size());
-        for (size_t row = 0; row < row_positions.size(); ++row) {
-            data[row] = _row_lineage_columns.first_row_id + row_positions[row];
+        null_map.resize_fill(row_position_column.size(), 0);
+        data.resize(row_position_column.size());
+        for (size_t row = 0; row < row_position_column.size(); ++row) {
+            data[row] = _row_lineage_columns.first_row_id + row_position_column.get_element(row);
         }
         table_block->replace_by_position(column_idx, std::move(column));
         return Status::OK();
@@ -162,21 +185,26 @@ private:
             return Status::OK();
         }
         const auto rows = table_block->rows();
-        auto column = table_block->get_by_position(column_idx).type->create_column();
-        auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
-        auto& null_map = nullable_column->get_null_map_data();
-        auto& data =
-                assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
-        null_map.resize_fill(rows, 0);
-        data.resize(rows);
-        for (size_t row = 0; row < rows; ++row) {
-            data[row] = _row_lineage_columns.last_updated_sequence_number;
-        }
+        auto column = table_block->get_by_position(column_idx)
+                              .type->create_column_const(
+                                      rows, Field::create_field<TYPE_BIGINT>(
+                                                    _row_lineage_columns
+                                                            .last_updated_sequence_number));
         table_block->replace_by_position(column_idx, std::move(column));
         return Status::OK();
     }
 
     RowLineageColumns _row_lineage_columns;
+    size_t _row_position_block_position = 0;
+
+    bool _need_row_lineage_row_id() const {
+        for (const auto& mapping : _data_reader.column_mapper.mappings()) {
+            if (mapping.virtual_column_type == reader::TableVirtualColumnType::ROW_ID) {
+                return true;
+            }
+        }
+        return false;
+    }
 };
 
 } // namespace doris::iceberg
