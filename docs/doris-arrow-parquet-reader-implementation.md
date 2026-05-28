@@ -142,7 +142,9 @@ select(selection, selected_rows, batch_rows, column)
 当前实现：
 
 - `ScalarColumnReader`：基于 Arrow internal `RecordReader` 读取 flat primitive/string/decimal/time/timestamp。
-- `StructColumnReader`：递归读取 children，支持非常基础的 struct 组装。
+- `StructColumnReader`：支持 top-level struct 的 scalar child 组装，包含 nullable parent struct、nullable scalar child 和 struct child projection。
+- `ListColumnReader`：支持 scalar element 的 LIST level 组装，包含 null list、empty list、nullable element 和 overflow state。
+- `MapColumnReader`：支持 scalar key/value 的 MAP level 组装，包含 null map、empty map、nullable scalar value 和 overflow state。
 
 `select()` 在基类中统一实现：把 `SelectionVector` 合并成连续 row ranges，然后交替调用 `skip()` 和 `read()`。当前不实现整批 read 后再 filter 的 fallback。
 
@@ -218,7 +220,8 @@ DataTypeSerDe::read_column_from_decoded_values(...)
 - selection index 当前是 `uint16_t`，需要显式约束 batch size；
 - selected read 依赖 Arrow internal `RecordReader::SkipRecords` 和 `ReadRecords`，需要继续隔离在 `column_reader.*`；
 - 没有 page-level row range selection；
-- 复杂列延时物化尚未实现。
+- LIST/MAP 的 `select()` 已经复用 `skip() + read()` range 策略，并通过 nested overflow state 保持 cursor 正确；
+- Struct 的 complex child selected read 仍依赖 child reader 自身能力，后续需要补多 stream assembler。
 
 ## Schema Change 当前状态
 
@@ -248,20 +251,44 @@ DataTypeSerDe::read_column_from_decoded_values(...)
 
 - schema builder 能识别 `STRUCT`、`LIST`、`MAP`。
 - 可以把复杂 Parquet schema 组合成 Doris `DataTypeStruct`、`DataTypeArray`、`DataTypeMap`。
-- `StructColumnReader` 可以递归读取 children，支持非常基础的非 nullable struct。
+- `ParquetColumnSchema` 已记录 file path、field id path、name path、definition level、repetition level、nullable definition level 和 repeated repetition level，为后续 child-level mapping/schema change 留入口。
+- `TableColumnMapper` 可以为 struct child 生成 `FieldProjection`，`ParquetReader` 会把 projected file-local schema 暴露给上层。
+- `StructColumnReader` 支持 top-level struct 的 scalar children：
+  - required struct；
+  - nullable struct；
+  - required scalar child；
+  - nullable scalar child；
+  - projected scalar child，例如只读 `s.b` 时仍能根据该 leaf 的 definition level 还原 parent null map。
+- `LIST` 支持 scalar element：
+  - required / nullable list；
+  - null list；
+  - empty list；
+  - required / nullable scalar element；
+  - 小批量 read 下跨 batch 的 overflow；
+  - `skip()` / `select()` 通过同一个 level assembler 推进。
+- `MAP` 支持 scalar key/value：
+  - required / nullable map；
+  - null map；
+  - empty map；
+  - required key；
+  - required / nullable scalar value；
+  - key leaf 作为 shape driver，value leaf 校验 row count、level count 和 repetition level 对齐；
+  - `skip()` / `select()` 通过同一个 level assembler 推进。
+- `NestedScalarBatch` 在每次 `RecordReader::ReadRecords()` 后复制 def/rep levels，并把 defined values materialize 到 Doris-owned 临时列，避免保存 Arrow buffer 或 `StringRef`。
+- `NestedScalarOverflow` 保存未消费的 level tail 和 compact 后的 Doris-owned value column，LIST/MAP read-ahead 不再假设 child records 等于 output rows。
+- `RepeatedLevelAssembler` 统一折叠 repeated level stream，生成 parent row、entry count、parent null map，并由 sink 写入 list/map child column。
 
 主要缺口：
 
-- nullable struct 未实现。
-- list reader 未实现。
-- map reader 未实现。
-- repeated / nested definition level assembler 未实现。
-- primitive reader 当前只支持 `max_repetition_level == 0 && max_definition_level <= 1` 的 RecordReader 路径。
-- 复杂列裁剪未实现。
-- 复杂列延时物化未实现。
-- 复杂列 schema evolution / child remap 未实现。
+- `Array(Struct)`、`Map<K, Struct>` 还未实现。当前 Struct reader 可以组装 scalar child，但 LIST/MAP assembler 还没有接 complex child sink。
+- 嵌套 list/map 还未实现，例如 `Array(Array<T>)`、`Map<K, Array<T>>`。
+- nullable struct 如果包含 complex child，目前仍返回 `NotSupported`，避免在缺少多 stream assembler 时误读。
+- LIST/MAP 的 nested projection 还未实现。当前只支持完整读取 scalar element/value，不支持只投影 `array.element.x` 或 `map.value.y`。
+- 复杂类型 schema change 还未实现 child-level remap/default/cast。当前 schema/path/projection 结构按后续扩展预留，但缺失 child、rename、field id remap、default child、nested cast 都还没有接入。
+- primitive reader 的 flat scalar 路径仍只支持 `max_repetition_level == 0 && max_definition_level <= 1`；nested scalar 只能通过 complex reader 使用。
+- complex child 的 lazy materialization 还不完整，尤其是 Struct complex child 和未来多 leaf value 需要统一 cursor/overflow。
 
-结论：当前复杂列“schema 可见”，但“读取能力不完整”。真正可用还需要实现 Dremel assembler 或等价的 nested column assembler。
+结论：当前复杂列已经从“schema 可见”推进到“scalar-child LIST/MAP/STRUCT 可读”。下一阶段重点不是再补单个特殊 case，而是把 Struct child 接入 LIST/MAP assembler，并建立多 leaf stream 的统一 cursor/overflow 模型。
 
 ## 当前可用能力总结
 
@@ -277,7 +304,10 @@ DataTypeSerDe::read_column_from_decoded_values(...)
 - 通过 `DataTypeSerDe::read_column_from_decoded_values()` 写入 Doris column；
 - 基础 predicate-first scan；
 - flat column selected read；
-- 非 nullable struct 的初步读取框架。
+- non-nullable / nullable struct 的 scalar child 读取；
+- struct scalar child projection；
+- scalar LIST / MAP 读取；
+- LIST / MAP 的 skip/select overflow 推进。
 
 当前还不具备完整生产能力，尤其缺少：
 
@@ -286,22 +316,31 @@ DataTypeSerDe::read_column_from_decoded_values(...)
 - batch 内 `ColumnPredicate` 执行；
 - `reader_expression_map`；
 - page index / bloom filter / dictionary pruning；
-- list/map/nullable struct；
-- nested column pruning；
-- nested lazy materialization；
+- `Array(Struct)` / `Map<K, Struct>`；
+- nested list/map；
+- LIST/MAP child projection；
+- 复杂类型 schema change；
+- complex child nested lazy materialization；
 - 充分单测覆盖。
+
+最近验证状态：
+
+- `git diff --check` 通过。
+- Fedora `/home/socrates/code/doris` 上 `BUILD_TYPE=DEBUG ./build.sh --be` 通过。
+- 本地 macOS 运行 `./run-be-ut.sh --run '--filter=ParquetColumnReaderTest.*'` 被环境阻断，CMake 检查 clang++ 时失败：`ld: library 'c++' not found`，未进入测试体。
 
 ## 下一步优先级
 
 建议按以下顺序推进：
 
-1. 收敛 `SchemaField` 和 `ColumnMapping` 的 id 语义，区分 Iceberg field id、Parquet leaf column id 和 file-local output position。
-2. 补齐 batch 内 `ColumnPredicate` 执行，让 row group pruning 之后仍有正确 residual filter。
-3. 实现 `reader_expression_map`，支撑 schema change 下无法安全下推的 filter fallback。
-4. 补 flat primitive/string/decimal/timestamp 的 selected read 单测。
-5. 实现 nullable struct，再实现 list/map assembler。
-6. 在复杂列 assembler 稳定后，再做 nested pruning 和 nested lazy materialization。
-7. 后续再接 page index、bloom filter、dictionary pruning。
+1. 抽象 Struct child sink，把 `Array(Struct)` 和 `Map<K, Struct>` 接到现有 LIST/MAP level assembler。
+2. 将 LIST/MAP projection 从 top-level projection 扩展到 child projection，先支持 `array.element.<field>` 和 `map.value.<field>` 这类 Struct child 裁剪。
+3. 为多 leaf stream 引入统一 cursor/overflow 状态，避免 Struct、Array、Map 各自维护不兼容的 read-ahead。
+4. 收敛 `SchemaField` 和 `ColumnMapping` 的 id 语义，区分 Iceberg field id、Parquet leaf column id 和 file-local output position。
+5. 设计复杂类型 schema change 的 child-level mapping 接口，先预留缺失 child/default/null/cast sink，不立即实现完整语义。
+6. 补齐 batch 内 `ColumnPredicate` 执行，让 row group pruning 之后仍有正确 residual filter。
+7. 实现 `reader_expression_map`，支撑 schema change 下无法安全下推的 filter fallback。
+8. 在复杂列 assembler 稳定后，再做 nested pruning、nested lazy materialization、page index、bloom filter、dictionary pruning。
 
 ## 核心规则
 
