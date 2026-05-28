@@ -32,7 +32,6 @@ import org.apache.doris.common.util.HMSPartitionsUtil;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
-import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
@@ -368,6 +367,13 @@ public class HudiScanNode extends HiveScanNode {
         // TODO(gaoxin): support complex types
         // fileDesc.setNestedFields(hudiSplit.getNestedFields());
 
+        // Native HudiParquetReader matches split schema_id against params.current_schema_id /
+        // history_schema_info. Unset schema_id defaults to 0 in BE and causes
+        // "miss table/file schema info, file_schema_idx:-1".
+        if (params.isSetCurrentSchemaId()) {
+            fileDesc.setSchemaId(params.getCurrentSchemaId());
+        }
+
         tableFormatFileDesc.setHudiParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
@@ -445,26 +451,8 @@ public class HudiScanNode extends HiveScanNode {
                     new Path(partition.getPath()));
         }
 
-        final Map<String, String> partitionValues = sessionVariable.isEnableRuntimeFilterPartitionPrune()
-                ? HudiUtils.getPartitionInfoMap(hmsTable, partition)
-                : null;
-
         if (canUseNativeReader()) {
-            fsView.getLatestBaseFilesBeforeOrOn(partitionName, queryInstant).forEach(baseFile -> {
-                noLogsSplitNum.incrementAndGet();
-                String filePath = baseFile.getPath();
-
-                long fileSize = baseFile.getFileSize();
-                // Need add hdfs host to location
-                LocationPath locationPath = LocationPath.of(filePath, hmsTable.getStoragePropertiesMap());
-                HudiSplit hudiSplit = new HudiSplit(locationPath, 0, fileSize, fileSize,
-                        new String[0], partition.getPartitionValues());
-                hudiSplit.setTableFormatType(TableFormatType.HUDI);
-                if (partitionValues != null) {
-                    hudiSplit.setHudiPartitionValues(partitionValues);
-                }
-                splits.add(hudiSplit);
-            });
+            addCowNativeReaderSplits(fsView, partitionName, partition, splits, null);
         } else {
             fsView.getLatestMergedFileSlicesBeforeOrOn(partitionName, queryInstant)
                     .forEach(fileSlice -> splits.add(
@@ -483,19 +471,38 @@ public class HudiScanNode extends HiveScanNode {
         return new PartitionMetadata(partitionName, partition, 0);
     }
 
+    /**
+     * Add COW base-file splits for native Parquet reader. Must use {@link HudiSplit} so BE receives
+     * table_format_params.hudi (see #841 getPartitionsSplits regression).
+     */
+    private void addCowNativeReaderSplits(HoodieTableFileSystemView fileSystemView, String partitionName,
+            HivePartition partition, List<Split> splits, PartitionMetadata metadata) {
+        final Map<String, String> partitionValues = sessionVariable.isEnableRuntimeFilterPartitionPrune()
+                ? HudiUtils.getPartitionInfoMap(hmsTable, partition)
+                : null;
+        fileSystemView.getLatestBaseFilesBeforeOrOn(partitionName, queryInstant).forEach(baseFile -> {
+            noLogsSplitNum.incrementAndGet();
+            String filePath = baseFile.getPath();
+            long fileSize = baseFile.getFileSize();
+            if (metadata != null) {
+                metadata.totalSize += fileSize;
+            }
+            LocationPath locationPath = LocationPath.of(filePath, hmsTable.getStoragePropertiesMap());
+            HudiSplit hudiSplit = new HudiSplit(locationPath, 0, fileSize, fileSize,
+                    new String[0], partition.getPartitionValues());
+            hudiSplit.setTableFormatType(TableFormatType.HUDI);
+            if (partitionValues != null) {
+                hudiSplit.setHudiPartitionValues(partitionValues);
+            }
+            splits.add(hudiSplit);
+        });
+    }
+
     private void processPartitionWithMetadata(HoodieTableFileSystemView fileSystemView,
                                               PartitionMetadata metadata, List<Split> splits) {
-        if (isCowTable) {
-            fileSystemView.getLatestBaseFilesBeforeOrOn(metadata.partitionName, queryInstant).forEach(baseFile -> {
-                noLogsSplitNum.incrementAndGet();
-                String filePath = baseFile.getPath();
-                long fileSize = baseFile.getFileSize();
-                metadata.totalSize += fileSize;
-                // Need add hdfs host to location
-                LocationPath locationPath = LocationPath.of(filePath, hmsTable.getStoragePropertiesMap());
-                splits.add(new FileSplit(locationPath, 0, fileSize, fileSize, 0,
-                        new String[0], metadata.partition.getPartitionValues()));
-            });
+        if (canUseNativeReader()) {
+            addCowNativeReaderSplits(fileSystemView, metadata.partitionName, metadata.partition, splits,
+                    metadata);
         } else {
             fileSystemView.getLatestMergedFileSlicesBeforeOrOn(metadata.partitionName, queryInstant)
                     .forEach(fileSlice -> {
