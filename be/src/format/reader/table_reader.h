@@ -285,10 +285,24 @@ protected:
                                   std::vector<ColumnId>* scan_columns) {
         DORIS_CHECK(request != nullptr);
         DORIS_CHECK(scan_columns != nullptr);
+        if (scan_columns == &request->non_predicate_columns &&
+            std::find(request->predicate_columns.begin(), request->predicate_columns.end(),
+                      column_id) != request->predicate_columns.end()) {
+            return;
+        }
         const bool newly_added = request->column_positions.count(column_id) == 0;
         if (newly_added) {
             request->column_positions.emplace(column_id, _next_block_position(*request));
             scan_columns->push_back(column_id);
+        } else if (std::find(scan_columns->begin(), scan_columns->end(), column_id) ==
+                   scan_columns->end()) {
+            scan_columns->push_back(column_id);
+        }
+        if (scan_columns == &request->predicate_columns) {
+            request->non_predicate_columns.erase(
+                    std::remove(request->non_predicate_columns.begin(),
+                                request->non_predicate_columns.end(), column_id),
+                    request->non_predicate_columns.end());
         }
         if (column_id == doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID &&
             _find_schema_field(_data_reader.block_schema, column_id) == nullptr) {

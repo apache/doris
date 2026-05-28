@@ -89,6 +89,50 @@ public:
     }
 };
 
+class IcebergTableReaderScanRequestTestHelper final : public doris::iceberg::IcebergTableReader {
+public:
+    Status init_for_scan_request_test(std::vector<TableColumn> projected_columns) {
+        _query_options = std::make_unique<TQueryOptions>();
+        _query_globals = std::make_unique<TQueryGlobals>();
+        _state = std::make_unique<RuntimeState>(*_query_options, *_query_globals);
+        RETURN_IF_ERROR(init({
+                .projected_columns = std::move(projected_columns),
+                .column_predicates = {},
+                .conjuncts = VExprContext(nullptr),
+                .format = FileFormat::PARQUET,
+                .scan_params = nullptr,
+                .io_ctx = nullptr,
+                .runtime_state = _state.get(),
+                .scanner_profile = nullptr,
+                .allow_missing_columns = true,
+                .profile = nullptr,
+        }));
+
+        SplitReadOptions split_options;
+        split_options.current_range.__set_path("scan-request-test.parquet");
+        TTableFormatFileDesc table_format_params;
+        TIcebergFileDesc iceberg_params;
+        iceberg_params.__set_first_row_id(1000);
+        table_format_params.__set_iceberg_params(iceberg_params);
+        split_options.current_range.__set_table_format_params(table_format_params);
+        RETURN_IF_ERROR(prepare_split(split_options));
+
+        _delete_rows_storage = {1};
+        _delete_rows = &_delete_rows_storage;
+        return Status::OK();
+    }
+
+    Status customize_request(FileScanRequest* request) {
+        return customize_file_scan_request(request);
+    }
+
+private:
+    std::unique_ptr<TQueryOptions> _query_options;
+    std::unique_ptr<TQueryGlobals> _query_globals;
+    std::unique_ptr<RuntimeState> _state;
+    DeleteRows _delete_rows_storage;
+};
+
 class TableInt32SumGreaterThanExpr final : public VExpr {
 public:
     TableInt32SumGreaterThanExpr(int left_slot_id, int left_column_id, int right_slot_id,
@@ -989,6 +1033,31 @@ TEST(TableReaderTest, IcebergDeletionVectorRejectsMultipleDeleteFiles) {
     auto status = reader.parse_delete_file(table_format_desc, &desc, &has_delete_file);
 
     EXPECT_FALSE(status.ok());
+}
+
+TEST(TableReaderTest, RowPositionDeletePredicateColumnIsNotRepeatedAsOutputColumn) {
+    const auto row_position_column_id =
+            doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(
+            make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    IcebergTableReaderScanRequestTestHelper reader;
+    ASSERT_TRUE(reader.init_for_scan_request_test(projected_columns).ok());
+
+    FileScanRequest request;
+    request.non_predicate_columns.push_back(0);
+    request.column_positions.emplace(0, 0);
+
+    ASSERT_TRUE(reader.customize_request(&request).ok());
+
+    EXPECT_EQ(request.predicate_columns, std::vector<ColumnId>({row_position_column_id}));
+    EXPECT_EQ(request.non_predicate_columns, std::vector<ColumnId>({0}));
+    ASSERT_TRUE(request.column_positions.contains(row_position_column_id));
+    EXPECT_EQ(request.column_positions.at(row_position_column_id), 1);
+    ASSERT_EQ(request.expression_filters.size(), 1);
+    EXPECT_NE(request.expression_filters[0].delete_conjunct, nullptr);
 }
 
 TEST(TableReaderTest, ParquetReaderReadsOnlyRowGroupsInFileRange) {
