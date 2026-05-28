@@ -233,6 +233,7 @@ import org.apache.doris.planner.TableFunctionNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TPartitionType;
@@ -1703,11 +1704,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         hashJoinNode.setDistributeExprLists(getDistributeExpr(hashJoin));
         hashJoinNode.setChildrenDistributeExprLists(distributeExprLists);
         PlanFragment currentFragment = connectJoinNode(hashJoinNode, leftFragment, rightFragment, context, hashJoin);
-
-        if (JoinUtils.shouldColocateJoin(physicalHashJoin)) {
+        Map<Tag, List<List<Long>>> colocateData = new HashMap<>();
+        if (JoinUtils.shouldColocateJoin(physicalHashJoin, colocateData)) {
             // TODO: add reason
             hashJoinNode.setColocate(true, "");
             leftFragment.setHasColocatePlanNode(true);
+            leftFragment.setColocateData(colocateData);
         } else if (JoinUtils.shouldBroadcastJoin(physicalHashJoin)) {
             Preconditions.checkState(rightPlanRoot instanceof ExchangeNode,
                     "right child of broadcast join must be ExchangeNode but it is " + rightFragment.getPlanRoot());

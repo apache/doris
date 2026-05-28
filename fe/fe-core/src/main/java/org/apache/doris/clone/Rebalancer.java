@@ -22,6 +22,7 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.TenantLevelColocateTableIndex;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -119,13 +120,15 @@ public abstract class Rebalancer {
         // Clone ut mocked env, but CatalogRecycleBin is not mockable (it extends from Thread)
         // so in clone ut recycleBin need to set to null.
         ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+        TenantLevelColocateTableIndex tenantLevelColocateTableIndex = Env.getCurrentTenantLevelColocateIndex();
         CatalogRecycleBin recycleBin = null;
         if (!FeConstants.runningUnitTest) {
             recycleBin = Env.getCurrentRecycleBin();
         }
         return tabletMeta != null
                 && !alterTableIds.contains(tabletMeta.getTableId())
-                && (canBalanceColocateTable || !colocateTableIndex.isColocateTable(tabletMeta.getTableId()))
+                && (canBalanceColocateTable || (!colocateTableIndex.isColocateTable(tabletMeta.getTableId())
+                && !tenantLevelColocateTableIndex.isColocateTable(tabletMeta.getTableId())))
                 && (recycleBin == null || !recycleBin.isRecyclePartition(tabletMeta.getDbId(),
                         tabletMeta.getTableId(), tabletMeta.getPartitionId()));
     }

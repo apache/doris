@@ -61,6 +61,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -431,6 +432,44 @@ public class SystemInfoService {
             }
             return backendIds;
         }
+    }
+
+    public Set<Long> getAllBackendIdsExcludeTag(boolean needAlive, Set<Tag> tags) {
+        final Map<Long, Backend> copiedBackends = Maps.newHashMap(getAllClusterBackendsNoException());
+        final Set<Long> ret = new HashSet<>();
+        if (needAlive) {
+            for (Backend backend : copiedBackends.values()) {
+                if (backend != null && backend.isAlive() && !tags.contains(backend.getLocationTag())) {
+                    ret.add(backend.getId());
+                }
+            }
+        } else {
+            for (Backend backend : copiedBackends.values()) {
+                if (backend != null && !tags.contains(backend.getLocationTag())) {
+                    ret.add(backend.getId());
+                }
+            }
+        }
+        return ret;
+    }
+
+    public Set<Long> getAllBackendIdsByTag(boolean needAlive, Set<Tag> tags) {
+        final Map<Long, Backend> copiedBackends = Maps.newHashMap(getAllClusterBackendsNoException());
+        final Set<Long> ret = new HashSet<>();
+        if (needAlive) {
+            for (Backend backend : copiedBackends.values()) {
+                if (backend != null && backend.isAlive() && tags.contains(backend.getLocationTag())) {
+                    ret.add(backend.getId());
+                }
+            }
+        } else {
+            for (Backend backend : copiedBackends.values()) {
+                if (backend != null && tags.contains(backend.getLocationTag())) {
+                    ret.add(backend.getId());
+                }
+            }
+        }
+        return ret;
     }
 
     public List<Backend> getAllClusterBackends(boolean needAlive) {
@@ -1062,6 +1101,16 @@ public class SystemInfoService {
                         "Failed to find enough host with tag(" + entry.getKey() + ") in all backends. need: "
                                 + entry.getValue());
             }
+        }
+    }
+
+    public void checkReplicaAllocation(Tag tag, short replicaNum) throws DdlException {
+        List<Backend> backends = getMixBackends();
+        if (backends.stream().filter(Backend::isMixNode).filter(b -> b.getLocationTag().equals(tag))
+                .count() < replicaNum) {
+            throw new DdlException(
+                    "Failed to find enough host with tag(" + tag + ") in all backends. need: "
+                            + replicaNum);
         }
     }
 

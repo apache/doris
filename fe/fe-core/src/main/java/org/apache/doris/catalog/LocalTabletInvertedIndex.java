@@ -989,6 +989,9 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                     Preconditions.checkState(
                             !Env.getCurrentColocateIndex().isColocateTable(tabletMeta.getTableId()),
                             "table " + tabletMeta.getTableId() + " should not be the colocate table");
+                    if (Env.getCurrentTenantLevelColocateIndex().isColocateTable(tabletMeta.getTableId())) {
+                        continue;
+                    }
 
                     TStorageMedium medium = tabletMeta.getStorageMedium();
                     Table<Long, Long, Map<Long, Long>> partitionReplicasInfo = partitionReplicasInfoMaps.get(medium);

@@ -506,11 +506,8 @@ public class ThriftPlansBuilder {
             params.setFileScanParams(fileScanRangeParamsMap);
 
             if (fragmentPlan.getFragmentJob() instanceof UnassignedScanBucketOlapTableJob) {
-                int bucketNum = ((UnassignedScanBucketOlapTableJob) fragmentPlan.getFragmentJob())
-                        .getOlapScanNodes()
-                        .get(0)
-                        .getBucketNum();
-                params.setNumBuckets(bucketNum);
+                UnassignedScanBucketOlapTableJob job = (UnassignedScanBucketOlapTableJob) fragmentPlan.getFragmentJob();
+                params.setNumBuckets(job.getColocateBucketNum());
             }
 
             List<AssignedJob> instances = instancesPerWorker.get(worker);

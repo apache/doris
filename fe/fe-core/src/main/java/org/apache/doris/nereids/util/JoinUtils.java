@@ -19,6 +19,7 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TenantLevelColocateTableIndex;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DistributionSpec;
@@ -44,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -234,7 +236,8 @@ public class JoinUtils {
     /**
      * return true if we should do colocate join when translate plan.
      */
-    public static boolean shouldColocateJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
+    public static boolean shouldColocateJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join,
+            Map<Tag, List<List<Long>>> colocateMapData) {
         if (ConnectContext.get() == null
                 || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
@@ -246,14 +249,14 @@ public class JoinUtils {
             return false;
         }
         return couldColocateJoin((DistributionSpecHash) leftDistributionSpec,
-                (DistributionSpecHash) rightDistributionSpec, join.getHashJoinConjuncts());
+                (DistributionSpecHash) rightDistributionSpec, join.getHashJoinConjuncts(), colocateMapData);
     }
 
     /**
      * could do colocate join with left and right child distribution spec.
      */
     public static boolean couldColocateJoin(DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec,
-            List<Expression> conjuncts) {
+            List<Expression> conjuncts, Map<Tag, List<List<Long>>> colocateMapData) {
         if (ConnectContext.get() == null
                 || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
@@ -275,7 +278,8 @@ public class JoinUtils {
         boolean noNeedCheckColocateGroup = hitSameIndex && (leftTablePartitions.equals(rightTablePartitions))
                 && (leftTablePartitions.size() <= 1);
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
-        if (!noNeedCheckColocateGroup && (!colocateIndex.isSameGroup(leftTableId, rightTableId)
+        if (!noNeedCheckColocateGroup && !matchTenantLevelColocateGroup(leftHashSpec, rightHashSpec, colocateMapData)
+                && (!colocateIndex.isSameGroup(leftTableId, rightTableId)
                 || colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId)))) {
             return false;
         }
@@ -313,6 +317,32 @@ public class JoinUtils {
         } else {
             return false;
         }
+    }
+
+    private static boolean matchTenantLevelColocateGroup(DistributionSpecHash leftHashSpec,
+            DistributionSpecHash rightHashSpec, Map<Tag, List<List<Long>>> colocateMapData) {
+        Set<Tag> commonTags = new HashSet<>(leftHashSpec.getColocateTags().keySet());
+        commonTags.retainAll(rightHashSpec.getColocateTags().keySet());
+        if (commonTags.isEmpty()) {
+            return false;
+        }
+        TenantLevelColocateTableIndex tenantLevelColocateIndex = Env.getCurrentTenantLevelColocateIndex();
+        Map<Tag, Long> leftGroupMap = tenantLevelColocateIndex.getStableGroup(
+                leftHashSpec.getTableId(), commonTags);
+        Map<Tag, Long> rightGroupMap = tenantLevelColocateIndex.getStableGroup(
+                rightHashSpec.getTableId(), commonTags);
+        Map<Tag, Long> commonGroups = new HashMap<>();
+        leftGroupMap.forEach((tag, leftGroup) -> {
+            Long rightGroup = rightGroupMap.get(tag);
+            if (leftGroup.equals(rightGroup)) {
+                List<List<Long>> bucketMap = tenantLevelColocateIndex.getBackendsPerBucketSeqByGroup(leftGroup);
+                if (!bucketMap.isEmpty()) {
+                    colocateMapData.put(tag, bucketMap);
+                    commonGroups.put(tag, leftGroup);
+                }
+            }
+        });
+        return !commonGroups.isEmpty();
     }
 
     public static Set<ExprId> getJoinOutputExprIdSet(Plan left, Plan right) {

@@ -51,6 +51,7 @@ import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -62,7 +63,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -390,9 +393,18 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         boolean shouldCheckLeftBucketDownGrade = false;
         boolean shouldCheckrightBucketDownGrade = false;
 
-        if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
+        Map<Tag, List<List<Long>>> colocateData = new HashMap<>();
+        if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts(), colocateData)) {
             // check colocate join with scan
-            return ImmutableList.of(originChildrenProperties);
+            if (colocateData.isEmpty()) {
+                return ImmutableList.of(originChildrenProperties);
+            }
+            updatedForLeft = Optional.of(originChildrenProperties.get(0).withDistributionSpec(
+                    ((DistributionSpecHash) originChildrenProperties.get(0).getDistributionSpec())
+                            .withColocateTags(colocateData)));
+            updatedForRight = Optional.of(originChildrenProperties.get(1).withDistributionSpec(
+                    ((DistributionSpecHash) originChildrenProperties.get(1).getDistributionSpec())
+                            .withColocateTags(colocateData)));
         } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType(), leftHashSpec, rightHashSpec)) {
             // right anti, right outer, full outer join could not do bucket shuffle join
             // TODO remove this after we refactor coordinator

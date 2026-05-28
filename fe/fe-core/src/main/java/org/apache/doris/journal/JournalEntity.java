@@ -110,6 +110,7 @@ import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTableDefaultDistributionBucketNumOperationLog;
 import org.apache.doris.persist.ModifyTableEngineOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
+import org.apache.doris.persist.ModifyTenantLevelColocateMapInfo;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.PrivInfo;
@@ -132,6 +133,8 @@ import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.persist.TableStreamCleanupInfo;
+import org.apache.doris.persist.TenantLevelColocateStableInfo;
+import org.apache.doris.persist.TenantLevelColocateTableInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
@@ -471,6 +474,33 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_TRUNCATE_TABLE: {
                 data = TruncateTableInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_TENANT_LEVEL_COLOCATE_ADD_SLAVE_TABLE:
+            case OperationType.OP_TENANT_LEVEL_COLOCATE_REMOVE_SLAVE_TABLE:
+            case OperationType.OP_TENANT_LEVEL_COLOCATE_ADD_MASTER_TABLE:
+            case OperationType.OP_TENANT_LEVEL_COLOCATE_REMOVE_MASTER_TABLE: {
+                data = TenantLevelColocateTableInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_TENANT_LEVEL_COLOCATE_BACKENDS_PER_BUCKETSEQ: {
+                data = ModifyTenantLevelColocateMapInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_TENANT_LEVEL_COLOCATE_MARK_SLAVE_UNSTABLE:
+            case OperationType.OP_TENANT_LEVEL_COLOCATE_MARK_SLAVE_STABLE:
+            case OperationType.OP_TENANT_LEVEL_COLOCATE_MARK_MASTER_UNSTABLE:
+            case OperationType.OP_TENANT_LEVEL_COLOCATE_MARK_MASTER_STABLE: {
+                data = TenantLevelColocateStableInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_TENANT_LEVEL_MODIFY_SLAVE_TABLE_COLOCATE:
+            case OperationType.OP_TENANT_LEVEL_MODIFY_MASTER_TABLE_COLOCATE: {
+                data = TenantLevelColocateTableInfo.read(in);
                 isRead = true;
                 break;
             }

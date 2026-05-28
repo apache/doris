@@ -80,6 +80,8 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.TenantLevelColocateGroupSchema;
+import org.apache.doris.catalog.TenantLevelColocateTableIndex;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
@@ -134,9 +136,12 @@ import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.ModifyTenantLevelColocateMapInfo;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.persist.TenantLevelColocateGroupInfo;
+import org.apache.doris.persist.TenantLevelColocateTableInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
@@ -181,6 +186,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
@@ -275,6 +281,21 @@ public class InternalCatalog implements CatalogIf<Database> {
     @Override
     public Database getDbNullable(long dbId) {
         return idToDb.get(dbId);
+    }
+
+    public Database getDbNullableByTable(long tableId) {
+        List<Long> dbIds = getDbIds();
+        for (long dbId : dbIds) {
+            Database database = getDbNullable(dbId);
+            if (database == null) {
+                continue;
+            }
+            Table table = database.getTableNullable(tableId);
+            if (table != null) {
+                return database;
+            }
+        }
+        return null;
     }
 
     @Override
@@ -1673,6 +1694,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 Preconditions.checkNotNull(groupSchema);
                 groupSchema.checkDistribution(distributionInfo);
                 groupSchema.checkReplicaAllocation(singlePartitionDesc.getReplicaAlloc());
+            } else if (Env.getCurrentTenantLevelColocateIndex().isColocateTable(olapTable.getId())) {
+                Env.getCurrentTenantLevelColocateIndex()
+                        .checkDistributionAndReplica(olapTable.getId(), distributionInfo,
+                                singlePartitionDesc.getReplicaAlloc());
             }
 
             indexIdToMeta = olapTable.getCopiedIndexIdToMeta();
@@ -2915,6 +2940,12 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             String colocateGroup = PropertyAnalyzer.analyzeColocate(properties);
             if (colocateGroup != null) {
+                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_GROUP)) {
+                    throw new AnalysisException("colocate_with conflict with colocate_group");
+                }
+                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_SLAVE)) {
+                    throw new AnalysisException("colocate_with conflict with colocate_slave");
+                }
                 if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
                     throw new AnalysisException("Random distribution for colocate table is unsupported");
                 }
@@ -2933,8 +2964,91 @@ public class InternalCatalog implements CatalogIf<Database> {
                         .addTableToGroup(db.getId(), olapTable, fullGroupName, null /* generate group id inside */);
                 olapTable.setColocateGroup(colocateGroup);
             }
+            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_GROUP)) {
+                if (Config.isCloudMode()) {
+                    throw new AnalysisException("colocate_group is not supported in cloud mode");
+                }
+                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
+                    throw new AnalysisException("colocate_with conflict with colocate_group");
+                }
+                if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
+                    throw new AnalysisException("Random distribution for colocate table is unsupported");
+                }
+                if (isAutoBucket) {
+                    throw new AnalysisException("Auto buckets for colocate table is unsupported");
+                }
+                Map<Tag, String> colocateGroupMap = PropertyAnalyzer.analyzeTenantLevelColocateMap(properties);
+                for (Map.Entry<Tag, String> entry : colocateGroupMap.entrySet()) {
+                    String colocateGroupMaster = entry.getValue();
+                    Tag tag = entry.getKey();
+                    if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
+                        throw new AnalysisException("Random distribution for colocate table is unsupported");
+                    }
+                    Short replicaNum = olapTable.getDefaultReplicaAllocation().getReplicaNumByTag(tag);
+                    if (replicaNum <= 0) {
+                        throw new AnalysisException("No replica in " + olapTable.getName() + "/" + tag.value);
+                    }
+                    TenantLevelColocateGroupSchema groupSchema = Env.getCurrentTenantLevelColocateIndex()
+                            .getGroupSchema(colocateGroupMaster, tag);
+                    if (groupSchema != null) {
+                        // group already exist, check if this table can be added to this group
+                        groupSchema.checkMasterColocateSchema(olapTable, properties);
+                    }
+                }
+                for (Map.Entry<Tag, String> entry : colocateGroupMap.entrySet()) {
+                    String colocateGroupMaster = entry.getValue();
+                    Tag tag = entry.getKey();
+                    // add table to this group, if group does not exist, create a new one
+                    Env.getCurrentTenantLevelColocateIndex().addTableToMasterGroup(olapTable, colocateGroupMaster, tag,
+                            null /* generate group id inside */);
+                }
+            }
+            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_SLAVE)) {
+                if (Config.isCloudMode()) {
+                    throw new AnalysisException("colocate_slave is not supported in cloud mode");
+                }
+                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
+                    throw new AnalysisException("colocate_slave conflict with colocate_with");
+                }
+                if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
+                    throw new AnalysisException("Random distribution for colocate table is unsupported");
+                }
+                if (isAutoBucket) {
+                    throw new AnalysisException("Auto buckets for colocate table is unsupported");
+                }
+                Map<Tag, String> colocateGroupMap = PropertyAnalyzer.analyzeColocateSlaveMap(properties);
+                Map<Tag, TenantLevelColocateGroupSchema> groupSchemaMap = new HashMap<>();
+                for (Map.Entry<Tag, String> entry : colocateGroupMap.entrySet()) {
+                    String colocateGroupMaster = entry.getValue();
+                    Tag tag = entry.getKey();
+                    if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
+                        throw new AnalysisException("Random distribution for colocate table is unsupported");
+                    }
+                    Short replicaNum = olapTable.getDefaultReplicaAllocation().getReplicaNumByTag(tag);
+                    if (replicaNum <= 0) {
+                        throw new AnalysisException("No replica in " + olapTable.getName() + "/" + tag.value);
+                    }
+                    TenantLevelColocateGroupSchema groupSchema = Env.getCurrentTenantLevelColocateIndex()
+                            .getGroupSchema(colocateGroupMaster, tag);
+                    if (groupSchema == null) {
+                        throw new AnalysisException("colocate_group not exist:" + colocateGroupMaster);
+                    }
+                    groupSchema.checkSlaveColocateSchema(olapTable, properties);
+                    if (Env.getCurrentTenantLevelColocateIndex()
+                            .hasMasterGroup(olapTable.getId(), groupSchema.getTag())) {
+                        throw new AnalysisException("colocate_slave conflict with colocate_group");
+                    }
+                    groupSchemaMap.put(tag, groupSchema);
+                }
+                for (Map.Entry<Tag, String> entry : colocateGroupMap.entrySet()) {
+                    Tag tag = entry.getKey();
+                    TenantLevelColocateGroupSchema groupSchema = groupSchemaMap.get(tag);
+                    // add table to this group, if group does not exist, create a new one
+                    Env.getCurrentTenantLevelColocateIndex().addTableToSlaveGroup(olapTable, groupSchema.getGroupId());
+                }
+            }
         } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
+            throw new DdlException(e.getMessage(), e);
         }
 
         // get base index storage type. default is COLUMN
@@ -3230,6 +3344,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                         // so we should remove the tableId here
                         Env.getCurrentColocateIndex().removeTable(tableId);
                     }
+                    if (Env.getCurrentTenantLevelColocateIndex().isColocateTable(tableId)) {
+                        Env.getCurrentTenantLevelColocateIndex().removeTable(tableId);
+                    }
                     for (Long tabletId : tabletIdSet) {
                         Env.getCurrentInvertedIndex().deleteTablet(tabletId);
                     }
@@ -3247,6 +3364,41 @@ public class InternalCatalog implements CatalogIf<Database> {
                         ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId,
                                 backendsPerBucketSeq);
                         Env.getCurrentEnv().getEditLog().logColocateAddTable(info);
+                    } else {
+                        if (Env.getCurrentTenantLevelColocateIndex().isColocateMasterTable(tableId)) {
+                            Map<Tag, TenantLevelColocateGroupSchema> groups = Env.getCurrentTenantLevelColocateIndex()
+                                    .getMasterGroupByTable(tableId);
+                            Map<Long, TenantLevelColocateGroupInfo> map = new HashMap<>();
+                            for (Entry<Tag, TenantLevelColocateGroupSchema> entry : groups.entrySet()) {
+                                TenantLevelColocateGroupSchema groupSchema = entry.getValue();
+                                long groupId = groupSchema.getGroupId();
+                                List<List<Long>> backendsPerBucketSeq = Env.getCurrentTenantLevelColocateIndex()
+                                        .getBackendsPerBucketSeqByGroup(groupId);
+                                TenantLevelColocateGroupInfo colocateGroupInfo = TenantLevelColocateGroupInfo.create(
+                                        groupSchema, backendsPerBucketSeq);
+                                map.put(groupId, colocateGroupInfo);
+                            }
+                            TenantLevelColocateTableInfo info = new TenantLevelColocateTableInfo(db.getId(), tableId,
+                                    map);
+                            Env.getCurrentEnv().getEditLog().logTenantLevelColocateAddMasterTable(info);
+                        }
+                        if (Env.getCurrentTenantLevelColocateIndex().isColocateSlaveTable(tableId)) {
+                            Map<Tag, TenantLevelColocateGroupSchema> groups = Env.getCurrentTenantLevelColocateIndex()
+                                    .getSlaveGroupByTable(tableId);
+                            Map<Long, TenantLevelColocateGroupInfo> map = new HashMap<>();
+                            for (Entry<Tag, TenantLevelColocateGroupSchema> entry : groups.entrySet()) {
+                                TenantLevelColocateGroupSchema groupSchema = entry.getValue();
+                                long groupId = groupSchema.getGroupId();
+                                List<List<Long>> backendsPerBucketSeq = Env.getCurrentTenantLevelColocateIndex()
+                                        .getBackendsPerBucketSeqByGroup(groupId);
+                                TenantLevelColocateGroupInfo colocateGroupInfo =  TenantLevelColocateGroupInfo.create(
+                                        groupSchema, backendsPerBucketSeq);
+                                map.put(groupId, colocateGroupInfo);
+                            }
+                            TenantLevelColocateTableInfo info = new TenantLevelColocateTableInfo(db.getId(), tableId,
+                                    map);
+                            Env.getCurrentEnv().getEditLog().logColocateAddTableSlave(info);
+                        }
                     }
                     LOG.info("successfully create table[{};{}] in db[{};{}]",
                             tableName, tableId, db.getName(), db.getId());
@@ -3292,6 +3444,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             // but follow fe may need wait 30s (recycle bin mgr run every 30s).
             if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
                 Env.getCurrentColocateIndex().removeTable(tableId);
+            }
+            if (Env.getCurrentTenantLevelColocateIndex().isColocateTable(tableId)) {
+                Env.getCurrentTenantLevelColocateIndex().removeTable(tableId);
             }
             try {
                 dropTable(db, tableId, true, false, 0L);
@@ -3355,23 +3510,43 @@ public class InternalCatalog implements CatalogIf<Database> {
             throws DdlException {
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        Map<Tag, List<List<Long>>> backendsPerBucketSeq = null;
-        GroupId groupId = null;
+        TenantLevelColocateTableIndex tenantLevelColocateIndex = Env.getCurrentTenantLevelColocateIndex();
+        Map<Tag, List<List<Long>>> backendsPerBucketSeq = new HashMap<>();
+        boolean isColocateV1 = false;
+        boolean isColocateV2Master = false;
+        Set<Tag> colocateTags = new HashSet<>();
         if (colocateIndex.isColocateTable(tabletMeta.getTableId())) {
             if (distributionInfo.getType() == DistributionInfoType.RANDOM) {
                 throw new DdlException("Random distribution for colocate table is unsupported");
             }
             // if this is a colocate table, try to get backend seqs from colocation index.
-            groupId = colocateIndex.getGroup(tabletMeta.getTableId());
-            backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
+            GroupId groupId = colocateIndex.getGroup(tabletMeta.getTableId());
+            backendsPerBucketSeq.putAll(colocateIndex.getBackendsPerBucketSeq(groupId));
+            isColocateV1 = true;
+            colocateTags.addAll(replicaAlloc.getAllocMap().keySet());
+        } else if ((isColocateV2Master = tenantLevelColocateIndex.isColocateMasterTable(tabletMeta.getTableId()))
+                || tenantLevelColocateIndex.isColocateSlaveTable(tabletMeta.getTableId())) {
+            if (distributionInfo.getType() == DistributionInfoType.RANDOM) {
+                throw new DdlException("Random distribution for colocate table is unsupported");
+            }
+            // if this is a colocate table, try to get backend seqs from colocation index.
+            backendsPerBucketSeq.putAll(tenantLevelColocateIndex.getBackendsPerBucketSeqByTable(tabletMeta.getTableId(),
+                    distributionInfo.getBucketNum()));
+            colocateTags.addAll(tenantLevelColocateIndex.getAllSlaveTagByTable(tabletMeta.getTableId()));
+            colocateTags.forEach(tag -> Preconditions.checkState(backendsPerBucketSeq.containsKey(tag)));
+            colocateTags.addAll(tenantLevelColocateIndex.getAllMasterTagByTable(tabletMeta.getTableId()));
         }
 
         // chooseBackendsArbitrary is true, means this may be the first table of colocation group,
         // or this is just a normal table, and we can choose backends arbitrary.
         // otherwise, backends should be chosen from backendsPerBucketSeq;
-        boolean chooseBackendsArbitrary = backendsPerBucketSeq == null || backendsPerBucketSeq.isEmpty();
-        if (chooseBackendsArbitrary) {
-            backendsPerBucketSeq = Maps.newHashMap();
+        ReplicaAllocation arbitraryReplicaAlloc = new ReplicaAllocation();
+        for (Map.Entry<Tag, Short> tagReplicaNum : replicaAlloc.getAllocMap().entrySet()) {
+            Tag tag = tagReplicaNum.getKey();
+            if (backendsPerBucketSeq.containsKey(tag)) {
+                continue;
+            }
+            arbitraryReplicaAlloc.put(tag, tagReplicaNum.getValue());
         }
 
         TStorageMedium storageMedium = Config.disable_storage_medium_check ? null : tabletMeta.getStorageMedium();
@@ -3396,7 +3571,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         // inverted index.
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         List<Tablet> bucketTablets = new ArrayList<>(distributionInfo.getBucketNum());
-        for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
+        boolean chooseBackendsArbitrary = !arbitraryReplicaAlloc.isEmpty();
+        for (int bucketSeq = 0; bucketSeq < distributionInfo.getBucketNum(); ++bucketSeq) {
             // create a new tablet with random chosen backends
             Tablet tablet = EnvFactory.getInstance().createTablet(idGeneratorBuffer.getNextId());
 
@@ -3405,25 +3581,27 @@ public class InternalCatalog implements CatalogIf<Database> {
             tabletIdSet.add(tablet.getId());
 
             // get BackendIds
-            Map<Tag, List<Long>> chosenBackendIds;
+            Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
+            for (Map.Entry<Tag, List<List<Long>>> entry : backendsPerBucketSeq.entrySet()) {
+                Tag tag = entry.getKey();
+                if (!arbitraryReplicaAlloc.getAllocMap().containsKey(tag)) {
+                    chosenBackendIds.put(tag, entry.getValue().get(bucketSeq));
+                }
+            }
             if (chooseBackendsArbitrary) {
                 // This is the first colocate table in the group, or just a normal table,
                 // choose backends
                 Pair<Map<Tag, List<Long>>, TStorageMedium> chosenBackendIdsAndMedium
                         = systemInfoService.selectBackendIdsForReplicaCreation(
-                        replicaAlloc, nextIndexs,
+                        arbitraryReplicaAlloc, nextIndexs,
                         storageMedium, isStorageMediumSpecified, false);
-                chosenBackendIds = chosenBackendIdsAndMedium.first;
+                Map<Tag, List<Long>> arbitraryBackends = chosenBackendIdsAndMedium.first;
                 storageMedium = chosenBackendIdsAndMedium.second;
-                for (Map.Entry<Tag, List<Long>> entry : chosenBackendIds.entrySet()) {
+
+                chosenBackendIds.putAll(arbitraryBackends);
+                for (Map.Entry<Tag, List<Long>> entry : arbitraryBackends.entrySet()) {
                     backendsPerBucketSeq.putIfAbsent(entry.getKey(), Lists.newArrayList());
                     backendsPerBucketSeq.get(entry.getKey()).add(entry.getValue());
-                }
-            } else {
-                // get backends from existing backend sequence
-                chosenBackendIds = Maps.newHashMap();
-                for (Map.Entry<Tag, List<List<Long>>> entry : backendsPerBucketSeq.entrySet()) {
-                    chosenBackendIds.put(entry.getKey(), entry.getValue().get(i));
                 }
             }
             // create replicas
@@ -3444,10 +3622,27 @@ public class InternalCatalog implements CatalogIf<Database> {
         // Publish all bucket tablets to the materialized index in one batch.
         index.appendTablets(bucketTablets);
 
-        if (groupId != null && chooseBackendsArbitrary) {
+        if (isColocateV1 && chooseBackendsArbitrary) {
+            GroupId groupId = colocateIndex.getGroup(tabletMeta.getTableId());
             colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
             ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
             Env.getCurrentEnv().getEditLog().logColocateBackendsPerBucketSeq(info);
+        } else if (isColocateV2Master && chooseBackendsArbitrary) {
+            Map<Long, List<List<Long>>> map = new HashMap<>();
+            for (Map.Entry<Tag, List<List<Long>>> entry : backendsPerBucketSeq.entrySet()) {
+                Tag tag = entry.getKey();
+                if (!colocateTags.contains(tag) || !arbitraryReplicaAlloc.getAllocMap().containsKey(tag)) {
+                    continue;
+                }
+                long groupId = tenantLevelColocateIndex.getMasterGroupByTable(tabletMeta.getTableId(), tag);
+                List<List<Long>> locations = backendsPerBucketSeq.get(tag);
+                tenantLevelColocateIndex.addBackendsPerBucketSeq(groupId, locations);
+                map.put(groupId, locations);
+            }
+            if (!map.isEmpty()) {
+                ModifyTenantLevelColocateMapInfo info = new ModifyTenantLevelColocateMapInfo(map);
+                Env.getCurrentEnv().getEditLog().logTenantLevelColocateBackendsPerBucketSeq(info);
+            }
         }
         return storageMedium;
     }

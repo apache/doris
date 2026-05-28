@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.TenantLevelColocateTableIndex;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.ResultRow;
 
 import com.google.common.base.Preconditions;
@@ -44,6 +46,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -200,6 +203,24 @@ public class Utils {
         return colocateTableIndex.isColocateTable(olapTable.getId())
                 && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId()))
                 && olapTable.getCatalogId() == Env.getCurrentInternalCatalog().getId();
+    }
+
+    /**
+     * get stable colocate tag
+     */
+    public static boolean getStableColocateData(OlapTable olapTable, Map<Tag, List<List<Long>>> colocateData) {
+        if (olapTable.getCatalogId() != Env.getCurrentInternalCatalog().getId()) {
+            return false;
+        }
+        Set<Tag> allocateTags = new HashSet<>(olapTable.getDefaultReplicaAllocation().getAllocMap().keySet());
+        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+        if (colocateTableIndex.isColocateTable(olapTable.getId())
+                && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId()))) {
+            return true;
+        }
+        TenantLevelColocateTableIndex tenantLevelColocateTableIndex = Env.getCurrentTenantLevelColocateIndex();
+        colocateData.putAll(tenantLevelColocateTableIndex.getStableGroupMap(olapTable.getId(), allocateTags));
+        return !colocateData.isEmpty();
     }
 
     public static boolean isSelectUnpartition(OlapTable olapTable, Collection<Long> selectedPartitionIds) {

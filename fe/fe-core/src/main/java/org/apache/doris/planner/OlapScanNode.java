@@ -1198,7 +1198,7 @@ public class OlapScanNode extends ScanNode {
         //    is not correct.
         // 2. Table is colocated: in this case, table could have more than one partition, but all partition's
         //    bucket number must be same, so we use default bucket num is ok.
-        if (olapTable.isColocateTable()) {
+        if (olapTable.isColocateTable() || olapTable.isTenantLevelColocateTable()) {
             return olapTable.getDefaultDistributionInfo().getBucketNum();
         } else {
             return (int) totalTabletsNum;

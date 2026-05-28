@@ -426,6 +426,20 @@ public class OperationType {
 
     public static final short OP_TABLE_STREAM_CLEANUP = 498;
 
+    // colocate v2
+    public static final short OP_TENANT_LEVEL_COLOCATE_BACKENDS_PER_BUCKETSEQ = 501;
+    public static final short OP_TENANT_LEVEL_COLOCATE_MARK_MASTER_UNSTABLE = 502;
+    public static final short OP_TENANT_LEVEL_COLOCATE_MARK_MASTER_STABLE = 503;
+    public static final short OP_TENANT_LEVEL_MODIFY_MASTER_TABLE_COLOCATE = 504;
+    public static final short OP_TENANT_LEVEL_COLOCATE_ADD_MASTER_TABLE = 505;
+    public static final short OP_TENANT_LEVEL_COLOCATE_REMOVE_MASTER_TABLE = 506;
+
+    public static final short OP_TENANT_LEVEL_COLOCATE_MARK_SLAVE_UNSTABLE = 507;
+    public static final short OP_TENANT_LEVEL_COLOCATE_MARK_SLAVE_STABLE = 508;
+    public static final short OP_TENANT_LEVEL_MODIFY_SLAVE_TABLE_COLOCATE = 509;
+    public static final short OP_TENANT_LEVEL_COLOCATE_ADD_SLAVE_TABLE = 510;
+    public static final short OP_TENANT_LEVEL_COLOCATE_REMOVE_SLAVE_TABLE = 511;
+
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;
     @Deprecated

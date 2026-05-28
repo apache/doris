@@ -732,6 +732,7 @@ public class ColocateTableIndex implements Writable {
                 List<String> cols = groupSchema.getDistributionColTypes().stream().map(
                         e -> e.toSql()).collect(Collectors.toList());
                 info.add(Joiner.on(", ").join(cols));
+                info.add("true");
                 info.add(String.valueOf(!unstableGroups.contains(groupId)));
                 info.add(Strings.nullToEmpty(group2ErrMsgs.get(groupId)));
                 infos.add(info);

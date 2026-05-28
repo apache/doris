@@ -30,6 +30,7 @@ import org.apache.doris.common.TreeNode;
 import org.apache.doris.nereids.trees.plans.distribute.NereidsSpecifyInstances;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanSource;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
@@ -44,6 +45,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -155,6 +157,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // has colocate plan node
     protected boolean hasColocatePlanNode = false;
     protected final Supplier<Boolean> hasBucketShuffleNode;
+    protected Optional<Map<Tag, List<List<Long>>>> colocateData = Optional.empty();
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
 
@@ -276,6 +279,14 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public boolean hasColocatePlanNode() {
         return hasColocatePlanNode;
+    }
+
+    public Map<Tag, List<List<Long>>> getColocateData() {
+        return colocateData.orElse(Collections.emptyMap());
+    }
+
+    public void setColocateData(Map<Tag, List<List<Long>>> tags) {
+        colocateData = Optional.of(tags);
     }
 
     /**

@@ -41,6 +41,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.TenantLevelColocateTableIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -59,6 +60,7 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Backend.BackendStatus;
 import org.apache.doris.system.SystemInfoService;
@@ -111,6 +113,7 @@ import org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -1472,12 +1475,14 @@ public class ReportHandler extends Daemon {
                 LOG.warn("schema hash is diff[{}-{}]", schemaHash, olapTable.getSchemaHashByIndexId(indexId));
                 return false;
             }
-
+            SystemInfoService infoService = Env.getCurrentSystemInfo();
+            TenantLevelColocateTableIndex tenantLevelColocateTableIndex = Env.getCurrentTenantLevelColocateIndex();
             // colocate table will delete Replica in meta when balance
             // but we need to rely on MetaNotFoundException to decide whether delete the tablet in backend
             // if the tablet is healthy, delete it.
             boolean isColocateBackend = false;
             ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+            TabletStatus status;
             if (colocateTableIndex.isColocateTable(olapTable.getId())) {
                 ColocateTableIndex.GroupId groupId = colocateTableIndex.getGroup(tableId);
                 Preconditions.checkState(groupId != null,
@@ -1489,7 +1494,7 @@ public class ReportHandler extends Daemon {
                 if (groupSchema != null) {
                     replicaAlloc = groupSchema.getReplicaAlloc();
                 }
-                TabletStatus status = tablet.getColocateHealth(visibleVersion, replicaAlloc, backendsSet).status;
+                status = tablet.getColocateHealth(visibleVersion, replicaAlloc, backendsSet).status;
                 if (status == TabletStatus.HEALTHY) {
                     return false;
                 }
@@ -1497,11 +1502,54 @@ public class ReportHandler extends Daemon {
                 if (backendsSet.contains(backendId)) {
                     isColocateBackend = true;
                 }
-            }
+                List<Long> aliveBeIds = infoService.getAllBackendIds(true);
+                status = tablet.getHealth(infoService, visibleVersion, replicaAlloc, aliveBeIds).status;
+            } else if (tenantLevelColocateTableIndex.isColocateTable(olapTable.getId())) {
+                int tabletOrderIdx = materializedIndex.getTabletOrderIdx(tabletId);
+                Preconditions.checkState(
+                        tabletOrderIdx != -1, "get tablet materializedIndex for %s fail", tabletId);
+                Set<Long> colocateBackends = tenantLevelColocateTableIndex.getTabletBackendsByTable(olapTable.getId(),
+                        tabletOrderIdx);
+                Set<Tag> colocateTags = tenantLevelColocateTableIndex.getAllTagByTable(olapTable.getId());
+                Set<Tag> allTags = new HashSet<>(replicaAlloc.getAllocMap().keySet());
+                ReplicaAllocation colocateReplicaAlloc = replicaAlloc.getSubMap(colocateTags);
 
-            SystemInfoService infoService = Env.getCurrentSystemInfo();
-            List<Long> aliveBeIds = infoService.getAllBackendIds(true);
-            TabletStatus status = tablet.getHealth(infoService, visibleVersion, replicaAlloc, aliveBeIds).status;
+                // When use colocate group or slave,
+                // need to check whether the backend tag is config in replica allocation.
+                // e.g. want to delete all replicas in one tag.
+                Backend backend = infoService.getBackend(backendId);
+                if (backend == null) {
+                    return false;
+                }
+                if (!allTags.contains(backend.getLocationTag())) {
+                    LOG.warn("replica is dropped[{}-{}]", tablet.getReplicas().size(), replicaAlloc.toCreateStmt());
+                    return false;
+                }
+
+                if (colocateTags.contains(backend.getLocationTag())) {
+                    status = tablet.getColocateHealth(visibleVersion,
+                            colocateReplicaAlloc, colocateBackends, colocateTags).status;
+                    if (status == TabletStatus.HEALTHY) {
+                        return false;
+                    }
+                    isColocateBackend = colocateBackends.contains(backendId);
+                } else {
+                    Set<Tag> noColocateTags = new HashSet<>(replicaAlloc.getAllocMap().keySet());
+                    noColocateTags.removeAll(colocateTags);
+                    ReplicaAllocation noColocateReplicaAlloc = replicaAlloc.getSubMap(noColocateTags);
+                    Set<Long> excludeBackends = new HashSet<>(colocateBackends);
+                    excludeBackends.addAll(infoService.getAllBackendIdsByTag(false, colocateTags));
+                    Set<Long> aliveBeIds = infoService.getAllBackendIdsExcludeTag(true, colocateTags);
+                    status = tablet.getHealth(infoService, visibleVersion, noColocateReplicaAlloc,
+                            excludeBackends, aliveBeIds).status;
+                    if (status == TabletStatus.HEALTHY) {
+                        return false;
+                    }
+                }
+            } else {
+                List<Long> aliveBeIds = infoService.getAllBackendIds(true);
+                status = tablet.getHealth(infoService, visibleVersion, replicaAlloc, aliveBeIds).status;
+            }
 
             // FORCE_REDUNDANT is a specific missing case.
             // So it can add replica when it's in FORCE_REDUNDANT.

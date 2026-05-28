@@ -40,6 +40,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -158,8 +159,12 @@ public abstract class Tablet {
     public abstract List<Replica> getReplicas();
 
     public Set<Long> getBackendIds() {
+        return getBackendIds(getReplicas());
+    }
+
+    private static Set<Long> getBackendIds(Iterable<Replica> replicas) {
         Set<Long> beIds = Sets.newHashSet();
-        for (Replica replica : getReplicas()) {
+        for (Replica replica : replicas) {
             beIds.add(replica.getBackendIdWithoutException());
         }
         return beIds;
@@ -361,6 +366,41 @@ public abstract class Tablet {
     public abstract long getMinReplicaRowCount(long version);
 
     /**
+     * This is for tenant-level colocate table to check tablet is healthy in non-colocate location.
+     */
+    public TabletHealth getHealth(SystemInfoService infoService, long visibleVersion,
+            ReplicaAllocation replicaAlloc, Set<Long> excludeBackends, Set<Long> aliveBeIds) {
+        int otherHealthyReplica = 0;
+        List<Replica> replicas = getReplicas();
+        List<Replica> includedReplicas = new ArrayList<>(replicas.size());
+        for (Replica replica : replicas) {
+            if (excludeBackends.contains(replica.getBackendIdWithoutException())) {
+                Backend backend = infoService.getBackend(replica.getBackendIdWithoutException());
+                if (backend != null && backend.isAlive() && replica.isAlive() && replica.getLastFailedVersion() <= 0
+                        && replica.getVersion() >= visibleVersion && !replica.tooSlow()) {
+                    otherHealthyReplica++;
+                }
+                continue;
+            }
+            includedReplicas.add(replica);
+        }
+        TabletHealth tabletHealth = new TabletHealth();
+
+        if (replicaAlloc.isEmpty()) {
+            if (includedReplicas.isEmpty()) {
+                tabletHealth.status = TabletStatus.HEALTHY;
+                tabletHealth.priority = TabletSchedCtx.Priority.NORMAL;
+                return tabletHealth;
+            }
+            tabletHealth.status = TabletStatus.REDUNDANT;
+            tabletHealth.priority = TabletSchedCtx.Priority.VERY_HIGH;
+            return tabletHealth;
+        }
+        return getHealth(this, includedReplicas, infoService, visibleVersion, replicaAlloc,
+                aliveBeIds, otherHealthyReplica);
+    }
+
+    /**
      * A replica is healthy only if
      * 1. the backend is available
      * 2. replica version is caught up, and last failed version is -1
@@ -371,6 +411,12 @@ public abstract class Tablet {
      */
     public TabletHealth getHealth(SystemInfoService systemInfoService,
             long visibleVersion, ReplicaAllocation replicaAlloc, List<Long> aliveBeIds) {
+        return getHealth(this, getReplicas(), systemInfoService, visibleVersion, replicaAlloc, aliveBeIds, 0);
+    }
+
+    private static TabletHealth getHealth(Tablet tablet, List<Replica> replicas, SystemInfoService systemInfoService,
+            long visibleVersion, ReplicaAllocation replicaAlloc, Collection<Long> aliveBeIds,
+            int otherHealthyReplica) {
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
         Map<Tag, Short> stableAllocMap = Maps.newHashMap();
         Map<Tag, Short> stableVersionCompleteAllocMap = Maps.newHashMap();
@@ -384,7 +430,6 @@ public abstract class Tablet {
         boolean hasAliveAndVersionIncomplete = false;
         Set<String> hosts = Sets.newHashSet();
         ArrayList<Long> versions = new ArrayList<>();
-        List<Replica> replicas = getReplicas();
         for (Replica replica : replicas) {
             Backend backend = systemInfoService.getBackend(replica.getBackendIdWithoutException());
             if (!isReplicaAndBackendAlive(replica, backend, hosts)) {
@@ -419,7 +464,7 @@ public abstract class Tablet {
         }
 
         TabletHealth tabletHealth = new TabletHealth();
-        initTabletHealth(tabletHealth);
+        initTabletHealth(tablet, tabletHealth);
         tabletHealth.aliveAndVersionCompleteNum = aliveAndVersionComplete;
         tabletHealth.hasAliveAndVersionIncomplete = hasAliveAndVersionIncomplete;
         if (needFurtherRepairReplica != null) {
@@ -428,6 +473,10 @@ public abstract class Tablet {
 
         // 0. We can not choose a good replica as src to repair this tablet.
         if (aliveAndVersionComplete == 0) {
+            if (otherHealthyReplica > 0) {
+                tabletHealth.status = TabletStatus.REPLICA_MISSING;
+                return tabletHealth;
+            }
             tabletHealth.status = TabletStatus.UNRECOVERABLE;
             return tabletHealth;
         } else if (aliveAndVersionComplete < replicationNum && hasAliveAndVersionIncomplete) {
@@ -549,13 +598,13 @@ public abstract class Tablet {
         return tabletHealth;
     }
 
-    private void initTabletHealth(TabletHealth tabletHealth) {
+    private static void initTabletHealth(Tablet tablet, TabletHealth tabletHealth) {
         long endTime = System.currentTimeMillis() - Config.tablet_recent_load_failed_second * 1000L;
-        tabletHealth.hasRecentLoadFailed = getLastLoadFailedTime() > endTime;
-        tabletHealth.noPathForNewReplica = getLastTimeNoPathForNewReplica() > endTime;
+        tabletHealth.hasRecentLoadFailed = tablet.getLastLoadFailedTime() > endTime;
+        tabletHealth.noPathForNewReplica = tablet.getLastTimeNoPathForNewReplica() > endTime;
     }
 
-    private boolean isReplicaAndBackendAlive(Replica replica, Backend backend, Set<String> hosts) {
+    private static boolean isReplicaAndBackendAlive(Replica replica, Backend backend, Set<String> hosts) {
         if (backend == null || !backend.isAlive() || !replica.isAlive()
                 || checkHost(hosts, backend) || replica.tooSlow() || !backend.isMixNode()) {
             // this replica is not alive,
@@ -568,7 +617,7 @@ public abstract class Tablet {
         }
     }
 
-    private boolean checkHost(Set<String> hosts, Backend backend) {
+    private static boolean checkHost(Set<String> hosts, Backend backend) {
         return !Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && !hosts.add(backend.getHost());
     }
 
@@ -596,12 +645,16 @@ public abstract class Tablet {
      */
     public TabletHealth getColocateHealth(long visibleVersion,
             ReplicaAllocation replicaAlloc, Set<Long> backendsSet) {
+        return getColocateHealth(this, getReplicas(), visibleVersion, replicaAlloc, backendsSet, 0);
+    }
+
+    private static TabletHealth getColocateHealth(Tablet tablet, List<Replica> replicas, long visibleVersion,
+            ReplicaAllocation replicaAlloc, Set<Long> backendsSet, int otherHealthyReplica) {
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         short replicationNum = replicaAlloc.getTotalReplicaNum();
         boolean hasAliveAndVersionIncomplete = false;
         int aliveAndVersionComplete = 0;
         Set<String> hosts = Sets.newHashSet();
-        List<Replica> replicas = getReplicas();
         for (Replica replica : replicas) {
             Backend backend = systemInfoService.getBackend(replica.getBackendIdWithoutException());
             if (!isReplicaAndBackendAlive(replica, backend, hosts)) {
@@ -621,13 +674,18 @@ public abstract class Tablet {
         }
 
         TabletHealth tabletHealth = new TabletHealth();
-        initTabletHealth(tabletHealth);
+        initTabletHealth(tablet, tabletHealth);
         tabletHealth.aliveAndVersionCompleteNum = aliveAndVersionComplete;
         tabletHealth.hasAliveAndVersionIncomplete = hasAliveAndVersionIncomplete;
         tabletHealth.priority = TabletSchedCtx.Priority.NORMAL;
 
         // 0. We can not choose a good replica as src to repair this tablet.
         if (aliveAndVersionComplete == 0) {
+            if (otherHealthyReplica > 0) {
+                tabletHealth.status = TabletStatus.COLOCATE_MISMATCH;
+                tabletHealth.priority = TabletSchedCtx.Priority.VERY_HIGH;
+                return tabletHealth;
+            }
             tabletHealth.status = TabletStatus.UNRECOVERABLE;
             return tabletHealth;
         } else if (aliveAndVersionComplete < replicationNum && hasAliveAndVersionIncomplete) {
@@ -644,7 +702,7 @@ public abstract class Tablet {
         // 1. check if replicas' backends are mismatch
         //    There is no REPLICA_MISSING status for colocate table's tablet.
         //    Because if the following check doesn't pass, the COLOCATE_MISMATCH will return.
-        Set<Long> replicaBackendIds = getBackendIds();
+        Set<Long> replicaBackendIds = tablet.getBackendIds();
         if (!replicaBackendIds.containsAll(backendsSet)) {
             tabletHealth.status = TabletStatus.COLOCATE_MISMATCH;
             return tabletHealth;
@@ -688,6 +746,35 @@ public abstract class Tablet {
 
         tabletHealth.status = TabletStatus.HEALTHY;
         return tabletHealth;
+    }
+
+    /**
+     * This is for tenant-level colocate table to check tablet healthy in colocate location.
+     */
+    public TabletHealth getColocateHealth(long visibleVersion, ReplicaAllocation replicaAlloc,
+            Set<Long> colocateBackends, Set<Tag> colocateTags) {
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        List<Replica> replicas = getReplicas();
+        int otherHealthyReplica = 0;
+        List<Replica> includedReplicas = new ArrayList<>(replicas.size());
+        for (Replica replica : replicas) {
+            Backend backend = systemInfoService.getBackend(replica.getBackendIdWithoutException());
+            if (backend != null && !colocateTags.contains(backend.getLocationTag())) {
+                if (backend.isAlive() && replica.isAlive() && replica.getLastFailedVersion() <= 0
+                        && replica.getVersion() >= visibleVersion) {
+                    otherHealthyReplica++;
+                }
+            }
+            if (colocateBackends.contains(replica.getBackendIdWithoutException())) {
+                includedReplicas.add(replica);
+                continue;
+            }
+            if (backend != null && colocateTags.contains(backend.getLocationTag())) {
+                includedReplicas.add(replica);
+            }
+        }
+        return getColocateHealth(this, includedReplicas, visibleVersion, replicaAlloc, colocateBackends,
+                otherHealthyReplica);
     }
 
     public boolean readyToBeRepaired(SystemInfoService infoService, TabletSchedCtx.Priority priority) {

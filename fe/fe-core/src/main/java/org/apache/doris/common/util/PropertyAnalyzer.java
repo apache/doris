@@ -100,6 +100,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_LINE_DELIMITER = "line_delimiter";
 
     public static final String PROPERTIES_COLOCATE_WITH = "colocate_with";
+    public static final String PROPERTIES_COLOCATE_GROUP = "colocate_group";
+    public static final String PROPERTIES_COLOCATE_SLAVE = "colocate_slave";
 
     public static final String PROPERTIES_TIMEOUT = "timeout";
     public static final String PROPERTIES_COMPRESSION = "compression";
@@ -789,6 +791,66 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_COLOCATE_WITH);
         }
         return colocateGroup;
+    }
+
+    private static String analyzeTenantLevelMasterColocate(Map<String, String> properties) {
+        String colocateGroup = null;
+        if (properties != null && properties.containsKey(PROPERTIES_COLOCATE_GROUP)) {
+            colocateGroup = properties.get(PROPERTIES_COLOCATE_GROUP);
+            properties.remove(PROPERTIES_COLOCATE_GROUP);
+        }
+        return colocateGroup;
+    }
+
+    public static Map<Tag, String> analyzeTenantLevelColocateMap(Map<String, String> properties)
+            throws AnalysisException {
+        String colocateGroup = analyzeTenantLevelMasterColocate(properties);
+        return analyzeTenantLevelColocateMap(colocateGroup);
+    }
+
+    public static Map<Tag, String> analyzeTenantLevelColocateMap(String colocateGroup) throws AnalysisException {
+        Map<Tag, String> result = new HashMap<>();
+        if (!Strings.isNullOrEmpty(colocateGroup)) {
+            String[] arr = colocateGroup.split(",");
+            String prefix = TAG_LOCATION + ".";
+            for (String item : arr) {
+                String[] tagColocate = item.split(":");
+                if (tagColocate.length != 2) {
+                    throw new AnalysisException("Invalid colocate_group property: " + colocateGroup);
+                }
+                String tagName = tagColocate[0].trim();
+                if (!tagName.startsWith(prefix)) {
+                    throw new AnalysisException("Invalid colocate_group tag property: " + item);
+                }
+                String locationVal = tagName.substring(TAG_LOCATION.length() + 1).trim(); // +1 to skip dot.
+                if (Strings.isNullOrEmpty(locationVal)) {
+                    throw new AnalysisException("Invalid colocate_group location tag property: "
+                            + colocateGroup);
+                }
+                Tag tag = Tag.create(Tag.TYPE_LOCATION, locationVal);
+                String groupName = tagColocate[1].trim();
+                if (Strings.isNullOrEmpty(groupName)) {
+                    throw new AnalysisException("Invalid colocate_group location tag value: "
+                            + colocateGroup);
+                }
+                result.put(tag, groupName);
+            }
+        }
+        return result;
+    }
+
+    private static String analyzeColocateSlave(Map<String, String> properties) {
+        String colocateGroup = null;
+        if (properties != null && properties.containsKey(PROPERTIES_COLOCATE_SLAVE)) {
+            colocateGroup = properties.get(PROPERTIES_COLOCATE_SLAVE);
+            properties.remove(PROPERTIES_COLOCATE_SLAVE);
+        }
+        return colocateGroup;
+    }
+
+    public static Map<Tag, String> analyzeColocateSlaveMap(Map<String, String> properties) throws AnalysisException {
+        String colocateGroup = analyzeColocateSlave(properties);
+        return analyzeTenantLevelColocateMap(colocateGroup);
     }
 
     public static long analyzeTimeout(Map<String, String> properties, long defaultTimeout) throws AnalysisException {
@@ -1553,10 +1615,15 @@ public class PropertyAnalyzer {
 
     public static ReplicaAllocation analyzeReplicaAllocation(Map<String, String> properties, String prefix)
             throws AnalysisException {
+        return analyzeReplicaAllocation(properties, prefix, true);
+    }
+
+    public static ReplicaAllocation analyzeReplicaAllocation(Map<String, String> properties, String prefix,
+            boolean checkBackends) throws AnalysisException {
         if (!Config.force_olap_table_replication_allocation.isEmpty()) {
             properties = forceRewriteReplicaAllocation(properties, prefix);
         }
-        return analyzeReplicaAllocationImpl(properties, prefix, true);
+        return analyzeReplicaAllocationImpl(properties, prefix, checkBackends);
     }
 
     public static Map<String, String> forceRewriteReplicaAllocation(Map<String, String> properties,
