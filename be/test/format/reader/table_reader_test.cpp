@@ -432,7 +432,11 @@ std::vector<int32_t> read_iceberg_ids(
     bool eos = false;
     while (!eos) {
         Block block = build_table_block(projected_columns);
-        EXPECT_TRUE(reader->get_block(&block, &eos).ok());
+        auto status = reader->get_block(&block, &eos);
+        if (!status.ok()) {
+            ADD_FAILURE() << status;
+            return ids;
+        }
         if (block.rows() == 0) {
             continue;
         }
