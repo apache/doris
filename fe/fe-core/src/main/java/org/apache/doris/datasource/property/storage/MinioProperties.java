@@ -32,7 +32,7 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
     @Setter
     @Getter
     @ConnectorProperty(names = {"minio.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
-            required = false, description = "The endpoint of Minio.")
+            required = false, description = "The endpoint of Minio.", checkSsrf = true)
     protected String endpoint = "";
     @Getter
     @Setter

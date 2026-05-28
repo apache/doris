@@ -41,6 +41,7 @@ import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
+import org.apache.doris.datasource.connectivity.CatalogSsrfChecker;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -52,6 +53,8 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
@@ -328,12 +331,34 @@ public abstract class ExternalCatalog
         boolean testConnection = Boolean.parseBoolean(
                 catalogProperty.getOrDefault(TEST_CONNECTION, String.valueOf(DEFAULT_TEST_CONNECTION)));
 
+        // Best-effort property parsing for the SSRF check. Some catalog types (e.g. the
+        // in-tree `test` catalog) intentionally use non-standard metastore values that
+        // MetastoreProperties.create() rejects; before this method the failure was hidden
+        // by the lazy `test_connection=false` path, so we preserve that compatibility here
+        // — invalid catalogs simply have no URIs to validate and fall through.
+        MetastoreProperties msProps;
+        Map<StorageProperties.Type, StorageProperties> spMap;
+        try {
+            msProps = catalogProperty.getMetastoreProperties();
+            spMap = catalogProperty.getStoragePropertiesMap();
+        } catch (RuntimeException e) {
+            if (testConnection) {
+                throw e;
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Skipping SSRF check for catalog '{}': {}", name, e.getMessage());
+            }
+            return;
+        }
+
+        // SSRF: reject user-supplied URIs (HMS / HDFS / S3 endpoint / Iceberg REST / Glue)
+        // that point at internal or loopback hosts. Always runs so attackers cannot bypass
+        // by setting test_connection=false.
+        CatalogSsrfChecker.check(name, msProps, spMap);
+
         if (testConnection) {
             CatalogConnectivityTestCoordinator testCoordinator = new CatalogConnectivityTestCoordinator(
-                    name,
-                    catalogProperty.getMetastoreProperties(),
-                    catalogProperty.getStoragePropertiesMap()
-            );
+                    name, msProps, spMap);
             testCoordinator.runTests();
         }
     }

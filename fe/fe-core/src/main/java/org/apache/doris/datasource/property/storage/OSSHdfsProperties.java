@@ -51,7 +51,8 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     @Setter
     @ConnectorProperty(names = {"oss.hdfs.endpoint", "oss.endpoint",
             "dlf.endpoint", "dlf.catalog.endpoint"},
-            description = "The endpoint of OSS.")
+            description = "The endpoint of OSS.",
+            checkSsrf = true)
     protected String endpoint = "";
 
     @ConnectorProperty(names = {"oss.hdfs.access_key", "oss.access_key", "dlf.access_key", "dlf.catalog.accessKeyId"},

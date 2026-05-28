@@ -79,7 +79,8 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @ConnectorProperty(names = {ENDPOINT, "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
             "aws.glue.endpoint"},
             required = false,
-            description = "The endpoint of S3.")
+            description = "The endpoint of S3.",
+            checkSsrf = true)
     protected String endpoint = "";
 
     @Setter
