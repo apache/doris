@@ -58,6 +58,11 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     private static final Logger LOG = LogManager.getLogger(S3Properties.class);
 
     public static final String USE_PATH_STYLE = "use_path_style";
+    public static final String ENDPOINT = "s3.endpoint";
+    public static final String REGION = "s3.region";
+    public static final String ROLE_ARN = "s3.role_arn";
+    public static final String EXTERNAL_ID = "s3.external_id";
+    public static final String CREDENTIALS_PROVIDER_TYPE = "s3.credentials_provider_type";
 
     private static final String[] ENDPOINT_NAMES_FOR_GUESSING = {
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
@@ -65,12 +70,13 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     };
 
     private static final String[] REGION_NAMES_FOR_GUESSING = {
-            "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region", "client.region"
+            "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region",
+            "rest.signing-region", "client.region"
     };
 
     @Setter
     @Getter
-    @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
+    @ConnectorProperty(names = {ENDPOINT, "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
             "aws.glue.endpoint"},
             required = false,
             description = "The endpoint of S3.")
@@ -78,8 +84,8 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     @Setter
     @Getter
-    @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
-            "aws.glue.region", "iceberg.rest.signing-region", "client.region"},
+    @ConnectorProperty(names = {REGION, "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
+            "aws.glue.region", "iceberg.rest.signing-region", "rest.signing-region", "client.region"},
             required = false,
             isRegionField = true,
             description = "The region of S3.")
@@ -104,7 +110,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     protected String secretKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"s3.session_token", "session_token", "s3.session-token"},
+    @ConnectorProperty(names = {"s3.session_token", "session_token", "s3.session-token", "iceberg.rest.session-token"},
             required = false,
             description = "The session token of S3.")
     protected String sessionToken = "";
@@ -161,17 +167,19 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     protected String s3StsRegion = "";
 
     @Getter
-    @ConnectorProperty(names = {"s3.role_arn", "AWS_ROLE_ARN", "glue.role_arn"},
+    @ConnectorProperty(names = {ROLE_ARN, "AWS_ROLE_ARN", "glue.role_arn"},
             required = false,
             description = "The iam role of S3.")
     protected String s3IAMRole = "";
 
-    @ConnectorProperty(names = {"s3.external_id", "AWS_EXTERNAL_ID", "glue.external_id"},
+    @Getter
+    @ConnectorProperty(names = {EXTERNAL_ID, "AWS_EXTERNAL_ID", "glue.external_id"},
             required = false,
             description = "The external id of S3.")
     protected String s3ExternalId = "";
 
-    @ConnectorProperty(names = {"s3.credentials_provider_type", "glue.credentials_provider_type"},
+    @ConnectorProperty(names = {CREDENTIALS_PROVIDER_TYPE, "glue.credentials_provider_type",
+            "iceberg.rest.credentials_provider_type"},
             required = false,
             description = "The credentials provider type of S3. "
                     + "Options are: DEFAULT, ASSUME_ROLE, ENVIRONMENT, SYSTEM_PROPERTIES, "
@@ -179,6 +187,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                     + "If not set, it will use the default provider chain of AWS SDK.")
     protected String awsCredentialsProviderType = AwsCredentialsProviderMode.DEFAULT.name();
 
+    @Getter
     private AwsCredentialsProviderMode awsCredentialsProviderMode;
 
     public static S3Properties of(Map<String, String> properties) {
@@ -429,9 +438,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     public static final String S3_PREFIX = "s3.";
 
-    public static final String ENDPOINT = "s3.endpoint";
     public static final String EXTERNAL_ENDPOINT = "s3.external_endpoint";
-    public static final String REGION = "s3.region";
     public static final String ACCESS_KEY = "s3.access_key";
     public static final String SECRET_KEY = "s3.secret_key";
     public static final String SESSION_TOKEN = "s3.session_token";
@@ -439,9 +446,6 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     public static final String REQUEST_TIMEOUT_MS = "s3.connection.request.timeout";
     public static final String CONNECTION_TIMEOUT_MS = "s3.connection.timeout";
 
-    public static final String ROLE_ARN = "s3.role_arn";
-    public static final String EXTERNAL_ID = "s3.external_id";
-    public static final String CREDENTIALS_PROVIDER_TYPE = "s3.credentials_provider_type";
     public static final String ROOT_PATH = "s3.root.path";
     public static final String BUCKET = "s3.bucket";
     public static final String VALIDITY_CHECK = "s3_validity_check";
