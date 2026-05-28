@@ -216,7 +216,6 @@ protected:
     std::vector<VExprContextSPtrs> _intermediate_projections;
     Block _origin_block;
     Block _padding_block;
-    bool _alreay_eos = false;
 
     VExprContextSPtrs _common_expr_ctxs_push_down;
 
