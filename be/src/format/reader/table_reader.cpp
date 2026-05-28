@@ -117,10 +117,17 @@ Status TableReader::_open_local_filter_exprs(const FileScanRequest& file_request
     RowDescriptor row_desc;
     for (const auto& expression_filter : file_request.expression_filters) {
         if (expression_filter.conjunct == nullptr) {
-            continue;
+            if (expression_filter.delete_conjunct == nullptr) {
+                continue;
+            }
+        } else {
+            RETURN_IF_ERROR(expression_filter.conjunct->prepare(_runtime_state, row_desc));
+            RETURN_IF_ERROR(expression_filter.conjunct->open(_runtime_state));
         }
-        RETURN_IF_ERROR(expression_filter.conjunct->prepare(_runtime_state, row_desc));
-        RETURN_IF_ERROR(expression_filter.conjunct->open(_runtime_state));
+        if (expression_filter.delete_conjunct != nullptr) {
+            RETURN_IF_ERROR(expression_filter.delete_conjunct->prepare(_runtime_state, row_desc));
+            RETURN_IF_ERROR(expression_filter.delete_conjunct->open(_runtime_state));
+        }
     }
     return Status::OK();
 }
