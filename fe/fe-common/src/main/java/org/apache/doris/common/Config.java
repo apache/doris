@@ -2980,7 +2980,8 @@ public class Config extends ConfigBase {
     public static boolean enable_abort_txn_by_checking_coordinator_be = true;
 
     @ConfField(mutable = true, description = {
-            "Whether to abort transactions by checking conflict transactions in schema change."})
+            "Whether to abort transactions by checking conflict transactions in schema change "
+                    + "or cloud upgrade checks."})
     public static boolean enable_abort_txn_by_checking_conflict_txn = true;
 
     @ConfField(mutable = true, description = {
