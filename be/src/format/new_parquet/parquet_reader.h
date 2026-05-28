@@ -31,6 +31,10 @@ struct IOContext;
 } // namespace io
 } // namespace doris
 
+namespace parquet {
+class ColumnChunkMetaData;
+} // namespace parquet
+
 namespace doris::parquet {
 
 struct ParquetReaderScanState;
@@ -137,6 +141,8 @@ private:
                                         uint16_t selected_rows);
     Status _open_next_row_group(bool* has_row_group);
     Status _read_current_row_group_batch(int64_t batch_rows, Block* file_block, size_t* rows);
+    bool _is_row_group_outside_range(int row_group_idx) const;
+    int64_t _column_start_offset(const ::parquet::ColumnChunkMetaData& column_metadata) const;
 
     std::unique_ptr<ParquetReaderScanState> _state;
     ParquetProfile _parquet_profile;

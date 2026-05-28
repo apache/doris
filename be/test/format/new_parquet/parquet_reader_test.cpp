@@ -40,6 +40,7 @@
 #include "core/field.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "format/new_parquet/column_reader.h"
 #include "format/reader/column_mapper.h"
 #include "format/reader/file_reader.h"
 #include "format/reader/table_reader.h"
@@ -208,6 +209,35 @@ Block build_file_block(const std::vector<reader::SchemaField>& schema) {
     return block;
 }
 
+Block build_file_block_with_row_position(const std::vector<reader::SchemaField>& schema) {
+    auto block = build_file_block(schema);
+    const auto row_position_field =
+            parquet::ParquetColumnReaderFactory::row_position_schema_field();
+    block.insert({row_position_field.type->create_column(), row_position_field.type,
+                  row_position_field.name});
+    return block;
+}
+
+int64_t parquet_column_start_offset(const ::parquet::ColumnChunkMetaData& column_metadata) {
+    return column_metadata.has_dictionary_page()
+                   ? static_cast<int64_t>(column_metadata.dictionary_page_offset())
+                   : static_cast<int64_t>(column_metadata.data_page_offset());
+}
+
+std::pair<int64_t, int64_t> row_group_mid_range(const std::string& file_path, int row_group_idx) {
+    auto reader = ::parquet::ParquetFileReader::OpenFile(file_path, false);
+    auto metadata = reader->metadata();
+    auto row_group_metadata = metadata->RowGroup(row_group_idx);
+    auto first_column = row_group_metadata->ColumnChunk(0);
+    auto last_column = row_group_metadata->ColumnChunk(row_group_metadata->num_columns() - 1);
+    const int64_t row_group_start_offset = parquet_column_start_offset(*first_column);
+    const int64_t row_group_end_offset =
+            parquet_column_start_offset(*last_column) + last_column->total_compressed_size();
+    const int64_t row_group_mid_offset =
+            row_group_start_offset + (row_group_end_offset - row_group_start_offset) / 2;
+    return {row_group_mid_offset, 1};
+}
+
 class TestFileReader final : public reader::FileReader {
 public:
     TestFileReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
@@ -311,12 +341,15 @@ protected:
 
     void TearDown() override { std::filesystem::remove_all(_test_dir); }
 
-    std::unique_ptr<parquet::ParquetReader> create_reader() const {
+    std::unique_ptr<parquet::ParquetReader> create_reader(int64_t range_start_offset = 0,
+                                                          int64_t range_size = -1) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
         file_description->path = _file_path;
         file_description->file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+        file_description->range_start_offset = range_start_offset;
+        file_description->range_size = range_size;
         return std::make_unique<parquet::ParquetReader>(system_properties, file_description,
                                                         nullptr, nullptr);
     }
@@ -539,6 +572,137 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByStatistics) {
 
     EXPECT_EQ(ids, std::vector<int32_t>({3, 4, 5}));
     EXPECT_EQ(values, std::vector<std::string>({"three", "four", "five"}));
+}
+
+TEST_F(NewParquetReaderTest, RowPositionReaderReturnsFileLocalPositions) {
+    write_parquet_file(_file_path, 2);
+    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 3);
+
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<reader::SchemaField> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_unique<reader::FileScanRequest>();
+    request->non_predicate_columns = {parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID,
+                                      0};
+    request->column_positions = {
+            {0, 0},
+            {parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID, 2},
+    };
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int64_t> row_positions;
+    std::vector<int32_t> ids;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block_with_row_position(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+        const auto& row_position_column =
+                assert_cast<const ColumnInt64&>(*block.get_by_position(2).column);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+            row_positions.push_back(row_position_column.get_element(row));
+        }
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({1, 2, 3, 4, 5}));
+    EXPECT_EQ(row_positions, std::vector<int64_t>({0, 1, 2, 3, 4}));
+}
+
+TEST_F(NewParquetReaderTest, RowPositionReaderKeepsPositionsAfterSelection) {
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<reader::SchemaField> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    Block block = build_file_block_with_row_position(schema);
+
+    auto request = std::make_unique<reader::FileScanRequest>();
+    request->predicate_columns = {0};
+    request->non_predicate_columns = {parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID};
+    request->column_positions = {
+            {0, 0},
+            {parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID, 2},
+    };
+    reader::FileExpressionFilter expression_filter;
+    expression_filter.conjunct = create_int32_greater_than_conjunct(0, 2);
+    request->expression_filters.push_back(std::move(expression_filter));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    ASSERT_EQ(rows, 3);
+
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& row_position_column =
+            assert_cast<const ColumnInt64&>(*block.get_by_position(2).column);
+    EXPECT_EQ(id_column.get_element(0), 3);
+    EXPECT_EQ(id_column.get_element(1), 4);
+    EXPECT_EQ(id_column.get_element(2), 5);
+    EXPECT_EQ(row_position_column.get_element(0), 2);
+    EXPECT_EQ(row_position_column.get_element(1), 3);
+    EXPECT_EQ(row_position_column.get_element(2), 4);
+}
+
+TEST_F(NewParquetReaderTest, RowPositionReaderUsesFileLocalPositionsForScanRange) {
+    write_parquet_file(_file_path, 2);
+    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 3);
+
+    const std::vector<std::vector<int32_t>> expected_ids = {{1, 2}, {3, 4}, {5}};
+    const std::vector<std::vector<int64_t>> expected_row_positions = {{0, 1}, {2, 3}, {4}};
+    for (int row_group_idx = 0; row_group_idx < 3; ++row_group_idx) {
+        const auto [range_start_offset, range_size] =
+                row_group_mid_range(_file_path, row_group_idx);
+        auto reader = create_reader(range_start_offset, range_size);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+
+        std::vector<reader::SchemaField> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_unique<reader::FileScanRequest>();
+        request->non_predicate_columns = {
+                parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID, 0};
+        request->column_positions = {
+                {0, 0},
+                {parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID, 2},
+        };
+        ASSERT_TRUE(reader->open(request).ok());
+
+        std::vector<int32_t> ids;
+        std::vector<int64_t> row_positions;
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block_with_row_position(schema);
+            size_t rows = 0;
+            ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+            if (rows == 0) {
+                continue;
+            }
+            const auto& id_column =
+                    assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+            const auto& row_position_column =
+                    assert_cast<const ColumnInt64&>(*block.get_by_position(2).column);
+            for (size_t row = 0; row < rows; ++row) {
+                ids.push_back(id_column.get_element(row));
+                row_positions.push_back(row_position_column.get_element(row));
+            }
+        }
+
+        EXPECT_EQ(ids, expected_ids[row_group_idx]);
+        EXPECT_EQ(row_positions, expected_row_positions[row_group_idx]);
+    }
 }
 
 } // namespace

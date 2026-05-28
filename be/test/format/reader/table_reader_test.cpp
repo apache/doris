@@ -20,6 +20,7 @@
 #include <arrow/api.h>
 #include <arrow/io/api.h>
 #include <gtest/gtest.h>
+#include <parquet/api/reader.h>
 #include <parquet/arrow/writer.h>
 
 #include <algorithm>
@@ -30,12 +31,15 @@
 
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exprs/vexpr.h"
 #include "format/reader/expr/slot_ref.h"
+#include "format/table/iceberg_reader_v2.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
 #include "storage/predicate/predicate_creator.h"
@@ -231,11 +235,58 @@ Block build_table_block(const std::vector<TableColumn>& columns) {
     return block;
 }
 
+void expect_nullable_int64_column_values(const IColumn& column,
+                                         const std::vector<int64_t>& expected_values) {
+    const auto full_column = column.convert_to_full_column_if_const();
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*full_column);
+    const auto& values =
+            assert_cast<const ColumnInt64&>(nullable_column.get_nested_column()).get_data();
+    ASSERT_EQ(nullable_column.size(), expected_values.size());
+    for (size_t row = 0; row < expected_values.size(); ++row) {
+        EXPECT_EQ(nullable_column.get_null_map_data()[row], 0);
+        EXPECT_EQ(values[row], expected_values[row]);
+    }
+}
+
 SplitReadOptions build_split_options(const std::string& file_path) {
     SplitReadOptions options;
     options.current_range.__set_path(file_path);
     options.current_range.__set_file_size(
             static_cast<int64_t>(std::filesystem::file_size(file_path)));
+    return options;
+}
+
+void set_iceberg_row_lineage_params(SplitReadOptions* split_options, int64_t first_row_id,
+                                    int64_t last_updated_sequence_number) {
+    TTableFormatFileDesc table_format_params;
+    TIcebergFileDesc iceberg_params;
+    iceberg_params.__set_first_row_id(first_row_id);
+    iceberg_params.__set_last_updated_sequence_number(last_updated_sequence_number);
+    table_format_params.__set_iceberg_params(iceberg_params);
+    split_options->current_range.__set_table_format_params(table_format_params);
+}
+
+int64_t parquet_column_start_offset(const ::parquet::ColumnChunkMetaData& column_metadata) {
+    return column_metadata.has_dictionary_page()
+                   ? static_cast<int64_t>(column_metadata.dictionary_page_offset())
+                   : static_cast<int64_t>(column_metadata.data_page_offset());
+}
+
+SplitReadOptions build_split_options_for_row_group_mid(const std::string& file_path,
+                                                       int row_group_idx) {
+    auto options = build_split_options(file_path);
+    auto reader = ::parquet::ParquetFileReader::OpenFile(file_path, false);
+    auto metadata = reader->metadata();
+    auto row_group_metadata = metadata->RowGroup(row_group_idx);
+    auto first_column = row_group_metadata->ColumnChunk(0);
+    auto last_column = row_group_metadata->ColumnChunk(row_group_metadata->num_columns() - 1);
+    const int64_t row_group_start_offset = parquet_column_start_offset(*first_column);
+    const int64_t row_group_end_offset =
+            parquet_column_start_offset(*last_column) + last_column->total_compressed_size();
+    const int64_t row_group_mid_offset =
+            row_group_start_offset + (row_group_end_offset - row_group_start_offset) / 2;
+    options.current_range.__set_start_offset(row_group_mid_offset);
+    options.current_range.__set_size(1);
     return options;
 }
 
@@ -711,6 +762,226 @@ TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
             assert_cast<const ColumnString&>(*block.get_by_position(0).column);
     ASSERT_EQ(partition_value.size(), 1);
     EXPECT_EQ(partition_value.get_data_at(0).to_string(), "p1");
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_virtual_columns_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(
+            make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(
+            make_table_column(101, "_last_updated_sequence_number",
+                              make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    doris::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(
+                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    set_iceberg_row_lineage_params(&split_options, 1000, 77);
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(2).column);
+
+    ASSERT_EQ(block.rows(), 2);
+    EXPECT_EQ(id_column.get_element(0), 2);
+    EXPECT_EQ(id_column.get_element(1), 3);
+    expect_nullable_int64_column_values(*block.get_by_position(0).column, {1001, 1002});
+    expect_nullable_int64_column_values(*block.get_by_position(1).column, {77, 77});
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFiltering) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_virtual_columns_conjunct_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(
+            make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(
+            make_table_column(101, "_last_updated_sequence_number",
+                              make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    doris::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(
+                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    set_iceberg_row_lineage_params(&split_options, 3000, 88);
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(2).column);
+
+    ASSERT_EQ(block.rows(), 2);
+    EXPECT_EQ(id_column.get_element(0), 2);
+    EXPECT_EQ(id_column.get_element(1), 3);
+    expect_nullable_int64_column_values(*block.get_by_position(0).column, {3001, 3002});
+    expect_nullable_int64_column_values(*block.get_by_position(1).column, {88, 88});
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredicatePruning) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_virtual_columns_row_group_predicate_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    // ColumnPredicate is used for row-group/statistics pruning. Keep one row per row group so
+    // id > 2 prunes the first two row groups and leaves only the third file-local row.
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"}, 1);
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(
+            make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(
+            make_table_column(101, "_last_updated_sequence_number",
+                              make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    TableColumnPredicates column_predicates;
+    column_predicates[0].push_back(create_comparison_predicate<PredicateType::GT>(
+            0, "id", std::make_shared<DataTypeInt32>(), Field::create_field<TYPE_INT>(2), false));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    doris::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = std::move(column_predicates),
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    set_iceberg_row_lineage_params(&split_options, 4000, 99);
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(2).column);
+
+    ASSERT_EQ(block.rows(), 1);
+    EXPECT_EQ(id_column.get_element(0), 3);
+    expect_nullable_int64_column_values(*block.get_by_position(0).column, {4002});
+    expect_nullable_int64_column_values(*block.get_by_position(1).column, {99});
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, ParquetReaderReadsOnlyRowGroupsInFileRange) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_file_range_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30},
+                                {"range_group_one", "range_group_two", "range_group_three"}, 1);
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    projected_columns.push_back(make_table_column(2, "value", std::make_shared<DataTypeString>()));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+
+    ASSERT_TRUE(reader.prepare_split(build_split_options_for_row_group_mid(file_path, 1)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& value_column = assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+    ASSERT_EQ(block.rows(), 1);
+    EXPECT_EQ(id_column.get_element(0), 2);
+    EXPECT_EQ(value_column.get_data_at(0).to_string(), "range_group_two");
+
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(block.rows(), 0);
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

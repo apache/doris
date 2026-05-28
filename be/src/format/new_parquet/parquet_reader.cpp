@@ -159,12 +159,16 @@ struct ParquetReaderScanState {
     std::vector<int> predicate_fields;
     std::vector<int> non_predicate_fields;
     std::vector<int> selected_row_groups;
+    // We need this to quickly determine the first row of each row group, which is needed for position delete and page index.
+    // TODO: this may be parsed by multiple ParquetReader with the same file but different scan ranges, so we should cache it
+    std::vector<int64_t> row_group_first_rows;
     size_t next_row_group_idx = 0;
     std::shared_ptr<::parquet::RowGroupReader> current_row_group;
     std::vector<std::unique_ptr<ParquetColumnReader>> current_predicate_columns;
     std::vector<std::unique_ptr<ParquetColumnReader>> current_non_predicate_columns;
     int64_t current_row_group_rows = 0;
     int64_t current_row_group_rows_read = 0;
+    int64_t current_row_group_first_row = 0;
 };
 
 Status ParquetReader::_reset_reader_position() {
@@ -174,6 +178,7 @@ Status ParquetReader::_reset_reader_position() {
     _state->current_non_predicate_columns.clear();
     _state->current_row_group_rows = 0;
     _state->current_row_group_rows_read = 0;
+    _state->current_row_group_first_row = 0;
     return Status::OK();
 }
 
@@ -183,6 +188,7 @@ void ParquetReader::_reset_current_row_group() {
     _state->current_non_predicate_columns.clear();
     _state->current_row_group_rows = 0;
     _state->current_row_group_rows_read = 0;
+    _state->current_row_group_first_row = 0;
 }
 
 void ParquetReader::_fill_schema_field(const ParquetColumnSchema& column_schema,
@@ -383,15 +389,24 @@ Status ParquetReader::_open_next_row_group(bool* has_row_group) {
             _reset_current_row_group();
             continue;
         }
+        DORIS_CHECK(row_group_idx >= 0 &&
+                    row_group_idx < static_cast<int>(_state->row_group_first_rows.size()));
+        _state->current_row_group_first_row = _state->row_group_first_rows[row_group_idx];
         _state->current_row_group_rows_read = 0;
         _state->current_predicate_columns.clear();
         _state->current_non_predicate_columns.clear();
 
         ParquetColumnReaderFactory column_reader_factory(_state->current_row_group,
                                                          _state->schema->num_columns());
-        for (const auto file_field_id : _request->predicate_columns) {
-            const auto& column_schema = _state->file_schema[file_field_id];
-            const auto projection_it = _request->complex_projections.find(file_field_id);
+        for (const auto file_column_id : _request->predicate_columns) {
+            if (file_column_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+                _state->current_predicate_columns.push_back(
+                        column_reader_factory.create_row_position_column_reader(
+                                _state->current_row_group_first_row));
+                continue;
+            }
+            const auto& column_schema = _state->file_schema[file_column_id];
+            const auto projection_it = _request->complex_projections.find(file_column_id);
             const auto* projection = projection_it == _request->complex_projections.end()
                                              ? nullptr
                                              : &projection_it->second;
@@ -400,9 +415,15 @@ Status ParquetReader::_open_next_row_group(bool* has_row_group) {
                     column_reader_factory.create(*column_schema, projection, &column_reader));
             _state->current_predicate_columns.push_back(std::move(column_reader));
         }
-        for (const auto file_field_id : _request->non_predicate_columns) {
-            const auto& column_schema = _state->file_schema[file_field_id];
-            const auto projection_it = _request->complex_projections.find(file_field_id);
+        for (const auto file_column_id : _request->non_predicate_columns) {
+            if (file_column_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+                _state->current_non_predicate_columns.push_back(
+                        column_reader_factory.create_row_position_column_reader(
+                                _state->current_row_group_first_row));
+                continue;
+            }
+            const auto& column_schema = _state->file_schema[file_column_id];
+            const auto projection_it = _request->complex_projections.find(file_column_id);
             const auto* projection = projection_it == _request->complex_projections.end()
                                              ? nullptr
                                              : &projection_it->second;
@@ -479,6 +500,48 @@ Status ParquetReader::_read_current_row_group_batch(int64_t batch_rows, Block* f
     return Status::OK();
 }
 
+int64_t ParquetReader::_column_start_offset(
+        const ::parquet::ColumnChunkMetaData& column_metadata) const {
+    return column_metadata.has_dictionary_page()
+                   ? cast_set<int64_t>(column_metadata.dictionary_page_offset())
+                   : cast_set<int64_t>(column_metadata.data_page_offset());
+}
+
+bool ParquetReader::_is_row_group_outside_range(int row_group_idx) const {
+    DORIS_CHECK(_file_description != nullptr);
+    // This parquet file is not split
+    if (_file_description->range_size < 0) {
+        return false;
+    }
+    const int64_t range_start_offset = _file_description->range_start_offset;
+    const int64_t range_end_offset = range_start_offset + _file_description->range_size;
+    DORIS_CHECK(range_start_offset >= 0);
+    DORIS_CHECK(range_end_offset >= range_start_offset);
+    // read whole parquet file if the range covers the whole file, which is a common case when parquet files are not splittable.
+    if (range_start_offset == 0 &&
+        (_file_description->file_size < 0 || range_end_offset >= _file_description->file_size)) {
+        return false;
+    }
+
+    auto row_group_metadata = _state->metadata->RowGroup(row_group_idx);
+    DORIS_CHECK(row_group_metadata != nullptr);
+    DORIS_CHECK(row_group_metadata->num_columns() > 0);
+    const auto first_column = row_group_metadata->ColumnChunk(0);
+    const auto last_column = row_group_metadata->ColumnChunk(row_group_metadata->num_columns() - 1);
+    DORIS_CHECK(first_column != nullptr);
+    DORIS_CHECK(last_column != nullptr);
+    const int64_t row_group_start_offset = _column_start_offset(*first_column);
+    const int64_t row_group_end_offset =
+            _column_start_offset(*last_column) + last_column->total_compressed_size();
+    // A scan range is a byte split, while Parquet is read by row group. If a row group crosses
+    // split boundaries, using overlap would let adjacent ranges read the same row group. Keep the
+    // same ownership rule as the legacy vparquet reader: the range containing the row group's
+    // midpoint owns the whole row group.
+    const int64_t row_group_mid_offset =
+            row_group_start_offset + (row_group_end_offset - row_group_start_offset) / 2;
+    return row_group_mid_offset < range_start_offset || row_group_mid_offset >= range_end_offset;
+}
+
 ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                              std::unique_ptr<io::FileDescription>& file_description,
                              std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile)
@@ -548,10 +611,16 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
     const int num_fields = static_cast<int>(_state->file_schema.size());
     for (const auto file_column_id : _request->predicate_columns) {
         DORIS_CHECK(_request->column_positions.count(file_column_id) > 0);
+        if (file_column_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+            continue;
+        }
         DORIS_CHECK(file_column_id >= 0 && file_column_id < num_fields);
     }
     for (const auto file_column_id : _request->non_predicate_columns) {
         DORIS_CHECK(_request->column_positions.count(file_column_id) > 0);
+        if (file_column_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+            continue;
+        }
         DORIS_CHECK(file_column_id >= 0 && file_column_id < num_fields);
     }
     for (const auto& column_filter : _request->column_predicate_filters) {
@@ -579,6 +648,23 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
     }
     RETURN_IF_ERROR(select_row_groups_by_statistics(*_state->metadata, _state->file_schema,
                                                     *_request, &_state->selected_row_groups));
+    std::vector<int> range_selected_row_groups;
+    range_selected_row_groups.reserve(_state->selected_row_groups.size());
+    for (const auto row_group_idx : _state->selected_row_groups) {
+        if (!_is_row_group_outside_range(row_group_idx)) {
+            range_selected_row_groups.push_back(row_group_idx);
+        }
+    }
+    _state->selected_row_groups = std::move(range_selected_row_groups);
+    _state->row_group_first_rows.resize(_state->metadata->num_row_groups());
+    int64_t next_row_group_first_row = 0;
+    for (int row_group_idx = 0; row_group_idx < _state->metadata->num_row_groups();
+         ++row_group_idx) {
+        _state->row_group_first_rows[row_group_idx] = next_row_group_first_row;
+        auto row_group_metadata = _state->metadata->RowGroup(row_group_idx);
+        DORIS_CHECK(row_group_metadata != nullptr);
+        next_row_group_first_row += row_group_metadata->num_rows();
+    }
     RETURN_IF_ERROR(_reset_reader_position());
     _eof = _state->selected_row_groups.empty();
     return Status::OK();
