@@ -19,6 +19,7 @@ package org.apache.doris.connector.jdbc;
 
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.thrift.TOdbcTableType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -147,5 +148,40 @@ class JdbcDorisConnectorTest {
                 "JDBC connector metadata should not support DELETE by default");
         Assertions.assertFalse(metadata.supportsMerge(),
                 "JDBC connector metadata should not support MERGE by default");
+    }
+
+    @Test
+    void testSnowflakeMapsToOdbcTableType() {
+        Assertions.assertEquals(TOdbcTableType.SNOWFLAKE,
+                JdbcDorisConnector.toOdbcTableType(JdbcDbType.SNOWFLAKE));
+    }
+
+    @Test
+    void testApplySnowflakeConnectionProperties() {
+        Map<String, String> props = new HashMap<>();
+        props.put("snowflake.database", "DORIS_HORIZON_DB");
+        props.put("snowflake.warehouse", "COMPUTE_WH");
+
+        String jdbcUrl = JdbcDorisConnector.applySnowflakeConnectionProperties(
+                "jdbc:snowflake://example.snowflakecomputing.com", props);
+
+        Assertions.assertEquals(
+                "jdbc:snowflake://example.snowflakecomputing.com?db=DORIS_HORIZON_DB&warehouse=COMPUTE_WH",
+                jdbcUrl);
+    }
+
+    @Test
+    void testApplySnowflakeConnectionPropertiesKeepsExistingQueryParams() {
+        Map<String, String> props = new HashMap<>();
+        props.put("snowflake.database", "DORIS_HORIZON_DB");
+        props.put("snowflake.warehouse", "COMPUTE_WH");
+
+        String jdbcUrl = JdbcDorisConnector.applySnowflakeConnectionProperties(
+                "jdbc:snowflake://example.snowflakecomputing.com?role=DORIS_DEBUG", props);
+
+        Assertions.assertEquals(
+                "jdbc:snowflake://example.snowflakecomputing.com?role=DORIS_DEBUG"
+                        + "&db=DORIS_HORIZON_DB&warehouse=COMPUTE_WH",
+                jdbcUrl);
     }
 }

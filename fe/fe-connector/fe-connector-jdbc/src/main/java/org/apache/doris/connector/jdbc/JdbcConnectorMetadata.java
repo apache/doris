@@ -187,7 +187,7 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
         tJdbcTable.setCatalogId(catalogId);
         tJdbcTable.setJdbcUrl(properties.getOrDefault(JdbcConnectorProperties.JDBC_URL, ""));
         tJdbcTable.setJdbcUser(properties.getOrDefault(JdbcConnectorProperties.USER, ""));
-        tJdbcTable.setJdbcPassword(properties.getOrDefault(JdbcConnectorProperties.PASSWORD, ""));
+        tJdbcTable.setJdbcPassword(getConnectionPassword());
         tJdbcTable.setJdbcTableName(remoteName);
         tJdbcTable.setJdbcDriverClass(properties.getOrDefault(JdbcConnectorProperties.DRIVER_CLASS, ""));
         tJdbcTable.setJdbcDriverUrl(properties.getOrDefault(JdbcConnectorProperties.DRIVER_URL, ""));
@@ -314,7 +314,7 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
         Map<String, String> writeProps = new HashMap<>();
         writeProps.put("jdbc_url", properties.getOrDefault(JdbcConnectorProperties.JDBC_URL, ""));
         writeProps.put("jdbc_user", properties.getOrDefault(JdbcConnectorProperties.USER, ""));
-        writeProps.put("jdbc_password", properties.getOrDefault(JdbcConnectorProperties.PASSWORD, ""));
+        writeProps.put("jdbc_password", getConnectionPassword());
         writeProps.put("jdbc_driver_url", properties.getOrDefault(JdbcConnectorProperties.DRIVER_URL, ""));
         writeProps.put("jdbc_driver_class", properties.getOrDefault(JdbcConnectorProperties.DRIVER_CLASS, ""));
         writeProps.put("jdbc_driver_checksum",
@@ -351,6 +351,13 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
         return ConnectorWriteConfig.builder(ConnectorWriteType.JDBC_WRITE)
                 .properties(writeProps)
                 .build();
+    }
+
+    private String getConnectionPassword() {
+        return JdbcConnectorClient.resolveSnowflakeOauthToken(
+                properties,
+                properties.getOrDefault(JdbcConnectorProperties.JDBC_URL, ""),
+                properties.getOrDefault(JdbcConnectorProperties.PASSWORD, ""));
     }
 
     @Override

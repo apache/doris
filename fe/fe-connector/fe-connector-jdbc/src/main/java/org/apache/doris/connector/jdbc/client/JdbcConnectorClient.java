@@ -19,6 +19,7 @@ package org.apache.doris.connector.jdbc.client;
 
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.jdbc.JdbcConnectorProperties;
 import org.apache.doris.connector.jdbc.JdbcDbType;
 
 import com.zaxxer.hikari.HikariDataSource;
@@ -29,6 +30,8 @@ import java.io.Closeable;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
@@ -40,6 +43,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -180,12 +184,19 @@ public abstract class JdbcConnectorClient implements Closeable {
                         includeMap, excludeMap, enableMappingVarbinary,
                         enableMappingTimestampTz);
                 break;
+            case SNOWFLAKE:
+                client = new JdbcSnowflakeConnectorClient(
+                        catalogName, dbType, jdbcUrl, onlySpecifiedDatabase,
+                        includeMap, excludeMap, enableMappingVarbinary,
+                        enableMappingTimestampTz);
+                break;
             default:
                 throw new DorisConnectorException("Unsupported JDBC DB type: " + dbType);
         }
         client.initializeClassLoader(driverUrl);
         String sanitizedUrl = urlSanitizer.apply(jdbcUrl);
-        client.initializeDataSource(sanitizedUrl, user, password, driverClass,
+        String connectionPassword = resolveSnowflakeOauthToken(allProperties, jdbcUrl, password);
+        client.initializeDataSource(sanitizedUrl, user, connectionPassword, driverClass,
                 poolMinSize, poolMaxSize, poolMaxWaitTime, poolMaxLifeTime);
         client.postInitialize();
         return client;
@@ -227,6 +238,7 @@ public abstract class JdbcConnectorClient implements Closeable {
             dataSource.setJdbcUrl(url);
             dataSource.setUsername(user);
             dataSource.setPassword(password);
+            configureSnowflakeOauth(dataSource, url, password);
             dataSource.setMinimumIdle(poolMin);
             dataSource.setMaximumPoolSize(poolMax);
             dataSource.setConnectionTimeout(maxWait);
@@ -240,6 +252,50 @@ public abstract class JdbcConnectorClient implements Closeable {
         } finally {
             Thread.currentThread().setContextClassLoader(old);
         }
+    }
+
+    private void configureSnowflakeOauth(HikariDataSource dataSource, String url, String password) {
+        if (dbType != JdbcDbType.SNOWFLAKE || password == null || password.isEmpty() || url == null) {
+            return;
+        }
+        if (isSnowflakeOauthUrl(url)) {
+            dataSource.addDataSourceProperty("token", password);
+        }
+    }
+
+    public static String resolveSnowflakeOauthToken(
+            Map<String, String> properties, String jdbcUrl, String password) {
+        if (!isSnowflakeOauthUrl(jdbcUrl)) {
+            return password;
+        }
+        String explicitToken = properties == null ? null
+                : properties.get(JdbcConnectorProperties.SNOWFLAKE_OAUTH_ACCESS_TOKEN);
+        if (explicitToken != null && !explicitToken.isEmpty()) {
+            return explicitToken;
+        }
+        return password;
+    }
+
+    static boolean isSnowflakeOauthUrl(String jdbcUrl) {
+        if (jdbcUrl == null || !jdbcUrl.toLowerCase(Locale.ROOT).startsWith("jdbc:snowflake:")) {
+            return false;
+        }
+        int queryStart = jdbcUrl.indexOf('?');
+        if (queryStart < 0 || queryStart == jdbcUrl.length() - 1) {
+            return false;
+        }
+        String query = jdbcUrl.substring(queryStart + 1);
+        for (String part : query.split("&")) {
+            int equal = part.indexOf('=');
+            String rawName = equal >= 0 ? part.substring(0, equal) : part;
+            String rawValue = equal >= 0 ? part.substring(equal + 1) : "";
+            String name = URLDecoder.decode(rawName, StandardCharsets.UTF_8).trim();
+            String value = URLDecoder.decode(rawValue, StandardCharsets.UTF_8).trim();
+            if ("authenticator".equalsIgnoreCase(name) && "oauth".equalsIgnoreCase(value)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private synchronized void initializeClassLoader(String driverUrl) {

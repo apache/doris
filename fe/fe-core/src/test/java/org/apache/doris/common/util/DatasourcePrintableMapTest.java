@@ -45,6 +45,7 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("elasticsearch.password"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("iceberg.rest.oauth2.credential"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("iceberg.rest.oauth2.token"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("snowflake.oauth.access_token"));
 
         // Verify cloud storage related sensitive keys (these are constants added in static initialization block)
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("s3.secret_key"));

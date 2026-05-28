@@ -215,6 +215,7 @@ public final class JdbcQueryBuilder {
             case PRESTO:
             case OCEANBASE:
             case GBASE:
+            case SNOWFLAKE:
                 return true;
             default:
                 return false;

@@ -54,6 +54,7 @@ import java.util.Map;
  *   <li>jdbc_url - JDBC connection URL</li>
  *   <li>jdbc_user - database user</li>
  *   <li>jdbc_password - database password</li>
+ *   <li>snowflake.oauth.access_token - Snowflake OAuth access token</li>
  *   <li>jdbc_driver_class - JDBC driver class name</li>
  *   <li>jdbc_driver_url - path to driver JAR</li>
  *   <li>jdbc_driver_checksum - MD5 checksum of driver JAR</li>
@@ -73,6 +74,7 @@ public class JdbcJniWriter extends JniWriter {
     private final String jdbcUrl;
     private final String jdbcUser;
     private final String jdbcPassword;
+    private final String snowflakeOauthAccessToken;
     private final String jdbcDriverClass;
     private final String jdbcDriverUrl;
     private final String jdbcDriverChecksum;
@@ -99,6 +101,8 @@ public class JdbcJniWriter extends JniWriter {
         this.jdbcUrl = params.getOrDefault("jdbc_url", "");
         this.jdbcUser = params.getOrDefault("jdbc_user", "");
         this.jdbcPassword = params.getOrDefault("jdbc_password", "");
+        this.snowflakeOauthAccessToken = params.getOrDefault(
+                SnowflakeJdbcAuthUtils.OAUTH_ACCESS_TOKEN_PARAM, "");
         this.jdbcDriverClass = params.getOrDefault("jdbc_driver_class", "");
         this.jdbcDriverUrl = params.getOrDefault("jdbc_driver_url", "");
         this.jdbcDriverChecksum = params.getOrDefault("jdbc_driver_checksum", "");
@@ -381,7 +385,9 @@ public class JdbcJniWriter extends JniWriter {
                     ds.setDriverClassName(jdbcDriverClass);
                     ds.setJdbcUrl(SecurityChecker.getInstance().getSafeJdbcUrl(jdbcUrl));
                     ds.setUsername(jdbcUser);
-                    ds.setPassword(jdbcPassword);
+                    ds.setPassword(getConnectionPassword());
+                    SnowflakeJdbcAuthUtils.configure(ds, jdbcUrl, jdbcPassword,
+                            snowflakeOauthAccessToken);
                     ds.setMinimumIdle(connectionPoolMinSize);
                     ds.setMaximumPoolSize(connectionPoolMaxSize);
                     ds.setConnectionTimeout(connectionPoolMaxWaitTime);
@@ -401,8 +407,13 @@ public class JdbcJniWriter extends JniWriter {
     }
 
     private String createCacheKey() {
-        return JdbcDataSource.createCacheKey(catalogId, jdbcUrl, jdbcUser, jdbcPassword,
+        return JdbcDataSource.createCacheKey(catalogId, jdbcUrl, jdbcUser, getConnectionPassword(),
                 jdbcDriverUrl, jdbcDriverClass, connectionPoolMinSize, connectionPoolMaxSize,
                 connectionPoolMaxLifeTime, connectionPoolMaxWaitTime, connectionPoolKeepAlive);
+    }
+
+    private String getConnectionPassword() {
+        return SnowflakeJdbcAuthUtils.resolveCredential(jdbcUrl, jdbcPassword,
+                snowflakeOauthAccessToken);
     }
 }

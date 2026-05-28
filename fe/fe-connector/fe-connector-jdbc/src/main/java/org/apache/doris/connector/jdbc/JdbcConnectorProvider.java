@@ -22,8 +22,11 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLDecoder;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -58,7 +61,11 @@ public class JdbcConnectorProvider implements ConnectorProvider {
             }
         }
 
-        // 2. Reject deprecated lower_case_table_names
+        // 2. Snowflake keeps database and warehouse as dedicated catalog
+        // properties. Doris maps its database layer to Snowflake schemas.
+        validateSnowflakeProperties(properties);
+
+        // 3. Reject deprecated lower_case_table_names
         if (properties.containsKey(JdbcConnectorProperties.LOWER_CASE_TABLE_NAMES)
                 || properties.containsKey(
                         JdbcDorisConnector.JDBC_PROPERTIES_PREFIX
@@ -68,13 +75,13 @@ public class JdbcConnectorProvider implements ConnectorProvider {
                             + " please use lower_case_meta_names instead");
         }
 
-        // 3. Boolean property validation
+        // 4. Boolean property validation
         checkBooleanProperty(properties, JdbcConnectorProperties.ONLY_SPECIFIED_DATABASE);
         checkBooleanProperty(properties, JdbcConnectorProperties.LOWER_CASE_META_NAMES);
         checkBooleanProperty(properties, JdbcConnectorProperties.CONNECTION_POOL_KEEP_ALIVE);
         checkBooleanProperty(properties, JdbcConnectorProperties.TEST_CONNECTION);
 
-        // 4. Database list consistency: include/exclude cannot be set when only_specified_database=false
+        // 5. Database list consistency: include/exclude cannot be set when only_specified_database=false
         String onlySpecified = resolve(properties, JdbcConnectorProperties.ONLY_SPECIFIED_DATABASE);
         if (onlySpecified == null || !onlySpecified.equalsIgnoreCase("true")) {
             String includeList = resolve(properties, JdbcConnectorProperties.INCLUDE_DATABASE_LIST);
@@ -87,10 +94,10 @@ public class JdbcConnectorProvider implements ConnectorProvider {
             }
         }
 
-        // 5. Connection pool settings
+        // 6. Connection pool settings
         checkConnectionPoolProperties(properties);
 
-        // 6. Validate meta_names_mapping with actual lower_case_meta_names setting.
+        // 7. Validate meta_names_mapping with actual lower_case_meta_names setting.
         // At runtime, JdbcConnectorMetadata builds the mapper with lower_case_meta_names
         // from catalog properties and lower_case_table_names from session. We validate
         // with the real lower_case_meta_names and both possible lower_case_table_names
@@ -108,6 +115,63 @@ public class JdbcConnectorProvider implements ConnectorProvider {
             } catch (DorisConnectorException e) {
                 throw new IllegalArgumentException(e.getMessage(), e);
             }
+        }
+    }
+
+    private static void validateSnowflakeProperties(Map<String, String> properties) {
+        String jdbcUrl = resolve(properties, JdbcConnectorProperties.JDBC_URL);
+        if (jdbcUrl == null || !jdbcUrl.toLowerCase(Locale.ROOT).startsWith("jdbc:snowflake:")) {
+            return;
+        }
+        if (hasQueryParameter(jdbcUrl, "db") || hasQueryParameter(jdbcUrl, "database")) {
+            throw new IllegalArgumentException(
+                    "Snowflake JDBC catalog uses dedicated properties. "
+                            + "Do not set db or database in jdbc_url; set "
+                            + JdbcConnectorProperties.SNOWFLAKE_DATABASE + " instead.");
+        }
+        if (hasQueryParameter(jdbcUrl, "warehouse")) {
+            throw new IllegalArgumentException(
+                    "Snowflake JDBC catalog uses dedicated properties. "
+                            + "Do not set warehouse in jdbc_url; set "
+                            + JdbcConnectorProperties.SNOWFLAKE_WAREHOUSE + " instead.");
+        }
+        String database = resolve(properties, JdbcConnectorProperties.SNOWFLAKE_DATABASE);
+        if (database == null || database.trim().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Snowflake JDBC catalog requires property '"
+                            + JdbcConnectorProperties.SNOWFLAKE_DATABASE
+                            + "'. Doris maps Doris databases to Snowflake schemas within this database.");
+        }
+        String warehouse = resolve(properties, JdbcConnectorProperties.SNOWFLAKE_WAREHOUSE);
+        if (warehouse == null || warehouse.trim().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Snowflake JDBC catalog requires property '"
+                            + JdbcConnectorProperties.SNOWFLAKE_WAREHOUSE + "'.");
+        }
+    }
+
+    private static boolean hasQueryParameter(String jdbcUrl, String key) {
+        int queryStart = jdbcUrl.indexOf('?');
+        if (queryStart < 0 || queryStart == jdbcUrl.length() - 1) {
+            return false;
+        }
+        String query = jdbcUrl.substring(queryStart + 1);
+        for (String part : query.split("&")) {
+            int equal = part.indexOf('=');
+            String rawName = equal >= 0 ? part.substring(0, equal) : part;
+            String name = urlDecode(rawName).trim();
+            if (key.equalsIgnoreCase(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String urlDecode(String value) {
+        try {
+            return URLDecoder.decode(value, "UTF-8");
+        } catch (UnsupportedEncodingException e) {
+            return value;
         }
     }
 

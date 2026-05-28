@@ -101,6 +101,13 @@ public class JdbcDbTypeTest {
     }
 
     @Test
+    public void testParseFromUrlSnowflake() {
+        Assertions.assertEquals(JdbcDbType.SNOWFLAKE,
+                JdbcDbType.parseFromUrl("jdbc:snowflake://example.snowflakecomputing.com/"
+                        + "?db=PLAUD_TEST&schema=ADS&warehouse=COMPUTE_WH"));
+    }
+
+    @Test
     public void testParseFromUrlNull() {
         Assertions.assertThrows(DorisConnectorException.class,
                 () -> JdbcDbType.parseFromUrl(null));

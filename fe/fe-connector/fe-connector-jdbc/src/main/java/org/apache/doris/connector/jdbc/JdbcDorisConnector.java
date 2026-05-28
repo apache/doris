@@ -38,6 +38,8 @@ import org.apache.thrift.TSerializer;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -81,8 +83,12 @@ public class JdbcDorisConnector implements Connector {
         String rawUrl = normalized.get(JdbcConnectorProperties.JDBC_URL);
         if (rawUrl != null && !rawUrl.isEmpty()) {
             JdbcDbType dbType = JdbcDbType.parseFromUrl(rawUrl);
+            String effectiveUrl = rawUrl;
+            if (dbType == JdbcDbType.SNOWFLAKE) {
+                effectiveUrl = applySnowflakeConnectionProperties(rawUrl, normalized);
+            }
             normalized.put(JdbcConnectorProperties.JDBC_URL,
-                    JdbcUrlNormalizer.normalize(rawUrl, dbType, context.getEnvironment()));
+                    JdbcUrlNormalizer.normalize(effectiveUrl, dbType, context.getEnvironment()));
         }
         this.properties = Collections.unmodifiableMap(normalized);
         this.context = context;
@@ -289,7 +295,7 @@ public class JdbcDorisConnector implements Connector {
         tJdbcTable.setCatalogId(context.getCatalogId());
         tJdbcTable.setJdbcUrl(properties.getOrDefault(JdbcConnectorProperties.JDBC_URL, ""));
         tJdbcTable.setJdbcUser(properties.getOrDefault(JdbcConnectorProperties.USER, ""));
-        tJdbcTable.setJdbcPassword(properties.getOrDefault(JdbcConnectorProperties.PASSWORD, ""));
+        tJdbcTable.setJdbcPassword(getConnectionPassword());
         tJdbcTable.setJdbcTableName("test_jdbc_connection");
         tJdbcTable.setJdbcDriverClass(
                 properties.getOrDefault(JdbcConnectorProperties.DRIVER_CLASS, ""));
@@ -323,11 +329,41 @@ public class JdbcDorisConnector implements Connector {
     private TOdbcTableType parseOdbcType() {
         String jdbcUrl = properties.getOrDefault(JdbcConnectorProperties.JDBC_URL, "");
         JdbcDbType dbType = JdbcDbType.parseFromUrl(jdbcUrl);
+        return toOdbcTableType(dbType);
+    }
+
+    static TOdbcTableType toOdbcTableType(JdbcDbType dbType) {
         try {
             return TOdbcTableType.valueOf(dbType.name());
         } catch (Exception e) {
             return TOdbcTableType.MYSQL;
         }
+    }
+
+    static String applySnowflakeConnectionProperties(String jdbcUrl, Map<String, String> properties) {
+        String database = properties.get(JdbcConnectorProperties.SNOWFLAKE_DATABASE);
+        String warehouse = properties.get(JdbcConnectorProperties.SNOWFLAKE_WAREHOUSE);
+        if (database == null || database.trim().isEmpty()
+                || warehouse == null || warehouse.trim().isEmpty()) {
+            return jdbcUrl;
+        }
+        String separator = jdbcUrl.contains("?") ? "&" : "?";
+        if (jdbcUrl.endsWith("?") || jdbcUrl.endsWith("&")) {
+            separator = "";
+        }
+        return jdbcUrl + separator + "db=" + encodeQueryParameter(database.trim())
+                + "&warehouse=" + encodeQueryParameter(warehouse.trim());
+    }
+
+    private static String encodeQueryParameter(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    private String getConnectionPassword() {
+        return JdbcConnectorClient.resolveSnowflakeOauthToken(
+                properties,
+                properties.getOrDefault(JdbcConnectorProperties.JDBC_URL, ""),
+                properties.getOrDefault(JdbcConnectorProperties.PASSWORD, ""));
     }
 
     private String getTestQuery() {

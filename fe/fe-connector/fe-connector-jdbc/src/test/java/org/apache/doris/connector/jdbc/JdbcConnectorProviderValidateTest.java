@@ -83,6 +83,73 @@ public class JdbcConnectorProviderValidateTest {
     }
 
     @Test
+    public void testSnowflakeRequiresDedicatedDatabaseProperty() {
+        Map<String, String> props = validProps();
+        props.put("jdbc_url", "jdbc:snowflake://example.snowflakecomputing.com");
+        props.put("driver_class", "net.snowflake.client.jdbc.SnowflakeDriver");
+        props.put("snowflake.warehouse", "COMPUTE_WH");
+
+        IllegalArgumentException ex = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> provider.validateProperties(props));
+        Assertions.assertTrue(ex.getMessage().contains("snowflake.database"));
+    }
+
+    @Test
+    public void testSnowflakeRequiresDedicatedWarehouseProperty() {
+        Map<String, String> props = validProps();
+        props.put("jdbc_url", "jdbc:snowflake://example.snowflakecomputing.com");
+        props.put("driver_class", "net.snowflake.client.jdbc.SnowflakeDriver");
+        props.put("snowflake.database", "DORIS_HORIZON_DB");
+
+        IllegalArgumentException ex = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> provider.validateProperties(props));
+        Assertions.assertTrue(ex.getMessage().contains("snowflake.warehouse"));
+    }
+
+    @Test
+    public void testSnowflakeRejectsDatabaseInUrl() {
+        Map<String, String> props = validProps();
+        props.put("jdbc_url",
+                "jdbc:snowflake://example.snowflakecomputing.com/?db=DORIS_HORIZON_DB");
+        props.put("driver_class", "net.snowflake.client.jdbc.SnowflakeDriver");
+        props.put("snowflake.database", "DORIS_HORIZON_DB");
+        props.put("snowflake.warehouse", "COMPUTE_WH");
+
+        IllegalArgumentException ex = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> provider.validateProperties(props));
+        Assertions.assertTrue(ex.getMessage().contains("Do not set db or database in jdbc_url"));
+    }
+
+    @Test
+    public void testSnowflakeRejectsWarehouseInUrl() {
+        Map<String, String> props = validProps();
+        props.put("jdbc_url",
+                "jdbc:snowflake://example.snowflakecomputing.com/?warehouse=COMPUTE_WH");
+        props.put("driver_class", "net.snowflake.client.jdbc.SnowflakeDriver");
+        props.put("snowflake.database", "DORIS_HORIZON_DB");
+        props.put("snowflake.warehouse", "COMPUTE_WH");
+
+        IllegalArgumentException ex = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> provider.validateProperties(props));
+        Assertions.assertTrue(ex.getMessage().contains("Do not set warehouse in jdbc_url"));
+    }
+
+    @Test
+    public void testSnowflakeAcceptsDedicatedProperties() {
+        Map<String, String> props = validProps();
+        props.put("jdbc_url", "jdbc:snowflake://example.snowflakecomputing.com");
+        props.put("driver_class", "net.snowflake.client.jdbc.SnowflakeDriver");
+        props.put("snowflake.database", "DORIS_HORIZON_DB");
+        props.put("snowflake.warehouse", "COMPUTE_WH");
+
+        Assertions.assertDoesNotThrow(() -> provider.validateProperties(props));
+    }
+
+    @Test
     public void testInvalidBooleanProperty() {
         Map<String, String> props = validProps();
         props.put("only_specified_database", "yes");

@@ -103,6 +103,8 @@ private:
             return "DB2";
         case TOdbcTableType::GBASE:
             return "GBASE";
+        case TOdbcTableType::SNOWFLAKE:
+            return "SNOWFLAKE";
         default:
             return "MYSQL";
         }

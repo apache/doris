@@ -46,6 +46,7 @@ import java.util.Map;
  * <p>Parameters:
  * <ul>
  *   <li>jdbc_url, jdbc_user, jdbc_password, jdbc_driver_class, jdbc_driver_url</li>
+ *   <li>snowflake.oauth.access_token - Snowflake OAuth access token</li>
  *   <li>query_sql — the test query to run</li>
  *   <li>catalog_id, connection_pool_min_size, connection_pool_max_size, etc.</li>
  *   <li>clean_datasource — if "true", close the datasource pool on close()</li>
@@ -57,6 +58,7 @@ public class JdbcConnectionTester extends JniScanner {
     private final String jdbcUrl;
     private final String jdbcUser;
     private final String jdbcPassword;
+    private final String snowflakeOauthAccessToken;
     private final String jdbcDriverClass;
     private final String jdbcDriverUrl;
     private final String querySql;
@@ -78,6 +80,8 @@ public class JdbcConnectionTester extends JniScanner {
         this.jdbcUrl = params.getOrDefault("jdbc_url", "");
         this.jdbcUser = params.getOrDefault("jdbc_user", "");
         this.jdbcPassword = params.getOrDefault("jdbc_password", "");
+        this.snowflakeOauthAccessToken = params.getOrDefault(
+                SnowflakeJdbcAuthUtils.OAUTH_ACCESS_TOKEN_PARAM, "");
         this.jdbcDriverClass = params.getOrDefault("jdbc_driver_class", "");
         this.jdbcDriverUrl = params.getOrDefault("jdbc_driver_url", "");
         this.querySql = params.getOrDefault("query_sql", "SELECT 1");
@@ -126,7 +130,9 @@ public class JdbcConnectionTester extends JniScanner {
                         ds.setDriverClassName(jdbcDriverClass);
                         ds.setJdbcUrl(SecurityChecker.getInstance().getSafeJdbcUrl(jdbcUrl));
                         ds.setUsername(jdbcUser);
-                        ds.setPassword(jdbcPassword);
+                        ds.setPassword(getConnectionPassword());
+                        SnowflakeJdbcAuthUtils.configure(ds, jdbcUrl, jdbcPassword,
+                                snowflakeOauthAccessToken);
                         ds.setMinimumIdle(connectionPoolMinSize);
                         ds.setMaximumPoolSize(connectionPoolMaxSize);
                         ds.setConnectionTimeout(connectionPoolMaxWaitTime);
@@ -196,6 +202,12 @@ public class JdbcConnectionTester extends JniScanner {
     }
 
     private String createCacheKey() {
-        return catalogId + "#" + jdbcUrl + "#" + jdbcUser + "#" + jdbcDriverClass;
+        return catalogId + "#" + jdbcUrl + "#" + jdbcUser + "#"
+                + getConnectionPassword() + "#" + jdbcDriverClass;
+    }
+
+    private String getConnectionPassword() {
+        return SnowflakeJdbcAuthUtils.resolveCredential(jdbcUrl, jdbcPassword,
+                snowflakeOauthAccessToken);
     }
 }

@@ -92,6 +92,12 @@ class JdbcIdentifierQuoterTest {
                 JdbcIdentifierQuoter.quoteIdentifier(JdbcDbType.OCEANBASE_ORACLE, "myCol"));
     }
 
+    @Test
+    void testQuoteIdentifierSnowflakePreservesCase() {
+        Assertions.assertEquals("\"MY_COLUMN\"",
+                JdbcIdentifierQuoter.quoteIdentifier(JdbcDbType.SNOWFLAKE, "MY_COLUMN"));
+    }
+
     // === quoteRemoteIdentifier: never uppercases ===
 
     @Test
@@ -139,6 +145,12 @@ class JdbcIdentifierQuoterTest {
         Assertions.assertEquals("[dbo].[Orders]", result);
     }
 
+    @Test
+    void testQuoteFullTableNameSnowflake() {
+        String result = JdbcIdentifierQuoter.quoteFullTableName(JdbcDbType.SNOWFLAKE, "ADS", "DIM_USER");
+        Assertions.assertEquals("\"ADS\".\"DIM_USER\"", result);
+    }
+
     // === buildInsertSql ===
 
     @Test
@@ -183,5 +195,18 @@ class JdbcIdentifierQuoterTest {
                 Arrays.asList("col1"));
         Assertions.assertEquals(
                 "INSERT INTO [dbo].[items]([col1]) VALUES (?)", sql);
+    }
+
+    @Test
+    void testBuildInsertSqlSnowflake() {
+        Map<String, String> remoteNames = new HashMap<>();
+        remoteNames.put("id", "ID");
+        remoteNames.put("name", "NAME");
+
+        String sql = JdbcIdentifierQuoter.buildInsertSql(
+                JdbcDbType.SNOWFLAKE, "ADS", "DIM_USER", remoteNames,
+                Arrays.asList("id", "name"));
+        Assertions.assertEquals(
+                "INSERT INTO \"ADS\".\"DIM_USER\"(\"ID\",\"NAME\") VALUES (?, ?)", sql);
     }
 }

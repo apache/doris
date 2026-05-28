@@ -1087,6 +1087,9 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
             case 14:
                 type_name = "GBASE";
                 break;
+            case 15:
+                type_name = "SNOWFLAKE";
+                break;
             default:
                 break;
             }

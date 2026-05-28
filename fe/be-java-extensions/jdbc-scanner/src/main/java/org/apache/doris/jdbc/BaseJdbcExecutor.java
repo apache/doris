@@ -475,6 +475,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                         ds.setJdbcUrl(SecurityChecker.getInstance().getSafeJdbcUrl(config.getJdbcUrl()));
                         ds.setUsername(config.getJdbcUser());
                         ds.setPassword(config.getJdbcPassword());
+                        SnowflakeJdbcAuthUtils.configure(ds, config.getJdbcUrl(), config.getJdbcPassword());
                         ds.setMinimumIdle(config.getConnectionPoolMinSize()); // default 1
                         ds.setMaximumPoolSize(config.getConnectionPoolMaxSize()); // default 10
                         ds.setConnectionTimeout(config.getConnectionPoolMaxWaitTime()); // default 5000
@@ -844,6 +845,5 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         return hexString.toString();
     }
 }
-
 
 

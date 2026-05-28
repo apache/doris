@@ -17,13 +17,18 @@
 
 package org.apache.doris.connector.jdbc;
 
+import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 class JdbcScanRangeAndPropertiesTest {
 
@@ -71,6 +76,37 @@ class JdbcScanRangeAndPropertiesTest {
         Assertions.assertEquals("3000", props.get("connection_pool_max_wait_time"));
         Assertions.assertEquals("600000", props.get("connection_pool_max_life_time"));
         Assertions.assertEquals("true", props.get("connection_pool_keep_alive"));
+    }
+
+    @Test
+    void testBuildSnowflakeScanRangeTableType() {
+        JdbcScanRange range = new JdbcScanRange.Builder()
+                .tableType(JdbcDbType.SNOWFLAKE)
+                .build();
+        Assertions.assertEquals("SNOWFLAKE", range.getProperties().get("table_type"));
+    }
+
+    @Test
+    void testSnowflakeOauthScanUsesExplicitTokenAsJdbcPassword() {
+        Map<String, String> props = new HashMap<>();
+        props.put(JdbcConnectorProperties.JDBC_URL,
+                "jdbc:snowflake://example.snowflakecomputing.com/?authenticator=oauth");
+        props.put(JdbcConnectorProperties.USER, "snowflake-user");
+        props.put(JdbcConnectorProperties.PASSWORD, "snowflake-password");
+        props.put(JdbcConnectorProperties.SNOWFLAKE_OAUTH_ACCESS_TOKEN, "snowflake-oauth-token");
+        props.put(JdbcConnectorProperties.DRIVER_CLASS, "net.snowflake.client.jdbc.SnowflakeDriver");
+        props.put(JdbcConnectorProperties.DRIVER_URL, "file:///tmp/snowflake-jdbc.jar");
+
+        JdbcScanPlanProvider provider = new JdbcScanPlanProvider(JdbcDbType.SNOWFLAKE, props, 42L);
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                emptySession(),
+                new JdbcTableHandle("PUBLIC", "T1"),
+                Collections.emptyList(),
+                Optional.empty());
+
+        Assertions.assertEquals("snowflake-oauth-token",
+                ranges.get(0).getProperties().get("jdbc_password"));
     }
 
     @Test
@@ -172,5 +208,54 @@ class JdbcScanRangeAndPropertiesTest {
         Map<String, String> props = new HashMap<>();
         props.put("key", "0");
         Assertions.assertEquals(0, JdbcConnectorProperties.getInt(props, "key", 99));
+    }
+
+    private ConnectorSession emptySession() {
+        return new ConnectorSession() {
+            @Override
+            public String getQueryId() {
+                return "test-query";
+            }
+
+            @Override
+            public String getUser() {
+                return "root";
+            }
+
+            @Override
+            public String getTimeZone() {
+                return "UTC";
+            }
+
+            @Override
+            public String getLocale() {
+                return "en_US";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 42L;
+            }
+
+            @Override
+            public String getCatalogName() {
+                return "test";
+            }
+
+            @Override
+            public <T> T getProperty(String name, Class<T> type) {
+                return null;
+            }
+
+            @Override
+            public Map<String, String> getCatalogProperties() {
+                return Collections.emptyMap();
+            }
+
+            @Override
+            public Map<String, String> getSessionProperties() {
+                return Collections.emptyMap();
+            }
+        };
     }
 }

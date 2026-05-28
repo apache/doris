@@ -59,6 +59,10 @@ class JdbcQueryBuilderTest {
         return new JdbcQueryBuilder(JdbcDbType.SQLSERVER);
     }
 
+    private JdbcQueryBuilder snowflakeBuilder() {
+        return new JdbcQueryBuilder(JdbcDbType.SNOWFLAKE);
+    }
+
     private List<ConnectorColumnHandle> columns(String... names) {
         ConnectorColumnHandle[] cols = new ConnectorColumnHandle[names.length];
         for (int i = 0; i < names.length; i++) {
@@ -206,6 +210,16 @@ class JdbcQueryBuilderTest {
                 "Simple comparison should be pushed. SQL: " + sql);
         Assertions.assertTrue(sql.contains("`id`") && sql.contains("`name`"),
                 "Column names should be quoted. SQL: " + sql);
+    }
+
+    @Test
+    void testSnowflakeQueryUsesDoubleQuotesAndLimit() {
+        JdbcQueryBuilder builder = snowflakeBuilder();
+        String sql = builder.buildQuery("ADS", "DIM_USER", columns("ID", "NAME"),
+                Optional.of(simpleComparison("ID", 42)), 10);
+        Assertions.assertEquals(
+                "SELECT \"ID\", \"NAME\" FROM \"ADS\".\"DIM_USER\" WHERE (\"ID\" = 42) LIMIT 10",
+                sql);
     }
 
     @Test

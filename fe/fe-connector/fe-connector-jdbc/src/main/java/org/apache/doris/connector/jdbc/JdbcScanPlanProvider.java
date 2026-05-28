@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.connector.jdbc.client.JdbcConnectorClient;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -107,7 +108,8 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
         // Build the scan range with all JDBC connection parameters
         String jdbcUrl = getProperty(JdbcConnectorProperties.JDBC_URL, "");
         String user = getProperty(JdbcConnectorProperties.USER, "");
-        String password = getProperty(JdbcConnectorProperties.PASSWORD, "");
+        String password = JdbcConnectorClient.resolveSnowflakeOauthToken(
+                catalogProperties, jdbcUrl, getProperty(JdbcConnectorProperties.PASSWORD, ""));
         String driverClass = getProperty(JdbcConnectorProperties.DRIVER_CLASS, "");
         String driverUrl = getProperty(JdbcConnectorProperties.DRIVER_URL, "");
         String checksum = getProperty("checksum", "");

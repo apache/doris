@@ -57,6 +57,7 @@ public final class JdbcIdentifierQuoter {
             case PRESTO:
             case OCEANBASE_ORACLE:
             case SAP_HANA:
+            case SNOWFLAKE:
                 return "\"" + name + "\"";
             default:
                 return name;
@@ -83,6 +84,7 @@ public final class JdbcIdentifierQuoter {
             case ORACLE:
             case SAP_HANA:
             case DB2:
+            case SNOWFLAKE:
                 return "\"" + remoteName + "\"";
             default:
                 return remoteName;

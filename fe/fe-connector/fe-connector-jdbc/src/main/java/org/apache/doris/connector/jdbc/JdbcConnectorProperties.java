@@ -37,6 +37,11 @@ public final class JdbcConnectorProperties {
     public static final String DRIVER_URL = "driver_url";
     public static final String TYPE = "type";
 
+    // -- Snowflake connection --
+    public static final String SNOWFLAKE_DATABASE = "snowflake.database";
+    public static final String SNOWFLAKE_WAREHOUSE = "snowflake.warehouse";
+    public static final String SNOWFLAKE_OAUTH_ACCESS_TOKEN = "snowflake.oauth.access_token";
+
     // -- connection pool --
     public static final String CONNECTION_POOL_MIN_SIZE = "connection_pool_min_size";
     public static final String CONNECTION_POOL_MAX_SIZE = "connection_pool_max_size";

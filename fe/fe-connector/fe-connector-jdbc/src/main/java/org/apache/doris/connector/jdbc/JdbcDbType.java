@@ -35,7 +35,8 @@ public enum JdbcDbType {
     OCEANBASE("OCEANBASE"),
     OCEANBASE_ORACLE("OCEANBASE_ORACLE"),
     DB2("DB2"),
-    GBASE("GBASE");
+    GBASE("GBASE"),
+    SNOWFLAKE("SNOWFLAKE");
 
     private final String label;
 
@@ -77,6 +78,8 @@ public enum JdbcDbType {
             return DB2;
         } else if (url.startsWith("jdbc:gbase")) {
             return GBASE;
+        } else if (url.startsWith("jdbc:snowflake")) {
+            return SNOWFLAKE;
         }
         throw new DorisConnectorException("Unsupported JDBC URL prefix: " + url);
     }
