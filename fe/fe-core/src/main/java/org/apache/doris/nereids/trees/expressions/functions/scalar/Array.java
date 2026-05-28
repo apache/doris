@@ -69,7 +69,7 @@ public class Array extends ScalarFunction
         if (children.isEmpty()) {
             return;
         }
-        DataType firstChildType = children.get(0).getDataType();
+        DataType firstChildType = getArgument(0).getDataType();
         if (firstChildType.isJsonType() || firstChildType.isVariantType()) {
             throw new AnalysisException("array does not support jsonb/variant type");
         }
