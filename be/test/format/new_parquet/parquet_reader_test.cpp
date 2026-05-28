@@ -211,7 +211,8 @@ Block build_file_block(const std::vector<reader::SchemaField>& schema) {
 
 Block build_file_block_with_row_position(const std::vector<reader::SchemaField>& schema) {
     auto block = build_file_block(schema);
-    const auto row_position_field = parquet::ParquetColumnReaderFactory::row_position_schema_field();
+    const auto row_position_field =
+            parquet::ParquetColumnReaderFactory::row_position_schema_field();
     block.insert({row_position_field.type->create_column(), row_position_field.type,
                   row_position_field.name});
     return block;
@@ -662,7 +663,8 @@ TEST_F(NewParquetReaderTest, RowPositionReaderUsesFileLocalPositionsForScanRange
     const std::vector<std::vector<int32_t>> expected_ids = {{1, 2}, {3, 4}, {5}};
     const std::vector<std::vector<int64_t>> expected_row_positions = {{0, 1}, {2, 3}, {4}};
     for (int row_group_idx = 0; row_group_idx < 3; ++row_group_idx) {
-        const auto [range_start_offset, range_size] = row_group_mid_range(_file_path, row_group_idx);
+        const auto [range_start_offset, range_size] =
+                row_group_mid_range(_file_path, row_group_idx);
         auto reader = create_reader(range_start_offset, range_size);
         RuntimeState state {TQueryOptions(), TQueryGlobals()};
         ASSERT_TRUE(reader->init(&state).ok());

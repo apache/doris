@@ -35,8 +35,8 @@
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "format/new_parquet/parquet_column_schema.h"
@@ -137,7 +137,9 @@ public:
     explicit RowPositionColumnReader(int64_t row_group_first_row)
             : _row_group_first_row(row_group_first_row) {}
 
-    int file_column_id() const override { return ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID; }
+    int file_column_id() const override {
+        return ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
+    }
     int parquet_leaf_column_id() const override { return -1; }
     const DataTypePtr& type() const override { return _type; }
     const std::string& name() const override { return _name; }

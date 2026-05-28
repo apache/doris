@@ -779,27 +779,26 @@ TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
     std::vector<TableColumn> projected_columns;
     projected_columns.push_back(
             make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
-    projected_columns.push_back(make_table_column(
-            101, "_last_updated_sequence_number",
-            make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(
+            make_table_column(101, "_last_updated_sequence_number",
+                              make_nullable(std::make_shared<DataTypeInt64>())));
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     doris::iceberg::IcebergTableReader reader;
-    ASSERT_TRUE(reader
-                        .init({
-                                .projected_columns = projected_columns,
-                                .column_predicates = {},
-                                .conjuncts = VExprContext(
-                                        std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
-                                .format = FileFormat::PARQUET,
-                                .scan_params = nullptr,
-                                .io_ctx = nullptr,
-                                .runtime_state = &state,
-                                .scanner_profile = nullptr,
-                                .allow_missing_columns = true,
-                                .profile = nullptr,
-                        })
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(
+                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
                         .ok());
 
     auto split_options = build_split_options(file_path);
@@ -824,8 +823,8 @@ TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
 }
 
 TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFiltering) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_iceberg_virtual_columns_conjunct_test";
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_virtual_columns_conjunct_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -835,27 +834,26 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFiltering)
     std::vector<TableColumn> projected_columns;
     projected_columns.push_back(
             make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
-    projected_columns.push_back(make_table_column(
-            101, "_last_updated_sequence_number",
-            make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(
+            make_table_column(101, "_last_updated_sequence_number",
+                              make_nullable(std::make_shared<DataTypeInt64>())));
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     doris::iceberg::IcebergTableReader reader;
-    ASSERT_TRUE(reader
-                        .init({
-                                .projected_columns = projected_columns,
-                                .column_predicates = {},
-                                .conjuncts = VExprContext(
-                                        std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
-                                .format = FileFormat::PARQUET,
-                                .scan_params = nullptr,
-                                .io_ctx = nullptr,
-                                .runtime_state = &state,
-                                .scanner_profile = nullptr,
-                                .allow_missing_columns = true,
-                                .profile = nullptr,
-                        })
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(
+                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
                         .ok());
 
     auto split_options = build_split_options(file_path);
@@ -880,9 +878,8 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFiltering)
 }
 
 TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredicatePruning) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() /
-            "doris_iceberg_virtual_columns_row_group_predicate_test";
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_virtual_columns_row_group_predicate_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -894,9 +891,9 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredicateP
     std::vector<TableColumn> projected_columns;
     projected_columns.push_back(
             make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
-    projected_columns.push_back(make_table_column(
-            101, "_last_updated_sequence_number",
-            make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(
+            make_table_column(101, "_last_updated_sequence_number",
+                              make_nullable(std::make_shared<DataTypeInt64>())));
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     TableColumnPredicates column_predicates;
@@ -905,19 +902,18 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredicateP
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     doris::iceberg::IcebergTableReader reader;
-    ASSERT_TRUE(reader
-                        .init({
-                                .projected_columns = projected_columns,
-                                .column_predicates = std::move(column_predicates),
-                                .conjuncts = VExprContext(nullptr),
-                                .format = FileFormat::PARQUET,
-                                .scan_params = nullptr,
-                                .io_ctx = nullptr,
-                                .runtime_state = &state,
-                                .scanner_profile = nullptr,
-                                .allow_missing_columns = true,
-                                .profile = nullptr,
-                        })
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = std::move(column_predicates),
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
                         .ok());
 
     auto split_options = build_split_options(file_path);
@@ -956,23 +952,21 @@ TEST(TableReaderTest, ParquetReaderReadsOnlyRowGroupsInFileRange) {
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
-    ASSERT_TRUE(reader
-                        .init({
-                                .projected_columns = projected_columns,
-                                .column_predicates = {},
-                                .conjuncts = VExprContext(nullptr),
-                                .format = FileFormat::PARQUET,
-                                .scan_params = nullptr,
-                                .io_ctx = nullptr,
-                                .runtime_state = &state,
-                                .scanner_profile = nullptr,
-                                .allow_missing_columns = true,
-                                .profile = nullptr,
-                        })
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
                         .ok());
 
-    ASSERT_TRUE(reader.prepare_split(build_split_options_for_row_group_mid(file_path, 1))
-                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options_for_row_group_mid(file_path, 1)).ok());
 
     Block block = build_table_block(projected_columns);
     bool eos = false;

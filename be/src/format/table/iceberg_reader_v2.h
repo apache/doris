@@ -118,7 +118,8 @@ protected:
         }
         _row_position_block_position = file_request->column_positions.size();
         file_request->non_predicate_columns.push_back(row_position_column_id);
-        file_request->column_positions.emplace(row_position_column_id, _row_position_block_position);
+        file_request->column_positions.emplace(row_position_column_id,
+                                               _row_position_block_position);
         _data_reader.block_schema.push_back(
                 doris::parquet::ParquetColumnReaderFactory::row_position_schema_field());
         return Status::OK();
