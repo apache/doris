@@ -139,7 +139,9 @@ public:
     // 子类可以在自己的 init(options) 中调用该方法；这里不接收具体表格式 schema/task。
     virtual Status init(TableReadOptions options);
 
-    // 读取当前 split/partition 之前初始化。
+    // Prepare for reading a new split/task.
+    // 1. Pass a new split/task to reader, which will be used in subsequent open_reader() to initialize the underlying file reader.
+    // 2. Parse delete predicates from split/task information, which will be used for later dynamic filtering and delete handling.
     virtual Status prepare_split(const SplitReadOptions& options);
 
     // table-level 动态过滤入口。

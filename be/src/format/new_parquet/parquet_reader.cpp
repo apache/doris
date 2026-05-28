@@ -339,9 +339,9 @@ Status ParquetReader::_execute_filter_conjuncts(int64_t batch_rows, Block* file_
             RETURN_IF_ERROR(expression_filter.conjunct->execute_filter(
                     file_block, filter.data(), static_cast<size_t>(batch_rows), false,
                     &can_filter_all));
-            *selected_rows = can_filter_all ? 0
-                                            : _apply_filter_to_selection(filter, selection,
-                                                                         *selected_rows);
+            *selected_rows =
+                    can_filter_all ? 0
+                                   : _apply_filter_to_selection(filter, selection, *selected_rows);
         }
         if (*selected_rows == 0) {
             break;
@@ -367,7 +367,7 @@ Status ParquetReader::_execute_filter_conjuncts(int64_t batch_rows, Block* file_
         file_block->erase(result_column_id);
         *selected_rows =
                 !has_kept_row ? 0
-                               : _apply_filter_to_selection(keep_filter, selection, *selected_rows);
+                              : _apply_filter_to_selection(keep_filter, selection, *selected_rows);
     }
     return Status::OK();
 }

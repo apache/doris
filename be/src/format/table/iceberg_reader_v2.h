@@ -17,14 +17,12 @@
 
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
-#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
+#include "core/block/block.h"
 #include "format/reader/file_reader.h"
 #include "format/reader/table_reader.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
@@ -51,11 +49,6 @@ public:
     Status prepare_split(const reader::SplitReadOptions& options) override;
 
 protected:
-    // 将 file-local block 转换为 table/global schema block。
-    // 这里执行 ColumnMapping 中的 finalize_expr、缺失列填充、partition/generated 列
-    // 物化以及复杂列 remap。
-    Status finalize_chunk(Block* block, const size_t rows) override;
-
     Status materialize_virtual_columns(Block* table_block) override;
 
     Status customize_file_scan_request(reader::FileScanRequest* file_request) override;
@@ -63,11 +56,7 @@ protected:
     Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
                                        bool* has_delete_file) override;
 
-    Status _collect_position_delete_rows(const TTableFormatFileDesc& t_desc);
-
-    // 在 table block 上应用 equality delete。
-    // equality delete 依赖 table-level 列语义，因此不能下沉到 ParquetReader。
-    Status apply_equality_deletes(Block* block);
+    Status _init_delete_predicates(const TTableFormatFileDesc& t_desc);
 
 private:
     static constexpr int MIN_SUPPORT_DELETE_FILES_VERSION = 2;
@@ -85,16 +74,15 @@ private:
     static constexpr size_t ICEBERG_FILE_PATH_BLOCK_POSITION = 0;
     static constexpr size_t ICEBERG_ROW_POS_BLOCK_POSITION = 1;
 
-    class PositionDeleteBlockCollector final {
+    class PositionDeleteRowsCollector final {
     public:
-        PositionDeleteBlockCollector(std::string data_file_path,
-                                     std::map<std::string, reader::DeleteRows>* rows);
+        PositionDeleteRowsCollector(std::string data_file_path, reader::DeleteRows* rows);
 
         Status collect(const Block& block, size_t read_rows);
 
     private:
         std::string _data_file_path;
-        std::map<std::string, reader::DeleteRows>* _rows = nullptr;
+        reader::DeleteRows* _rows = nullptr;
     };
 
     static std::string _iceberg_delete_vector_cache_key(const TIcebergDeleteFileDesc& delete_file);
@@ -102,27 +90,35 @@ private:
     static std::shared_ptr<io::FileSystemProperties> _delete_file_system_properties(
             const TFileScanRangeParams& scan_params);
 
-    static std::unique_ptr<io::FileDescription> _delete_file_description(const TFileRangeDesc& range);
+    static std::unique_ptr<io::FileDescription> _delete_file_description(
+            const TFileRangeDesc& range);
 
     static const reader::SchemaField* _find_delete_field(
             const std::vector<reader::SchemaField>& schema, const std::string& name);
 
-    static Block _build_position_delete_block(const reader::SchemaField& file_path_field,
-                                              const reader::SchemaField& pos_field);
-
     Status _append_row_position_output_column(reader::FileScanRequest* request);
+
+    Status _append_equality_delete_predicates(reader::FileScanRequest* request);
+
+    Status _init_equality_delete_predicates(
+            const std::vector<TIcebergDeleteFileDesc>& delete_files);
 
     std::string _data_file_path() const;
 
+    // Read equality/position delete files.
+    Status _read_parquet_equality_delete_file(const TIcebergDeleteFileDesc& delete_file,
+                                              const TFileScanRangeParams& scan_params,
+                                              IcebergDeleteFileIOContext* delete_io_ctx);
     Status _read_parquet_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
                                               const TFileScanRangeParams& scan_params,
                                               IcebergDeleteFileIOContext* delete_io_ctx,
-                                              PositionDeleteBlockCollector* collector);
+                                              PositionDeleteRowsCollector* collector);
 
-    Status _read_position_delete_files(const std::vector<TIcebergDeleteFileDesc>& delete_files);
+    // Read position delete files and collect deleted row positions to update DeletePredicate.
+    Status _init_position_delete_rows(const std::vector<TIcebergDeleteFileDesc>& delete_files);
 
+    // Materialize row lineage virtual columns based on the position delete file.
     Status _materialize_row_lineage_row_id(Block* table_block, size_t column_idx);
-
     Status _materialize_row_lineage_last_updated_sequence_number(Block* table_block,
                                                                  size_t column_idx);
 
@@ -131,7 +127,12 @@ private:
     const TIcebergFileDesc* _iceberg_params = nullptr;
     bool _delete_predicates_initialized = false;
     reader::DeleteRows _position_delete_rows_storage;
-    std::vector<TIcebergDeleteFileDesc> _equality_delete_files;
+    struct EqualityDeleteFilter {
+        std::vector<int> field_ids;
+        std::vector<DataTypePtr> key_types;
+        Block delete_block;
+    };
+    std::vector<EqualityDeleteFilter> _equality_delete_filters;
 
     bool _need_row_lineage_row_id() const;
 };
