@@ -152,7 +152,7 @@ private:
     static_assert((kWriterShardNum & kWriterShardMask) == 0);
 
     inline WriterShard& shard_of(const FileWriterMapKey& k) const {
-        return *_writer_shards[FileWriterMapKeyHash {}(k)&kWriterShardMask];
+        return *_writer_shards[(FileWriterMapKeyHash {}(k)) & kWriterShardMask];
     }
 
     void remove_old_version_directories();
