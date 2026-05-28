@@ -20,7 +20,6 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 
-#include <algorithm>
 #include <cstring>
 #include <stdexcept>
 #include <set>
@@ -76,58 +75,22 @@ void build_table_filters_from_conjunct(const VExprSPtr& conjunct,
     }
 }
 
-Status parse_paimon_deletion_vector(const char* buf, size_t bytes_read, DeleteRows* delete_rows) {
+Status parse_deletion_vector(const char* buf, size_t buffer_size, DeleteFileDesc::Format format,
+                             DeleteRows* delete_rows) {
     DORIS_CHECK(buf != nullptr);
     DORIS_CHECK(delete_rows != nullptr);
-    uint32_t actual_length;
-    std::memcpy(reinterpret_cast<char*>(&actual_length), buf, 4);
-    std::reverse(reinterpret_cast<char*>(&actual_length),
-                 reinterpret_cast<char*>(&actual_length) + 4);
-    buf += 4;
-    if (actual_length != bytes_read - 4) [[unlikely]] {
-        return Status::RuntimeError(
-                "DeletionVector deserialize error: length not match, "
-                "actual length: {}, expect length: {}",
-                actual_length, bytes_read - 4);
-    }
-    uint32_t magic_number;
-    std::memcpy(reinterpret_cast<char*>(&magic_number), buf, 4);
-    std::reverse(reinterpret_cast<char*>(&magic_number),
-                 reinterpret_cast<char*>(&magic_number) + 4);
-    buf += 4;
-    const static uint32_t MAGIC_NUMBER = 1581511376;
-    if (magic_number != MAGIC_NUMBER) [[unlikely]] {
-        return Status::RuntimeError("DeletionVector deserialize error: invalid magic number {}",
-                                    magic_number);
-    }
+    DORIS_CHECK(format == DeleteFileDesc::Format::PAIMON ||
+                format == DeleteFileDesc::Format::ICEBERG);
 
-    roaring::Roaring roaring_bitmap;
-    try {
-        roaring_bitmap = roaring::Roaring::readSafe(buf, bytes_read - 4);
-    } catch (const std::runtime_error& e) {
-        return Status::RuntimeError(
-                "DeletionVector deserialize error: failed to deserialize roaring bitmap, {}",
-                e.what());
-    }
-    delete_rows->reserve(roaring_bitmap.cardinality());
-    for (auto it = roaring_bitmap.begin(); it != roaring_bitmap.end(); it++) {
-        delete_rows->push_back(*it);
-    }
-    return Status::OK();
-}
-
-Status parse_iceberg_deletion_vector(const char* buf, size_t buffer_size,
-                                     DeleteRows* delete_rows) {
-    DORIS_CHECK(buf != nullptr);
-    DORIS_CHECK(delete_rows != nullptr);
-    if (buffer_size < 12) [[unlikely]] {
+    const size_t checksum_size = format == DeleteFileDesc::Format::ICEBERG ? 4 : 0;
+    if (buffer_size < 8 + checksum_size) [[unlikely]] {
         return Status::DataQualityError("Deletion vector file size too small: {}", buffer_size);
     }
 
     auto total_length = BigEndian::Load32(buf);
-    if (total_length + 8 != buffer_size) [[unlikely]] {
+    if (total_length + 4 + checksum_size != buffer_size) [[unlikely]] {
         return Status::DataQualityError("Deletion vector length mismatch, expected: {}, actual: {}",
-                                        total_length + 8, buffer_size);
+                                        total_length + 4 + checksum_size, buffer_size);
     }
 
     constexpr static char MAGIC_NUMBER[] = {'\xD1', '\xD3', '\x39', '\x64'};
@@ -135,9 +98,26 @@ Status parse_iceberg_deletion_vector(const char* buf, size_t buffer_size,
         return Status::DataQualityError("Deletion vector magic number mismatch");
     }
 
+    const char* bitmap_buf = buf + 8;
+    const size_t bitmap_size = buffer_size - 8 - checksum_size;
+    if (format == DeleteFileDesc::Format::PAIMON) {
+        roaring::Roaring bitmap;
+        try {
+            bitmap = roaring::Roaring::readSafe(bitmap_buf, bitmap_size);
+        } catch (const std::runtime_error& e) {
+            return Status::DataQualityError("Decode roaring bitmap failed, {}", e.what());
+        }
+
+        delete_rows->reserve(bitmap.cardinality());
+        for (auto it = bitmap.begin(); it != bitmap.end(); it++) {
+            delete_rows->push_back(*it);
+        }
+        return Status::OK();
+    }
+
     roaring::Roaring64Map bitmap;
     try {
-        bitmap = roaring::Roaring64Map::readSafe(buf + 8, buffer_size - 12);
+        bitmap = roaring::Roaring64Map::readSafe(bitmap_buf, bitmap_size);
     } catch (const std::runtime_error& e) {
         return Status::DataQualityError("Decode roaring bitmap failed, {}", e.what());
     }
@@ -287,12 +267,7 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
 
             const char* buf = buffer.data();
             SCOPED_TIMER(_profile->parse_delete_file_time);
-            if (desc.format == DeleteFileDesc::Format::PAIMON) {
-                create_status = parse_paimon_deletion_vector(buf, bytes_read, delete_rows);
-            } else {
-                DORIS_CHECK(desc.format == DeleteFileDesc::Format::ICEBERG);
-                create_status = parse_iceberg_deletion_vector(buf, bytes_read, delete_rows);
-            }
+            create_status = parse_deletion_vector(buf, bytes_read, desc.format, delete_rows);
             if (!create_status.ok()) [[unlikely]] {
                 return nullptr;
             }
