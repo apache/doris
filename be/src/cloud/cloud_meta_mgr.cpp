@@ -176,25 +176,6 @@ bvar::LatencyRecorder g_cloud_be_mow_get_dbm_lock_backoff_sleep_time(
         "cloud_be_mow_get_dbm_lock_backoff_sleep_time");
 bvar::Adder<uint64_t> g_cloud_version_hole_filled_count("cloud_version_hole_filled_count");
 
-void record_ms_too_busy_reason(const std::string& reason) {
-    g_cloud_meta_mgr_ms_too_busy_reason_total_count << 1;
-    if (reason.find("fdb_cluster") != std::string::npos) {
-        g_cloud_meta_mgr_ms_too_busy_reason_fdb_cluster_count << 1;
-    }
-    if (reason.find("fdb_client_thread") != std::string::npos) {
-        g_cloud_meta_mgr_ms_too_busy_reason_fdb_client_thread_count << 1;
-    }
-    if (reason.find("ms_resource") != std::string::npos) {
-        g_cloud_meta_mgr_ms_too_busy_reason_ms_resource_count << 1;
-    }
-    if (reason.find("test_injection") != std::string::npos) {
-        g_cloud_meta_mgr_ms_too_busy_reason_test_injection_count << 1;
-    }
-    if (reason.find("no stress condition matched") != std::string::npos) {
-        g_cloud_meta_mgr_ms_too_busy_reason_no_stress_condition_matched_count << 1;
-    }
-}
-
 class MetaServiceProxy {
 public:
     static Status get_proxy(MetaServiceProxy** proxy) {
