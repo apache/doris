@@ -242,8 +242,8 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
 Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
     DeleteFileDesc desc {.fs_name = options.current_range.fs_name};
     bool has_delete_file = false;
-    RETURN_IF_ERROR(
-            _parse_delete_file(options.current_range.table_format_params, &desc, &has_delete_file));
+    RETURN_IF_ERROR(_parse_deletion_vector_file(options.current_range.table_format_params, &desc,
+                                                &has_delete_file));
     if (has_delete_file) {
         DORIS_CHECK(options.cache != nullptr);
         Status create_status = Status::OK();
@@ -277,6 +277,6 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
         RETURN_IF_ERROR(create_status);
     }
 
-    return Status::OK();
+    return _collect_position_delete_rows(options.current_range.table_format_params);
 }
 } // namespace doris::reader

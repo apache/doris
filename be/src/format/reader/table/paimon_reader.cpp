@@ -24,8 +24,8 @@
 
 namespace doris::paimon {
 
-Status PaimonReader::_parse_delete_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
-                                        bool* has_delete_file) {
+Status PaimonReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,
+                                                 DeleteFileDesc* desc, bool* has_delete_file) {
     DORIS_CHECK(desc != nullptr);
     DORIS_CHECK(has_delete_file != nullptr);
     *has_delete_file = false;

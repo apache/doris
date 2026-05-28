@@ -111,7 +111,6 @@ protected:
 
     Status customize_file_scan_request(reader::FileScanRequest* file_request) override {
         DORIS_CHECK(file_request != nullptr);
-        RETURN_IF_ERROR(_init_delete_predicates());
         RETURN_IF_ERROR(TableReader::customize_file_scan_request(file_request));
         if (_row_lineage_columns.first_row_id >= 0 && _need_row_lineage_row_id()) {
             RETURN_IF_ERROR(_append_row_position_output_column(file_request));
@@ -119,8 +118,8 @@ protected:
         return Status::OK();
     }
 
-    Status _parse_delete_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
-                              bool* has_delete_file) override {
+    Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
+                                       bool* has_delete_file) override {
         DORIS_CHECK(desc != nullptr);
         DORIS_CHECK(has_delete_file != nullptr);
         *has_delete_file = false;
@@ -159,6 +158,43 @@ protected:
         desc->file_size = -1;
         desc->format = DeleteFileDesc::Format::ICEBERG;
         *has_delete_file = true;
+        return Status::OK();
+    }
+
+    Status _collect_position_delete_rows(const TTableFormatFileDesc& t_desc) override {
+        if (!t_desc.__isset.iceberg_params || _delete_predicates_initialized) {
+            _delete_predicates_initialized = true;
+            return Status::OK();
+        }
+        const auto& iceberg_params = t_desc.iceberg_params;
+        if (!iceberg_params.__isset.format_version ||
+            iceberg_params.format_version < MIN_SUPPORT_DELETE_FILES_VERSION ||
+            !iceberg_params.__isset.delete_files || iceberg_params.delete_files.empty()) {
+            _delete_predicates_initialized = true;
+            return Status::OK();
+        }
+
+        std::vector<TIcebergDeleteFileDesc> position_delete_files;
+        for (const auto& delete_file : iceberg_params.delete_files) {
+            if (!delete_file.__isset.content) {
+                continue;
+            }
+            if (delete_file.content == POSITION_DELETE) {
+                position_delete_files.push_back(delete_file);
+            } else if (delete_file.content == EQUALITY_DELETE) {
+                _equality_delete_files.push_back(delete_file);
+            }
+        }
+
+        if (_delete_rows != nullptr) {
+            _position_delete_rows_storage = *_delete_rows;
+            _delete_rows = &_position_delete_rows_storage;
+        }
+        if (!position_delete_files.empty()) {
+            RETURN_IF_ERROR(_read_position_delete_files(position_delete_files));
+        }
+
+        _delete_predicates_initialized = true;
         return Status::OK();
     }
 
@@ -221,45 +257,6 @@ private:
                 doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
         _append_file_scan_column(request, row_position_column_id, &request->non_predicate_columns);
         _row_position_block_position = request->column_positions.at(row_position_column_id);
-        return Status::OK();
-    }
-
-    Status _init_delete_predicates() {
-        if (_delete_predicates_initialized || _iceberg_params == nullptr ||
-            !_iceberg_params->__isset.format_version ||
-            _iceberg_params->format_version < MIN_SUPPORT_DELETE_FILES_VERSION ||
-            !_iceberg_params->__isset.delete_files || _iceberg_params->delete_files.empty()) {
-            _delete_predicates_initialized = true;
-            return Status::OK();
-        }
-
-        std::vector<TIcebergDeleteFileDesc> position_delete_files;
-        std::vector<TIcebergDeleteFileDesc> deletion_vector_files;
-        for (const auto& delete_file : _iceberg_params->delete_files) {
-            if (!delete_file.__isset.content) {
-                continue;
-            }
-            if (delete_file.content == POSITION_DELETE) {
-                position_delete_files.push_back(delete_file);
-            } else if (delete_file.content == EQUALITY_DELETE) {
-                _equality_delete_files.push_back(delete_file);
-            } else if (delete_file.content == DELETION_VECTOR) {
-                deletion_vector_files.push_back(delete_file);
-            }
-        }
-
-        if (!deletion_vector_files.empty()) {
-            DORIS_CHECK(deletion_vector_files.size() == 1);
-            if (_delete_rows != nullptr) {
-                _position_delete_rows_storage = *_delete_rows;
-                _delete_rows = &_position_delete_rows_storage;
-            }
-        }
-        if (!position_delete_files.empty()) {
-            RETURN_IF_ERROR(_read_position_delete_files(position_delete_files));
-        }
-
-        _delete_predicates_initialized = true;
         return Status::OK();
     }
 

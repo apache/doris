@@ -214,11 +214,19 @@ public:
     }
 
 protected:
-    virtual Status _parse_delete_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
-                                      bool* has_delete_file) {
+    // Parse deletion vector information from table format specific file description.
+    virtual Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,
+                                               DeleteFileDesc* desc, bool* has_delete_file) {
         DORIS_CHECK(desc != nullptr);
         DORIS_CHECK(has_delete_file != nullptr);
         *has_delete_file = false;
+        return Status::OK();
+    }
+
+    // Collect row-position deletes that are not represented as a deletion vector descriptor.
+    // TableReader uses the collected _delete_rows to plan a common DeletePredicate.
+    virtual Status _collect_position_delete_rows(const TTableFormatFileDesc& t_desc) {
+        (void)t_desc;
         return Status::OK();
     }
     // 切换到下一个 reader 的通用流程。
@@ -521,6 +529,7 @@ private:
         return Status::OK();
     }
 
+    // Parse row-position deletes from table format specific parameters, and fill in _delete_rows.
     Status _parse_delete_predicates(const SplitReadOptions& options);
 };
 

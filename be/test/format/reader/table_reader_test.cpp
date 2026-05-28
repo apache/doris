@@ -83,9 +83,9 @@ private:
 
 class IcebergTableReaderDeleteFileTestHelper final : public doris::iceberg::IcebergTableReader {
 public:
-    Status parse_delete_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
-                             bool* has_delete_file) {
-        return _parse_delete_file(t_desc, desc, has_delete_file);
+    Status parse_deletion_vector_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
+                                      bool* has_delete_file) {
+        return _parse_deletion_vector_file(t_desc, desc, has_delete_file);
     }
 };
 
@@ -1009,7 +1009,7 @@ TEST(TableReaderTest, IcebergDeletionVectorUsesTableReaderDeleteFileInterface) {
     IcebergTableReaderDeleteFileTestHelper reader;
     DeleteFileDesc desc;
     bool has_delete_file = false;
-    ASSERT_TRUE(reader.parse_delete_file(table_format_desc, &desc, &has_delete_file).ok());
+    ASSERT_TRUE(reader.parse_deletion_vector_file(table_format_desc, &desc, &has_delete_file).ok());
 
     EXPECT_TRUE(has_delete_file);
     EXPECT_EQ(desc.path, "dv.bin");
@@ -1030,7 +1030,7 @@ TEST(TableReaderTest, IcebergDeletionVectorRejectsMultipleDeleteFiles) {
     IcebergTableReaderDeleteFileTestHelper reader;
     DeleteFileDesc desc;
     bool has_delete_file = false;
-    auto status = reader.parse_delete_file(table_format_desc, &desc, &has_delete_file);
+    auto status = reader.parse_deletion_vector_file(table_format_desc, &desc, &has_delete_file);
 
     EXPECT_FALSE(status.ok());
 }
