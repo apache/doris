@@ -26,10 +26,13 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
+#include "storage/index/ann/faiss_ann_index.h"
 #include "storage/index/ann/vector_search_utils.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
 
 using namespace doris::vector_search_utils;
 
@@ -60,6 +63,7 @@ public:
             : AnnIndexColumnWriter(index_file_writer, index_meta) {}
 
     void set_vector_index(std::shared_ptr<VectorIndex> index) { _vector_index = index; }
+    bool has_spool_file() const { return !_spool_file_path.empty(); }
 };
 
 class AnnIndexWriterTest : public ::testing::Test {
@@ -428,11 +432,13 @@ TEST_F(AnnIndexWriterTest, TestAddMoreThanChunkSize) {
 
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(0));
     EXPECT_CALL(*mock_index, train(testing::_, testing::_)).Times(0);
-    EXPECT_CALL(*mock_index, add(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, add(6, testing::_))
+            .Times(2)
+            .WillRepeatedly(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, save(testing::_)).Times(0);
 
-    // CHUNK_SIZE = 10. The writer should only spool data during add_array_values().
-    // Training and adding to FAISS must happen once finish() has all rows.
+    // CHUNK_SIZE = 10. HNSW flat does not require training, so vectors are added directly
+    // during add_array_values() and no build spool file is created.
     const size_t dim = 4;
 
     {
@@ -471,24 +477,142 @@ TEST_F(AnnIndexWriterTest, TestAddMoreThanChunkSize) {
         EXPECT_TRUE(status.ok());
     }
 
+    EXPECT_FALSE(writer->has_spool_file());
     EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(mock_index.get()));
 
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(0));
+    EXPECT_CALL(*mock_index, train(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, add(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+
+    Status status = writer->finish();
+    EXPECT_TRUE(status.ok());
+}
+
+TEST_F(AnnIndexWriterTest, TestTrainRequiredSmallDataStaysInMemory) {
+    auto mock_index = std::make_shared<MockVectorIndex>();
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             _tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    writer->set_vector_index(mock_index);
+
+    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(5));
+    EXPECT_CALL(*mock_index, train(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, add(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, save(testing::_)).Times(0);
+
+    const size_t dim = 4;
+    const size_t num_rows = 6;
+    std::vector<float> vectors(num_rows * dim);
+    for (size_t i = 0; i < vectors.size(); ++i) {
+        vectors[i] = static_cast<float>(i);
+    }
+    std::vector<size_t> offsets;
+    for (size_t i = 0; i <= num_rows; ++i) {
+        offsets.push_back(i * dim);
+    }
+
+    Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                             reinterpret_cast<const uint8_t*>(offsets.data()),
+                                             num_rows);
+    EXPECT_TRUE(status.ok());
+    EXPECT_FALSE(writer->has_spool_file());
+    EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(mock_index.get()));
+
+    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(5));
     {
         testing::InSequence sequence;
-        EXPECT_CALL(*mock_index, train(10, testing::_))
+        EXPECT_CALL(*mock_index, train(6, testing::_))
                 .Times(1)
                 .WillOnce(testing::Return(Status::OK()));
-        EXPECT_CALL(*mock_index, add(10, testing::_))
-                .Times(1)
-                .WillOnce(testing::Return(Status::OK()));
-        EXPECT_CALL(*mock_index, add(2, testing::_))
+        EXPECT_CALL(*mock_index, add(6, testing::_))
                 .Times(1)
                 .WillOnce(testing::Return(Status::OK()));
         EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
     }
 
-    Status status = writer->finish();
+    status = writer->finish();
+    EXPECT_TRUE(status.ok());
+}
+
+TEST_F(AnnIndexWriterTest, TestTrainingSampleUsesReservoirAndMaxRows) {
+    const int64_t old_max_train_rows = config::ann_index_build_max_train_rows;
+    config::ann_index_build_max_train_rows = 6;
+    doris::Defer restore_config {[&] {
+        config::ann_index_build_max_train_rows = old_max_train_rows;
+    }};
+
+    auto mock_index = std::make_shared<MockVectorIndex>();
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             _tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    writer->set_vector_index(mock_index);
+
+    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(2));
+    EXPECT_CALL(*mock_index, train(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, add(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, save(testing::_)).Times(0);
+
+    const size_t dim = 4;
+    const size_t num_rows = 20;
+    std::vector<float> vectors(num_rows * dim);
+    for (size_t row = 0; row < num_rows; ++row) {
+        for (size_t col = 0; col < dim; ++col) {
+            vectors[row * dim + col] = static_cast<float>(row);
+        }
+    }
+    std::vector<size_t> offsets;
+    for (size_t row = 0; row <= num_rows; ++row) {
+        offsets.push_back(row * dim);
+    }
+
+    Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                             reinterpret_cast<const uint8_t*>(offsets.data()),
+                                             num_rows);
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(writer->has_spool_file());
+    EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(mock_index.get()));
+
+    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(2));
+    {
+        testing::InSequence sequence;
+        EXPECT_CALL(*mock_index, train(6, testing::_))
+                .Times(1)
+                .WillOnce(testing::Invoke([&](Int64 n, const float* vec) {
+                    EXPECT_EQ(n, 6);
+                    bool has_row_after_initial_sample = false;
+                    bool is_prefix_sample = true;
+                    for (size_t row = 0; row < static_cast<size_t>(n); ++row) {
+                        const auto row_id = static_cast<size_t>(vec[row * dim]);
+                        EXPECT_LT(row_id, num_rows);
+                        if (row_id >= static_cast<size_t>(n)) {
+                            has_row_after_initial_sample = true;
+                        }
+                        if (row_id != row) {
+                            is_prefix_sample = false;
+                        }
+                    }
+                    EXPECT_TRUE(has_row_after_initial_sample);
+                    EXPECT_FALSE(is_prefix_sample);
+                    return Status::OK();
+                }));
+        EXPECT_CALL(*mock_index, add(10, testing::_))
+                .Times(2)
+                .WillRepeatedly(testing::Return(Status::OK()));
+        EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    }
+
+    status = writer->finish();
     EXPECT_TRUE(status.ok());
 }
 
@@ -601,7 +725,7 @@ TEST_F(AnnIndexWriterTest, TestAddMoreThanChunkSizeIVF) {
     ASSERT_TRUE(writer->init().ok());
     writer->set_vector_index(mock_index);
 
-    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(0));
+    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(2));
     EXPECT_CALL(*mock_index, train(10, testing::_))
             .Times(1)
             .WillOnce(testing::Return(Status::OK()));
@@ -629,6 +753,7 @@ TEST_F(AnnIndexWriterTest, TestAddMoreThanChunkSizeIVF) {
                                                  num_rows);
         EXPECT_TRUE(status.ok());
     }
+    EXPECT_FALSE(writer->has_spool_file());
 
     {
         const size_t num_rows = 6;
@@ -647,6 +772,7 @@ TEST_F(AnnIndexWriterTest, TestAddMoreThanChunkSizeIVF) {
                                                  num_rows);
         EXPECT_TRUE(status.ok());
     }
+    EXPECT_TRUE(writer->has_spool_file());
 
     Status status = writer->finish();
     EXPECT_TRUE(status.ok());
@@ -702,6 +828,7 @@ TEST_F(AnnIndexWriterTest, TestSkipTrainWhenRemainderLessThanNlist) {
                                                  num_rows);
         EXPECT_TRUE(status.ok());
     }
+    EXPECT_FALSE(writer->has_spool_file());
 
     // Add 2 more rows
     {
@@ -717,6 +844,7 @@ TEST_F(AnnIndexWriterTest, TestSkipTrainWhenRemainderLessThanNlist) {
                                                  num_rows);
         EXPECT_TRUE(status.ok());
     }
+    EXPECT_TRUE(writer->has_spool_file());
 
     Status status = writer->finish();
     EXPECT_TRUE(status.ok());
@@ -962,6 +1090,18 @@ TEST_F(AnnIndexWriterTest, TestPQMinTrainRows) {
     // Finish should skip index building due to insufficient training data
     Status status = writer->finish();
     EXPECT_TRUE(status.ok());
+}
+
+TEST_F(AnnIndexWriterTest, TestIVFOnDiskMinTrainRows) {
+    FaissVectorIndex index;
+    FaissBuildParameter params;
+    params.index_type = FaissBuildParameter::IndexType::IVF_ON_DISK;
+    params.quantizer = FaissBuildParameter::Quantizer::FLAT;
+    params.dim = 4;
+    params.ivf_nlist = 7;
+
+    index.build(params);
+    EXPECT_EQ(index.get_min_train_rows(), 7);
 }
 
 TEST_F(AnnIndexWriterTest, TestSQMinTrainRows) {

@@ -89,7 +89,14 @@ Status AnnIndexColumnWriter::init() {
             build_parameter.ef_construction, quantizer);
 
     const size_t chunk_elements = AnnIndexColumnWriter::chunk_size() * build_parameter.dim;
-    _training_sample.reserve(chunk_elements);
+    const Int64 min_train_rows = _vector_index->get_min_train_rows();
+    if (min_train_rows > 0) {
+        _training_sample.reserve(_training_sample_rows_limit(min_train_rows) *
+                                 build_parameter.dim);
+    }
+    _buffered_vectors.reserve(chunk_elements);
+    _training_sample_seen_rows = 0;
+    _training_sample_rng.seed(0);
 
     return Status::OK();
 }
@@ -100,6 +107,8 @@ Status AnnIndexColumnWriter::add_values(const std::string fn, const void* values
 
 void AnnIndexColumnWriter::close_on_error() {
     _delete_spool_file();
+    _training_sample.clear();
+    _buffered_vectors.clear();
 }
 
 Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* value_ptr,
@@ -122,7 +131,12 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
 
     const float* p = reinterpret_cast<const float*>(value_ptr);
 
-    RETURN_IF_ERROR(_append_vectors(p, num_rows * dim));
+    const Int64 min_train_rows = _vector_index->get_min_train_rows();
+    if (min_train_rows == 0) {
+        RETURN_IF_ERROR(_append_vectors_no_train(p, num_rows));
+    } else {
+        RETURN_IF_ERROR(_append_vectors_need_train(p, num_rows, min_train_rows));
+    }
     _total_rows += cast_set<int64_t>(num_rows);
 
     return Status::OK();
@@ -141,42 +155,103 @@ int64_t AnnIndexColumnWriter::size() const {
 }
 
 Status AnnIndexColumnWriter::finish() {
-    Status st = _train_and_add();
+    if (_total_rows == 0) {
+        LOG_INFO("No data to train/add for ANN index. Skipping index building.");
+        Status st = _index_file_writer->delete_index(_index_meta);
+        _delete_spool_file();
+        return st;
+    }
+
+    const Int64 min_train_rows = _vector_index->get_min_train_rows();
+    Status st = min_train_rows == 0 ? _vector_index->save(_dir.get())
+                                    : _train_and_add(min_train_rows);
     _delete_spool_file();
     return st;
 }
 
-Status AnnIndexColumnWriter::_append_vectors(const float* vectors, size_t num_elements) {
+Status AnnIndexColumnWriter::_append_vectors_no_train(const float* vectors, size_t num_rows) {
     DCHECK(vectors != nullptr);
-    if (num_elements == 0) {
+    DCHECK(num_rows > 0);
+    return _vector_index->add(cast_set<Int64>(num_rows), vectors);
+}
+
+Status AnnIndexColumnWriter::_append_vectors_need_train(const float* vectors, size_t num_rows,
+                                                        Int64 min_train_rows) {
+    DCHECK(vectors != nullptr);
+    DCHECK(num_rows > 0);
+
+    const size_t dim = _vector_index->get_dimension();
+    const size_t num_elements = num_rows * dim;
+    _sample_training_vectors(vectors, num_rows, dim, _training_sample_rows_limit(min_train_rows));
+
+    if (_spool_file_writer != nullptr) {
+        return _append_to_spool_file(vectors, num_elements);
+    }
+
+    const size_t buffer_elements_limit = AnnIndexColumnWriter::chunk_size() * dim;
+    if (_buffered_vectors.size() + num_elements <= buffer_elements_limit) {
+        _buffered_vectors.insert(_buffered_vectors.end(), vectors, vectors + num_elements);
         return Status::OK();
     }
 
-    const size_t training_sample_rows = std::max<Int64>(AnnIndexColumnWriter::chunk_size(),
-                                                        _vector_index->get_min_train_rows());
-    const size_t chunk_elements = training_sample_rows * _vector_index->get_dimension();
-    DORIS_CHECK(_training_sample.size() <= chunk_elements);
-    const size_t sample_elements_to_add =
-            std::min(num_elements, chunk_elements - _training_sample.size());
-    if (sample_elements_to_add > 0) {
-        _training_sample.insert(_training_sample.end(), vectors, vectors + sample_elements_to_add);
-    }
-
-    if (_spool_file_writer == nullptr) {
-        DORIS_CHECK(ExecEnv::GetInstance()->get_tmp_file_dirs() != nullptr);
-        _spool_file_path = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir() /
-                           fmt::format("ann_index_build_{}.spool", UniqueId::gen_uid().to_string());
-        io::FileWriterOptions opts;
-        opts.sync_file_data = false;
-        RETURN_IF_ERROR(io::global_local_filesystem()->create_file(_spool_file_path,
-                                                                   &_spool_file_writer, &opts));
-    }
+    RETURN_IF_ERROR(_spill_buffered_vectors());
     return _append_to_spool_file(vectors, num_elements);
+}
+
+size_t AnnIndexColumnWriter::_training_sample_rows_limit(Int64 min_train_rows) const {
+    DCHECK(min_train_rows > 0);
+    const Int64 bounded_rows =
+            std::min<Int64>(AnnIndexColumnWriter::chunk_size(),
+                            config::ann_index_build_max_train_rows);
+    return cast_set<size_t>(std::max<Int64>(min_train_rows, bounded_rows));
+}
+
+void AnnIndexColumnWriter::_sample_training_vectors(const float* vectors, size_t num_rows,
+                                                    size_t dim, size_t sample_rows_limit) {
+    DCHECK(vectors != nullptr);
+    DCHECK(num_rows > 0);
+    DCHECK(dim > 0);
+    DCHECK(sample_rows_limit > 0);
+    DCHECK(_training_sample.size() % dim == 0);
+
+    for (size_t row = 0; row < num_rows; ++row) {
+        const float* vector = vectors + row * dim;
+        ++_training_sample_seen_rows;
+        const size_t sample_rows = _training_sample.size() / dim;
+        if (sample_rows < sample_rows_limit) {
+            _training_sample.insert(_training_sample.end(), vector, vector + dim);
+            continue;
+        }
+
+        std::uniform_int_distribution<uint64_t> distribution(0, _training_sample_seen_rows - 1);
+        const uint64_t selected = distribution(_training_sample_rng);
+        if (selected < sample_rows_limit) {
+            float* dst = _training_sample.data() + cast_set<size_t>(selected) * dim;
+            std::copy(vector, vector + dim, dst);
+        }
+    }
 }
 
 Status AnnIndexColumnWriter::_append_to_spool_file(const float* vectors, size_t num_elements) {
     const size_t bytes = num_elements * sizeof(float);
     return _spool_file_writer->append(Slice(reinterpret_cast<const uint8_t*>(vectors), bytes));
+}
+
+Status AnnIndexColumnWriter::_spill_buffered_vectors() {
+    DCHECK(_spool_file_writer == nullptr);
+    DORIS_CHECK(ExecEnv::GetInstance()->get_tmp_file_dirs() != nullptr);
+    _spool_file_path = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir() /
+                       fmt::format("ann_index_build_{}.spool", UniqueId::gen_uid().to_string());
+    io::FileWriterOptions opts;
+    opts.sync_file_data = false;
+    RETURN_IF_ERROR(
+            io::global_local_filesystem()->create_file(_spool_file_path, &_spool_file_writer,
+                                                       &opts));
+    if (!_buffered_vectors.empty()) {
+        RETURN_IF_ERROR(_append_to_spool_file(_buffered_vectors.data(), _buffered_vectors.size()));
+        _buffered_vectors.clear();
+    }
+    return Status::OK();
 }
 
 Status AnnIndexColumnWriter::_flush_spool_writer() {
@@ -188,13 +263,7 @@ Status AnnIndexColumnWriter::_flush_spool_writer() {
     return Status::OK();
 }
 
-Status AnnIndexColumnWriter::_train_and_add() {
-    if (_total_rows == 0) {
-        LOG_INFO("No data to train/add for ANN index. Skipping index building.");
-        return _index_file_writer->delete_index(_index_meta);
-    }
-
-    const Int64 min_train_rows = _vector_index->get_min_train_rows();
+Status AnnIndexColumnWriter::_train_and_add(Int64 min_train_rows) {
     if (_total_rows < min_train_rows) {
         LOG_INFO(
                 "Total data size {} is less than minimum {} rows required for ANN index training. "
@@ -205,12 +274,30 @@ Status AnnIndexColumnWriter::_train_and_add() {
     }
 
     DCHECK(_training_sample.size() % _vector_index->get_dimension() == 0);
-    const Int64 train_rows = _training_sample.size() / _vector_index->get_dimension();
+    const Int64 train_rows =
+            cast_set<Int64>(_training_sample.size() / _vector_index->get_dimension());
+    DORIS_CHECK(train_rows >= min_train_rows);
     RETURN_IF_ERROR(_vector_index->train(train_rows, _training_sample.data()));
     _training_sample.clear();
-    RETURN_IF_ERROR(_flush_spool_writer());
-    RETURN_IF_ERROR(_add_spooled_vectors());
+    if (_spool_file_writer == nullptr) {
+        RETURN_IF_ERROR(_add_buffered_vectors());
+    } else {
+        RETURN_IF_ERROR(_flush_spool_writer());
+        RETURN_IF_ERROR(_add_spooled_vectors());
+    }
     return _vector_index->save(_dir.get());
+}
+
+Status AnnIndexColumnWriter::_add_buffered_vectors() {
+    const size_t dim = _vector_index->get_dimension();
+    DCHECK(_buffered_vectors.size() % dim == 0);
+    if (_buffered_vectors.empty()) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_vector_index->add(cast_set<Int64>(_buffered_vectors.size() / dim),
+                                       _buffered_vectors.data()));
+    _buffered_vectors.clear();
+    return Status::OK();
 }
 
 Status AnnIndexColumnWriter::_add_spooled_vectors() {
@@ -237,8 +324,8 @@ Status AnnIndexColumnWriter::_add_spooled_vectors() {
                     _spool_file_path.native(), bytes_to_read, bytes_read);
         }
         DCHECK((bytes_read / sizeof(float)) % dim == 0);
-        RETURN_IF_ERROR(
-                _vector_index->add(bytes_read / sizeof(float) / dim, _training_sample.data()));
+        RETURN_IF_ERROR(_vector_index->add(cast_set<Int64>(bytes_read / sizeof(float) / dim),
+                                           _training_sample.data()));
         offset += bytes_read;
     }
     RETURN_IF_ERROR(reader->close());

@@ -1809,8 +1809,10 @@ DECLARE_mInt32(max_segment_partial_column_cache_size);
 DECLARE_String(ann_index_ivf_list_cache_limit);
 // Stale sweep time for ANN index IVF list cache in seconds.
 DECLARE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec);
-// Row count for ANN/vector index build training sample and add batch.
+// Row count for ANN/vector index build add batch and memory buffer before spill.
 DECLARE_mInt64(ann_index_build_chunk_size);
+// Maximum row count for ANN/vector index training sample.
+DECLARE_mInt64(ann_index_build_max_train_rows);
 
 DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
 DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);

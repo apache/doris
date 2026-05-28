@@ -24,6 +24,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <random>
 #include <roaring/roaring.hh>
 #include <string>
 
@@ -73,20 +74,35 @@ public:
     Status finish() override;
 
 private:
-    Status _append_vectors(const float* vectors, size_t num_elements);
+    Status _append_vectors_need_train(const float* vectors, size_t num_rows, Int64 min_train_rows);
+    Status _append_vectors_no_train(const float* vectors, size_t num_rows);
+    size_t _training_sample_rows_limit(Int64 min_train_rows) const;
+    void _sample_training_vectors(const float* vectors, size_t num_rows, size_t dim,
+                                  size_t sample_rows_limit);
     Status _append_to_spool_file(const float* vectors, size_t num_elements);
+    Status _spill_buffered_vectors();
     Status _flush_spool_writer();
-    Status _train_and_add();
+    Status _train_and_add(Int64 min_train_rows);
+    Status _add_buffered_vectors();
     Status _add_spooled_vectors();
     void _delete_spool_file();
+
+#ifdef BE_TEST
+    friend class TestAnnIndexColumnWriter;
+#endif
 
     // VectorIndex shoule be managed by some cache.
     // VectorIndex should be weak shared by AnnIndexWriter and VectorIndexReader
     // This should be a weak_ptr
     std::shared_ptr<VectorIndex> _vector_index;
-    // _training_sample keeps a bounded sample for training. Full vectors are spooled separately
-    // so FAISS is trained once before any vector is added.
+    // _training_sample keeps a bounded reservoir sample for training. Full vectors are spooled
+    // separately so FAISS is trained once before any vector is added.
     PODArray<float> _training_sample;
+    uint64_t _training_sample_seen_rows = 0;
+    std::mt19937_64 _training_sample_rng {0};
+    // _buffered_vectors keeps small training-required segments in memory. Larger segments spill
+    // to _spool_file_path before finish().
+    PODArray<float> _buffered_vectors;
     io::Path _spool_file_path;
     io::FileWriterPtr _spool_file_writer;
     int64_t _total_rows = 0;

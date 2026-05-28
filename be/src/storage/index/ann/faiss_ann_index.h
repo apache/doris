@@ -213,8 +213,8 @@ public:
     /**
      * @brief Returns the minimum number of rows required for training the index.
      *
-     * For IVF index types, this returns ivf_nlist (the number of clusters).
-     * For HNSW, this returns 0 as it doesn't require minimum training data.
+     * For IVF index types, this includes ivf_nlist (the number of clusters).
+     * Quantized indexes may require additional training rows.
      *
      * @return Minimum number of rows required for training
      */
