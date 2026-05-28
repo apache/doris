@@ -464,7 +464,10 @@ supportedShowStatement
     | SHOW FULL? (COLUMNS | FIELDS) (FROM | IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)? wildWhere?          #showColumns    
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
-    | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash
+    | SHOW TRASH (
+          ON LEFT_PAREN backends+=STRING_LITERAL (',' backends+=STRING_LITERAL)* RIGHT_PAREN
+        | ON backend=STRING_LITERAL
+      )?                                                                            #showTrash
     | SHOW TYPECAST ((FROM | IN) database=identifier)?                              #showTypeCast
     | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters    
     | SHOW statementScope? STATUS                                                   #showStatus
