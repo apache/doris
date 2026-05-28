@@ -52,7 +52,6 @@ Usage: $0 <options>
      --index-tool               build Backend inverted index tool. Default OFF.
      --benchmark                build Google Benchmark. Default OFF.
      --task-executor-simulator  build Backend task executor simulator. Default OFF.
-     --broker                   build Broker. Default ON.
      --hive-udf                 build Hive UDF library for Ingestion Load. Default ON.
      --be-java-extensions       build Backend java extensions. Default ON.
      --be-cdc-client            build Cdc Client for backend. Default ON.
@@ -81,7 +80,6 @@ Usage: $0 <options>
     $0 --fe --clean                         clean and build Frontend.
     $0 --fe --be --clean                    clean and build Frontend and Backend
     $0 --task-executor-simulator            build task executor simulator
-    $0 --broker                             build Broker
     $0 --be --fe                            build Backend, Frontend, and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
     $0 --be --output PATH                   build Backend, the result will be output to PATH(relative paths are available)
@@ -135,7 +133,6 @@ if ! OPTS="$(getopt \
     -l 'fe' \
     -l 'be' \
     -l 'cloud' \
-    -l 'broker' \
     -l 'meta-tool' \
     -l 'file-cache-microbench' \
     -l 'index-tool' \
@@ -161,7 +158,6 @@ PARALLEL="$(($(nproc) / 4 + 1))"
 BUILD_FE=0
 BUILD_BE=0
 BUILD_CLOUD=0
-BUILD_BROKER=0
 BUILD_META_TOOL='OFF'
 BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
 BUILD_INDEX_TOOL='OFF'
@@ -185,7 +181,6 @@ if [[ "$#" == 1 ]]; then
     BUILD_BE=1
     BUILD_CLOUD=1
 
-    BUILD_BROKER=1
     BUILD_META_TOOL='OFF'
     BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
     BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
@@ -213,10 +208,6 @@ else
         --cloud)
             BUILD_CLOUD=1
             BUILD_BE_JAVA_EXTENSIONS=1
-            shift
-            ;;
-        --broker)
-            BUILD_BROKER=1
             shift
             ;;
         --meta-tool)
@@ -309,7 +300,6 @@ else
         BUILD_FE=1
         BUILD_BE=1
         BUILD_CLOUD=1
-        BUILD_BROKER=1
         BUILD_META_TOOL='ON'
         BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
         BUILD_INDEX_TOOL='ON'
@@ -521,7 +511,6 @@ echo "Get params:
     BUILD_FE                            -- ${BUILD_FE}
     BUILD_BE                            -- ${BUILD_BE}
     BUILD_CLOUD                         -- ${BUILD_CLOUD}
-    BUILD_BROKER                        -- ${BUILD_BROKER}
     BUILD_META_TOOL                     -- ${BUILD_META_TOOL}
     BUILD_FILE_CACHE_MICROBENCH_TOOL    -- ${BUILD_FILE_CACHE_MICROBENCH_TOOL}
     BUILD_INDEX_TOOL                    -- ${BUILD_INDEX_TOOL}
@@ -1018,17 +1007,6 @@ EOF
     mkdir -p "${DORIS_OUTPUT}/be/plugins/connectors/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_extensions/"
-fi
-
-if [[ "${BUILD_BROKER}" -eq 1 ]]; then
-    install -d "${DORIS_OUTPUT}/apache_hdfs_broker"
-
-    cd "${DORIS_HOME}/fs_brokers/apache_hdfs_broker"
-    ./build.sh
-    rm -rf "${DORIS_OUTPUT}/apache_hdfs_broker"/*
-    cp -r -p "${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker"/* "${DORIS_OUTPUT}/apache_hdfs_broker"/
-    copy_common_files "${DORIS_OUTPUT}/apache_hdfs_broker/"
-    cd "${DORIS_HOME}"
 fi
 
 if [[ "${BUILD_BE_CDC_CLIENT}" -eq 1 ]]; then
