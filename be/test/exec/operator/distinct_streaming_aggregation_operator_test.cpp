@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "core/block/block.h"
+#include "exec/exchange/local_exchange_source_operator.h"
 #include "exec/operator/mock_operator.h"
 #include "exec/operator/operator_helper.h"
 #include "testutil/column_helper.h"
@@ -95,6 +96,20 @@ TEST_F(DistinctStreamingAggOperatorTest, test1) {
         EXPECT_TRUE(ColumnHelper::block_equal(
                 block, ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4})));
     }
+}
+
+TEST_F(DistinctStreamingAggOperatorTest, require_hash_shuffle_after_non_hash_local_exchange) {
+    state->_query_options.__set_enable_local_exchange_before_agg(false);
+    op->_is_streaming_preagg = false;
+    op->_partition_exprs.emplace_back();
+    op->_probe_expr_ctxs = MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+
+    OperatorPtr child = std::make_shared<LocalExchangeSourceOperatorX>();
+    EXPECT_TRUE(child->init(ExchangeType::ADAPTIVE_PASSTHROUGH).ok());
+    op->_child = child;
+
+    const auto distribution = op->required_data_distribution(state.get());
+    EXPECT_EQ(ExchangeType::HASH_SHUFFLE, distribution.distribution_type);
 }
 
 TEST_F(DistinctStreamingAggOperatorTest, test2) {
