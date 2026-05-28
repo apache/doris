@@ -136,8 +136,34 @@ public class SessionVariablesTest extends TestWithFeService {
         Assertions.assertEquals(numOfForwardVars, vars.size());
 
         vars.put(SessionVariable.ENABLE_PROFILE, "true");
+        // Forwarded string enums should be normalized because the forward path bypasses session setters.
+        vars.put(SessionVariable.EXTERNAL_TABLE_DML_RETURN_STATUS, "COMMITTED");
         sessionVariable.setForwardedSessionVariables(vars);
         Assertions.assertTrue(sessionVariable.enableProfile);
+        Assertions.assertEquals(SessionVariable.EXTERNAL_TABLE_DML_RETURN_STATUS_COMMITTED,
+                sessionVariable.getExternalTableDmlReturnStatus());
+    }
+
+    @Test
+    public void testExternalTableDmlReturnStatus() throws Exception {
+        connectContext.setThreadLocalInfo();
+        SessionVariable sessionVar = connectContext.getSessionVariable();
+
+        // Explicit session settings should keep a normalized value that can be forwarded to master FE.
+        String sql = "set external_table_dml_return_status='COMMITTED'";
+        SetStmt setStmt = (SetStmt) parseAndAnalyzeStmt(sql, connectContext);
+        SetExecutor setExecutor = new SetExecutor(connectContext, setStmt);
+        setExecutor.execute();
+        Assertions.assertEquals(SessionVariable.EXTERNAL_TABLE_DML_RETURN_STATUS_COMMITTED,
+                sessionVar.getExternalTableDmlReturnStatus());
+        Assertions.assertEquals(SessionVariable.EXTERNAL_TABLE_DML_RETURN_STATUS_COMMITTED,
+                sessionVar.getForwardVariables().get(SessionVariable.EXTERNAL_TABLE_DML_RETURN_STATUS));
+
+        sql = "set external_table_dml_return_status='invalid'";
+        setStmt = (SetStmt) parseAndAnalyzeStmt(sql, connectContext);
+        SetExecutor invalidExecutor = new SetExecutor(connectContext, setStmt);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "externalTableDmlReturnStatus value is invalid",
+                invalidExecutor::execute);
     }
 
     @Test
