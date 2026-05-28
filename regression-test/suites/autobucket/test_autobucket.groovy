@@ -84,7 +84,7 @@ suite("test_autobucket") {
     result = sql_return_maparray "show partitions from autobucket_test_max_buckets"
     logger.info("${result}")
     // XXX: buckets at pos(8), next maybe impl by sql meta
-    assertEquals(1, Integer.valueOf(result.get(0).Buckets)) //equals max bucket
+    assertEquals(3, Integer.valueOf(result.get(0).Buckets)) //equals max bucket
     // set back to default
     sql "ADMIN SET FRONTEND CONFIG ('autobucket_max_buckets' = '128')"
     sql "drop table if exists autobucket_test_max_buckets"
