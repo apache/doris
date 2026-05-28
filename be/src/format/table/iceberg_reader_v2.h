@@ -17,9 +17,6 @@
 
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
-#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -77,16 +74,15 @@ private:
     static constexpr size_t ICEBERG_FILE_PATH_BLOCK_POSITION = 0;
     static constexpr size_t ICEBERG_ROW_POS_BLOCK_POSITION = 1;
 
-    class PositionDeleteBlockCollector final {
+    class PositionDeleteRowsCollector final {
     public:
-        PositionDeleteBlockCollector(std::string data_file_path,
-                                     std::map<std::string, reader::DeleteRows>* rows);
+        PositionDeleteRowsCollector(std::string data_file_path, reader::DeleteRows* rows);
 
         Status collect(const Block& block, size_t read_rows);
 
     private:
         std::string _data_file_path;
-        std::map<std::string, reader::DeleteRows>* _rows = nullptr;
+        reader::DeleteRows* _rows = nullptr;
     };
 
     static std::string _iceberg_delete_vector_cache_key(const TIcebergDeleteFileDesc& delete_file);
@@ -94,7 +90,8 @@ private:
     static std::shared_ptr<io::FileSystemProperties> _delete_file_system_properties(
             const TFileScanRangeParams& scan_params);
 
-    static std::unique_ptr<io::FileDescription> _delete_file_description(const TFileRangeDesc& range);
+    static std::unique_ptr<io::FileDescription> _delete_file_description(
+            const TFileRangeDesc& range);
 
     static const reader::SchemaField* _find_delete_field(
             const std::vector<reader::SchemaField>& schema, const std::string& name);
@@ -120,7 +117,7 @@ private:
     Status _read_parquet_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
                                               const TFileScanRangeParams& scan_params,
                                               IcebergDeleteFileIOContext* delete_io_ctx,
-                                              PositionDeleteBlockCollector* collector);
+                                              PositionDeleteRowsCollector* collector);
 
     Status _init_position_delete_rows(const std::vector<TIcebergDeleteFileDesc>& delete_files);
 
