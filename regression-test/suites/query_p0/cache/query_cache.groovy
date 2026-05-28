@@ -18,6 +18,7 @@
 import java.util.stream.Collectors
 
 suite("query_cache") {
+    sql "set parallel_pipeline_task_num=2"
     def tableName = "table_3_undef_partitions2_keys3_properties4_distributed_by53"
 
     sql "set enable_sql_cache=false"
