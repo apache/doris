@@ -47,8 +47,7 @@ public:
     Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
-        return Status::InternalError(
-                "Not implement EqualityDeletePredicate::execute_column_impl");
+        return Status::InternalError("Not implement EqualityDeletePredicate::execute_column_impl");
     }
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,

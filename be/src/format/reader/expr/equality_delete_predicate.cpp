@@ -94,8 +94,8 @@ Status EqualityDeletePredicate::execute(VExprContext* context, Block* block,
                                         int* result_column_id) const {
     if (_children.size() != _field_ids.size()) {
         return Status::InternalError(
-                "EqualityDeletePredicate should have {} child exprs, but got {}",
-                _field_ids.size(), _children.size());
+                "EqualityDeletePredicate should have {} child exprs, but got {}", _field_ids.size(),
+                _children.size());
     }
 
     Block data_key_block;
@@ -103,8 +103,7 @@ Status EqualityDeletePredicate::execute(VExprContext* context, Block* block,
         int slot = -1;
         RETURN_IF_ERROR(child->execute(context, block, &slot));
         const auto& key_column = block->get_by_position(slot);
-        data_key_block.insert(
-                {key_column.column, key_column.type, key_column.name});
+        data_key_block.insert({key_column.column, key_column.type, key_column.name});
     }
 
     const auto rows = data_key_block.rows();

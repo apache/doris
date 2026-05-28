@@ -301,9 +301,8 @@ void write_position_delete_parquet_file(const std::string& file_path,
             arrow::field("file_path", arrow::utf8(), false),
             arrow::field("pos", arrow::int64(), false),
     });
-    auto table = arrow::Table::Make(schema,
-                                    {build_string_array(data_file_paths),
-                                     build_int64_array(positions)});
+    auto table = arrow::Table::Make(
+            schema, {build_string_array(data_file_paths), build_int64_array(positions)});
 
     auto file_result = arrow::io::FileOutputStream::Open(file_path);
     ASSERT_TRUE(file_result.ok()) << file_result.status();
@@ -313,9 +312,9 @@ void write_position_delete_parquet_file(const std::string& file_path,
     builder.version(::parquet::ParquetVersion::PARQUET_2_6);
     builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
     builder.compression(::parquet::Compression::UNCOMPRESSED);
-    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(
-            *table, arrow::default_memory_pool(), out, static_cast<int64_t>(positions.size()),
-            builder.build()));
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      static_cast<int64_t>(positions.size()),
+                                                      builder.build()));
 }
 
 int64_t write_iceberg_deletion_vector_file(const std::string& file_path,
@@ -423,7 +422,8 @@ std::unique_ptr<ReadProfile> make_table_read_profile(RuntimeProfile* profile) {
 }
 
 TTableFormatFileDesc make_iceberg_table_format_desc(
-        const std::string& data_file_path, const std::vector<TIcebergDeleteFileDesc>& delete_files) {
+        const std::string& data_file_path,
+        const std::vector<TIcebergDeleteFileDesc>& delete_files) {
     TTableFormatFileDesc table_format_params;
     TIcebergFileDesc iceberg_params;
     iceberg_params.__set_format_version(2);
@@ -433,9 +433,8 @@ TTableFormatFileDesc make_iceberg_table_format_desc(
     return table_format_params;
 }
 
-std::vector<int32_t> read_iceberg_ids(
-        doris::iceberg::IcebergTableReader* reader,
-        const std::vector<TableColumn>& projected_columns) {
+std::vector<int32_t> read_iceberg_ids(doris::iceberg::IcebergTableReader* reader,
+                                      const std::vector<TableColumn>& projected_columns) {
     std::vector<int32_t> ids;
     bool eos = false;
     while (!eos) {

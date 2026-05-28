@@ -81,17 +81,18 @@ protected:
                 std::make_shared<EqualityDeletePredicate>(std::move(delete_block), field_ids);
         predicate->_open_finished = true;
         for (size_t idx = 0; idx < field_ids.size(); ++idx) {
-            predicate->add_child(std::make_shared<MockSlotRef>(
-                    idx, data_block->get_by_position(idx).type));
+            predicate->add_child(
+                    std::make_shared<MockSlotRef>(idx, data_block->get_by_position(idx).type));
         }
 
         VExprContext context(predicate);
         return predicate->execute(&context, data_block, result_column_id);
     }
 
-    static Status execute_prepared_equality_delete_predicate(
-            const VExprContextSPtr& context, MockRuntimeState* state, Block* data_block,
-            int* result_column_id) {
+    static Status execute_prepared_equality_delete_predicate(const VExprContextSPtr& context,
+                                                             MockRuntimeState* state,
+                                                             Block* data_block,
+                                                             int* result_column_id) {
         RETURN_IF_ERROR(context->prepare(state, RowDescriptor()));
         RETURN_IF_ERROR(context->open(state));
         return context->execute(data_block, result_column_id);
@@ -105,12 +106,10 @@ TEST_F(EqualityDeletePredicateTest, MatchSingleColumn) {
     data_block.insert(make_nullable_int_column("id", {1, 2, 3, 4}));
 
     int result_column_id = -1;
-    auto status =
-            execute_equality_delete_predicate(std::move(delete_block), {1}, &data_block,
-                                              &result_column_id);
+    auto status = execute_equality_delete_predicate(std::move(delete_block), {1}, &data_block,
+                                                    &result_column_id);
     ASSERT_TRUE(status.ok()) << status;
-    EXPECT_EQ(result_column_data(data_block, result_column_id),
-              std::vector<UInt8>({1, 0, 0, 1}));
+    EXPECT_EQ(result_column_data(data_block, result_column_id), std::vector<UInt8>({1, 0, 0, 1}));
 }
 
 TEST_F(EqualityDeletePredicateTest, MatchMultipleColumns) {
@@ -122,12 +121,10 @@ TEST_F(EqualityDeletePredicateTest, MatchMultipleColumns) {
     data_block.insert(make_nullable_string_column("name", {"a", "b", "a", "b"}));
 
     int result_column_id = -1;
-    auto status =
-            execute_equality_delete_predicate(std::move(delete_block), {1, 2}, &data_block,
-                                              &result_column_id);
+    auto status = execute_equality_delete_predicate(std::move(delete_block), {1, 2}, &data_block,
+                                                    &result_column_id);
     ASSERT_TRUE(status.ok()) << status;
-    EXPECT_EQ(result_column_data(data_block, result_column_id),
-              std::vector<UInt8>({1, 0, 0, 1}));
+    EXPECT_EQ(result_column_data(data_block, result_column_id), std::vector<UInt8>({1, 0, 0, 1}));
 }
 
 TEST_F(EqualityDeletePredicateTest, MatchNullValues) {
@@ -137,12 +134,10 @@ TEST_F(EqualityDeletePredicateTest, MatchNullValues) {
     data_block.insert(make_nullable_int_column("id", {1, std::nullopt, 3}));
 
     int result_column_id = -1;
-    auto status =
-            execute_equality_delete_predicate(std::move(delete_block), {1}, &data_block,
-                                              &result_column_id);
+    auto status = execute_equality_delete_predicate(std::move(delete_block), {1}, &data_block,
+                                                    &result_column_id);
     ASSERT_TRUE(status.ok()) << status;
-    EXPECT_EQ(result_column_data(data_block, result_column_id),
-              std::vector<UInt8>({0, 1, 0}));
+    EXPECT_EQ(result_column_data(data_block, result_column_id), std::vector<UInt8>({0, 1, 0}));
 }
 
 TEST_F(EqualityDeletePredicateTest, MatchAfterCastToDeleteKeyType) {
@@ -151,8 +146,8 @@ TEST_F(EqualityDeletePredicateTest, MatchAfterCastToDeleteKeyType) {
     Block data_block;
     data_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 4}));
 
-    auto predicate =
-            std::make_shared<EqualityDeletePredicate>(std::move(delete_block), std::vector<int> {1});
+    auto predicate = std::make_shared<EqualityDeletePredicate>(std::move(delete_block),
+                                                               std::vector<int> {1});
     auto cast_expr = Cast::create_shared(make_nullable(std::make_shared<DataTypeInt32>()));
     cast_expr->add_child(std::make_shared<MockSlotRef>(0, data_block.get_by_position(0).type));
     predicate->add_child(std::move(cast_expr));
@@ -161,7 +156,7 @@ TEST_F(EqualityDeletePredicateTest, MatchAfterCastToDeleteKeyType) {
 
     int result_column_id = -1;
     auto status = execute_prepared_equality_delete_predicate(context, &state, &data_block,
-                                                            &result_column_id);
+                                                             &result_column_id);
     ASSERT_TRUE(status.ok()) << status;
     EXPECT_EQ(result_column_data(data_block, result_column_id), std::vector<UInt8>({1, 0, 1}));
     context->close();
@@ -171,7 +166,7 @@ TEST_F(EqualityDeletePredicateTest, ChildCountMismatchReturnsError) {
     Block delete_block;
     delete_block.insert(make_nullable_int_column("id", {1}));
     auto predicate = std::make_shared<EqualityDeletePredicate>(std::move(delete_block),
-                                                              std::vector<int> {1});
+                                                               std::vector<int> {1});
     predicate->_open_finished = true;
     Block data_block;
     data_block.insert(make_nullable_int_column("id", {1}));
