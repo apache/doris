@@ -138,7 +138,6 @@ TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_ch
 
     const auto distribution = sink_op->required_data_distribution(&ctx.state);
     EXPECT_EQ(ExchangeType::HASH_SHUFFLE, distribution.distribution_type);
-    EXPECT_TRUE(distribution.force_local_exchange);
 }
 
 TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_local_exchange) {
@@ -159,11 +158,10 @@ TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_lo
 
     const auto distribution = sink_op->required_data_distribution(&ctx.state);
     EXPECT_EQ(ExchangeType::HASH_SHUFFLE, distribution.distribution_type);
-    EXPECT_TRUE(distribution.force_local_exchange);
 
     Pipeline pipeline(0, 4, 4);
     EXPECT_TRUE(pipeline.add_operator(child, 0).ok());
-    pipeline.set_data_distribution(DataDistribution(ExchangeType::ADAPTIVE_PASSTHROUGH));
+    pipeline.set_data_distribution(DataDistribution(ExchangeType::HASH_SHUFFLE));
     EXPECT_TRUE(pipeline.need_to_local_exchange(distribution, 1));
 }
 

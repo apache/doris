@@ -170,10 +170,8 @@ public:
             return DataSinkOperatorX<AggSinkLocalState>::required_data_distribution(state);
         }
         return _is_colocate && _require_bucket_distribution
-                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs,
-                                          child_breaks_local_key_distribution)
-                       : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs,
-                                          child_breaks_local_key_distribution);
+                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                       : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
     bool is_colocated_operator() const override { return _is_colocate; }
     bool is_shuffled_operator() const override {
