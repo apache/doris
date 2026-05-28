@@ -431,7 +431,8 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
 }
 
 TEST_F(BlockFileCacheTest, sharded_writer_map_tracks_multiple_inflight_writers) {
-    std::string cache_path = caches_dir / "sharded_writer_map_tracks_multiple_inflight_writers" / "";
+    std::string cache_path =
+            caches_dir / "sharded_writer_map_tracks_multiple_inflight_writers" / "";
     if (fs::exists(cache_path)) {
         fs::remove_all(cache_path);
     }
@@ -444,8 +445,8 @@ TEST_F(BlockFileCacheTest, sharded_writer_map_tracks_multiple_inflight_writers) 
     settings.index_queue_elements = 1;
     settings.disposable_queue_size = 1024;
     settings.disposable_queue_elements = 1;
-    settings.capacity = settings.query_queue_size + settings.index_queue_size +
-                        settings.disposable_queue_size;
+    settings.capacity =
+            settings.query_queue_size + settings.index_queue_size + settings.disposable_queue_size;
     settings.max_file_block_size = 4096;
     settings.max_query_cache_size = 4096;
 
