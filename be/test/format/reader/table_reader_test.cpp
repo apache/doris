@@ -817,6 +817,153 @@ TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFiltering) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_virtual_columns_conjunct_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(
+            make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(make_table_column(
+            101, "_last_updated_sequence_number",
+            make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    doris::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader
+                        .init({
+                                .projected_columns = projected_columns,
+                                .column_predicates = {},
+                                .conjuncts = VExprContext(
+                                        std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                                .allow_missing_columns = true,
+                                .profile = nullptr,
+                        })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    TIcebergFileDesc iceberg_params;
+    iceberg_params.__set_first_row_id(3000);
+    iceberg_params.__set_last_updated_sequence_number(88);
+    split_options.current_range.table_format_params.__set_iceberg_params(iceberg_params);
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    const auto& row_id_nullable =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& sequence_nullable =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(2).column);
+    const auto& row_ids =
+            assert_cast<const ColumnInt64&>(row_id_nullable.get_nested_column()).get_data();
+    const auto& sequences =
+            assert_cast<const ColumnInt64&>(sequence_nullable.get_nested_column()).get_data();
+
+    ASSERT_EQ(block.rows(), 2);
+    EXPECT_EQ(id_column.get_element(0), 2);
+    EXPECT_EQ(id_column.get_element(1), 3);
+    EXPECT_EQ(row_id_nullable.get_null_map_data()[0], 0);
+    EXPECT_EQ(row_id_nullable.get_null_map_data()[1], 0);
+    EXPECT_EQ(sequence_nullable.get_null_map_data()[0], 0);
+    EXPECT_EQ(sequence_nullable.get_null_map_data()[1], 0);
+    EXPECT_EQ(row_ids[0], 3001);
+    EXPECT_EQ(row_ids[1], 3002);
+    EXPECT_EQ(sequences[0], 88);
+    EXPECT_EQ(sequences[1], 88);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredicatePruning) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() /
+            "doris_iceberg_virtual_columns_row_group_predicate_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    // ColumnPredicate is used for row-group/statistics pruning. Keep one row per row group so
+    // id > 2 prunes the first two row groups and leaves only the third file-local row.
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"}, 1);
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(
+            make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(make_table_column(
+            101, "_last_updated_sequence_number",
+            make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    TableColumnPredicates column_predicates;
+    column_predicates[0].push_back(create_comparison_predicate<PredicateType::GT>(
+            0, "id", std::make_shared<DataTypeInt32>(), Field::create_field<TYPE_INT>(2), false));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    doris::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader
+                        .init({
+                                .projected_columns = projected_columns,
+                                .column_predicates = std::move(column_predicates),
+                                .conjuncts = VExprContext(nullptr),
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                                .allow_missing_columns = true,
+                                .profile = nullptr,
+                        })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    TIcebergFileDesc iceberg_params;
+    iceberg_params.__set_first_row_id(4000);
+    iceberg_params.__set_last_updated_sequence_number(99);
+    split_options.current_range.table_format_params.__set_iceberg_params(iceberg_params);
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    const auto& row_id_nullable =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& sequence_nullable =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(2).column);
+    const auto& row_ids =
+            assert_cast<const ColumnInt64&>(row_id_nullable.get_nested_column()).get_data();
+    const auto& sequences =
+            assert_cast<const ColumnInt64&>(sequence_nullable.get_nested_column()).get_data();
+
+    ASSERT_EQ(block.rows(), 1);
+    EXPECT_EQ(id_column.get_element(0), 3);
+    EXPECT_EQ(row_id_nullable.get_null_map_data()[0], 0);
+    EXPECT_EQ(sequence_nullable.get_null_map_data()[0], 0);
+    EXPECT_EQ(row_ids[0], 4002);
+    EXPECT_EQ(sequences[0], 99);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(TableReaderTest, ParquetReaderReadsOnlyRowGroupsInFileRange) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_file_range_test";
