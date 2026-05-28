@@ -27,7 +27,7 @@ import java.util.Optional;
 /**
  * sql parsing exception.
  */
-public class ParseException extends AnalysisException {
+public class ParseException extends RuntimeException {
     private final String message;
     private final Origin start;
     private final Optional<String> command;
@@ -37,7 +37,7 @@ public class ParseException extends AnalysisException {
     }
 
     public ParseException(String message, Origin start, Optional<String> command) {
-        super(ErrorCode.NONE, message, start.line, start.startPosition, Optional.empty());
+        super(message);
         this.message = message;
         this.start = start;
         this.command = command;
