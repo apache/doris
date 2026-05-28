@@ -26,15 +26,23 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+
+namespace {
+Status read_length(const Slice* data, uint32_t* offset, uint32_t* length) {
+    if (UNLIKELY(*offset > data->size || data->size - *offset < sizeof(uint32_t))) {
+        return Status::IOError("Can't read byte array length from plain decoder");
+    }
+    *length = decode_fixed32_le(reinterpret_cast<const uint8_t*>(data->data) + *offset);
+    *offset += sizeof(uint32_t);
+    return Status::OK();
+}
+} // namespace
+
 Status ByteArrayPlainDecoder::skip_values(size_t num_values) {
     for (int i = 0; i < num_values; ++i) {
-        if (UNLIKELY(_offset + 4 > _data->size)) {
-            return Status::IOError("Can't read byte array length from plain decoder");
-        }
-        uint32_t length =
-                decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
-        _offset += 4;
-        if (UNLIKELY(_offset + length) > _data->size) {
+        uint32_t length = 0;
+        RETURN_IF_ERROR(read_length(_data, &_offset, &length));
+        if (UNLIKELY(_offset > _data->size || length > _data->size - _offset)) {
             return Status::IOError("Can't skip enough bytes in plain decoder");
         }
         _offset += length;
@@ -63,13 +71,9 @@ Status ByteArrayPlainDecoder::_decode_values(MutableColumnPtr& doris_column, Dat
             std::vector<StringRef> string_values;
             string_values.reserve(run_length);
             for (size_t i = 0; i < run_length; ++i) {
-                if (UNLIKELY(_offset + 4 > _data->size)) {
-                    return Status::IOError("Can't read byte array length from plain decoder");
-                }
-                uint32_t length =
-                        decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
-                _offset += 4;
-                if (UNLIKELY(_offset + length) > _data->size) {
+                uint32_t length = 0;
+                RETURN_IF_ERROR(read_length(_data, &_offset, &length));
+                if (UNLIKELY(_offset > _data->size || length > _data->size - _offset)) {
                     return Status::IOError("Can't read enough bytes in plain decoder");
                 }
                 string_values.emplace_back(_data->data + _offset, length);
@@ -84,13 +88,9 @@ Status ByteArrayPlainDecoder::_decode_values(MutableColumnPtr& doris_column, Dat
         }
         case ColumnSelectVector::FILTERED_CONTENT: {
             for (int i = 0; i < run_length; ++i) {
-                if (UNLIKELY(_offset + 4 > _data->size)) {
-                    return Status::IOError("Can't read byte array length from plain decoder");
-                }
-                uint32_t length =
-                        decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
-                _offset += 4;
-                if (UNLIKELY(_offset + length) > _data->size) {
+                uint32_t length = 0;
+                RETURN_IF_ERROR(read_length(_data, &_offset, &length));
+                if (UNLIKELY(_offset > _data->size || length > _data->size - _offset)) {
                     return Status::IOError("Can't read enough bytes in plain decoder");
                 }
                 _offset += length;

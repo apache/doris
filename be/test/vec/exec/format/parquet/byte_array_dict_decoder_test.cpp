@@ -511,4 +511,21 @@ TEST_F(ByteArrayDictDecoderTest, test_skip_value) {
     }
 }
 
+TEST_F(ByteArrayDictDecoderTest, test_set_dict_rejects_truncated_length_prefix) {
+    auto dict_data = make_unique_buffer<uint8_t>(2);
+    dict_data[0] = 1;
+    dict_data[1] = 0;
+
+    ByteArrayDictDecoder decoder;
+    ASSERT_FALSE(decoder.set_dict(dict_data, 2, 1).ok());
+}
+
+TEST_F(ByteArrayDictDecoderTest, test_set_dict_rejects_truncated_payload_after_prefix) {
+    auto dict_data = make_unique_buffer<uint8_t>(4);
+    encode_fixed32_le(dict_data.get(), 1);
+
+    ByteArrayDictDecoder decoder;
+    ASSERT_FALSE(decoder.set_dict(dict_data, 4, 1).ok());
+}
+
 } // namespace doris::vectorized
