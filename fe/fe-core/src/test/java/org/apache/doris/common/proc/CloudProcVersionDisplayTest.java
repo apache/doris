@@ -22,7 +22,6 @@ import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
@@ -152,7 +151,7 @@ public class CloudProcVersionDisplayTest {
         RandomDistributionInfo distributionInfo = new RandomDistributionInfo(1);
 
         MaterializedIndex index = new MaterializedIndex(INDEX_ID, IndexState.NORMAL);
-        Tablet tablet = new LocalTablet(TABLET_ID);
+        Tablet tablet = new Tablet(TABLET_ID);
         CloudReplica replica = new CloudReplica(REPLICA_ID, 1L, Replica.ReplicaState.NORMAL,
                 STALE_REPLICA_VERSION, SCHEMA_HASH, DB_ID, TABLE_ID, PARTITION_ID, INDEX_ID, 0L);
         tablet.addReplica(replica, true);
