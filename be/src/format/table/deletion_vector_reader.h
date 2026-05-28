@@ -37,6 +37,11 @@ struct IOContext;
 
 namespace doris {
 struct DeleteFileDesc {
+    enum class Format {
+        PAIMON,
+        ICEBERG,
+    };
+
     std::string key = "";
     std::string path = "";
     std::string fs_name = "";
@@ -44,6 +49,7 @@ struct DeleteFileDesc {
     int64_t size = 0;
     int64_t file_size = -1;
     int64_t modification_time = 0;
+    Format format = Format::PAIMON;
 };
 
 class DeletionVectorReader {

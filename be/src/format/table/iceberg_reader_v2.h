@@ -19,26 +19,24 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "core/assert_cast.h"
-#include "core/block/block.h"
-#include "core/column/column_const.h"
-#include "core/column/column_nullable.h"
-#include "core/column/column_vector.h"
-#include "core/data_type/define_primitive_type.h"
-#include "core/field.h"
-#include "format/new_parquet/column_reader.h"
 #include "format/reader/file_reader.h"
 #include "format/reader/table_reader.h"
+#include "format/table/iceberg_delete_file_reader_helper.h"
 #include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
 class Block;
+struct DeleteFileDesc;
+namespace io {
+struct FileDescription;
+struct FileSystemProperties;
+} // namespace io
 } // namespace doris
 
 namespace doris::iceberg {
@@ -50,144 +48,92 @@ class IcebergTableReader : public reader::TableReader {
 public:
     ~IcebergTableReader() override = default;
 
-    Status prepare_split(const reader::SplitReadOptions& options) override {
-        _row_lineage_columns = {};
-        if (options.current_range.__isset.table_format_params &&
-            options.current_range.table_format_params.__isset.iceberg_params) {
-            const auto& iceberg_params = options.current_range.table_format_params.iceberg_params;
-            if (iceberg_params.__isset.first_row_id) {
-                _row_lineage_columns.first_row_id = iceberg_params.first_row_id;
-            }
-            if (iceberg_params.__isset.last_updated_sequence_number) {
-                _row_lineage_columns.last_updated_sequence_number =
-                        iceberg_params.last_updated_sequence_number;
-            }
-        }
-        return TableReader::prepare_split(options);
-    }
+    Status prepare_split(const reader::SplitReadOptions& options) override;
 
 protected:
     // 将 file-local block 转换为 table/global schema block。
     // 这里执行 ColumnMapping 中的 finalize_expr、缺失列填充、partition/generated 列
     // 物化以及复杂列 remap。
-    Status finalize_chunk(Block* block) override {
-        // 真实实现会根据 ColumnMapping 执行 finalize_expr/default/partition/generated
-        // expressions，把 file-local block 写成 table block。
-        RETURN_IF_ERROR(apply_equality_deletes(block));
-        return Status::OK();
-    }
+    Status finalize_chunk(Block* block, const size_t rows) override;
 
-    // 物化 Iceberg 虚拟列。
-    // 例如 _row_id、_last_updated_sequence_number 等，它们不来自 Parquet 文件物理列。
-    Status materialize_virtual_columns(Block* table_block) override {
-        for (size_t column_idx = 0; column_idx < _data_reader.column_mapper.mappings().size();
-             ++column_idx) {
-            const auto& mapping = _data_reader.column_mapper.mappings()[column_idx];
-            switch (mapping.virtual_column_type) {
-            case reader::TableVirtualColumnType::ROW_ID:
-                RETURN_IF_ERROR(_materialize_row_lineage_row_id(table_block, column_idx));
-                break;
-            case reader::TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER:
-                RETURN_IF_ERROR(_materialize_row_lineage_last_updated_sequence_number(table_block,
-                                                                                      column_idx));
-                break;
-            case reader::TableVirtualColumnType::INVALID:
-                break;
-            }
-        }
-        return Status::OK();
-    }
+    Status materialize_virtual_columns(Block* table_block) override;
 
-    // 将 Iceberg position delete / deletion vector 转换成底层 reader 可消费的删除信息。
-    // 这一步发生在读取 data file 前，因此会修改 FileScanRequest。
-    Status apply_position_deletes(reader::FileScanRequest* request) {
-        // 真实实现会把 position delete / deletion vector 转换成 file-local delete 信息。
-        (void)request;
-        return Status::OK();
-    }
+    Status customize_file_scan_request(reader::FileScanRequest* file_request) override;
 
-    Status customize_file_scan_request(reader::FileScanRequest* file_request) override {
-        if (_row_lineage_columns.first_row_id < 0 || !_need_row_lineage_row_id()) {
-            return Status::OK();
-        }
-        DORIS_CHECK(file_request != nullptr);
-        const auto row_position_column_id =
-                doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
-        if (file_request->column_positions.count(row_position_column_id) > 0) {
-            return Status::OK();
-        }
-        _row_position_block_position = file_request->column_positions.size();
-        file_request->non_predicate_columns.push_back(row_position_column_id);
-        file_request->column_positions.emplace(row_position_column_id,
-                                               _row_position_block_position);
-        _data_reader.block_schema.push_back(
-                doris::parquet::ParquetColumnReaderFactory::row_position_schema_field());
-        return Status::OK();
-    }
+    Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
+                                       bool* has_delete_file) override;
+
+    Status _collect_position_delete_rows(const TTableFormatFileDesc& t_desc);
 
     // 在 table block 上应用 equality delete。
     // equality delete 依赖 table-level 列语义，因此不能下沉到 ParquetReader。
-    Status apply_equality_deletes(Block* block) {
-        // 真实实现会在 table block 上应用 equality delete。
-        return Status::OK();
-    }
+    Status apply_equality_deletes(Block* block);
 
 private:
+    static constexpr int MIN_SUPPORT_DELETE_FILES_VERSION = 2;
+    static constexpr int POSITION_DELETE = 1;
+    static constexpr int EQUALITY_DELETE = 2;
+    static constexpr int DELETION_VECTOR = 3;
+
     struct RowLineageColumns {
         int64_t first_row_id = -1;
         int64_t last_updated_sequence_number = -1;
     };
 
-    Status _materialize_row_lineage_row_id(Block* table_block, size_t column_idx) {
-        if (_row_lineage_columns.first_row_id < 0) {
-            return Status::OK();
-        }
-        DORIS_CHECK(_row_position_block_position < _data_reader.block_template.columns());
-        const auto& row_position_column = assert_cast<const ColumnInt64&>(
-                *_data_reader.block_template.get_by_position(_row_position_block_position).column);
-        DORIS_CHECK(row_position_column.size() == table_block->rows());
-        auto column = table_block->get_by_position(column_idx)
-                              .column->convert_to_full_column_if_const()
-                              ->assume_mutable();
-        auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
-        auto& null_map = nullable_column->get_null_map_data();
-        auto& data =
-                assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
-        null_map.resize(row_position_column.size());
-        std::fill(null_map.begin(), null_map.end(), 0);
-        data.resize(row_position_column.size());
-        for (size_t row = 0; row < row_position_column.size(); ++row) {
-            data[row] = _row_lineage_columns.first_row_id + row_position_column.get_element(row);
-        }
-        table_block->replace_by_position(column_idx, std::move(column));
-        return Status::OK();
-    }
+    static constexpr const char* ICEBERG_FILE_PATH = "file_path";
+    static constexpr const char* ICEBERG_ROW_POS = "pos";
+    static constexpr size_t ICEBERG_FILE_PATH_BLOCK_POSITION = 0;
+    static constexpr size_t ICEBERG_ROW_POS_BLOCK_POSITION = 1;
+
+    class PositionDeleteBlockCollector final {
+    public:
+        PositionDeleteBlockCollector(std::string data_file_path,
+                                     std::map<std::string, reader::DeleteRows>* rows);
+
+        Status collect(const Block& block, size_t read_rows);
+
+    private:
+        std::string _data_file_path;
+        std::map<std::string, reader::DeleteRows>* _rows = nullptr;
+    };
+
+    static std::string _iceberg_delete_vector_cache_key(const TIcebergDeleteFileDesc& delete_file);
+
+    static std::shared_ptr<io::FileSystemProperties> _delete_file_system_properties(
+            const TFileScanRangeParams& scan_params);
+
+    static std::unique_ptr<io::FileDescription> _delete_file_description(const TFileRangeDesc& range);
+
+    static const reader::SchemaField* _find_delete_field(
+            const std::vector<reader::SchemaField>& schema, const std::string& name);
+
+    static Block _build_position_delete_block(const reader::SchemaField& file_path_field,
+                                              const reader::SchemaField& pos_field);
+
+    Status _append_row_position_output_column(reader::FileScanRequest* request);
+
+    std::string _data_file_path() const;
+
+    Status _read_parquet_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
+                                              const TFileScanRangeParams& scan_params,
+                                              IcebergDeleteFileIOContext* delete_io_ctx,
+                                              PositionDeleteBlockCollector* collector);
+
+    Status _read_position_delete_files(const std::vector<TIcebergDeleteFileDesc>& delete_files);
+
+    Status _materialize_row_lineage_row_id(Block* table_block, size_t column_idx);
 
     Status _materialize_row_lineage_last_updated_sequence_number(Block* table_block,
-                                                                 size_t column_idx) {
-        if (_row_lineage_columns.last_updated_sequence_number < 0) {
-            return Status::OK();
-        }
-        const auto rows = table_block->rows();
-        auto data_column = table_block->get_by_position(column_idx).type->create_column();
-        data_column->insert(Field::create_field<TYPE_BIGINT>(
-                _row_lineage_columns.last_updated_sequence_number));
-        auto column = ColumnConst::create(std::move(data_column), rows);
-        table_block->replace_by_position(column_idx, std::move(column));
-        return Status::OK();
-    }
+                                                                 size_t column_idx);
 
     RowLineageColumns _row_lineage_columns;
     size_t _row_position_block_position = 0;
+    const TIcebergFileDesc* _iceberg_params = nullptr;
+    bool _delete_predicates_initialized = false;
+    reader::DeleteRows _position_delete_rows_storage;
+    std::vector<TIcebergDeleteFileDesc> _equality_delete_files;
 
-    bool _need_row_lineage_row_id() const {
-        for (const auto& mapping : _data_reader.column_mapper.mappings()) {
-            if (mapping.virtual_column_type == reader::TableVirtualColumnType::ROW_ID) {
-                return true;
-            }
-        }
-        return false;
-    }
+    bool _need_row_lineage_row_id() const;
 };
 
 } // namespace doris::iceberg

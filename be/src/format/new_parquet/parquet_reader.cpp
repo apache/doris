@@ -327,18 +327,47 @@ Status ParquetReader::_execute_filter_conjuncts(int64_t batch_rows, Block* file_
     // predicate columns in the file-local block have been materialized.
     for (const auto& expression_filter : _request->expression_filters) {
         if (expression_filter.conjunct == nullptr) {
-            continue;
+            if (expression_filter.delete_conjunct == nullptr) {
+                continue;
+            }
+        } else {
+            if (*selected_rows == 0) {
+                break;
+            }
+            IColumn::Filter filter(static_cast<size_t>(batch_rows), 1);
+            bool can_filter_all = false;
+            RETURN_IF_ERROR(expression_filter.conjunct->execute_filter(
+                    file_block, filter.data(), static_cast<size_t>(batch_rows), false,
+                    &can_filter_all));
+            *selected_rows = can_filter_all ? 0
+                                            : _apply_filter_to_selection(filter, selection,
+                                                                         *selected_rows);
         }
         if (*selected_rows == 0) {
             break;
         }
-        IColumn::Filter filter(static_cast<size_t>(batch_rows), 1);
-        bool can_filter_all = false;
-        RETURN_IF_ERROR(expression_filter.conjunct->execute_filter(file_block, filter.data(),
-                                                                   static_cast<size_t>(batch_rows),
-                                                                   false, &can_filter_all));
+        if (expression_filter.delete_conjunct == nullptr) {
+            continue;
+        }
+        int result_column_id = -1;
+        RETURN_IF_ERROR(expression_filter.delete_conjunct->root()->execute(
+                expression_filter.delete_conjunct.get(), file_block, &result_column_id));
+        DORIS_CHECK(result_column_id >= 0 &&
+                    result_column_id < static_cast<int>(file_block->columns()));
+        const auto& delete_filter = assert_cast<const ColumnUInt8&>(
+                                            *file_block->get_by_position(result_column_id).column)
+                                            .get_data();
+        DORIS_CHECK(delete_filter.size() == static_cast<size_t>(batch_rows));
+        IColumn::Filter keep_filter(static_cast<size_t>(batch_rows), 1);
+        bool has_kept_row = false;
+        for (size_t row = 0; row < static_cast<size_t>(batch_rows); ++row) {
+            keep_filter[row] = !delete_filter[row];
+            has_kept_row |= keep_filter[row] != 0;
+        }
+        file_block->erase(result_column_id);
         *selected_rows =
-                can_filter_all ? 0 : _apply_filter_to_selection(filter, selection, *selected_rows);
+                !has_kept_row ? 0
+                               : _apply_filter_to_selection(keep_filter, selection, *selected_rows);
     }
     return Status::OK();
 }

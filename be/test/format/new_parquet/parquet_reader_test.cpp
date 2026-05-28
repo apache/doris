@@ -42,6 +42,8 @@
 #include "exprs/vexpr_context.h"
 #include "format/new_parquet/column_reader.h"
 #include "format/reader/column_mapper.h"
+#include "format/reader/expr/delete_predicate.h"
+#include "format/reader/expr/slot_ref.h"
 #include "format/reader/file_reader.h"
 #include "format/reader/table_reader.h"
 #include "gen_cpp/Types_types.h"
@@ -653,6 +655,98 @@ TEST_F(NewParquetReaderTest, RowPositionReaderKeepsPositionsAfterSelection) {
     EXPECT_EQ(row_position_column.get_element(0), 2);
     EXPECT_EQ(row_position_column.get_element(1), 3);
     EXPECT_EQ(row_position_column.get_element(2), 4);
+}
+
+TEST_F(NewParquetReaderTest, DeletePredicateFiltersRowPositions) {
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<reader::SchemaField> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    Block block = build_file_block_with_row_position(schema);
+
+    static const std::vector<int64_t> deleted_rows {1, 3};
+    auto delete_predicate = std::make_shared<DeletePredicate>(deleted_rows);
+    delete_predicate->add_child(TableSlotRef::create_shared(
+            2, 2, -1, std::make_shared<DataTypeInt64>(),
+            parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME));
+
+    auto request = std::make_unique<reader::FileScanRequest>();
+    request->predicate_columns = {parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID};
+    request->non_predicate_columns = {0};
+    request->column_positions = {
+            {0, 0},
+            {parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID, 2},
+    };
+    reader::FileExpressionFilter delete_filter;
+    delete_filter.delete_conjunct = VExprContext::create_shared(std::move(delete_predicate));
+    delete_filter.file_column_ids.push_back(
+            parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID);
+    request->expression_filters.push_back(std::move(delete_filter));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    ASSERT_EQ(rows, 3);
+
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& row_position_column =
+            assert_cast<const ColumnInt64&>(*block.get_by_position(2).column);
+    EXPECT_EQ(id_column.get_element(0), 1);
+    EXPECT_EQ(id_column.get_element(1), 3);
+    EXPECT_EQ(id_column.get_element(2), 5);
+    EXPECT_EQ(row_position_column.get_element(0), 0);
+    EXPECT_EQ(row_position_column.get_element(1), 2);
+    EXPECT_EQ(row_position_column.get_element(2), 4);
+}
+
+TEST_F(NewParquetReaderTest, QueryPredicateAndDeletePredicateFilterRowPositions) {
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<reader::SchemaField> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    Block block = build_file_block_with_row_position(schema);
+
+    static const std::vector<int64_t> deleted_rows {3};
+    auto delete_predicate = std::make_shared<DeletePredicate>(deleted_rows);
+    delete_predicate->add_child(TableSlotRef::create_shared(
+            2, 2, -1, std::make_shared<DataTypeInt64>(),
+            parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME));
+
+    auto request = std::make_unique<reader::FileScanRequest>();
+    request->predicate_columns = {0, parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID};
+    request->non_predicate_columns = {};
+    request->column_positions = {
+            {0, 0},
+            {parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID, 2},
+    };
+    reader::FileExpressionFilter expression_filter;
+    expression_filter.conjunct = create_int32_greater_than_conjunct(0, 2);
+    expression_filter.delete_conjunct = VExprContext::create_shared(std::move(delete_predicate));
+    expression_filter.file_column_ids.push_back(0);
+    expression_filter.file_column_ids.push_back(
+            parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID);
+    request->expression_filters.push_back(std::move(expression_filter));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    ASSERT_EQ(rows, 2);
+
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& row_position_column =
+            assert_cast<const ColumnInt64&>(*block.get_by_position(2).column);
+    EXPECT_EQ(id_column.get_element(0), 3);
+    EXPECT_EQ(id_column.get_element(1), 5);
+    EXPECT_EQ(row_position_column.get_element(0), 2);
+    EXPECT_EQ(row_position_column.get_element(1), 4);
 }
 
 TEST_F(NewParquetReaderTest, RowPositionReaderUsesFileLocalPositionsForScanRange) {
