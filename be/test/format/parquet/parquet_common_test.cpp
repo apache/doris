@@ -190,6 +190,69 @@ TEST_F(FilterMapTest, test_can_filter_all_when_filter_all) {
     EXPECT_TRUE(filter_map.can_filter_all(100, 0));
 }
 
+// Test that filter_all=true with nullptr data does not crash when generating nested filter map.
+// This covers the scenario where a predicate filters out all rows in a RowGroup,
+// and a nested column (e.g. struct field) tries to build a nested filter map.
+// Before the fix, gen_filter_map would dereference filter_map_data() which is nullptr,
+// causing SIGSEGV. The fix skips gen_filter_map and propagates filter_all directly.
+TEST_F(FilterMapTest, test_filter_all_nullptr_nested_filter_map) {
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(nullptr, 10, true).ok());
+
+    EXPECT_TRUE(filter_map.has_filter());
+    EXPECT_TRUE(filter_map.filter_all());
+    EXPECT_EQ(filter_map.filter_map_data(), nullptr);
+
+    // generate_nested_filter_map should reject filter_all (it has an explicit guard)
+    std::vector<level_t> rep_levels = {0, 1, 1, 0, 1, 0};
+    std::vector<uint8_t> nested_filter_map_data;
+    std::unique_ptr<FilterMap> nested_filter_map;
+    size_t current_row = 0;
+
+    auto status = filter_map.generate_nested_filter_map(rep_levels, nested_filter_map_data,
+                                                         &nested_filter_map, &current_row, 0);
+    EXPECT_FALSE(status.ok());
+
+    // Simulate the fix: when filter_all is true, the caller should create
+    // a nested filter map with all zeros and filter_all=true, instead of
+    // calling gen_filter_map which would dereference nullptr.
+    size_t nested_size = rep_levels.size();
+    nested_filter_map_data.assign(nested_size, 0);
+    auto fixed_nested_filter_map = std::make_unique<FilterMap>();
+    ASSERT_TRUE(fixed_nested_filter_map->init(nested_filter_map_data.data(),
+                                               nested_filter_map_data.size(), true)
+                        .ok());
+
+    EXPECT_TRUE(fixed_nested_filter_map->has_filter());
+    EXPECT_TRUE(fixed_nested_filter_map->filter_all());
+    EXPECT_DOUBLE_EQ(fixed_nested_filter_map->filter_ratio(), 1.0);
+    for (size_t i = 0; i < nested_size; i++) {
+        EXPECT_EQ(nested_filter_map_data[i], 0);
+    }
+}
+
+// Test filter_all with all-zero data (detected by init, not explicitly passed)
+// also has nullptr-safe nested filter map handling
+TEST_F(FilterMapTest, test_all_zero_filter_nested_filter_map) {
+    std::vector<uint8_t> filter_data(5, 0);
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+
+    // init detects all-zero and sets filter_all=true
+    EXPECT_TRUE(filter_map.filter_all());
+    EXPECT_TRUE(filter_map.has_filter());
+    // In this case filter_map_data is non-null but generate_nested_filter_map
+    // still rejects it because filter_all() is true
+    std::vector<level_t> rep_levels = {0, 1, 0, 1, 1};
+    std::vector<uint8_t> nested_filter_map_data;
+    std::unique_ptr<FilterMap> nested_filter_map;
+    size_t current_row = 0;
+
+    auto status = filter_map.generate_nested_filter_map(rep_levels, nested_filter_map_data,
+                                                         &nested_filter_map, &current_row, 0);
+    EXPECT_FALSE(status.ok());
+}
+
 class CrossPageTest : public testing::Test {
 protected:
     void SetUp() override {

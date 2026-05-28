@@ -432,9 +432,15 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
         RETURN_IF_ERROR(_chunk_reader->fill_def(_def_levels));
         std::unique_ptr<FilterMap> nested_filter_map = std::make_unique<FilterMap>();
         if (filter_map.has_filter()) {
-            RETURN_IF_ERROR(gen_filter_map(filter_map, filter_map_index, before_rep_level_sz,
-                                           _rep_levels.size(), nested_filter_map_data,
-                                           &nested_filter_map));
+            if (filter_map.filter_all()) {
+                nested_filter_map_data.assign(_rep_levels.size() - before_rep_level_sz, 0);
+                RETURN_IF_ERROR(nested_filter_map->init(nested_filter_map_data.data(),
+                                                         nested_filter_map_data.size(), true));
+            } else {
+                RETURN_IF_ERROR(gen_filter_map(filter_map, filter_map_index, before_rep_level_sz,
+                                               _rep_levels.size(), nested_filter_map_data,
+                                               &nested_filter_map));
+            }
         }
 
         null_map.clear();
