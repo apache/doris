@@ -22,12 +22,14 @@
 
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "exec/exchange/local_exchange_source_operator.h"
 #include "exec/operator/aggregation_sink_operator.h"
 #include "exec/operator/aggregation_source_operator.h"
 #include "exec/operator/assert_num_rows_operator.h"
 #include "exec/operator/mock_operator.h"
 #include "exec/operator/operator_helper.h"
 #include "exec/pipeline/dependency.h"
+#include "exec/pipeline/pipeline.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
 #include "testutil/mock/mock_slot_ref.h"
@@ -130,12 +132,39 @@ TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_ch
     auto sink_op = std::make_shared<MockAggsinkOperator>();
     sink_op->_partition_exprs.emplace_back();
     sink_op->_needs_finalize = false;
-    sink_op->_is_merge = true;
-    sink_op->_child =
+    OperatorPtr child =
             std::make_shared<MockDistributionOperator>(ExchangeType::ADAPTIVE_PASSTHROUGH);
+    sink_op->_child = child;
 
     const auto distribution = sink_op->required_data_distribution(&ctx.state);
     EXPECT_EQ(ExchangeType::HASH_SHUFFLE, distribution.distribution_type);
+    EXPECT_TRUE(distribution.force_local_exchange);
+}
+
+TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_local_exchange) {
+    OperatorContext ctx;
+    auto sink_op = std::make_shared<MockAggsinkOperator>();
+    sink_op->_needs_finalize = false;
+    OperatorPtr child = std::make_shared<LocalExchangeSourceOperatorX>();
+    EXPECT_TRUE(child->init(ExchangeType::ADAPTIVE_PASSTHROUGH).ok());
+    sink_op->_child = child;
+
+    TExpr distinct_agg_expr;
+    distinct_agg_expr.nodes.emplace_back();
+    distinct_agg_expr.nodes[0].fn.name.function_name = "multi_distinct_count";
+    TPlanNode tnode;
+    tnode.agg_node.aggregate_functions.push_back(distinct_agg_expr);
+    tnode.__set_distribute_expr_lists({{TExpr {}}});
+    sink_op->update_operator(tnode, false, false);
+
+    const auto distribution = sink_op->required_data_distribution(&ctx.state);
+    EXPECT_EQ(ExchangeType::HASH_SHUFFLE, distribution.distribution_type);
+    EXPECT_TRUE(distribution.force_local_exchange);
+
+    Pipeline pipeline(0, 4, 4);
+    EXPECT_TRUE(pipeline.add_operator(child, 0).ok());
+    pipeline.set_data_distribution(DataDistribution(ExchangeType::ADAPTIVE_PASSTHROUGH));
+    EXPECT_TRUE(pipeline.need_to_local_exchange(distribution, 1));
 }
 
 std::shared_ptr<AggSourceOperatorX> create_agg_source_op(OperatorContext& ctx, bool without_key,

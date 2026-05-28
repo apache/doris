@@ -869,14 +869,19 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
 }
 
 struct DataDistribution {
-    DataDistribution(ExchangeType type) : distribution_type(type) {}
-    DataDistribution(ExchangeType type, const std::vector<TExpr>& partition_exprs_)
-            : distribution_type(type), partition_exprs(partition_exprs_) {}
+    DataDistribution(ExchangeType type, bool force_local_exchange_ = false)
+            : distribution_type(type), force_local_exchange(force_local_exchange_) {}
+    DataDistribution(ExchangeType type, const std::vector<TExpr>& partition_exprs_,
+                     bool force_local_exchange_ = false)
+            : distribution_type(type),
+              partition_exprs(partition_exprs_),
+              force_local_exchange(force_local_exchange_) {}
     DataDistribution(const DataDistribution& other) = default;
     bool need_local_exchange() const { return distribution_type != ExchangeType::NOOP; }
     DataDistribution& operator=(const DataDistribution& other) = default;
     ExchangeType distribution_type;
     std::vector<TExpr> partition_exprs;
+    bool force_local_exchange = false;
 };
 
 class ExchangerBase;

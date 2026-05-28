@@ -53,6 +53,9 @@ bool Pipeline::need_to_local_exchange(const DataDistribution target_data_distrib
         // If non-serial operators exist, we should improve parallelism for those.
         return true;
     }
+    if (target_data_distribution.force_local_exchange) {
+        return true;
+    }
 
     if (target_data_distribution.distribution_type != ExchangeType::BUCKET_HASH_SHUFFLE &&
         target_data_distribution.distribution_type != ExchangeType::HASH_SHUFFLE) {
