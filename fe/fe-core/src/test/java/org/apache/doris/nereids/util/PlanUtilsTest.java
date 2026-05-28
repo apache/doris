@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.load.NereidsLoadUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -52,7 +54,7 @@ class PlanUtilsTest {
         Expression expr = new NereidsParser().parseExpression("`group` is not null");
 
         Expr legacyExpr = PlanUtils.translateToLegacyExpr(expr, null, ctx);
-        String exprSql = legacyExpr.toSqlWithoutTbl();
+        String exprSql = legacyExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
 
         Assertions.assertTrue(exprSql.contains("`group`"));
         Assertions.assertDoesNotThrow(() -> NereidsLoadUtils.parseExpressionSeq(exprSql));
