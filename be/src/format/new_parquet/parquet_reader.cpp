@@ -159,12 +159,15 @@ struct ParquetReaderScanState {
     std::vector<int> predicate_fields;
     std::vector<int> non_predicate_fields;
     std::vector<int> selected_row_groups;
+    std::vector<int64_t> row_group_first_rows;
     size_t next_row_group_idx = 0;
     std::shared_ptr<::parquet::RowGroupReader> current_row_group;
     std::vector<std::unique_ptr<ParquetColumnReader>> current_predicate_columns;
     std::vector<std::unique_ptr<ParquetColumnReader>> current_non_predicate_columns;
     int64_t current_row_group_rows = 0;
     int64_t current_row_group_rows_read = 0;
+    int64_t current_row_group_first_row = 0;
+    std::vector<reader::FileRowPosition> current_batch_row_positions;
 };
 
 Status ParquetReader::_reset_reader_position() {
@@ -174,6 +177,8 @@ Status ParquetReader::_reset_reader_position() {
     _state->current_non_predicate_columns.clear();
     _state->current_row_group_rows = 0;
     _state->current_row_group_rows_read = 0;
+    _state->current_row_group_first_row = 0;
+    _state->current_batch_row_positions.clear();
     return Status::OK();
 }
 
@@ -183,6 +188,7 @@ void ParquetReader::_reset_current_row_group() {
     _state->current_non_predicate_columns.clear();
     _state->current_row_group_rows = 0;
     _state->current_row_group_rows_read = 0;
+    _state->current_row_group_first_row = 0;
 }
 
 void ParquetReader::_fill_schema_field(const ParquetColumnSchema& column_schema,
@@ -383,6 +389,9 @@ Status ParquetReader::_open_next_row_group(bool* has_row_group) {
             _reset_current_row_group();
             continue;
         }
+        DORIS_CHECK(row_group_idx >= 0 &&
+                    row_group_idx < static_cast<int>(_state->row_group_first_rows.size()));
+        _state->current_row_group_first_row = _state->row_group_first_rows[row_group_idx];
         _state->current_row_group_rows_read = 0;
         _state->current_predicate_columns.clear();
         _state->current_non_predicate_columns.clear();
@@ -420,9 +429,12 @@ Status ParquetReader::_open_next_row_group(bool* has_row_group) {
 // `file_block` has the same layout as FileScanRequest::column_positions.
 Status ParquetReader::_read_current_row_group_batch(int64_t batch_rows, Block* file_block,
                                                     size_t* rows) {
+    const int64_t batch_start_row = _state->current_row_group_rows_read;
+    const int64_t file_batch_start_row = _state->current_row_group_first_row + batch_start_row;
     if (_state->current_predicate_columns.empty() &&
         _state->current_non_predicate_columns.empty()) {
         *rows = static_cast<size_t>(batch_rows);
+        _set_current_batch_row_positions(file_batch_start_row, batch_rows);
         return Status::OK();
     }
     SelectionVector selection;
@@ -476,7 +488,72 @@ Status ParquetReader::_read_current_row_group_batch(int64_t batch_rows, Block* f
     }
 
     *rows = static_cast<size_t>(selected_rows);
+    if (need_filter_output) {
+        _set_current_batch_row_positions(file_batch_start_row, selection, selected_rows);
+    } else {
+        _set_current_batch_row_positions(file_batch_start_row, selected_rows);
+    }
     return Status::OK();
+}
+
+void ParquetReader::_set_current_batch_row_positions(int64_t start_row, int64_t batch_rows) {
+    DORIS_CHECK(start_row >= 0);
+    DORIS_CHECK(batch_rows >= 0);
+    _state->current_batch_row_positions.resize(static_cast<size_t>(batch_rows));
+    for (int64_t row = 0; row < batch_rows; ++row) {
+        _state->current_batch_row_positions[static_cast<size_t>(row)] = start_row + row;
+    }
+}
+
+void ParquetReader::_set_current_batch_row_positions(int64_t start_row,
+                                                     const SelectionVector& selection,
+                                                     uint16_t selected_rows) {
+    DORIS_CHECK(start_row >= 0);
+    _state->current_batch_row_positions.resize(selected_rows);
+    for (uint16_t row = 0; row < selected_rows; ++row) {
+        _state->current_batch_row_positions[row] =
+                start_row + static_cast<int64_t>(selection.get_index(row));
+    }
+}
+
+int64_t ParquetReader::_column_start_offset(
+        const ::parquet::ColumnChunkMetaData& column_metadata) const {
+    return column_metadata.has_dictionary_page()
+                   ? static_cast<int64_t>(column_metadata.dictionary_page_offset())
+                   : static_cast<int64_t>(column_metadata.data_page_offset());
+}
+
+bool ParquetReader::_is_row_group_outside_range(int row_group_idx) const {
+    DORIS_CHECK(_file_description != nullptr);
+    if (_file_description->range_size < 0) {
+        return false;
+    }
+    const int64_t range_start_offset = _file_description->range_start_offset;
+    const int64_t range_end_offset = range_start_offset + _file_description->range_size;
+    DORIS_CHECK(range_start_offset >= 0);
+    DORIS_CHECK(range_end_offset >= range_start_offset);
+    if (range_start_offset == 0 &&
+        (_file_description->file_size < 0 || range_end_offset >= _file_description->file_size)) {
+        return false;
+    }
+
+    auto row_group_metadata = _state->metadata->RowGroup(row_group_idx);
+    DORIS_CHECK(row_group_metadata != nullptr);
+    DORIS_CHECK(row_group_metadata->num_columns() > 0);
+    const auto first_column = row_group_metadata->ColumnChunk(0);
+    const auto last_column = row_group_metadata->ColumnChunk(row_group_metadata->num_columns() - 1);
+    DORIS_CHECK(first_column != nullptr);
+    DORIS_CHECK(last_column != nullptr);
+    const int64_t row_group_start_offset = _column_start_offset(*first_column);
+    const int64_t row_group_end_offset =
+            _column_start_offset(*last_column) + last_column->total_compressed_size();
+    // A scan range is a byte split, while Parquet is read by row group. If a row group crosses
+    // split boundaries, using overlap would let adjacent ranges read the same row group. Keep the
+    // same ownership rule as the legacy vparquet reader: the range containing the row group's
+    // midpoint owns the whole row group.
+    const int64_t row_group_mid_offset =
+            row_group_start_offset + (row_group_end_offset - row_group_start_offset) / 2;
+    return row_group_mid_offset < range_start_offset || row_group_mid_offset >= range_end_offset;
 }
 
 ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
@@ -529,6 +606,14 @@ Status ParquetReader::get_schema(std::vector<reader::SchemaField>* file_schema) 
     return Status::OK();
 }
 
+const std::vector<reader::FileRowPosition>& ParquetReader::current_batch_row_positions() const {
+    static const std::vector<reader::FileRowPosition> empty_row_positions;
+    if (_state == nullptr) {
+        return empty_row_positions;
+    }
+    return _state->current_batch_row_positions;
+}
+
 Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
     if (_state == nullptr || _state->metadata == nullptr || _state->schema == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
@@ -579,6 +664,23 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
     }
     RETURN_IF_ERROR(select_row_groups_by_statistics(*_state->metadata, _state->file_schema,
                                                     *_request, &_state->selected_row_groups));
+    std::vector<int> range_selected_row_groups;
+    range_selected_row_groups.reserve(_state->selected_row_groups.size());
+    for (const auto row_group_idx : _state->selected_row_groups) {
+        if (!_is_row_group_outside_range(row_group_idx)) {
+            range_selected_row_groups.push_back(row_group_idx);
+        }
+    }
+    _state->selected_row_groups = std::move(range_selected_row_groups);
+    _state->row_group_first_rows.resize(_state->metadata->num_row_groups());
+    int64_t next_row_group_first_row = 0;
+    for (int row_group_idx = 0; row_group_idx < _state->metadata->num_row_groups();
+         ++row_group_idx) {
+        _state->row_group_first_rows[row_group_idx] = next_row_group_first_row;
+        auto row_group_metadata = _state->metadata->RowGroup(row_group_idx);
+        DORIS_CHECK(row_group_metadata != nullptr);
+        next_row_group_first_row += row_group_metadata->num_rows();
+    }
     RETURN_IF_ERROR(_reset_reader_position());
     _eof = _state->selected_row_groups.empty();
     return Status::OK();

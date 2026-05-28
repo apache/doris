@@ -25,8 +25,13 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/assert_cast.h"
+#include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "format/reader/file_reader.h"
 #include "format/reader/table_reader.h"
+#include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
 class Block;
@@ -62,6 +67,22 @@ class IcebergTableReader : public reader::TableReader {
 public:
     ~IcebergTableReader() override = default;
 
+    Status prepare_split(const reader::SplitReadOptions& options) override {
+        _row_lineage_columns = {};
+        if (options.current_range.__isset.table_format_params &&
+            options.current_range.table_format_params.__isset.iceberg_params) {
+            const auto& iceberg_params = options.current_range.table_format_params.iceberg_params;
+            if (iceberg_params.__isset.first_row_id) {
+                _row_lineage_columns.first_row_id = iceberg_params.first_row_id;
+            }
+            if (iceberg_params.__isset.last_updated_sequence_number) {
+                _row_lineage_columns.last_updated_sequence_number =
+                        iceberg_params.last_updated_sequence_number;
+            }
+        }
+        return TableReader::prepare_split(options);
+    }
+
 protected:
     // 将 file-local block 转换为 table/global schema block。
     // 这里执行 ColumnMapping 中的 finalize_expr、缺失列填充、partition/generated 列
@@ -76,7 +97,21 @@ protected:
     // 物化 Iceberg 虚拟列。
     // 例如 _row_id、_last_updated_sequence_number 等，它们不来自 Parquet 文件物理列。
     Status materialize_virtual_columns(Block* table_block) override {
-        // 真实实现会物化 _row_id、_last_updated_sequence_number 等 Iceberg 虚拟列。
+        for (size_t column_idx = 0; column_idx < _data_reader.column_mapper.mappings().size();
+             ++column_idx) {
+            const auto& mapping = _data_reader.column_mapper.mappings()[column_idx];
+            switch (mapping.virtual_column_type) {
+            case reader::TableVirtualColumnType::ROW_ID:
+                RETURN_IF_ERROR(_materialize_row_lineage_row_id(table_block, column_idx));
+                break;
+            case reader::TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER:
+                RETURN_IF_ERROR(_materialize_row_lineage_last_updated_sequence_number(table_block,
+                                                                                      column_idx));
+                break;
+            case reader::TableVirtualColumnType::INVALID:
+                break;
+            }
+        }
         return Status::OK();
     }
 
@@ -94,6 +129,54 @@ protected:
         // 真实实现会在 table block 上应用 equality delete。
         return Status::OK();
     }
+
+private:
+    struct RowLineageColumns {
+        int64_t first_row_id = -1;
+        int64_t last_updated_sequence_number = -1;
+    };
+
+    Status _materialize_row_lineage_row_id(Block* table_block, size_t column_idx) {
+        if (_row_lineage_columns.first_row_id < 0) {
+            return Status::OK();
+        }
+        const auto& row_positions = _data_reader.reader->current_batch_row_positions();
+        DORIS_CHECK(row_positions.size() == table_block->rows());
+        auto column = table_block->get_by_position(column_idx).type->create_column();
+        auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
+        auto& null_map = nullable_column->get_null_map_data();
+        auto& data =
+                assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+        null_map.resize_fill(row_positions.size(), 0);
+        data.resize(row_positions.size());
+        for (size_t row = 0; row < row_positions.size(); ++row) {
+            data[row] = _row_lineage_columns.first_row_id + row_positions[row];
+        }
+        table_block->replace_by_position(column_idx, std::move(column));
+        return Status::OK();
+    }
+
+    Status _materialize_row_lineage_last_updated_sequence_number(Block* table_block,
+                                                                 size_t column_idx) {
+        if (_row_lineage_columns.last_updated_sequence_number < 0) {
+            return Status::OK();
+        }
+        const auto rows = table_block->rows();
+        auto column = table_block->get_by_position(column_idx).type->create_column();
+        auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
+        auto& null_map = nullable_column->get_null_map_data();
+        auto& data =
+                assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+        null_map.resize_fill(rows, 0);
+        data.resize(rows);
+        for (size_t row = 0; row < rows; ++row) {
+            data[row] = _row_lineage_columns.last_updated_sequence_number;
+        }
+        table_block->replace_by_position(column_idx, std::move(column));
+        return Status::OK();
+    }
+
+    RowLineageColumns _row_lineage_columns;
 };
 
 } // namespace doris::iceberg
