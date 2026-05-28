@@ -42,27 +42,6 @@ class Block;
 
 namespace doris::iceberg {
 
-// Iceberg data file 摘要。它描述当前要读取的物理 data file，不承载列映射逻辑。
-struct IcebergDataFile final : public reader::BaseDataFile {
-    int64_t sequence_number = 0;
-    int64_t first_row_id = -1;
-};
-
-// Iceberg delete file 摘要。position/equality/deletion vector 的具体读取在
-// IcebergTableReader 实现阶段补齐。
-struct IcebergDeleteFile final : public reader::BaseDataFile {
-    int64_t sequence_number = 0;
-    std::vector<reader::ColumnId> equality_field_ids;
-};
-
-// 单个 Iceberg data file 的 scan 输入。
-// 该结构只进入 IcebergTableReader，不直接传给 ParquetReader。
-struct IcebergScanTask final : public reader::ScanTask {
-    std::vector<IcebergDeleteFile> positional_deletes;
-    std::vector<IcebergDeleteFile> equality_deletes;
-    std::vector<IcebergDeleteFile> deletion_vectors;
-};
-
 // Iceberg table-level reader。
 // 该层继承 TableReader，复用多文件编排和动态分区裁剪等通用能力；同时组合
 // FileReader 完成 data file 物理读取，不继承具体文件格式 reader。
