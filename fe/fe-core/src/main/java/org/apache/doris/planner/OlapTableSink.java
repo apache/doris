@@ -48,7 +48,9 @@ import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -789,6 +791,8 @@ public class OlapTableSink extends DataSink {
         TOlapTableLocationParam slaveLocationParam = new TOlapTableLocationParam();
         // BE id -> path hash
         Multimap<Long, Long> allBePathsMap = HashMultimap.create();
+        // Lazy: resolved on the first CloudTablet that needs it.
+        String cachedClusterId = null;
         for (long partitionId : partitionIds) {
             Partition partition = table.getPartition(partitionId);
             int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partition.getId());
@@ -799,7 +803,16 @@ public class OlapTableSink extends DataSink {
                     StringBuilder errMsgBuilder = new StringBuilder();
                     Multimap<Long, Long> bePathsMap = HashMultimap.create();
                     try {
-                        bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                        if (tablet instanceof CloudTablet) {
+                            if (cachedClusterId == null) {
+                                cachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                        .getCurrentClusterId();
+                            }
+                            bePathsMap = ((CloudTablet) tablet)
+                                    .getNormalReplicaBackendPathMapByClusterId(cachedClusterId);
+                        } else {
+                            bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                        }
                         if (bePathsMap.keySet().size() < loadRequiredReplicaNum) {
                             errMsgBuilder.append("tablet ").append(tablet.getId())
                                     .append(" alive replica num ").append(bePathsMap.keySet().size())
