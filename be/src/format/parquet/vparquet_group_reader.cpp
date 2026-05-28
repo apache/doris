@@ -384,15 +384,15 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
 
     // Process external table query task that select columns are all from path.
     if (_read_table_columns.empty()) {
-        bool modify_row_ids = false;
-        RETURN_IF_ERROR(_read_empty_batch(batch_size, read_rows, batch_eof, &modify_row_ids));
+        RETURN_IF_ERROR(_read_empty_batch(batch_size, read_rows, batch_eof));
 
         RETURN_IF_ERROR(
                 _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
 
-        RETURN_IF_ERROR(_fill_row_id_columns(block, *read_rows, modify_row_ids));
-        RETURN_IF_ERROR(_append_iceberg_rowid_column(block, *read_rows, modify_row_ids));
+        bool row_positions_ready = _need_current_batch_row_positions();
+        RETURN_IF_ERROR(_fill_row_id_columns(block, *read_rows, row_positions_ready));
+        RETURN_IF_ERROR(_append_iceberg_rowid_column(block, *read_rows, row_positions_ready));
 
         Status st = VExprContext::filter_block(_lazy_read_ctx.conjuncts, block, block->columns());
         *read_rows = block->rows();
@@ -914,9 +914,12 @@ Status RowGroupReader::_get_block_column_pos(const Block& block, const std::stri
     return Status::OK();
 }
 
-Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof,
-                                         bool* modify_row_ids) {
-    *modify_row_ids = false;
+bool RowGroupReader::_need_current_batch_row_positions() const {
+    return _row_id_column_iterator_pair.first != nullptr || _iceberg_rowid_params.enabled ||
+           (_row_lineage_columns != nullptr && _row_lineage_columns->need_row_ids());
+}
+
+Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof) {
     if (_position_delete_ctx.has_filter) {
         int64_t start_row_id = _position_delete_ctx.current_row_id;
         int64_t end_row_id = std::min(_position_delete_ctx.current_row_id + (int64_t)batch_size,
@@ -940,9 +943,7 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
         _position_delete_ctx.current_row_id = end_row_id;
         *batch_eof = _position_delete_ctx.current_row_id == _position_delete_ctx.last_row_id;
 
-        if (_row_id_column_iterator_pair.first != nullptr || _iceberg_rowid_params.enabled ||
-            (_row_lineage_columns != nullptr && _row_lineage_columns->need_row_ids())) {
-            *modify_row_ids = true;
+        if (_need_current_batch_row_positions()) {
             _current_batch_row_ids.clear();
             _current_batch_row_ids.resize(*read_rows);
             size_t idx = 0;
@@ -965,8 +966,7 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
             _remaining_rows = 0;
             *batch_eof = true;
         }
-        if (_iceberg_rowid_params.enabled) {
-            *modify_row_ids = true;
+        if (_need_current_batch_row_positions()) {
             RETURN_IF_ERROR(_get_current_batch_row_id(*read_rows));
         }
     }
