@@ -18,21 +18,41 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalReplica;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PatternType;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantField;
+import org.apache.doris.catalog.VariantType;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -44,9 +64,13 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
@@ -832,6 +856,156 @@ public class IndexChangeJobTest {
     }
 
     @Test
+    public void testVariantFieldPatternCreateIndexLightChange() throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable table = createVariantTable(db);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        boolean oldEnableLightIndexChange = Config.enable_light_index_change;
+        boolean oldEnableAddIndexForNewData = ctx.getSessionVariable().isEnableAddIndexForNewData();
+        String oldCloudUniqueId = Config.cloud_unique_id;
+        SystemInfoService oldSystemInfo = Env.getCurrentSystemInfo();
+        try {
+            Config.enable_light_index_change = true;
+            ctx.getSessionVariable().setEnableAddIndexForNewData(true);
+
+            CreateIndexOp cloudCreateIndexOp = createFieldPatternIndexOp(db, table, "idx_content",
+                    Lists.newArrayList("v"), "content", "english");
+            cloudCreateIndexOp.validate(new ConnectContext());
+            Config.cloud_unique_id = "variant_field_pattern_cloud";
+            FakeEnv.setSystemInfo(new CloudSystemInfoService());
+            Assert.assertTrue(Config.isCloudMode());
+            Assert.assertFalse(new Index(1L, "idx_cloud_gate", Lists.newArrayList("v"), IndexType.INVERTED,
+                    fieldPatternProperties("content", "english"), "").isLightAddIndexSupported(true));
+            processCreateIndexOp(schemaChangeHandler, db, table, cloudCreateIndexOp);
+            Assert.assertEquals(OlapTableState.NORMAL, table.getState());
+            Assert.assertEquals(1, table.getIndexes().size());
+            Config.cloud_unique_id = "";
+            FakeEnv.setSystemInfo(oldSystemInfo);
+
+            addVariantFieldPatternIndex(schemaChangeHandler, db, table, "idx_title", "title", "english");
+            Assert.assertEquals(OlapTableState.NORMAL, table.getState());
+            Assert.assertEquals(2, table.getIndexes().size());
+
+            DdlException duplicate = Assert.assertThrows(DdlException.class,
+                    () -> addVariantFieldPatternIndex(schemaChangeHandler, db, table,
+                            "idx_content_dup", "content", "english"));
+            Assert.assertTrue(duplicate.getMessage(), duplicate.getMessage()
+                    .contains("field pattern 'content' with analyzer analyzer identity 'english'"));
+
+            DdlException missingField = Assert.assertThrows(DdlException.class,
+                    () -> addVariantFieldPatternIndex(schemaChangeHandler, db, table,
+                            "idx_missing", "missing", "unicode"));
+            Assert.assertTrue(missingField.getMessage(), missingField.getMessage()
+                    .contains("can not find field pattern: missing in column: v"));
+
+            OlapTable shadowedTable = createVariantTable(db, "variant_index_shadow_table", 1970701L,
+                    Lists.newArrayList(
+                            new VariantField("content*", Type.STRING, "", PatternType.MATCH_NAME_GLOB),
+                            new VariantField("content", Type.STRING, "", PatternType.MATCH_NAME)));
+            DdlException shadowedField = Assert.assertThrows(DdlException.class,
+                    () -> addVariantFieldPatternIndex(schemaChangeHandler, db, shadowedTable,
+                            "idx_shadow_content", "content", "english"));
+            Assert.assertTrue(shadowedField.getMessage(), shadowedField.getMessage()
+                    .contains("field pattern: content is shadowed by earlier variant schema template: content*"));
+
+            DdlException nonVariantColumn = Assert.assertThrows(DdlException.class,
+                    () -> addFieldPatternIndex(schemaChangeHandler, db, table,
+                            "idx_payload", Lists.newArrayList("payload"), "content", "unicode"));
+            Assert.assertTrue(nonVariantColumn.getMessage(), nonVariantColumn.getMessage()
+                    .contains("column: payload cannot have field pattern in index."));
+
+            Exception multipleColumns = Assert.assertThrows(Exception.class,
+                    () -> addFieldPatternIndex(schemaChangeHandler, db, table,
+                            "idx_multi_column", Lists.newArrayList("v", "payload"), "content", "unicode"));
+            Assert.assertTrue(multipleColumns.getMessage(), multipleColumns.getMessage()
+                    .contains("single column"));
+
+            DdlException unsupportedParser = Assert.assertThrows(DdlException.class,
+                    () -> addVariantFieldPatternIndex(schemaChangeHandler, db, table,
+                            "idx_score", "score", "english"));
+            Assert.assertTrue(unsupportedParser.getMessage(), unsupportedParser.getMessage()
+                    .contains("invalid INVERTED index: field pattern: score"));
+
+            ctx.getSessionVariable().setEnableAddIndexForNewData(false);
+            DdlException requireNewDataOnly = Assert.assertThrows(DdlException.class,
+                    () -> addVariantFieldPatternIndex(schemaChangeHandler, db, table,
+                            "idx_summary", "summary", "english"));
+            Assert.assertTrue(requireNewDataOnly.getMessage(), requireNewDataOnly.getMessage()
+                    .contains("only supports adding index for new data"));
+        } finally {
+            Config.enable_light_index_change = oldEnableLightIndexChange;
+            Config.cloud_unique_id = oldCloudUniqueId;
+            FakeEnv.setSystemInfo(oldSystemInfo);
+            ctx.getSessionVariable().setEnableAddIndexForNewData(oldEnableAddIndexForNewData);
+        }
+    }
+
+    @Test
+    public void testVariantInvertedIndexUsesFirstMatchingFieldPattern() {
+        Column column = variantIndexColumn(
+                new VariantField("a", Type.STRING, "", PatternType.MATCH_NAME),
+                new VariantField("a*", Type.STRING, "", PatternType.MATCH_NAME_GLOB));
+        OlapTable table = new OlapTable();
+        table.setIndexes(Lists.newArrayList(
+                variantFieldPatternIndex(1L, "idx_a", "a"),
+                variantFieldPatternIndex(2L, "idx_a_glob", "a*")));
+
+        Assert.assertEquals("idx_a", table.getInvertedIndex(column, Lists.newArrayList("a")).getIndexName());
+        Assert.assertEquals("idx_a_glob", table.getInvertedIndex(column, Lists.newArrayList("ab")).getIndexName());
+    }
+
+    @Test
+    public void testVariantInvertedIndexDoesNotFallbackToParentOnAnalyzerMismatch() {
+        Column column = variantIndexColumn(
+                new VariantField("content", Type.STRING, "", PatternType.MATCH_NAME),
+                new VariantField("title", Type.STRING, "", PatternType.MATCH_NAME));
+        OlapTable table = new OlapTable();
+        table.setIndexes(Lists.newArrayList(
+                variantParentIndex(1L, "idx_parent_english", "english"),
+                variantFieldPatternIndex(2L, "idx_content_unicode", "content", "unicode")));
+
+        Assert.assertNull(table.getInvertedIndex(column, Lists.newArrayList("content"), "english"));
+        Assert.assertEquals("idx_content_unicode",
+                table.getInvertedIndex(column, Lists.newArrayList("content"), "unicode").getIndexName());
+        Assert.assertEquals("idx_parent_english",
+                table.getInvertedIndex(column, Lists.newArrayList("title"), "english").getIndexName());
+    }
+
+    @Test
+    public void testVariantInvertedIndexFallbackIgnoresUnmatchedFieldPatternIndexes() {
+        Column column = variantIndexColumn(
+                new VariantField("content", Type.STRING, "", PatternType.MATCH_NAME),
+                new VariantField("title", Type.STRING, "", PatternType.MATCH_NAME));
+        OlapTable table = new OlapTable();
+        table.setIndexes(Lists.newArrayList(
+                variantFieldPatternIndex(1L, "idx_content_english", "content", "english"),
+                variantParentIndex(2L, "idx_parent_english", "english")));
+
+        Assert.assertEquals("idx_parent_english",
+                table.getInvertedIndex(column, null, "english").getIndexName());
+        Assert.assertEquals("idx_parent_english",
+                table.getInvertedIndex(column, Lists.newArrayList(), "english").getIndexName());
+        Assert.assertEquals("idx_parent_english",
+                table.getInvertedIndex(column, Lists.newArrayList("title"), "english").getIndexName());
+        Assert.assertEquals("idx_parent_english",
+                table.getInvertedIndex(column, Lists.newArrayList("missing"), "english").getIndexName());
+
+        table.setIndexes(Lists.newArrayList(
+                variantFieldPatternIndex(3L, "idx_content_only", "content", "english")));
+        Assert.assertNull(table.getInvertedIndex(column, Lists.newArrayList("title"), "english"));
+        Assert.assertNull(table.getInvertedIndex(column, Lists.newArrayList("missing"), "english"));
+    }
+
+    @Test
     public void testCancelNgramBfBuildIndex() throws UserException {
         if (fakeEnv != null) {
             fakeEnv.close();
@@ -1034,5 +1208,129 @@ public class IndexChangeJobTest {
         alterOps.add(dropIndexOp);
         // Should not throw — IF EXISTS silently returns
         schemaChangeHandler.process(alterOps, db, olapTable);
+    }
+
+    private Column variantIndexColumn(VariantField... fields) {
+        ArrayList<VariantField> predefinedFields = new ArrayList<>();
+        for (VariantField field : fields) {
+            predefinedFields.add(field);
+        }
+        return new Column("v", new VariantType(predefinedFields), false, null, true, null, "");
+    }
+
+    private Index variantFieldPatternIndex(long id, String indexName, String fieldPattern) {
+        return variantFieldPatternIndex(id, indexName, fieldPattern, null);
+    }
+
+    private Index variantFieldPatternIndex(long id, String indexName, String fieldPattern, String parser) {
+        Map<String, String> properties = fieldPatternProperties(fieldPattern, null);
+        if (parser != null) {
+            properties.put("parser", parser);
+            properties.put("support_phrase", "true");
+        }
+        return new Index(id, indexName, Lists.newArrayList("v"), IndexType.INVERTED, properties, "");
+    }
+
+    private Index variantParentIndex(long id, String indexName, String parser) {
+        Map<String, String> properties = Maps.newHashMap();
+        if (parser != null) {
+            properties.put("parser", parser);
+            properties.put("support_phrase", "true");
+        }
+        return new Index(id, indexName, Lists.newArrayList("v"), IndexType.INVERTED, properties, "");
+    }
+
+    private OlapTable createVariantTable(Database db) {
+        return createVariantTable(db, "variant_index_table", 1970601L,
+                Lists.newArrayList(
+                        new VariantField("content", Type.STRING, "", PatternType.MATCH_NAME),
+                        new VariantField("title", Type.STRING, "", PatternType.MATCH_NAME),
+                        new VariantField("summary", Type.STRING, "", PatternType.MATCH_NAME),
+                        new VariantField("score", Type.INT, "", PatternType.MATCH_NAME)));
+    }
+
+    private OlapTable createVariantTable(Database db, String tableName, long tableId, List<VariantField> variantFields) {
+        long partitionId = tableId + 1;
+        long indexId = tableId;
+        long tabletId = tableId + 2;
+        long replicaId = tableId + 3;
+
+        Replica replica = new LocalReplica(replicaId, CatalogTestUtil.testBackendId1,
+                CatalogTestUtil.testStartVersion, 0, 0L, 0L, 0L, Replica.ReplicaState.NORMAL, -1, 0);
+        Tablet tablet = new LocalTablet(tabletId);
+        MaterializedIndex index = new MaterializedIndex(indexId, IndexState.NORMAL);
+        TabletMeta tabletMeta = new TabletMeta(db.getId(), tableId, partitionId, indexId, 0,
+                TStorageMedium.HDD);
+        index.addTablet(tablet, tabletMeta);
+        tablet.addReplica(replica);
+
+        RandomDistributionInfo distributionInfo = new RandomDistributionInfo(1);
+        Partition partition = new Partition(partitionId, "variant_index_partition", index, distributionInfo);
+        partition.updateVisibleVersion(CatalogTestUtil.testStartVersion);
+        partition.setNextVersion(CatalogTestUtil.testStartVersion + 1);
+
+        List<Column> columns = new ArrayList<>();
+        Column key = new Column("k1", PrimitiveType.INT);
+        key.setIsKey(true);
+        columns.add(key);
+        ArrayList<VariantField> predefinedFields = new ArrayList<>(variantFields);
+        columns.add(new Column("v", new VariantType(predefinedFields), false, null, true, null, ""));
+        columns.add(new Column("payload", ScalarType.createType(PrimitiveType.VARCHAR), false,
+                null, true, null, ""));
+
+        PartitionInfo partitionInfo = new SinglePartitionInfo();
+        partitionInfo.setDataProperty(partitionId, new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+        partitionInfo.setReplicaAllocation(partitionId, new ReplicaAllocation((short) 1));
+        OlapTable table = new OlapTable(tableId, tableName, columns, KeysType.DUP_KEYS, partitionInfo,
+                distributionInfo);
+        table.addPartition(partition);
+        table.setIndexMeta(indexId, tableName, columns, 0, CatalogTestUtil.testSchemaHash1, (short) 1,
+                TStorageType.COLUMN, KeysType.DUP_KEYS);
+        table.setBaseIndexId(indexId);
+        table.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V2);
+        db.registerTable(table);
+        return table;
+    }
+
+    private void addVariantFieldPatternIndex(SchemaChangeHandler schemaChangeHandler, Database db,
+            OlapTable table, String indexName, String fieldPattern, String parser) throws UserException {
+        addFieldPatternIndex(schemaChangeHandler, db, table, indexName, Lists.newArrayList("v"),
+                fieldPattern, parser);
+    }
+
+    private void addFieldPatternIndex(SchemaChangeHandler schemaChangeHandler, Database db,
+            OlapTable table, String indexName, List<String> columns, String fieldPattern, String parser)
+            throws UserException {
+        CreateIndexOp createIndexOp = createFieldPatternIndexOp(db, table, indexName, columns, fieldPattern, parser);
+        createIndexOp.validate(new ConnectContext());
+        processCreateIndexOp(schemaChangeHandler, db, table, createIndexOp);
+    }
+
+    private CreateIndexOp createFieldPatternIndexOp(Database db, OlapTable table, String indexName,
+            List<String> columns, String fieldPattern, String parser) {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.putAll(fieldPatternProperties(fieldPattern, parser));
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
+                columns, "INVERTED", properties, "variant field pattern index");
+        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        return new CreateIndexOp(tableName, indexDefinition, false);
+    }
+
+    private void processCreateIndexOp(SchemaChangeHandler schemaChangeHandler, Database db,
+            OlapTable table, CreateIndexOp createIndexOp) throws UserException {
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(createIndexOp);
+        schemaChangeHandler.process(alterOps, db, table);
+    }
+
+    private Map<String, String> fieldPatternProperties(String fieldPattern, String parser) {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("field_pattern", fieldPattern);
+        if (parser != null) {
+            properties.put("parser", parser);
+            properties.put("support_phrase", "true");
+        }
+        return properties;
     }
 }

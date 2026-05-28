@@ -1115,6 +1115,28 @@ public class CreateTableCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testVariantFieldPatternIndexRejectsShadowedTemplate() {
+        String shadowedSql = "create table test.tbl_variant_shadowed_index\n"
+                + "(k1 int, v variant<\n"
+                + "    'content*' : string,\n"
+                + "    MATCH_NAME 'content' : string\n"
+                + "> null,\n"
+                + "INDEX idx_v (v) USING INVERTED PROPERTIES(\n"
+                + "    \"field_pattern\" = \"content\",\n"
+                + "    \"parser\" = \"english\",\n"
+                + "    \"support_phrase\" = \"true\"\n"
+                + "))\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'inverted_index_storage_format' = 'V2');";
+
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () -> createTable(shadowedSql));
+        Assertions.assertTrue(ex.getMessage()
+                .contains("field pattern: content is shadowed by earlier variant schema template: content*"),
+                ex.getMessage());
+    }
+
+    @Test
     public void testMTMVRejectVarbinary() throws Exception {
         String mv = "CREATE MATERIALIZED VIEW mv_vb\n"
                 + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"

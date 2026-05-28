@@ -41,6 +41,7 @@ suite("test_predefine_ddl", "p0") {
     sql """ set default_variant_max_subcolumns_count = 10 """
     sql """ set default_variant_max_sparse_column_statistics_size = 10 """
     sql """ set default_variant_sparse_hash_shard_count = 10 """
+    sql """ set enable_add_index_for_new_data = true """
 
     def tableName = "test_ddl_table"
 
@@ -95,14 +96,69 @@ suite("test_predefine_ddl", "p0") {
 
     test {
          sql """ create index idx_ab on ${tableName} (var) using inverted properties("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") """
-        exception("Can not create index with field pattern")
+        exception("can not find field pattern: ab in column: var")
+    }
+
+    sql """insert into ${tableName} values(1, '{"content":"hello old", "ab":"alpha old"}')"""
+    sql """ alter table ${tableName} modify column var variant<
+                MATCH_NAME 'ab' : string,
+                MATCH_NAME 'content' : string,
+                properties("variant_max_subcolumns_count" = "10")
+            > NULL """
+    wait_for_latest_op_on_table_finish(tableName, timeout)
+    sql """ create index idx_content on ${tableName} (var) using inverted
+            properties("field_pattern"="content", "parser"="english", "support_phrase" = "true") """
+    sql """ create index idx_ab on ${tableName} (var) using inverted
+            properties("field_pattern"="ab", "parser"="english", "support_phrase" = "true") """
+    def showCreateResult = sql """ show create table ${tableName} """
+    assertTrue(showCreateResult.toString().contains("'content'"))
+    assertTrue(showCreateResult.toString().contains("idx_content"))
+    sql """insert into ${tableName} values(2, '{"content":"hello new", "ab":"alpha new"}')"""
+    def matchResult = sql """ select id from ${tableName} where var['content'] match 'hello' order by id """
+    assertEquals(2, matchResult.size())
+    assertEquals("1", matchResult[0][0].toString())
+    assertEquals("2", matchResult[1][0].toString())
+
+    test {
+         sql """ create index idx_missing on ${tableName} (var) using inverted properties("field_pattern"="missing", "parser"="unicode", "support_phrase" = "true") """
+        exception("can not find field pattern: missing in column: var")
     }
 
     test {
-         sql """ create index idx_ab on ${tableName} (var) using inverted properties("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") """
-        exception("Can not create index with field pattern")
+         sql """ create index idx_content_dup on ${tableName} (var) using inverted properties("field_pattern"="content", "parser"="english", "support_phrase" = "true") """
+        exception("field pattern 'content' with analyzer analyzer identity 'english'")
     }
-    
+
+    test {
+         sql """ alter table ${tableName} modify column var variant<
+                    MATCH_NAME 'ab' : string,
+                    MATCH_NAME 'content' : string,
+                    '*' : string,
+                    'content*' : string,
+                    properties("variant_max_subcolumns_count" = "10")
+                > NULL """
+        exception("can shadow it")
+    }
+
+    test {
+        if (isCloudMode()) {
+            sql """ build index on ${tableName} """
+            exception("INVERTED index is not needed to build")
+        } else {
+            sql """ build index idx_content on ${tableName} """
+            exception("because it is a variant type column")
+        }
+    }
+
+    test {
+         sql """ drop index idx_content on ${tableName} partition (p1) """
+        exception("Can not drop index with field pattern")
+    }
+
+    sql """ drop index idx_content on ${tableName} """
+    def showCreateAfterDropIndex = sql """ show create table ${tableName} """
+    assertFalse(showCreateAfterDropIndex.toString().contains("idx_content"))
+
     sql """ alter table ${tableName} add column var2 variant<'ab' : string, properties("variant_max_subcolumns_count" = "5")> NULL """
 
     sql """ alter table ${tableName} add column var3 variant<'ab' : string> NULL """
@@ -128,15 +184,44 @@ suite("test_predefine_ddl", "p0") {
 
     test {
         sql """ alter table ${tableName} modify column var variant NULL """
-        exception("Can not change variant")
+        exception("Can not reduce variant schema templates")
     }
 
-    test {
-        sql """ alter table ${tableName} drop index idx_ab """
-        exception("Can not drop index with field pattern")
-    }
+    sql """ alter table ${tableName} drop index idx_ab """
+    def showCreateAfterAlterDropIndex = sql """ show create table ${tableName} """
+    assertFalse(showCreateAfterAlterDropIndex.toString().contains("idx_ab"))
 
     sql """ alter table ${tableName} drop column var """
+
+    sql "DROP TABLE IF EXISTS test_variant_pattern_type_only_alter"
+    sql """CREATE TABLE test_variant_pattern_type_only_alter (
+        `id` bigint NULL,
+        `var` variant<
+            MATCH_NAME 'ab' : string
+        > NULL
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+    BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+
+    test {
+        sql """ alter table test_variant_pattern_type_only_alter modify column var variant<'ab' : string> NULL """
+        exception("Can not change variant schema template pattern type")
+    }
+
+    sql "DROP TABLE IF EXISTS test_variant_comment_only_alter"
+    sql """CREATE TABLE test_variant_comment_only_alter (
+        `id` bigint NULL,
+        `var` variant<
+            MATCH_NAME 'ab' : string COMMENT 'old'
+        > NULL
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+    BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+
+    test {
+        sql """ alter table test_variant_comment_only_alter modify column var variant<
+                    MATCH_NAME 'ab' : string COMMENT 'new'
+                > NULL """
+        exception("Can not change variant schema template comment")
+    }
 
     test {
         sql "DROP TABLE IF EXISTS ${tableName}"

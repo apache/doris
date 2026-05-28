@@ -21,9 +21,6 @@ import org.apache.doris.catalog.PatternType;
 import org.apache.doris.common.GlobRegexUtil;
 import org.apache.doris.nereids.util.Utils;
 
-import com.google.re2j.Pattern;
-import com.google.re2j.PatternSyntaxException;
-
 import java.util.Objects;
 
 /**
@@ -71,6 +68,10 @@ public class VariantField {
         return comment;
     }
 
+    public PatternType getPatternType() {
+        return patternType;
+    }
+
     /**
      * Check if the given field name matches this field's pattern.
      * This method uses a restricted glob syntax converted to regex.
@@ -93,9 +94,8 @@ public class VariantField {
             return false;
         }
         try {
-            Pattern compiled = GlobRegexUtil.getOrCompilePattern(pattern);
-            return compiled.matcher(fieldName).matches();
-        } catch (PatternSyntaxException | IllegalArgumentException e) {
+            return GlobRegexUtil.matches(pattern, fieldName);
+        } catch (IllegalArgumentException e) {
             return false;
         }
     }

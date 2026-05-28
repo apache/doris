@@ -4008,40 +4008,47 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             return null;
         }
         List<Index> invertedIndexes = new ArrayList<>();
+        List<Index> parentInvertedIndexes = new ArrayList<>();
         for (Index index : indexes.getIndexes()) {
             if (index.getIndexType() == IndexType.INVERTED) {
                 List<String> columns = index.getColumns();
                 if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))) {
                     invertedIndexes.add(index);
+                    if (index.getInvertedIndexFieldPattern().isEmpty()) {
+                        parentInvertedIndexes.add(index);
+                    }
                 }
             }
         }
 
-        List<Index> filteredInvertedIndexes = filterIndexesByAnalyzer(invertedIndexes, analyzer);
+        List<Index> filteredParentInvertedIndexes = filterIndexesByAnalyzer(parentInvertedIndexes, analyzer);
 
         if (subPath == null || subPath.isEmpty()) {
-            return filteredInvertedIndexes.size() == 1 ? filteredInvertedIndexes.get(0)
-                : filteredInvertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
+            return selectInvertedIndex(filteredParentInvertedIndexes);
         }
 
         // subPath is not empty, means it is a variant column, find the field pattern from children
         String subPathString = String.join(".", subPath);
         String fieldPattern = "";
+        boolean matchedFieldPattern = false;
         if (column.getChildren() != null) {
             for (Column child : column.getChildren()) {
                 String childName = child.getName();
                 if (child.getFieldPatternType() == PatternType.MATCH_NAME_GLOB) {
                     try {
-                        com.google.re2j.Pattern compiled = GlobRegexUtil.getOrCompilePattern(childName);
-                        if (compiled.matcher(subPathString).matches()) {
+                        if (GlobRegexUtil.matches(childName, subPathString)) {
                             fieldPattern = childName;
+                            matchedFieldPattern = true;
+                            break;
                         }
-                    } catch (com.google.re2j.PatternSyntaxException | IllegalArgumentException e) {
+                    } catch (IllegalArgumentException e) {
                         continue;
                     }
                 } else if (child.getFieldPatternType() == PatternType.MATCH_NAME) {
                     if (childName.equals(subPathString)) {
                         fieldPattern = childName;
+                        matchedFieldPattern = true;
+                        break;
                     }
                 }
             }
@@ -4059,12 +4066,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
         List<Index> filteredFieldPatternIndexes = filterIndexesByAnalyzer(invertedIndexesWithFieldPattern, analyzer);
         if (filteredFieldPatternIndexes.isEmpty()) {
-            return filteredInvertedIndexes.size() == 1 ? filteredInvertedIndexes.get(0)
-                : filteredInvertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
+            if (matchedFieldPattern && !invertedIndexesWithFieldPattern.isEmpty()) {
+                return null;
+            }
+            return selectInvertedIndex(filteredParentInvertedIndexes);
         } else {
-            return filteredFieldPatternIndexes.size() == 1 ? filteredFieldPatternIndexes.get(0)
-                                        : filteredFieldPatternIndexes.stream()
-                                        .filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
+            return selectInvertedIndex(filteredFieldPatternIndexes);
         }
     }
 
@@ -4148,6 +4155,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
         }
         return matched;
+    }
+
+    private Index selectInvertedIndex(List<Index> indexes) {
+        return indexes.size() == 1 ? indexes.get(0)
+                : indexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
     }
 
     public void versionReadLock() {

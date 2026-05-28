@@ -134,6 +134,22 @@ public class InvertedIndexUtil {
         }
     }
 
+    public static void checkVariantSubcolumnInvertedIndex(String columnName, String fieldPattern,
+            DataType fieldType, Map<String, String> properties,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
+        if (!IndexDefinition.isSupportIdxType(fieldType)) {
+            throw new AnalysisException("field pattern: " + fieldPattern + " is not supported for inverted index"
+                    + " of column: " + columnName);
+        }
+        try {
+            checkInvertedIndexParser(columnName, fieldType.toCatalogDataType().getPrimitiveType(),
+                    properties, invertedIndexFileStorageFormat);
+        } catch (AnalysisException ex) {
+            throw new AnalysisException("invalid INVERTED index: field pattern: " + fieldPattern + ", "
+                    + ex.getMessage(), ex);
+        }
+    }
+
     private static boolean isSingleByte(String str) {
         for (int i = 0; i < str.length(); i++) {
             if (str.charAt(i) > 0xFF) {
