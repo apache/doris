@@ -1478,6 +1478,116 @@ TEST_F(VariantColumnWriterReaderTest,
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
 }
 
+// Regression: materialized subcolumns in V3 doc-mode tablets must inherit the parent's
+// storage_format and resolve V3 default encodings (e.g. integer family = PLAIN, not BIT_SHUFFLE).
+// Without propagating base_opts.storage_format into the per-subcolumn ColumnWriterOptions,
+// `_init_column_meta` falls back to the V2 default map and writes V2 encodings even for V3
+// tablets, defeating the storage-format-based encoding policy.
+TEST_F(VariantColumnWriterReaderTest, test_write_doc_materialized_v3_uses_v3_encoding) {
+    constexpr int kRows = 200;
+    constexpr int kDocBuckets = 2;
+
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1", 3, false, false,
+                     /*variant_sparse_hash_shard_count=*/0,
+                     /*variant_enable_doc_mode=*/true,
+                     /*variant_doc_materialization_min_rows=*/0,
+                     /*variant_doc_hash_shard_count=*/kDocBuckets);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    _tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
+    tablet_meta->_tablet_id = 31003;
+    _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+    EXPECT_TRUE(_tablet->init().ok());
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+
+    io::FileWriterPtr file_writer;
+    auto file_path = local_segment_path(_tablet->tablet_path(), "0", 0);
+    auto st = io::global_local_filesystem()->create_file(file_path, &file_writer);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    SegmentFooterPB footer;
+    ColumnWriterOptions opts;
+    opts.meta = footer.add_columns();
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.file_writer = file_writer.get();
+    opts.footer = &footer;
+    RowsetWriterContext rowset_ctx;
+    rowset_ctx.write_type = DataWriteType::TYPE_DIRECT;
+    opts.rowset_ctx = &rowset_ctx;
+    opts.rowset_ctx->tablet_schema = _tablet_schema;
+    TabletColumn parent_column = _tablet_schema->column(0);
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3;
+    _init_column_meta(opts.meta, 0, parent_column, opts);
+
+    std::unique_ptr<ColumnWriter> writer;
+    EXPECT_TRUE(ColumnWriter::create(opts, &parent_column, file_writer.get(), &writer).ok());
+    EXPECT_TRUE(writer->init().ok());
+
+    auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
+    auto block = _tablet_schema->create_block();
+    auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
+    std::unordered_map<int, std::string> inserted_jsonstr;
+    fill_variant_column_with_doc_value_only(column_object, kRows, &inserted_jsonstr);
+    olap_data_convertor->add_column_data_convertor(parent_column);
+    olap_data_convertor->set_source_content(&block, 0, kRows);
+    auto [result, accessor] = olap_data_convertor->convert_column_data(0);
+    EXPECT_TRUE(result.ok());
+    EXPECT_TRUE(accessor != nullptr);
+    EXPECT_TRUE(writer->append(accessor->get_nullmap(), accessor->get_data(), kRows).ok());
+    EXPECT_TRUE(writer->finish().ok());
+    EXPECT_TRUE(writer->write_data().ok());
+    EXPECT_TRUE(writer->write_ordinal_index().ok());
+    EXPECT_TRUE(file_writer->close().ok());
+
+    // Materialization must have produced extra subcolumns beyond the doc-bucket columns.
+    EXPECT_GT(footer.columns_size(), 1 + kDocBuckets) << "no subcolumns were materialized";
+
+    // Locate materialized subcolumns. Doc bucket columns have DOC_VALUE_COLUMN_PATH in their
+    // path; everything else (other than the root variant at index 0) is a materialized subcolumn.
+    int integer_subcolumns_checked = 0;
+    int string_subcolumns_checked = 0;
+    for (int i = 1; i < footer.columns_size(); ++i) {
+        const auto& col = footer.columns(i);
+        if (!col.has_column_path_info()) continue;
+        PathInData path;
+        path.from_protobuf(col.column_path_info());
+        std::string rel = path.copy_pop_front().get_path();
+        if (rel.find(DOC_VALUE_COLUMN_PATH) != std::string::npos) continue;
+        const auto field_type = static_cast<FieldType>(col.type());
+        switch (field_type) {
+        case FieldType::OLAP_FIELD_TYPE_TINYINT:
+        case FieldType::OLAP_FIELD_TYPE_SMALLINT:
+        case FieldType::OLAP_FIELD_TYPE_INT:
+        case FieldType::OLAP_FIELD_TYPE_BIGINT:
+        case FieldType::OLAP_FIELD_TYPE_LARGEINT:
+            EXPECT_EQ(col.encoding(), EncodingTypePB::PLAIN_ENCODING)
+                    << "V3 integer subcolumn '" << rel << "' got "
+                    << EncodingTypePB_Name(col.encoding()) << " instead of PLAIN_ENCODING";
+            ++integer_subcolumns_checked;
+            break;
+        case FieldType::OLAP_FIELD_TYPE_CHAR:
+        case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+        case FieldType::OLAP_FIELD_TYPE_STRING:
+            EXPECT_EQ(col.encoding(), EncodingTypePB::DICT_ENCODING)
+                    << "V3 string subcolumn '" << rel << "' got "
+                    << EncodingTypePB_Name(col.encoding()) << " instead of DICT_ENCODING";
+            ++string_subcolumns_checked;
+            break;
+        default:
+            break;
+        }
+    }
+    EXPECT_GT(integer_subcolumns_checked + string_subcolumns_checked, 0)
+            << "no scalar materialized subcolumns were found to verify";
+
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+}
+
 TEST_F(VariantColumnWriterReaderTest, test_read_doc_compact_from_doc_value_bucket) {
     constexpr int kRows = 200;
     constexpr int kDocBuckets = 4;

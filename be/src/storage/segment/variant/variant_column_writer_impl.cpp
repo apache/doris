@@ -378,6 +378,7 @@ Status prepare_materialized_subcolumn_writer(
     opts.compression_type = base_opts.compression_type;
     opts.rowset_ctx = base_opts.rowset_ctx;
     opts.file_writer = base_opts.file_writer;
+    opts.storage_format = base_opts.storage_format;
     std::unique_ptr<ColumnWriter> writer;
     variant_util::inherit_column_attributes(parent_column, tablet_column);
 
