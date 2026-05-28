@@ -49,8 +49,7 @@ public class OperativeColumnDeriveTest extends TestWithFeService implements Memo
                 .customRewrite(new OperativeColumnDerive())
                 .matches(logicalProject(
                         logicalOlapScan().when(scan ->
-                                scan.getOperativeSlots().size() == 1
-                                        && scan.getOperativeSlots().get(0).getName().equals("sid"))
+                                scan.getOperativeSlots().size() == 0)
                 ));
     }
 
