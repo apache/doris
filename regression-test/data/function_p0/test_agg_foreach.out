@@ -20,5 +20,8 @@
 -- !sql --
 [["ab", "cd", "efg", null], ["123", "c"], ["114514"]]
 
+-- !array_agg_nested --
+3	5	2	1
+
 -- !sql --
 ["{"num_buckets":3,"buckets":[{"lower":"1","upper":"1","ndv":1,"count":1,"pre_sum":0},{"lower":"20","upper":"20","ndv":1,"count":1,"pre_sum":1},{"lower":"100","upper":"100","ndv":1,"count":1,"pre_sum":2}]}", "{"num_buckets":1,"buckets":[{"lower":"2","upper":"2","ndv":1,"count":2,"pre_sum":0}]}", "{"num_buckets":1,"buckets":[{"lower":"3","upper":"3","ndv":1,"count":1,"pre_sum":0}]}"]

@@ -160,8 +160,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
         for (AggregateFunction function : aggregateFunctions) {
             AggregateFunction aggFunc = AggregateUtils.tryConvertToMultiDistinct(function);
             AggregateExpression localAggExpr = new AggregateExpression(aggFunc, inputToResultParam);
-            originFuncToAliasPhase1.put(function,
-                    new Alias(withSessionVarGuard(function, localAggExpr, aggregateFunctionWithGuardExpr)));
+            originFuncToAliasPhase1.put(function, new Alias(localAggExpr));
         }
 
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()

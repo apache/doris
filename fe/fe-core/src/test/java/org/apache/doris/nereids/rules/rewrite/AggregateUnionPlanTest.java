@@ -68,6 +68,12 @@ public class AggregateUnionPlanTest extends TestWithFeService implements MemoPat
                 + ") ENGINE=OLAP AGGREGATE KEY(id, tag)"
                 + " DISTRIBUTED BY HASH(id) BUCKETS 1"
                 + " PROPERTIES ('replication_allocation' = 'tag.location.default: 1');");
+        createTable("CREATE TABLE test_agg_union.decimal_tbl ("
+                + "  f1 DECIMALV3(30, 5) NULL,"
+                + "  f2 DECIMALV3(10, 6) NULL"
+                + ") ENGINE=OLAP DUPLICATE KEY(f1)"
+                + " DISTRIBUTED BY HASH(f1) BUCKETS 1"
+                + " PROPERTIES ('replication_allocation' = 'tag.location.default: 1');");
     }
 
     @Test
@@ -142,6 +148,21 @@ public class AggregateUnionPlanTest extends TestWithFeService implements MemoPat
             connectContext.getSessionVariable().setBeNumberForTest(beNumberForTest);
             connectContext.getSessionVariable().parallelPipelineTaskNum = parallelPipelineTaskNum;
         }
+    }
+
+    @Test
+    public void testDecimal256GuardOnDistinctAggregateWithoutGroupBy() throws Exception {
+        connectContext.getSessionVariable().enableDecimal256 = true;
+        try {
+            dropView("DROP VIEW IF EXISTS test_agg_union.v_decimal_distinct_sum");
+            createView("CREATE VIEW test_agg_union.v_decimal_distinct_sum AS "
+                    + "SELECT sum(DISTINCT f1 * f2) AS col_sum FROM test_agg_union.decimal_tbl");
+        } finally {
+            connectContext.getSessionVariable().enableDecimal256 = false;
+        }
+
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "SELECT * FROM test_agg_union.v_decimal_distinct_sum");
     }
 
     /**

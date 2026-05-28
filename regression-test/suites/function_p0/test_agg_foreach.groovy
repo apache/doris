@@ -118,10 +118,14 @@ suite("test_agg_foreach") {
     qt_sql """select array_agg_foreach(a) from foreach_table;"""
    	qt_sql """select array_agg_foreach(s) from foreach_table;"""
 
-   	test {
-    	sql """select array_agg_foreach(b) from foreach_table;"""
-    	exception "not support"
-   	}
+    qt_array_agg_nested """
+        select /*+ SET_VAR(parallel_pipeline_task_num=1) */
+            size(array_agg_foreach(b)),
+            size(element_at(array_agg_foreach(b), 1)),
+            size(element_at(array_agg_foreach(b), 2)),
+            size(element_at(array_agg_foreach(b), 3))
+        from foreach_table;
+    """
 
    	qt_sql """
    	select histogram_foreach(a) from foreach_table;
