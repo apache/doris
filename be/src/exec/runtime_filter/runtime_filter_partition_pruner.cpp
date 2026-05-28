@@ -45,19 +45,12 @@ Status ParsedPartitionBoundaries::parse(
         const std::vector<TPartitionBoundary>& boundaries,
         const phmap::flat_hash_map<int, SlotDescriptor*>& slot_descs) {
     for (const auto& tb : boundaries) {
-        if (!tb.__isset.partition_id || !tb.__isset.slot_id) {
-            return Status::InternalError(
-                    "Runtime filter partition boundary must contain partition_id and slot_id");
-        }
+        DORIS_CHECK(tb.__isset.partition_id);
+        DORIS_CHECK(tb.__isset.slot_id);
         SlotId slot_id = tb.slot_id;
 
         auto slot_it = slot_descs.find(slot_id);
-        if (slot_it == slot_descs.end()) {
-            return Status::InternalError(
-                    "Runtime filter partition boundary references unknown slot_id={}, "
-                    "partition_id={}",
-                    slot_id, tb.partition_id);
-        }
+        DORIS_CHECK(slot_it != slot_descs.end());
         SlotDescriptor* slot = slot_it->second;
         // Reuse the slot's pre-built DataType: walking through VLiteral here
         // would cost a `DataTypeFactory::create_data_type(node)` heap allocation
@@ -84,12 +77,7 @@ Status ParsedPartitionBoundaries::parse(
         using CppType = typename PrimitiveTypeTraits<TYPE_##NAME>::CppType;                    \
         bool is_list = tb.__isset.list_values && !tb.list_values.empty();                      \
         bool is_range = tb.__isset.range_start || tb.__isset.range_end;                        \
-        if (!is_list && !is_range) {                                                           \
-            return Status::InternalError(                                                      \
-                    "Runtime filter partition boundary must be RANGE or LIST, "                \
-                    "partition_id={}, slot_id={}",                                             \
-                    tb.partition_id, slot_id);                                                 \
-        }                                                                                      \
+        DORIS_CHECK(is_list || is_range);                                                      \
         ColumnValueRange<TYPE_##NAME> cvr(slot->col_name(), is_nullable, precision, scale);    \
         /* Returns nullopt if `node` is a NULL literal; the caller then sets contain_null  */  \
         /* on the CVR instead of trying to extract a typed value (which would dereference  */  \
@@ -188,14 +176,8 @@ Status ParsedPartitionBoundaries::parse(
         }
 #undef BUILD_BOUNDARY_CVR
 
-        if (parsed_ok) {
-            _slot_to_boundaries[slot_id].push_back(std::move(boundary));
-        } else {
-            return Status::InternalError(
-                    "Runtime filter partition boundary has unsupported type, partition_id={}, "
-                    "slot_id={}, type={}",
-                    tb.partition_id, slot_id, slot_type->get_name());
-        }
+        DORIS_CHECK(parsed_ok);
+        _slot_to_boundaries[slot_id].push_back(std::move(boundary));
     }
 
     // Count distinct partition IDs across all boundaries.
@@ -277,12 +259,7 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
 
     if (target_expr->is_slot_ref()) {
         auto* slot_ref = assert_cast<VSlotRef*>(target_expr.get());
-        if (slot_ref->slot_id() != leaf_slot_id) {
-            return Status::InternalError(
-                    "Runtime filter partition pruning SlotRef target mismatch, filter_id={}, "
-                    "target_slot_id={}, leaf_slot_id={}",
-                    filter_id, slot_ref->slot_id(), leaf_slot_id);
-        }
+        DORIS_CHECK(slot_ref->slot_id() == leaf_slot_id);
         std::vector<ParsedBoundary> slot_boundaries;
         slot_boundaries.reserve(orig_boundaries.size());
         for (const auto& boundary : orig_boundaries) {
@@ -290,12 +267,7 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
             if (direction_it == partition_directions.end()) {
                 continue;
             }
-            if (direction_it->second != TTargetExprMonotonicity::MONOTONIC_INCREASING) {
-                return Status::InternalError(
-                        "Runtime filter partition pruning SlotRef target must use increasing "
-                        "monotonicity, filter_id={}, partition_id={}, monotonicity={}",
-                        filter_id, boundary.partition_id, direction_it->second);
-            }
+            DORIS_CHECK(direction_it->second == TTargetExprMonotonicity::MONOTONIC_INCREASING);
             slot_boundaries.emplace_back(boundary);
         }
         return store_projected_boundaries(std::move(slot_boundaries));
@@ -328,12 +300,7 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
     }
 
     auto slot_type_it = _slot_data_types.find(leaf_slot_id);
-    if (slot_type_it == _slot_data_types.end()) {
-        return Status::InternalError(
-                "Runtime filter partition pruning target slot has no boundary type, filter_id={}, "
-                "slot_id={}, target_expr={}",
-                filter_id, leaf_slot_id, target_expr->expr_name());
-    }
+    DORIS_CHECK(slot_type_it != _slot_data_types.end());
 
     const DataTypePtr& input_type = slot_type_it->second;
     bool input_is_nullable = input_type->is_nullable();
@@ -470,12 +437,7 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
     }
 #undef BUILD_INPUT_COLUMNS
 
-    if (!input_built) {
-        return Status::InternalError(
-                "Runtime filter partition pruning expression target has unsupported input type, "
-                "filter_id={}, input_type={}, target_expr={}",
-                filter_id, input_type->get_name(), target_expr->expr_name());
-    }
+    DORIS_CHECK(input_built);
 
     int lo_result_id = -1;
     int hi_result_id = -1;
@@ -485,32 +447,17 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
     ColumnPtr list_result_col;
     if (lo_row_count > 0) {
         RETURN_IF_ERROR(target_expr->execute(ctx, &lo_block, &lo_result_id));
-        if (lo_result_id < 0) {
-            return Status::InternalError(
-                    "Runtime filter partition pruning failed to project lower boundary, "
-                    "filter_id={}, target_expr={}",
-                    filter_id, target_expr->expr_name());
-        }
+        DORIS_CHECK(lo_result_id >= 0);
         lo_result_col = lo_block.get_by_position(lo_result_id).column;
     }
     if (hi_row_count > 0) {
         RETURN_IF_ERROR(target_expr->execute(ctx, &hi_block, &hi_result_id));
-        if (hi_result_id < 0) {
-            return Status::InternalError(
-                    "Runtime filter partition pruning failed to project upper boundary, "
-                    "filter_id={}, target_expr={}",
-                    filter_id, target_expr->expr_name());
-        }
+        DORIS_CHECK(hi_result_id >= 0);
         hi_result_col = hi_block.get_by_position(hi_result_id).column;
     }
     if (list_row_count > 0) {
         RETURN_IF_ERROR(target_expr->execute(ctx, &list_block, &list_result_id));
-        if (list_result_id < 0) {
-            return Status::InternalError(
-                    "Runtime filter partition pruning failed to project LIST boundary, "
-                    "filter_id={}, target_expr={}",
-                    filter_id, target_expr->expr_name());
-        }
+        DORIS_CHECK(list_result_id >= 0);
         list_result_col = list_block.get_by_position(list_result_id).column;
     }
     int out_precision = cast_set<int>(target_expr->data_type()->get_precision());
@@ -627,12 +574,7 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
 
 #undef BUILD_PROJECTED_CVR
 
-    if (!output_built) {
-        return Status::InternalError(
-                "Runtime filter partition pruning expression target has unsupported output type, "
-                "filter_id={}, output_type={}, target_expr={}",
-                filter_id, target_expr->data_type()->get_name(), target_expr->expr_name());
-    }
+    DORIS_CHECK(output_built);
 
     return store_projected_boundaries(std::move(projected));
 }
@@ -859,20 +801,10 @@ Status RuntimeFilterPartitionPruner::prune_by_runtime_filters(
         }
 
         const VSlotRef* leaf_slot = find_unique_slot_ref(target_subtree.get());
-        if (!leaf_slot) {
-            return Status::InternalError(
-                    "Runtime filter partition pruning target expression must contain exactly one "
-                    "partition slot, filter_id={}, target_expr={}",
-                    filter_id, target_subtree->expr_name());
-        }
+        DORIS_CHECK(leaf_slot != nullptr);
 
         SlotId leaf_slot_id = leaf_slot->slot_id();
-        if (!slot_to_boundaries.contains(leaf_slot_id)) {
-            return Status::InternalError(
-                    "Runtime filter partition pruning target slot is not a partition boundary "
-                    "slot, filter_id={}, slot_id={}, target_expr={}",
-                    filter_id, leaf_slot_id, target_subtree->expr_name());
-        }
+        DORIS_CHECK(slot_to_boundaries.contains(leaf_slot_id));
 
         int leaf_column_id = leaf_slot->column_id();
 
