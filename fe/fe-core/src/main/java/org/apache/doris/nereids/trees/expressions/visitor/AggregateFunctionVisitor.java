@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ExponentialMovingAverage;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
@@ -131,6 +132,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitBitmapAgg(BitmapAgg bitmapAgg, C context) {
         return visitAggregateFunction(bitmapAgg, context);
+    }
+
+    default R visitExponentialMovingAverage(ExponentialMovingAverage ema, C context) {
+        return visitNullableAggregateFunction(ema, context);
     }
 
     default R visitBitmapIntersect(BitmapIntersect bitmapIntersect, C context) {

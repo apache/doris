@@ -427,9 +427,10 @@ public enum PrimitiveType {
             case DATE:
             case DATEV2:
                 return MysqlColType.MYSQL_TYPE_DATE;
+            case TIMESTAMPTZ:
+                return MysqlColType.MYSQL_TYPE_STRING;
             case DATETIME:
-            case DATETIMEV2:
-            case TIMESTAMPTZ: {
+            case DATETIMEV2: {
                 if (isTimeType) {
                     return MysqlColType.MYSQL_TYPE_TIME;
                 } else {

@@ -28,7 +28,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
@@ -391,6 +393,7 @@ class S3ObjStorageMockTest {
     void getPresignedUrl_throwsWhenBucketNotConfigured() {
         Map<String, String> noBucketProps = new HashMap<>();
         noBucketProps.put("AWS_ENDPOINT", "https://s3.amazonaws.com");
+        noBucketProps.put("AWS_REGION", "us-east-1");
         noBucketProps.put("AWS_ACCESS_KEY", "ak");
         noBucketProps.put("AWS_SECRET_KEY", "sk");
         S3ObjStorage noBucket = new TestableS3ObjStorage(noBucketProps, mockS3);
@@ -424,6 +427,45 @@ class S3ObjStorageMockTest {
                 credentialsProvider.getClass().getSimpleName());
     }
 
+    @Test
+    void buildCredentialsProvider_usesTypedCredentialsProviderType() {
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
+        props.put("s3.credentials_provider_type", "ENV");
+        S3FileSystemProperties properties = S3FileSystemProperties.of(props);
+        InspectableS3ObjStorage typedStorage = new InspectableS3ObjStorage(properties, mockS3);
+
+        AwsCredentialsProvider credentialsProvider = typedStorage.inspectBuildCredentialsProvider();
+
+        Assertions.assertInstanceOf(EnvironmentVariableCredentialsProvider.class, credentialsProvider);
+    }
+
+    @Test
+    void buildCredentialsProvider_usesAnonymousCredentialsProviderType() {
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
+        props.put("s3.credentials_provider_type", "ANONYMOUS");
+        S3FileSystemProperties properties = S3FileSystemProperties.of(props);
+        InspectableS3ObjStorage typedStorage = new InspectableS3ObjStorage(properties, mockS3);
+
+        AwsCredentialsProvider credentialsProvider = typedStorage.inspectBuildCredentialsProvider();
+
+        Assertions.assertInstanceOf(AnonymousCredentialsProvider.class, credentialsProvider);
+    }
+
+    @Test
+    void buildCredentialsProvider_usesBackendCredentialsProviderTypeFromLegacyMap() {
+        Map<String, String> props = new HashMap<>();
+        props.put("AWS_ENDPOINT", "https://s3.us-west-2.amazonaws.com");
+        props.put("AWS_REGION", "us-west-2");
+        props.put("AWS_CREDENTIALS_PROVIDER_TYPE", "ENV");
+        InspectableS3ObjStorage mapStorage = new InspectableS3ObjStorage(props, mockS3);
+
+        AwsCredentialsProvider credentialsProvider = mapStorage.inspectBuildCredentialsProvider();
+
+        Assertions.assertInstanceOf(EnvironmentVariableCredentialsProvider.class, credentialsProvider);
+    }
+
     // ------------------------------------------------------------------
     // close()
     // ------------------------------------------------------------------
@@ -434,37 +476,6 @@ class S3ObjStorageMockTest {
         storage.getClient();
         storage.close();
         Mockito.verify(mockS3).close();
-    }
-
-    // ------------------------------------------------------------------
-    // buildClient() region fallback (#23)
-    // ------------------------------------------------------------------
-
-    /**
-     * #23: when no region is configured, {@code buildClient()} must NOT throw — it logs a
-     * deprecation WARN and falls back to {@code us-east-1} (used solely for SigV4 signing).
-     * This preserves backward compatibility for existing clusters that rely on the implicit
-     * default; the warning is the migration signal.
-     */
-    @Test
-    void buildClient_missingRegionLogsWarnAndFallsBack() throws IOException {
-        Map<String, String> props = new HashMap<>();
-        // Endpoint set so SDK does not need to resolve us-east-1 against the AWS DNS.
-        props.put("AWS_ENDPOINT", "https://s3.example.com");
-        props.put("AWS_ACCESS_KEY", "ak");
-        props.put("AWS_SECRET_KEY", "sk");
-        props.put("AWS_BUCKET", "bucket");
-        // Intentionally no AWS_REGION / s3.region / region / REGION.
-
-        S3ObjStorage real = new S3ObjStorage(props);
-        // The real buildClient must succeed without throwing — that proves we took the WARN
-        // route rather than the throw route. (The WARN itself is asserted by inspection /
-        // operator log review; capturing log4j2 output here would couple the test to the
-        // logging backend without adding correctness signal.)
-        S3Client client = Assertions.assertDoesNotThrow(real::buildClient,
-                "buildClient() must not throw when region is missing");
-        Assertions.assertNotNull(client);
-        client.close();
     }
 
     // ------------------------------------------------------------------
@@ -479,6 +490,11 @@ class S3ObjStorageMockTest {
             this.mockClient = mockClient;
         }
 
+        TestableS3ObjStorage(S3FileSystemProperties properties, S3Client mockClient) {
+            super(properties);
+            this.mockClient = mockClient;
+        }
+
         @Override
         protected S3Client buildClient() {
             return mockClient;
@@ -487,6 +503,10 @@ class S3ObjStorageMockTest {
 
     private static class InspectableS3ObjStorage extends TestableS3ObjStorage {
         InspectableS3ObjStorage(Map<String, String> properties, S3Client mockClient) {
+            super(properties, mockClient);
+        }
+
+        InspectableS3ObjStorage(S3FileSystemProperties properties, S3Client mockClient) {
             super(properties, mockClient);
         }
 

@@ -329,8 +329,16 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (StatisticsUtil.enablePartitionAnalyze() && tbl.isPartitionedTable()) {
             doPartitionTable();
         } else {
-            StringSubstitutor stringSubstitutor = new StringSubstitutor(buildSqlParams());
-            runQuery(stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE));
+            Map<String, String> params = buildSqlParams();
+            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+            if (shouldCollectHotValue()) {
+                params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
+                params.put("subStringColName", getStringTypeColName(col));
+                params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
+                runQuery(stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE));
+            } else {
+                runQuery(stringSubstitutor.replace(FULL_ANALYZE_WITHOUT_HOT_VALUE_TEMPLATE));
+            }
         }
     }
 

@@ -319,6 +319,7 @@ public class StatementContext implements Closeable {
     // When true, data will be collected to a single node to avoid generating too many small files
     private boolean useGatherForIcebergRewrite = false;
     private boolean hasNestedColumns;
+    private boolean queryStatsRecorded = false;
 
     private final Set<CTEId> mustInlineCTE = new HashSet<>();
     private final Set<String> usedAIResourceNames = new LinkedHashSet<>();
@@ -665,6 +666,17 @@ public class StatementContext implements Closeable {
 
     public Map<CTEId, LogicalPlan> getRewrittenCteConsumer() {
         return rewrittenCteConsumer;
+    }
+
+    /** Clear CTE-related rewrite and memo state before rebuilding it from a new plan tree. */
+    public void clearCteEnvironment() {
+        cteIdToConsumers.clear();
+        cteIdToOutputIds.clear();
+        cteIdToProducer.clear();
+        consumerIdToFilters.clear();
+        cteIdToConsumerGroup.clear();
+        rewrittenCteProducer.clear();
+        rewrittenCteConsumer.clear();
     }
 
     /**
@@ -1161,6 +1173,14 @@ public class StatementContext implements Closeable {
 
     public boolean isInsert() {
         return isInsert;
+    }
+
+    public boolean isQueryStatsRecorded() {
+        return queryStatsRecorded;
+    }
+
+    public void markQueryStatsRecorded() {
+        queryStatsRecorded = true;
     }
 
     public Optional<Map<TableIf, Set<Expression>>> getMvRefreshPredicates() {

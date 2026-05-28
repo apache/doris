@@ -55,6 +55,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.VariantField;
 import org.apache.doris.catalog.VariantType;
@@ -326,6 +327,12 @@ public class SchemaChangeHandler extends AlterHandler {
     private void addColumnRowBinlog(List<Column> rowBinlogSchema, Column newColumn, ColumnPosition columnPos,
                                     Set<String> newColNameSet, boolean needHistoricalValue,
                                     IntSupplier columnUniqueIdSupplier) throws DdlException {
+        if (!newColumn.isVisible()) {
+            // row binlog schema is generated from visible columns only, so schema change must not
+            // sync hidden system columns such as sequence/delete/version/skip-bitmap columns.
+            return;
+        }
+
         if (newColumn.isAutoInc() || newColumn.getDataType().isVariantType()) {
             throw new DdlException("can't add AutoInc/Variant column " + " on table with binlog<Row>, column: "
                     + newColumn.getDataType());
@@ -2062,14 +2069,23 @@ public class SchemaChangeHandler extends AlterHandler {
                 MaterializedIndex originIndex = partition.getIndex(originIndexId);
                 ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partitionId);
                 Short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
+                // All shadow tablets of the same (partition, shadow index) share the same TabletMeta;
+                // build it once and bulk-publish to MaterializedIndex.tablets after the per-tablet
+                // loop to keep copy-on-write O(n). TabletInvertedIndex registration stays
+                // per-iteration because Tablet.addReplica(...) below needs the tablet present
+                // in the inverted index.
+                TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
+                        newSchemaHash, medium);
+                List<Tablet> shadowTabletsForPartition = Lists.newArrayListWithCapacity(
+                        originIndex.getTablets().size());
+                TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
                 for (Tablet originTablet : originIndex.getTablets()) {
-                    TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                            newSchemaHash, medium);
                     long originTabletId = originTablet.getId();
                     long shadowTabletId = idGeneratorBuffer.getNextId();
 
                     Tablet shadowTablet = EnvFactory.getInstance().createTablet(shadowTabletId);
-                    shadowIndex.addTablet(shadowTablet, shadowTabletMeta);
+                    invertedIndex.addTablet(shadowTabletId, shadowTabletMeta);
+                    shadowTabletsForPartition.add(shadowTablet);
                     addedTablets.add(shadowTablet);
 
                     schemaChangeJob.addTabletIdMap(partitionId, shadowIndexId, shadowTabletId, originTabletId);
@@ -2126,6 +2142,9 @@ public class SchemaChangeHandler extends AlterHandler {
                                 "tablet " + originTabletId + " has few healthy replica: " + healthyReplicaNum);
                     }
                 }
+
+                // Bulk-publish all shadow tablets for this partition in one copy-on-write.
+                shadowIndex.appendTablets(shadowTabletsForPartition);
 
                 schemaChangeJob.addPartitionShadowIndex(partitionId, shadowIndexId, shadowIndex);
             } // end for partition
@@ -2994,10 +3013,35 @@ public class SchemaChangeHandler extends AlterHandler {
             skip = Boolean.parseBoolean(skipWriteIndexOnLoad) ? 1 : 0;
         }
 
-        for (Partition partition : partitions) {
-            updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory,
-                                    null, compactionPolicy, timeSeriesCompactionConfig, enableSingleCompaction, skip,
-                                    disableAutoCompaction, verticalCompactionNumColumnsPerGroup);
+        // Only iterate partitions when there are properties that actually need to be
+        // dispatched to each partition's tablets. Pure catalog-level metadata properties
+        // such as partition.retention_count do not require per-partition updates, and
+        // iterating over a stale partition snapshot can race with concurrent partition
+        // drops (e.g., by DynamicPartitionScheduler when retention_count or dynamic_partition
+        // is enabled) and fail with "Partition does not exist".
+        boolean needPerPartitionUpdate = isInMemory >= 0 || storagePolicyId >= 0
+                || compactionPolicy != null || !timeSeriesCompactionConfig.isEmpty()
+                || enableSingleCompaction >= 0 || skip >= 0 || disableAutoCompaction >= 0
+                || verticalCompactionNumColumnsPerGroup >= 0;
+        if (needPerPartitionUpdate) {
+            for (Partition partition : partitions) {
+                try {
+                    updatePartitionProperties(db, olapTable.getName(), partition.getName(),
+                            storagePolicyId, isInMemory, null, compactionPolicy, timeSeriesCompactionConfig,
+                            enableSingleCompaction, skip, disableAutoCompaction,
+                            verticalCompactionNumColumnsPerGroup);
+                } catch (DdlException e) {
+                    // The partition may have been dropped concurrently (e.g., by
+                    // DynamicPartitionScheduler). It is safe to skip the meta dispatch
+                    // for a partition that no longer exists.
+                    if (olapTable.getPartition(partition.getName()) == null) {
+                        LOG.info("partition {} of table {} was dropped concurrently, "
+                                + "skip updating its properties", partition.getName(), olapTable.getName());
+                        continue;
+                    }
+                    throw e;
+                }
+            }
         }
 
         olapTable.writeLockOrDdlException();

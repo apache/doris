@@ -170,6 +170,12 @@ public class LoadProcessor extends AbstractJobProcessor {
     @Override
     protected void doProcessReportExecStatus(TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask) {
         if (params.isSetLoadedRows() && jobId != -1) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("doProcessReportExecStatus: forwarding load progress to LoadManager, "
+                                + "jobId={}, beId={}, queryId={}, loadedRows={}, loadedBytes={}, isDone={}",
+                        jobId, params.getBackendId(), DebugUtil.printId(params.getQueryId()),
+                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+            }
             if (params.isSetFragmentInstanceReports()) {
                 for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
                     Env.getCurrentEnv().getLoadManager().updateJobProgress(

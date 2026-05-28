@@ -70,6 +70,7 @@ public class Column implements GsonPostProcessable {
     private static final String COLUMN_ARRAY_CHILDREN = "item";
     private static final String COLUMN_AGG_ARGUMENT_CHILDREN = "argument";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
+    public static final int BINLOG_LSN_AUTO_INC_ID = -1;
     private static final String COLUMN_MAP_KEY = "key";
     private static final String COLUMN_MAP_VALUE = "value";
     public static final Column STREAM_SEQ_VIRTUAL_COLUMN =

@@ -480,6 +480,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StDisjoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
@@ -488,6 +489,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StIntersects;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinefromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinestringfromtext;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StNumGeometries;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StNumPoints;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolyfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygon;
@@ -1058,6 +1061,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StTouches.class, "st_touches"),
             scalar(StLength.class, "st_length"),
             scalar(StGeometryType.class, "st_geometrytype"),
+            scalar(StNumGeometries.class, "st_numgeometries"),
+            scalar(StGeometries.class, "st_geometries"),
+            scalar(StNumPoints.class, "st_numpoints", "st_npoints"),
             scalar(StDistance.class, "st_distance"),
             scalar(StDistanceSphere.class, "st_distance_sphere"),
             scalar(StAngleSphere.class, "st_angle_sphere"),

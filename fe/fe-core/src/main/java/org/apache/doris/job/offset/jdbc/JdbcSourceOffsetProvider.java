@@ -58,11 +58,15 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -83,7 +87,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     List<SnapshotSplit> remainingSplits = new ArrayList<>();
     List<SnapshotSplit> finishedSplits = new ArrayList<>();
 
-    JdbcOffset currentOffset;
+    volatile JdbcOffset currentOffset;
     Map<String, String> endBinlogOffset;
 
     @SerializedName("chw")
@@ -95,9 +99,22 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     @SerializedName("ts")
     String tableSchemas;
 
+    /** Split progress (task-commit view). */
+    @SerializedName("csp")
+    SplitProgress committedSplitProgress;
+
     volatile boolean hasMoreData = true;
 
     transient volatile String cloudCluster;
+
+    /** Split progress (cdc-fetch view), >= committedSplitProgress. Rebuilt on restart. */
+    transient SplitProgress cdcSplitProgress = new SplitProgress();
+
+    /** Cache of Job.syncTables, set by initSplitProgress / replayIfNeed. */
+    transient List<String> cachedSyncTables;
+
+    /** Guards cdcSplitProgress/committedSplitProgress/remainingSplits/finishedSplits. */
+    protected final transient Object splitsLock = new Object();
 
     /**
      * No-arg constructor for subclass use.
@@ -135,22 +152,26 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public Offset getNextOffset(StreamingJobProperties jobProps, Map<String, String> properties) {
-        JdbcOffset nextOffset = new JdbcOffset();
-        if (!remainingSplits.isEmpty()) {
-            int splitsNum = Math.min(remainingSplits.size(), snapshotParallelism);
-            List<SnapshotSplit> snapshotSplits = new ArrayList<>(remainingSplits.subList(0, splitsNum));
-            nextOffset.setSplits(snapshotSplits);
-            return nextOffset;
-        } else if (currentOffset != null && currentOffset.snapshotSplit()) {
-            // initial mode: snapshot to binlog
-            // snapshot-only mode must be intercepted by hasReachedEnd() before reaching here
-            BinlogSplit binlogSplit = new BinlogSplit();
-            binlogSplit.setFinishedSplits(finishedSplits);
-            nextOffset.setSplits(Collections.singletonList(binlogSplit));
-            return nextOffset;
-        } else {
-            // only binlog
-            return currentOffset == null ? new JdbcOffset(Collections.singletonList(new BinlogSplit())) : currentOffset;
+        synchronized (splitsLock) {
+            JdbcOffset nextOffset = new JdbcOffset();
+            if (!remainingSplits.isEmpty()) {
+                int splitsNum = Math.min(remainingSplits.size(), snapshotParallelism);
+                List<SnapshotSplit> snapshotSplits = new ArrayList<>(remainingSplits.subList(0, splitsNum));
+                nextOffset.setSplits(snapshotSplits);
+                return nextOffset;
+            } else if (currentOffset != null && currentOffset.snapshotSplit() && noMoreSplits()) {
+                // initial mode: snapshot to binlog. noMoreSplits() guards against switching while
+                // splitting is still in progress (remainingSplits empty doesn't mean fully cut).
+                // snapshot-only mode is intercepted by hasReachedEnd() before reaching here.
+                BinlogSplit binlogSplit = new BinlogSplit();
+                binlogSplit.setFinishedSplits(new ArrayList<>(finishedSplits));
+                nextOffset.setSplits(Collections.singletonList(binlogSplit));
+                return nextOffset;
+            } else {
+                // only binlog
+                return currentOffset == null
+                        ? new JdbcOffset(Collections.singletonList(new BinlogSplit())) : currentOffset;
+            }
         }
     }
 
@@ -192,35 +213,45 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public void updateOffset(Offset offset) {
-        this.currentOffset = (JdbcOffset) offset;
-        if (currentOffset.snapshotSplit()) {
-            List<? extends AbstractSourceSplit> splits = currentOffset.getSplits();
-            for (AbstractSourceSplit split : splits) {
-                SnapshotSplit snapshotSplit = (SnapshotSplit) split;
-                String splitId = split.getSplitId();
-                boolean remove = remainingSplits.removeIf(v -> {
-                    if (v.getSplitId().equals(splitId)) {
-                        snapshotSplit.setTableId(v.getTableId());
-                        snapshotSplit.setSplitKey(v.getSplitKey());
-                        snapshotSplit.setSplitStart(v.getSplitStart());
-                        snapshotSplit.setSplitEnd(v.getSplitEnd());
-                        return true;
+        JdbcOffset newOffset = (JdbcOffset) offset;
+        if (newOffset.snapshotSplit()) {
+            synchronized (splitsLock) {
+                List<? extends AbstractSourceSplit> splits = newOffset.getSplits();
+                for (AbstractSourceSplit split : splits) {
+                    SnapshotSplit snapshotSplit = (SnapshotSplit) split;
+                    String splitId = split.getSplitId();
+                    boolean remove = remainingSplits.removeIf(v -> {
+                        if (v.getSplitId().equals(splitId)) {
+                            snapshotSplit.setTableId(v.getTableId());
+                            snapshotSplit.setSplitKey(v.getSplitKey());
+                            snapshotSplit.setSplitStart(v.getSplitStart());
+                            snapshotSplit.setSplitEnd(v.getSplitEnd());
+                            return true;
+                        }
+                        return false;
+                    });
+                    if (remove) {
+                        finishedSplits.add(snapshotSplit);
+                        chunkHighWatermarkMap.computeIfAbsent(snapshotSplit.getTableId(), k -> new HashMap<>())
+                                .put(snapshotSplit.getSplitId(), snapshotSplit.getHighWatermark());
+
+                        // Advance committedSplitProgress to this committed chunk.
+                        if (committedSplitProgress != null) {
+                            applySplitToProgress(committedSplitProgress, snapshotSplit,
+                                    getTableName(snapshotSplit.getTableId()));
+                        }
+                    } else {
+                        // Replay before remainingSplits is restored, or a duplicate commit.
+                        log.warn("Cannot find snapshot split {} in remainingSplits for job {}", splitId, getJobId());
                     }
-                    return false;
-                });
-                if (remove) {
-                    finishedSplits.add(snapshotSplit);
-                    chunkHighWatermarkMap.computeIfAbsent(snapshotSplit.getTableId(), k -> new HashMap<>())
-                            .put(snapshotSplit.getSplitId(), snapshotSplit.getHighWatermark());
-                } else {
-                    log.warn("Cannot find snapshot split {} in remainingSplits for job {}", splitId, getJobId());
                 }
             }
         } else {
-            BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
+            BinlogSplit binlogSplit = (BinlogSplit) newOffset.getSplits().get(0);
             binlogOffsetPersist = new HashMap<>(binlogSplit.getStartingOffset());
             binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
         }
+        this.currentOffset = newOffset;
     }
 
     @Override
@@ -278,19 +309,26 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             return true;
         }
 
-        if (currentOffset.snapshotSplit()) {
-            if (isSnapshotOnlyMode() && remainingSplits.isEmpty()) {
+        synchronized (splitsLock) {
+            if (currentOffset.snapshotSplit()) {
+                if (!remainingSplits.isEmpty()) {
+                    return true;
+                }
+                // Splitting still in progress: wait for next tick.
+                if (!noMoreSplits()) {
+                    return false;
+                }
+                // Splitting done: snapshot-only completes; initial mode falls through to binlog.
+                return !isSnapshotOnlyMode();
+            }
+
+            if (!hasMoreData) {
                 return false;
             }
-            return true;
-        }
 
-        if (!hasMoreData) {
-            return false;
-        }
-
-        if (CollectionUtils.isNotEmpty(remainingSplits)) {
-            return true;
+            if (CollectionUtils.isNotEmpty(remainingSplits)) {
+                return true;
+            }
         }
         if (MapUtils.isEmpty(endBinlogOffset)) {
             return false;
@@ -420,6 +458,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      */
     @Override
     public void replayIfNeed(StreamingInsertJob job) throws JobException {
+        synchronized (splitsLock) {
+            this.cachedSyncTables = job.getSyncTables();
+        }
+
         String offsetProviderPersist = job.getOffsetProviderPersist();
         if (offsetProviderPersist != null) {
             JdbcSourceOffsetProvider replayFromPersist = GsonUtils.GSON.fromJson(offsetProviderPersist,
@@ -427,6 +469,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             this.binlogOffsetPersist = replayFromPersist.getBinlogOffsetPersist();
             this.chunkHighWatermarkMap = replayFromPersist.getChunkHighWatermarkMap();
             this.tableSchemas = replayFromPersist.getTableSchemas();
+            synchronized (splitsLock) {
+                this.committedSplitProgress = replayFromPersist.getCommittedSplitProgress() != null
+                        ? replayFromPersist.getCommittedSplitProgress() : new SplitProgress();
+                this.cdcSplitProgress = this.committedSplitProgress.copy();
+            }
             log.info("Replaying offset provider for job {}, binlogOffset size {}, chunkHighWatermark size {}",
                     getJobId(),
                     binlogOffsetPersist == null ? 0 : binlogOffsetPersist.size(),
@@ -439,23 +486,23 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 if (MapUtils.isNotEmpty(chunkHighWatermarkMap) && MapUtils.isNotEmpty(snapshotSplits)) {
                     List<SnapshotSplit> lastSnapshotSplits =
                             recalculateRemainingSplits(chunkHighWatermarkMap, snapshotSplits);
+                    resumeCdcSplitProgressFromSplits();
                     if (this.remainingSplits.isEmpty()) {
                         if (!lastSnapshotSplits.isEmpty()) {
                             currentOffset = new JdbcOffset();
                             currentOffset.setSplits(lastSnapshotSplits);
-                        } else if (!isSnapshotOnlyMode()) {
+                        } else if (!isSnapshotOnlyMode() && noMoreSplits()) {
                             // initial mode: rebuild binlog split for snapshot-to-binlog transition
                             currentOffset = new JdbcOffset();
                             BinlogSplit binlogSplit = new BinlogSplit();
                             binlogSplit.setFinishedSplits(finishedSplits);
                             currentOffset.setSplits(Collections.singletonList(binlogSplit));
-                        } else {
-                            // snapshot-only completed: leave currentOffset as null,
-                            // hasReachedEnd() detects completion via finishedSplits
+                        } else if (isSnapshotOnlyMode()) {
                             log.info("Replaying offset provider for job {}: snapshot-only mode completed,"
                                     + " finishedSplits={}, skip currentOffset restoration",
                                     getJobId(), finishedSplits.size());
                         }
+                        // else: splitter mid-flight, keep currentOffset as snapshotSplit.
                     }
                 }
             }
@@ -470,8 +517,60 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             log.info("Replaying offset provider for job {}, offsetProviderPersist is empty", getJobId());
             Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
             recalculateRemainingSplits(new HashMap<>(), snapshotSplits);
+            resumeCdcSplitProgressFromSplits();
         } else {
             log.info("No need to replay offset provider for job {}", getJobId());
+        }
+    }
+
+    /** Rebuild cdcSplitProgress after restart so advanceSplits resumes mid-table instead of skipping it. */
+    protected void resumeCdcSplitProgressFromSplits() {
+        synchronized (splitsLock) {
+            if (cachedSyncTables == null || cachedSyncTables.isEmpty()) {
+                return;
+            }
+            SnapshotSplit mid = findResumeMidSplit(cachedSyncTables, finishedSplits, remainingSplits);
+            if (mid != null) {
+                applySplitToProgress(cdcSplitProgress, mid, getTableName(mid.getTableId()));
+            } else {
+                clearProgress(cdcSplitProgress);
+            }
+            log.info("Resume cdcSplitProgress for job {}: finishedSplits={}, remainingSplits={}, "
+                            + "cdcSplitProgress=(table={}, nextStart={}, nextSplitId={})",
+                    getJobId(), finishedSplits.size(), remainingSplits.size(),
+                    cdcSplitProgress.getCurrentSplittingTable(),
+                    Arrays.toString(cdcSplitProgress.getNextSplitStart()),
+                    cdcSplitProgress.getNextSplitId());
+        }
+    }
+
+    /**
+     * Find the at-most-one table cut to mid (its largest-id split has non-null splitEnd).
+     * Returns null when every table in {@code syncTables} is either untouched or fully cut.
+     */
+    static SnapshotSplit findResumeMidSplit(List<String> syncTables,
+                                            List<SnapshotSplit> finishedSplits,
+                                            List<SnapshotSplit> remainingSplits) {
+        // Map keys are bare names so syncTables (bare) and SnapshotSplit.tableId (qualified) align.
+        Map<String, SnapshotSplit> lastPerTable = new HashMap<>();
+        pickLastById(finishedSplits, lastPerTable);
+        pickLastById(remainingSplits, lastPerTable);
+        for (String tbl : syncTables) {
+            SnapshotSplit last = lastPerTable.get(getTableName(tbl));
+            if (last != null && last.getSplitEnd() != null && last.getSplitEnd().length > 0) {
+                return last;
+            }
+        }
+        return null;
+    }
+
+    private static void pickLastById(List<SnapshotSplit> splits, Map<String, SnapshotSplit> out) {
+        for (SnapshotSplit s : splits) {
+            String key = getTableName(s.getTableId());
+            SnapshotSplit prev = out.get(key);
+            if (prev == null || splitIdOf(s.getSplitId()) > splitIdOf(prev.getSplitId())) {
+                out.put(key, s);
+            }
         }
     }
 
@@ -520,7 +619,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         return lastSnapshotSplits;
     }
 
-    private String getTableName(String tableId) {
+    private static String getTableName(String tableId) {
         if (tableId == null) {
             return null;
         }
@@ -533,78 +632,239 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         return GsonUtils.GSON.toJson(this);
     }
 
-    public void splitChunks(List<String> createTbls) throws JobException {
-        // todo: When splitting takes a long time, it needs to be changed to asynchronous.
-        if (checkNeedSplitChunks(sourceProperties)) {
-            Map<String, List<SnapshotSplit>> tableSplits = new LinkedHashMap<>();
-            for (String tbl : createTbls) {
-                List<SnapshotSplit> snapshotSplits = requestTableSplits(tbl);
-                tableSplits.put(tbl, snapshotSplits);
-            }
-            // save chunk list to system table
-            saveChunkMeta(tableSplits);
-            this.remainingSplits = tableSplits.values().stream()
-                    .flatMap(List::stream)
-                    .collect(Collectors.toList());
-        } else {
-            // The source reader is automatically initialized when the split is obtained.
-            // In latest mode, a separate init is required.init source reader
+    // ============ Async split progress (driven by scheduler each tick) ============
+
+    /**
+     * One-time setup at CREATE.
+     * - initial/snapshot mode: init split progress; scheduler will drive advanceSplits() each tick.
+     * - latest mode (and other non-splitting modes): open the remote reader (e.g. PG slot) so the
+     *   binlog phase can start immediately; no snapshot splitting will happen.
+     */
+    @Override
+    public void initOnCreate(List<String> syncTables) throws JobException {
+        if (!checkNeedSplitChunks(sourceProperties)) {
             initSourceReader();
+            return;
+        }
+        synchronized (splitsLock) {
+            this.cachedSyncTables = syncTables;
+            this.committedSplitProgress = new SplitProgress();
+            this.cdcSplitProgress = new SplitProgress();
         }
     }
 
-    private void saveChunkMeta(Map<String, List<SnapshotSplit>> tableSplits) throws JobException {
+    @Override
+    public boolean noMoreSplits() {
+        if (!checkNeedSplitChunks(sourceProperties)) {
+            return true;
+        }
+        synchronized (splitsLock) {
+            if (currentOffset != null && !currentOffset.snapshotSplit()) {
+                return true;
+            }
+            return cdcSplitProgress.getCurrentSplittingTable() == null
+                    && computeCdcRemainingTables().isEmpty();
+        }
+    }
+
+    /** Tables not yet touched by cdc fetching. Caller must hold splitsLock. */
+    private List<String> computeCdcRemainingTables() {
+        if (cachedSyncTables == null || cachedSyncTables.isEmpty()) {
+            return Collections.emptyList();
+        }
+        // SnapshotSplit.tableId is qualified ("schema.table"/"db.table"); cachedSyncTables is bare — normalize.
+        Set<String> touched = new HashSet<>();
+        for (SnapshotSplit s : finishedSplits) {
+            touched.add(getTableName(s.getTableId()));
+        }
+        for (SnapshotSplit s : remainingSplits) {
+            touched.add(getTableName(s.getTableId()));
+        }
+        if (cdcSplitProgress.getCurrentSplittingTable() != null) {
+            touched.add(getTableName(cdcSplitProgress.getCurrentSplittingTable()));
+        }
+        List<String> result = new ArrayList<>(cachedSyncTables.size());
+        for (String t : cachedSyncTables) {
+            if (!touched.contains(getTableName(t))) {
+                result.add(t);
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public void advanceSplits() throws JobException {
+        // Phase 1 (locked, fast): pick next table & snapshot the resume cursor.
+        String tbl;
+        Object[] startVal;
+        Integer splitId;
+        synchronized (splitsLock) {
+            if (cdcSplitProgress.getCurrentSplittingTable() == null) {
+                List<String> remaining = computeCdcRemainingTables();
+                if (remaining.isEmpty()) {
+                    return;
+                }
+                cdcSplitProgress.setCurrentSplittingTable(getTableName(remaining.get(0)));
+                cdcSplitProgress.setNextSplitStart(null);
+                cdcSplitProgress.setNextSplitId(null);
+            }
+            tbl = cdcSplitProgress.getCurrentSplittingTable();
+            startVal = cdcSplitProgress.getNextSplitStart();
+            splitId = cdcSplitProgress.getNextSplitId();
+        }
+
+        // Phase 2 (unlocked, slow): RPC. Keeps updateOffset / scheduler tick unblocked
+        // so task dispatch can drain remainingSplits while we fetch the next batch.
+        List<SnapshotSplit> batch = rpcFetchSplitsBatch(tbl, startVal, splitId);
+        if (batch == null || batch.isEmpty()) {
+            return;
+        }
+
+        // Phase 3 (locked, fast): compute newSplits + splitsOfTbl WITHOUT mutating in-memory.
+        // Persist-before-publish keeps streaming_job_meta from lagging cdcSplitProgress, so a
+        // crash never leaves an HW recorded for a split whose definition was not written.
+        List<SnapshotSplit> newSplits;
+        List<SnapshotSplit> splitsOfTbl;
+        synchronized (splitsLock) {
+            // replayIfNeed / pause-resume may have moved the cursor during the RPC — discard.
+            if (!tbl.equals(cdcSplitProgress.getCurrentSplittingTable())
+                    || !Objects.equals(splitId, cdcSplitProgress.getNextSplitId())) {
+                log.info("advanceSplits discard batch for job {} table {}: state moved on "
+                                + "during RPC (now table={}, splitId={})",
+                        getJobId(), tbl,
+                        cdcSplitProgress.getCurrentSplittingTable(),
+                        cdcSplitProgress.getNextSplitId());
+                return;
+            }
+            Set<String> existingIds = new HashSet<>();
+            finishedSplits.forEach(s -> existingIds.add(s.getSplitId()));
+            remainingSplits.forEach(s -> existingIds.add(s.getSplitId()));
+            newSplits = new ArrayList<>();
+            for (SnapshotSplit s : batch) {
+                if (!existingIds.contains(s.getSplitId())) {
+                    newSplits.add(s);
+                }
+            }
+            if (newSplits.size() < batch.size()) {
+                log.info("advanceSplits dedup'd {} duplicate splits (batch={}, new={}) for job {} table {}",
+                        batch.size() - newSplits.size(), batch.size(), newSplits.size(), getJobId(), tbl);
+            }
+            // Post-batch meta state: finished + remaining + newSplits, filtered by table.
+            List<SnapshotSplit> allForTbl = new ArrayList<>(
+                    finishedSplits.size() + remainingSplits.size() + newSplits.size());
+            allForTbl.addAll(finishedSplits);
+            allForTbl.addAll(remainingSplits);
+            allForTbl.addAll(newSplits);
+            // tbl is bare (matches cachedSyncTables); SnapshotSplit.tableId is qualified.
+            splitsOfTbl = allForTbl.stream()
+                    .filter(s -> tbl.equals(getTableName(s.getTableId())))
+                    .sorted(Comparator.comparingInt(s -> splitIdOf(s.getSplitId())))
+                    .collect(Collectors.toList());
+        }
+
+        // Phase 4 (unlocked, slow): persist FIRST. On failure throw → PAUSE; autoResume retries
+        // with the same (tbl, startVal, splitId), idempotent on UNIQUE KEY (id, job_id).
         try {
-            StreamingJobUtils.createMetaTableIfNotExist();
-            StreamingJobUtils.insertSplitsToMeta(getJobId(), tableSplits);
+            StreamingJobUtils.upsertChunkList(getJobId(), tbl, splitsOfTbl);
         } catch (Exception e) {
-            log.warn("save chunk meta error: ", e);
-            throw new JobException(e.getMessage());
+            throw new JobException("Failed to persist chunk_list for job " + getJobId()
+                    + " table " + tbl + ": " + e.getMessage(), e);
+        }
+
+        // Phase 5 (locked, fast): publish. Skip if cursor moved during Phase 4 (already in meta).
+        synchronized (splitsLock) {
+            if (!tbl.equals(cdcSplitProgress.getCurrentSplittingTable())
+                    || !Objects.equals(splitId, cdcSplitProgress.getNextSplitId())) {
+                log.info("advanceSplits discard publish for job {} table {}: state moved on "
+                                + "after UPSERT (now table={}, splitId={})",
+                        getJobId(), tbl,
+                        cdcSplitProgress.getCurrentSplittingTable(),
+                        cdcSplitProgress.getNextSplitId());
+                return;
+            }
+            remainingSplits.addAll(newSplits);
+            applySplitToProgress(cdcSplitProgress, batch.get(batch.size() - 1), tbl);
+            log.info("advanceSplits jobId={} table={} request(nextStart={}, nextSplitId={}) "
+                            + "published {} new splits, cdcSplitProgress -> (table={}, nextStart={}, nextSplitId={})",
+                    getJobId(), tbl, Arrays.toString(startVal), splitId, newSplits.size(),
+                    cdcSplitProgress.getCurrentSplittingTable(),
+                    Arrays.toString(cdcSplitProgress.getNextSplitStart()),
+                    cdcSplitProgress.getNextSplitId());
         }
     }
 
-    private List<SnapshotSplit> requestTableSplits(String table) throws JobException {
+    /** Parse the trailing integer id from flink-cdc splitId format "tableId:id". */
+    static int splitIdOf(String splitId) {
+        if (splitId == null) {
+            throw new IllegalArgumentException("splitId is null");
+        }
+        int colon = splitId.lastIndexOf(':');
+        if (colon < 0 || colon == splitId.length() - 1) {
+            throw new IllegalArgumentException("malformed splitId, expected 'tableId:id': " + splitId);
+        }
+        try {
+            return Integer.parseInt(splitId.substring(colon + 1));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("malformed splitId, expected 'tableId:id': " + splitId, e);
+        }
+    }
+
+    /** Reset progress to "no table being split" state. */
+    private static void clearProgress(SplitProgress progress) {
+        progress.setCurrentSplittingTable(null);
+        progress.setNextSplitStart(null);
+        progress.setNextSplitId(null);
+    }
+
+    /**
+     * Apply a split's position to a progress object.
+     * - splitEnd null/empty (final split of table) → clear all fields.
+     * - splitEnd non-empty → set currentSplittingTable to tableName (bare, matching the
+     *   form used in cachedSyncTables / snapshotTable), advance start/id.
+     * tableName must be the bare name; SnapshotSplit.tableId is qualified (schema.table)
+     * and would break the fetchSplits RPC contract if reused as currentSplittingTable.
+     */
+    private static void applySplitToProgress(SplitProgress progress, SnapshotSplit split, String tableName) {
+        if (split.getSplitEnd() == null || split.getSplitEnd().length == 0) {
+            clearProgress(progress);
+        } else {
+            progress.setCurrentSplittingTable(tableName);
+            progress.setNextSplitStart(split.getSplitEnd());
+            progress.setNextSplitId(splitIdOf(split.getSplitId()) + 1);
+        }
+    }
+
+    /** RPC fetchSplits with (table, nextSplitStart, nextSplitId, batchSize). protected for UT subclass. */
+    protected List<SnapshotSplit> rpcFetchSplitsBatch(String table, Object[] nextSplitStart, Integer nextSplitId)
+            throws JobException {
         Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
-        FetchTableSplitsRequest requestParams =
-                new FetchTableSplitsRequest(getJobId(), sourceType.name(),
-                        sourceProperties, getFrontendAddress(), table);
+        FetchTableSplitsRequest requestParams = new FetchTableSplitsRequest(
+                getJobId(), sourceType.name(), sourceProperties, getFrontendAddress(), table);
+        requestParams.setNextSplitStart(nextSplitStart);
+        requestParams.setNextSplitId(nextSplitId);
+        requestParams.setBatchSize(Config.streaming_cdc_fetch_splits_batch_size);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/fetchSplits")
-                .setParams(new Gson().toJson(requestParams)).build();
+                .setParams(new Gson().toJson(requestParams))
+                .build();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
-        InternalService.PRequestCdcClientResult result = null;
         try {
             Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
                     .requestCdcClient(address, request, Config.streaming_cdc_heavy_rpc_timeout_sec);
-            result = future.get(Config.streaming_cdc_heavy_rpc_timeout_sec, TimeUnit.SECONDS);
+            PRequestCdcClientResult result = future.get(
+                    Config.streaming_cdc_heavy_rpc_timeout_sec, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
-                log.warn("Failed to get split from backend, {}", result.getStatus().getErrorMsgs(0));
-                throw new JobException(
-                        "Failed to get split from backend," + result.getStatus().getErrorMsgs(0) + ", response: "
-                                + result.getResponse());
+                throw new JobException("fetchSplits backend error: " + result.getStatus().getErrorMsgs(0));
             }
-            String response = result.getResponse();
-            try {
-                ResponseBody<List<SnapshotSplit>> responseObj = objectMapper.readValue(
-                        response,
-                        new TypeReference<ResponseBody<List<SnapshotSplit>>>() {
-                        }
-                );
-                List<SnapshotSplit> splits = responseObj.getData();
-                return splits;
-            } catch (JsonProcessingException e) {
-                log.warn("Failed to parse split response: {}", response);
-                throw new JobException("Failed to parse split response: " + response);
-            }
+            ResponseBody<List<SnapshotSplit>> resp = objectMapper.readValue(
+                    result.getResponse(),
+                    new TypeReference<ResponseBody<List<SnapshotSplit>>>() {});
+            return resp.getData();
         } catch (TimeoutException te) {
-            log.warn("cdc_client RPC timeout api=/api/fetchSplits jobId={} backend={}:{} table={} timeout_sec={}",
-                    getJobId(), backend.getHost(), backend.getBrpcPort(), table,
-                    Config.streaming_cdc_heavy_rpc_timeout_sec);
-            throw new JobException("cdc_client RPC timeout: /api/fetchSplits jobId=" + getJobId() + " table=" + table);
-        } catch (ExecutionException | InterruptedException ex) {
-            log.warn("Get splits error: ", ex);
-            throw new JobException(ex);
+            throw new JobException("fetchSplits RPC timeout: jobId=" + getJobId() + " table=" + table);
+        } catch (Exception ex) {
+            throw new JobException("fetchSplits failed: " + ex.getMessage());
         }
     }
 
@@ -673,9 +933,14 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public boolean hasReachedEnd() {
-        return isSnapshotOnlyMode()
-                && CollectionUtils.isNotEmpty(finishedSplits)
-                && remainingSplits.isEmpty();
+        if (!isSnapshotOnlyMode()) {
+            return false;
+        }
+        synchronized (splitsLock) {
+            return CollectionUtils.isNotEmpty(finishedSplits)
+                    && remainingSplits.isEmpty()
+                    && noMoreSplits();
+        }
     }
 
     /**
@@ -764,5 +1029,32 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     private String getFrontendAddress() {
         return Env.getCurrentEnv().getMasterHost() + ":" + Env.getCurrentEnv().getMasterHttpPort();
+    }
+
+
+    /** Mirrors flink-cdc ChunkSplitterState. */
+    @Getter
+    @Setter
+    public static class SplitProgress {
+        @SerializedName("ct")
+        private String currentSplittingTable;
+
+        @SerializedName("ns")
+        private Object[] nextSplitStart;
+
+        @SerializedName("ni")
+        private Integer nextSplitId;
+
+        public SplitProgress() {}
+
+        /** Deep copy for transferring committed -> cdc view on restart. */
+        public SplitProgress copy() {
+            SplitProgress c = new SplitProgress();
+            c.currentSplittingTable = this.currentSplittingTable;
+            c.nextSplitStart = this.nextSplitStart == null
+                    ? null : Arrays.copyOf(this.nextSplitStart, this.nextSplitStart.length);
+            c.nextSplitId = this.nextSplitId;
+            return c;
+        }
     }
 }

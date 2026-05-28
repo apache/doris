@@ -121,7 +121,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     }
 
     bool need_ordered_result = true;
-    if (read_params.reader_type == ReaderType::READER_QUERY) {
+    if (read_params.reader_type == ReaderType::READER_QUERY ||
+        read_params.reader_type == ReaderType::READER_BINLOG) {
         if (_tablet_schema->keys_type() == DUP_KEYS) {
             // duplicated keys are allowed, no need to merge sort keys in rowset
             need_ordered_result = false;
@@ -178,7 +179,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.record_rowids = read_params.record_rowids;
     _reader_context.rowid_conversion = read_params.rowid_conversion;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
-    _reader_context.remaining_conjunct_roots = read_params.remaining_conjunct_roots;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
     _reader_context.output_columns = &read_params.output_columns;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
@@ -271,7 +271,8 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
 
 Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_return_columns_timer_ns);
-    if (read_params.reader_type == ReaderType::READER_QUERY) {
+    if (read_params.reader_type == ReaderType::READER_QUERY ||
+        read_params.reader_type == ReaderType::READER_BINLOG) {
         _return_columns = read_params.return_columns;
         _tablet_columns_convert_to_null_set = read_params.tablet_columns_convert_to_null_set;
         for (auto id : read_params.return_columns) {

@@ -151,6 +151,17 @@ bool is_rowset_tidy(std::string& pre_max_key, bool& pre_rs_key_bounds_truncated,
     return true;
 }
 
+TsoRange commit_tso_range(const std::vector<RowsetSharedPtr>& rowsets) {
+    DCHECK(!rowsets.empty());
+    auto range = rowsets.front()->commit_tso();
+    for (const auto& rowset : rowsets) {
+        const auto commit_tso = rowset->commit_tso();
+        range.first = std::min(range.first, commit_tso.start_tso());
+        range.second = std::max(range.second, commit_tso.end_tso());
+    }
+    return range;
+}
+
 } // namespace
 
 Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
@@ -321,6 +332,7 @@ Status Compaction::merge_input_rowsets() {
     RETURN_NOT_OK_STATUS_WITH_WARN(_output_rs_writer->build(_output_rowset),
                                    fmt::format("rowset writer build failed. output_version: {}",
                                                _output_version.to_string()));
+    _output_rowset->rowset_meta()->set_commit_tso(commit_tso_range(_input_rowsets));
 
     // When true, writers should remove variant extracted subcolumns from the
     // schema stored in RowsetMeta. This is used when compaction temporarily
@@ -458,6 +470,7 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
                                      !_tablet->enable_unique_key_merge_on_write());
     rowset_meta->set_segments_key_bounds(segment_key_bounds, aggregate_key_bounds);
     rowset_meta->set_num_segment_rows(num_segment_rows);
+    rowset_meta->set_commit_tso(commit_tso_range(_input_rowsets));
 
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
 

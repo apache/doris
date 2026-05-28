@@ -51,7 +51,7 @@ int MemLimiter::available_scanner_count(int ins_idx) const {
     int64_t estimated_block_mem_bytes_value = get_estimated_block_mem_bytes();
     DCHECK_GT(estimated_block_mem_bytes_value, 0);
 
-    int64_t max_count = std::max(1L, mem_limit_value / estimated_block_mem_bytes_value);
+    int64_t max_count = std::max<int64_t>(1, mem_limit_value / estimated_block_mem_bytes_value);
     int64_t avail_count = max_count;
     int64_t per_count = avail_count / parallelism;
     if (serial_operator) {

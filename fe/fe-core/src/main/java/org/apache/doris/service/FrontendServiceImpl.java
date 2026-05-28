@@ -120,6 +120,7 @@ import org.apache.doris.qe.MysqlConnectProcessor;
 import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
@@ -1007,7 +1008,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (ctx == null) {
             return result;
         }
-        vars = VariableMgr.dump(SetType.fromThrift(params.getVarType()), ctx.getSessionVariable(), null);
+        // SHOW VARIABLES can be evaluated through an internal schema query. Planning that
+        // internal query may call setVarOnce() and temporarily change the live session
+        // variable (for example disable_join_reorder). Cloning alone is not enough,
+        // because the clone would keep both the temporary value and its recorded origin.
+        // Revert only the clone so Changed reflects user-visible session settings,
+        // while the real session remains untouched.
+        SessionVariable sessionVariable = VariableMgr.cloneSessionVariable(ctx.getSessionVariable());
+        try {
+            VariableMgr.revertSessionValue(sessionVariable);
+        } catch (DdlException e) {
+            throw new TException(e);
+        }
+        vars = VariableMgr.dump(SetType.fromThrift(params.getVarType()), sessionVariable, null);
         result.setVariables(vars);
         return result;
     }
@@ -2594,7 +2607,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             if (request.is_success) {
                 if (request.isSetGroupId()) {
-                    taskGroupSuccessImpl(request.getDb(), request.getTbl(), request.getGroupId());
+                    taskGroupSuccessImpl(request.getDb(), request.getTbl(),
+                            request.getGroupId(), request.isForceDropPartition());
                 } else if (request.isSetTaskId()) {
                     taskSuccessImpl(request.getTaskId());
                 }
@@ -2619,7 +2633,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    private void taskGroupSuccessImpl(String dbName, String tblName, long groupId) throws Exception {
+    private void taskGroupSuccessImpl(String dbName, String tblName,
+            long groupId, boolean forceDropPartition) throws Exception {
         DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
         if (db == null) {
             throw new DdlException("Database not found: " + dbName);
@@ -2631,7 +2646,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (tbl == null) {
             throw new DdlException("Table not found: " + tblName);
         }
-        Env.getCurrentEnv().getInsertOverwriteManager().taskGroupSuccess(groupId, (OlapTable) tbl);
+        Env.getCurrentEnv().getInsertOverwriteManager().taskGroupSuccess(groupId, (OlapTable) tbl, forceDropPartition);
     }
 
     private void taskSuccessImpl(long taskId) throws Exception {

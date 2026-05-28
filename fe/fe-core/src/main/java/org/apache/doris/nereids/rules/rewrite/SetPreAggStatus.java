@@ -212,6 +212,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
         Plan plan = super.visit(logicalAggregate, context);
         if (!context.isEmpty()) {
             PreAggInfoContext preAggInfoContext = context.pop();
+            preAggInfoContext.olapScanIds.retainAll(logicalAggregate.child().getInputRelations());
             preAggInfoContext.addAggregateFunctions(logicalAggregate.getAggregateFunctions());
             preAggInfoContext.addGroupByExpresssions(logicalAggregate.getGroupByExpressions());
             for (RelationId id : preAggInfoContext.olapScanIds) {

@@ -80,7 +80,8 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block
     if (in_block->rows() != 0) {
         if (local_state._mutable_block.empty()) {
             auto tmp_build_block = *(in_block->create_same_struct_block(0, false));
-            local_state._mutable_block = MutableBlock::build_mutable_block(&tmp_build_block);
+            local_state._mutable_block =
+                    MutableBlock::build_mutable_block(std::move(tmp_build_block));
         }
 
         {

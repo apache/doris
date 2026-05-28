@@ -947,6 +947,8 @@ struct TOlapScanNode {
   24: optional bool enable_mor_value_predicate_pushdown
   // Read MOR table as DUP table: skip merge, skip delete sign
   25: optional bool read_mor_as_dup
+  // Read row binlog index instead of base index
+  26: optional bool read_row_binlog
 }
 
 struct TEqJoinCondition {
@@ -1049,6 +1051,11 @@ struct TNestedLoopJoinNode {
   9: optional list<Exprs.TExpr> mark_join_conjuncts
   // deprecated
   10: optional bool use_specific_projections
+
+  // Slots that need to be materialized after join conjunct evaluation.
+  // If this field is not set, BE keeps the legacy behavior.
+  // If this field is set to an empty list, no payload slot needs materialization.
+  11: optional list<Types.TSlotId> materialized_slot_ids
 }
 
 struct TMergeJoinNode {

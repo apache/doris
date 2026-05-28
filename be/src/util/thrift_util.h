@@ -175,8 +175,9 @@ void t_network_address_to_string(const TNetworkAddress& address, std::string* ou
 // string representation
 bool t_network_address_comparator(const TNetworkAddress& a, const TNetworkAddress& b);
 
-PURE std::string to_string(const TUniqueId& id);
+std::string to_string(const TUniqueId& id);
 
-PURE bool _has_inverted_index_v1_or_partial_update(TOlapTableSink sink);
+bool _has_inverted_index_v1_or_partial_update(TOlapTableSink sink);
+bool _has_row_binlog(const TOlapTableSink& sink);
 
 } // namespace doris

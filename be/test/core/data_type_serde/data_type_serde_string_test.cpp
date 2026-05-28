@@ -32,6 +32,7 @@
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
@@ -308,9 +309,12 @@ TEST_F(DataTypeStringSerDeTest, ArrowMemNotAlignedNestedArr) {
     EXPECT_EQ(values_address % 4, 1);
 
     // 5.Test read_column_from_arrow
-    auto ser_col = ColumnArray::create(ColumnString::create(), ColumnOffset64::create());
+    auto ser_col = ColumnArray::create(
+            ColumnNullable::create(ColumnString::create(), ColumnUInt8::create()),
+            ColumnOffset64::create());
     cctz::time_zone tz;
-    auto serde_list = std::make_shared<DataTypeArraySerDe>(serde_str);
+    auto serde_nullable_str = std::make_shared<DataTypeNullableSerDe>(serde_str);
+    auto serde_list = std::make_shared<DataTypeArraySerDe>(serde_nullable_str);
     auto st = serde_list->read_column_from_arrow(*ser_col, arr.get(), 0, 1, tz);
     EXPECT_TRUE(st.ok());
 }

@@ -1313,6 +1313,11 @@ DECLARE_String(inverted_index_query_cache_limit);
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
 
+// ANN index topn result cache
+DECLARE_String(ann_index_result_cache_limit);
+DECLARE_Int32(ann_index_result_cache_shards);
+DECLARE_Int32(ann_index_result_cache_stale_sweep_time_sec);
+
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
@@ -1425,6 +1430,8 @@ DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 DECLARE_mInt32(variant_max_json_key_length);
 // Treat invalid json format str as string, instead of throwing exception if false
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
+// Enable duplicate path check when parsing json into variant subcolumns/jsonb.
+DECLARE_mBool(variant_enable_duplicate_json_path_check);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
 DECLARE_mBool(enable_variant_doc_sparse_write_subcolumns);
@@ -1639,9 +1646,6 @@ DECLARE_mInt32(thrift_client_open_num_tries);
 DECLARE_String(s3_client_http_scheme);
 
 DECLARE_mBool(ignore_schema_change_check);
-
-/** Only use in fuzzy test **/
-DECLARE_mInt64(string_overflow_size);
 
 // The min thread num for BufferedReaderPrefetchThreadPool
 DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread);

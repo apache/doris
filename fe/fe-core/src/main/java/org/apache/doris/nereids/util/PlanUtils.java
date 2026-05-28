@@ -195,7 +195,7 @@ public class PlanUtils {
             List<? extends Expression> targetExpressions) {
         Set<Slot> uniqueFunctionSlots = Sets.newHashSet();
         for (Entry<Slot, Expression> kv : ExpressionUtils.generateReplaceMap(childProjects).entrySet()) {
-            if (kv.getValue().containsUniqueFunction()) {
+            if (kv.getValue().containsVolatileExpression()) {
                 uniqueFunctionSlots.add(kv.getKey());
             }
         }

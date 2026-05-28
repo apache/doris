@@ -398,7 +398,7 @@ CONF_Bool(enable_split_rowset_meta_pb, "true");
 CONF_Int32(split_rowset_meta_pb_size, "10000"); // split rowset meta pb size, default is 10K
 CONF_Bool(enable_split_tablet_schema_pb, "false");
 CONF_Int32(split_tablet_schema_pb_size, "10000"); // split tablet schema pb size, default is 10K
-CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
+CONF_mBool(enable_check_fe_drop_in_safe_time, "true");
 
 CONF_Bool(enable_logging_for_single_version_reading, "false");
 CONF_mBool(enable_logging_conflict_keys, "false");
@@ -443,4 +443,6 @@ CONF_Bool(enable_instance_update_watcher, "true");
 CONF_mBool(advance_txn_lazy_commit_during_reads, "true");
 CONF_mBool(wait_txn_lazy_commit_during_reads, "true");
 
+// Whether to enable recycler. If false, the recycler will skip scanning instances to pending queue.
+CONF_mBool(enable_recycler, "true");
 } // namespace doris::cloud::config

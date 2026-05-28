@@ -215,7 +215,7 @@ public:
         if (in_state->use_set) {
             if (materialized_column->is_nullable()) {
                 const auto* null_col_ptr =
-                        check_and_get_column<ColumnNullable>(materialized_column.get());
+                        assert_cast<const ColumnNullable*>(materialized_column.get());
                 const auto& null_map = null_col_ptr->get_null_map_column().get_data();
                 const auto* nested_col_ptr = null_col_ptr->get_nested_column_ptr().get();
 

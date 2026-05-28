@@ -40,6 +40,28 @@ namespace doris::segment_v2 {
 
 using namespace inverted_index;
 
+TEST(BitSetQueryTest, EmptyTruthBitmapPreservesNullBitmap) {
+    auto true_bitmap = std::make_shared<roaring::Roaring>();
+    auto null_bitmap = std::make_shared<roaring::Roaring>();
+    null_bitmap->addRange(0, 4);
+
+    query_v2::BitSetQuery query(std::move(true_bitmap), std::move(null_bitmap));
+    auto weight = query.weight(false);
+    ASSERT_NE(nullptr, weight);
+
+    query_v2::QueryExecutionContext exec_ctx;
+    auto scorer = weight->scorer(exec_ctx);
+    ASSERT_NE(nullptr, scorer);
+    EXPECT_EQ(query_v2::TERMINATED, scorer->doc());
+    ASSERT_TRUE(scorer->has_null_bitmap());
+
+    const auto* scorer_null_bitmap = scorer->get_null_bitmap();
+    ASSERT_NE(nullptr, scorer_null_bitmap);
+    EXPECT_EQ(4, scorer_null_bitmap->cardinality());
+    EXPECT_TRUE(scorer_null_bitmap->contains(0));
+    EXPECT_TRUE(scorer_null_bitmap->contains(3));
+}
+
 class BooleanQueryTest : public testing::Test {
 public:
     const std::string kTestDir1 = "./ut_dir/query_test1";

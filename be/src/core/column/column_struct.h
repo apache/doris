@@ -51,7 +51,7 @@ class ColumnStruct final : public COWHelper<IColumn, ColumnStruct> {
 private:
     friend class COWHelper<IColumn, ColumnStruct>;
 
-    using TupleColumns = std::vector<WrappedPtr>;
+    using TupleColumns = std::vector<IColumn::WrappedPtr>;
     TupleColumns columns;
 
     template <bool positive>
