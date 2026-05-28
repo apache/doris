@@ -406,6 +406,14 @@ TFileScanRangeParams make_local_parquet_scan_params() {
     return scan_params;
 }
 
+std::shared_ptr<io::IOContext> make_io_context(io::FileReaderStats* file_reader_stats,
+                                               io::FileCacheStatistics* file_cache_stats) {
+    auto io_ctx = std::make_shared<io::IOContext>();
+    io_ctx->file_reader_stats = file_reader_stats;
+    io_ctx->file_cache_stats = file_cache_stats;
+    return io_ctx;
+}
+
 std::unique_ptr<ReadProfile> make_table_read_profile(RuntimeProfile* profile) {
     auto read_profile = std::make_unique<ReadProfile>();
     read_profile->num_delete_files = ADD_COUNTER(profile, "NumDeleteFiles", TUnit::UNIT);
@@ -1172,7 +1180,9 @@ TEST(TableReaderTest, IcebergTableReaderAppliesDeletionVectorFile) {
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto scan_params = make_local_parquet_scan_params();
-    auto io_ctx = std::make_shared<io::IOContext>();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
     ShardedKVCache cache(1);
     doris::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
@@ -1219,7 +1229,9 @@ TEST(TableReaderTest, IcebergTableReaderAppliesPositionDeleteFile) {
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto scan_params = make_local_parquet_scan_params();
-    auto io_ctx = std::make_shared<io::IOContext>();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
     ShardedKVCache cache(1);
     doris::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
@@ -1268,7 +1280,9 @@ TEST(TableReaderTest, IcebergTableReaderMergesDeletionVectorAndPositionDeleteFil
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto scan_params = make_local_parquet_scan_params();
-    auto io_ctx = std::make_shared<io::IOContext>();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
     ShardedKVCache cache(1);
     doris::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
