@@ -22,6 +22,7 @@
 #include <memory>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_const.h"
@@ -33,6 +34,9 @@
 #include "core/field.h"
 #include "format/new_parquet/column_reader.h"
 #include "format/new_parquet/parquet_reader.h"
+#include "format/reader/expr/cast.h"
+#include "format/reader/expr/equality_delete_predicate.h"
+#include "format/reader/expr/slot_ref.h"
 #include "format/reader/table_reader.h"
 #include "format/table/deletion_vector_reader.h"
 #include "io/file_factory.h"
@@ -67,7 +71,7 @@ Status IcebergTableReader::prepare_split(const reader::SplitReadOptions& options
     _iceberg_params = nullptr;
     _delete_predicates_initialized = false;
     _position_delete_rows_storage.clear();
-    _equality_delete_files.clear();
+    _equality_delete_filters.clear();
     if (options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.iceberg_params) {
         const auto& iceberg_params = options.current_range.table_format_params.iceberg_params;
@@ -81,13 +85,7 @@ Status IcebergTableReader::prepare_split(const reader::SplitReadOptions& options
         }
     }
     RETURN_IF_ERROR(TableReader::prepare_split(options));
-    return _collect_position_delete_rows(options.current_range.table_format_params);
-}
-
-Status IcebergTableReader::finalize_chunk(Block* block, const size_t rows) {
-    RETURN_IF_ERROR(reader::TableReader::finalize_chunk(block, rows));
-    RETURN_IF_ERROR(apply_equality_deletes(block));
-    return Status::OK();
+    return _init_delete_predicates(options.current_range.table_format_params);
 }
 
 Status IcebergTableReader::materialize_virtual_columns(Block* table_block) {
@@ -114,6 +112,7 @@ Status IcebergTableReader::customize_file_scan_request(reader::FileScanRequest* 
     if (_row_lineage_columns.first_row_id >= 0 && _need_row_lineage_row_id()) {
         RETURN_IF_ERROR(_append_row_position_output_column(file_request));
     }
+    RETURN_IF_ERROR(_append_equality_delete_predicates(file_request));
     return Status::OK();
 }
 
@@ -161,7 +160,7 @@ Status IcebergTableReader::_parse_deletion_vector_file(const TTableFormatFileDes
     return Status::OK();
 }
 
-Status IcebergTableReader::_collect_position_delete_rows(const TTableFormatFileDesc& t_desc) {
+Status IcebergTableReader::_init_delete_predicates(const TTableFormatFileDesc& t_desc) {
     if (!t_desc.__isset.iceberg_params || _delete_predicates_initialized) {
         _delete_predicates_initialized = true;
         return Status::OK();
@@ -175,6 +174,7 @@ Status IcebergTableReader::_collect_position_delete_rows(const TTableFormatFileD
     }
 
     std::vector<TIcebergDeleteFileDesc> position_delete_files;
+    std::vector<TIcebergDeleteFileDesc> equality_delete_files;
     for (const auto& delete_file : iceberg_params.delete_files) {
         if (!delete_file.__isset.content) {
             continue;
@@ -182,26 +182,28 @@ Status IcebergTableReader::_collect_position_delete_rows(const TTableFormatFileD
         if (delete_file.content == POSITION_DELETE) {
             position_delete_files.push_back(delete_file);
         } else if (delete_file.content == EQUALITY_DELETE) {
-            _equality_delete_files.push_back(delete_file);
+            equality_delete_files.push_back(delete_file);
         }
     }
 
+    // `_delete_rows != nullptr` means DeleteVector is parsed
     if (_delete_rows != nullptr) {
         _position_delete_rows_storage = *_delete_rows;
         _delete_rows = &_position_delete_rows_storage;
     }
+    // Combine position delete rows from both deletion vector and position delete files, and
+    // initialize equality delete predicates. Position delete files contain row positions of
+    // deleted rows, which can be directly added to `_delete_rows`. Equality delete files contain
+    // values of deleted rows, which require reading the files and building predicates for later
+    // filtering.
     if (!position_delete_files.empty()) {
-        RETURN_IF_ERROR(_read_position_delete_files(position_delete_files));
+        RETURN_IF_ERROR(_init_position_delete_rows(position_delete_files));
+    }
+    if (!equality_delete_files.empty()) {
+        RETURN_IF_ERROR(_init_equality_delete_predicates(equality_delete_files));
     }
 
     _delete_predicates_initialized = true;
-    return Status::OK();
-}
-
-Status IcebergTableReader::apply_equality_deletes(Block* block) {
-    if (!_equality_delete_files.empty()) {
-        return Status::NotSupported("Iceberg equality delete is not supported by TableReader");
-    }
     return Status::OK();
 }
 
@@ -267,11 +269,61 @@ Block IcebergTableReader::_build_position_delete_block(const reader::SchemaField
     return block;
 }
 
+Block IcebergTableReader::_build_equality_delete_block(
+        const std::vector<reader::SchemaField>& fields) {
+    Block block;
+    for (const auto& field : fields) {
+        block.insert({field.type->create_column(), field.type, field.name});
+    }
+    return block;
+}
+
 Status IcebergTableReader::_append_row_position_output_column(reader::FileScanRequest* request) {
     const auto row_position_column_id =
             doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
     _append_file_scan_column(request, row_position_column_id, &request->non_predicate_columns);
     _row_position_block_position = request->column_positions.at(row_position_column_id);
+    return Status::OK();
+}
+
+Status IcebergTableReader::_append_equality_delete_predicates(
+        reader::FileScanRequest* request) {
+    DORIS_CHECK(request != nullptr);
+    for (const auto& filter : _equality_delete_filters) {
+        auto delete_predicate =
+                std::make_shared<EqualityDeletePredicate>(filter.delete_block, filter.field_ids);
+        reader::FileExpressionFilter expression_filter;
+        expression_filter.delete_conjunct = VExprContext::create_shared(delete_predicate);
+        DCHECK_EQ(filter.field_ids.size(), filter.key_types.size());
+        for (size_t idx = 0; idx < filter.field_ids.size(); ++idx) {
+            const int field_id = filter.field_ids[idx];
+            auto field_it = std::find_if(_data_reader.file_schema.begin(),
+                                         _data_reader.file_schema.end(),
+                                         [field_id](const reader::SchemaField& field) {
+                                             return !field.field_id_path.empty() &&
+                                                    field.field_id_path.back() == field_id;
+                                         });
+            if (field_it == _data_reader.file_schema.end()) {
+                return Status::InternalError(
+                        "Can not find equality delete column field id {} in data file schema",
+                        field_id);
+            }
+            _append_file_scan_column(request, field_it->id, &request->predicate_columns);
+            const auto block_position = request->column_positions.at(field_it->id);
+            auto slot = TableSlotRef::create_shared(
+                    cast_set<int>(block_position), cast_set<int>(block_position), -1,
+                    field_it->type, field_it->name);
+            if (field_it->type->equals(*filter.key_types[idx])) {
+                delete_predicate->add_child(std::move(slot));
+            } else {
+                auto cast_expr = Cast::create_shared(filter.key_types[idx]);
+                cast_expr->add_child(std::move(slot));
+                delete_predicate->add_child(std::move(cast_expr));
+            }
+            expression_filter.file_column_ids.push_back(field_it->id);
+        }
+        request->expression_filters.push_back(std::move(expression_filter));
+    }
     return Status::OK();
 }
 
@@ -335,7 +387,7 @@ Status IcebergTableReader::_read_parquet_position_delete_file(
     return reader.close();
 }
 
-Status IcebergTableReader::_read_position_delete_files(
+Status IcebergTableReader::_init_position_delete_rows(
         const std::vector<TIcebergDeleteFileDesc>& delete_files) {
     TFileScanRangeParams delete_scan_params =
             _scan_params == nullptr ? TFileScanRangeParams() : *_scan_params;
@@ -361,6 +413,94 @@ Status IcebergTableReader::_read_position_delete_files(
                                                     _position_delete_rows_storage.end()),
                                         _position_delete_rows_storage.end());
     _delete_rows = &_position_delete_rows_storage;
+    return Status::OK();
+}
+
+Status IcebergTableReader::_init_equality_delete_predicates(
+        const std::vector<TIcebergDeleteFileDesc>& delete_files) {
+    TFileScanRangeParams delete_scan_params =
+            _scan_params == nullptr ? TFileScanRangeParams() : *_scan_params;
+    IcebergDeleteFileIOContext delete_io_ctx(_runtime_state);
+    for (const auto& delete_file : delete_files) {
+        RETURN_IF_ERROR(
+                _read_parquet_equality_delete_file(delete_file, delete_scan_params, &delete_io_ctx));
+    }
+    return Status::OK();
+}
+
+Status IcebergTableReader::_read_parquet_equality_delete_file(
+        const TIcebergDeleteFileDesc& delete_file, const TFileScanRangeParams& scan_params,
+        IcebergDeleteFileIOContext* delete_io_ctx) {
+    if (!delete_file.__isset.file_format) {
+        return Status::InternalError("Iceberg equality delete file is missing file format");
+    }
+    if (delete_file.file_format != TFileFormatType::FORMAT_PARQUET) {
+        return Status::NotSupported("Unsupported Iceberg equality delete file format {}",
+                                    delete_file.file_format);
+    }
+    if (!delete_file.__isset.field_ids || delete_file.field_ids.empty()) {
+        return Status::InternalError("Iceberg equality delete file is missing field ids");
+    }
+
+    auto delete_range = build_iceberg_delete_file_range(delete_file.path);
+    if (_current_task != nullptr && _current_task->data_file != nullptr &&
+        !_current_task->data_file->fs_name.empty()) {
+        delete_range.__set_fs_name(_current_task->data_file->fs_name);
+    }
+    auto system_properties = _delete_file_system_properties(scan_params);
+    auto file_description = _delete_file_description(delete_range);
+    std::shared_ptr<io::IOContext> io_ctx(&delete_io_ctx->io_ctx, [](io::IOContext*) {});
+    parquet::ParquetReader reader(system_properties, file_description, io_ctx, _scanner_profile);
+    RETURN_IF_ERROR(reader.init(_runtime_state));
+
+    std::vector<reader::SchemaField> schema;
+    RETURN_IF_ERROR(reader.get_schema(&schema));
+    std::vector<reader::SchemaField> delete_fields;
+    std::vector<int> delete_field_ids;
+    std::vector<DataTypePtr> delete_key_types;
+    for (const auto field_id : delete_file.field_ids) {
+        auto field_it = std::find_if(schema.begin(), schema.end(),
+                                     [field_id](const reader::SchemaField& field) {
+                                         return !field.field_id_path.empty() &&
+                                                field.field_id_path.back() == field_id;
+                                     });
+        if (field_it == schema.end()) {
+            return Status::InternalError(
+                    "Can not find field id {} in equality delete file {}", field_id,
+                    delete_file.path);
+        }
+        if (!field_it->children.empty()) {
+            return Status::NotSupported(
+                    "Iceberg equality delete does not support complex column {}", field_it->name);
+        }
+        delete_fields.push_back(*field_it);
+        delete_field_ids.push_back(field_id);
+        delete_key_types.push_back(field_it->type);
+    }
+
+    auto request = std::make_unique<reader::FileScanRequest>();
+    for (size_t idx = 0; idx < delete_fields.size(); ++idx) {
+        request->non_predicate_columns.push_back(delete_fields[idx].id);
+        request->column_positions.emplace(delete_fields[idx].id, idx);
+    }
+    RETURN_IF_ERROR(reader.open(request));
+
+    Block delete_block = _build_equality_delete_block(delete_fields);
+    bool eof = false;
+    while (!eof) {
+        Block block = _build_equality_delete_block(delete_fields);
+        size_t read_rows = 0;
+        RETURN_IF_ERROR(reader.get_block(&block, &read_rows, &eof));
+        if (read_rows > 0) {
+            MutableBlock mutable_block(&delete_block);
+            RETURN_IF_ERROR(mutable_block.merge(block));
+        }
+    }
+    RETURN_IF_ERROR(reader.close());
+    _equality_delete_filters.push_back(
+            EqualityDeleteFilter {.field_ids = std::move(delete_field_ids),
+                                  .key_types = std::move(delete_key_types),
+                                  .delete_block = std::move(delete_block)});
     return Status::OK();
 }
 
