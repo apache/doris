@@ -93,6 +93,4 @@ suite("test_timestamptz_agg_functions", "datatype_p0") {
         FROM tz_group_array_crash
         GROUP BY grp
     """
-
-    sql "DROP TABLE IF EXISTS tz_group_array_crash"
 }
