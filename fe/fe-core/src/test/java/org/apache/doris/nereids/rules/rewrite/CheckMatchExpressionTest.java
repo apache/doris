@@ -18,10 +18,13 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -77,6 +80,48 @@ class CheckMatchExpressionTest {
         MatchAny match = new MatchAny(variantSubcolumnSlot, new StringLiteral("doris"));
 
         Assertions.assertDoesNotThrow(() -> invokeCheck(match));
+    }
+
+    @Test
+    void testAllowsAliasOnVariantSubcolumnMatch() {
+        SlotReference variantSubcolumnSlot = new SlotReference("response", VariantType.INSTANCE, true, Arrays.asList())
+                .withSubPath(Arrays.asList("trace_id"));
+        MatchAny match = new MatchAny(new Alias(variantSubcolumnSlot, "response.trace_id"),
+                new StringLiteral("doris"));
+
+        Assertions.assertDoesNotThrow(() -> invokeCheck(match));
+    }
+
+    @Test
+    void testAllowsCastOnAliasVariantSubcolumnMatch() {
+        SlotReference variantSubcolumnSlot = new SlotReference("response", VariantType.INSTANCE, true, Arrays.asList())
+                .withSubPath(Arrays.asList("trace_id"));
+        MatchAny match = new MatchAny(new Cast(new Alias(variantSubcolumnSlot, "response.trace_id"),
+                StringType.INSTANCE), new StringLiteral("doris"));
+
+        Assertions.assertDoesNotThrow(() -> invokeCheck(match));
+    }
+
+    @Test
+    void testAllowsAliasAndCastChainOnVariantSubcolumnMatch() {
+        SlotReference variantSubcolumnSlot = new SlotReference("response", VariantType.INSTANCE, true, Arrays.asList())
+                .withSubPath(Arrays.asList("trace_id"));
+        Expression left = new Cast(new Alias(new Cast(variantSubcolumnSlot, StringType.INSTANCE),
+                "response.trace_id"), StringType.INSTANCE);
+        MatchAny match = new MatchAny(left, new StringLiteral("doris"));
+
+        Assertions.assertDoesNotThrow(() -> invokeCheck(match));
+    }
+
+    @Test
+    void testRejectsAliasOnExpressionMatch() {
+        Expression aliasOnExpression = new Alias(new Add(new IntegerLiteral(1), new IntegerLiteral(2)),
+                "response.trace_id");
+        MatchAny match = new MatchAny(aliasOnExpression, new StringLiteral("doris"));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> invokeCheck(match));
+        Assertions.assertTrue(exception.getMessage().contains("Only support match left operand is SlotRef"),
+                exception.getMessage());
     }
 
     private void invokeCheck(Expression expression) throws Throwable {

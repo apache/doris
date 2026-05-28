@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -239,5 +242,31 @@ public class VariantPruningLogicTest extends TestWithFeService {
         TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.DATA);
         accessPath.data_access_path = new TDataAccessPath(ImmutableList.copyOf(path));
         return accessPath;
+    }
+
+    @Test
+    public void testMatchOnDotVariantSubColumnUsesSlotRefInScanPredicate() throws Exception {
+        String sql = "select id from variant_tbl "
+                + "where cast(v.trace_id as string) match_phrase_prefix 'abc'";
+        List<OlapScanNode> olapScanNodes = collectOlapScanNodes(sql);
+        Assertions.assertEquals(1, olapScanNodes.size());
+
+        List<MatchPredicate> matchPredicates = new ArrayList<>();
+        Expr.collectList(olapScanNodes.get(0).getConjuncts(), MatchPredicate.class, matchPredicates);
+        Assertions.assertEquals(1, matchPredicates.size());
+
+        Expr leftWithoutCast = matchPredicates.get(0).getChildWithoutCast(0);
+        Assertions.assertInstanceOf(SlotRef.class, leftWithoutCast, matchPredicates.get(0).toString());
+        SlotRef leftSlot = (SlotRef) leftWithoutCast;
+        Assertions.assertEquals(ImmutableList.of("trace_id"), leftSlot.getDesc().getSubColLables());
+    }
+
+    private List<OlapScanNode> collectOlapScanNodes(String sql) throws Exception {
+        NereidsPlanner planner = (NereidsPlanner) executeNereidsSql(sql).planner();
+        List<OlapScanNode> olapScanNodes = new ArrayList<>();
+        for (PlanFragment fragment : planner.getFragments()) {
+            olapScanNodes.addAll(fragment.getPlanRoot().collectInCurrentFragment(OlapScanNode.class::isInstance));
+        }
+        return olapScanNodes;
     }
 }
