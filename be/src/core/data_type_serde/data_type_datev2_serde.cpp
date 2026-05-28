@@ -22,11 +22,12 @@
 #include <fmt/core.h>
 
 #include <cstdint>
+
 #include "core/column/column_const.h"
-#include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
@@ -125,8 +126,8 @@ Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
     return Status::OK();
 }
 
-Status DataTypeDateV2SerDe::read_column_from_decoded_values(
-        IColumn& column, const DecodedColumnView& view) const {
+Status DataTypeDateV2SerDe::read_column_from_decoded_values(IColumn& column,
+                                                            const DecodedColumnView& view) const {
     if (view.value_kind != DecodedValueKind::INT32) {
         return Status::NotSupported("DATEV2 decoded reader expects INT32 source");
     }

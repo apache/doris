@@ -22,12 +22,13 @@
 
 #include <chrono> // IWYU pragma: keep
 #include <cstdint>
+
 #include "common/status.h"
 #include "core/column/column_const.h"
-#include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"

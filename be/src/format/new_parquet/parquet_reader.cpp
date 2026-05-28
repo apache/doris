@@ -328,9 +328,9 @@ Status ParquetReader::_execute_filter_conjuncts(int64_t batch_rows, Block* file_
         }
         IColumn::Filter filter(static_cast<size_t>(batch_rows), 1);
         bool can_filter_all = false;
-        RETURN_IF_ERROR(expression_filter.conjunct->execute_filter(
-                file_block, filter.data(), static_cast<size_t>(batch_rows), false,
-                &can_filter_all));
+        RETURN_IF_ERROR(expression_filter.conjunct->execute_filter(file_block, filter.data(),
+                                                                   static_cast<size_t>(batch_rows),
+                                                                   false, &can_filter_all));
         *selected_rows =
                 can_filter_all ? 0 : _apply_filter_to_selection(filter, selection, *selected_rows);
     }

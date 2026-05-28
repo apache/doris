@@ -61,8 +61,8 @@ NativeType decode_big_endian_signed_integer(const uint8_t* data, int length) {
 }
 
 template <PrimitiveType T>
-typename PrimitiveTypeTraits<T>::CppType read_decimal_decoded_value(
-        const DecodedColumnView& view, int64_t row) {
+typename PrimitiveTypeTraits<T>::CppType read_decimal_decoded_value(const DecodedColumnView& view,
+                                                                    int64_t row) {
     using FieldType = typename PrimitiveTypeTraits<T>::CppType;
     if (view.value_kind == DecodedValueKind::INT32) {
         const auto* values = reinterpret_cast<const int32_t*>(view.values);
@@ -76,9 +76,9 @@ typename PrimitiveTypeTraits<T>::CppType read_decimal_decoded_value(
     const auto length = view.value_kind == DecodedValueKind::FIXED_BINARY
                                 ? view.fixed_length
                                 : cast_set<int, size_t, false>(value.size);
-    return FieldType {static_cast<typename FieldType::NativeType>(
-            decode_big_endian_signed_integer<Int128>(reinterpret_cast<const uint8_t*>(value.data),
-                                                     length))};
+    return FieldType {
+            static_cast<typename FieldType::NativeType>(decode_big_endian_signed_integer<Int128>(
+                    reinterpret_cast<const uint8_t*>(value.data), length))};
 }
 
 template <PrimitiveType T>
@@ -441,8 +441,8 @@ Status DataTypeDecimalSerDe<T>::read_column_from_decoded_values(
             return read_decimal_decoded_values<T>(column, view);
         }
     }
-    return Status::NotSupported("Unsupported decoded values for {} from source kind {}",
-                                get_name(), static_cast<int>(view.value_kind));
+    return Status::NotSupported("Unsupported decoded values for {} from source kind {}", get_name(),
+                                static_cast<int>(view.value_kind));
 }
 
 template <PrimitiveType T>

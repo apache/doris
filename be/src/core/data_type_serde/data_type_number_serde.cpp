@@ -26,8 +26,8 @@
 #include "core/column/column_nullable.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
-#include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/packed_int128.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
@@ -55,8 +55,8 @@ Status read_number_decoded_values(IColumn& column, const DecodedColumnView& view
     if (view.values == nullptr && view.row_count > 0) {
         return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
     }
-    auto& data = assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column)
-                         .get_data();
+    auto& data =
+            assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column).get_data();
     const auto* values = decoded_values_as<SourceType>(view);
     for (int64_t row = 0; row < view.row_count; ++row) {
         using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
@@ -204,8 +204,8 @@ Status DataTypeNumberSerDe<T>::read_column_from_decoded_values(
             return read_number_decoded_values<TYPE_DOUBLE, double>(column, view);
         }
     }
-    return Status::NotSupported("Unsupported decoded values for {} from source kind {}",
-                                get_name(), static_cast<int>(view.value_kind));
+    return Status::NotSupported("Unsupported decoded values for {} from source kind {}", get_name(),
+                                static_cast<int>(view.value_kind));
 }
 
 template <PrimitiveType T>

@@ -43,8 +43,7 @@ struct SchemaField;
 struct FileScanRequest;
 struct FieldProjection;
 
-using TableColumnPredicates =
-        std::map<int32_t, std::vector<std::shared_ptr<ColumnPredicate>>>;
+using TableColumnPredicates = std::map<int32_t, std::vector<std::shared_ptr<ColumnPredicate>>>;
 
 enum class TableColumnMappingMode {
     BY_FIELD_ID,
