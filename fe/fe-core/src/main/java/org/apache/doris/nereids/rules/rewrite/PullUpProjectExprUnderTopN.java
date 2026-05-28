@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -208,7 +208,6 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             LogicalJoin<? extends Plan, ? extends Plan> join = (LogicalJoin<? extends Plan, ? extends Plan>) node;
             // Walk children first, then check if join conditions reference ANY
             // collected expressions (both from children and from ancestors).
-            int oldSize = collectedOutputExprIds.size();
             boolean leftBlocked = walkAndCollect((Plan) join.left(), topN, info, collectedOutputExprIds);
             boolean rightBlocked = walkAndCollect((Plan) join.right(), topN, info, collectedOutputExprIds);
             if (leftBlocked || rightBlocked) {
