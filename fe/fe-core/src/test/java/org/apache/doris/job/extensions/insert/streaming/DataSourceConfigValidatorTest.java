@@ -276,4 +276,126 @@ public class DataSourceConfigValidatorTest {
             assertReject(props);
         }
     }
+
+    // ─── server_id ────────────────────────────────────────────────────────────
+
+    private static Map<String, String> serverIdInput(String value) {
+        Map<String, String> input = new HashMap<>();
+        input.put(DataSourceConfigKeys.SERVER_ID, value);
+        return input;
+    }
+
+    @Test
+    public void testServerIdAcceptsSingleValue() {
+        DataSourceConfigValidator.validateSource(serverIdInput("5400"), DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testServerIdAcceptsRange() {
+        DataSourceConfigValidator.validateSource(
+                serverIdInput("5400-5408"), DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testServerIdAcceptsRangeWithSpaces() {
+        DataSourceConfigValidator.validateSource(
+                serverIdInput("  5400 - 5408 "), DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testServerIdRejectsMalformed() {
+        // Each entry trips a different code path in parseServerIdRange.
+        String[] invalids = {
+                "abc",       // not numeric
+                "5400-",     // missing end
+                "-5408",     // missing start
+                "5400--",    // empty after second dash split
+                "5400-abc",  // non-numeric end
+                " ",         // blank
+                ""           // empty
+        };
+        for (String invalid : invalids) {
+            try {
+                DataSourceConfigValidator.validateSource(
+                        serverIdInput(invalid), DataSourceType.MYSQL.name());
+                Assert.fail("Expected IllegalArgumentException for server_id='" + invalid + "'");
+            } catch (IllegalArgumentException expected) {
+                Assert.assertTrue(
+                        "Error message should reference server_id, got: " + expected.getMessage(),
+                        expected.getMessage().contains("server_id"));
+            }
+        }
+    }
+
+    @Test
+    public void testServerIdRejectsZero() {
+        try {
+            DataSourceConfigValidator.validateSource(serverIdInput("0"), DataSourceType.MYSQL.name());
+            Assert.fail("Expected IllegalArgumentException for server_id='0'");
+        } catch (IllegalArgumentException expected) {
+            Assert.assertTrue(expected.getMessage().contains("server_id"));
+        }
+    }
+
+    @Test
+    public void testServerIdRejectsBackwardRange() {
+        try {
+            DataSourceConfigValidator.validateSource(
+                    serverIdInput("5408-5400"), DataSourceType.MYSQL.name());
+            Assert.fail("Expected IllegalArgumentException for server_id='5408-5400'");
+        } catch (IllegalArgumentException expected) {
+            Assert.assertTrue(expected.getMessage().contains("server_id"));
+        }
+    }
+
+    @Test
+    public void testServerIdRejectsNegative() {
+        try {
+            DataSourceConfigValidator.validateSource(serverIdInput("-5"), DataSourceType.MYSQL.name());
+            Assert.fail("Expected IllegalArgumentException for server_id='-5'");
+        } catch (IllegalArgumentException expected) {
+            Assert.assertTrue(expected.getMessage().contains("server_id"));
+        }
+    }
+
+    @Test
+    public void testServerIdCrossFieldWidthRejected() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.SERVER_ID, "5400-5402");
+        props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "8");
+        try {
+            DataSourceConfigValidator.validateSource(props, DataSourceType.MYSQL.name());
+            Assert.fail("Expected IllegalArgumentException for range size 3 < parallelism 8");
+        } catch (IllegalArgumentException expected) {
+            String msg = expected.getMessage();
+            Assert.assertTrue("Message should reference snapshot_parallelism: " + msg,
+                    msg.contains("snapshot_parallelism"));
+            Assert.assertTrue("Message should reference server_id: " + msg,
+                    msg.contains("server_id"));
+        }
+    }
+
+    @Test
+    public void testServerIdCrossFieldWidthSinglePassesWhenParallelismOne() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.SERVER_ID, "5400");
+        props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "1");
+        DataSourceConfigValidator.validateSource(props, DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testServerIdCrossFieldUsesDefaultParallelism() {
+        // No snapshot_parallelism set -> default ("1"). Single-value server_id passes.
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.SERVER_ID, "5400");
+        DataSourceConfigValidator.validateSource(props, DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testServerIdOptional() {
+        // server_id is optional; absence must not trip cross-field check.
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "4");
+        DataSourceConfigValidator.validateSource(props, DataSourceType.MYSQL.name());
+    }
 }
