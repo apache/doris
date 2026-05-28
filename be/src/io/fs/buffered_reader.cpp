@@ -679,7 +679,7 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
     // to make sure the buffer reader will start to read at right position.
     for (int i = 0; i < buffer_num; i++) {
         _pre_buffers.emplace_back(std::make_shared<PrefetchBuffer>(
-                _file_range, s_max_pre_buffer_size, _whole_pre_buffer_size, _reader.get(),
+                _file_range, s_max_pre_buffer_size, _whole_pre_buffer_size, _reader,
                 _io_ctx_holder, sync_buffer));
     }
 }
