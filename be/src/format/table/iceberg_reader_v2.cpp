@@ -260,23 +260,6 @@ const reader::SchemaField* IcebergTableReader::_find_delete_field(
     return nullptr;
 }
 
-Block IcebergTableReader::_build_position_delete_block(const reader::SchemaField& file_path_field,
-                                                       const reader::SchemaField& pos_field) {
-    Block block;
-    block.insert({file_path_field.type->create_column(), file_path_field.type, ICEBERG_FILE_PATH});
-    block.insert({pos_field.type->create_column(), pos_field.type, ICEBERG_ROW_POS});
-    return block;
-}
-
-Block IcebergTableReader::_build_equality_delete_block(
-        const std::vector<reader::SchemaField>& fields) {
-    Block block;
-    for (const auto& field : fields) {
-        block.insert({field.type->create_column(), field.type, field.name});
-    }
-    return block;
-}
-
 Status IcebergTableReader::_append_row_position_output_column(reader::FileScanRequest* request) {
     const auto row_position_column_id =
             doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
@@ -376,8 +359,16 @@ Status IcebergTableReader::_read_parquet_position_delete_file(
     RETURN_IF_ERROR(reader.open(request));
 
     bool eof = false;
+    auto build_position_delete_block = [](const reader::SchemaField& file_path_field,
+                                          const reader::SchemaField& pos_field) -> Block {
+        Block block;
+        block.insert(
+                {file_path_field.type->create_column(), file_path_field.type, ICEBERG_FILE_PATH});
+        block.insert({pos_field.type->create_column(), pos_field.type, ICEBERG_ROW_POS});
+        return block;
+    };
     while (!eof) {
-        Block block = _build_position_delete_block(*file_path_field, *pos_field);
+        Block block = build_position_delete_block(*file_path_field, *pos_field);
         size_t read_rows = 0;
         RETURN_IF_ERROR(reader.get_block(&block, &read_rows, &eof));
         RETURN_IF_ERROR(collector->collect(block, read_rows));
@@ -480,10 +471,17 @@ Status IcebergTableReader::_read_parquet_equality_delete_file(
     }
     RETURN_IF_ERROR(reader.open(request));
 
-    Block delete_block = _build_equality_delete_block(delete_fields);
+    auto build_equality_delete_block = [](const std::vector<reader::SchemaField> fields) -> Block {
+        Block block;
+        for (const auto& field : fields) {
+            block.insert({field.type->create_column(), field.type, field.name});
+        }
+        return block;
+    };
+    Block delete_block = build_equality_delete_block(delete_fields);
     bool eof = false;
     while (!eof) {
-        Block block = _build_equality_delete_block(delete_fields);
+        Block block = build_equality_delete_block(delete_fields);
         size_t read_rows = 0;
         RETURN_IF_ERROR(reader.get_block(&block, &read_rows, &eof));
         if (read_rows > 0) {

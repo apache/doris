@@ -96,11 +96,6 @@ private:
     static const reader::SchemaField* _find_delete_field(
             const std::vector<reader::SchemaField>& schema, const std::string& name);
 
-    static Block _build_position_delete_block(const reader::SchemaField& file_path_field,
-                                              const reader::SchemaField& pos_field);
-
-    static Block _build_equality_delete_block(const std::vector<reader::SchemaField>& fields);
-
     Status _append_row_position_output_column(reader::FileScanRequest* request);
 
     Status _append_equality_delete_predicates(reader::FileScanRequest* request);
@@ -108,21 +103,22 @@ private:
     Status _init_equality_delete_predicates(
             const std::vector<TIcebergDeleteFileDesc>& delete_files);
 
+    std::string _data_file_path() const;
+
+    // Read equality/position delete files.
     Status _read_parquet_equality_delete_file(const TIcebergDeleteFileDesc& delete_file,
                                               const TFileScanRangeParams& scan_params,
                                               IcebergDeleteFileIOContext* delete_io_ctx);
-
-    std::string _data_file_path() const;
-
     Status _read_parquet_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
                                               const TFileScanRangeParams& scan_params,
                                               IcebergDeleteFileIOContext* delete_io_ctx,
                                               PositionDeleteRowsCollector* collector);
 
+    // Read position delete files and collect deleted row positions to update DeletePredicate.
     Status _init_position_delete_rows(const std::vector<TIcebergDeleteFileDesc>& delete_files);
 
+    // Materialize row lineage virtual columns based on the position delete file.
     Status _materialize_row_lineage_row_id(Block* table_block, size_t column_idx);
-
     Status _materialize_row_lineage_last_updated_sequence_number(Block* table_block,
                                                                  size_t column_idx);
 
