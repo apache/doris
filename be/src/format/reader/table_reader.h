@@ -272,7 +272,7 @@ protected:
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
 
     virtual Status customize_file_scan_request(FileScanRequest* file_request) {
-        return _append_position_delete_predicate(file_request);
+        return _append_delete_predicate(file_request);
     }
 
     static size_t _next_block_position(const FileScanRequest& request) {
@@ -313,7 +313,7 @@ protected:
         }
     }
 
-    Status _append_position_delete_predicate(FileScanRequest* request) {
+    Status _append_delete_predicate(FileScanRequest* request) {
         DORIS_CHECK(request != nullptr);
         if (_delete_rows == nullptr || _delete_rows->empty()) {
             return Status::OK();
