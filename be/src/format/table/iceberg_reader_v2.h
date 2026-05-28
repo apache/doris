@@ -165,7 +165,9 @@ private:
         const auto& row_position_column = assert_cast<const ColumnInt64&>(
                 *_data_reader.block_template.get_by_position(_row_position_block_position).column);
         DORIS_CHECK(row_position_column.size() == table_block->rows());
-        auto column = table_block->get_by_position(column_idx).column->assume_mutable();
+        auto column = table_block->get_by_position(column_idx)
+                              .column->convert_to_full_column_if_const()
+                              ->assume_mutable();
         auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
         auto& null_map = nullable_column->get_null_map_data();
         auto& data =
