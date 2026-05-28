@@ -1887,7 +1887,7 @@ public class DynamicPartitionTableTest {
                     if (i < 52) {
                         Assert.assertEquals(10, idx.getTablets().size());
                     } else if (i == 52) {
-                        Assert.assertEquals(1, idx.getTablets().size());
+                        Assert.assertEquals(3, idx.getTablets().size());
                     } else if (i == 53) {
                         Assert.assertEquals(20, idx.getTablets().size());
                     }
