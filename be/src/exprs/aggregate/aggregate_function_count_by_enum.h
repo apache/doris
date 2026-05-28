@@ -21,6 +21,7 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
+#include <algorithm>
 #include <boost/dynamic_bitset.hpp>
 
 #include "core/assert_cast.h"
@@ -42,20 +43,22 @@ void build_json_from_vec(rapidjson::StringBuffer& buffer,
     doc.SetArray();
     rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
 
-    for (size_t idx = 0; idx < data_vec.size(); ++idx) {
+    for (const auto& data : data_vec) {
         rapidjson::Value obj(rapidjson::kObjectType);
 
         rapidjson::Value obj_cbe(rapidjson::kObjectType);
-        std::unordered_map<std::string, uint64_t> unordered_map = data_vec[idx].cbe;
-        for (auto it : unordered_map) {
-            rapidjson::Value key_cbe(it.first.c_str(), allocator);
-            rapidjson::Value value_cbe(it.second);
+        std::vector<std::pair<std::string, uint64_t>> entries(data.cbe.begin(), data.cbe.end());
+        std::sort(entries.begin(), entries.end(),
+                  [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+        for (const auto& entry : entries) {
+            rapidjson::Value key_cbe(entry.first.c_str(), allocator);
+            rapidjson::Value value_cbe(entry.second);
             obj_cbe.AddMember(key_cbe, value_cbe, allocator);
         }
         obj.AddMember("cbe", obj_cbe, allocator);
-        obj.AddMember("notnull", data_vec[idx].not_null, allocator);
-        obj.AddMember("null", data_vec[idx].null, allocator);
-        obj.AddMember("all", data_vec[idx].all, allocator);
+        obj.AddMember("notnull", data.not_null, allocator);
+        obj.AddMember("null", data.null, allocator);
+        obj.AddMember("all", data.all, allocator);
 
         doc.PushBack(obj, allocator);
     }
@@ -169,7 +172,7 @@ struct AggregateFunctionCountByEnumData {
     std::string get() const {
         rapidjson::StringBuffer buffer;
         build_json_from_vec(buffer, data_vec);
-        return std::string(buffer.GetString());
+        return {buffer.GetString()};
     }
 
 private:

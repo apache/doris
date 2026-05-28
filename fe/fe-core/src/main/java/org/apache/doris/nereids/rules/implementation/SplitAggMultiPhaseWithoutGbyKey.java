@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
@@ -154,10 +155,13 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
         AggregateParam inputToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT);
 
         Map<AggregateFunction, Alias> originFuncToAliasPhase1 = new HashMap<>();
+        Map<AggregateFunction, Expression> aggregateFunctionWithGuardExpr =
+                logicalAgg.getAggregateFunctionWithGuardExpr();
         for (AggregateFunction function : aggregateFunctions) {
             AggregateFunction aggFunc = AggregateUtils.tryConvertToMultiDistinct(function);
             AggregateExpression localAggExpr = new AggregateExpression(aggFunc, inputToResultParam);
-            originFuncToAliasPhase1.put(function, new Alias(localAggExpr));
+            originFuncToAliasPhase1.put(function,
+                    new Alias(withSessionVarGuard(function, localAggExpr, aggregateFunctionWithGuardExpr)));
         }
 
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()
@@ -174,7 +178,8 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
                 logicalAgg.getOutputExpressions(), outputChild -> {
                     if (outputChild instanceof AggregateFunction) {
                         Alias alias = originFuncToAliasPhase1.get(outputChild);
-                        AggregateExpression localAggExpr = (AggregateExpression) alias.child();
+                        AggregateExpression localAggExpr = (AggregateExpression)
+                                SessionVarGuardExpr.getSessionVarGuardChild(alias.child());
                         AggregateFunction aggFunc = localAggExpr.getFunction();
                         Slot childSlot = alias.toSlot();
                         if (aggFunc instanceof MultiDistinction) {
@@ -187,7 +192,9 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
                                         // we need add support for group_concat without order by,
                                         // and add test for group_concat
                                         MultiDistinctGroupConcat.class, () -> new GroupConcat(childSlot));
-                            return new AggregateExpression(functionMap.get(aggFunc.getClass()).get(), param);
+                            return withSessionVarGuard((AggregateFunction) outputChild,
+                                    new AggregateExpression(functionMap.get(aggFunc.getClass()).get(), param),
+                                    aggregateFunctionWithGuardExpr);
                         } else {
                             Map<Class<? extends AggregateFunction>, Supplier<AggregateFunction>> functionMap =
                                     ImmutableMap.of(
@@ -201,7 +208,9 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
                                         // we need add support for group_concat without order by,
                                         // and add test for group_concat
                                         GroupConcat.class, () -> new GroupConcat(childSlot));
-                            return new AggregateExpression(functionMap.get(aggFunc.getClass()).get(), param, childSlot);
+                            return withSessionVarGuard((AggregateFunction) outputChild,
+                                    new AggregateExpression(functionMap.get(aggFunc.getClass()).get(), param,
+                                            childSlot), aggregateFunctionWithGuardExpr);
                         }
                     } else {
                         return outputChild;
@@ -232,5 +241,14 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
             return false;
         }
         return true;
+    }
+
+    private Expression withSessionVarGuard(AggregateFunction originFunction, AggregateExpression aggregateExpression,
+            Map<AggregateFunction, Expression> aggregateFunctionWithGuardExpr) {
+        Expression guardExpr = aggregateFunctionWithGuardExpr.get(originFunction);
+        if (guardExpr instanceof SessionVarGuardExpr) {
+            return new SessionVarGuardExpr(aggregateExpression, ((SessionVarGuardExpr) guardExpr).getSessionVars());
+        }
+        return aggregateExpression;
     }
 }
