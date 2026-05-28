@@ -312,8 +312,13 @@ Status GroupCommitTable::_submit_create_group_commit_load() {
     if (timeout_ms > 0 && !_create_plan_deps.empty()) {
         int64_t now_ms = MonotonicMillis();
         if (_create_plan_start_time_ms > 0 && now_ms - _create_plan_start_time_ms > timeout_ms) {
+            std::string last_create_plan_failed_reason = _create_plan_failed_reason;
             _create_plan_failed_reason =
                     ". group commit create plan timeout after " + std::to_string(timeout_ms) + "ms";
+            if (!last_create_plan_failed_reason.empty()) {
+                _create_plan_failed_reason +=
+                        ", last create plan error: " + last_create_plan_failed_reason;
+            }
             for (const auto& [id, load_info] : _create_plan_deps) {
                 std::get<0>(load_info)->set_ready();
             }
