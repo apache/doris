@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -251,6 +252,70 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
                                                                         logicalProject(logicalOlapScan()),
                                                                         logicalAssertNumRows()),
                                                         logicalOlapScan())));
+    }
+
+    /**
+     * Test push down when the top join condition uses an alias from the right child
+     * of the bottom join. This covers the DORIS-26089 shape:
+     *
+     * Before:
+     * topJoin(rhs_score < x)
+     * |-- Project(T1.id, T2.cid + 1 as rhs_score, ...)
+     * | `-- bottomJoin(T1.id = T2.sid)
+     * | |-- Scan(T1)
+     * | `-- Scan(T2)
+     * `-- LogicalAssertNumRows(output=(x, ...))
+     *
+     * After:
+     * Project(...)
+     * |-- bottomJoin(T1.id = T2.sid)
+     * |-- Scan(T1)
+     * `-- topJoin(rhs_score < x)
+     * |-- Project(T2.cid + 1 as rhs_score, ...)
+     * `-- LogicalAssertNumRows(output=(x, ...))
+     */
+    @Test
+    void testPushDownWithProjectAliasFromRightChild() {
+        Plan oneRowRelation = new LogicalPlanBuilder(t3)
+                .limit(1)
+                .build();
+
+        AssertNumRowsElement assertElement = new AssertNumRowsElement(1, "", Assertion.EQ);
+        LogicalAssertNumRows<Plan> assertNumRows = new LogicalAssertNumRows<>(assertElement, oneRowRelation);
+
+        Expression bottomJoinCondition = new EqualTo(t1Slots.get(0), t2Slots.get(0));
+
+        LogicalPlan bottomJoin = new LogicalPlanBuilder(t1)
+                .join(t2, JoinType.INNER_JOIN, ImmutableList.of(bottomJoinCondition),
+                                ImmutableList.of())
+                .build();
+
+        Expression addExpr = new Add(t2Slots.get(1), Literal.of(1));
+        Alias rhsScore = new Alias(addExpr, "rhs_score");
+
+        ImmutableList.Builder<NamedExpression> projectListBuilder = ImmutableList.builder();
+        projectListBuilder.add(t1Slots.get(0));
+        projectListBuilder.add(t1Slots.get(1));
+        projectListBuilder.add(t2Slots.get(0));
+        projectListBuilder.add(rhsScore);
+
+        LogicalProject<Plan> project = new LogicalProject<>(projectListBuilder.build(), bottomJoin);
+
+        Expression topJoinCondition = new LessThan(rhsScore.toSlot(), t3Slots.get(0));
+
+        LogicalPlan root = new LogicalPlanBuilder(project)
+                .join(assertNumRows, JoinType.INNER_JOIN, ImmutableList.of(),
+                                ImmutableList.of(topJoinCondition))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new PushDownJoinOnAssertNumRows())
+                .matches(logicalProject(
+                                logicalJoin(
+                                                logicalOlapScan(),
+                                                logicalJoin(
+                                                                logicalProject(logicalOlapScan()),
+                                                                logicalAssertNumRows()))));
     }
 
     /**

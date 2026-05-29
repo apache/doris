@@ -80,28 +80,28 @@ public class PushDownJoinOnAssertNumRows extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()
-                .when(topJoin -> pattenCheck(topJoin))
-                .then(topJoin -> pushDownAssertNumRowsJoin(topJoin))
+                .when(this::pattenCheck)
+                .then(this::pushDownAssertNumRowsJoin)
                 .toRule(RuleType.PUSH_DOWN_JOIN_ON_ASSERT_NUM_ROWS);
     }
 
-    private boolean pattenCheck(LogicalJoin topJoin) {
+    private boolean pattenCheck(LogicalJoin<?, ?> topJoin) {
         // 1. right is LogicalAssertNumRows or LogicalProject->LogicalAssertNumRows
         // 2. left is join or project->join
         // 3. only one join condition.
         if (!topJoin.getJoinType().isInnerOrCrossJoin()) {
             return false;
         }
-        LogicalJoin bottomJoin;
+        LogicalJoin<?, ?> bottomJoin;
         Plan left = topJoin.left();
         Plan right = topJoin.right();
         if (!isAssertOneRowEqOrProjectAssertOneRowEq(right)) {
             return false;
         }
         if (left instanceof LogicalJoin) {
-            bottomJoin = (LogicalJoin) left;
+            bottomJoin = (LogicalJoin<?, ?>) left;
         } else if (left instanceof LogicalProject && left.child(0) instanceof LogicalJoin) {
-            bottomJoin = (LogicalJoin) left.child(0);
+            bottomJoin = (LogicalJoin<?, ?>) left.child(0);
         } else {
             return false;
         }
@@ -125,7 +125,7 @@ public class PushDownJoinOnAssertNumRows extends OneRewriteRuleFactory {
             plan = plan.child(0);
         }
         if (plan instanceof LogicalAssertNumRows) {
-            AssertNumRowsElement assertNumRowsElement = ((LogicalAssertNumRows) plan).getAssertNumRowsElement();
+            AssertNumRowsElement assertNumRowsElement = ((LogicalAssertNumRows<?>) plan).getAssertNumRowsElement();
             if (assertNumRowsElement.getAssertion() == AssertNumRowsElement.Assertion.EQ
                     || assertNumRowsElement.getDesiredNumOfRows() == 1L) {
                 return true;
@@ -134,14 +134,14 @@ public class PushDownJoinOnAssertNumRows extends OneRewriteRuleFactory {
         return false;
     }
 
-    private boolean joinOnAssertOneRowEq(LogicalJoin join) {
+    private boolean joinOnAssertOneRowEq(LogicalJoin<?, ?> join) {
         return isAssertOneRowEqOrProjectAssertOneRowEq(join.right())
                 || isAssertOneRowEqOrProjectAssertOneRowEq(join.left());
     }
 
-    private Plan pushDownAssertNumRowsJoin(LogicalJoin topJoin) {
+    private Plan pushDownAssertNumRowsJoin(LogicalJoin<?, ?> topJoin) {
         Plan assertBranch = topJoin.right();
-        Expression condition = (Expression) topJoin.getOtherJoinConjuncts().get(0);
+        Expression condition = topJoin.getOtherJoinConjuncts().get(0);
         List<Alias> aliasUsedInConditionFromLeftProject = new ArrayList<>();
         LogicalJoin<? extends Plan, ? extends Plan> bottomJoin;
         if (topJoin.left() instanceof LogicalProject) {
@@ -160,57 +160,47 @@ public class PushDownJoinOnAssertNumRows extends OneRewriteRuleFactory {
         Plan bottomRight = bottomJoin.right();
 
         List<Slot> conditionSlotsFromTopLeft = condition.getInputSlots().stream()
-                .filter(slot -> topJoin.left().getOutputSet().contains(slot))
+                .filter(slot -> bottomJoin.getOutputSet().contains(slot))
                 .collect(Collectors.toList());
+        // Nothing from the bottom join participates in this scalar-subquery condition.
+        if (conditionSlotsFromTopLeft.isEmpty()) {
+            return null;
+        }
         if (bottomLeft.getOutputSet().containsAll(conditionSlotsFromTopLeft)) {
-            // push to bottomLeft
-            Plan newBottomLeft;
-            if (aliasUsedInConditionFromLeftProject.isEmpty()) {
-                newBottomLeft = bottomLeft;
-            } else {
-                newBottomLeft = projectAliasOnPlan(aliasUsedInConditionFromLeftProject, bottomLeft);
-            }
-            LogicalJoin<? extends Plan, ? extends Plan> newBottomJoin = new LogicalJoin<>(
-                    topJoin.getJoinType(),
-                    topJoin.getHashJoinConjuncts(),
-                    topJoin.getOtherJoinConjuncts(),
-                    newBottomLeft,
-                    assertBranch,
-                    topJoin.getJoinReorderContext());
-            LogicalJoin<? extends Plan, ? extends Plan> newTopJoin = (LogicalJoin<? extends Plan, ? extends Plan>)
-                    bottomJoin.withChildren(newBottomJoin, bottomRight);
-            if (topJoin.left() instanceof LogicalProject) {
-                LogicalProject<? extends Plan> upperProject = projectAliasOnPlan(
-                        aliasUsedInConditionFromLeftProject, topJoin.left());
-                return upperProject.withChildren(newTopJoin);
-            } else {
-                return newTopJoin;
-            }
+            return assembleNewJoin(bottomLeft, topJoin, bottomJoin, bottomRight,
+                    assertBranch, aliasUsedInConditionFromLeftProject, true);
         } else if (bottomRight.getOutputSet().containsAll(conditionSlotsFromTopLeft)) {
-            Plan newBottomRight;
-            if (aliasUsedInConditionFromLeftProject.isEmpty()) {
-                newBottomRight = bottomRight;
-            } else {
-                newBottomRight = projectAliasOnPlan(aliasUsedInConditionFromLeftProject, bottomRight);
-            }
-            LogicalJoin<? extends Plan, ? extends Plan> newBottomJoin = new LogicalJoin<>(
-                    topJoin.getJoinType(),
-                    topJoin.getHashJoinConjuncts(),
-                    topJoin.getOtherJoinConjuncts(),
-                    newBottomRight,
-                    assertBranch,
-                    topJoin.getJoinReorderContext());
-            LogicalJoin<? extends Plan, ? extends Plan> newTopJoin = (LogicalJoin<? extends Plan, ? extends Plan>)
-                    bottomJoin.withChildren(bottomLeft, newBottomJoin);
-            if (topJoin.left() instanceof LogicalProject) {
-                LogicalProject<? extends Plan> upperProject = projectAliasOnPlan(
-                        aliasUsedInConditionFromLeftProject, topJoin.left());
-                return upperProject.withChildren(newTopJoin);
-            } else {
-                return newTopJoin;
-            }
+            return assembleNewJoin(bottomRight, topJoin, bottomJoin, bottomLeft,
+                    assertBranch, aliasUsedInConditionFromLeftProject, false);
         }
         return null;
+    }
+
+    private Plan assembleNewJoin(Plan bottom, LogicalJoin<?, ?> topJoin, LogicalJoin<?, ?> bottomJoin, Plan newTopChild,
+            Plan assertBranch, List<Alias> aliasUsedInConditionFromLeftProject, boolean pushLeft) {
+        Plan newBottomChild;
+        if (aliasUsedInConditionFromLeftProject.isEmpty()) {
+            newBottomChild = bottom;
+        } else {
+            newBottomChild = projectAliasOnPlan(aliasUsedInConditionFromLeftProject, bottom);
+        }
+        LogicalJoin<? extends Plan, ? extends Plan> newBottomJoin = new LogicalJoin<>(
+                topJoin.getJoinType(),
+                topJoin.getHashJoinConjuncts(),
+                topJoin.getOtherJoinConjuncts(),
+                newBottomChild,
+                assertBranch,
+                topJoin.getJoinReorderContext());
+        LogicalJoin<? extends Plan, ? extends Plan> newTopJoin = (LogicalJoin<? extends Plan, ? extends Plan>)
+                (pushLeft ? bottomJoin.withChildren(newBottomJoin, newTopChild)
+                        : bottomJoin.withChildren(newTopChild, newBottomJoin));
+        if (topJoin.left() instanceof LogicalProject) {
+            LogicalProject<? extends Plan> upperProject = projectAliasOnPlan(
+                    aliasUsedInConditionFromLeftProject, topJoin.left());
+            return upperProject.withChildren(newTopJoin);
+        } else {
+            return newTopJoin;
+        }
     }
 
     @VisibleForTesting
