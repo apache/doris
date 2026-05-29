@@ -177,7 +177,8 @@ protected:
 
     std::shared_ptr<arrow::Array> build_required_int_list_array() {
         auto value_builder = std::make_shared<arrow::Int32Builder>();
-        arrow::ListBuilder builder(arrow::default_memory_pool(), value_builder);
+        arrow::ListBuilder builder(arrow::default_memory_pool(), value_builder,
+                                   arrow::list(arrow::field("element", arrow::int32(), false)));
         const std::vector<std::vector<int32_t>> values = {
                 {1, 2}, {3}, {4, 5, 6}, {7}, {8, 9},
         };
@@ -192,7 +193,8 @@ protected:
 
     std::shared_ptr<arrow::Array> build_nullable_int_list_array() {
         auto value_builder = std::make_shared<arrow::Int32Builder>();
-        arrow::ListBuilder builder(arrow::default_memory_pool(), value_builder);
+        arrow::ListBuilder builder(arrow::default_memory_pool(), value_builder,
+                                   arrow::list(arrow::field("element", arrow::int32(), true)));
         EXPECT_TRUE(builder.Append().ok());
         EXPECT_TRUE(value_builder->Append(10).ok());
         EXPECT_TRUE(value_builder->Append(20).ok());
@@ -208,7 +210,8 @@ protected:
 
     std::shared_ptr<arrow::Array> build_required_nullable_int_list_array() {
         auto value_builder = std::make_shared<arrow::Int32Builder>();
-        arrow::ListBuilder builder(arrow::default_memory_pool(), value_builder);
+        arrow::ListBuilder builder(arrow::default_memory_pool(), value_builder,
+                                   arrow::list(arrow::field("element", arrow::int32(), true)));
         EXPECT_TRUE(builder.AppendEmptyValue().ok());
         EXPECT_TRUE(builder.Append().ok());
         EXPECT_TRUE(value_builder->AppendNull().ok());
