@@ -256,23 +256,24 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
 
     /**
      * Test push down when the top join condition uses an alias from the right child
-     * of the bottom join. This covers the DORIS-26089 shape:
+     * of the bottom join. This covers the following shape:
      *
      * Before:
      * topJoin(rhs_score < x)
      * |-- Project(T1.id, T2.cid + 1 as rhs_score, ...)
-     * | `-- bottomJoin(T1.id = T2.sid)
-     * | |-- Scan(T1)
-     * | `-- Scan(T2)
+     * |   `-- bottomJoin(T1.id = T2.sid)
+     * |       |-- Scan(T1)
+     * |       `-- Scan(T2)
      * `-- LogicalAssertNumRows(output=(x, ...))
      *
      * After:
      * Project(...)
-     * |-- bottomJoin(T1.id = T2.sid)
-     * |-- Scan(T1)
-     * `-- topJoin(rhs_score < x)
-     * |-- Project(T2.cid + 1 as rhs_score, ...)
-     * `-- LogicalAssertNumRows(output=(x, ...))
+     * `-- bottomJoin(T1.id = T2.sid)
+     *     |-- Scan(T1)
+     *     `-- topJoin(rhs_score < x)
+     *         |-- Project(T2.cid + 1 as rhs_score, ...)
+     *         |   `-- Scan(T2)
+     *         `-- LogicalAssertNumRows(output=(x, ...))
      */
     @Test
     void testPushDownWithProjectAliasFromRightChild() {
