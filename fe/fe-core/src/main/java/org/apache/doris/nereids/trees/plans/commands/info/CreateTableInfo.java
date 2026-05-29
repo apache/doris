@@ -382,7 +382,13 @@ public class CreateTableInfo {
                     + " Make sure 'engine' type is specified when use the catalog: " + ctlName);
             }
         }
+        if (Strings.isNullOrEmpty(ctlName)) {
+            return;
+        }
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+        if (catalog == null) {
+            return;
+        }
         if (catalog instanceof HMSExternalCatalog && !engineName.equals(ENGINE_HIVE)) {
             throw new AnalysisException("Hms type catalog can only use `hive` engine.");
         } else if (catalog instanceof IcebergExternalCatalog && !engineName.equals(ENGINE_ICEBERG)) {
@@ -1111,6 +1117,21 @@ public class CreateTableInfo {
         }
     }
 
+    /**
+     * Validate that Iceberg v3 tables do not define row lineage reserved columns.
+     */
+    public void validateIcebergRowLineageColumns(int formatVersion) {
+        if (formatVersion < IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            return;
+        }
+        for (ColumnDefinition columnDef : columns) {
+            if (IcebergUtils.isIcebergRowLineageColumn(columnDef.getName())) {
+                throw new AnalysisException("Cannot create Iceberg v" + formatVersion
+                        + " table with reserved row lineage column: " + columnDef.getName());
+            }
+        }
+    }
+
     private void validateIcebergRowLineageColumns() {
         int formatVersion = 2;
         String formatVersionProperty = properties.get(TableProperties.FORMAT_VERSION);
@@ -1121,15 +1142,7 @@ public class CreateTableInfo {
                 // keep default value
             }
         }
-        if (formatVersion < IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
-            return;
-        }
-        for (ColumnDefinition columnDef : columns) {
-            if (IcebergUtils.isIcebergRowLineageColumn(columnDef.getName())) {
-                throw new AnalysisException("Cannot create Iceberg v" + formatVersion
-                        + " table with reserved row lineage column: " + columnDef.getName());
-            }
-        }
+        validateIcebergRowLineageColumns(formatVersion);
     }
 
     /**

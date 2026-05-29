@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -302,6 +303,37 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         Assertions.assertTrue(formatV2Plan instanceof CreateTableCommand);
         Assertions.assertDoesNotThrow(
                 () -> ((CreateTableCommand) formatV2Plan).getCreateTableInfo().validate(connectContext));
+    }
+
+    @Test
+    public void testCreateIcebergDefaultV3TableRejectsRowLineageReservedColumn() throws Exception {
+        useIceberg();
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) Env.getCurrentEnv()
+                .getCatalogMgr().getCatalog(catalogName);
+        catalog.getCatalogProperty().addProperty("table-default.format-version", "3");
+        try {
+            String rowIdTable = "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");
+            String rowIdSql = "create table " + rowIdTable + " (_row_id bigint)";
+            LogicalPlan rowIdPlan = parseStmt(rowIdSql);
+            Assertions.assertTrue(rowIdPlan instanceof CreateTableCommand);
+            ((CreateTableCommand) rowIdPlan).getCreateTableInfo().validate(connectContext);
+            Assertions.assertThrows(DdlException.class,
+                    () -> ((CreateTableCommand) rowIdPlan).run(connectContext, null));
+            Assertions.assertFalse(catalog.getCatalog().tableExists(TableIdentifier.of(dbName, rowIdTable)));
+
+            String formatV2Table = "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");
+            String formatV2Sql = "create table " + formatV2Table
+                    + " (_row_id bigint) properties('format-version'='2')";
+            LogicalPlan formatV2Plan = parseStmt(formatV2Sql);
+            Assertions.assertTrue(formatV2Plan instanceof CreateTableCommand);
+            try {
+                Assertions.assertDoesNotThrow(() -> ((CreateTableCommand) formatV2Plan).run(connectContext, null));
+            } finally {
+                catalog.getCatalog().dropTable(TableIdentifier.of(dbName, formatV2Table), true);
+            }
+        } finally {
+            catalog.getCatalogProperty().deleteProperty("table-default.format-version");
+        }
     }
 
     @Test
