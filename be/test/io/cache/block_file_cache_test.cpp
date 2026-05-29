@@ -8436,7 +8436,6 @@ TEST_F(BlockFileCacheTest, fs_file_cache_storage_finalize_missing_writer_returns
     key.offset = 4096;
     key.meta.type = io::FileCacheType::NORMAL;
     key.meta.expiration_time = 0;
-    key.meta.tablet_id = 0;
 
     auto st = storage.finalize(key, 4096);
 
