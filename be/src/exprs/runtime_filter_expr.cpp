@@ -124,7 +124,7 @@ Status RuntimeFilterExpr::execute_filter(VExprContext* context, const Block* blo
         change_null_to_true(filter_column->assert_mutable(), arg_column);
     }
 
-    if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
+    if (const auto const_column = check_and_get_column<ColumnConst>(*filter_column)) {
         // const(nullable) or const(bool)
         if (!const_column->get_bool(0)) {
             // filter all
@@ -140,7 +140,7 @@ Status RuntimeFilterExpr::execute_filter(VExprContext* context, const Block* blo
             rf_selectivity.update_judge_selectivity(_filter_id, 0, rows, _ignore_thredhold);
             return Status::OK();
         }
-    } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+    } else if (const auto nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         // nullable(bool)
         const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
         const IColumn::Filter& filter = assert_cast<const ColumnUInt8&>(*nested_column).get_data();

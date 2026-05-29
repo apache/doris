@@ -768,12 +768,12 @@ public:
         auto res_col = ColumnVector<Transform::ReturnType>::create(input_rows_count, 0);
 
         // vector-const or vector-vector
-        if (const auto* sources =
+        if (const auto sources =
                     check_and_get_column<ColumnVector<Transform::ArgPType>>(src_nested_col.get())) {
             const ColumnPtr nest_col1 = remove_nullable(col1);
             bool rconst = false;
             // vector-const
-            if (const auto* nest_col1_const = check_and_get_column<ColumnConst>(*nest_col1)) {
+            if (const auto nest_col1_const = check_and_get_column<ColumnConst>(*nest_col1)) {
                 rconst = true;
                 const auto& col1_inside_const =
                         assert_cast<const ColumnVector<Transform::ArgPType>&>(
@@ -894,12 +894,12 @@ public:
                 typename PrimitiveTypeTraits<Transform::ReturnType>::DataType::FieldType());
 
         // vector-const or vector-vector
-        if (const auto* sources =
+        if (const auto sources =
                     check_and_get_column<ColumnVector<Transform::ArgPType>>(src_nested_col.get())) {
             const ColumnPtr nest_col1 = remove_nullable(col1);
             bool rconst = false;
             // vector-const
-            if (const auto* nest_col1_const = check_and_get_column<ColumnConst>(*nest_col1)) {
+            if (const auto nest_col1_const = check_and_get_column<ColumnConst>(*nest_col1)) {
                 rconst = true;
                 const auto& col1_inside_const =
                         assert_cast<const IntervalColumnType&>(nest_col1_const->get_data_column());
@@ -1041,7 +1041,7 @@ struct CurrentDateTimeImpl {
         DateValueType dtv;
         bool use_const;
         if constexpr (WithPrecision) {
-            if (const auto* const_column = check_and_get_column<ColumnConst>(
+            if (const auto const_column = check_and_get_column<ColumnConst>(
                         block.get_by_position(arguments[0]).column.get())) {
                 int64_t scale = const_column->get_int(0);
                 dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
@@ -1053,7 +1053,7 @@ struct CurrentDateTimeImpl {
                 col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&dtv)), 0);
 
                 use_const = true;
-            } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(
+            } else if (const auto nullable_column = check_and_get_column<ColumnNullable>(
                                block.get_by_position(arguments[0]).column.get())) {
                 const auto& null_map = nullable_column->get_null_map_data();
                 const auto& nested_column = assert_cast<const ColumnInt32*>(
@@ -1206,7 +1206,7 @@ struct SecToTimeImpl {
 
         auto res_col = ColumnTimeV2::create(input_rows_count);
         auto& res_data = res_col->get_data();
-        if (const auto* int_column_ptr = check_and_get_column<ColumnInt32>(arg_col.get())) {
+        if (const auto int_column_ptr = check_and_get_column<ColumnInt32>(arg_col.get())) {
             for (int i = 0; i < input_rows_count; ++i) {
                 res_data[i] = TimeValue::from_seconds_with_limit(int_column_ptr->get_element(i));
             }

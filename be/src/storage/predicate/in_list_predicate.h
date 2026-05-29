@@ -597,14 +597,18 @@ private:
                 __builtin_unreachable();
             }
         } else {
-            auto* nested_col_ptr =
-                    check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(column);
-            if (nested_col_ptr == nullptr) {
+            const auto* nested_col =
+                    static_cast<const PredicateColumnType<PredicateEvaluateType<Type>>*>(nullptr);
+            if (auto nested_col_ptr =
+                        check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(
+                                column)) {
+                nested_col = nested_col_ptr.get();
+            } else {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "InListPredicateBase: _base_evaluate_bit get invalid column type");
             }
 
-            auto& data_array = nested_col_ptr->get_data();
+            auto& data_array = nested_col->get_data();
 
             for (uint16_t i = 0; i < size; i++) {
                 if (is_and ^ flags[i]) {

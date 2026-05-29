@@ -214,11 +214,17 @@ Status MergePartitioner::do_partitioning(RuntimeState* state, Block* block) cons
         MutableColumns& mutable_columns = mutable_columns_guard.mutable_columns();
         MutableColumnPtr& op_mut = mutable_columns[op_idx];
         ColumnInt8* op_values_col = nullptr;
-        if (auto* nullable_col = check_and_get_column<ColumnNullable>(op_mut.get())) {
-            op_values_col =
+        if (auto nullable_col = check_and_get_column<ColumnNullable>(op_mut.get())) {
+            const auto op_values_col_guard =
                     check_and_get_column<ColumnInt8>(nullable_col->get_nested_column_ptr().get());
+            if (op_values_col_guard) {
+                op_values_col = op_values_col_guard.get();
+            }
         } else {
-            op_values_col = check_and_get_column<ColumnInt8>(op_mut.get());
+            const auto op_values_col_guard = check_and_get_column<ColumnInt8>(op_mut.get());
+            if (op_values_col_guard) {
+                op_values_col = op_values_col_guard.get();
+            }
         }
         if (op_values_col == nullptr) {
             return Status::InternalError("Merge operation column must be tinyint");

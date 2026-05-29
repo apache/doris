@@ -518,7 +518,11 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
                                       size_t input_rows_count) const {
     const auto values_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-    const auto* values = check_and_get_column<ColumnString>(values_col.get());
+    const auto values_guard = check_and_get_column<ColumnString>(values_col.get());
+    const ColumnString* values = nullptr;
+    if (values_guard) {
+        values = values_guard.get();
+    }
 
     if (!values) {
         return Status::InternalError("Not supported input arguments types");
@@ -539,10 +543,11 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
                                           &state->search_state));
     } else {
         const auto pattern_col = block.get_by_position(arguments[1]).column;
-        if (const auto* str_patterns = check_and_get_column<ColumnString>(pattern_col.get())) {
+        if (const auto str_patterns = check_and_get_column<ColumnString>(pattern_col.get())) {
+            const auto* str_patterns_ptr = str_patterns.get();
             RETURN_IF_ERROR(
-                    vector_non_const(*values, *str_patterns, vec_res, state, input_rows_count));
-        } else if (const auto* const_patterns =
+                    vector_non_const(*values, *str_patterns_ptr, vec_res, state, input_rows_count));
+        } else if (const auto const_patterns =
                            check_and_get_column<ColumnConst>(pattern_col.get())) {
             const auto& pattern_val = const_patterns->get_data_at(0);
             RETURN_IF_ERROR(vector_const(*values, &pattern_val, vec_res, state->function,

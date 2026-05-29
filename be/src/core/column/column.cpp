@@ -63,7 +63,7 @@ bool IColumn::const_nested_check() const {
 }
 
 bool IColumn::column_boolean_check() const {
-    if (const auto* col_nullable = check_and_get_column<ColumnNullable>(*this)) {
+    if (const auto col_nullable = check_and_get_column<ColumnNullable>(*this)) {
         // for column nullable, we need to skip null values check
         const auto& nested_col = col_nullable->get_nested_column();
         const auto& null_map = col_nullable->get_null_map_data();
@@ -81,7 +81,7 @@ bool IColumn::column_boolean_check() const {
     }
 
     auto check_boolean_is_zero_or_one = [&](const IColumn& subcolumn) {
-        if (const auto* column_boolean = check_and_get_column<ColumnBool>(subcolumn)) {
+        if (const auto column_boolean = check_and_get_column<ColumnBool>(subcolumn)) {
             for (size_t i = 0; i < column_boolean->size(); ++i) {
                 auto val = column_boolean->get_element(i);
                 if (val != 0 && val != 1) {

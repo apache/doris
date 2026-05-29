@@ -72,7 +72,7 @@ private:
                         size_t input_rows_count) const {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
         if constexpr (is_int_or_bool(Impl::PrimitiveTypeImpl)) {
-            if (auto* col =
+            if (auto col =
                         check_and_get_column<ColumnVector<Impl::PrimitiveTypeImpl>>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
                 RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_chars(),
@@ -81,7 +81,7 @@ private:
                 return Status::OK();
             }
         } else if constexpr (is_complex_v<Impl::PrimitiveTypeImpl>) {
-            if (const auto* col = check_and_get_column<ColumnComplexType<Impl::PrimitiveTypeImpl>>(
+            if (const auto col = check_and_get_column<ColumnComplexType<Impl::PrimitiveTypeImpl>>(
                         column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
                 RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_chars(),
@@ -101,7 +101,7 @@ private:
                         size_t input_rows_count) const {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
         if constexpr (Impl::PrimitiveTypeImpl == PrimitiveType::TYPE_STRING) {
-            if (const ColumnString* col = check_and_get_column<ColumnString>(column.get())) {
+            if (const auto col = check_and_get_column<ColumnString>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
                 RETURN_IF_ERROR(
                         Impl::vector(col->get_chars(), col->get_offsets(), col_res->get_data()));
@@ -109,7 +109,7 @@ private:
                 return Status::OK();
             }
         } else if constexpr (is_int_or_bool(Impl::PrimitiveTypeImpl)) {
-            if (const auto* col =
+            if (const auto col =
                         check_and_get_column<ColumnVector<Impl::PrimitiveTypeImpl>>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
                 RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_data()));
@@ -117,7 +117,7 @@ private:
                 return Status::OK();
             }
         } else if constexpr (is_complex_v<Impl::PrimitiveTypeImpl>) {
-            if (const auto* col = check_and_get_column<ColumnComplexType<Impl::PrimitiveTypeImpl>>(
+            if (const auto col = check_and_get_column<ColumnComplexType<Impl::PrimitiveTypeImpl>>(
                         column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
                 RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_data()));
@@ -125,7 +125,7 @@ private:
                 return Status::OK();
             }
         } else if constexpr (Impl::PrimitiveTypeImpl == PrimitiveType::TYPE_VARBINARY) {
-            if (const auto* col = check_and_get_column<ColumnVarbinary>(column.get())) {
+            if (const auto col = check_and_get_column<ColumnVarbinary>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
                 RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_data()));
                 block.replace_by_position(result, std::move(col_res));
@@ -244,8 +244,8 @@ private:
         auto& vec_res = col_res->get_data();
         vec_res.resize(block.rows());
 
-        if (const auto* col_left = check_and_get_column<ColVecLeft>(lcol.get())) {
-            if (const auto* col_right = check_and_get_column<ColVecRight>(rcol.get())) {
+        if (const auto col_left = check_and_get_column<ColVecLeft>(lcol.get())) {
+            if (const auto col_right = check_and_get_column<ColVecRight>(rcol.get())) {
                 if (left_const) {
                     auto st = Impl<LeftDataType, RightDataType>::scalar_vector(
                             col_left->get_data_at(0), col_right->get_chars(),
@@ -473,7 +473,7 @@ public:
 
         auto& col_ptr = block.get_by_position(arguments[0]).column;
 
-        if (const auto* col = check_and_get_column<ColumnString>(col_ptr.get())) {
+        if (const auto col = check_and_get_column<ColumnString>(col_ptr.get())) {
             auto col_res = Impl::ColumnType::create();
             if constexpr (std::is_same_v<typename Impl::ReturnType, DataTypeString>) {
                 RETURN_IF_ERROR(Impl::vector(col->get_chars(), col->get_offsets(),

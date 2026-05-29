@@ -64,7 +64,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& elem = block.get_by_position(arguments[0]);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(*elem.column)) {
+        if (auto nullable = check_and_get_column<ColumnNullable>(*elem.column)) {
             /// Return the negated null map.
             auto res_column = ColumnUInt8::create(input_rows_count);
             const auto* __restrict src_data = nullable->get_null_map_data().data();

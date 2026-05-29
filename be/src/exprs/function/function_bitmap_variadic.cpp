@@ -74,7 +74,7 @@ namespace doris {
             if (res_nulls) {                                                                      \
                 res_nulls_data = assert_cast<ColumnUInt8*>(res_nulls)->get_data().data();         \
             }                                                                                     \
-            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[0])) {    \
+            if (auto nullable = check_and_get_column<ColumnNullable>(*argument_columns[0])) {     \
                 null_map_datas[nullable_cols_count++] = nullable->get_null_map_data().data();     \
                 BITMAP_OR_NULLABLE(nullable, input_rows_count, res, =);                           \
             } else {                                                                              \
@@ -85,7 +85,7 @@ namespace doris {
                 }                                                                                 \
             }                                                                                     \
             for (size_t col = 1; col < col_size; ++col) {                                         \
-                if (auto* nullable =                                                              \
+                if (auto nullable =                                                               \
                             check_and_get_column<ColumnNullable>(*argument_columns[col])) {       \
                     null_map_datas[nullable_cols_count++] = nullable->get_null_map_data().data(); \
                     BITMAP_OR_NULLABLE(nullable, input_rows_count, res, OP);                      \
@@ -123,14 +123,14 @@ namespace doris {
         static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,                \
                                     size_t input_rows_count, ResTData& res, IColumn* res_nulls) { \
             TData vals;                                                                           \
-            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[0])) {    \
+            if (auto nullable = check_and_get_column<ColumnNullable>(*argument_columns[0])) {     \
                 vals.resize(input_rows_count);                                                    \
                 BITMAP_OR_NULLABLE(nullable, input_rows_count, vals, =);                          \
             } else {                                                                              \
                 vals = assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();   \
             }                                                                                     \
             for (size_t col = 1; col < col_size; ++col) {                                         \
-                if (auto* nullable =                                                              \
+                if (auto nullable =                                                               \
                             check_and_get_column<ColumnNullable>(*argument_columns[col])) {       \
                     BITMAP_OR_NULLABLE(nullable, input_rows_count, vals, OP);                     \
                 } else {                                                                          \

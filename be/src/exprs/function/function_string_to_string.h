@@ -62,7 +62,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
-        if (const auto* col = check_and_get_column<ColumnString>(column.get())) {
+        if (const auto col = check_and_get_column<ColumnString>(column.get())) {
             auto col_res = ColumnString::create();
             RETURN_IF_ERROR(Impl::vector(col->get_chars(), col->get_offsets(), col_res->get_chars(),
                                          col_res->get_offsets()));

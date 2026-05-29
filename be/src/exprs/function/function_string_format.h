@@ -423,7 +423,7 @@ struct MoneyFormatDecimalImpl {
 
     static void execute(FunctionContext* context, ColumnString* result_column, ColumnPtr col_ptr,
                         size_t input_rows_count) {
-        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal128V2>(*col_ptr)) {
+        if (auto decimalv2_column = check_and_get_column<ColumnDecimal128V2>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
                 const auto& value = decimalv2_column->get_element(i);
                 // unified_frac_value has 3 digits
@@ -435,7 +435,7 @@ struct MoneyFormatDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal32_column = check_and_get_column<ColumnDecimal32>(*col_ptr)) {
+        } else if (auto decimal32_column = check_and_get_column<ColumnDecimal32>(*col_ptr)) {
             const UInt32 scale = decimal32_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 const Int32& frac_part = decimal32_column->get_fractional_part(i);
@@ -447,7 +447,7 @@ struct MoneyFormatDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal64_column = check_and_get_column<ColumnDecimal64>(*col_ptr)) {
+        } else if (auto decimal64_column = check_and_get_column<ColumnDecimal64>(*col_ptr)) {
             const UInt32 scale = decimal64_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 const Int64& frac_part = decimal64_column->get_fractional_part(i);
@@ -459,7 +459,7 @@ struct MoneyFormatDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal128_column = check_and_get_column<ColumnDecimal128V3>(*col_ptr)) {
+        } else if (auto decimal128_column = check_and_get_column<ColumnDecimal128V3>(*col_ptr)) {
             const UInt32 scale = decimal128_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 const Int128& frac_part = decimal128_column->get_fractional_part(i);
@@ -477,8 +477,7 @@ struct MoneyFormatDecimalImpl {
                                    "Not supported input argument type {}", col_ptr->get_name());
         }
         // TODO: decimal256
-        /* else if (auto* decimal256_column =
-                           check_and_get_column<ColumnDecimal<Decimal256>>(*col_ptr)) {
+        /* else if (auto decimal256_column = check_and_get_column<ColumnDecimal<Decimal256>>(*col_ptr)) {
             const UInt32 scale = decimal256_column->get_scale();
             const auto multiplier =
                     scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
@@ -690,7 +689,7 @@ struct FormatRoundDecimalImpl {
                           ColumnPtr decimal_places_col_ptr, size_t input_rows_count) {
         const auto& arg_column_data_2 =
                 assert_cast<const ColumnInt32*>(decimal_places_col_ptr.get())->get_data();
-        if (const auto* decimalv2_column = check_and_get_column<ColumnDecimal128V2>(*col_ptr)) {
+        if (const auto decimalv2_column = check_and_get_column<ColumnDecimal128V2>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
                 if (decimal_places < 0 || decimal_places > 1024) {
@@ -708,7 +707,7 @@ struct FormatRoundDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (const auto* decimal32_column = check_and_get_column<ColumnDecimal32>(*col_ptr)) {
+        } else if (const auto decimal32_column = check_and_get_column<ColumnDecimal32>(*col_ptr)) {
             const UInt32 scale = decimal32_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
@@ -726,7 +725,7 @@ struct FormatRoundDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (const auto* decimal64_column = check_and_get_column<ColumnDecimal64>(*col_ptr)) {
+        } else if (const auto decimal64_column = check_and_get_column<ColumnDecimal64>(*col_ptr)) {
             const UInt32 scale = decimal64_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
@@ -744,7 +743,7 @@ struct FormatRoundDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (const auto* decimal128_column =
+        } else if (const auto decimal128_column =
                            check_and_get_column<ColumnDecimal128V3>(*col_ptr)) {
             const UInt32 scale = decimal128_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {

@@ -100,7 +100,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        const auto* variant_col = check_and_get_column<ColumnVariant>(
+        const auto variant_col = check_and_get_column<ColumnVariant>(
                 remove_nullable(block.get_by_position(arguments[0]).column).get());
         if (!variant_col) {
             return Status::RuntimeError(
@@ -115,7 +115,7 @@ public:
 
         auto index_column = block.get_by_position(arguments[1]).column;
         ColumnPtr result_column;
-        RETURN_IF_ERROR(get_element_column(*variant_col, index_column, &result_column));
+        RETURN_IF_ERROR(get_element_column(*variant_col.get(), index_column, &result_column));
         if (block.get_by_position(result).type->is_nullable()) {
             result_column = wrap_variant_nullable(result_column);
         }

@@ -184,10 +184,10 @@ public:
         auto& res_data = res_col->get_chars();
         auto& res_offset = res_col->get_offsets();
         res_offset.resize(input_rows_count);
-        if (const auto* str_col = check_and_get_column<ColumnString>(data_col.get())) {
-            vector_execute(str_col, input_rows_count, res_data, res_offset);
-        } else if (const auto* vb_col = check_and_get_column<ColumnVarbinary>(data_col.get())) {
-            vector_execute(vb_col, input_rows_count, res_data, res_offset);
+        if (const auto str_col = check_and_get_column<ColumnString>(data_col.get())) {
+            vector_execute(str_col.get(), input_rows_count, res_data, res_offset);
+        } else if (const auto vb_col = check_and_get_column<ColumnVarbinary>(data_col.get())) {
+            vector_execute(vb_col.get(), input_rows_count, res_data, res_offset);
         } else {
             return Status::RuntimeError("Illegal column {} of argument of function {}",
                                         data_col->get_name(), get_name());
@@ -260,10 +260,10 @@ private:
     template <typename T>
     void execute_base(ColumnPtr data_col, int input_rows_count, ColumnString::Chars& res_data,
                       ColumnString::Offsets& res_offset) const {
-        if (const auto* str_col = check_and_get_column<ColumnString>(data_col.get())) {
-            vector_execute<T>(str_col, input_rows_count, res_data, res_offset);
-        } else if (const auto* vb_col = check_and_get_column<ColumnVarbinary>(data_col.get())) {
-            vector_execute<T>(vb_col, input_rows_count, res_data, res_offset);
+        if (const auto str_col = check_and_get_column<ColumnString>(data_col.get())) {
+            vector_execute<T>(str_col.get(), input_rows_count, res_data, res_offset);
+        } else if (const auto vb_col = check_and_get_column<ColumnVarbinary>(data_col.get())) {
+            vector_execute<T>(vb_col.get(), input_rows_count, res_data, res_offset);
         } else {
             throw Exception(ErrorCode::RUNTIME_ERROR,
                             "Illegal column {} of argument of function {}", data_col->get_name(),

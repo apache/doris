@@ -86,7 +86,7 @@ struct MurmurHash3Impl {
             }
         }
         auto& col_to_data = to_column.get_data();
-        if (const auto* col_from = check_and_get_column<ColumnString>(column)) {
+        if (const auto col_from = check_and_get_column<ColumnString>(column)) {
             const typename ColumnString::Chars& data = col_from->get_chars();
             const typename ColumnString::Offsets& offsets = col_from->get_offsets();
             size_t size = offsets.size();
@@ -177,7 +177,7 @@ struct XxHashImpl {
             to_column.insert_many_defaults(input_rows_count);
         }
         auto& col_to_data = to_column.get_data();
-        if (const auto* col_from = check_and_get_column<ColumnString>(column)) {
+        if (const auto col_from = check_and_get_column<ColumnString>(column)) {
             const typename ColumnString::Chars& data = col_from->get_chars();
             const typename ColumnString::Offsets& offsets = col_from->get_offsets();
             size_t size = offsets.size();
@@ -206,7 +206,7 @@ struct XxHashImpl {
                             HashUtil::xxHash64WithSeed(value.data(), value.size(), col_to_data[i]);
                 }
             }
-        } else if (const auto* vb_col = check_and_get_column<ColumnVarbinary>(column)) {
+        } else if (const auto vb_col = check_and_get_column<ColumnVarbinary>(column)) {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 auto data_ref = vb_col->get_data_at(i);
                 if constexpr (ReturnType == TYPE_INT) {

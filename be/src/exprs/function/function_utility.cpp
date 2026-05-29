@@ -80,7 +80,7 @@ public:
 
         auto res_column = ColumnUInt8::create(input_rows_count, 0);
 
-        if (auto* nullable_column = check_and_get_column<ColumnNullable>(*argument_column)) {
+        if (auto nullable_column = check_and_get_column<ColumnNullable>(*argument_column)) {
             auto null_map_column = ColumnUInt8::create();
 
             auto nested_column = nullable_column->get_nested_column_ptr();

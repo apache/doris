@@ -222,7 +222,7 @@ public:
                                               col_to->get_data(), result_null_map, context);
                 }
             } else {
-                if (const auto* delta_vec_column0 =
+                if (const auto delta_vec_column0 =
                             check_and_get_column<ColumnVector<PType>>(delta_column)) {
                     // time_round(datetime, origin)
                     Core::vector_vector_anchor(sources->get_data(), delta_vec_column0->get_data(),

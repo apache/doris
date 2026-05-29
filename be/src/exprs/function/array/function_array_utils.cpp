@@ -41,10 +41,11 @@ bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& dat
     }
 
     // check and get array column
-    data.array_col = check_and_get_column<ColumnArray>(array_col);
-    if (!data.array_col) {
+    const auto array_col_guard = check_and_get_column<ColumnArray>(array_col);
+    if (!array_col_guard) {
         return false;
     }
+    data.array_col = array_col_guard.get();
 
     // extract array offsets and nested column
     data.offsets_ptr = &data.array_col->get_offsets();

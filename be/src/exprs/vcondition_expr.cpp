@@ -63,7 +63,7 @@ size_t VConditionExpr::count_true_with_notnull(const ColumnPtr& col) {
         return 0;
     }
 
-    if (const auto* const_col = check_and_get_column<ColumnConst>(col.get())) {
+    if (const auto const_col = check_and_get_column<ColumnConst>(col.get())) {
         // if is null , get_bool will return false
         // bool get_bool(size_t n) const override {
         //     return is_null_at(n) ? false : _nested_column->get_bool(n);
@@ -109,9 +109,9 @@ ColumnPtr make_nullable_column_if_not(const ColumnPtr& column) {
 }
 
 ColumnPtr get_nested_column(const ColumnPtr& column) {
-    if (auto* nullable = check_and_get_column<ColumnNullable>(*column))
+    if (auto nullable = check_and_get_column<ColumnNullable>(*column))
         return nullable->get_nested_column_ptr();
-    else if (const auto* column_const = check_and_get_column<ColumnConst>(*column))
+    else if (const auto column_const = check_and_get_column<ColumnConst>(*column))
         return ColumnConst::create(get_nested_column(column_const->get_data_column_ptr()),
                                    column->size());
 
@@ -282,8 +282,14 @@ Status VectorizedIfExpr::execute_for_nullable_then_else(Block& block,
         return Status::OK();
     }
 
-    const auto* then_is_nullable = check_and_get_column<ColumnNullable>(*arg_then.column);
-    const auto* else_is_nullable = check_and_get_column<ColumnNullable>(*arg_else.column);
+    const ColumnNullable* then_is_nullable = nullptr;
+    if (const auto then_nullable = check_and_get_column<ColumnNullable>(*arg_then.column)) {
+        then_is_nullable = then_nullable.get();
+    }
+    const ColumnNullable* else_is_nullable = nullptr;
+    if (const auto else_nullable = check_and_get_column<ColumnNullable>(*arg_else.column)) {
+        else_is_nullable = else_nullable.get();
+    }
     bool then_column_is_const_nullable = false;
     bool else_column_is_const_nullable = false;
     if (then_type_is_nullable && then_is_nullable == nullptr) {
@@ -375,7 +381,7 @@ Status VectorizedIfExpr::execute_for_null_condition(Block& block, const ColumnNu
         return Status::OK();
     }
 
-    if (const auto* nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
+    if (const auto nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
         DCHECK(remove_nullable(arg_cond.type)->get_primitive_type() == PrimitiveType::TYPE_BOOLEAN);
 
         // update nested column by null map
@@ -688,7 +694,7 @@ Status VectorizedCoalesceExpr::execute_column_impl(VExprContext* context, const 
     auto* __restrict null_map_data = null_map->get_data().data();
 
     auto is_not_null = [](const ColumnPtr& column, size_t size) -> ColumnUInt8::MutablePtr {
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
+        if (const auto nullable = check_and_get_column<ColumnNullable>(*column)) {
             /// Return the negated null map.
             auto res_column = ColumnUInt8::create(size);
             const auto* __restrict src_data = nullable->get_null_map_data().data();
@@ -713,7 +719,7 @@ Status VectorizedCoalesceExpr::execute_column_impl(VExprContext* context, const 
                 _children[i]->execute_column(context, block, selector, count, original_columns[i]));
         original_columns[i] = original_columns[i]->convert_to_full_column_if_const();
         argument_not_null_columns[i] = original_columns[i];
-        if (const auto* nullable =
+        if (const auto nullable =
                     check_and_get_column<const ColumnNullable>(*argument_not_null_columns[i])) {
             argument_not_null_columns[i] = nullable->get_nested_column_ptr();
         }

@@ -55,7 +55,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = check_and_get_column<typename FromDataType::ColumnType>(
+        const auto col_from = check_and_get_column<typename FromDataType::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
         if (!col_from) {
             return Status::InternalError(
@@ -143,7 +143,7 @@ public:
         using ToFieldType = typename ToDataType::FieldType;
 
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
-        const auto* col_from =
+        const auto col_from =
                 check_and_get_column<typename FromDataType::ColumnType>(named_from.column.get());
         if (!col_from) {
             return Status::InternalError(fmt::format("Column type mismatch: expected {}, got {}",

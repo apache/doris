@@ -149,7 +149,7 @@ Status SetProbeSinkOperatorX<is_intersect>::_extract_probe_column(
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
         const auto* column = block.get_by_position(result_col_id).column.get();
 
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
+        if (const auto nullable = check_and_get_column<ColumnNullable>(*column)) {
             if (!build_not_ignore_null[i]) {
                 return Status::InternalError(
                         "SET operator expects a nullable : {} column in column {}, but the "
@@ -158,7 +158,7 @@ Status SetProbeSinkOperatorX<is_intersect>::_extract_probe_column(
                         build_not_ignore_null[i], i,
                         nullable->get_nested_column_ptr()->is_nullable());
             }
-            raw_ptrs[i] = nullable;
+            raw_ptrs[i] = nullable.get();
         } else {
             if (build_not_ignore_null[i]) {
                 auto column_ptr = make_nullable(block.get_by_position(result_col_id).column, false);

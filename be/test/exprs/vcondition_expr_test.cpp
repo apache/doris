@@ -117,7 +117,7 @@ static ColumnPtr make_float64_column(const std::vector<double>& values) {
 // Helper: extract the Float64 value at `row` from the result column,
 // handling both nullable and non-nullable cases.
 static double get_float64_value(const ColumnPtr& column, size_t row, bool* is_null = nullptr) {
-    if (const auto* nullable = check_and_get_column<ColumnNullable>(column.get())) {
+    if (const auto nullable = check_and_get_column<ColumnNullable>(column.get())) {
         if (is_null) {
             *is_null = nullable->is_null_at(row);
         }
@@ -288,7 +288,7 @@ TEST_F(VConditionExprCoalesceTest, Float32_NaN_NotPolluteResult) {
     ASSERT_EQ(result->size(), 2);
 
     auto get_f32 = [&](size_t row, bool* is_null) -> float {
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(result.get())) {
+        if (const auto nullable = check_and_get_column<ColumnNullable>(result.get())) {
             *is_null = nullable->is_null_at(row);
             return assert_cast<const ColumnFloat32&>(nullable->get_nested_column()).get_data()[row];
         }
@@ -340,7 +340,7 @@ TEST_F(VConditionExprCoalesceTest, Int32_NormalPathStillWorks) {
     ASSERT_EQ(result->size(), 2);
 
     auto get_int = [&](size_t row, bool* is_null) -> int32_t {
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(result.get())) {
+        if (const auto nullable = check_and_get_column<ColumnNullable>(result.get())) {
             *is_null = nullable->is_null_at(row);
             return assert_cast<const ColumnInt32&>(nullable->get_nested_column()).get_data()[row];
         }

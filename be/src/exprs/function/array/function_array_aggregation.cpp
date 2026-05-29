@@ -205,11 +205,19 @@ struct ArrayAggregateImpl {
         using Function =
                 ArrayAggregateFunctionCreator<operation, AggregateFunctionTraits<operation>>;
 
-        const ColumnType* column =
-                data->is_nullable()
-                        ? check_and_get_column<ColumnType>(
-                                  static_cast<const ColumnNullable*>(data)->get_nested_column())
-                        : check_and_get_column<ColumnType>(&*data);
+        const ColumnType* column = nullptr;
+        if (data->is_nullable()) {
+            const auto column_guard = check_and_get_column<ColumnType>(
+                    static_cast<const ColumnNullable*>(data)->get_nested_column());
+            if (column_guard) {
+                column = column_guard.get();
+            }
+        } else {
+            const auto column_guard = check_and_get_column<ColumnType>(&*data);
+            if (column_guard) {
+                column = column_guard.get();
+            }
+        }
         if (!column) {
             return false;
         }
@@ -429,11 +437,19 @@ struct ArrayAggregateImplDecimalV3<operation, ResultType> {
         using Function = ArrayAggregateFunctionCreatorWithResultType<
                 AggregateFunctionTraitsWithResultType<operation>>;
 
-        const ColumnType* column =
-                data->is_nullable()
-                        ? check_and_get_column<ColumnType>(
-                                  static_cast<const ColumnNullable*>(data)->get_nested_column())
-                        : check_and_get_column<ColumnType>(&*data);
+        const ColumnType* column = nullptr;
+        if (data->is_nullable()) {
+            const auto column_guard = check_and_get_column<ColumnType>(
+                    static_cast<const ColumnNullable*>(data)->get_nested_column());
+            if (column_guard) {
+                column = column_guard.get();
+            }
+        } else {
+            const auto column_guard = check_and_get_column<ColumnType>(&*data);
+            if (column_guard) {
+                column = column_guard.get();
+            }
+        }
         if (!column) {
             return false;
         }

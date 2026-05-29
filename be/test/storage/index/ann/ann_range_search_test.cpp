@@ -197,10 +197,10 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
     doris::segment_v2::VirtualColumnIterator* virtual_column_iter =
             dynamic_cast<doris::segment_v2::VirtualColumnIterator*>(column_iterators[3].get());
     IColumn::Ptr column = virtual_column_iter->get_materialized_column();
-    const ColumnFloat32* float_column = check_and_get_column<const ColumnFloat32>(column.get());
-    const ColumnNothing* nothing_column = check_and_get_column<const ColumnNothing>(column.get());
-    ASSERT_EQ(float_column, nullptr);
-    ASSERT_NE(nothing_column, nullptr);
+    const auto float_column = check_and_get_column<const ColumnFloat32>(column.get());
+    const auto nothing_column = check_and_get_column<const ColumnNothing>(column.get());
+    ASSERT_FALSE(static_cast<bool>(float_column));
+    ASSERT_TRUE(static_cast<bool>(nothing_column));
     EXPECT_EQ(column->size(), 0);
 
     const auto& get_row_id_to_idx = virtual_column_iter->get_row_id_to_idx();
@@ -302,11 +302,14 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
             dynamic_cast<doris::segment_v2::VirtualColumnIterator*>(column_iterators[3].get());
 
     IColumn::Ptr column = virtual_column_iter->get_materialized_column();
-    const ColumnFloat32* nullable_column = check_and_get_column<const ColumnFloat32>(column.get());
-    const ColumnNothing* nothing_column = check_and_get_column<const ColumnNothing>(column.get());
-    ASSERT_NE(nullable_column, nullptr);
-    ASSERT_EQ(nothing_column, nullptr);
-    EXPECT_EQ(nullable_column->size(), 10);
+    const auto nullable_column = check_and_get_column<const ColumnFloat32>(column.get());
+    const auto nothing_column = check_and_get_column<const ColumnNothing>(column.get());
+    ASSERT_FALSE(static_cast<bool>(nothing_column));
+    if (!nullable_column) {
+        FAIL() << "Expected virtual column materialized as ColumnFloat32";
+    } else {
+        EXPECT_EQ(nullable_column.get()->size(), 10);
+    }
     EXPECT_EQ(row_bitmap.cardinality(), 10);
 
     const auto& get_row_id_to_idx = virtual_column_iter->get_row_id_to_idx();

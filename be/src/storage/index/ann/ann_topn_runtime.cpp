@@ -58,7 +58,7 @@ Result<ColumnFloat32::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr)
 
     // Unwrap ColumnConst without copy to get the underlying single-row column
     IColumn::Ptr col_ptr = column_wrapper->column_ptr;
-    if (const auto* const_col = check_and_get_column<ColumnConst>(*col_ptr)) {
+    if (const auto const_col = check_and_get_column<ColumnConst>(*col_ptr)) {
         col_ptr = const_col->get_data_column_ptr();
     }
 
@@ -67,7 +67,7 @@ Result<ColumnFloat32::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr)
     const IColumn* top_col = col_ptr.get();
     const IColumn* array_holder_col = top_col;
     // Handle outer Nullable and remember result nullability preference
-    if (auto* nullable_col = check_and_get_column<ColumnNullable>(*top_col)) {
+    if (auto nullable_col = check_and_get_column<ColumnNullable>(*top_col)) {
         if (nullable_col->has_null()) {
             return ResultError(Status::InvalidArgument("Ann query vector cannot be NULL"));
         }
@@ -75,8 +75,14 @@ Result<ColumnFloat32::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr)
     }
 
     // Must be an array column with single row
-    const auto* array_col = check_and_get_column<ColumnArray>(*array_holder_col);
-    if (array_col == nullptr || array_col->size() != 1) {
+    const auto array_col_guard = check_and_get_column<ColumnArray>(*array_holder_col);
+    if (!array_col_guard) {
+        return ResultError(Status::InvalidArgument(
+                "Ann topn expr constant should be an Array literal, got column: {}",
+                array_holder_col->get_name()));
+    }
+    const auto* array_col = array_col_guard.get();
+    if (array_col->size() != 1) {
         return ResultError(Status::InvalidArgument(
                 "Ann topn expr constant should be an Array literal, got column: {}",
                 array_holder_col->get_name()));
@@ -91,7 +97,7 @@ Result<ColumnFloat32::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr)
         return ResultError(Status::InvalidArgument("Ann topn query vector cannot be empty"));
     }
 
-    if (auto* value_nullable_col = check_and_get_column<ColumnNullable>(nested_data_any)) {
+    if (auto value_nullable_col = check_and_get_column<ColumnNullable>(nested_data_any)) {
         if (value_nullable_col->has_null(0, value_count)) {
             return ResultError(Status::InvalidArgument(
                     "Ann topn query vector elements cannot contain NULL values"));

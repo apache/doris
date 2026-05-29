@@ -102,7 +102,7 @@ public:
             auto col = block.get_by_position(arguments[i]).column;
             col = col->convert_to_full_column_if_const();
 
-            const auto* column_array = check_and_get_column<ColumnArray>(col.get());
+            const auto column_array = check_and_get_column<ColumnArray>(col.get());
             if (!column_array) {
                 return Status::RuntimeError(fmt::format(
                         "execute failed, function {}'s {}-th argument should be array bet get {}",

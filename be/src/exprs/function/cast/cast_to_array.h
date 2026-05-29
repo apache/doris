@@ -63,7 +63,7 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
                    const NullMap::value_type* null_map = nullptr) -> Status {
         ColumnPtr from_column = block.get_by_position(arguments.front()).column;
 
-        const auto* from_col_array = check_and_get_column<ColumnArray>(from_column.get());
+        const auto from_col_array = check_and_get_column<ColumnArray>(from_column.get());
 
         if (from_col_array) {
             /// create columns for converting nested column containing original and result columns

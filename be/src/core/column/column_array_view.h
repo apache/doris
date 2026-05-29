@@ -69,7 +69,7 @@ struct ColumnArrayView {
         // Step 2: unpack outer nullable
         const NullMap* outer_null_map = nullptr;
         const IColumn* array_raw = nullptr;
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(unpacked.get())) {
+        if (const auto nullable = check_and_get_column<ColumnNullable>(unpacked.get())) {
             outer_null_map = &nullable->get_null_map_data();
             array_raw = nullable->get_nested_column_ptr().get();
         } else {

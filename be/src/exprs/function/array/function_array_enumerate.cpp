@@ -81,7 +81,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const ColumnArray* array =
+        const auto array =
                 check_and_get_column<ColumnArray>(remove_nullable(left_column->get_ptr()).get());
         if (!array) {
             return Status::RuntimeError(

@@ -85,7 +85,7 @@ Status cast_from_string_to_generic(FunctionContext* context, Block& block,
     // result column must set type
     DCHECK(block.get_by_position(result).type != nullptr);
     auto data_type_to = block.get_by_position(result).type;
-    if (const auto* col_from_string = check_and_get_column<ColumnString>(&col_from)) {
+    if (const auto col_from_string = check_and_get_column<ColumnString>(&col_from)) {
         auto col_to = data_type_to->create_column();
         auto serde = data_type_to->get_serde();
         size_t size = col_from.size();

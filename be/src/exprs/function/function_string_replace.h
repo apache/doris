@@ -414,7 +414,7 @@ struct SubReplaceThreeImpl {
 
         auto str_col =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        if (const auto* nullable = check_and_get_column<const ColumnNullable>(*str_col)) {
+        if (const auto nullable = check_and_get_column<const ColumnNullable>(*str_col)) {
             str_col = nullable->get_nested_column_ptr();
         }
         const auto* str_column = assert_cast<const ColumnString*>(str_col.get());

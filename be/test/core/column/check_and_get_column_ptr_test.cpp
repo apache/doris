@@ -87,7 +87,12 @@ TEST(CheckAndGetColumnPtrTest, errorTest) {
         ColumnPtr nested_column = column;
 
         nested_column = nested_column->convert_to_full_column_if_const();
-        const auto* source_column = check_and_get_column<ColumnNullable>(nested_column.get());
+        const ColumnNullable* source_column = nullptr;
+        if (const auto source_column_guard =
+                    check_and_get_column<ColumnNullable>(nested_column.get())) {
+            source_column = source_column_guard.get();
+        }
+        ASSERT_NE(source_column, nullptr);
         nested_column = source_column->get_nested_column_ptr();
         // The source_column is now a dangling pointer.
         // std::cout<<source_column->use_count()<<std::endl;

@@ -26,9 +26,9 @@ inline Status deduplicate_map_keys_in_result(Block& block, uint32_t result) {
     auto result_column_name = block.get_by_position(result).column->get_name();
     auto mutable_result_column = IColumn::mutate(std::move(block.get_by_position(result).column));
 
-    if (auto* nullable_column = check_and_get_column<ColumnNullable>(*mutable_result_column)) {
+    if (const auto nullable_column = check_and_get_column<ColumnNullable>(*mutable_result_column)) {
         auto nested_column = IColumn::mutate(nullable_column->get_nested_column_ptr());
-        auto* map_column = check_and_get_column<ColumnMap>(*nested_column);
+        const auto map_column = check_and_get_column<ColumnMap>(*nested_column);
         if (!map_column) {
             return Status::RuntimeError("Illegal column {} for function CAST AS MAP",
                                         result_column_name);
@@ -38,7 +38,7 @@ inline Status deduplicate_map_keys_in_result(Block& block, uint32_t result) {
         ColumnPtr nested_column_ptr = std::move(nested_column);
         nullable_column->change_nested_column(nested_column_ptr);
     } else {
-        auto* map_column = check_and_get_column<ColumnMap>(*mutable_result_column);
+        const auto map_column = check_and_get_column<ColumnMap>(*mutable_result_column);
         if (!map_column) {
             return Status::RuntimeError("Illegal column {} for function CAST AS MAP",
                                         result_column_name);
@@ -91,7 +91,7 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
                    uint32_t result, size_t /*input_rows_count*/,
                    const NullMap::value_type* null_map = nullptr) -> Status {
         auto& from_column = block.get_by_position(arguments.front()).column;
-        const auto* from_col_map = check_and_get_column<ColumnMap>(from_column.get());
+        const auto from_col_map = check_and_get_column<ColumnMap>(from_column.get());
         if (!from_col_map) {
             return Status::RuntimeError("Illegal column {} for function CAST AS MAP",
                                         from_column->get_name());

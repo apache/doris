@@ -39,6 +39,19 @@
 #include "exec/sort/hybrid_sorter.h"
 #include "storage/olap_common.h"
 
+#if defined(__clang__) && __has_attribute(consumable) && __has_attribute(callable_when) && \
+        __has_attribute(test_typestate) && __has_attribute(return_typestate)
+#define DORIS_CLANG_CONSUMABLE_UNKNOWN __attribute__((consumable(unknown)))
+#define DORIS_CLANG_CALLABLE_WHEN_UNCONSUMED __attribute__((callable_when("unconsumed")))
+#define DORIS_CLANG_TEST_UNCONSUMED __attribute__((test_typestate(unconsumed)))
+#define DORIS_CLANG_RETURN_UNKNOWN __attribute__((return_typestate(unknown)))
+#else
+#define DORIS_CLANG_CONSUMABLE_UNKNOWN
+#define DORIS_CLANG_CALLABLE_WHEN_UNCONSUMED
+#define DORIS_CLANG_TEST_UNCONSUMED
+#define DORIS_CLANG_RETURN_UNKNOWN
+#endif
+
 namespace doris {
 class SipHash;
 }
@@ -798,34 +811,71 @@ struct IsMutableColumns<> {
     static const bool value = true;
 };
 
+template <typename PointerType>
+class DORIS_CLANG_CONSUMABLE_UNKNOWN ColumnPtrGuard {
+public:
+    explicit ColumnPtrGuard(PointerType column) : _column(column) {}
+
+    explicit operator bool() const DORIS_CLANG_TEST_UNCONSUMED { return _column != nullptr; }
+
+    PointerType get() const DORIS_CLANG_CALLABLE_WHEN_UNCONSUMED { return _column; }
+
+    PointerType operator->() const DORIS_CLANG_CALLABLE_WHEN_UNCONSUMED { return _column; }
+
+private:
+    PointerType _column;
+};
+
 // prefer assert_cast than check_and_get
 template <typename Type>
-const Type* check_and_get_column(const IColumn& column) {
-    return typeid_cast<const Type*>(&column);
+DORIS_CLANG_RETURN_UNKNOWN ColumnPtrGuard<const Type*> check_and_get_column(const IColumn& column) {
+    return ColumnPtrGuard<const Type*>(typeid_cast<const Type*>(&column));
 }
 
 template <typename Type>
-Type* check_and_get_column(IColumn& column) {
-    return typeid_cast<Type*>(&column);
+DORIS_CLANG_RETURN_UNKNOWN ColumnPtrGuard<Type*> check_and_get_column(IColumn& column) {
+    return ColumnPtrGuard<Type*>(typeid_cast<Type*>(&column));
 }
 
 template <typename Type>
-const Type* check_and_get_column(const IColumn* column) {
-    return typeid_cast<const Type*>(column);
+DORIS_CLANG_RETURN_UNKNOWN ColumnPtrGuard<const Type*> check_and_get_column(const IColumn* column) {
+    return ColumnPtrGuard<const Type*>(typeid_cast<const Type*>(column));
 }
 
 template <typename Type>
-Type* check_and_get_column(IColumn* column) {
-    return typeid_cast<Type*>(column);
+DORIS_CLANG_RETURN_UNKNOWN ColumnPtrGuard<Type*> check_and_get_column(IColumn* column) {
+    return ColumnPtrGuard<Type*>(typeid_cast<Type*>(column));
 }
 
 template <typename Type>
 bool is_column(const IColumn& column) {
-    return check_and_get_column<Type>(&column);
+    return static_cast<bool>(check_and_get_column<Type>(&column));
 }
 
 template <typename Type>
 bool is_column(const IColumn* column) {
+    return static_cast<bool>(check_and_get_column<Type>(column));
+}
+
+template <typename Type>
+DORIS_CLANG_RETURN_UNKNOWN ColumnPtrGuard<const Type*> check_and_get_column_guard(
+        const IColumn& column) {
+    return check_and_get_column<Type>(column);
+}
+
+template <typename Type>
+DORIS_CLANG_RETURN_UNKNOWN ColumnPtrGuard<Type*> check_and_get_column_guard(IColumn& column) {
+    return check_and_get_column<Type>(column);
+}
+
+template <typename Type>
+DORIS_CLANG_RETURN_UNKNOWN ColumnPtrGuard<const Type*> check_and_get_column_guard(
+        const IColumn* column) {
+    return check_and_get_column<Type>(column);
+}
+
+template <typename Type>
+DORIS_CLANG_RETURN_UNKNOWN ColumnPtrGuard<Type*> check_and_get_column_guard(IColumn* column) {
     return check_and_get_column<Type>(column);
 }
 
@@ -833,11 +883,11 @@ bool is_column(const IColumn* column) {
 // which will hold ownership. This prevents the occurrence of dangling pointers due to certain situations.
 template <typename ColumnType>
 ColumnType::Ptr check_and_get_column_ptr(const ColumnPtr& column) {
-    const ColumnType* raw_type_ptr = check_and_get_column<ColumnType>(column.get());
-    if (raw_type_ptr == nullptr) {
+    const auto raw_type_ptr = check_and_get_column<ColumnType>(column.get());
+    if (!raw_type_ptr) {
         return nullptr;
     }
-    return ColumnType::cast_to_column_ptr(raw_type_ptr);
+    return ColumnType::cast_to_column_ptr(raw_type_ptr.get());
 }
 
 template <typename ColumnType>

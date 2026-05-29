@@ -2360,11 +2360,13 @@ Status SegmentIterator::_output_non_pred_columns(Block* block) {
         //    Here loc=2 for c3, block->columns()=2, so loc < block->columns() is false,
         //    and c3 is skipped — same behavior as the VMergeIterator path.
         if (loc < block->columns()) {
-            bool column_in_block_is_nothing = check_and_get_column<const ColumnNothing>(
+            const auto column_in_block_nothing_guard = check_and_get_column<const ColumnNothing>(
                     block->get_by_position(loc).column.get());
+            bool column_in_block_is_nothing = static_cast<bool>(column_in_block_nothing_guard);
             bool column_is_normal = !_vir_cid_to_idx_in_block.contains(cid);
-            bool return_column_is_nothing =
+            const auto return_column_nothing_guard =
                     check_and_get_column<const ColumnNothing>(_current_return_columns[cid].get());
+            bool return_column_is_nothing = static_cast<bool>(return_column_nothing_guard);
             VLOG_DEBUG << fmt::format(
                     "Cid {} loc {}, column_in_block_is_nothing {}, column_is_normal {}, "
                     "return_column_is_nothing {}",

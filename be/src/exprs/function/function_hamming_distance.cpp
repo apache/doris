@@ -59,24 +59,27 @@ public:
         const auto& [right_col, right_const] =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
-        const auto* left_nullable = check_and_get_column<ColumnNullable>(left_col.get());
-        const auto* right_nullable = check_and_get_column<ColumnNullable>(right_col.get());
+        const auto left_nullable = check_and_get_column<ColumnNullable>(left_col.get());
+        const auto right_nullable = check_and_get_column<ColumnNullable>(right_col.get());
 
-        const IColumn* left_nested =
-                left_nullable ? &left_nullable->get_nested_column() : left_col.get();
-        const IColumn* right_nested =
-                right_nullable ? &right_nullable->get_nested_column() : right_col.get();
+        const IColumn* left_nested = left_col.get();
+        const IColumn* right_nested = right_col.get();
+        const NullMap* left_null_map = nullptr;
+        const NullMap* right_null_map = nullptr;
+        if (left_nullable) {
+            left_nested = &left_nullable->get_nested_column();
+            left_null_map = &left_nullable->get_null_map_data();
+        }
+        if (right_nullable) {
+            right_nested = &right_nullable->get_nested_column();
+            right_null_map = &right_nullable->get_null_map_data();
+        }
 
         const auto* left_str_col = assert_cast<const ColumnString*>(left_nested);
         const auto* right_str_col = assert_cast<const ColumnString*>(right_nested);
 
         auto res_col = ResultColumnType::create(input_rows_count);
         auto& res_data = res_col->get_data();
-
-        const NullMap* left_null_map =
-                left_nullable ? &left_nullable->get_null_map_data() : nullptr;
-        const NullMap* right_null_map =
-                right_nullable ? &right_nullable->get_null_map_data() : nullptr;
         const bool has_nullable = left_null_map != nullptr || right_null_map != nullptr;
 
         if (!has_nullable) {

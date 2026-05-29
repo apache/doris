@@ -235,7 +235,7 @@ public:
         for (size_t i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (const auto* nullable =
+            if (const auto nullable =
                         check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
                 // Danger: Here must dispose the null map data first! Because
                 // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem

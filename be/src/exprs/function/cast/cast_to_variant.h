@@ -32,19 +32,20 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
     auto& col_with_type_and_name = block.get_by_position(arguments[0]);
     auto& col_from = col_with_type_and_name.column;
     const IColumn* variant_column = col_from.get();
-    if (const auto* nullable = check_and_get_column<ColumnNullable>(*variant_column)) {
+    if (const auto nullable = check_and_get_column<ColumnNullable>(*variant_column)) {
         variant_column = &nullable->get_nested_column();
     }
 
     if (!assert_cast<const ColumnVariant&>(*variant_column).is_finalized()) {
         // ColumnVariant should be finalized before parsing, finalize maybe modify original column structure
         auto mutable_column = IColumn::mutate(std::move(col_with_type_and_name.column));
-        if (auto* nullable = check_and_get_column<ColumnNullable>(*mutable_column)) {
-            const auto& const_nullable = *nullable;
+        if (const auto nullable = check_and_get_column<ColumnNullable>(*mutable_column)) {
+            auto* nullable_column = nullable.get();
+            const auto& const_nullable = *nullable_column;
             auto nested_column = IColumn::mutate(const_nullable.get_nested_column_ptr());
             assert_cast<ColumnVariant&>(*nested_column).finalize();
             ColumnPtr nested_column_ptr = std::move(nested_column);
-            nullable->change_nested_column(nested_column_ptr);
+            nullable_column->change_nested_column(nested_column_ptr);
         } else {
             assert_cast<ColumnVariant&>(*mutable_column).finalize();
         }
@@ -52,7 +53,7 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
     }
 
     variant_column = col_with_type_and_name.column.get();
-    if (const auto* nullable = check_and_get_column<ColumnNullable>(*variant_column)) {
+    if (const auto nullable = check_and_get_column<ColumnNullable>(*variant_column)) {
         variant_column = &nullable->get_nested_column();
     }
     const auto& variant = assert_cast<const ColumnVariant&>(*variant_column);
@@ -127,9 +128,11 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
     }
 
     if (null_map == nullptr) {
-        if (const auto* nullable_result = check_and_get_column<ColumnNullable>(*col_to);
-            nullable_result != nullptr && !nullable_result->has_null()) {
-            col_to = nullable_result->get_nested_column_ptr();
+        if (const auto nullable_result = check_and_get_column<ColumnNullable>(*col_to);
+            nullable_result) {
+            if (!nullable_result->has_null()) {
+                col_to = nullable_result->get_nested_column_ptr();
+            }
         }
     }
 

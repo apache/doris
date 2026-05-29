@@ -336,11 +336,11 @@ Status IcebergDeletePartitionFunction::_get_delete_hash_column(const ColumnWithT
                                                                DataTypePtr* out_type) const {
     ColumnPtr hash_col = column.column;
     DataTypePtr hash_type = column.type;
-    if (auto* nullable_col = check_and_get_column<ColumnNullable>(hash_col.get())) {
+    if (auto nullable_col = check_and_get_column<ColumnNullable>(hash_col.get())) {
         hash_col = nullable_col->get_nested_column_ptr();
         hash_type = remove_nullable(hash_type);
     }
-    const auto* struct_col = check_and_get_column<ColumnStruct>(hash_col.get());
+    const auto struct_col = check_and_get_column<ColumnStruct>(hash_col.get());
     const auto* struct_type = check_and_get_data_type<DataTypeStruct>(hash_type.get());
     if (!struct_col || !struct_type) {
         *out_column = column.column;

@@ -724,7 +724,7 @@ public:
         using FromFieldType = typename FromDataType::FieldType;
         using ToFieldType = typename ToDataType::FieldType;
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
-        const auto* col_from =
+        const auto col_from =
                 check_and_get_column<typename FromDataType::ColumnType>(named_from.column.get());
         if (!col_from) {
             return Status::RuntimeError("Illegal column {} of first argument of function cast",
@@ -820,7 +820,7 @@ public:
         using FromFieldType = typename FromDataType::FieldType;
         using ToFieldType = typename ToDataType::FieldType;
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
-        const auto* col_from =
+        const auto col_from =
                 check_and_get_column<typename FromDataType::ColumnType>(named_from.column.get());
         if (!col_from) {
             return Status::RuntimeError("Illegal column {} of first argument of function cast",
@@ -908,7 +908,7 @@ public:
         using FromFieldType = typename FromDataType::FieldType;
         using ToFieldType = typename ToDataType::FieldType;
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
-        const auto* col_from =
+        const auto col_from =
                 check_and_get_column<typename FromDataType::ColumnType>(named_from.column.get());
         if (!col_from) {
             return Status::RuntimeError("Illegal column {} of first argument of function cast",
@@ -1018,7 +1018,7 @@ public:
         using FromFieldType = typename FromDataType::FieldType;
         using ToFieldType = typename ToDataType::FieldType;
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
-        const auto* col_from =
+        const auto col_from =
                 check_and_get_column<typename FromDataType::ColumnType>(named_from.column.get());
         if (!col_from) {
             return Status::RuntimeError("Illegal column {} of first argument of function cast",

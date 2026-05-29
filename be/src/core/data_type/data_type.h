@@ -97,7 +97,7 @@ protected:
     template <typename Type>
     Status check_column_non_nested_type(const IColumn& column) const {
         if (check_and_get_column_with_const<Type>(column) != nullptr ||
-            check_and_get_column<ColumnNothing>(column) != nullptr) {
+            check_and_get_column<ColumnNothing>(column)) {
             return Status::OK();
         }
         return Status::InternalError("Column type {} is not compatible with data type {}",

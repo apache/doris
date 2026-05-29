@@ -196,17 +196,20 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         for (int i = 0; i < arg_count; i++) {
-            const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
-            if (nullable_column == nullptr) {
+            const auto nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
+            if (!nullable_column) {
                 this->data(place).add(
                         i, static_cast<const ColumnString&>(*columns[i]).get_data_at(row_num));
-            } else if (nullable_column->is_null_at(row_num)) {
-                // TODO create a null vector
-                this->data(place).add(i);
             } else {
-                this->data(place).add(
-                        i, static_cast<const ColumnString&>(nullable_column->get_nested_column())
-                                   .get_data_at(row_num));
+                const auto* nullable_column_ptr = nullable_column.get();
+                if (nullable_column_ptr->is_null_at(row_num)) {
+                    // TODO create a null vector
+                    this->data(place).add(i);
+                } else {
+                    this->data(place).add(i, static_cast<const ColumnString&>(
+                                                     nullable_column_ptr->get_nested_column())
+                                                     .get_data_at(row_num));
+                }
             }
         }
     }

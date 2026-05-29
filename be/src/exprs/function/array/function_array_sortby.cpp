@@ -70,7 +70,7 @@ public:
         for (int i = 0; i < 2; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
+            if (auto nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
                 argument_nullmap[i] = nullable->get_null_map_column_ptr();
                 argument_columns[i] = nullable->get_nested_column_ptr();
             }

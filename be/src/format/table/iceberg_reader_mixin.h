@@ -259,13 +259,19 @@ protected:
             return Status::InvalidArgument("Invalid iceberg rowid column type or output column");
         }
         MutableColumnPtr column = type->create_column();
-        ColumnNullable* nullable_col = check_and_get_column<ColumnNullable>(column.get());
+        auto nullable_col = check_and_get_column<ColumnNullable>(column.get());
         ColumnStruct* struct_col = nullptr;
-        if (nullable_col != nullptr) {
-            struct_col =
+        if (nullable_col) {
+            const auto struct_col_guard =
                     check_and_get_column<ColumnStruct>(nullable_col->get_nested_column_ptr().get());
+            if (struct_col_guard) {
+                struct_col = struct_col_guard.get();
+            }
         } else {
-            struct_col = check_and_get_column<ColumnStruct>(column.get());
+            const auto struct_col_guard = check_and_get_column<ColumnStruct>(column.get());
+            if (struct_col_guard) {
+                struct_col = struct_col_guard.get();
+            }
         }
         if (struct_col == nullptr || struct_col->tuple_size() < 4) {
             return Status::InternalError("Invalid iceberg rowid column structure");
@@ -293,7 +299,7 @@ protected:
         for (size_t i = 0; i < num_rows; ++i) {
             partition_data_col.insert_data(partition_data_json.data(), partition_data_json.size());
         }
-        if (nullable_col != nullptr) {
+        if (nullable_col) {
             nullable_col->get_null_map_data().resize_fill(num_rows, 0);
         }
         *column_out = std::move(column);

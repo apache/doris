@@ -118,7 +118,7 @@ public:
         for (int i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (const auto* nullable =
+            if (const auto nullable =
                         check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
                 null_list[i] = &nullable->get_null_map_data();
                 argument_null_columns[i] = nullable->get_null_map_column_ptr();
@@ -629,7 +629,7 @@ public:
                     auto& offsets = str_column->get_offsets();
                     offsets.resize(1);
                     const ColumnInt32* int_column;
-                    if (auto* nullable = check_and_get_column<const ColumnNullable>(
+                    if (auto nullable = check_and_get_column<const ColumnNullable>(
                                 const_column->get_data_column())) {
                         int_column = assert_cast<const ColumnInt32*>(
                                 nullable->get_nested_column_ptr().get());
@@ -1580,15 +1580,17 @@ public:
 
         ColumnPtr col =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const auto* col_str = check_and_get_column<ColumnString>(col.get());
-        if (col_str == nullptr) {
+        const ColumnString* col_str_ptr = nullptr;
+        if (const auto col_str = check_and_get_column<ColumnString>(col.get())) {
+            col_str_ptr = col_str.get();
+        } else {
             return Status::RuntimeError("Illegal column {} of argument of function {}",
                                         block.get_by_position(arguments[0]).column->get_name(),
                                         get_name());
         }
 
-        const auto& data = col_str->get_chars();
-        const auto& offsets = col_str->get_offsets();
+        const auto& data = col_str_ptr->get_chars();
+        const auto& offsets = col_str_ptr->get_offsets();
 
         auto res = ColumnString::create();
         auto& res_data = res->get_chars();

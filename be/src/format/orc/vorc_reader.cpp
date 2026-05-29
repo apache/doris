@@ -3237,7 +3237,7 @@ Status OrcReader::_convert_dict_cols_to_string_cols(
                 return Status::InternalError("Wrong read column '{}' in orc file",
                                              dict_filter_cols.first);
             }
-            if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*column)) {
+            if (const auto nullable_column = check_and_get_column<ColumnNullable>(*column)) {
                 const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
                 const auto* dict_column = assert_cast<const ColumnInt32*>(nested_column.get());
                 DCHECK(dict_column);

@@ -66,14 +66,14 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         ColumnPtr src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const auto& src_column_array = check_and_get_column<ColumnArray>(*src_column);
+        const auto src_column_array = check_and_get_column<ColumnArray>(*src_column);
         if (!src_column_array) {
             return Status::RuntimeError(
                     fmt::format("unsupported types for function {}({})", get_name(),
                                 block.get_by_position(arguments[0]).type->get_name()));
         }
 
-        auto dest_column_ptr = _execute(*src_column_array);
+        auto dest_column_ptr = _execute(*src_column_array.get());
 
         block.replace_by_position(result, std::move(dest_column_ptr));
         return Status::OK();

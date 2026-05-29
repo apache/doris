@@ -98,7 +98,7 @@ void VJsonEachTableFunction<TEXT_MODE>::process_row(size_t row_idx) {
 
     StringRef text;
     const size_t idx = _is_const ? 0 : row_idx;
-    if (const auto* nullable_col = check_and_get_column<ColumnNullable>(*_json_column)) {
+    if (const auto nullable_col = check_and_get_column<ColumnNullable>(*_json_column)) {
         if (nullable_col->is_null_at(idx)) {
             return;
         }

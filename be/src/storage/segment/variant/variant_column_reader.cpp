@@ -1625,10 +1625,16 @@ void VariantRootColumnIterator::collect_prefetchers(
 
 static void fill_nested_with_defaults(MutableColumnPtr& dst, MutableColumnPtr& sibling_column,
                                       size_t nrows) {
-    const auto* sibling_array =
-            check_and_get_column<ColumnArray>(remove_nullable(sibling_column->get_ptr()).get());
-    const auto* dst_array =
-            check_and_get_column<ColumnArray>(remove_nullable(dst->get_ptr()).get());
+    const ColumnArray* sibling_array = nullptr;
+    if (const auto sibling_array_guard = check_and_get_column<ColumnArray>(
+                remove_nullable(sibling_column->get_ptr()).get())) {
+        sibling_array = sibling_array_guard.get();
+    }
+    const ColumnArray* dst_array = nullptr;
+    if (const auto dst_array_guard =
+                check_and_get_column<ColumnArray>(remove_nullable(dst->get_ptr()).get())) {
+        dst_array = dst_array_guard.get();
+    }
     if (!dst_array || !sibling_array) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "Expected array column, but met {} and {}", dst->get_name(),

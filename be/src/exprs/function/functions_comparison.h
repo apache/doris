@@ -341,8 +341,8 @@ private:
 
     Status execute_string(Block& block, uint32_t result, const IColumn* c0,
                           const IColumn* c1) const {
-        const ColumnString* c0_string = check_and_get_column<ColumnString>(c0);
-        const ColumnString* c1_string = check_and_get_column<ColumnString>(c1);
+        const auto c0_string = check_and_get_column<ColumnString>(c0);
+        const auto c1_string = check_and_get_column<ColumnString>(c1);
         const ColumnConst* c0_const = check_and_get_column_const_string_or_fixedstring(c0);
         const ColumnConst* c1_const = check_and_get_column_const_string_or_fixedstring(c1);
         if (!((c0_string || c0_const) && (c1_string || c1_const))) {
@@ -356,7 +356,7 @@ private:
         ColumnString::Offset c1_const_size = 0;
 
         if (c0_const) {
-            const ColumnString* c0_const_string =
+            const auto c0_const_string =
                     check_and_get_column<ColumnString>(&c0_const->get_data_column());
 
             if (c0_const_string) {
@@ -369,7 +369,7 @@ private:
         }
 
         if (c1_const) {
-            const ColumnString* c1_const_string =
+            const auto c1_const_string =
                     check_and_get_column<ColumnString>(&c1_const->get_data_column());
 
             if (c1_const_string) {

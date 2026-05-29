@@ -70,16 +70,22 @@ std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(const Block& b
 
                 if (!col.column) {
                     res.insert({nullptr, nested_type, col.name});
-                } else if (const auto* nullable =
+                } else if (const auto nullable =
                                    check_and_get_column<ColumnNullable>(*col.column)) {
                     const auto& nested_col = nullable->get_nested_column_ptr();
                     res.insert({nested_col, nested_type, col.name});
-                } else if (const auto* const_column =
+                } else if (const auto const_column =
                                    check_and_get_column<ColumnConst>(*col.column)) {
-                    const auto& nested_col =
-                            check_and_get_column<ColumnNullable>(const_column->get_data_column())
-                                    ->get_nested_column_ptr();
-                    res.insert({ColumnConst::create(nested_col, col.column->size()), nested_type,
+                    const ColumnPtr* nested_col = nullptr;
+                    if (const auto nullable_column = check_and_get_column<ColumnNullable>(
+                                const_column->get_data_column())) {
+                        nested_col = &nullable_column.get()->get_nested_column_ptr();
+                    } else {
+                        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                               "Illegal column= {},  for DataTypeNullable" +
+                                                       col.column->get_name());
+                    }
+                    res.insert({ColumnConst::create(*nested_col, col.column->size()), nested_type,
                                 col.name});
                 } else {
                     throw doris::Exception(

@@ -211,10 +211,13 @@ Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, B
         return ret;
     };
 
-    const auto* column_ptr = check_and_get_column<ColumnNullable>(*column);
-    const auto& real_column_ptr =
-            column_ptr == nullptr ? column : (column_ptr->get_nested_column_ptr());
-    const auto* null_map = column_ptr == nullptr ? nullptr : column_ptr->get_null_map_data().data();
+    const auto column_ptr = check_and_get_column<ColumnNullable>(*column);
+    ColumnPtr real_column_ptr = column;
+    const auto* null_map = static_cast<const unsigned char*>(nullptr);
+    if (column_ptr) {
+        real_column_ptr = column_ptr->get_nested_column_ptr();
+        null_map = column_ptr->get_null_map_data().data();
+    }
     auto need_to_validate = [](size_t j, size_t row, const std::vector<char>& filter_map,
                                const unsigned char* null_map) {
         return !filter_map[row] && (null_map == nullptr || null_map[j] == 0);
@@ -238,12 +241,16 @@ Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, B
             }
         }
 
-        auto tmp_column_ptr = check_and_get_column<ColumnNullable>(*orig_column);
-        auto tmp_real_column_ptr =
-                tmp_column_ptr == nullptr ? orig_column : (tmp_column_ptr->get_nested_column_ptr());
+        const auto tmp_column_ptr = check_and_get_column<ColumnNullable>(*orig_column);
+        ColumnPtr tmp_real_column_ptr = orig_column;
+        const auto* null_map = static_cast<const unsigned char*>(nullptr);
+        ColumnPtr tmp_null_map_column_ptr = nullptr;
+        if (tmp_column_ptr) {
+            tmp_real_column_ptr = tmp_column_ptr->get_nested_column_ptr();
+            null_map = tmp_column_ptr->get_null_map_data().data();
+            tmp_null_map_column_ptr = tmp_column_ptr->get_null_map_column_ptr();
+        }
         const auto* column_string = assert_cast<const ColumnString*>(tmp_real_column_ptr.get());
-        const auto* null_map =
-                tmp_column_ptr == nullptr ? nullptr : tmp_column_ptr->get_null_map_data().data();
 
         const auto* __restrict offsets = column_string->get_offsets().data();
         int invalid_count = 0;
@@ -284,19 +291,20 @@ Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, B
                 auto result_column =
                         IColumn::mutate(std::move(tmp_block.get_by_position(3).column));
                 if (orig_column->is_nullable()) {
-                    orig_column = ColumnNullable::create(
-                            std::move(result_column),
-                            IColumn::mutate(tmp_column_ptr->get_null_map_column_ptr()));
+                    orig_column = ColumnNullable::create(std::move(result_column),
+                                                         IColumn::mutate(tmp_null_map_column_ptr));
                 } else {
                     orig_column = std::move(result_column);
                 }
-                tmp_column_ptr = check_and_get_column<ColumnNullable>(*orig_column);
-                tmp_real_column_ptr = tmp_column_ptr == nullptr
-                                              ? orig_column
-                                              : tmp_column_ptr->get_nested_column_ptr();
+                const auto refreshed_column_ptr =
+                        check_and_get_column<ColumnNullable>(*orig_column);
+                tmp_real_column_ptr = orig_column;
+                null_map = nullptr;
+                if (refreshed_column_ptr) {
+                    tmp_real_column_ptr = refreshed_column_ptr->get_nested_column_ptr();
+                    null_map = refreshed_column_ptr->get_null_map_data().data();
+                }
                 column_string = assert_cast<const ColumnString*>(tmp_real_column_ptr.get());
-                null_map = tmp_column_ptr == nullptr ? nullptr
-                                                     : tmp_column_ptr->get_null_map_data().data();
             }
             for (size_t j = 0; j < row_count; ++j) {
                 auto row = rows ? (*rows)[j] : j;
@@ -554,7 +562,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, B
         break;
     }
     case TYPE_AGG_STATE: {
-        auto* column_string = check_and_get_column<ColumnString>(*real_column_ptr);
+        auto column_string = check_and_get_column<ColumnString>(*real_column_ptr);
         if (column_string) {
             RETURN_IF_ERROR(string_column_checker(column, type, rows, _filter_map));
         }
@@ -634,7 +642,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(Block* block, size_t rows) {
     ColumnInt64::Container& dst_values = dst_column->get_data();
 
     ColumnPtr src_column_ptr = block->get_by_position(idx).column;
-    if (const auto* const_column = check_and_get_column<ColumnConst>(src_column_ptr.get())) {
+    if (const auto const_column = check_and_get_column<ColumnConst>(src_column_ptr.get())) {
         // for insert stmt like "insert into tbl1 select null,col1,col2,... from tbl2" or
         // "insert into tbl1 select 1,col1,col2,... from tbl2", the type of literal's column
         // will be `ColumnConst`
@@ -657,7 +665,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(Block* block, size_t rows) {
             int64_t value = const_column->get_int(0);
             dst_values.resize_fill(rows, value);
         }
-    } else if (const auto* src_nullable_column =
+    } else if (const auto src_nullable_column =
                        check_and_get_column<ColumnNullable>(src_column_ptr.get())) {
         auto src_nested_column_ptr = src_nullable_column->get_nested_column_ptr();
         const auto& null_map_data = src_nullable_column->get_null_map_data();

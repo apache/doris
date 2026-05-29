@@ -31,15 +31,15 @@
 namespace doris {
 
 void check_array_offsets(const IColumn& arr, const std::vector<ColumnArray::Offset64>& offs) {
-    auto arr_col = check_and_get_column<ColumnArray>(arr);
-    ASSERT_EQ(arr_col->size(), offs.size());
-    for (size_t i = 0; i < arr_col->size(); ++i) {
-        ASSERT_EQ(arr_col->get_offsets()[i], offs[i]);
+    const auto* arr_col_ptr = assert_cast<const ColumnArray*>(&arr);
+    ASSERT_EQ(arr_col_ptr->size(), offs.size());
+    for (size_t i = 0; i < arr_col_ptr->size(); ++i) {
+        ASSERT_EQ(arr_col_ptr->get_offsets()[i], offs[i]);
     }
 }
 template <typename T>
 void check_array_data(const IColumn& arr, const std::vector<T>& data) {
-    auto arr_col = check_and_get_column<ColumnArray>(arr);
+    const auto* arr_col = assert_cast<const ColumnArray*>(&arr);
     auto data_col = arr_col->get_data_ptr();
     ASSERT_EQ(data_col->size(), data.size());
     for (size_t i = 0; i < data_col->size(); ++i) {
@@ -49,7 +49,7 @@ void check_array_data(const IColumn& arr, const std::vector<T>& data) {
 }
 template <>
 void check_array_data(const IColumn& arr, const std::vector<std::string>& data) {
-    auto arr_col = check_and_get_column<ColumnArray>(arr);
+    const auto* arr_col = assert_cast<const ColumnArray*>(&arr);
     auto data_col = arr_col->get_data_ptr();
     ASSERT_EQ(data_col->size(), data.size());
     for (size_t i = 0; i < data_col->size(); ++i) {

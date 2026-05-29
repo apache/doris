@@ -1063,7 +1063,7 @@ Status VExpr::execute_filter(VExprContext* context, const Block* block,
                              bool* can_filter_all) const {
     ColumnPtr filter_column;
     RETURN_IF_ERROR(execute_column(context, block, nullptr, rows, filter_column));
-    if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
+    if (const auto const_column = check_and_get_column<ColumnConst>(*filter_column)) {
         // const(nullable) or const(bool)
         const bool result = accept_null
                                     ? (const_column->is_null_at(0) || const_column->get_bool(0))
@@ -1074,7 +1074,7 @@ Status VExpr::execute_filter(VExprContext* context, const Block* block,
             memset(result_filter_data, 0, rows);
             return Status::OK();
         }
-    } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+    } else if (const auto nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         // nullable(bool)
         const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
         const IColumn::Filter& filter = assert_cast<const ColumnUInt8&>(*nested_column).get_data();

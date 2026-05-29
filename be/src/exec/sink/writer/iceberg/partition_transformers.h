@@ -153,7 +153,7 @@ public:
         ColumnPtr string_column_ptr;
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (const auto* nullable_column =
+        if (const auto nullable_column =
                     check_and_get_column<ColumnNullable>(column_with_type_and_name.column.get())) {
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             string_column_ptr = nullable_column->get_nested_column_ptr();
@@ -328,7 +328,7 @@ public:
         ColumnPtr column_ptr;
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (const auto* nullable_column =
+        if (const auto nullable_column =
                     check_and_get_column<ColumnNullable>(column_with_type_and_name.column.get())) {
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
@@ -1281,7 +1281,7 @@ public:
 
         ColumnPtr column_ptr;
         ColumnPtr null_map_column_ptr;
-        if (auto* nullable_column =
+        if (auto nullable_column =
                     check_and_get_column<ColumnNullable>(column_with_type_and_name.column.get())) {
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();

@@ -387,7 +387,7 @@ public:
         for (size_t i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (const auto* nullable =
+            if (const auto nullable =
                         check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
                 // Danger: Here must dispose the null map data first! Because
                 // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
@@ -579,15 +579,15 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         argument_ptr[1] = block.get_by_position(arguments[1]).column;
 
-        if (const auto* col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
-            if (const auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
+        if (const auto col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
+            if (const auto col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
                 RETURN_IF_ERROR(vector_vector(col1->get_chars(), col1->get_offsets(),
                                               col2->get_data(), res->get_chars(),
                                               res->get_offsets(), null_map->get_data()));
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(res), std::move(null_map)));
                 return Status::OK();
-            } else if (const auto* col2_const =
+            } else if (const auto col2_const =
                                check_and_get_column<ColumnConst>(*argument_ptr[1])) {
                 DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
                 int repeat = col2_const->get_int(0);

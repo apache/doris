@@ -435,7 +435,7 @@ std::string VHiveTableWriter::_to_partition_value(const DataTypePtr& type_desc,
                                                   const ColumnWithTypeAndName& partition_column,
                                                   int position) {
     ColumnPtr column;
-    if (auto* nullable_column = check_and_get_column<ColumnNullable>(*partition_column.column)) {
+    if (auto nullable_column = check_and_get_column<ColumnNullable>(*partition_column.column)) {
         auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
         if (null_map_data[position]) {
             return "__HIVE_DEFAULT_PARTITION__";

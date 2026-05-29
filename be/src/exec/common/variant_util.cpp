@@ -312,7 +312,7 @@ size_t get_number_of_dimensions(const IDataType& type) {
     return 0;
 }
 size_t get_number_of_dimensions(const IColumn& column) {
-    if (const auto* column_array = check_and_get_column<ColumnArray>(column)) {
+    if (const auto column_array = check_and_get_column<ColumnArray>(column)) {
         return column_array->get_number_of_dimensions();
     }
     return 0;

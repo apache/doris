@@ -95,18 +95,17 @@ public:
         auto column = block.get_by_position(arguments[0]).column;
 
         auto column_result = ColumnInt64::create(input_rows_count);
-        if (const ColumnNullable* col_nullable =
-                    check_and_get_column<ColumnNullable>(column.get())) {
-            const ColumnHLL* col =
+        if (const auto col_nullable = check_and_get_column<ColumnNullable>(column.get())) {
+            const auto col =
                     check_and_get_column<ColumnHLL>(col_nullable->get_nested_column_ptr().get());
             const ColumnUInt8* col_nullmap = col_nullable->get_null_map_column_ptr().get();
 
-            if (col != nullptr) {
+            if (col) {
                 Function::vector_nullable(col->get_data(), col_nullmap->get_data(), column_result);
                 block.replace_by_position(result, std::move(column_result));
                 return Status::OK();
             }
-        } else if (const ColumnHLL* col = check_and_get_column<ColumnHLL>(column.get())) {
+        } else if (const auto col = check_and_get_column<ColumnHLL>(column.get())) {
             Function::vector(col->get_data(), column_result);
             block.replace_by_position(result, std::move(column_result));
             return Status::OK();

@@ -441,17 +441,23 @@ TEST_F(VIcebergDeleteSinkTest, TestBuildPositionDeleteBlock) {
     ASSERT_EQ("pos", output_block.get_by_position(1).name);
 
     // Verify file_path column
-    auto file_path_column =
-            check_and_get_column<ColumnString>(output_block.get_by_position(0).column.get());
-    ASSERT_NE(nullptr, file_path_column);
+    const ColumnString* file_path_column = nullptr;
+    if (auto file_path_column_guard =
+                check_and_get_column<ColumnString>(output_block.get_by_position(0).column.get())) {
+        file_path_column = file_path_column_guard.get();
+    }
+    ASSERT_NE(file_path_column, nullptr);
     for (size_t i = 0; i < 4; i++) {
         ASSERT_EQ(file_path, file_path_column->get_data_at(i).to_string());
     }
 
     // Verify pos column
-    auto pos_column =
-            check_and_get_column<ColumnInt64>(output_block.get_by_position(1).column.get());
-    ASSERT_NE(nullptr, pos_column);
+    const ColumnInt64* pos_column = nullptr;
+    if (auto pos_column_guard =
+                check_and_get_column<ColumnInt64>(output_block.get_by_position(1).column.get())) {
+        pos_column = pos_column_guard.get();
+    }
+    ASSERT_NE(pos_column, nullptr);
     ASSERT_EQ(10, pos_column->get_element(0));
     ASSERT_EQ(20, pos_column->get_element(1));
     ASSERT_EQ(30, pos_column->get_element(2));

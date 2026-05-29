@@ -523,7 +523,11 @@ public:
                 jsonb_path_column = nullable->get_nested_column_ptr();
                 path_null_map = &nullable->get_null_map_data();
             }
-            jsonb_path_col = check_and_get_column<ColumnString>(jsonb_path_column.get());
+            const auto jsonb_path_col_guard =
+                    check_and_get_column<ColumnString>(jsonb_path_column.get());
+            if (jsonb_path_col_guard) {
+                jsonb_path_col = jsonb_path_col_guard.get();
+            }
         }
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -2582,10 +2586,18 @@ public:
         // prepare jsonb data column
         auto&& [col_json, json_is_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
-        const auto* col_json_string = check_and_get_column<ColumnString>(col_json.get());
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_json.get())) {
-            col_json_string =
+        const ColumnString* col_json_string = nullptr;
+        if (const auto nullable = check_and_get_column<ColumnNullable>(col_json.get())) {
+            const auto col_json_string_guard =
                     check_and_get_column<ColumnString>(nullable->get_nested_column_ptr().get());
+            if (col_json_string_guard) {
+                col_json_string = col_json_string_guard.get();
+            }
+        } else {
+            const auto col_json_string_guard = check_and_get_column<ColumnString>(col_json.get());
+            if (col_json_string_guard) {
+                col_json_string = col_json_string_guard.get();
+            }
         }
 
         if (!col_json_string) {
@@ -2624,9 +2636,18 @@ public:
         auto&& [col_one, one_is_const] =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
         one_is_const |= input_rows_count == 1;
-        const auto* col_one_string = check_and_get_column<ColumnString>(col_one.get());
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_one.get())) {
-            col_one_string = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+        const ColumnString* col_one_string = nullptr;
+        if (const auto nullable = check_and_get_column<ColumnNullable>(col_one.get())) {
+            const auto col_one_string_guard =
+                    check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+            if (col_one_string_guard) {
+                col_one_string = col_one_string_guard.get();
+            }
+        } else {
+            const auto col_one_string_guard = check_and_get_column<ColumnString>(col_one.get());
+            if (col_one_string_guard) {
+                col_one_string = col_one_string_guard.get();
+            }
         }
         if (!col_one_string) {
             return Status::RuntimeError("Illegal arg one {} should be ColumnString",
@@ -2670,10 +2691,19 @@ public:
         auto&& [col_search, search_is_const] =
                 unpack_if_const(block.get_by_position(arguments[2]).column);
 
-        const auto* col_search_string = check_and_get_column<ColumnString>(col_search.get());
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_search.get())) {
-            col_search_string =
+        const ColumnString* col_search_string = nullptr;
+        if (const auto nullable = check_and_get_column<ColumnNullable>(col_search.get())) {
+            const auto col_search_string_guard =
                     check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+            if (col_search_string_guard) {
+                col_search_string = col_search_string_guard.get();
+            }
+        } else {
+            const auto col_search_string_guard =
+                    check_and_get_column<ColumnString>(col_search.get());
+            if (col_search_string_guard) {
+                col_search_string = col_search_string_guard.get();
+            }
         }
         if (!col_search_string) {
             return Status::RuntimeError("Illegal arg pattern {} should be ColumnString",
@@ -2748,16 +2778,23 @@ public:
         // Get JSON document column
         auto [json_column, json_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
-        const auto* json_nullable = check_and_get_column<ColumnNullable>(json_column.get());
+        const auto json_nullable = check_and_get_column<ColumnNullable>(json_column.get());
         const ColumnString* json_data_column = nullptr;
         const NullMap* json_null_map = nullptr;
 
         if (json_nullable) {
             json_null_map = &json_nullable->get_null_map_data();
-            json_data_column =
+            const auto json_data_column_guard =
                     check_and_get_column<ColumnString>(&json_nullable->get_nested_column());
+            if (json_data_column_guard) {
+                json_data_column = json_data_column_guard.get();
+            }
         } else {
-            json_data_column = check_and_get_column<ColumnString>(json_column.get());
+            const auto json_data_column_guard =
+                    check_and_get_column<ColumnString>(json_column.get());
+            if (json_data_column_guard) {
+                json_data_column = json_data_column_guard.get();
+            }
         }
 
         if (!json_data_column) {
@@ -2772,15 +2809,26 @@ public:
         for (size_t i = 1; i < arguments.size(); ++i) {
             auto [path_column, path_const] =
                     unpack_if_const(block.get_by_position(arguments[i]).column);
-            const auto* path_nullable = check_and_get_column<ColumnNullable>(path_column.get());
+            const auto path_nullable = check_and_get_column<ColumnNullable>(path_column.get());
 
             if (path_nullable) {
                 path_null_maps.push_back(&path_nullable->get_null_map_data());
-                path_columns.push_back(
-                        check_and_get_column<ColumnString>(&path_nullable->get_nested_column()));
+                const auto path_column_guard =
+                        check_and_get_column<ColumnString>(&path_nullable->get_nested_column());
+                if (path_column_guard) {
+                    path_columns.push_back(path_column_guard.get());
+                } else {
+                    path_columns.push_back(nullptr);
+                }
             } else {
                 path_null_maps.push_back(nullptr);
-                path_columns.push_back(check_and_get_column<ColumnString>(path_column.get()));
+                const auto path_column_guard =
+                        check_and_get_column<ColumnString>(path_column.get());
+                if (path_column_guard) {
+                    path_columns.push_back(path_column_guard.get());
+                } else {
+                    path_columns.push_back(nullptr);
+                }
             }
 
             if (!path_columns.back()) {

@@ -109,10 +109,11 @@ public:
             return &static_cast<const ColumnNullable&>(*col).get_null_map_data();
         }
         // Handle Const(Nullable) case
-        if (const auto* const_col = check_and_get_column<ColumnConst>(col.get());
-            const_col != nullptr && const_col->is_concrete_nullable()) {
-            return &static_cast<const ColumnNullable&>(const_col->get_data_column())
-                            .get_null_map_data();
+        if (const auto const_col = check_and_get_column<ColumnConst>(col.get()); const_col) {
+            if (const_col->is_concrete_nullable()) {
+                return &static_cast<const ColumnNullable&>(const_col->get_data_column())
+                                .get_null_map_data();
+            }
         }
         return nullptr;
     };

@@ -71,7 +71,7 @@ public:
                         .to_string();
 
         ColumnPtr col_ptr = block.get_by_position(arguments[0]).column;
-        if (const auto* col_nullable = check_and_get_column<ColumnNullable>(col_ptr.get())) {
+        if (const auto col_nullable = check_and_get_column<ColumnNullable>(col_ptr.get())) {
             if (col_nullable->has_null()) {
                 throw doris::Exception(Status::InvalidArgument(errmsg));
             }

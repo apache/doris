@@ -120,10 +120,10 @@ Status VirtualSlotRef::execute_column_impl(VExprContext* context, const Block* b
                 *_column_name);
     }
 
-    const auto* col_nothing = check_and_get_column<ColumnNothing>(col_type_name.column.get());
+    const auto col_nothing = check_and_get_column<ColumnNothing>(col_type_name.column.get());
     bool column_from_virtual_column_expr = false;
     if (this->_virtual_column_expr != nullptr) {
-        if (col_nothing != nullptr) {
+        if (col_nothing) {
             // Virtual column is not materialized, so we need to materialize it.
             // Note: After executing 'execute', we cannot use the column from line 120 in subsequent code,
             // because the vector might be resized during execution, causing previous references to become invalid.
@@ -154,7 +154,7 @@ Status VirtualSlotRef::execute_column_impl(VExprContext* context, const Block* b
 #endif
     } else {
         // This is a virtual slot ref that not pushed to segment_iterator
-        if (col_nothing == nullptr) {
+        if (!col_nothing) {
             return Status::InternalError("Logical error, virtual column can not be materialized");
         } else {
             return Status::OK();

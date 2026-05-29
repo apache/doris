@@ -61,8 +61,8 @@ public:
 
     static ColumnPtr execute_if(const ArrayCond& cond, const ColumnPtr& then_col,
                                 const ColumnPtr& else_col, int result_scale) {
-        if (const auto* col_then = check_and_get_column<ColVecT>(then_col.get())) {
-            if (const auto* col_else = check_and_get_column<ColVecT>(else_col.get())) {
+        if (const auto col_then = check_and_get_column<ColVecT>(then_col.get())) {
+            if (const auto col_else = check_and_get_column<ColVecT>(else_col.get())) {
                 return execute_impl<false, false>(cond, col_then->get_data(), col_else->get_data(),
                                                   result_scale);
             } else if (const auto* col_const_else =
@@ -73,7 +73,7 @@ public:
             }
         } else if (const auto* col_const_then =
                            check_and_get_column_const<ColVecT>(then_col.get())) {
-            if (const auto* col_else = check_and_get_column<ColVecT>(else_col.get())) {
+            if (const auto col_else = check_and_get_column<ColVecT>(else_col.get())) {
                 return execute_impl<true, false>(cond, get_data_from_column_const(col_const_then),
                                                  col_else->get_data(), result_scale);
             } else if (const auto* col_const_else =

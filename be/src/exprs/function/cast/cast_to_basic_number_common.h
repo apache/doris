@@ -372,7 +372,7 @@ template <typename FromDataType, typename ToDataType>
 Status static_cast_no_overflow(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
-    const auto* col_from = check_and_get_column<typename FromDataType::ColumnType>(
+    const auto col_from = check_and_get_column<typename FromDataType::ColumnType>(
             block.get_by_position(arguments[0]).column.get());
     if (!col_from) {
         return Status::InternalError(fmt::format(

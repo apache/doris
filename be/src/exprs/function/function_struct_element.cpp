@@ -87,7 +87,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         const auto* struct_type = check_and_get_data_type<DataTypeStruct>(
                 block.get_by_position(arguments[0]).type.get());
-        const auto* struct_col = check_and_get_column<ColumnStruct>(
+        const auto struct_col = check_and_get_column<ColumnStruct>(
                 block.get_by_position(arguments[0]).column.get());
         if (!struct_col || !struct_type) {
             return Status::RuntimeError(

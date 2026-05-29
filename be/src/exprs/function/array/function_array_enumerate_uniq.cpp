@@ -127,7 +127,7 @@ public:
             src_columns.emplace_back(
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const());
             ColumnPtr& cur_column = src_columns[i];
-            const ColumnArray* array =
+            const auto array =
                     check_and_get_column<ColumnArray>(remove_nullable(cur_column->get_ptr()).get());
             if (!array) {
                 return Status::RuntimeError(
@@ -137,7 +137,7 @@ public:
 
             const ColumnArray::Offsets64& cur_offsets = array->get_offsets();
             if (i == 0) {
-                first_column_array = array;
+                first_column_array = array.get();
                 offsets = &cur_offsets;
                 src_offsets = array->get_offsets_ptr();
             } else if (*offsets != cur_offsets) {

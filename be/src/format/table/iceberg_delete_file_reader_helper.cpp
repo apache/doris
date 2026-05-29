@@ -92,8 +92,7 @@ Status visit_position_delete_block(const Block& block, size_t read_rows,
             assert_cast<const ColumnInt64*>(block.get_by_position(pos_it->second).column.get());
     const auto* path_column = block.get_by_position(path_it->second).column.get();
 
-    if (const auto* string_column = check_and_get_column<ColumnString>(path_column);
-        string_column != nullptr) {
+    if (const auto string_column = check_and_get_column<ColumnString>(path_column); string_column) {
         for (size_t i = 0; i < read_rows; ++i) {
             RETURN_IF_ERROR(visitor->visit(string_column->get_data_at(i).to_string(),
                                            pos_column->get_element(i)));
@@ -101,8 +100,7 @@ Status visit_position_delete_block(const Block& block, size_t read_rows,
         return Status::OK();
     }
 
-    if (const auto* dict_column = check_and_get_column<ColumnDictI32>(path_column);
-        dict_column != nullptr) {
+    if (const auto dict_column = check_and_get_column<ColumnDictI32>(path_column); dict_column) {
         const auto& codes = dict_column->get_data();
         for (size_t i = 0; i < read_rows; ++i) {
             RETURN_IF_ERROR(visitor->visit(dict_column->get_value(codes[i]).to_string(),

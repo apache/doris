@@ -182,10 +182,17 @@ public:
         ColumnPtr nullmap_column = nullptr;
         if (left_column->is_nullable()) {
             auto nullable_column = reinterpret_cast<const ColumnNullable*>(left_column.get());
-            map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+            const auto map_column_guard =
+                    check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+            if (map_column_guard) {
+                map_column = map_column_guard.get();
+            }
             nullmap_column = nullable_column->get_null_map_column_ptr();
         } else {
-            map_column = check_and_get_column<ColumnMap>(*left_column.get());
+            const auto map_column_guard = check_and_get_column<ColumnMap>(*left_column.get());
+            if (map_column_guard) {
+                map_column = map_column_guard.get();
+            }
         }
         if (!map_column) {
             return Status::RuntimeError("unsupported types for function {}({})", get_name(),
@@ -271,9 +278,16 @@ public:
         const ColumnMap* map_column = nullptr;
         if (left_column->is_nullable()) {
             auto nullable_column = reinterpret_cast<const ColumnNullable*>(left_column.get());
-            map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+            const auto map_column_guard =
+                    check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+            if (map_column_guard) {
+                map_column = map_column_guard.get();
+            }
         } else {
-            map_column = check_and_get_column<ColumnMap>(*left_column.get());
+            const auto map_column_guard = check_and_get_column<ColumnMap>(*left_column.get());
+            if (map_column_guard) {
+                map_column = map_column_guard.get();
+            }
         }
         if (!map_column) {
             return Status::RuntimeError("unsupported types for function {}({})", get_name(),
@@ -681,10 +695,17 @@ private:
         if (map_column_ptr->is_nullable()) {
             const auto* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(map_column_ptr.get());
-            map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+            const auto map_column_guard =
+                    check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+            if (map_column_guard) {
+                map_column = map_column_guard.get();
+            }
             map_row_nullmap_col = nullable_column->get_null_map_column_ptr();
         } else {
-            map_column = check_and_get_column<ColumnMap>(*map_column_ptr.get());
+            const auto map_column_guard = check_and_get_column<ColumnMap>(*map_column_ptr.get());
+            if (map_column_guard) {
+                map_column = map_column_guard.get();
+            }
         }
         if (!map_column) {
             return Status::RuntimeError("unsupported types for function {}({})", get_name(),

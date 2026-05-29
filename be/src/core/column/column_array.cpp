@@ -877,7 +877,7 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
         return ColumnArray::create(data);
     }
 
-    if (const auto* nullable_data_column = check_and_get_column<ColumnNullable>(*data)) {
+    if (auto nullable_data_column = check_and_get_column_guard<ColumnNullable>(*data)) {
         auto res_null_map = ColumnUInt8::create();
         // filter null map
         filter_arrays_impl_only_data(nullable_data_column->get_null_map_data(), get_offsets(),

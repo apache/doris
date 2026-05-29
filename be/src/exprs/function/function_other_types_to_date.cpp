@@ -393,7 +393,7 @@ struct MakeTimeImpl {
 
         const auto& hour_data = assert_cast<const ColumnInt64*>(arg_col[0].get())->get_data();
         const auto& min_data = assert_cast<const ColumnInt64*>(arg_col[1].get())->get_data();
-        if (const auto* sec_col = check_and_get_column<ColumnFloat64>(arg_col[2].get())) {
+        if (const auto sec_col = check_and_get_column<ColumnFloat64>(arg_col[2].get())) {
             for (int i = 0; i < input_rows_count; ++i) {
                 int64_t hour = hour_data[index_check_const(i, is_const[0])];
                 int64_t minute = min_data[index_check_const(i, is_const[1])];

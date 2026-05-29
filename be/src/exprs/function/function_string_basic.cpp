@@ -67,12 +67,14 @@ public:
 
         if (auto arg0 = check_and_get_column<ColumnString>(arg0_column.get())) {
             if (auto arg1 = check_and_get_column<ColumnString>(arg1_column.get())) {
+                const auto* arg0_ptr = arg0.get();
+                const auto* arg1_ptr = arg1.get();
                 if (arg0_const) {
-                    scalar_vector(arg0->get_data_at(0), *arg1, *result_column);
+                    scalar_vector(arg0_ptr->get_data_at(0), *arg1_ptr, *result_column);
                 } else if (arg1_const) {
-                    vector_scalar(*arg0, arg1->get_data_at(0), *result_column);
+                    vector_scalar(*arg0_ptr, arg1_ptr->get_data_at(0), *result_column);
                 } else {
-                    vector_vector(*arg0, *arg1, *result_column);
+                    vector_vector(*arg0_ptr, *arg1_ptr, *result_column);
                 }
             }
         }
@@ -309,7 +311,7 @@ struct NullOrEmptyImpl {
         auto res_map = ColumnUInt8::create(input_rows_count, 0);
 
         auto column = block.get_by_position(arguments[0]).column;
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
+        if (auto nullable = check_and_get_column<const ColumnNullable>(*column)) {
             column = nullable->get_nested_column_ptr();
             VectorizedUtils::update_null_map(res_map->get_data(), nullable->get_null_map_data());
         }

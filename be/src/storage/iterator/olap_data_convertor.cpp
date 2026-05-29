@@ -1012,10 +1012,18 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
         nullable_column = assert_cast<const ColumnNullable*>(typed_column.column.get());
         _nullmap = nullable_column->get_null_map_data().data();
     }
-    const auto* variant = nullable_column == nullptr
-                                  ? check_and_get_column<const ColumnVariant>(*typed_column.column)
-                                  : check_and_get_column<const ColumnVariant>(
-                                            nullable_column->get_nested_column());
+    const ColumnVariant* variant = nullptr;
+    if (nullable_column == nullptr) {
+        if (const auto variant_guard =
+                    check_and_get_column<const ColumnVariant>(*typed_column.column)) {
+            variant = variant_guard.get();
+        }
+    } else {
+        if (const auto variant_guard = check_and_get_column<const ColumnVariant>(
+                    nullable_column->get_nested_column())) {
+            variant = variant_guard.get();
+        }
+    }
     OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
                                                                            num_rows);
 

@@ -145,8 +145,9 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
     auto dest_column_type = std::make_shared<DataTypeString>();
     auto dest_column_ptr = dest_column_type->create_column();
 
-    if (const auto* col_left = check_and_get_column<ColumnString>(src_column.get())) {
-        if (const auto* col_right = check_and_get_column<ColumnString>(right_column.get())) {
+    if (const auto col_left = check_and_get_column<ColumnString>(src_column.get())) {
+        const auto* col_left_ptr = col_left.get();
+        if (const auto col_right = check_and_get_column<ColumnString>(right_column.get())) {
             std::map<std::string, std::string> properties;
             auto st = parse(col_right->get_data_at(0).to_string(), properties);
             if (!st.ok()) {
@@ -165,7 +166,7 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             // Special handling for PARSER_NONE: return original string as single token
             if (config.analyzer_name.empty() &&
                 config.parser_type == InvertedIndexParserType::PARSER_NONE) {
-                _do_tokenize_none(*col_left, dest_column_ptr);
+                _do_tokenize_none(*col_left_ptr, dest_column_ptr);
                 if (left_const) {
                     block.replace_by_position(
                             result,
@@ -201,7 +202,7 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             analyzer_ctx.parser_type = config.parser_type;
             analyzer_ctx.char_filter_map = config.char_filter_map;
             analyzer_ctx.analyzer = analyzer_holder;
-            _do_tokenize(*col_left, analyzer_ctx, support_phrase, dest_column_ptr);
+            _do_tokenize(*col_left_ptr, analyzer_ctx, support_phrase, dest_column_ptr);
 
             if (left_const) {
                 block.replace_by_position(

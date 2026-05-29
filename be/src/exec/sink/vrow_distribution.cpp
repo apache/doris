@@ -305,7 +305,7 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
     auto& row_ids = row_part_tablet_id.row_ids;
     auto& partition_ids = row_part_tablet_id.partition_ids;
     auto& tablet_ids = row_part_tablet_id.tablet_ids;
-    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+    if (const auto nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         auto rows = block->rows();
         // row count of a block should not exceed UINT32_MAX
         auto rows_uint32 = cast_set<uint32_t>(rows);
@@ -316,7 +316,7 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
                 tablet_ids.emplace_back(_tablet_ids[i]);
             }
         }
-    } else if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
+    } else if (const auto const_column = check_and_get_column<ColumnConst>(*filter_column)) {
         bool ret = const_column->get_bool(0);
         if (!ret) {
             return Status::OK();

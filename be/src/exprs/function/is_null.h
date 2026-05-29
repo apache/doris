@@ -62,7 +62,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& elem = block.get_by_position(arguments[0]);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(*elem.column)) {
+        if (auto nullable = check_and_get_column<ColumnNullable>(*elem.column)) {
             /// Merely return the embedded null map.
             block.get_by_position(result).column = nullable->get_null_map_column_ptr();
         } else {

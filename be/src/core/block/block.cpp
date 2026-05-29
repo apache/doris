@@ -956,7 +956,7 @@ Status Block::append_to_block_by_selector(MutableBlock* dst,
 Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
                            size_t filter_column_id, size_t column_to_keep) {
     const auto& filter_column = block->get_by_position(filter_column_id).column;
-    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+    if (const auto nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         const auto& nested_column = nullable_column->get_nested_column_ptr();
 
         MutableColumnPtr mutable_holder =
@@ -974,7 +974,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
             filter_data[i] &= !null_map[i];
         }
         RETURN_IF_CATCH_EXCEPTION(filter_block_internal(block, columns_to_filter, filter));
-    } else if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
+    } else if (const auto const_column = check_and_get_column<ColumnConst>(*filter_column)) {
         bool ret = const_column->get_bool(0);
         if (!ret) {
             for (const auto& col : columns_to_filter) {

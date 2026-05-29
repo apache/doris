@@ -53,9 +53,15 @@ public:
         const ColumnArray* array_column = nullptr;
         const ColumnMap* map_column = nullptr;
         if (type->get_primitive_type() == TYPE_ARRAY) {
-            array_column = check_and_get_column<ColumnArray>(*left_column.get());
+            const auto array_column_guard = check_and_get_column<ColumnArray>(*left_column.get());
+            if (array_column_guard) {
+                array_column = array_column_guard.get();
+            }
         } else if (type->get_primitive_type() == TYPE_MAP) {
-            map_column = check_and_get_column<ColumnMap>(*left_column.get());
+            const auto map_column_guard = check_and_get_column<ColumnMap>(*left_column.get());
+            if (map_column_guard) {
+                map_column = map_column_guard.get();
+            }
         }
 
         auto dst_column = ColumnInt64::create(input_rows_count);

@@ -125,10 +125,10 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     auto* analyzer_ctx = get_match_analyzer_ctx(context);
     const ColumnPtr source_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-    const auto* values = check_and_get_column<ColumnString>(source_col.get());
+    const ColumnString* values = nullptr;
     const ColumnArray* array_col = nullptr;
-    if (is_column<ColumnArray>(source_col.get())) {
-        array_col = check_and_get_column<ColumnArray>(source_col.get());
+    if (const auto array_col_guard = check_and_get_column<ColumnArray>(source_col.get())) {
+        array_col = array_col_guard.get();
         if (array_col && !array_col->get_data().is_column_string()) {
             return Status::NotSupported(fmt::format(
                     "unsupported nested array of type {} for function {}",
@@ -140,14 +140,27 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
         if (is_column_nullable(array_col->get_data())) {
             const auto& array_nested_null_column =
                     reinterpret_cast<const ColumnNullable&>(array_col->get_data());
-            values = check_and_get_column<ColumnString>(
+            const auto values_guard = check_and_get_column<ColumnString>(
                     *(array_nested_null_column.get_nested_column_ptr()));
+            if (values_guard) {
+                values = values_guard.get();
+            }
         } else {
             // array column element is always set Nullable for now.
-            values = check_and_get_column<ColumnString>(*(array_col->get_data_ptr()));
+            const auto values_guard =
+                    check_and_get_column<ColumnString>(*(array_col->get_data_ptr()));
+            if (values_guard) {
+                values = values_guard.get();
+            }
         }
-    } else if (const auto* nullable = check_and_get_column<ColumnNullable>(source_col.get())) {
-        values = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+    } else if (const auto nullable = check_and_get_column<ColumnNullable>(source_col.get())) {
+        const auto values_guard =
+                check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+        if (values_guard) {
+            values = values_guard.get();
+        }
+    } else if (const auto values_guard = check_and_get_column<ColumnString>(source_col.get())) {
+        values = values_guard.get();
     }
 
     if (!values) {

@@ -44,8 +44,10 @@ bool extract_column_map_info(const IColumn& src, ColumnMapExecutionData& data) {
         map_col = null_col.get_nested_column_ptr().get();
     }
 
-    if (data.map_col = check_and_get_column<ColumnMap>(map_col); !data.map_col) {
+    if (const auto map_col_guard = check_and_get_column<ColumnMap>(map_col); !map_col_guard) {
         return false;
+    } else {
+        data.map_col = map_col_guard.get();
     }
 
     data.offsets_ptr = &data.map_col->get_offsets();

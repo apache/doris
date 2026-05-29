@@ -355,7 +355,7 @@ Status HashJoinProbeLocalState::_extract_join_column(Block& block,
             _key_columns_holder.emplace_back(
                     make_nullable(block.get_by_position(res_col_ids[i]).column));
             _probe_columns[i] = _key_columns_holder.back().get();
-        } else if (const auto* nullable = check_and_get_column<ColumnNullable>(*column);
+        } else if (const auto nullable = check_and_get_column<ColumnNullable>(*column);
                    nullable &&
                    !_parent->cast<HashJoinProbeOperatorX>()._serialize_null_into_key[i]) {
             // update nulllmap and split nested out of ColumnNullable when serialize_null_into_key is false and column is nullable

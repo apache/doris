@@ -58,7 +58,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto& col_ptr = block.get_by_position(arguments[0]).column;
-        if (const auto* col = check_and_get_column<ColumnString>(col_ptr.get())) {
+        if (const auto col = check_and_get_column<ColumnString>(col_ptr.get())) {
             auto null_map = ColumnUInt8::create(input_rows_count, 0);
             auto col_res = ColumnVarbinary::create();
             const auto& data = col->get_chars();
@@ -110,7 +110,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto& col_ptr = block.get_by_position(arguments[0]).column;
-        if (const auto* col = check_and_get_column<ColumnVarbinary>(col_ptr.get())) {
+        if (const auto col = check_and_get_column<ColumnVarbinary>(col_ptr.get())) {
             auto null_map = ColumnUInt8::create(input_rows_count, 0);
             auto col_res = ColumnString::create();
             auto& data = col_res->get_chars();

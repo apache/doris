@@ -324,7 +324,7 @@ void ColumnReader::check_data_by_zone_map_for_test(const MutableColumnPtr& dst) 
 
     /// `PredicateColumnType<TYPE_INT>` does not support `void get(size_t n, Field& res)`,
     /// So here only check `CoumnVector<TYPE_INT>`
-    if (check_and_get_column<ColumnVector<TYPE_INT>>(non_nullable_column) == nullptr) {
+    if (!check_and_get_column<ColumnVector<TYPE_INT>>(non_nullable_column)) {
         return;
     }
 
@@ -2204,8 +2204,8 @@ Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* ha
                     DCHECK_EQ(this_run, num_rows);
                 } else {
                     *has_null = true;
-                    auto* null_col = check_and_get_column<ColumnNullable>(dst.get());
-                    if (null_col != nullptr) {
+                    auto null_col = check_and_get_column<ColumnNullable>(dst.get());
+                    if (null_col) {
                         null_col->insert_many_defaults(this_run);
                     } else {
                         return Status::InternalError("unexpected column type in column reader");
@@ -2337,12 +2337,14 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                 auto origin_index = _page.data_decoder->current_index();
                 if (this_read_count > 0) {
                     if (is_null) {
-                        auto* null_col = check_and_get_column<ColumnNullable>(dst.get());
-                        if (UNLIKELY(null_col == nullptr)) {
+                        ColumnNullable* null_col_ptr = nullptr;
+                        if (auto null_col = check_and_get_column<ColumnNullable>(dst.get())) {
+                            null_col_ptr = null_col.get();
+                        } else {
                             return Status::InternalError("unexpected column type in column reader");
                         }
 
-                        null_col->insert_many_defaults(this_read_count);
+                        null_col_ptr->insert_many_defaults(this_read_count);
                     } else {
                         size_t read_count = this_read_count;
 

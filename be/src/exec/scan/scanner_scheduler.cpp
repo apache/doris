@@ -345,9 +345,8 @@ void ScannerScheduler::_make_sure_virtual_col_is_materialized(
     size_t idx = 0;
     for (const auto& entry : *free_block) {
         // Virtual column must be materialized on the end of SegmentIterator's next batch method.
-        const ColumnNothing* column_nothing =
-                check_and_get_column<ColumnNothing>(entry.column.get());
-        if (column_nothing == nullptr) {
+        const auto column_nothing = check_and_get_column<ColumnNothing>(entry.column.get());
+        if (!column_nothing) {
             idx++;
             continue;
         }

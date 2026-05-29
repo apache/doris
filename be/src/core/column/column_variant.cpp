@@ -311,8 +311,8 @@ static DataTypePtr create_array(PrimitiveType type, size_t num_dimensions) {
 static ColumnPtr recreate_column_with_default_values(const ColumnPtr& column,
                                                      PrimitiveType scalar_type,
                                                      size_t num_dimensions) {
-    const auto* column_array = check_and_get_column<ColumnArray>(remove_nullable(column).get());
-    if (column_array != nullptr && num_dimensions != 0) {
+    const auto column_array = check_and_get_column<ColumnArray>(remove_nullable(column).get());
+    if (column_array && num_dimensions != 0) {
         return make_nullable(ColumnArray::create(
                 recreate_column_with_default_values(column_array->get_data_ptr(), scalar_type,
                                                     num_dimensions - 1),
@@ -937,8 +937,11 @@ bool ColumnVariant::Subcolumn::is_null_at(size_t n) const {
     ind -= num_of_defaults_in_prefix;
     for (const auto& part : data) {
         if (ind < part->size()) {
-            const auto* nullable = check_and_get_column<ColumnNullable>(part.get());
-            return nullable ? nullable->is_null_at(ind) : false;
+            const auto nullable = check_and_get_column<ColumnNullable>(part.get());
+            if (nullable) {
+                return nullable->is_null_at(ind);
+            }
+            return false;
         }
         ind -= part->size();
     }
@@ -1413,7 +1416,7 @@ size_t ColumnVariant::Subcolumn::serialize_text_json(size_t n, BufferWritable& o
         if (ind < part.size()) {
             // special case when null flag is true, but the value is empty string in JSON type,
             // other wise will serialize to '\N'
-            const auto* nullable_col = check_and_get_column<ColumnNullable>(*data[i]);
+            const auto nullable_col = check_and_get_column<ColumnNullable>(*data[i]);
             if (nullable_col && nullable_col->is_null_at(ind)) {
                 output.write(EMPTY_JSON.data(), EMPTY_JSON.size());
                 return EMPTY_JSON.size();
@@ -2465,7 +2468,11 @@ DataTypePtr ColumnVariant::get_root_type() const {
 void ColumnVariant::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                         const uint32_t* indices_end) {
     // optimize when src and this column are scalar variant, since try_insert is inefficiency
-    const auto* src_v = check_and_get_column<ColumnVariant>(src);
+    const auto src_v_guard = check_and_get_column<ColumnVariant>(src);
+    const ColumnVariant* src_v = nullptr;
+    if (src_v_guard) {
+        src_v = src_v_guard.get();
+    }
 
     bool src_can_do_quick_insert =
             src_v != nullptr && src_v->is_scalar_variant() && src_v->is_finalized();

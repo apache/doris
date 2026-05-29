@@ -169,7 +169,7 @@ public:
         auto& null_map = data_null_map->get_data();
 
         auto column = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        if (const auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
+        if (const auto nullable = check_and_get_column<const ColumnNullable>(*column)) {
             VectorizedUtils::update_null_map(null_map, nullable->get_null_map_data());
             column = nullable->get_nested_column_ptr();
         }

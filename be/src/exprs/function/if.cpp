@@ -133,9 +133,9 @@ public:
     }
 
     static ColumnPtr get_nested_column(const ColumnPtr& column) {
-        if (auto* nullable = check_and_get_column<ColumnNullable>(*column))
+        if (auto nullable = check_and_get_column<ColumnNullable>(*column))
             return nullable->get_nested_column_ptr();
-        else if (const auto* column_const = check_and_get_column<ColumnConst>(*column))
+        else if (const auto column_const = check_and_get_column<ColumnConst>(*column))
             return ColumnConst::create(get_nested_column(column_const->get_data_column_ptr()),
                                        column->size());
 
@@ -331,9 +331,14 @@ public:
         if (!then_type_is_nullable && !else_type_is_nullable) {
             return Status::OK();
         }
-
-        auto* then_is_nullable = check_and_get_column<ColumnNullable>(*arg_then.column);
-        auto* else_is_nullable = check_and_get_column<ColumnNullable>(*arg_else.column);
+        const ColumnNullable* then_is_nullable = nullptr;
+        if (auto then_nullable = check_and_get_column<ColumnNullable>(*arg_then.column)) {
+            then_is_nullable = then_nullable.get();
+        }
+        const ColumnNullable* else_is_nullable = nullptr;
+        if (auto else_nullable = check_and_get_column<ColumnNullable>(*arg_else.column)) {
+            else_is_nullable = else_nullable.get();
+        }
         bool then_column_is_const_nullable = false;
         bool else_column_is_const_nullable = false;
         if (then_type_is_nullable && then_is_nullable == nullptr) {
@@ -427,7 +432,7 @@ public:
             return Status::OK();
         }
 
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
+        if (const auto nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
             DCHECK(remove_nullable(arg_cond.type)->get_primitive_type() ==
                    PrimitiveType::TYPE_BOOLEAN);
 

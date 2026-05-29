@@ -98,7 +98,7 @@ struct ColumnView {
         const auto& [from_data_column, is_const] = unpack_if_const(column_ptr);
         const NullMap* null_map = nullptr;
         const IColumn* data = nullptr;
-        if (const auto* nullable_column =
+        if (const auto nullable_column =
                     check_and_get_column<ColumnNullable>(from_data_column.get())) {
             null_map = &nullable_column->get_null_map_data();
             data = nullable_column->get_nested_column_ptr().get();

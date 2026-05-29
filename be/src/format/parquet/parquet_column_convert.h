@@ -263,7 +263,7 @@ struct FixedLengthPhysicalData {
 
 inline FixedLengthPhysicalData get_fixed_length_physical_data(const IColumn& column,
                                                               size_t type_length) {
-    if (const auto* fixed_length_column = check_and_get_column<ColumnFixedLengthObject>(column)) {
+    if (const auto fixed_length_column = check_and_get_column<ColumnFixedLengthObject>(column)) {
         DCHECK_EQ(fixed_length_column->item_size(), type_length);
         return {fixed_length_column->get_data().data(), fixed_length_column->byte_size(),
                 fixed_length_column->size()};

@@ -200,7 +200,7 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
 
             const auto& arg_col = block.get_by_position(arguments[0]);
             const NullMap::value_type* arg_null_map = nullptr;
-            if (const auto* nullable = check_and_get_column<ColumnNullable>(*arg_col.column)) {
+            if (const auto nullable = check_and_get_column<ColumnNullable>(*arg_col.column)) {
                 arg_null_map = nullable->get_null_map_data().data();
             }
             RETURN_IF_ERROR(prepare_impl(context, from_type_not_nullable, to_type_not_nullable)(

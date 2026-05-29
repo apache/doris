@@ -134,23 +134,37 @@ public:
         const ColumnNullable* right_column = nullptr;
 
         if (left_const) {
-            left_column = check_and_get_column<const ColumnNullable>(
+            const auto left_column_guard = check_and_get_column<const ColumnNullable>(
                     assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(
                             col_left.column.get())
                             ->get_data_column_ptr()
                             .get());
+            if (left_column_guard) {
+                left_column = left_column_guard.get();
+            }
         } else {
-            left_column = check_and_get_column<const ColumnNullable>(col_left.column.get());
+            const auto left_column_guard =
+                    check_and_get_column<const ColumnNullable>(col_left.column.get());
+            if (left_column_guard) {
+                left_column = left_column_guard.get();
+            }
         }
 
         if (right_const) {
-            right_column = check_and_get_column<const ColumnNullable>(
+            const auto right_column_guard = check_and_get_column<const ColumnNullable>(
                     assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(
                             col_right.column.get())
                             ->get_data_column_ptr()
                             .get());
+            if (right_column_guard) {
+                right_column = right_column_guard.get();
+            }
         } else {
-            right_column = check_and_get_column<const ColumnNullable>(col_right.column.get());
+            const auto right_column_guard =
+                    check_and_get_column<const ColumnNullable>(col_right.column.get());
+            if (right_column_guard) {
+                right_column = right_column_guard.get();
+            }
         }
 
         bool left_nullable = left_column != nullptr;

@@ -44,12 +44,12 @@ namespace doris {
 namespace {
 
 const ColumnMap::COffsets& check_map_offsets_column(const IColumn& offsets_column) {
-    const auto* offsets_concrete = check_and_get_column<ColumnMap::COffsets>(offsets_column);
+    const auto offsets_concrete = check_and_get_column<ColumnMap::COffsets>(offsets_column);
     if (!offsets_concrete) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "offsets_column must be a ColumnUInt64");
         __builtin_unreachable();
     }
-    return *offsets_concrete;
+    return *offsets_concrete.get();
 }
 
 void validate_map_columns(const IColumn& keys, const IColumn& values, const IColumn& offsets) {
@@ -599,7 +599,7 @@ Status ColumnMap::deduplicate_keys(bool recursive) {
 
     if (recursive) {
         const auto& values_ptr = static_cast<const IColumn::Ptr&>(values_column);
-        if (const auto* nullable_values = check_and_get_column<ColumnNullable>(values_ptr.get())) {
+        if (const auto nullable_values = check_and_get_column<ColumnNullable>(values_ptr.get())) {
             if (check_and_get_column<ColumnMap>(nullable_values->get_nested_column_ptr().get())) {
                 auto values_mut =
                         IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(values_column)));

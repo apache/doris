@@ -513,7 +513,7 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
             DCHECK(is_string_type(children[1 - i]->data_type()->get_primitive_type()));
             std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
-            if (const auto* const_column =
+            if (const auto const_column =
                         check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr.get())) {
                 *constant_str = const_column->get_data_at(0);
             } else {

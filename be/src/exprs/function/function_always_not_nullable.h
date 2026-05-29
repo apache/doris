@@ -49,16 +49,17 @@ public:
         };
         if constexpr (is_nullable) {
             const ColumnNullable* col_nullable = assert_cast<const ColumnNullable*>(column.get());
-            const ColumnType* col =
+            const auto col =
                     check_and_get_column<ColumnType>(col_nullable->get_nested_column_ptr().get());
             const ColumnUInt8* col_nullmap = col_nullable->get_null_map_column_ptr().get();
 
-            if (col != nullptr) {
+            if (col) {
+                const auto* typed_col = col.get();
                 if constexpr (WithReturn) {
-                    RETURN_IF_ERROR(
-                            Function::vector_nullable(col, col_nullmap->get_data(), column_result));
+                    RETURN_IF_ERROR(Function::vector_nullable(typed_col, col_nullmap->get_data(),
+                                                              column_result));
                 } else {
-                    Function::vector_nullable(col, col_nullmap->get_data(), column_result);
+                    Function::vector_nullable(typed_col, col_nullmap->get_data(), column_result);
                 }
             } else {
                 return type_error();

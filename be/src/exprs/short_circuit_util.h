@@ -36,7 +36,7 @@ struct ColumnNullConstView {
     static ColumnNullConstView create(const ColumnPtr& column_ptr) {
         const auto& [from_data_column, is_const] = unpack_if_const(column_ptr);
 
-        if (const auto* nullable_column =
+        if (const auto nullable_column =
                     check_and_get_column<ColumnNullable>(from_data_column.get())) {
             return ColumnNullConstView {.column = nullable_column->get_nested_column(),
                                         .null_map = &nullable_column->get_null_map_data(),
@@ -62,7 +62,7 @@ struct ColumnNullConstViewScalar {
         const auto& [from_data_column, is_const] = unpack_if_const(column_ptr);
         const NullMap* null_map = nullptr;
         const ArrayType* data = nullptr;
-        if (const auto* nullable_column =
+        if (const auto nullable_column =
                     check_and_get_column<ColumnNullable>(from_data_column.get())) {
             null_map = &nullable_column->get_null_map_data();
             const auto& nested_from_column = nullable_column->get_nested_column();
@@ -82,7 +82,7 @@ struct MutableColumnNullView {
     IColumn& column;
     NullMap* null_map;
     static MutableColumnNullView create(const MutableColumnPtr& column_ptr) {
-        if (auto* nullable_column = check_and_get_column<ColumnNullable>(column_ptr.get())) {
+        if (auto nullable_column = check_and_get_column<ColumnNullable>(column_ptr.get())) {
             return MutableColumnNullView {.column = nullable_column->get_nested_column(),
                                           .null_map = &nullable_column->get_null_map_data()};
         } else {
@@ -123,7 +123,7 @@ struct MutableColumnNullViewScalar {
     static MutableColumnNullViewScalar create(const MutableColumnPtr& column_ptr) {
         ColumnType* data_column = nullptr;
         NullMap* null_map = nullptr;
-        if (auto* nullable_column = check_and_get_column<ColumnNullable>(column_ptr.get())) {
+        if (auto nullable_column = check_and_get_column<ColumnNullable>(column_ptr.get())) {
             null_map = &nullable_column->get_null_map_data();
             auto& nested_column = nullable_column->get_nested_column();
             data_column = &(assert_cast<ColumnType&>(nested_column));

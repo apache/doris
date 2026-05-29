@@ -419,14 +419,17 @@ TEST_F(VirtualColumnIteratorTest, TestColumnNothing) {
     Status status = iterator.read_by_rowids(rowids, count, dst);
     ASSERT_TRUE(status.ok());
     auto tmp_nothing = check_and_get_column<ColumnNothing>(*dst);
-    ASSERT_TRUE(tmp_nothing == nullptr);
+    ASSERT_FALSE(static_cast<bool>(tmp_nothing));
     auto tmp_col_i32 =
             check_and_get_column<ColumnVector<TYPE_INT>>(*iterator.get_materialized_column());
-    ASSERT_TRUE(tmp_col_i32 != nullptr);
     ASSERT_EQ(dst->size(), 3);
-    ASSERT_EQ(tmp_col_i32->get_data()[0], 20);
-    ASSERT_EQ(tmp_col_i32->get_data()[1], 40);
-    ASSERT_EQ(tmp_col_i32->get_data()[2], 30);
+    if (!tmp_col_i32) {
+        FAIL() << "Expected materialized int column";
+    } else {
+        ASSERT_EQ(tmp_col_i32->get_data()[0], 20);
+        ASSERT_EQ(tmp_col_i32->get_data()[1], 40);
+        ASSERT_EQ(tmp_col_i32->get_data()[2], 30);
+    }
 }
 
 // Test the combination of seek_to_ordinal + next_batch behavior
@@ -632,7 +635,7 @@ TEST_F(VirtualColumnIteratorTest, DstColumnNothingHandling) {
 
         // dst should be replaced with materialized column data
         auto nothing_check = check_and_get_column<ColumnNothing>(*dst);
-        EXPECT_EQ(nothing_check, nullptr); // Should not be ColumnNothing anymore
+        EXPECT_FALSE(static_cast<bool>(nothing_check)); // Should not be ColumnNothing anymore
         ASSERT_EQ(dst->size(), 2);
         EXPECT_EQ(dst->get_int(0), 100); // ordinal 0 -> value 100
         EXPECT_EQ(dst->get_int(1), 200); // ordinal 1 -> value 200
@@ -647,7 +650,7 @@ TEST_F(VirtualColumnIteratorTest, DstColumnNothingHandling) {
 
         // dst should be replaced with filtered results
         auto nothing_check = check_and_get_column<ColumnNothing>(*dst);
-        EXPECT_EQ(nothing_check, nullptr); // Should not be ColumnNothing anymore
+        EXPECT_FALSE(static_cast<bool>(nothing_check)); // Should not be ColumnNothing anymore
         ASSERT_EQ(dst->size(), 2);
         EXPECT_EQ(dst->get_int(0), 200); // row_id 1 -> value 200
         EXPECT_EQ(dst->get_int(1), 300); // row_id 2 -> value 300
@@ -662,7 +665,7 @@ TEST_F(VirtualColumnIteratorTest, DstColumnNothingHandling) {
 
         // dst should remain ColumnNothing for empty results
         auto nothing_check = check_and_get_column<ColumnNothing>(*dst);
-        EXPECT_NE(nothing_check, nullptr); // Should still be ColumnNothing
+        EXPECT_TRUE(static_cast<bool>(nothing_check)); // Should still be ColumnNothing
         ASSERT_EQ(dst->size(), 0);
     }
 }

@@ -355,7 +355,7 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
     PrimitiveType slot_primitive = slot_desc.type()->get_primitive_type();
 
     ColumnPtr col = literal->get_column_ptr()->convert_to_full_column_if_const();
-    if (const auto* nullable = check_and_get_column<ColumnNullable>(*col)) {
+    if (const auto nullable = check_and_get_column<ColumnNullable>(*col)) {
         if (nullable->is_null_at(0)) {
             return std::nullopt;
         }
@@ -533,7 +533,7 @@ std::optional<std::string> PaimonPredicateConverter::_extract_string_literal(
     }
 
     ColumnPtr col = literal->get_column_ptr()->convert_to_full_column_if_const();
-    if (const auto* nullable = check_and_get_column<ColumnNullable>(*col)) {
+    if (const auto nullable = check_and_get_column<ColumnNullable>(*col)) {
         if (nullable->is_null_at(0)) {
             return std::nullopt;
         }

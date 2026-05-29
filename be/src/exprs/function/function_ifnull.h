@@ -94,7 +94,7 @@ public:
         col_left.column = col_left.column->convert_to_full_column_if_const();
 
         /// implement isnull(col_left) logic
-        if (auto* nullable = check_and_get_column<ColumnNullable>(*col_left.column)) {
+        if (auto nullable = check_and_get_column<ColumnNullable>(*col_left.column)) {
             null_column_arg0.column = nullable->get_null_map_column_ptr();
             nested_column_arg0.column = nullable->get_nested_column_ptr();
             nested_column_arg0.type =

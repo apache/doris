@@ -442,8 +442,8 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
                       },
                       [&](std::vector<AsofIndexGroup<uint64_t>>& groups) -> uint32_t {
                           // DateTimeV2 or TimestampTZ
-                          if (const auto* c = check_and_get_column<ColumnDateTimeV2>(probe_col)) {
-                              return probe_with_index(groups, c);
+                          if (const auto c = check_and_get_column<ColumnDateTimeV2>(probe_col)) {
+                              return probe_with_index(groups, c.get());
                           }
                           return probe_with_index(groups,
                                                   assert_cast<const ColumnTimeStampTz*>(probe_col));

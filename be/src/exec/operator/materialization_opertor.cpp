@@ -209,7 +209,7 @@ Status MaterializationSharedState::create_muiltget_result(const Columns& columns
         const ColumnString* column_rowid = nullptr;
         const auto& column = columns[i];
 
-        if (const auto* const column_ptr = check_and_get_column<ColumnNullable>(*column)) {
+        if (const auto column_ptr = check_and_get_column<ColumnNullable>(*column)) {
             null_map = column_ptr->get_null_map_data().data();
             column_rowid =
                     assert_cast<const ColumnString*>(column_ptr->get_nested_column_ptr().get());

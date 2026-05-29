@@ -243,9 +243,8 @@ public:
         const auto& rhs_const_column =
                 assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(rhs);
 
-        const auto* this_nullable = check_and_get_column<ColumnNullable>(data.get());
-        const auto* rhs_nullable =
-                check_and_get_column<ColumnNullable>(rhs_const_column.data.get());
+        const auto this_nullable = check_and_get_column<ColumnNullable>(data.get());
+        const auto rhs_nullable = check_and_get_column<ColumnNullable>(rhs_const_column.data.get());
         if (this_nullable && rhs_nullable) {
             return data->compare_at(0, 0, *rhs_const_column.data, nan_direction_hint);
         } else if (this_nullable) {
@@ -336,10 +335,18 @@ public:
 // so it is necessary to make a special judgment of ColumnConst.
 template <typename Type>
 const Type* check_and_get_column_with_const(const IColumn& column) {
-    if (const auto* col_const = check_and_get_column<ColumnConst>(&column)) {
-        return check_and_get_column<Type>(col_const->get_data_column());
+    if (const auto col_const = check_and_get_column<ColumnConst>(&column)) {
+        const auto nested_col = check_and_get_column<Type>(col_const->get_data_column());
+        if (nested_col) {
+            return nested_col.get();
+        }
+        return nullptr;
     }
-    return check_and_get_column<Type>(column);
+    const auto col = check_and_get_column<Type>(column);
+    if (col) {
+        return col.get();
+    }
+    return nullptr;
 }
 
 } // namespace doris

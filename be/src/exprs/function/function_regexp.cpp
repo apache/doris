@@ -190,10 +190,10 @@ struct RegexpExtractEngine {
 struct RegexpCountImpl {
     static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
                              size_t input_rows_count, ColumnInt32::Container& result_data) {
-        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
+        const auto str_col = check_and_get_column_ptr<ColumnString>(argument_columns[0]);
+        const auto pattern_col = check_and_get_column_ptr<ColumnString>(argument_columns[1]);
         for (int i = 0; i < input_rows_count; ++i) {
-            result_data[i] = _execute_inner_loop(context, str_col, pattern_col, i);
+            result_data[i] = _execute_inner_loop(context, str_col.get(), pattern_col.get(), i);
         }
     }
     static int _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
@@ -415,34 +415,34 @@ struct RegexpReplaceImpl {
                              const StringRef& options_value, size_t input_rows_count,
                              ColumnString::Chars& result_data, ColumnString::Offsets& result_offset,
                              NullMap& null_map) {
-        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const auto* replace_col = check_and_get_column<ColumnString>(argument_columns[2].get());
+        const auto str_col = check_and_get_column_ptr<ColumnString>(argument_columns[0]);
+        const auto pattern_col = check_and_get_column_ptr<ColumnString>(argument_columns[1]);
+        const auto replace_col = check_and_get_column_ptr<ColumnString>(argument_columns[2]);
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
                 continue;
             }
-            _execute_inner_loop<false>(context, str_col, pattern_col, replace_col, options_value,
-                                       result_data, result_offset, null_map, i);
+            _execute_inner_loop<false>(context, str_col.get(), pattern_col.get(), replace_col.get(),
+                                       options_value, result_data, result_offset, null_map, i);
         }
     }
     static void execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
                                         const StringRef& options_value, size_t input_rows_count,
                                         ColumnString::Chars& result_data,
                                         ColumnString::Offsets& result_offset, NullMap& null_map) {
-        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const auto* replace_col = check_and_get_column<ColumnString>(argument_columns[2].get());
+        const auto str_col = check_and_get_column_ptr<ColumnString>(argument_columns[0]);
+        const auto pattern_col = check_and_get_column_ptr<ColumnString>(argument_columns[1]);
+        const auto replace_col = check_and_get_column_ptr<ColumnString>(argument_columns[2]);
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
                 continue;
             }
-            _execute_inner_loop<true>(context, str_col, pattern_col, replace_col, options_value,
-                                      result_data, result_offset, null_map, i);
+            _execute_inner_loop<true>(context, str_col.get(), pattern_col.get(), replace_col.get(),
+                                      options_value, result_data, result_offset, null_map, i);
         }
     }
     template <bool Const>
@@ -484,17 +484,17 @@ struct RegexpReplaceOneImpl {
                              const StringRef& options_value, size_t input_rows_count,
                              ColumnString::Chars& result_data, ColumnString::Offsets& result_offset,
                              NullMap& null_map) {
-        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const auto* replace_col = check_and_get_column<ColumnString>(argument_columns[2].get());
+        const auto str_col = check_and_get_column_ptr<ColumnString>(argument_columns[0]);
+        const auto pattern_col = check_and_get_column_ptr<ColumnString>(argument_columns[1]);
+        const auto replace_col = check_and_get_column_ptr<ColumnString>(argument_columns[2]);
         // 3 args
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
                 continue;
             }
-            _execute_inner_loop<false>(context, str_col, pattern_col, replace_col, options_value,
-                                       result_data, result_offset, null_map, i);
+            _execute_inner_loop<false>(context, str_col.get(), pattern_col.get(), replace_col.get(),
+                                       options_value, result_data, result_offset, null_map, i);
         }
     }
 
@@ -502,17 +502,17 @@ struct RegexpReplaceOneImpl {
                                         const StringRef& options_value, size_t input_rows_count,
                                         ColumnString::Chars& result_data,
                                         ColumnString::Offsets& result_offset, NullMap& null_map) {
-        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const auto* replace_col = check_and_get_column<ColumnString>(argument_columns[2].get());
+        const auto str_col = check_and_get_column_ptr<ColumnString>(argument_columns[0]);
+        const auto pattern_col = check_and_get_column_ptr<ColumnString>(argument_columns[1]);
+        const auto replace_col = check_and_get_column_ptr<ColumnString>(argument_columns[2]);
         // 3 args
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
                 continue;
             }
-            _execute_inner_loop<true>(context, str_col, pattern_col, replace_col, options_value,
-                                      result_data, result_offset, null_map, i);
+            _execute_inner_loop<true>(context, str_col.get(), pattern_col.get(), replace_col.get(),
+                                      options_value, result_data, result_offset, null_map, i);
         }
     }
     template <bool Const>
@@ -554,9 +554,9 @@ struct RegexpExtractImpl {
     static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
                              size_t input_rows_count, ColumnString::Chars& result_data,
                              ColumnString::Offsets& result_offset, NullMap& null_map) {
-        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const auto* index_col = check_and_get_column<ColumnInt64>(argument_columns[2].get());
+        const auto str_col = check_and_get_column_ptr<ColumnString>(argument_columns[0]);
+        const auto pattern_col = check_and_get_column_ptr<ColumnString>(argument_columns[1]);
+        const auto index_col = check_and_get_column_ptr<ColumnInt64>(argument_columns[2]);
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
@@ -568,17 +568,17 @@ struct RegexpExtractImpl {
                            : StringOP::push_empty_string(i, result_data, result_offset);
                 continue;
             }
-            _execute_inner_loop<false>(context, str_col, pattern_col, index_data, result_data,
-                                       result_offset, null_map, i);
+            _execute_inner_loop<false>(context, str_col.get(), pattern_col.get(), index_data,
+                                       result_data, result_offset, null_map, i);
         }
     }
 
     static void execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
                                         size_t input_rows_count, ColumnString::Chars& result_data,
                                         ColumnString::Offsets& result_offset, NullMap& null_map) {
-        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const auto* index_col = check_and_get_column<ColumnInt64>(argument_columns[2].get());
+        const auto str_col = check_and_get_column_ptr<ColumnString>(argument_columns[0]);
+        const auto pattern_col = check_and_get_column_ptr<ColumnString>(argument_columns[1]);
+        const auto index_col = check_and_get_column_ptr<ColumnInt64>(argument_columns[2]);
 
         const auto& index_data = index_col->get_int(0);
         if (index_data < 0) {
@@ -595,8 +595,8 @@ struct RegexpExtractImpl {
                 continue;
             }
 
-            _execute_inner_loop<true>(context, str_col, pattern_col, index_data, result_data,
-                                      result_offset, null_map, i);
+            _execute_inner_loop<true>(context, str_col.get(), pattern_col.get(), index_data,
+                                      result_data, result_offset, null_map, i);
         }
     }
     template <bool Const>
@@ -655,30 +655,30 @@ struct RegexpExtractAllImpl {
     static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
                              size_t input_rows_count, ColumnString::Chars& result_data,
                              ColumnString::Offsets& result_offset, NullMap& null_map) {
-        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
+        const auto str_col = check_and_get_column_ptr<ColumnString>(argument_columns[0]);
+        const auto pattern_col = check_and_get_column_ptr<ColumnString>(argument_columns[1]);
         for (int i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
                 continue;
             }
-            _execute_inner_loop<false>(context, str_col, pattern_col, result_data, result_offset,
-                                       null_map, i);
+            _execute_inner_loop<false>(context, str_col.get(), pattern_col.get(), result_data,
+                                       result_offset, null_map, i);
         }
     }
 
     static void execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
                                         size_t input_rows_count, ColumnString::Chars& result_data,
                                         ColumnString::Offsets& result_offset, NullMap& null_map) {
-        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
+        const auto str_col = check_and_get_column_ptr<ColumnString>(argument_columns[0]);
+        const auto pattern_col = check_and_get_column_ptr<ColumnString>(argument_columns[1]);
         for (int i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
                 continue;
             }
-            _execute_inner_loop<true>(context, str_col, pattern_col, result_data, result_offset,
-                                      null_map, i);
+            _execute_inner_loop<true>(context, str_col.get(), pattern_col.get(), result_data,
+                                      result_offset, null_map, i);
         }
     }
     template <bool Const>

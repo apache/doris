@@ -289,15 +289,15 @@ Status VIcebergDeleteSink::_collect_position_deletes(
     const auto& row_id_col = block.get_by_position(row_id_col_idx);
     const IColumn* row_id_data = row_id_col.column.get();
     const IDataType* row_id_type = row_id_col.type.get();
-    const auto* nullable_col = check_and_get_column<ColumnNullable>(row_id_data);
-    if (nullable_col != nullptr) {
+    const auto nullable_col = check_and_get_column<ColumnNullable>(row_id_data);
+    if (nullable_col) {
         row_id_data = nullable_col->get_nested_column_ptr().get();
     }
     const auto* nullable_type = check_and_get_data_type<DataTypeNullable>(row_id_type);
     if (nullable_type != nullptr) {
         row_id_type = nullable_type->get_nested_type().get();
     }
-    const auto* struct_col = check_and_get_column<ColumnStruct>(row_id_data);
+    const auto struct_col = check_and_get_column<ColumnStruct>(row_id_data);
     const auto* struct_type = check_and_get_data_type<DataTypeStruct>(row_id_type);
     if (!struct_col || !struct_type) {
         return Status::InternalError("__DORIS_ICEBERG_ROWID_COL__ column is not a struct column");
@@ -346,9 +346,9 @@ Status VIcebergDeleteSink::_collect_position_deletes(
                 "__DORIS_ICEBERG_ROWID_COL__ must use standard field name partition_data");
     }
 
-    const auto* file_path_col = check_and_get_column<ColumnString>(
+    const auto file_path_col = check_and_get_column<ColumnString>(
             remove_nullable(struct_col->get_column_ptr(file_path_idx)).get());
-    const auto* row_position_col = check_and_get_column<ColumnVector<TYPE_BIGINT>>(
+    const auto row_position_col = check_and_get_column<ColumnVector<TYPE_BIGINT>>(
             remove_nullable(struct_col->get_column_ptr(row_position_idx)).get());
 
     if (!file_path_col || !row_position_col) {
@@ -359,16 +359,22 @@ Status VIcebergDeleteSink::_collect_position_deletes(
     const ColumnVector<TYPE_INT>* spec_id_col = nullptr;
     const ColumnString* partition_data_col = nullptr;
     if (spec_id_idx >= 0 && spec_id_idx < static_cast<int>(field_count)) {
-        spec_id_col = check_and_get_column<ColumnVector<TYPE_INT>>(
+        const auto spec_id_col_guard = check_and_get_column<ColumnVector<TYPE_INT>>(
                 remove_nullable(struct_col->get_column_ptr(spec_id_idx)).get());
+        if (spec_id_col_guard) {
+            spec_id_col = spec_id_col_guard.get();
+        }
         if (!spec_id_col) {
             return Status::InternalError(
                     "__DORIS_ICEBERG_ROWID_COL__ partition_spec_id has incorrect type");
         }
     }
     if (partition_data_idx >= 0 && partition_data_idx < static_cast<int>(field_count)) {
-        partition_data_col = check_and_get_column<ColumnString>(
+        const auto partition_data_col_guard = check_and_get_column<ColumnString>(
                 remove_nullable(struct_col->get_column_ptr(partition_data_idx)).get());
+        if (partition_data_col_guard) {
+            partition_data_col = partition_data_col_guard.get();
+        }
         if (!partition_data_col) {
             return Status::InternalError(
                     "__DORIS_ICEBERG_ROWID_COL__ partition_data has incorrect type");

@@ -152,7 +152,7 @@ public:
             null_map = &nullable_col->get_null_map_data();
         }
 
-        const auto* sources =
+        const auto sources =
                 check_and_get_column<ColumnVector<Transform::OpArgType>>(actual_col.get());
         if (!sources) [[unlikely]] {
             return Status::FatalError("Illegal column {} of first argument of function {}",

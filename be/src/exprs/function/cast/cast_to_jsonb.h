@@ -43,7 +43,7 @@ struct ConvertImplGenericFromJsonb {
 
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
-        if (const ColumnString* col_from_string = check_and_get_column<ColumnString>(&col_from)) {
+        if (const auto col_from_string = check_and_get_column<ColumnString>(&col_from)) {
             auto col_to = data_type_to->create_column();
 
             size_t size = col_from.size();

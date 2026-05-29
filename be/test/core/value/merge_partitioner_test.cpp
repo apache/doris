@@ -147,8 +147,9 @@ protected:
 
     const ColumnInt8& _get_op_column(const Block& block) const {
         const auto& column = block.get_by_position(0).column;
-        if (auto* nullable_col = check_and_get_column<ColumnNullable>(column.get())) {
-            return *assert_cast<const ColumnInt8*>(nullable_col->get_nested_column_ptr().get());
+        if (const auto nullable_col = check_and_get_column<ColumnNullable>(column.get())) {
+            return *assert_cast<const ColumnInt8*>(
+                    nullable_col.get()->get_nested_column_ptr().get());
         }
         return *assert_cast<const ColumnInt8*>(column.get());
     }

@@ -31,14 +31,14 @@ namespace doris {
 namespace {
 
 const ColumnUInt8& check_nullable_null_map_column(const IColumn& null_map) {
-    const auto* concrete = check_and_get_column<ColumnUInt8>(null_map);
+    const auto concrete = check_and_get_column<ColumnUInt8>(null_map);
     if (!concrete) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "ColumnNullable null map must be ColumnUInt8, but got {}",
                                null_map.get_name());
         __builtin_unreachable();
     }
-    return *concrete;
+    return *concrete.get();
 }
 
 ColumnUInt8::Ptr check_nullable_null_map_column_ptr(const ColumnPtr& null_map) {
@@ -92,7 +92,7 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_,
 ColumnNullable::ColumnNullable(SharedTag, ColumnPtr nested_column_, ColumnPtr null_map_) {
     check_nullable_sizes(*nested_column_, *null_map_);
 
-    if (const auto* nullable_nested = check_and_get_column<ColumnNullable>(nested_column_.get())) {
+    if (const auto nullable_nested = check_and_get_column<ColumnNullable>(nested_column_.get())) {
         auto merged_null_map = null_map_->clone_empty();
         auto merged_null_map_ptr = assert_mutable_null_map(std::move(merged_null_map));
         merged_null_map_ptr->insert_range_from(*null_map_, 0, null_map_->size());

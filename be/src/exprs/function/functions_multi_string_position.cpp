@@ -95,13 +95,19 @@ public:
         auto haystack_ptr = remove_nullable(haystack_column);
         auto needles_ptr = remove_nullable(needles_column);
 
-        const ColumnString* col_haystack_vector =
-                check_and_get_column<ColumnString>(&*haystack_ptr);
+        const auto col_haystack_vector_guard = check_and_get_column<ColumnString>(&*haystack_ptr);
+        const ColumnString* col_haystack_vector = nullptr;
+        if (col_haystack_vector_guard) {
+            col_haystack_vector = col_haystack_vector_guard.get();
+        }
         const ColumnConst* col_haystack_const =
                 check_and_get_column_const<ColumnString>(&*haystack_ptr);
 
-        const ColumnArray* col_needles_vector =
-                check_and_get_column<ColumnArray>(needles_ptr.get());
+        const auto col_needles_vector_guard = check_and_get_column<ColumnArray>(needles_ptr.get());
+        const ColumnArray* col_needles_vector = nullptr;
+        if (col_needles_vector_guard) {
+            col_needles_vector = col_needles_vector_guard.get();
+        }
         const ColumnConst* col_needles_const =
                 check_and_get_column_const<ColumnArray>(needles_ptr.get());
 

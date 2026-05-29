@@ -420,12 +420,18 @@ public:
 
         const ColumnUInt8::Container* input_null_map = nullptr;
         const ColumnString* col_from_string = nullptr;
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_from)) {
+        if (const auto nullable = check_and_get_column<ColumnNullable>(col_from)) {
             input_null_map = &nullable->get_null_map_data();
-            col_from_string =
+            const auto col_from_string_guard =
                     check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+            if (col_from_string_guard) {
+                col_from_string = col_from_string_guard.get();
+            }
         } else {
-            col_from_string = check_and_get_column<ColumnString>(col_from);
+            const auto col_from_string_guard = check_and_get_column<ColumnString>(col_from);
+            if (col_from_string_guard) {
+                col_from_string = col_from_string_guard.get();
+            }
         }
 
         if (!col_from_string) {
@@ -515,8 +521,8 @@ public:
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
-        const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(col_from)) {
+        auto col_from_string = check_and_get_column<ColumnString>(col_from);
+        if (auto nullable = check_and_get_column<ColumnNullable>(col_from)) {
             col_from_string =
                     check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
         }

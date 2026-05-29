@@ -41,15 +41,17 @@ Status FunctionAIClassify::build_prompt(const Block& block, const ColumnNumbers&
     const ColumnWithTypeAndName& labels_column = block.get_by_position(arguments[2]);
     const auto& [array_column, array_row_num] =
             check_column_const_set_readability(*labels_column.column, row_num);
-    const auto* col_array = check_and_get_column<ColumnArray>(*array_column);
-    if (col_array == nullptr) {
+    const ColumnArray* col_array_ptr = nullptr;
+    if (const auto col_array = check_and_get_column<ColumnArray>(*array_column)) {
+        col_array_ptr = col_array.get();
+    } else {
         return Status::InternalError(
                 "labels argument for {} must be Array(String) or Array(Varchar)", name);
     }
 
     std::vector<std::string> label_values;
-    const auto& data = col_array->get_data();
-    const auto& offsets = col_array->get_offsets();
+    const auto& data = col_array_ptr->get_data();
+    const auto& offsets = col_array_ptr->get_offsets();
     size_t start = array_row_num > 0 ? offsets[array_row_num - 1] : 0;
     size_t end = offsets[array_row_num];
     for (size_t i = start; i < end; ++i) {
@@ -83,15 +85,17 @@ Status FunctionAIExtract::build_prompt(const Block& block, const ColumnNumbers& 
     const ColumnWithTypeAndName& labels_column = block.get_by_position(arguments[2]);
     const auto& [array_column, array_row_num] =
             check_column_const_set_readability(*labels_column.column, row_num);
-    const auto* col_array = check_and_get_column<ColumnArray>(*array_column);
-    if (col_array == nullptr) {
+    const ColumnArray* col_array_ptr = nullptr;
+    if (const auto col_array = check_and_get_column<ColumnArray>(*array_column)) {
+        col_array_ptr = col_array.get();
+    } else {
         return Status::InternalError(
                 "labels argument for {} must be Array(String) or Array(Varchar)", name);
     }
 
     std::vector<std::string> label_values;
-    const auto& offsets = col_array->get_offsets();
-    const auto& data = col_array->get_data();
+    const auto& offsets = col_array_ptr->get_offsets();
+    const auto& data = col_array_ptr->get_data();
     size_t start = array_row_num > 0 ? offsets[array_row_num - 1] : 0;
     size_t end = offsets[array_row_num];
     for (size_t i = start; i < end; ++i) {
@@ -134,15 +138,17 @@ Status FunctionAIMask::build_prompt(const Block& block, const ColumnNumbers& arg
     const ColumnWithTypeAndName& labels_column = block.get_by_position(arguments[2]);
     const auto& [array_column, array_row_num] =
             check_column_const_set_readability(*labels_column.column, row_num);
-    const auto* col_array = check_and_get_column<ColumnArray>(*array_column);
-    if (col_array == nullptr) {
+    const ColumnArray* col_array_ptr = nullptr;
+    if (const auto col_array = check_and_get_column<ColumnArray>(*array_column)) {
+        col_array_ptr = col_array.get();
+    } else {
         return Status::InternalError(
                 "labels argument for {} must be Array(String) or Array(Varchar)", name);
     }
 
     std::vector<std::string> label_values;
-    const auto& offsets = col_array->get_offsets();
-    const auto& data = col_array->get_data();
+    const auto& offsets = col_array_ptr->get_offsets();
+    const auto& data = col_array_ptr->get_data();
     size_t start = array_row_num > 0 ? offsets[array_row_num - 1] : 0;
     size_t end = offsets[array_row_num];
     for (size_t i = start; i < end; ++i) {

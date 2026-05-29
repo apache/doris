@@ -581,18 +581,20 @@ Status DataTypeMapSerDe::serialize_column_to_jsonb(const IColumn& from_column, i
     DCHECK(keys_column.is_nullable());
     DCHECK(values_column.is_nullable());
 
-    const auto* key_string_column = check_and_get_column<ColumnString>(
+    const auto key_string_column = check_and_get_column<ColumnString>(
             assert_cast<const ColumnNullable&>(keys_column).get_nested_column());
 
-    if (key_string_column == nullptr) {
+    const ColumnString* key_string_column_ptr = nullptr;
+    if (!key_string_column) {
         return Status::InternalError("Cast to Jsonb failed, map key is not string type");
     }
+    key_string_column_ptr = key_string_column.get();
 
     if (!writer.writeStartObject()) {
         return Status::InternalError("writeStartObject failed");
     }
     for (size_t i = offset; i < next_offset; ++i) {
-        auto key_str = key_string_column->get_data_at(i);
+        auto key_str = key_string_column_ptr->get_data_at(i);
         // check key size
         if (key_str.size > std::numeric_limits<uint8_t>::max()) {
             return Status::InternalError("key size exceeds max limit {} ", key_str.to_string());

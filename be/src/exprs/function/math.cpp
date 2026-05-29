@@ -445,7 +445,7 @@ private:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        const auto* data_col =
+        const auto data_col =
                 check_and_get_column<ColumnInt64>(block.get_by_position(arguments[0]).column.get());
         if (!data_col) {
             return Status::InternalError(
@@ -892,10 +892,10 @@ private:
         auto& dst_data = dst->get_data();
         dst_data.resize(input_rows_count);
         const auto* column = block.get_by_position(arguments[0]).column.get();
-        if (const auto* col_f64 = check_and_get_column<ColumnFloat64>(column)) {
-            execute_impl_with_type(col_f64, dst_data, input_rows_count);
-        } else if (const auto* col_f32 = check_and_get_column<ColumnFloat32>(column)) {
-            execute_impl_with_type(col_f32, dst_data, input_rows_count);
+        if (const auto col_f64 = check_and_get_column<ColumnFloat64>(column)) {
+            execute_impl_with_type(col_f64.get(), dst_data, input_rows_count);
+        } else if (const auto col_f32 = check_and_get_column<ColumnFloat32>(column)) {
+            execute_impl_with_type(col_f32.get(), dst_data, input_rows_count);
         } else {
             return Status::InvalidArgument("Unsupported column type  {} for function {}",
                                            column->get_name(), get_name());

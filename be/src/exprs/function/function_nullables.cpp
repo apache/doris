@@ -53,13 +53,12 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         ColumnPtr& col = block.get_by_position(arguments[0]).column;
-        if (const auto* col_null = check_and_get_column<ColumnNullable>(col.get());
-            col_null == nullptr) {
+        if (const auto col_null = check_and_get_column<ColumnNullable>(col.get()); col_null) {
+            block.replace_by_position(result, col->clone_resized(input_rows_count));
+        } else {
             // not null
             block.replace_by_position(
                     result, ColumnNullable::create(col, ColumnBool::create(input_rows_count, 0)));
-        } else { // column is ColumnNullable
-            block.replace_by_position(result, col->clone_resized(input_rows_count));
         }
         return Status::OK();
     }
@@ -85,8 +84,8 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto& data = block.get_by_position(arguments[0]);
-        if (const auto* col_null = check_and_get_column<ColumnNullable>(data.column.get());
-            col_null != nullptr) {
+        if (const auto col_null = check_and_get_column<ColumnNullable>(data.column.get());
+            col_null) {
             if (col_null->has_null()) [[unlikely]] {
                 return Status::InvalidArgument(
                         "There's NULL value in column {} which is illegal for non_nullable",
