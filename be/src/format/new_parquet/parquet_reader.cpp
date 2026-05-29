@@ -341,6 +341,7 @@ Status ParquetReader::_execute_filter_conjuncts(int64_t batch_rows, Block* file_
         if (*selected_rows == 0) {
             break;
         }
+        const size_t original_columns = file_block->columns();
         int result_column_id = -1;
         RETURN_IF_ERROR(delete_conjunct->root()->execute(delete_conjunct.get(), file_block,
                                                          &result_column_id));
@@ -356,7 +357,7 @@ Status ParquetReader::_execute_filter_conjuncts(int64_t batch_rows, Block* file_
             keep_filter[row] = !delete_filter[row];
             has_kept_row |= keep_filter[row] != 0;
         }
-        file_block->erase(result_column_id);
+        file_block->erase_tail(original_columns);
         *selected_rows =
                 !has_kept_row ? 0
                               : _apply_filter_to_selection(keep_filter, selection, *selected_rows);
