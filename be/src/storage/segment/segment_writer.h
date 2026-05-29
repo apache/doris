@@ -125,7 +125,7 @@ public:
     Status finalize_footer(uint64_t* segment_file_size);
 
     void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
-                          TabletSchemaSPtr tablet_schema);
+                          const ColumnWriterOptions& opts);
     Slice min_encoded_key();
     Slice max_encoded_key();
 
