@@ -304,6 +304,10 @@ TEST_F(WriterAdmissionTest, SkipModeDeletesIndexAndSwallowsRows) {
     config::ann_index_build_memory_budget_bytes = 1;
     config::ann_index_build_memory_wait_timeout_ms = 0;
     config::ann_index_build_on_oom_action = "skip";
+    // Occupy the budget so the writer is NOT the only build in flight; otherwise
+    // the "single oversized build" exemption would let it through and skip mode
+    // would never trigger.
+    ASSERT_TRUE(AnnBuildMemoryBudget::instance().try_reserve(1, /*timeout_ms=*/0));
 
     auto writer =
             std::make_unique<TestSkipAwareWriter>(_index_file_writer.get(), _tablet_index.get());
@@ -332,6 +336,10 @@ TEST_F(WriterAdmissionTest, FailModeReturnsErrorFromInit) {
     config::ann_index_build_memory_budget_bytes = 1;
     config::ann_index_build_memory_wait_timeout_ms = 0;
     config::ann_index_build_on_oom_action = "fail";
+    // Occupy the budget so the writer is NOT the only build in flight; otherwise
+    // the "single oversized build" exemption would let it through and init()
+    // would succeed instead of failing.
+    ASSERT_TRUE(AnnBuildMemoryBudget::instance().try_reserve(1, /*timeout_ms=*/0));
 
     auto writer =
             std::make_unique<AnnIndexColumnWriter>(_index_file_writer.get(), _tablet_index.get());
