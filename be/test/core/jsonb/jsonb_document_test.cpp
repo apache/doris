@@ -350,6 +350,19 @@ TEST_F(JsonbDocumentTest, jsonb_path_member_to_string_escapes_all_control_forms)
     EXPECT_EQ(round_trip, expected_path);
 }
 
+TEST_F(JsonbDocumentTest, jsonb_path_escaped_member_round_trips_with_following_legs) {
+    const std::string expected_path = R"($."a\nb".c.d)";
+    std::string parsed_path = expected_path;
+
+    JsonbPath path;
+    ASSERT_TRUE(path.seek(parsed_path.data(), parsed_path.size()));
+    EXPECT_EQ(path.get_leg_vector_size(), 3);
+
+    std::string round_trip;
+    ASSERT_TRUE(path.to_string(&round_trip));
+    EXPECT_EQ(round_trip, expected_path);
+}
+
 TEST_F(JsonbDocumentTest, jsonb_path_remove_escapes_decodes_json_sequences) {
     std::string expected = "a";
     expected.push_back('\b');

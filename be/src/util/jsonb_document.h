@@ -1514,6 +1514,7 @@ inline bool JsonbPath::seek(const char* key_path, size_t kp_len) {
         stream.skip_whitespace();
         stream.clear_leg_ptr();
         stream.clear_leg_len();
+        stream.set_has_escapes(false);
 
         if (!JsonbPath::parsePath(&stream, this)) {
             //path invalid
