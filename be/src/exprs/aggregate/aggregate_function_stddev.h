@@ -21,6 +21,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 
 #include "core/assert_cast.h"
@@ -66,7 +67,7 @@ struct BaseData {
             // In MySQL, this will directly result in an error due to exceeding the double range.
             // For performance reasons, we are uniformly changing it to nan
             if (std::isinf(val)) {
-                return std::nan("");
+                return std::numeric_limits<double>::quiet_NaN();
             }
             return val;
         };
@@ -137,7 +138,7 @@ struct SampData : BaseData<T, is_stddev>, Name {
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColumnFloat64&>(to);
         if (this->count == 1 || this->count == 0) {
-            col.get_data().push_back(std::nan(""));
+            col.get_data().push_back(std::numeric_limits<double>::quiet_NaN());
         } else {
             col.get_data().push_back(this->get_samp_result());
         }
