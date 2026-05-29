@@ -35,6 +35,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -78,6 +79,16 @@ public class CheckExpressionLegalityTest implements MemoPatternMatchSupported {
                         PlanChecker.from(connectContext)
                                 .analyze("select count(distinct id) from (select to_bitmap(1) id) tbl")
                                 .applyBottomUp(new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE))
+        );
+    }
+
+    @Test
+    public void testCountDistinctArray() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        String sql = "select count(distinct arr) from (select [1, 2] arr) tbl";
+        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyBottomUp(new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE))
         );
     }
 
