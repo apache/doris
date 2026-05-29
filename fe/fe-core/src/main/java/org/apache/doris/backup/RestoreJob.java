@@ -66,6 +66,7 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -156,6 +157,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     @SerializedName("al")
     private boolean allowLoad;
 
+    // Table references for this restore job (used for concurrency control)
+    // Empty list means full database restore
+    @SerializedName("tref")
+    private List<TableRefInfo> tableRefs = Lists.newArrayList();
+
     @SerializedName("st")
     protected volatile RestoreJobState state;
 
@@ -200,6 +206,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     // tablet id->(be id -> snapshot info)
     @SerializedName("si")
     protected com.google.common.collect.Table<Long, Long, SnapshotInfo> snapshotInfos = HashBasedTable.create();
+
+    @SerializedName("stc")
+    private int snapshotTaskCount = 0;
 
     private List<ColocatePersistInfo> colocatePersistInfos = Lists.newArrayList();
 
@@ -295,6 +304,19 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     public RestoreJobState getState() {
         return state;
+    }
+
+    public List<TableRefInfo> getTableRefs() {
+        return tableRefs;
+    }
+
+    @Override
+    public int getSnapshotTaskCount() {
+        return snapshotTaskCount;
+    }
+
+    public void setTableRefs(List<TableRefInfo> tableRefs) {
+        this.tableRefs = tableRefs;
     }
 
     private void setState(RestoreJobState state) {
@@ -469,6 +491,29 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             return;
         }
 
+        // === Execution gate check for concurrency control ===
+        if (state == RestoreJobState.PENDING && Config.enable_table_level_backup_concurrency) {
+            BackupHandler handler = env.getBackupHandler();
+            if (!handler.canExecute(this.jobId)) {
+                // No execution permission, skip this run
+                if (Config.enable_backup_concurrency_logging) {
+                    LOG.info("Restore job {} (label={}) is waiting, blocked by concurrency control",
+                            jobId, label);
+                }
+
+                // Check pending timeout
+                long pendingTime = System.currentTimeMillis() - createTime;
+                if (pendingTime > Config.backup_pending_job_timeout_ms) {
+                    status = new Status(ErrCode.TIMEOUT,
+                        "Job pending timeout after " + pendingTime + "ms");
+                    cancelInternal(false);
+                }
+                return;
+            }
+
+            LOG.info("Restore job {} (label={}) starts executing", jobId, label);
+        }
+
         // get repo if not set
         if (repo == null && !isFromLocalSnapshot()) {
             repo = env.getBackupHandler().getRepoMgr().getRepo(repoId);
@@ -592,7 +637,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
 
         // generate job id
-        jobId = env.getNextId();
+        // In concurrency mode, jobId may already be assigned for tracking in allowedJobIds
+        // Only generate a new ID if it hasn't been set yet (jobId == -1)
+        // This preserves the jobId assigned during job creation for concurrency control
+        if (jobId == -1) {
+            jobId = env.getNextId();
+        }
+        // Note: If jobId is already set (from concurrency control at job creation),
+        // we keep it unchanged to maintain consistency with allowedJobIds tracking
 
         // deserialize meta
         if (!downloadAndDeserializeMetaInfo()) {
@@ -1196,6 +1248,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         if (jobInfo.content == null || jobInfo.content == BackupCommand.BackupContent.ALL) {
             prepareAndSendSnapshotTaskForOlapTable(db);
+            if (!status.ok()) {
+                return;
+            }
         }
 
         metaPreparedTime = System.currentTimeMillis();
@@ -1328,6 +1383,39 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         } finally {
             db.readUnlock();
+        }
+
+        int taskCount = unfinishedSignatureToId.size();
+        if (taskCount > Config.max_backup_tablets_per_job) {
+            String msg = String.format("the num of restore snapshot tasks %d exceeds the limit %d, "
+                    + "which might cause the FE OOM. RestoreJob counts per replica (typically 3x "
+                    + "of tablet count), change config `max_backup_tablets_per_job` "
+                    + "to change this limitation",
+                    taskCount, Config.max_backup_tablets_per_job);
+            LOG.warn(msg);
+            status = new Status(ErrCode.COMMON_ERROR, msg);
+            return;
+        }
+
+        // Global snapshot task limit only applies in concurrent mode, because
+        // onJobDeactivated (which decrements the counter) is only called via
+        // onJobCompleted, which is gated by enable_table_level_backup_concurrency.
+        // Job run() is driven by a single daemon thread, so get+add is safe without CAS.
+        if (Config.enable_table_level_backup_concurrency) {
+            if (Config.max_concurrent_snapshot_tasks_total > 0) {
+                int globalCurrent = env.getBackupHandler().getGlobalSnapshotTasks();
+                if (globalCurrent + taskCount > Config.max_concurrent_snapshot_tasks_total) {
+                    String msg = String.format("global concurrent snapshot tasks %d + this restore job %d "
+                            + "would exceed the limit %d, change config `max_concurrent_snapshot_tasks_total` "
+                            + "to change this limitation",
+                            globalCurrent, taskCount, Config.max_concurrent_snapshot_tasks_total);
+                    LOG.warn(msg);
+                    status = new Status(ErrCode.COMMON_ERROR, msg);
+                    return;
+                }
+            }
+            snapshotTaskCount = taskCount;
+            env.getBackupHandler().addGlobalSnapshotTasks(snapshotTaskCount);
         }
 
         // check disk capacity
@@ -2220,6 +2308,15 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
             // Only send release snapshot tasks after the job is finished.
             releaseSnapshots(savedSnapshotInfos, true);
+
+            // Notify completion for concurrency control
+            if (Config.enable_table_level_backup_concurrency) {
+                try {
+                    env.getBackupHandler().onJobCompleted(this.jobId, this.dbId, this);
+                } catch (Exception e) {
+                    LOG.warn("Failed to notify job completion for restore job {}", this.label, e);
+                }
+            }
         }
         showState = RestoreJobState.FINISHED;
 
@@ -2385,6 +2482,19 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
         info.add(status.toString());
         info.add(String.valueOf(timeoutMs / 1000));
+
+        // Queue position and block reason (for concurrency mode)
+        if (env != null && Config.enable_table_level_backup_concurrency) {
+            BackupHandler handler = env.getBackupHandler();
+            int queuePos = handler.getJobQueuePosition(this);
+            info.add(queuePos == 0 ? "Running" : String.valueOf(queuePos));
+            String blockReason = handler.getJobBlockReason(this);
+            info.add(blockReason != null ? blockReason : "");
+        } else {
+            info.add("");
+            info.add("");
+        }
+
         return info;
     }
 
@@ -2471,6 +2581,15 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             LOG.info("finished to cancel restore job. current state: {}. is replay: {}. {}",
                     curState.name(), isReplay, this);
 
+            // Notify completion for concurrency control
+            if (Config.enable_table_level_backup_concurrency) {
+                try {
+                    env.getBackupHandler().onJobCompleted(this.jobId, this.dbId, this);
+                } catch (Exception e) {
+                    LOG.warn("Failed to notify job completion for cancelled restore job {}", this.label, e);
+                }
+            }
+
             // Send release snapshot tasks after log restore job, so that the snapshot won't be released
             // before the cancelled restore job is persisted.
             releaseSnapshots(savedSnapshotInfos, false);
@@ -2500,6 +2619,23 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 LOG.info("remove restored table when cancelled: {}", restoreTbl.getName());
                 if (db.writeLockIfExist()) {
                     try {
+                        // CRITICAL: Check if the table currently registered in DB is actually ours
+                        // (by matching table ID). In concurrent restore scenarios, another job may
+                        // have registered a table with the same name but different ID.
+                        // We must NOT unregister another job's table.
+                        Table currentTable = db.getTableNullable(restoreTbl.getName());
+                        if (currentTable == null) {
+                            LOG.info("table {} not found in db, skip removal (may have been removed already)",
+                                    restoreTbl.getName());
+                            continue;
+                        }
+                        if (currentTable.getId() != restoreTbl.getId()) {
+                            LOG.info("table {} in db has id {} but we expect id {}, skip removal "
+                                    + "(belongs to another job)",
+                                    restoreTbl.getName(), currentTable.getId(), restoreTbl.getId());
+                            continue;
+                        }
+
                         if (restoreTbl.getType() == TableType.OLAP) {
                             OlapTable restoreOlapTable = (OlapTable) restoreTbl;
                             restoreOlapTable.writeLock();

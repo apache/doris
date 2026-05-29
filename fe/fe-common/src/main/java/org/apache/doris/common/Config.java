@@ -1647,6 +1647,19 @@ public class Config extends ConfigBase {
             "Control the maximum number of tablets per backup job, to avoid OOM."})
     public static int max_backup_tablets_per_job = 300000;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "所有并发 backup/restore job 允许的 snapshot 任务总量上限，以避免 OOM。0 表示不限制。"
+            + "BackupJob 按 tablet 计数，RestoreJob 按 replica 计数（通常是 tablet 的 3 倍）。"
+            + "仅在 enable_table_level_backup_concurrency = true 时生效。"
+            + "默认值 1500000 约等于 max_backup_tablets_per_job(300000) * 5。",
+        "Max total snapshot tasks across all concurrent backup/restore jobs, to avoid OOM. "
+            + "0 means unlimited. BackupJob counts per tablet, RestoreJob counts per replica "
+            + "(typically 3x of tablet count). Only effective when "
+            + "enable_table_level_backup_concurrency = true. "
+            + "Default 1500000 ≈ max_backup_tablets_per_job(300000) * 5."
+    })
+    public static int max_concurrent_snapshot_tasks_total = 1500000;
+
     /**
      * whether to ignore table that not support type when backup, and not report exception.
      */
@@ -1666,6 +1679,85 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false)
     public static long backup_handler_update_interval_millis = 3000;
 
+    // === Backup/Restore Concurrency Control ===
+
+    /**
+     * Whether to enable table-level backup/restore concurrency.
+     * When enabled, multiple backup/restore jobs can run concurrently on different tables
+     * within the same database. When disabled, only one job can run at a time per database
+     * (original behavior).
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "是否启用表级 backup/restore 并发。启用后，同一数据库的多个表可以并发执行 backup/restore。",
+        "Whether to enable table-level backup/restore concurrency. When enabled, multiple tables "
+            + "in the same database can run backup/restore jobs concurrently."
+    })
+    public static boolean enable_table_level_backup_concurrency = false;
+
+    /**
+     * Maximum number of concurrent backup/restore jobs per database.
+     * This limit is shared between backup and restore jobs.
+     * Note: This value should be less than or equal to max_backup_restore_job_num_per_db / 2,
+     * otherwise history jobs may be cleared too quickly.
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "每个数据库的最大并发 backup/restore 任务数。backup 和 restore 共享此配置。",
+        "Maximum number of concurrent backup/restore jobs per database. "
+            + "This limit is shared between backup and restore jobs."
+    })
+    public static int max_backup_restore_concurrent_num_per_db = 10;
+
+    /**
+     * Timeout for jobs in PENDING state (milliseconds).
+     * Jobs that have been waiting in the queue longer than this will be automatically cancelled.
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "PENDING 状态任务的超时时间（毫秒）。排队超过此时间的任务将被自动取消。",
+        "Timeout for jobs in PENDING state (milliseconds). "
+            + "Jobs waiting in queue longer than this will be automatically cancelled."
+    })
+    public static long backup_pending_job_timeout_ms = 3600000;  // 1 hour
+
+    /**
+     * Whether to enable detailed logging for backup/restore concurrency control.
+     * Useful for debugging and troubleshooting.
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "是否启用 backup/restore 并发控制的详细日志，用于调试和问题排查。",
+        "Whether to enable detailed logging for backup/restore concurrency control. "
+            + "Useful for debugging and troubleshooting."
+    })
+    public static boolean enable_backup_concurrency_logging = false;
+
+    /**
+     * Soft limit for the running queue size (warning only, not enforced).
+     * When the running queue size reaches this limit, a warning will be logged.
+     * This helps prevent extreme cases where too many jobs accumulate and cause OOM.
+     *
+     * Recommended value: concurrent_num * 2
+     * Example: If max_backup_restore_concurrent_num_per_db = 10, set this to 20.
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "运行队列大小的软限制（仅警告，不强制）。达到此限制时会记录警告日志。",
+        "Soft limit for running queue size (warning only). A warning is logged when reached."
+    })
+    public static int max_backup_restore_running_queue_soft_limit = 100;
+
+    /**
+     * Hard limit for the running queue size (enforced, new jobs will be rejected).
+     * When the running queue size reaches this limit, new job submissions will be rejected
+     * with an error message asking users to wait or increase the limit.
+     *
+     * This is a safety mechanism to prevent FE OOM in extreme scenarios.
+     *
+     * Recommended value: concurrent_num * 4
+     * Example: If max_backup_restore_concurrent_num_per_db = 10, set this to 40.
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "运行队列大小的硬限制（强制，达到后拒绝新任务）。这是防止 FE OOM 的安全机制。",
+        "Hard limit for running queue size (enforced). New jobs are rejected when reached."
+    })
+    public static int max_backup_restore_running_queue_hard_limit = 200;
 
     /**
      * Whether to enable cloud restore job.

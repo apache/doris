@@ -4023,8 +4023,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
 
-        //instantiate RestoreCommand
+        // instantiate RestoreCommand
         LabelNameInfo labelNameInfo = new LabelNameInfo(label.getDb(), label.getLabel());
+        // RPC did not pass table_refs (e.g. CCR same-name table sync). Derive from jobInfo
+        // so the restore is treated as table-level for concurrency control.
+        // TableNameInfo must have db=null here; RestoreCommand will set db from label.
+        if (tableRefs.isEmpty() && backupJobInfo != null && !backupJobInfo.backupOlapTableObjects.isEmpty()) {
+            for (String tblName : backupJobInfo.backupOlapTableObjects.keySet()) {
+                TableNameInfo tableNameInfo = new TableNameInfo(tblName);
+                tableRefs.add(new TableRefInfo(tableNameInfo, null, null, null,
+                        new ArrayList<>(), null, null, new ArrayList<>()));
+            }
+        }
         RestoreCommand restoreCommand = new RestoreCommand(labelNameInfo, repoName, tableRefs, properties, false);
         restoreCommand.setMeta(backupMeta);
         restoreCommand.setJobInfo(backupJobInfo);

@@ -629,8 +629,8 @@ supportedCancelStatement
     | CANCEL WARM UP JOB wildWhere?                                                 #cancelWarmUpJob
     | CANCEL DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
         (COMMA hostPorts+=STRING_LITERAL)*                                          #cancelDecommisionBackend
-    | CANCEL BACKUP ((FROM | IN) database=identifier)?                              #cancelBackup
-    | CANCEL RESTORE ((FROM | IN) database=identifier)?                             #cancelRestore
+    | CANCEL BACKUP ((FROM | IN) database=identifier)? wildWhere?                   #cancelBackup
+    | CANCEL RESTORE ((FROM | IN) database=identifier)? wildWhere?                  #cancelRestore
     | CANCEL BUILD INDEX ON tableName=multipartIdentifier
         (LEFT_PAREN jobIds+=INTEGER_VALUE
             (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelBuildIndex

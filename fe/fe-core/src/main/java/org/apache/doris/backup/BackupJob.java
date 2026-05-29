@@ -132,6 +132,9 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     @SerializedName("prop")
     private Map<String, String> properties = Maps.newHashMap();
 
+    @SerializedName("stc")
+    private int snapshotTaskCount = 0;
+
     // Record table IDs that were dropped during backup
     @SerializedName("dt")
     private Set<Long> droppedTables = ConcurrentHashMap.newKeySet();
@@ -163,6 +166,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
     public BackupJobState getState() {
         return state;
+    }
+
+    public List<TableRefInfo> getTableRefs() {
+        return tableRefs;
     }
 
     public BackupMeta getBackupMeta() {
@@ -461,6 +468,30 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             return;
         }
 
+        // === Execution gate check for concurrency control ===
+        if (state == BackupJobState.PENDING && Config.enable_table_level_backup_concurrency) {
+            BackupHandler handler = env.getBackupHandler();
+            if (!handler.canExecute(this.jobId)) {
+                // No execution permission, skip this run
+                if (Config.enable_backup_concurrency_logging) {
+                    LOG.info("Backup job {} (label={}) is waiting, blocked by concurrency control",
+                            jobId, label);
+                }
+
+                // Check pending timeout
+                long pendingTime = System.currentTimeMillis() - createTime;
+                if (pendingTime > Config.backup_pending_job_timeout_ms) {
+                    status = new Status(ErrCode.TIMEOUT,
+                        "Job pending timeout after " + pendingTime + "ms");
+                    cancelInternal();
+                }
+                return;
+            }
+
+            // Has execution permission, log and continue
+            LOG.info("Backup job {} (label={}) starts executing", jobId, label);
+        }
+
         // get repo if not set
         if (repo == null && repoId != Repository.KEEP_ON_LOCAL_REPO_ID) {
             repo = env.getBackupHandler().getRepoMgr().getRepo(repoId);
@@ -541,7 +572,14 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         }
 
         // generate job id
-        jobId = env.getNextId();
+        // In concurrency mode, jobId may already be assigned for tracking in allowedJobIds
+        // Only generate a new ID if it hasn't been set yet (jobId == -1)
+        // This preserves the jobId assigned during job creation for concurrency control
+        if (jobId == -1) {
+            jobId = env.getNextId();
+        }
+        // Note: If jobId is already set (from concurrency control at job creation),
+        // we keep it unchanged to maintain consistency with allowedJobIds tracking
         unfinishedTaskIds.clear();
         taskProgress.clear();
         taskErrMsg.clear();
@@ -608,6 +646,27 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             LOG.warn(msg);
             status = new Status(ErrCode.COMMON_ERROR, msg);
             return;
+        }
+
+        // Global snapshot task limit only applies in concurrent mode, because
+        // onJobDeactivated (which decrements the counter) is only called via
+        // onJobCompleted, which is gated by enable_table_level_backup_concurrency.
+        // Job run() is driven by a single daemon thread, so get+add is safe without CAS.
+        if (Config.enable_table_level_backup_concurrency) {
+            if (Config.max_concurrent_snapshot_tasks_total > 0) {
+                int globalCurrent = env.getBackupHandler().getGlobalSnapshotTasks();
+                if (globalCurrent + unfinishedTaskIds.size() > Config.max_concurrent_snapshot_tasks_total) {
+                    String msg = String.format("global concurrent snapshot tasks %d + this backup job %d "
+                            + "would exceed the limit %d, change config `max_concurrent_snapshot_tasks_total` "
+                            + "to change this limitation",
+                            globalCurrent, unfinishedTaskIds.size(), Config.max_concurrent_snapshot_tasks_total);
+                    LOG.warn(msg);
+                    status = new Status(ErrCode.COMMON_ERROR, msg);
+                    return;
+                }
+            }
+            snapshotTaskCount = unfinishedTaskIds.size();
+            env.getBackupHandler().addGlobalSnapshotTasks(snapshotTaskCount);
         }
 
         backupMeta = new BackupMeta(copiedTables, copiedResources);
@@ -1034,6 +1093,15 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         env.getEditLog().logBackupJob(this);
         LOG.info("job is finished. {}", this);
 
+        // Notify completion for concurrency control
+        if (Config.enable_table_level_backup_concurrency) {
+            try {
+                env.getBackupHandler().onJobCompleted(this.jobId, this.dbId, this);
+            } catch (Exception e) {
+                LOG.warn("Failed to notify job completion for backup job {}", this.label, e);
+            }
+        }
+
         if (repoId == Repository.KEEP_ON_LOCAL_REPO_ID) {
             env.getBackupHandler().addSnapshot(label, this);
             return;
@@ -1126,6 +1194,15 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         // log
         env.getEditLog().logBackupJob(this);
         LOG.info("finished to cancel backup job. current state: {}. {}", curState.name(), this);
+
+        // Notify completion for concurrency control
+        if (Config.enable_table_level_backup_concurrency) {
+            try {
+                env.getBackupHandler().onJobCompleted(this.jobId, this.dbId, this);
+            } catch (Exception e) {
+                LOG.warn("Failed to notify job completion for cancelled backup job {}", this.label, e);
+            }
+        }
     }
 
     public boolean isLocalSnapshot() {
@@ -1151,6 +1228,11 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         File metaInfoFile = new File(localMetaInfoFilePath);
         File jobInfoFile = new File(localJobInfoFilePath);
         return new Snapshot(label, metaInfoFile, jobInfoFile, expiredAt, commitSeq);
+    }
+
+    @Override
+    public int getSnapshotTaskCount() {
+        return snapshotTaskCount;
     }
 
     public synchronized List<String> getInfo() {
@@ -1182,6 +1264,19 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         info.add(taskErrMsgStr);
         info.add(status.toString());
         info.add(String.valueOf(timeoutMs / 1000));
+
+        // Queue position and block reason (for concurrency mode)
+        if (env != null && Config.enable_table_level_backup_concurrency) {
+            BackupHandler handler = env.getBackupHandler();
+            int queuePos = handler.getJobQueuePosition(this);
+            info.add(queuePos == 0 ? "Running" : String.valueOf(queuePos));
+            String blockReason = handler.getJobBlockReason(this);
+            info.add(blockReason != null ? blockReason : "");
+        } else {
+            info.add("");
+            info.add("");
+        }
+
         return info;
     }
 

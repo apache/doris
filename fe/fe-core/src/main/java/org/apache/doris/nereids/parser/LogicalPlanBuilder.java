@@ -9332,14 +9332,34 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitCancelBackup(DorisParser.CancelBackupContext ctx) {
         String databaseName = ctx.database != null ? ctx.database.getText() : null;
         boolean isRestore = false;
-        return new CancelBackupCommand(databaseName, isRestore);
+
+        // Parse WHERE clause for label filter
+        String label = null;
+        boolean isLike = false;
+        if (ctx.wildWhere() != null) {
+            LabelFilterInfo filterInfo = parseLabelFilter(ctx.wildWhere());
+            label = filterInfo.label;
+            isLike = filterInfo.isLike;
+        }
+
+        return new CancelBackupCommand(databaseName, isRestore, label, isLike);
     }
 
     @Override
     public LogicalPlan visitCancelRestore(DorisParser.CancelRestoreContext ctx) {
         String databaseName = ctx.database != null ? ctx.database.getText() : null;
         boolean isRestore = true;
-        return new CancelBackupCommand(databaseName, isRestore);
+
+        // Parse WHERE clause for label filter
+        String label = null;
+        boolean isLike = false;
+        if (ctx.wildWhere() != null) {
+            LabelFilterInfo filterInfo = parseLabelFilter(ctx.wildWhere());
+            label = filterInfo.label;
+            isLike = filterInfo.isLike;
+        }
+
+        return new CancelBackupCommand(databaseName, isRestore, label, isLike);
     }
 
     @Override
@@ -10238,5 +10258,52 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return sortFields.build();
+    }
+
+    /**
+     * Parse WHERE clause for label filtering in CANCEL BACKUP/RESTORE commands
+     * Supports: WHERE LABEL = 'xxx' or WHERE LABEL LIKE 'xxx%'
+     */
+    private LabelFilterInfo parseLabelFilter(DorisParser.WildWhereContext ctx) {
+        if (ctx == null || ctx.expression() == null) {
+            return new LabelFilterInfo(null, false);
+        }
+
+        // Get the expression text
+        String exprText = ctx.expression().getText();
+
+        // Remove parentheses if present
+        exprText = exprText.replaceAll("^\\(+|\\)+$", "");
+
+        // Pattern for LABEL = 'value' (case insensitive)
+        java.util.regex.Pattern equalPattern = java.util.regex.Pattern.compile(
+                "(?i)LABEL\\s*=\\s*['\"]([^'\"]+)['\"]");
+        java.util.regex.Matcher equalMatcher = equalPattern.matcher(exprText);
+        if (equalMatcher.find()) {
+            return new LabelFilterInfo(equalMatcher.group(1), false);
+        }
+
+        // Pattern for LABEL LIKE 'value' (case insensitive)
+        java.util.regex.Pattern likePattern = java.util.regex.Pattern.compile(
+                "(?i)LABEL\\s+LIKE\\s+['\"]([^'\"]+)['\"]");
+        java.util.regex.Matcher likeMatcher = likePattern.matcher(exprText);
+        if (likeMatcher.find()) {
+            return new LabelFilterInfo(likeMatcher.group(1), true);
+        }
+
+        return new LabelFilterInfo(null, false);
+    }
+
+    /**
+     * Internal class to hold label filter information
+     */
+    private static class LabelFilterInfo {
+        String label;
+        boolean isLike;
+
+        LabelFilterInfo(String label, boolean isLike) {
+            this.label = label;
+            this.isLike = isLike;
+        }
     }
 }

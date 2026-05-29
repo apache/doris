@@ -140,6 +140,7 @@ public class RestoreJobTest {
         Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(db);
         Mockito.when(env.getNextId()).thenAnswer(inv -> id.getAndIncrement());
         Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(env.getBackupHandler()).thenReturn(backupHandler);
 
         Mockito.doAnswer(inv -> {
             List<Long> beIds = Lists.newArrayList();
@@ -297,5 +298,87 @@ public class RestoreJobTest {
         Partition localPart = remoteTbl.getPartition(partName);
         Assert.assertEquals(localPart.getVisibleVersion(), visibleVersion);
         Assert.assertEquals(localPart.getNextVersion(), visibleVersion + 1);
+    }
+
+    /**
+     * Test snapshotTaskCount defaults to 0 for a new RestoreJob.
+     */
+    @Test
+    public void testSnapshotTaskCountDefaultZero() {
+        Assert.assertEquals(0, job.getSnapshotTaskCount());
+    }
+
+    /**
+     * Test snapshotTaskCount is persisted during serialization/deserialization.
+     *
+     * Scenario: Set snapshotTaskCount via reflection, serialize and deserialize
+     * Expected: Value should be preserved
+     */
+    @Test
+    public void testSnapshotTaskCountPersisted() throws IOException, AnalysisException {
+        Deencapsulation.setField(job, "snapshotTaskCount", 42);
+        Assert.assertEquals(42, job.getSnapshotTaskCount());
+
+        final Path path = Files.createTempFile("restoreJobStc", "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+        job.write(out);
+        out.flush();
+        out.close();
+
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
+        RestoreJob job2 = RestoreJob.read(in);
+        Assert.assertEquals(42, job2.getSnapshotTaskCount());
+
+        in.close();
+        Files.delete(path);
+    }
+
+    @Test
+    public void testSetAndGetTableRefs() {
+        Assert.assertNotNull(job.getTableRefs());
+        Assert.assertTrue(job.getTableRefs().isEmpty());
+
+        List<org.apache.doris.info.TableRefInfo> refs = Lists.newArrayList();
+        refs.add(new org.apache.doris.info.TableRefInfo(
+                new org.apache.doris.catalog.info.TableNameInfo("test_tbl"),
+                null, null, null, null, null, null, null));
+        job.setTableRefs(refs);
+
+        Assert.assertEquals(1, job.getTableRefs().size());
+        Assert.assertEquals("test_tbl", job.getTableRefs().get(0).getTableNameInfo().getTbl());
+    }
+
+    @Test
+    public void testGetInfoQueuePosBlockReasonDisabled() {
+        org.apache.doris.common.Config.enable_table_level_backup_concurrency = false;
+
+        List<String> info = job.getFullInfo();
+        Assert.assertTrue(info.size() >= 23);
+        Assert.assertEquals("", info.get(info.size() - 2));
+        Assert.assertEquals("", info.get(info.size() - 1));
+    }
+
+    @Test
+    public void testGetInfoQueuePosBlockReasonEnabled() {
+        org.apache.doris.common.Config.enable_table_level_backup_concurrency = true;
+
+        try {
+            List<String> info = job.getFullInfo();
+            Assert.assertTrue(info.size() >= 23);
+            String queuePos = info.get(info.size() - 2);
+            Assert.assertNotNull(queuePos);
+        } finally {
+            org.apache.doris.common.Config.enable_table_level_backup_concurrency = false;
+        }
+    }
+
+    @Test
+    public void testGetInfoBriefQueuePosBlockReason() {
+        org.apache.doris.common.Config.enable_table_level_backup_concurrency = false;
+
+        List<String> info = job.getBriefInfo();
+        Assert.assertTrue(info.size() >= 20);
+        Assert.assertEquals("", info.get(info.size() - 2));
+        Assert.assertEquals("", info.get(info.size() - 1));
     }
 }

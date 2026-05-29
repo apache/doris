@@ -67,13 +67,19 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -91,10 +97,19 @@ public class BackupHandler extends MasterDaemon implements Writable {
     // this lock is used for updating dbIdToBackupOrRestoreJobs
     private final ReentrantLock jobLock = new ReentrantLock();
 
-    // db id ->  last 10(max_backup_restore_job_num_per_db) backup/restore jobs
-    // Newly submitted job will replace the current job, only if current job is finished or cancelled.
-    // If the last job is finished, user can get the job info from repository. If the last job is cancelled,
-    // user can get the error message before submitting the next one.
+    // === Dual Queue Architecture ===
+    // Running queue: stores all unfinished jobs (PENDING or executing), no size limit
+    // These jobs are actively being processed by the scheduler
+    private final Map<Long, Deque<AbstractJob>> dbIdToRunningJobs = new ConcurrentHashMap<>();
+    private final ReentrantLock runningJobLock = new ReentrantLock();
+
+    // History queue: stores finished jobs (FINISHED, CANCELLED), FIFO with size limit
+    // Used for SHOW BACKUP/RESTORE commands to display historical jobs
+    private final Map<Long, Deque<AbstractJob>> dbIdToHistoryJobs = new ConcurrentHashMap<>();
+    private final ReentrantLock historyJobLock = new ReentrantLock();
+
+    // Legacy single queue (kept for backward compatibility during migration)
+    // TODO: Remove this after confirming dual queue works correctly
     private final Map<Long, Deque<AbstractJob>> dbIdToBackupOrRestoreJobs = new HashMap<>();
 
     // this lock is used for handling one backup or restore request at a time.
@@ -109,6 +124,27 @@ public class BackupHandler extends MasterDaemon implements Writable {
     // one table only keep one snapshot info, only keep last
     private final Map<String, BackupJob> localSnapshots = new HashMap<>();
     private ReadWriteLock localSnapshotsLock = new ReentrantReadWriteLock();
+
+    // === Concurrency control fields (only used when enable_table_level_backup_concurrency is true) ===
+
+    // Execution gate: only jobs in this set are allowed to execute
+    // Jobs in PENDING state but not in this set will skip execution until activated
+    private final Set<Long> allowedJobIds = Collections.synchronizedSet(new HashSet<>());
+
+    // Restore table conflict detection: tracks which tables are currently being restored
+    // Key: dbId, Value: set of table names being restored
+    // Used to detect conflicts between restore jobs operating on the same tables
+    private final Map<Long, Set<String>> restoringTables = new ConcurrentHashMap<>();
+
+    // Database job statistics cache for O(1) concurrency checking
+    // Key: dbId, Value: statistics for that database
+    private final Map<Long, DatabaseJobStats> dbJobStats = new ConcurrentHashMap<>();
+
+    private final AtomicInteger globalSnapshotTasks = new AtomicInteger(0);
+
+    // Label index for O(1) duplicate label detection
+    // Key: dbId, Value: (label -> jobId) mapping
+    private final Map<Long, Map<String, Long>> labelIndex = new ConcurrentHashMap<>();
 
     public BackupHandler() {
         // for persist
@@ -132,6 +168,14 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     public RepositoryMgr getRepoMgr() {
         return repoMgr;
+    }
+
+    public int getGlobalSnapshotTasks() {
+        return globalSnapshotTasks.get();
+    }
+
+    public void addGlobalSnapshotTasks(int count) {
+        globalSnapshotTasks.addAndGet(count);
     }
 
     private boolean init() {
@@ -164,7 +208,113 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         isInit = true;
+
+        // Rebuild concurrency control state after FE restart
+        if (Config.enable_table_level_backup_concurrency) {
+            rebuildConcurrencyStateAfterRestart();
+        }
+
         return true;
+    }
+
+    /**
+     * Rebuild concurrency control state after FE restart.
+     * This method scans all jobs and rebuilds the internal data structures including dual queues.
+     */
+    private void rebuildConcurrencyStateAfterRestart() {
+        LOG.info("Rebuilding concurrency control state and dual queues after FE restart...");
+
+        // Clear all caches and queues
+        allowedJobIds.clear();
+        dbJobStats.clear();
+        labelIndex.clear();
+        restoringTables.clear();
+        dbIdToRunningJobs.clear();
+        dbIdToHistoryJobs.clear();
+
+        int totalJobs = 0;
+        int runningJobs = 0;
+        int historyJobs = 0;
+        int activatedJobs = 0;
+
+        // Scan all databases and jobs to rebuild dual queues
+        for (Map.Entry<Long, Deque<AbstractJob>> entry : dbIdToBackupOrRestoreJobs.entrySet()) {
+            long dbId = entry.getKey();
+
+            for (AbstractJob job : entry.getValue()) {
+                totalJobs++;
+                boolean isBackup = job instanceof BackupJob;
+                boolean isFullDatabase = false;
+
+                // Determine if this is a full database operation
+                if (isBackup && job instanceof BackupJob) {
+                    isFullDatabase = ((BackupJob) job).getTableRefs().isEmpty();
+                } else if (!isBackup && job instanceof RestoreJob) {
+                    isFullDatabase = ((RestoreJob) job).getTableRefs().isEmpty();
+                }
+
+                // Step 1: Add to appropriate queue (running or history)
+                if (job.isDone()) {
+                    // Completed job -> history queue
+                    addToHistoryQueue(dbId, job);
+                    historyJobs++;
+                } else {
+                    // Active job (PENDING or running) -> running queue
+                    try {
+                        Deque<AbstractJob> runningQueue = dbIdToRunningJobs.computeIfAbsent(
+                                dbId, k -> new LinkedList<>());
+                        runningQueue.addLast(job);
+                        runningJobs++;
+                    } catch (Exception e) {
+                        LOG.warn("Failed to add job {} to running queue during rebuild: {}",
+                                job.getLabel(), e.getMessage());
+                    }
+
+                    // Step 2: Rebuild concurrency control statistics
+                    onJobCreated(dbId, job, isBackup, isFullDatabase);
+
+                    // Step 3: For jobs that were already running (not PENDING),
+                    // re-add to allowedJobIds and rebuild restoringTables
+                    boolean isPending = false;
+                    if (isBackup && job instanceof BackupJob) {
+                        isPending = ((BackupJob) job).getState() == BackupJob.BackupJobState.PENDING;
+                    } else if (!isBackup && job instanceof RestoreJob) {
+                        isPending = ((RestoreJob) job).getState() == RestoreJob.RestoreJobState.PENDING;
+                    }
+
+                    if (!isPending) {
+                        // Job was running, add to allowedJobIds and update running counters
+                        allowedJobIds.add(job.getJobId());
+                        onJobActivated(dbId, job, isBackup, isFullDatabase);
+                        activatedJobs++;
+
+                        // For running restore jobs, rebuild restoringTables
+                        if (job instanceof RestoreJob) {
+                            addRestoringTables((RestoreJob) job);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Try to activate PENDING jobs
+        for (Long dbId : dbIdToRunningJobs.keySet()) {
+            tryActivatePendingJobs(dbId);
+        }
+
+        int globalTotal = 0;
+        for (Deque<AbstractJob> queue : dbIdToRunningJobs.values()) {
+            for (AbstractJob j : queue) {
+                globalTotal += j.getSnapshotTaskCount();
+            }
+        }
+        globalSnapshotTasks.set(globalTotal);
+
+        LOG.info("Rebuilt dual queues after restart: {} total jobs ({} running, {} history), "
+                + "{} activated, {} databases, globalSnapshotTasks={}",
+                totalJobs, runningJobs, historyJobs, activatedJobs,
+                Math.max(dbIdToRunningJobs.size(), dbIdToHistoryJobs.size()),
+                globalTotal);
     }
 
     public AbstractJob getJob(long dbId) {
@@ -172,14 +322,22 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     public List<AbstractJob> getJobs(long dbId, Predicate<String> predicate) {
-        jobLock.lock();
-        try {
-            return dbIdToBackupOrRestoreJobs.getOrDefault(dbId, new LinkedList<>())
-                    .stream()
+        if (Config.enable_table_level_backup_concurrency) {
+            // In dual queue mode, merge both queues
+            return getAllJobs(dbId).stream()
                     .filter(e -> predicate.test(e.getLabel()))
                     .collect(Collectors.toList());
-        } finally {
-            jobLock.unlock();
+        } else {
+            // Legacy mode: use old single queue
+            jobLock.lock();
+            try {
+                return dbIdToBackupOrRestoreJobs.getOrDefault(dbId, new LinkedList<>())
+                        .stream()
+                        .filter(e -> predicate.test(e.getLabel()))
+                        .collect(Collectors.toList());
+            } finally {
+                jobLock.unlock();
+            }
         }
     }
 
@@ -191,7 +349,23 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
         }
 
-        for (AbstractJob job : getAllCurrentJobs()) {
+        // Get jobs to process based on concurrency mode
+        List<AbstractJob> jobsToProcess;
+        if (Config.enable_table_level_backup_concurrency) {
+            // In concurrency mode, only process jobs from running queue
+            jobsToProcess = getAllRunningJobs();
+        } else {
+            // In legacy mode, use the old logic
+            jobsToProcess = getAllCurrentJobs();
+        }
+
+        for (AbstractJob job : jobsToProcess) {
+            // Skip completed jobs (optimization: avoid unnecessary run() calls)
+            // Although job.run() will return immediately if done, this saves the call overhead
+            if (job.isDone()) {
+                continue;
+            }
+
             job.setEnv(env);
             job.run();
         }
@@ -283,7 +457,15 @@ public class BackupHandler extends MasterDaemon implements Writable {
      * @param newRepo The new repository instance.
      */
     private void updateOngoingJobs(long repoId, Repository newRepo) {
-        for (AbstractJob job : getAllCurrentJobs()) {
+        // Get jobs to update based on concurrency mode
+        List<AbstractJob> jobsToUpdate;
+        if (Config.enable_table_level_backup_concurrency) {
+            jobsToUpdate = getAllRunningJobs();
+        } else {
+            jobsToUpdate = getAllCurrentJobs();
+        }
+
+        for (AbstractJob job : jobsToUpdate) {
             if (!job.isDone() && job.getRepoId() == repoId) {
                 job.updateRepo(newRepo);
             }
@@ -299,7 +481,15 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository does not exist");
             }
 
-            for (AbstractJob job : getAllCurrentJobs()) {
+            // Get jobs to check based on concurrency mode
+            List<AbstractJob> jobsToCheck;
+            if (Config.enable_table_level_backup_concurrency) {
+                jobsToCheck = getAllRunningJobs();
+            } else {
+                jobsToCheck = getAllCurrentJobs();
+            }
+
+            for (AbstractJob job : jobsToCheck) {
                 if (!job.isDone() && job.getRepoId() == repo.getId()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                                                    "Backup or restore job is running on this repository."
@@ -344,14 +534,19 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // So we use tryLock() to give up this operation if we can not get lock.
         tryLock();
         try {
-            // Check if there is backup or restore job running on this database
-            AbstractJob currentJob = getCurrentJob(db.getId());
-            if (currentJob != null && !currentJob.isDone()) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                        "Can only run one backup or restore job of a database at same time "
-                        + ", current running: label = " + currentJob.getLabel() + " jobId = "
-                        + currentJob.getJobId() + ", to run label = " + command.getLabel());
+            // === Concurrency control ===
+            if (!Config.enable_table_level_backup_concurrency) {
+                // Original logic: only one job at a time
+                AbstractJob currentJob = getCurrentJob(db.getId());
+                if (currentJob != null && !currentJob.isDone()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                            "Can only run one backup or restore job of a database at same time "
+                            + ", current running: label = " + currentJob.getLabel() + " jobId = "
+                            + currentJob.getJobId() + ", to run label = " + command.getLabel());
+                }
             }
+            // Note: For concurrent mode, actual concurrency checks are performed in backup() method
+            // after the job is created, because we need the job ID to add to allowedJobIds
             backup(repository, db, command);
         } finally {
             seqlock.unlock();
@@ -385,14 +580,19 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // So we use tryLock() to give up this operation if we can not get lock.
         tryLock();
         try {
-            // Check if there is backup or restore job running on this database
-            AbstractJob currentJob = getCurrentJob(db.getId());
-            if (currentJob != null && !currentJob.isDone()) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                        "Can only run one backup or restore job of a database at same time "
-                        + ", current running: label = " + currentJob.getLabel() + " jobId = "
-                        + currentJob.getJobId() + ", to run label = " + command.getLabel());
+            // === Concurrency control ===
+            if (!Config.enable_table_level_backup_concurrency) {
+                // Original logic: only one job at a time
+                AbstractJob currentJob = getCurrentJob(db.getId());
+                if (currentJob != null && !currentJob.isDone()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                            "Can only run one backup or restore job of a database at same time "
+                            + ", current running: label = " + currentJob.getLabel() + " jobId = "
+                            + currentJob.getJobId() + ", to run label = " + command.getLabel());
+                }
             }
+            // Note: For concurrent mode, checkConcurrency is called in restore() method
+            // after jobInfo is available, because we need to know the actual tables
             restore(repository, db, command);
         } finally {
             seqlock.unlock();
@@ -557,11 +757,49 @@ public class BackupHandler extends MasterDaemon implements Writable {
         BackupJob backupJob = new BackupJob(command.getLabel(), db.getId(),
                 db.getFullName(),
                 tableRefInfoList, command.getTimeoutMs(), command.getContent(), env, repoId, commitSeq);
-        // write log
+        // === Concurrency control ===
+        if (Config.enable_table_level_backup_concurrency) {
+            if (backupJob.getJobId() == -1) {
+                backupJob.setJobId(env.getNextId());
+            }
+
+            // Determine if this is a full database backup
+            boolean isFullDatabase = tableRefInfoList.isEmpty()
+                    || (command.getTableRefInfos().isEmpty() && !command.isExclude());
+
+            // Collect table names for concurrency check
+            List<String> tableNameList = new ArrayList<>();
+            for (TableRefInfo tblRef : tableRefInfoList) {
+                tableNameList.add(tblRef.getTableNameInfo().getTbl());
+            }
+
+            // Check concurrency (throws exception for hard rejection cases)
+            checkConcurrency(db.getId(), command.getLabel(), true, isFullDatabase, tableNameList);
+
+            // Update statistics
+            onJobCreated(db.getId(), backupJob, true, isFullDatabase);
+
+            // Decide whether to add to allowedJobIds (canActivate checks running jobs)
+            if (canActivate(db.getId(), backupJob, true, isFullDatabase)) {
+                allowedJobIds.add(backupJob.getJobId());
+                onJobActivated(db.getId(), backupJob, true, isFullDatabase);
+                LOG.info("Backup job [{}] can execute immediately (jobId={})",
+                        backupJob.getLabel(), backupJob.getJobId());
+            } else {
+                LOG.info("Backup job [{}] will be pending (jobId={})",
+                        backupJob.getLabel(), backupJob.getJobId());
+            }
+        }
+
+        // write log (after jobId is assigned so EditLog records the correct jobId)
         env.getEditLog().logBackupJob(backupJob);
 
-        // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
-        addBackupOrRestoreJob(db.getId(), backupJob);
+        // Add to appropriate queue based on concurrency mode
+        if (Config.enable_table_level_backup_concurrency) {
+            addActiveJob(db.getId(), backupJob);
+        } else {
+            addBackupOrRestoreJob(db.getId(), backupJob);
+        }
 
         LOG.info("finished to submit backup job: {}", backupJob);
     }
@@ -637,11 +875,266 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
         }
 
+        // Set tableRefs for concurrency control
+        restoreJob.setTableRefs(command.getTableRefInfos());
+
+        // === Concurrency control ===
+        if (Config.enable_table_level_backup_concurrency) {
+            if (restoreJob.getJobId() == -1) {
+                restoreJob.setJobId(env.getNextId());
+            }
+
+            // Determine if this is a full database restore
+            boolean isFullDatabase = command.getTableRefInfos().isEmpty();
+
+            // Collect table names for concurrency check
+            List<String> tableNameList = new ArrayList<>();
+            for (TableRefInfo tblRef : command.getTableRefInfos()) {
+                tableNameList.add(tblRef.getTableNameInfo().getTbl());
+            }
+
+            // Check concurrency (throws exception for hard rejection cases)
+            checkConcurrency(db.getId(), command.getLabel(), false, isFullDatabase, tableNameList);
+
+            // Update statistics
+            onJobCreated(db.getId(), restoreJob, false, isFullDatabase);
+
+            // Decide whether to add to allowedJobIds (canActivate checks running jobs)
+            if (canActivate(db.getId(), restoreJob, false, isFullDatabase)) {
+                allowedJobIds.add(restoreJob.getJobId());
+                onJobActivated(db.getId(), restoreJob, false, isFullDatabase);
+                // CRITICAL: Add restoring tables atomically with activation
+                // to prevent TOCTOU race condition where another restore job
+                // targeting the same table could also pass canActivate()
+                addRestoringTables(restoreJob);
+                LOG.info("Restore job [{}] can execute immediately (jobId={})",
+                        restoreJob.getLabel(), restoreJob.getJobId());
+            } else {
+                LOG.info("Restore job [{}] will be pending (jobId={})",
+                        restoreJob.getLabel(), restoreJob.getJobId());
+            }
+        }
+
+        // write log (after jobId is assigned so EditLog records the correct jobId)
         env.getEditLog().logRestoreJob(restoreJob);
 
-        // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
-        addBackupOrRestoreJob(db.getId(), restoreJob);
+        // Add to appropriate queue based on concurrency mode
+        if (Config.enable_table_level_backup_concurrency) {
+            addActiveJob(db.getId(), restoreJob);
+        } else {
+            addBackupOrRestoreJob(db.getId(), restoreJob);
+        }
+
         LOG.info("finished to submit restore job: {}", restoreJob);
+    }
+
+    /**
+     * Add a job to the running queue (no size limit).
+     * This method is used for active jobs that are either PENDING or executing.
+     *
+     * @param dbId Database ID
+     * @param job  The job to add
+     * @throws DdlException if the running queue soft limit is exceeded
+     */
+    private void addActiveJob(long dbId, AbstractJob job) throws DdlException {
+        runningJobLock.lock();
+        try {
+            Deque<AbstractJob> queue = dbIdToRunningJobs.computeIfAbsent(dbId, k -> new LinkedList<>());
+
+            // Check soft limit (warning only)
+            if (queue.size() >= Config.max_backup_restore_running_queue_soft_limit) {
+                LOG.warn("Running queue for database {} has reached soft limit: {} jobs (limit: {})",
+                        dbId, queue.size(), Config.max_backup_restore_running_queue_soft_limit);
+            }
+
+            // Check hard limit (reject)
+            if (queue.size() >= Config.max_backup_restore_running_queue_hard_limit) {
+                throw new DdlException(String.format(
+                        "Running queue is full (%d jobs, hard limit: %d). "
+                                + "Too many active backup/restore jobs for database %d. "
+                                + "Please wait for some jobs to complete or increase "
+                                + "max_backup_restore_running_queue_hard_limit.",
+                        queue.size(), Config.max_backup_restore_running_queue_hard_limit, dbId));
+            }
+
+            // Check if job already exists in queue (skip duplicate)
+            // This can happen during FE restart replay
+            boolean exists = queue.stream().anyMatch(j -> j.getJobId() == job.getJobId());
+            if (exists) {
+                LOG.info("Job {} already exists in running queue, skipping duplicate (dbId={})",
+                        job.getLabel(), dbId);
+                return;
+            }
+
+            queue.addLast(job);
+
+            if (Config.enable_backup_concurrency_logging) {
+                LOG.info("Added job {} to running queue, dbId={}, queueSize={}",
+                        job.getLabel(), dbId, queue.size());
+            }
+        } finally {
+            runningJobLock.unlock();
+        }
+    }
+
+    /**
+     * Move a completed job from running queue to history queue.
+     * History queue has FIFO cleanup when it reaches the size limit.
+     *
+     * @param dbId Database ID
+     * @param job  The completed job
+     */
+    private void moveToHistory(long dbId, AbstractJob job) {
+        // Step 1: Remove from running queue
+        removeFromRunningQueue(dbId, job);
+
+        // Step 2: Add to history queue with FIFO cleanup
+        addToHistoryQueue(dbId, job);
+    }
+
+    /**
+     * Remove a job from the running queue.
+     *
+     * @param dbId Database ID
+     * @param job  The job to remove
+     */
+    private void removeFromRunningQueue(long dbId, AbstractJob job) {
+        runningJobLock.lock();
+        try {
+            Deque<AbstractJob> queue = dbIdToRunningJobs.get(dbId);
+            if (queue != null) {
+                // Need to iterate to find and remove (job might be in the middle of queue)
+                Iterator<AbstractJob> it = queue.iterator();
+                while (it.hasNext()) {
+                    if (it.next().getJobId() == job.getJobId()) {
+                        it.remove();
+                        if (Config.enable_backup_concurrency_logging) {
+                            LOG.info("Removed job {} from running queue, dbId={}, remainingSize={}",
+                                    job.getLabel(), dbId, queue.size());
+                        }
+                        break;
+                    }
+                }
+
+                // If running queue is empty, remove the key
+                if (queue.isEmpty()) {
+                    dbIdToRunningJobs.remove(dbId);
+                }
+            }
+        } finally {
+            runningJobLock.unlock();
+        }
+    }
+
+    /**
+     * Add a job to the history queue with FIFO cleanup when size limit is reached.
+     *
+     * @param dbId Database ID
+     * @param job  The finished job to add
+     */
+    private void addToHistoryQueue(long dbId, AbstractJob job) {
+        historyJobLock.lock();
+        try {
+            Deque<AbstractJob> queue = dbIdToHistoryJobs.computeIfAbsent(dbId, k -> new LinkedList<>());
+
+            // FIFO cleanup: remove oldest if queue is full
+            while (queue.size() >= Config.max_backup_restore_job_num_per_db) {
+                AbstractJob removed = queue.removeFirst();
+                cleanupJobResources(removed);
+
+                if (Config.enable_backup_concurrency_logging) {
+                    LOG.info("Removed oldest history job {} from queue (limit reached), dbId={}",
+                            removed.getLabel(), dbId);
+                }
+            }
+
+            queue.addLast(job);
+
+            // Save snapshot to local repo if applicable
+            if (job instanceof BackupJob) {
+                BackupJob backupJob = (BackupJob) job;
+                if (backupJob.isLocalSnapshot()) {
+                    addSnapshot(backupJob.getLabel(), backupJob);
+                }
+            }
+
+            if (Config.enable_backup_concurrency_logging) {
+                LOG.info("Added job {} to history queue, dbId={}, queueSize={}",
+                        job.getLabel(), dbId, queue.size());
+            }
+        } finally {
+            historyJobLock.unlock();
+        }
+    }
+
+    /**
+     * Clean up resources associated with a job being removed from history.
+     *
+     * @param job The job to clean up
+     */
+    private void cleanupJobResources(AbstractJob job) {
+        // Remove from local snapshots if it's a local backup
+        if (job instanceof BackupJob) {
+            BackupJob backupJob = (BackupJob) job;
+            if (backupJob.isLocalSnapshot()) {
+                removeSnapshot(backupJob.getLabel());
+            }
+        }
+        // Additional cleanup can be added here if needed
+    }
+
+    /**
+     * Get all jobs for a database (merging running and history queues).
+     * Used for SHOW BACKUP/RESTORE commands.
+     *
+     * @param dbId Database ID
+     * @return List of all jobs (running + history)
+     */
+    private List<AbstractJob> getAllJobs(long dbId) {
+        List<AbstractJob> result = new ArrayList<>();
+
+        // Add jobs from running queue
+        runningJobLock.lock();
+        try {
+            Deque<AbstractJob> running = dbIdToRunningJobs.get(dbId);
+            if (running != null) {
+                result.addAll(running);
+            }
+        } finally {
+            runningJobLock.unlock();
+        }
+
+        // Add jobs from history queue
+        historyJobLock.lock();
+        try {
+            Deque<AbstractJob> history = dbIdToHistoryJobs.get(dbId);
+            if (history != null) {
+                result.addAll(history);
+            }
+        } finally {
+            historyJobLock.unlock();
+        }
+
+        return result;
+    }
+
+    /**
+     * Get all running jobs across all databases.
+     * Used by the scheduler in runAfterCatalogReady().
+     *
+     * @return List of all running jobs
+     */
+    private List<AbstractJob> getAllRunningJobs() {
+        runningJobLock.lock();
+        try {
+            List<AbstractJob> result = new ArrayList<>();
+            for (Deque<AbstractJob> queue : dbIdToRunningJobs.values()) {
+                result.addAll(queue);
+            }
+            return result;
+        } finally {
+            runningJobLock.unlock();
+        }
     }
 
     private void addBackupOrRestoreJob(long dbId, AbstractJob job) {
@@ -696,12 +1189,24 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     private AbstractJob getCurrentJob(long dbId) {
-        jobLock.lock();
-        try {
-            Deque<AbstractJob> jobs = dbIdToBackupOrRestoreJobs.getOrDefault(dbId, Lists.newLinkedList());
-            return jobs.isEmpty() ? null : jobs.getLast();
-        } finally {
-            jobLock.unlock();
+        if (Config.enable_table_level_backup_concurrency) {
+            // In dual queue mode, get the last job from running queue
+            runningJobLock.lock();
+            try {
+                Deque<AbstractJob> jobs = dbIdToRunningJobs.get(dbId);
+                return (jobs != null && !jobs.isEmpty()) ? jobs.getLast() : null;
+            } finally {
+                runningJobLock.unlock();
+            }
+        } else {
+            // Legacy mode: use old single queue
+            jobLock.lock();
+            try {
+                Deque<AbstractJob> jobs = dbIdToBackupOrRestoreJobs.getOrDefault(dbId, Lists.newLinkedList());
+                return jobs.isEmpty() ? null : jobs.getLast();
+            } finally {
+                jobLock.unlock();
+            }
         }
     }
 
@@ -794,33 +1299,129 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     public void cancel(CancelBackupCommand command) throws DdlException {
         String dbName = command.getDbName();
+        String labelFilter = command.getLabel();  // Get label filter
         Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
-        AbstractJob job = getCurrentJob(db.getId());
-        if (job == null || (job instanceof BackupJob && command.isRestore())
-                || (job instanceof RestoreJob && !command.isRestore())) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "No "
-                    + (command.isRestore() ? "restore" : "backup" + " job")
-                    + " is currently running");
+
+        List<AbstractJob> jobsToCancel = new ArrayList<>();
+
+        // In concurrency mode, find all running jobs that match the criteria
+        if (Config.enable_table_level_backup_concurrency) {
+            runningJobLock.lock();
+            try {
+                Deque<AbstractJob> jobs = dbIdToRunningJobs.get(db.getId());
+                if (jobs != null) {
+                    for (AbstractJob job : jobs) {
+                        // Check if job type matches
+                        boolean typeMatch = (job instanceof BackupJob && !command.isRestore())
+                                         || (job instanceof RestoreJob && command.isRestore());
+
+                        // Check if label matches (using CancelBackupCommand.matchesLabel())
+                        boolean labelMatch = command.matchesLabel(job.getLabel());
+
+                        if (typeMatch && labelMatch && !job.isDone()) {
+                            jobsToCancel.add(job);
+                        }
+                    }
+                }
+            } finally {
+                runningJobLock.unlock();
+            }
+        } else {
+            // Legacy mode: use getCurrentJob()
+            AbstractJob job = getCurrentJob(db.getId());
+            if (job != null) {
+                boolean typeMatch = (job instanceof BackupJob && !command.isRestore())
+                                 || (job instanceof RestoreJob && command.isRestore());
+                boolean labelMatch = command.matchesLabel(job.getLabel());
+
+                if (typeMatch && labelMatch) {
+                    jobsToCancel.add(job);
+                }
+            }
         }
 
-        Status status = job.cancel();
-        if (!status.ok()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Failed to cancel job: " + status.getErrMsg());
+        // Error message based on whether label was specified
+        if (jobsToCancel.isEmpty()) {
+            String errorMsg;
+            if (labelFilter != null) {
+                errorMsg = String.format("No %s job with label '%s' is currently running",
+                                         command.isRestore() ? "restore" : "backup",
+                                         labelFilter);
+            } else {
+                errorMsg = String.format("No %s job is currently running",
+                                         command.isRestore() ? "restore" : "backup");
+            }
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, errorMsg);
         }
 
-        LOG.info("finished to cancel {} job: {}", (command.isRestore() ? "restore" : "backup"), job);
+        // Cancel all matching jobs
+        List<String> cancelledLabels = new ArrayList<>();
+        List<String> failedLabels = new ArrayList<>();
+
+        for (AbstractJob job : jobsToCancel) {
+            Status status = job.cancel();
+            if (status.ok()) {
+                cancelledLabels.add(job.getLabel());
+            } else {
+                failedLabels.add(job.getLabel() + "(" + status.getErrMsg() + ")");
+                LOG.warn("Failed to cancel {} job {}: {}",
+                         command.isRestore() ? "restore" : "backup",
+                         job.getLabel(), status.getErrMsg());
+            }
+        }
+
+        if (!failedLabels.isEmpty()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Failed to cancel some jobs: " + String.join(", ", failedLabels));
+        }
+
+        // Log with more details
+        if (labelFilter != null) {
+            LOG.info("Cancelled {} {} job(s) matching label '{}': {}",
+                     cancelledLabels.size(),
+                     command.isRestore() ? "restore" : "backup",
+                     labelFilter,
+                     String.join(", ", cancelledLabels));
+        } else {
+            LOG.info("Cancelled {} {} job(s): {}",
+                     cancelledLabels.size(),
+                     command.isRestore() ? "restore" : "backup",
+                     String.join(", ", cancelledLabels));
+        }
     }
 
     public boolean handleFinishedSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
-        AbstractJob job = getCurrentJob(task.getDbId());
-        if (job == null) {
-            LOG.warn("failed to find backup or restore job for task: {}", task);
-            // return true to remove this task from AgentTaskQueue
-            return true;
+        AbstractJob job = null;
+
+        // In concurrency mode, we need to find the job by jobId across all running jobs
+        if (Config.enable_table_level_backup_concurrency) {
+            runningJobLock.lock();
+            try {
+                Deque<AbstractJob> jobs = dbIdToRunningJobs.get(task.getDbId());
+                if (jobs != null) {
+                    // Search for the job with matching jobId
+                    for (AbstractJob j : jobs) {
+                        if (j.getJobId() == task.getJobId()) {
+                            job = j;
+                            break;
+                        }
+                    }
+                }
+            } finally {
+                runningJobLock.unlock();
+            }
+        } else {
+            // Legacy mode: use getCurrentJob()
+            job = getCurrentJob(task.getDbId());
+            if (job != null && job.getJobId() != task.getJobId()) {
+                LOG.warn("invalid snapshot task: {}, job id: {}, task job id: {}",
+                        task, job.getJobId(), task.getJobId());
+                return true;
+            }
         }
 
-        if (job.getJobId() != task.getJobId()) {
-            LOG.warn("invalid snapshot task: {}, job id: {}, task job id: {}", task, job.getJobId(), task.getJobId());
+        if (job == null) {
+            LOG.warn("failed to find backup or restore job for task: {} (jobId={})", task, task.getJobId());
             // return true to remove this task from AgentTaskQueue
             return true;
         }
@@ -844,7 +1445,28 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     public boolean handleFinishedSnapshotUploadTask(UploadTask task, TFinishTaskRequest request) {
-        AbstractJob job = getCurrentJob(task.getDbId());
+        AbstractJob job = null;
+
+        // In concurrency mode, find the job by jobId across all running jobs
+        if (Config.enable_table_level_backup_concurrency) {
+            runningJobLock.lock();
+            try {
+                Deque<AbstractJob> jobs = dbIdToRunningJobs.get(task.getDbId());
+                if (jobs != null) {
+                    for (AbstractJob j : jobs) {
+                        if (j.getJobId() == task.getJobId()) {
+                            job = j;
+                            break;
+                        }
+                    }
+                }
+            } finally {
+                runningJobLock.unlock();
+            }
+        } else {
+            job = getCurrentJob(task.getDbId());
+        }
+
         if (job == null || (job instanceof RestoreJob)) {
             LOG.info("invalid upload task: {}, no backup job is found. db id: {}", task, task.getDbId());
             return false;
@@ -859,15 +1481,35 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     public boolean handleDownloadSnapshotTask(DownloadTask task, TFinishTaskRequest request) {
-        AbstractJob job = getCurrentJob(task.getDbId());
-        if (!(job instanceof RestoreJob)) {
-            LOG.warn("failed to find restore job for task: {}", task);
-            // return true to remove this task from AgentTaskQueue
-            return true;
+        AbstractJob job = null;
+
+        // In concurrency mode, find the job by jobId across all running jobs
+        if (Config.enable_table_level_backup_concurrency) {
+            runningJobLock.lock();
+            try {
+                Deque<AbstractJob> jobs = dbIdToRunningJobs.get(task.getDbId());
+                if (jobs != null) {
+                    for (AbstractJob j : jobs) {
+                        if (j.getJobId() == task.getJobId()) {
+                            job = j;
+                            break;
+                        }
+                    }
+                }
+            } finally {
+                runningJobLock.unlock();
+            }
+        } else {
+            job = getCurrentJob(task.getDbId());
+            if (job != null && job.getJobId() != task.getJobId()) {
+                LOG.warn("invalid download task: {}, job id: {}, task job id: {}",
+                        task, job.getJobId(), task.getJobId());
+                return true;
+            }
         }
 
-        if (job.getJobId() != task.getJobId()) {
-            LOG.warn("invalid download task: {}, job id: {}, task job id: {}", task, job.getJobId(), task.getJobId());
+        if (!(job instanceof RestoreJob)) {
+            LOG.warn("failed to find restore job for task: {} (jobId={})", task, task.getJobId());
             // return true to remove this task from AgentTaskQueue
             return true;
         }
@@ -876,15 +1518,35 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     public boolean handleDirMoveTask(DirMoveTask task, TFinishTaskRequest request) {
-        AbstractJob job = getCurrentJob(task.getDbId());
-        if (!(job instanceof RestoreJob)) {
-            LOG.warn("failed to find restore job for task: {}", task);
-            // return true to remove this task from AgentTaskQueue
-            return true;
+        AbstractJob job = null;
+
+        // In concurrency mode, find the job by jobId across all running jobs
+        if (Config.enable_table_level_backup_concurrency) {
+            runningJobLock.lock();
+            try {
+                Deque<AbstractJob> jobs = dbIdToRunningJobs.get(task.getDbId());
+                if (jobs != null) {
+                    for (AbstractJob j : jobs) {
+                        if (j.getJobId() == task.getJobId()) {
+                            job = j;
+                            break;
+                        }
+                    }
+                }
+            } finally {
+                runningJobLock.unlock();
+            }
+        } else {
+            job = getCurrentJob(task.getDbId());
+            if (job != null && job.getJobId() != task.getJobId()) {
+                LOG.warn("invalid dir move task: {}, job id: {}, task job id: {}",
+                        task, job.getJobId(), task.getJobId());
+                return true;
+            }
         }
 
-        if (job.getJobId() != task.getJobId()) {
-            LOG.warn("invalid dir move task: {}, job id: {}, task job id: {}", task, job.getJobId(), task.getJobId());
+        if (!(job instanceof RestoreJob)) {
+            LOG.warn("failed to find restore job for task: {} (jobId={})", task, task.getJobId());
             // return true to remove this task from AgentTaskQueue
             return true;
         }
@@ -918,11 +1580,37 @@ public class BackupHandler extends MasterDaemon implements Writable {
             job.replayRun();
         }
 
-        addBackupOrRestoreJob(job.getDbId(), job);
+        // Add to appropriate queue based on concurrency mode and job state
+        if (Config.enable_table_level_backup_concurrency) {
+            // In dual queue mode, decide based on job state
+            if (job.isDone()) {
+                // Completed job goes to history queue
+                addToHistoryQueue(job.getDbId(), job);
+            } else {
+                // Active job (PENDING or running) goes to running queue
+                try {
+                    addActiveJob(job.getDbId(), job);
+                } catch (DdlException e) {
+                    LOG.warn("Failed to add job {} to running queue during replay: {}",
+                            job.getLabel(), e.getMessage());
+                }
+            }
+        } else {
+            // Legacy mode: use old single queue
+            addBackupOrRestoreJob(job.getDbId(), job);
+        }
     }
 
     public boolean report(TTaskType type, long jobId, long taskId, int finishedNum, int totalNum) {
-        for (AbstractJob job : getAllCurrentJobs()) {
+        // Get jobs to report based on concurrency mode
+        List<AbstractJob> jobsToCheck;
+        if (Config.enable_table_level_backup_concurrency) {
+            jobsToCheck = getAllRunningJobs();
+        } else {
+            jobsToCheck = getAllCurrentJobs();
+        }
+
+        for (AbstractJob job : jobsToCheck) {
             if (job.getType() == JobType.BACKUP) {
                 if (!job.isDone() && job.getJobId() == jobId && type == TTaskType.UPLOAD) {
                     job.taskProgress.put(taskId, Pair.of(finishedNum, totalNum));
@@ -980,8 +1668,33 @@ public class BackupHandler extends MasterDaemon implements Writable {
     public void write(DataOutput out) throws IOException {
         repoMgr.write(out);
 
-        List<AbstractJob> jobs = dbIdToBackupOrRestoreJobs.values()
-                .stream().flatMap(Deque::stream).collect(Collectors.toList());
+        // Collect jobs based on concurrency mode
+        List<AbstractJob> jobs;
+        if (Config.enable_table_level_backup_concurrency) {
+            // In dual queue mode, merge running and history queues
+            jobs = new ArrayList<>();
+            runningJobLock.lock();
+            try {
+                for (Deque<AbstractJob> queue : dbIdToRunningJobs.values()) {
+                    jobs.addAll(queue);
+                }
+            } finally {
+                runningJobLock.unlock();
+            }
+            historyJobLock.lock();
+            try {
+                for (Deque<AbstractJob> queue : dbIdToHistoryJobs.values()) {
+                    jobs.addAll(queue);
+                }
+            } finally {
+                historyJobLock.unlock();
+            }
+        } else {
+            // Legacy mode: use old single queue
+            jobs = dbIdToBackupOrRestoreJobs.values()
+                    .stream().flatMap(Deque::stream).collect(Collectors.toList());
+        }
+
         out.writeInt(jobs.size());
         for (AbstractJob job : jobs) {
             job.write(out);
@@ -994,7 +1707,715 @@ public class BackupHandler extends MasterDaemon implements Writable {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             AbstractJob job = AbstractJob.read(in);
+            // Note: addBackupOrRestoreJob will be replaced by replayAddJob during normal operation
+            // This is just for initial loading, and the actual queue assignment will happen in
+            // rebuildConcurrencyStateAfterRestart()
             addBackupOrRestoreJob(job.getDbId(), job);
+        }
+    }
+
+    // === Concurrency Control Methods ===
+
+    /**
+     * Check if a job has execution permission.
+     * Called by BackupJob/RestoreJob to determine if they can proceed with execution.
+     *
+     * @param jobId the job ID to check
+     * @return true if the job is allowed to execute, false otherwise
+     */
+    public boolean canExecute(long jobId) {
+        if (!Config.enable_table_level_backup_concurrency) {
+            return true;  // Concurrency not enabled, all jobs can execute
+        }
+        return allowedJobIds.contains(jobId);
+    }
+
+    /**
+     * Called when a job is activated (added to allowedJobIds) to update running counters.
+     * This enables O(1) canActivate checks.
+     *
+     * @param dbId database ID
+     * @param job the activated job
+     * @param isBackup true for backup jobs, false for restore jobs
+     * @param isFullDatabase true if this is a full database operation
+     */
+    private void onJobActivated(long dbId, AbstractJob job, boolean isBackup, boolean isFullDatabase) {
+        DatabaseJobStats stats = dbJobStats.computeIfAbsent(dbId, k -> new DatabaseJobStats());
+
+        if (isBackup) {
+            stats.runningBackups++;
+            if (isFullDatabase) {
+                stats.runningBackupDatabaseJobId = job.getJobId();
+            }
+        } else {
+            stats.runningRestores++;
+        }
+
+        if (Config.enable_backup_concurrency_logging) {
+            LOG.info("Job activated: dbId={}, label={}, runningBackups={}, runningRestores={}",
+                     dbId, job.getLabel(), stats.runningBackups, stats.runningRestores);
+        }
+    }
+
+    /**
+     * Called when a job is deactivated (removed from allowedJobIds) to update running counters.
+     *
+     * @param dbId database ID
+     * @param job the deactivated job
+     * @param isBackup true for backup jobs, false for restore jobs
+     */
+    private void onJobDeactivated(long dbId, AbstractJob job, boolean isBackup) {
+        DatabaseJobStats stats = dbJobStats.get(dbId);
+        if (stats == null) {
+            return;
+        }
+
+        if (isBackup) {
+            stats.runningBackups--;
+            if (Long.valueOf(job.getJobId()).equals(stats.runningBackupDatabaseJobId)) {
+                stats.runningBackupDatabaseJobId = null;
+            }
+        } else {
+            stats.runningRestores--;
+        }
+
+        int taskCount = job.getSnapshotTaskCount();
+        if (taskCount > 0) {
+            globalSnapshotTasks.addAndGet(-taskCount);
+        }
+
+        if (Config.enable_backup_concurrency_logging) {
+            LOG.info("Job deactivated: dbId={}, label={}, runningBackups={}, runningRestores={}, "
+                     + "globalSnapshotTasks={}",
+                     dbId, job.getLabel(), stats.runningBackups, stats.runningRestores,
+                     globalSnapshotTasks.get());
+        }
+    }
+
+    /**
+     * Concurrency check for new backup/restore job submissions.
+     * This method only performs hard rejection checks. Soft checks (whether to PENDING)
+     * are handled by canActivate().
+     *
+     * @param dbId database ID
+     * @param label job label
+     * @param isBackup true for backup jobs, false for restore jobs
+     * @param isFullDatabase true if this is a full database backup/restore (no specific tables)
+     * @param tableNames list of table names involved (empty for full database operations)
+     * @throws DdlException if job should be rejected
+     */
+    private void checkConcurrency(long dbId, String label, boolean isBackup,
+                                  boolean isFullDatabase, List<String> tableNames) throws DdlException {
+        // === Step 1: O(1) Label duplicate check ===
+        Map<String, Long> labels = labelIndex.get(dbId);
+        if (labels != null && labels.containsKey(label)) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Label already exists: " + label);
+        }
+
+        // === Step 2: O(1) Get statistics ===
+        DatabaseJobStats stats = dbJobStats.get(dbId);
+        if (stats == null) {
+            return;  // No jobs, no rejection needed
+        }
+
+        int totalActive = stats.activeBackups + stats.activeRestores;
+
+        // === Rule 1: Concurrency limit (hard reject) ===
+        if (totalActive >= Config.max_backup_restore_concurrent_num_per_db) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Concurrency limit reached (" + totalActive + " active jobs).\n"
+                        + "Active jobs: " + String.join(", ", stats.activeLabels) + "\n"
+                        + "Limit: " + Config.max_backup_restore_concurrent_num_per_db);
+        }
+
+        // === Rule 2-A: Queue has backup_database -> reject all new backups ===
+        if (isBackup && stats.backupDatabaseJobId != null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Cannot submit backup job while full database backup exists.\n"
+                        + "Full database backup: " + stats.backupDatabaseLabel + " (running or pending)\n"
+                        + "Suggestion: Wait for it to complete, or cancel it first.");
+        }
+
+        // Other rules (backup_database waiting, restore conflicts, backup/restore mutual exclusion)
+        // are soft rules handled by canActivate() - they cause PENDING, not rejection
+    }
+
+    /**
+     * Called when a job is created to update statistics.
+     *
+     * @param dbId database ID
+     * @param job the created job
+     * @param isBackup true for backup jobs, false for restore jobs
+     * @param isFullDatabase true if this is a full database operation
+     */
+    private void onJobCreated(long dbId, AbstractJob job, boolean isBackup, boolean isFullDatabase) {
+        // Update statistics
+        DatabaseJobStats stats = dbJobStats.computeIfAbsent(dbId, k -> new DatabaseJobStats());
+
+        if (isBackup) {
+            stats.activeBackups++;
+            if (isFullDatabase) {
+                stats.backupDatabaseJobId = job.getJobId();
+                stats.backupDatabaseLabel = job.getLabel();
+            }
+        } else {
+            stats.activeRestores++;
+        }
+
+        stats.activeLabels.add(job.getLabel());
+
+        // Update label index
+        labelIndex.computeIfAbsent(dbId, k -> new ConcurrentHashMap<>())
+                  .put(job.getLabel(), job.getJobId());
+
+        if (Config.enable_backup_concurrency_logging) {
+            LOG.info("Job created: dbId={}, label={}, backups={}, restores={}",
+                     dbId, job.getLabel(), stats.activeBackups, stats.activeRestores);
+        }
+    }
+
+    /**
+     * Check if a newly created job can be activated immediately (O(1) version).
+     * This is called right after job creation to decide whether to add it to allowedJobIds.
+     *
+     * @param dbId database ID
+     * @param job the job to check
+     * @param isBackup true for backup jobs, false for restore jobs
+     * @param isFullDatabase true if this is a full database operation
+     * @return true if job can be activated immediately
+     */
+    private boolean canActivate(long dbId, AbstractJob job, boolean isBackup, boolean isFullDatabase) {
+        DatabaseJobStats stats = dbJobStats.get(dbId);
+
+        // O(1) lookup for running job counts
+        int runningBackups = (stats != null) ? stats.runningBackups : 0;
+        int runningRestores = (stats != null) ? stats.runningRestores : 0;
+        boolean hasRunningBackupDatabase = (stats != null) && (stats.runningBackupDatabaseJobId != null);
+
+        // === Rule 1: Concurrency limit ===
+        if (runningBackups + runningRestores >= Config.max_backup_restore_concurrent_num_per_db) {
+            return false;
+        }
+
+        // === Rule 2-A: Running backup_database -> backup cannot activate ===
+        if (hasRunningBackupDatabase && isBackup) {
+            return false;
+        }
+
+        // === Rule 2-B: Job is backup_database -> wait for all backups to complete ===
+        if (isBackup && isFullDatabase && runningBackups > 0) {
+            return false;
+        }
+
+        // === Rule 3: Backup/Restore mutual exclusion ===
+        if (isBackup && runningRestores > 0) {
+            return false;
+        }
+        if (!isBackup && runningBackups > 0) {
+            return false;
+        }
+
+        // === Rule 4: For restore jobs, check table conflicts ===
+        if (!isBackup && job instanceof RestoreJob) {
+            RestoreJob restoreJob = (RestoreJob) job;
+            // Check full database restore conflict
+            if (stats != null && stats.restoreDatabaseJobId != null) {
+                return false;  // Full database restore is running
+            }
+
+            // Check if this is a full database restore
+            if (isFullDatabase) {
+                Set<String> currentRestoring = restoringTables.get(dbId);
+                if (currentRestoring != null && !currentRestoring.isEmpty()) {
+                    return false;  // Other tables are being restored
+                }
+            } else {
+                // Check table conflicts (O(k) where k = number of tables in the job)
+                Set<String> currentRestoring = restoringTables.get(dbId);
+                if (currentRestoring != null && !currentRestoring.isEmpty()) {
+                    for (TableRefInfo tblRef : restoreJob.getTableRefs()) {
+                        String tableName = tblRef.getTableNameInfo().getTbl();
+                        if (currentRestoring.contains(tableName)) {
+                            return false;  // Table conflict
+                        }
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Check if a PENDING job can be activated (O(1) version).
+     * Called during tryActivatePendingJobs() to determine which jobs can start running.
+     *
+     * @param dbId database ID
+     * @param jobToCheck the job to check for activation
+     * @param isBackup true for backup jobs, false for restore jobs
+     * @return true if job can be activated
+     */
+    private boolean canActivateJob(long dbId, AbstractJob jobToCheck, boolean isBackup) {
+        DatabaseJobStats stats = dbJobStats.get(dbId);
+
+        // Determine job type
+        boolean isJobBackupDatabase = false;
+        boolean isJobRestore = false;
+
+        if (isBackup && jobToCheck instanceof BackupJob) {
+            BackupJob bj = (BackupJob) jobToCheck;
+            isJobBackupDatabase = bj.getTableRefs().isEmpty();
+        } else {
+            isJobRestore = true;
+        }
+
+        // O(1) lookup for running job counts
+        int runningBackups = (stats != null) ? stats.runningBackups : 0;
+        int runningRestores = (stats != null) ? stats.runningRestores : 0;
+        boolean hasRunningBackupDatabase = (stats != null) && (stats.runningBackupDatabaseJobId != null);
+
+        // === Rule 1: Concurrency limit ===
+        if (runningBackups + runningRestores >= Config.max_backup_restore_concurrent_num_per_db) {
+            return false;
+        }
+
+        // === Rule 2-A: Running backup_database -> backup cannot activate ===
+        if (hasRunningBackupDatabase && isBackup) {
+            return false;
+        }
+
+        // === Rule 2-B: Job is backup_database -> wait for all backups to complete ===
+        if (isJobBackupDatabase && runningBackups > 0) {
+            return false;
+        }
+
+        // === Rule 3: Backup/Restore mutual exclusion ===
+        if (isBackup && runningRestores > 0) {
+            return false;
+        }
+        if (isJobRestore && runningBackups > 0) {
+            return false;
+        }
+
+        // === Rule 4: For restore jobs, check table conflicts ===
+        if (isJobRestore && jobToCheck instanceof RestoreJob) {
+            RestoreJob restoreJob = (RestoreJob) jobToCheck;
+            // Check full database restore conflict
+            if (stats != null && stats.restoreDatabaseJobId != null) {
+                return false;  // Full database restore is running
+            }
+
+            // Check if this is a full database restore
+            if (restoreJob.getTableRefs().isEmpty()) {
+                Set<String> currentRestoring = restoringTables.get(dbId);
+                if (currentRestoring != null && !currentRestoring.isEmpty()) {
+                    return false;  // Other tables are being restored
+                }
+            } else {
+                // Check table conflicts (O(k) where k = number of tables in the job)
+                Set<String> currentRestoring = restoringTables.get(dbId);
+                if (currentRestoring != null && !currentRestoring.isEmpty()) {
+                    for (TableRefInfo tblRef : restoreJob.getTableRefs()) {
+                        String tableName = tblRef.getTableNameInfo().getTbl();
+                        if (currentRestoring.contains(tableName)) {
+                            return false;  // Table conflict
+                        }
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Called when a job completes (finished or cancelled) to update statistics
+     * and try to activate pending jobs.
+     *
+     * @param jobId the completed job ID
+     * @param dbId database ID
+     * @param job the completed job
+     */
+    public void onJobCompleted(long jobId, long dbId, AbstractJob job) {
+        if (!Config.enable_table_level_backup_concurrency) {
+            return;
+        }
+
+        boolean isBackup = (job instanceof BackupJob);
+
+        // === 0. Move from running queue to history queue (dual queue architecture) ===
+        moveToHistory(dbId, job);
+
+        // === 1. Update statistics (O(1)) ===
+        DatabaseJobStats stats = dbJobStats.get(dbId);
+        if (stats != null) {
+            if (isBackup) {
+                stats.activeBackups--;
+                if (Long.valueOf(jobId).equals(stats.backupDatabaseJobId)) {
+                    stats.backupDatabaseJobId = null;
+                    stats.backupDatabaseLabel = null;
+                }
+            } else {
+                stats.activeRestores--;
+                if (Long.valueOf(jobId).equals(stats.restoreDatabaseJobId)) {
+                    stats.restoreDatabaseJobId = null;
+                    stats.restoreDatabaseLabel = null;
+                }
+            }
+
+            stats.activeLabels.remove(job.getLabel());
+
+            // Clean up empty stats
+            if (stats.activeBackups == 0 && stats.activeRestores == 0) {
+                dbJobStats.remove(dbId);
+            }
+        }
+
+        // === 2. Update label index ===
+        Map<String, Long> labels = labelIndex.get(dbId);
+        if (labels != null) {
+            labels.remove(job.getLabel());
+            if (labels.isEmpty()) {
+                labelIndex.remove(dbId);
+            }
+        }
+
+        // === 3. Remove execution permission and update running counters ===
+        boolean wasRunning = allowedJobIds.remove(jobId);
+        if (wasRunning) {
+            onJobDeactivated(dbId, job, isBackup);
+        }
+
+        // === 4. Clean up restoringTables for restore jobs ===
+        if (job instanceof RestoreJob) {
+            removeRestoringTables((RestoreJob) job);
+        }
+
+        if (Config.enable_backup_concurrency_logging) {
+            LOG.info("Job completed: dbId={}, label={}, activeBackups={}, activeRestores={}, "
+                     + "runningBackups={}, runningRestores={}",
+                     dbId, job.getLabel(),
+                     stats != null ? stats.activeBackups : 0,
+                     stats != null ? stats.activeRestores : 0,
+                     stats != null ? stats.runningBackups : 0,
+                     stats != null ? stats.runningRestores : 0);
+        }
+
+        // === 5. Try to activate PENDING jobs ===
+        tryActivatePendingJobs(dbId);
+    }
+
+    /**
+     * Try to activate pending jobs after a job completes.
+     * This method scans the job queue and activates jobs that can now run.
+     *
+     * @param dbId database ID
+     */
+    private void tryActivatePendingJobs(long dbId) {
+        // Get jobs to scan based on concurrency mode
+        Deque<AbstractJob> jobs;
+        if (Config.enable_table_level_backup_concurrency) {
+            // In dual queue mode, scan running queue
+            runningJobLock.lock();
+            try {
+                jobs = dbIdToRunningJobs.get(dbId);
+                if (jobs == null || jobs.isEmpty()) {
+                    return;
+                }
+                // Make a copy to avoid concurrent modification
+                jobs = new LinkedList<>(jobs);
+            } finally {
+                runningJobLock.unlock();
+            }
+        } else {
+            // Legacy mode: use old single queue
+            jobs = dbIdToBackupOrRestoreJobs.get(dbId);
+            if (jobs == null || jobs.isEmpty()) {
+                return;
+            }
+        }
+
+        for (AbstractJob job : jobs) {
+            // Only process PENDING jobs
+            if (job.isDone()) {
+                continue;
+            }
+
+            // Already has execution permission, skip
+            if (allowedJobIds.contains(job.getJobId())) {
+                continue;
+            }
+
+            // Check if can activate
+            boolean isBackup = job instanceof BackupJob;
+            boolean isFullDatabase = false;
+            if (isBackup && job instanceof BackupJob) {
+                isFullDatabase = ((BackupJob) job).getTableRefs().isEmpty();
+            } else if (!isBackup && job instanceof RestoreJob) {
+                isFullDatabase = ((RestoreJob) job).getTableRefs().isEmpty();
+            }
+
+            if (canActivateJob(dbId, job, isBackup)) {
+                allowedJobIds.add(job.getJobId());
+                onJobActivated(dbId, job, isBackup, isFullDatabase);
+                // CRITICAL: Add restoring tables atomically with activation
+                // to prevent TOCTOU race condition
+                if (job instanceof RestoreJob) {
+                    addRestoringTables((RestoreJob) job);
+                }
+                LOG.info("Activated pending job: {} (jobId={})",
+                        job.getLabel(), job.getJobId());
+            }
+        }
+    }
+
+    /**
+     * Add restore job's tables to the restoring set for conflict detection.
+     *
+     * @param job the restore job
+     */
+    public void addRestoringTables(RestoreJob job) {
+        long dbId = job.getDbId();
+
+        // Check if this is a full database restore
+        if (job.getTableRefs().isEmpty()) {
+            // Full database restore: mark as exclusive
+            DatabaseJobStats stats = dbJobStats.computeIfAbsent(dbId,
+                    k -> new DatabaseJobStats());
+            stats.restoreDatabaseJobId = job.getJobId();
+            stats.restoreDatabaseLabel = job.getLabel();
+            LOG.info("Full database restore [{}] started, blocking other restores on db [{}]",
+                     job.getLabel(), dbId);
+            return;
+        }
+
+        // Table-level restore: add table names to set
+        Set<String> tables = restoringTables.computeIfAbsent(dbId, k -> ConcurrentHashMap.newKeySet());
+
+        for (TableRefInfo tblRef : job.getTableRefs()) {
+            String tableName = tblRef.getTableNameInfo().getTbl();
+            tables.add(tableName);
+
+            if (Config.enable_backup_concurrency_logging) {
+                LOG.info("Table [{}] added to restoring set, job: [{}]", tableName, job.getLabel());
+            }
+        }
+    }
+
+    /**
+     * Remove restore job's tables from the restoring set when job completes.
+     *
+     * @param job the restore job
+     */
+    private void removeRestoringTables(RestoreJob job) {
+        long dbId = job.getDbId();
+
+        // Check if this is a full database restore
+        if (job.getTableRefs().isEmpty()) {
+            // Full database restore: clear marker
+            DatabaseJobStats stats = dbJobStats.get(dbId);
+            if (stats != null && Long.valueOf(job.getJobId()).equals(stats.restoreDatabaseJobId)) {
+                stats.restoreDatabaseJobId = null;
+                stats.restoreDatabaseLabel = null;
+            }
+            LOG.info("Full database restore [{}] completed, unblocking other restores",
+                     job.getLabel());
+            return;
+        }
+
+        // Table-level restore: remove table names
+        Set<String> tables = restoringTables.get(dbId);
+        if (tables != null) {
+            for (TableRefInfo tblRef : job.getTableRefs()) {
+                String tableName = tblRef.getTableNameInfo().getTbl();
+                tables.remove(tableName);
+
+                if (Config.enable_backup_concurrency_logging) {
+                    LOG.info("Table [{}] removed from restoring set, job: [{}]",
+                             tableName, job.getLabel());
+                }
+            }
+
+            // Remove key if set is empty
+            if (tables.isEmpty()) {
+                restoringTables.remove(dbId);
+            }
+        }
+    }
+
+    /**
+     * Get the block reason for a job (for SHOW command).
+     *
+     * @param job the job to check
+     * @return block reason string, or null if not blocked
+     */
+    public String getJobBlockReason(AbstractJob job) {
+        if (!Config.enable_table_level_backup_concurrency) {
+            return null;
+        }
+
+        // Finished/cancelled jobs are not blocked
+        if (job.isDone()) {
+            return null;
+        }
+
+        // If job has execution permission, it's not blocked
+        if (allowedJobIds.contains(job.getJobId())) {
+            return null;
+        }
+
+        long dbId = job.getDbId();
+        boolean isBackup = job instanceof BackupJob;
+
+        // Check backup/restore mutual exclusion
+        DatabaseJobStats stats = dbJobStats.get(dbId);
+        if (stats != null) {
+            if (isBackup && stats.activeRestores > 0) {
+                return "Waiting for " + stats.activeRestores + " restore(s) to complete";
+            }
+            if (!isBackup && stats.activeBackups > 0) {
+                return "Waiting for " + stats.activeBackups + " backup(s) to complete";
+            }
+
+            // Check full database backup blocking
+            if (isBackup && stats.backupDatabaseJobId != null) {
+                return "Full database backup is running: " + stats.backupDatabaseLabel;
+            }
+        }
+
+        // Check restore table conflicts
+        if (job instanceof RestoreJob) {
+            RestoreJob restoreJob = (RestoreJob) job;
+
+            // Check full database restore
+            if (stats != null && stats.restoreDatabaseJobId != null) {
+                return "Full database restore is running: " + stats.restoreDatabaseLabel;
+            }
+
+            // Check table conflicts
+            Set<String> restoring = restoringTables.get(dbId);
+            if (restoring != null && !restoring.isEmpty()) {
+                Set<String> conflicts = new HashSet<>();
+                for (TableRefInfo tblRef : restoreJob.getTableRefs()) {
+                    String tableName = tblRef.getTableNameInfo().getTbl();
+                    if (restoring.contains(tableName)) {
+                        conflicts.add(tableName);
+                    }
+                }
+
+                if (!conflicts.isEmpty()) {
+                    return "Table conflict: " + String.join(", ", conflicts);
+                }
+            }
+        }
+
+        return "Waiting for execution slot";
+    }
+
+    /**
+     * Get the queue position for a job (for SHOW command).
+     * Returns 0 if job is running, or the 1-based position in the queue.
+     *
+     * @param job the job to check
+     * @return queue position (0 = running, 1+ = position in queue)
+     */
+    public int getJobQueuePosition(AbstractJob job) {
+        if (!Config.enable_table_level_backup_concurrency) {
+            return 0;
+        }
+
+        // Finished/cancelled jobs have no queue position
+        if (job.isDone()) {
+            return 0;
+        }
+
+        // If job has execution permission, it's running (position 0)
+        if (allowedJobIds.contains(job.getJobId())) {
+            return 0;
+        }
+
+        // Count position in pending queue (use dbIdToRunningJobs in concurrency mode)
+        Deque<AbstractJob> jobs = dbIdToRunningJobs.get(job.getDbId());
+        if (jobs == null) {
+            return 0;
+        }
+
+        int position = 0;
+        for (AbstractJob j : jobs) {
+            if (j.isDone()) {
+                continue;
+            }
+            if (!allowedJobIds.contains(j.getJobId())) {
+                position++;
+                if (j.getJobId() == job.getJobId()) {
+                    return position;
+                }
+            }
+        }
+
+        return position;
+    }
+
+    /**
+     * Database job statistics for O(1) concurrency checking.
+     * This class maintains counters and markers for each database to avoid
+     * traversing the job queue on every submission.
+     */
+    static class DatabaseJobStats {
+        // Active job counts (includes PENDING jobs, not just running)
+        int activeBackups = 0;
+        int activeRestores = 0;
+
+        // Running job counts (only jobs in allowedJobIds, for O(1) canActivate check)
+        int runningBackups = 0;
+        int runningRestores = 0;
+
+        // Full database backup marker (in queue, pending or running)
+        Long backupDatabaseJobId = null;    // jobId of the full database backup
+        String backupDatabaseLabel = null;  // label of the full database backup
+
+        // Running full database backup marker (for canActivate check)
+        Long runningBackupDatabaseJobId = null;
+
+        // Full database restore marker (integrated here for unified management)
+        Long restoreDatabaseJobId = null;   // jobId of the full database restore
+        String restoreDatabaseLabel = null; // label of the full database restore
+
+        // All active job labels (for error messages)
+        Set<String> activeLabels = new HashSet<>();
+
+        /**
+         * Check if there are any active jobs.
+         */
+        boolean hasActiveJobs() {
+            return activeBackups > 0 || activeRestores > 0;
+        }
+
+        /**
+         * Get total active job count.
+         */
+        int getTotalActiveJobs() {
+            return activeBackups + activeRestores;
+        }
+
+        /**
+         * Get total running job count.
+         */
+        int getTotalRunningJobs() {
+            return runningBackups + runningRestores;
+        }
+
+        @Override
+        public String toString() {
+            return "DatabaseJobStats{"
+                + "activeBackups=" + activeBackups
+                + ", activeRestores=" + activeRestores
+                + ", runningBackups=" + runningBackups
+                + ", runningRestores=" + runningRestores
+                + ", backupDatabaseLabel=" + backupDatabaseLabel
+                + ", restoreDatabaseLabel=" + restoreDatabaseLabel
+                + '}';
         }
     }
 }
