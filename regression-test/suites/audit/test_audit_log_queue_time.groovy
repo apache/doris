@@ -119,5 +119,5 @@ suite("test_audit_log_queue_time", "nonConcurrent") {
     // Cleanup
     sql "drop table if exists ${tableName}"
     sql "drop workload group if exists ${wgName}"
-  }
+  })
 }
