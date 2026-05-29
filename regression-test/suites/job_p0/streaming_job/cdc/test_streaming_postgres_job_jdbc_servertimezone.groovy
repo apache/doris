@@ -22,23 +22,31 @@ import static java.util.concurrent.TimeUnit.SECONDS
 
 // PG counterpart of test_streaming_mysql_job_jdbc_servertimezone.
 //
-// Align jdbc_url's timezone with Doris session time_zone, read at runtime so
-// the case works on clusters with any default tz.
+// Recommended end-to-end tz configuration for data fidelity: set jdbc_url's
+// timezone to the SOURCE PG session/server tz, so cdc renders the timestamptz
+// / timetz instant back to the exact wall clock the source shows. Doris data
+// then stays identical to PG, independent of Doris's own session tz.
 //
-// Setup:
-//   source SET TIME ZONE INTERVAL '+01:00' HOUR TO MINUTE
-//     INSERT '2024-06-15 11:00:00'
-//       ts   (timestamp)        -> literal '2024-06-15 11:00:00'
-//       tstz (timestamptz)      -> source-internal UTC instant 2024-06-15 10:00:00Z
-//   jdbc_url timezone=<Doris session tz>
+// Source tz is Asia/Tokyo (+09, no DST), deliberately != Doris default +08, so
+// the case proves the rendering follows the SOURCE tz (not Doris). The source
+// session uses the offset '+09:00' while jdbc_url uses the IANA name
+// 'Asia/Tokyo' (cdc resolves it via ZoneId). Tokyo has no DST, so the offset is
+// a constant +09 -- this also matters for timetz: cdc takes its offset at
+// Instant.EPOCH, and with a no-DST zone that EPOCH offset equals the source
+// offset, so timetz round-trips to the source wall clock too.
 //
-// Expectations at Doris (.out is pre-filled for Doris default session
-// time_zone '+08:00'):
+// Setup (source tz = Asia/Tokyo = +09):
+//   source SET TIME ZONE INTERVAL '+09:00' HOUR TO MINUTE, INSERT '2024-06-15 11:00:00'
+//     ts   (timestamp)   -> literal '2024-06-15 11:00:00'
+//     tstz (timestamptz) -> source-internal UTC instant 2024-06-15 02:00:00Z
+//     ttz  (timetz)      -> source-internal UTC time 02:00:00Z
+//   jdbc_url timezone aligned to the SOURCE tz (Asia/Tokyo)
+//
+// Expectation at Doris (independent of Doris session tz, since cdc renders
+// with the source tz, not Doris's; .out has no dependency on Doris tz):
 //   ts   -> '2024-06-15T11:00'  (verbatim, no tz semantics)
-//   tstz -> '2024-06-15T18:00'  (UTC 10:00Z + 8h = 18:00 in +08)
-//
-// timetz column is intentionally omitted -- it is blocked by the upstream
-// cdc ZonedTime bug and already tracked in the main *_source_timezone case.
+//   tstz -> '2024-06-15T11:00'  (02:00Z rendered with Asia/Tokyo +09 = 11:00, == source)
+//   ttz  -> '11:00'             (02:00Z time rendered with Asia/Tokyo +09 = 11:00, == source)
 suite("test_streaming_postgres_job_jdbc_servertimezone", "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
     def jobName = "test_streaming_postgres_job_jdbc_servertimezone_name"
     def currentDb = (sql "select database()")[0][0]
@@ -59,9 +67,12 @@ suite("test_streaming_postgres_job_jdbc_servertimezone", "p0,external,pg,externa
         String bucket = getS3BucketName()
         String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
 
-        // Read Doris session tz so the cdc job aligns with it.
-        def dorisTz = (sql "select @@time_zone")[0][0]
-        log.info("Doris session time_zone = ${dorisTz}; jdbc_url timezone will use the same.")
+        // jdbc timezone is aligned to the SOURCE db tz (not Doris) so Doris
+        // data matches the source wall clock. Log Doris tz only to show the
+        // result is independent of it.
+        def sourceTz = "+09:00"
+        def jdbcTz = "Asia/Tokyo"
+        log.info("Doris session time_zone = ${(sql "select @@time_zone")[0][0]}; cdc renders with source tz ${jdbcTz}.")
 
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${table1}"""
@@ -70,19 +81,20 @@ suite("test_streaming_postgres_job_jdbc_servertimezone", "p0,external,pg,externa
                 id   integer PRIMARY KEY,
                 tag  varchar(32),
                 ts   timestamp,
-                tstz timestamp with time zone
+                tstz timestamp with time zone,
+                ttz  time with time zone
             );
             """
 
-            sql """SET TIME ZONE INTERVAL '+01:00' HOUR TO MINUTE"""
-            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (1, 'snapshot_plus01',
-                '2024-06-15 11:00:00', '2024-06-15 11:00:00')"""
+            sql """SET TIME ZONE INTERVAL '+09:00' HOUR TO MINUTE"""
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (1, 'snapshot_tokyo',
+                '2024-06-15 11:00:00', '2024-06-15 11:00:00', '11:00:00')"""
         }
 
         sql """CREATE JOB ${jobName}
                 ON STREAMING
                 FROM POSTGRES (
-                    "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}?timezone=${dorisTz}",
+                    "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}?timezone=${jdbcTz}",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "org.postgresql.Driver",
                     "user" = "${pgUser}",
@@ -118,9 +130,9 @@ suite("test_streaming_postgres_job_jdbc_servertimezone", "p0,external,pg,externa
         qt_select_snapshot """select * from ${currentDb}.${table1} order by id;"""
 
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-            sql """SET TIME ZONE INTERVAL '+01:00' HOUR TO MINUTE"""
-            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (2, 'binlog_plus01',
-                '2024-06-15 11:00:00', '2024-06-15 11:00:00')"""
+            sql """SET TIME ZONE INTERVAL '+09:00' HOUR TO MINUTE"""
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (2, 'binlog_tokyo',
+                '2024-06-15 11:00:00', '2024-06-15 11:00:00', '11:00:00')"""
         }
 
         Awaitility.await().atMost(180, SECONDS)
