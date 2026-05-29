@@ -23,6 +23,7 @@ import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.alter.IndexChangeJob;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.AuthenticationIntegrationMeta;
+import org.apache.doris.authentication.RoleMappingMeta;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
@@ -1090,6 +1091,16 @@ public class EditLog {
                     env.getAuthenticationIntegrationMgr().replayDropAuthenticationIntegration(log);
                     break;
                 }
+                case OperationType.OP_CREATE_ROLE_MAPPING: {
+                    RoleMappingMeta log = (RoleMappingMeta) journal.getData();
+                    env.getRoleMappingMgr().replayCreateRoleMapping(log);
+                    break;
+                }
+                case OperationType.OP_DROP_ROLE_MAPPING: {
+                    DropRoleMappingOperationLog log = (DropRoleMappingOperationLog) journal.getData();
+                    env.getRoleMappingMgr().replayDropRoleMapping(log);
+                    break;
+                }
                 case OperationType.OP_MODIFY_TABLE_ENGINE: {
                     ModifyTableEngineOperationLog log = (ModifyTableEngineOperationLog) journal.getData();
                     env.getAlterInstance().replayProcessModifyEngine(log);
@@ -1439,11 +1450,6 @@ public class EditLog {
                 case OperationType.OP_META_SYNC_POINT: {
                     // CloudMetaSyncPoint info = (CloudMetaSyncPoint) journal.getData();
                     // This log is only used to keep FE/MS cut point in journal timeline.
-                    break;
-                }
-                case OperationType.OP_TABLE_META_CHANGE: {
-                    TableMetaChange op = (TableMetaChange) journal.getData();
-                    env.replayTableMetaChange(op);
                     break;
                 }
                 default: {
@@ -2319,6 +2325,14 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_AUTHENTICATION_INTEGRATION, log);
     }
 
+    public void logCreateRoleMapping(RoleMappingMeta meta) {
+        logEdit(OperationType.OP_CREATE_ROLE_MAPPING, meta);
+    }
+
+    public void logDropRoleMapping(DropRoleMappingOperationLog log) {
+        logEdit(OperationType.OP_DROP_ROLE_MAPPING, log);
+    }
+
     public void logModifyTableEngine(ModifyTableEngineOperationLog log) {
         logEdit(OperationType.OP_MODIFY_TABLE_ENGINE, log);
     }
@@ -2547,9 +2561,5 @@ public class EditLog {
 
     public long logMetaSyncPoint(CloudMetaSyncPoint syncPoint) {
         return logEdit(OperationType.OP_META_SYNC_POINT, syncPoint);
-    }
-
-    public void logTableMetaChange(TableMetaChange op) {
-        logEdit(OperationType.OP_TABLE_META_CHANGE, op);
     }
 }

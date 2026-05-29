@@ -215,6 +215,7 @@ enum TSchemaTableType {
     SCH_LOAD_JOBS = 65;
     SCH_AUTHENTICATION_INTEGRATIONS = 66;
     SCH_BE_COMPACTION_TASKS = 67;
+    SCH_ROLE_MAPPINGS = 68;
 }
 
 enum THdfsCompression {

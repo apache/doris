@@ -122,11 +122,19 @@ python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>   <image
     [--fe-id <fd-id> --be-id <be-id>]
     ...
     [ --cloud ]
+    [ --cluster-snapshot <cluster-snapshot-json> ]
 ```
 
 if it's a new cluster, must specific the image.
 
 add fe/be nodes with the specific image, or update existing nodes with `--fe-id`, `--be-id`
+
+The `--cluster-snapshot` parameter allows you to provide a cluster snapshot JSON content for FE-1 first startup in cloud mode only. The JSON will be written to FE conf/cluster_snapshot.json and passed to start_fe.sh with --cluster_snapshot parameter. This is only effective on first startup.
+
+Example:
+```shell
+python docker/runtime/doris-compose/doris-compose.py up my-cluster my-image --cloud --cluster-snapshot '{"instance_id":"instance_id_xxx"}'
+```
 
 For create a cloud cluster, steps are as below:
 
@@ -140,6 +148,12 @@ The simplest way to create a cloud cluster:
 
 ```shell
 python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>  <image>  --cloud
+```
+
+To create a cloud cluster with a custom cluster snapshot:
+
+```shell
+python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>  <image>  --cloud --cluster-snapshot '{"instance_id":"instance_id_xxx"}'
 ```
 
 It will create 1 fdb, 1 meta service server, 1 recycler, 3 fe and 3 be.

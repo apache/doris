@@ -18,14 +18,20 @@
 package org.apache.doris.authentication.handler;
 
 import org.apache.doris.authentication.AuthenticationException;
+import org.apache.doris.authentication.AuthenticationFailureType;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
 import org.apache.doris.authentication.AuthenticationResult;
+import org.apache.doris.authentication.Principal;
+import org.apache.doris.authentication.rolemapping.DefinitionBackedRoleMappingEvaluator;
+import org.apache.doris.authentication.rolemapping.RoleMappingEvaluator;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Authentication service - core authentication orchestration.
@@ -52,6 +58,7 @@ public class AuthenticationService {
     private final IntegrationRegistry integrationRegistry;
     private final AuthenticationPluginManager pluginManager;
     private final BindingResolver bindingResolver;
+    private final RoleMappingEvaluator roleMappingEvaluator;
 
     /**
      * Create a minimal authentication service.
@@ -61,10 +68,19 @@ public class AuthenticationService {
      * @param bindingResolver the binding resolver
      */
     public AuthenticationService(IntegrationRegistry integrationRegistry, AuthenticationPluginManager pluginManager,
-                       BindingResolver bindingResolver) {
+            BindingResolver bindingResolver) {
+        this(integrationRegistry, pluginManager, bindingResolver, createDefaultRoleMappingEvaluator());
+    }
+
+    public AuthenticationService(
+            IntegrationRegistry integrationRegistry,
+            AuthenticationPluginManager pluginManager,
+            BindingResolver bindingResolver,
+            RoleMappingEvaluator roleMappingEvaluator) {
         this.integrationRegistry = Objects.requireNonNull(integrationRegistry, "integrationRegistry");
         this.pluginManager = Objects.requireNonNull(pluginManager, "pluginManager");
         this.bindingResolver = Objects.requireNonNull(bindingResolver, "bindingResolver");
+        this.roleMappingEvaluator = Objects.requireNonNull(roleMappingEvaluator, "roleMappingEvaluator");
     }
 
     /**
@@ -109,7 +125,7 @@ public class AuthenticationService {
                         "No authentication integration supports request for user: " + request.getUsername());
             }
             AuthenticationResult result = plugin.authenticate(request, integration);
-            return AuthenticationOutcome.of(integration, result);
+            return toOutcome(integration, result);
         }
 
         // 3. No binding: try candidates in order until success or all fail
@@ -122,9 +138,12 @@ public class AuthenticationService {
             try {
                 candidatePlugin = pluginManager.getPlugin(candidate);
             } catch (AuthenticationException e) {
+                AuthenticationException wrapped = wrapPreparationException(candidate, e);
+                if (!shouldContinueInChain(wrapped)) {
+                    throw wrapped;
+                }
                 lastFailureIntegration = candidate;
-                lastFailureResult = AuthenticationResult.failure(new AuthenticationException(
-                        "Failed to prepare integration '" + candidate.getName() + "': " + e.getMessage(), e));
+                lastFailureResult = AuthenticationResult.failure(wrapped);
                 continue;
             }
             if (!candidatePlugin.supports(request)) {
@@ -136,19 +155,25 @@ public class AuthenticationService {
             try {
                 result = candidatePlugin.authenticate(request, candidate);
             } catch (AuthenticationException e) {
+                if (!shouldContinueInChain(e)) {
+                    throw e;
+                }
                 lastFailureIntegration = candidate;
                 lastFailureResult = AuthenticationResult.failure(e);
                 continue;
             }
             if (result.isSuccess() || result.isContinue()) {
-                return AuthenticationOutcome.of(candidate, result);
+                return toOutcome(candidate, result);
+            }
+            if (!shouldContinueInChain(result)) {
+                return toOutcome(candidate, result);
             }
             lastFailureIntegration = candidate;
             lastFailureResult = result;
         }
 
         if (lastFailureIntegration != null && lastFailureResult != null) {
-            return AuthenticationOutcome.of(lastFailureIntegration, lastFailureResult);
+            return toOutcome(lastFailureIntegration, lastFailureResult);
         }
         if (!anySupported) {
             throw new AuthenticationException(
@@ -194,5 +219,52 @@ public class AuthenticationService {
      */
     public BindingResolver getBindingResolver() {
         return bindingResolver;
+    }
+
+    private AuthenticationOutcome toOutcome(AuthenticationIntegration integration, AuthenticationResult result)
+            throws AuthenticationException {
+        Objects.requireNonNull(integration, "integration");
+        Objects.requireNonNull(result, "result");
+        if (!result.isSuccess()) {
+            return AuthenticationOutcome.of(integration, result);
+        }
+
+        Principal principal = Objects.requireNonNull(result.getPrincipal(), "principal is required for success");
+        Set<String> grantedRoles = mergeGrantedRoles(
+                result.getGrantedRoles(), roleMappingEvaluator.evaluate(integration, principal));
+        return AuthenticationOutcome.of(integration, AuthenticationResult.success(principal, grantedRoles));
+    }
+
+    private static Set<String> mergeGrantedRoles(Set<String> existingGrantedRoles, Set<String> evaluatedGrantedRoles) {
+        Objects.requireNonNull(existingGrantedRoles, "existingGrantedRoles");
+        Objects.requireNonNull(evaluatedGrantedRoles, "evaluatedGrantedRoles");
+        LinkedHashSet<String> mergedRoles = new LinkedHashSet<>(existingGrantedRoles);
+        mergedRoles.addAll(evaluatedGrantedRoles);
+        return mergedRoles;
+    }
+
+    private static RoleMappingEvaluator createDefaultRoleMappingEvaluator() {
+        return new DefinitionBackedRoleMappingEvaluator(integrationName -> null);
+    }
+
+    private static boolean shouldContinueInChain(AuthenticationResult result) {
+        if (result == null || !result.isFailure()) {
+            return false;
+        }
+        return shouldContinueInChain(result.getException());
+    }
+
+    private static boolean shouldContinueInChain(AuthenticationException exception) {
+        AuthenticationFailureType failureType = exception == null ? null : exception.getFailureType();
+        return failureType != null && failureType.shouldContinueInChain();
+    }
+
+    private static AuthenticationException wrapPreparationException(
+            AuthenticationIntegration integration, AuthenticationException cause) {
+        return new AuthenticationException(
+                "Failed to prepare integration '" + integration.getName() + "': " + cause.getMessage(),
+                cause,
+                cause.getFailureType()
+        );
     }
 }

@@ -22,6 +22,7 @@ import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.alter.IndexChangeJob;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.AuthenticationIntegrationMeta;
+import org.apache.doris.authentication.RoleMappingMeta;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
@@ -97,6 +98,7 @@ import org.apache.doris.persist.DropDictionaryPersistInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.DropResourceOperationLog;
+import org.apache.doris.persist.DropRoleMappingOperationLog;
 import org.apache.doris.persist.DropSqlBlockRuleOperationLog;
 import org.apache.doris.persist.DropWorkloadGroupOperationLog;
 import org.apache.doris.persist.DropWorkloadSchedPolicyOperatorLog;
@@ -127,7 +129,6 @@ import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
 import org.apache.doris.persist.TableBranchOrTagInfo;
 import org.apache.doris.persist.TableInfo;
-import org.apache.doris.persist.TableMetaChange;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TableStatsDeletionLog;
@@ -725,6 +726,16 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_CREATE_ROLE_MAPPING: {
+                data = RoleMappingMeta.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_ROLE_MAPPING: {
+                data = DropRoleMappingOperationLog.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_MODIFY_TABLE_ENGINE: {
                 data = ModifyTableEngineOperationLog.read(in);
                 isRead = true;
@@ -1009,11 +1020,6 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_META_SYNC_POINT: {
                 data = CloudMetaSyncPoint.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_TABLE_META_CHANGE: {
-                data = TableMetaChange.read(in);
                 isRead = true;
                 break;
             }

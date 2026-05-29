@@ -203,17 +203,12 @@ public class SqlCacheContext {
             LOG.warn("table {}, can not get version", tableIf.getName(), e);
         }
 
-        int schemaVersion = 0;
-        if (tableIf instanceof OlapTable) {
-            schemaVersion = ((OlapTable) tableIf).getBaseSchemaVersion();
-        }
         usedTables.put(
                 new FullTableName(database.getCatalog().getName(), database.getFullName(), tableIf.getName()),
                 new TableVersion(
                         tableIf.getId(),
                         version,
-                        tableIf.getType(),
-                        schemaVersion
+                        tableIf.getType()
                 )
         );
     }
@@ -598,7 +593,6 @@ public class SqlCacheContext {
         public final long id;
         public final long version;
         public final TableType type;
-        public final int schemaVersion;
     }
 
     /** CacheKeyType */

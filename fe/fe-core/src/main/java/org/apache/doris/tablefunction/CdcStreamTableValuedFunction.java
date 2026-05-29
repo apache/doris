@@ -25,6 +25,7 @@ import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.common.DataSourceType;
+import org.apache.doris.job.extensions.insert.streaming.DataSourceConfigValidator;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
@@ -106,17 +107,82 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
     }
 
     private void validate(Map<String, String> properties) throws AnalysisException {
-        if (!properties.containsKey(DataSourceConfigKeys.JDBC_URL)) {
+        if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.JDBC_URL))) {
             throw new AnalysisException("jdbc_url is required");
         }
-        if (!properties.containsKey(DataSourceConfigKeys.TYPE)) {
+        if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.TYPE))) {
             throw new AnalysisException("type is required");
         }
-        if (!properties.containsKey(DataSourceConfigKeys.TABLE)) {
+        if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.TABLE))) {
             throw new AnalysisException("table is required");
         }
-        if (!properties.containsKey(DataSourceConfigKeys.OFFSET)) {
+        if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.OFFSET))) {
             throw new AnalysisException("offset is required");
+        }
+        DataSourceType sourceType;
+        try {
+            sourceType = DataSourceType.valueOf(properties.get(DataSourceConfigKeys.TYPE).toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException("Unsupported type: " + properties.get(DataSourceConfigKeys.TYPE));
+        }
+        switch (sourceType) {
+            case MYSQL:
+                if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.DATABASE))) {
+                    throw new AnalysisException("database is required for MySQL");
+                }
+                break;
+            case POSTGRES:
+                if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.SCHEMA))) {
+                    throw new AnalysisException("schema is required for PostgreSQL");
+                }
+                validatePgIdentifierIfPresent(properties, DataSourceConfigKeys.SLOT_NAME);
+                validatePgIdentifierIfPresent(properties, DataSourceConfigKeys.PUBLICATION_NAME);
+                break;
+            default:
+                throw new AnalysisException("Unsupported type: " + sourceType);
+        }
+        String offset = properties.get(DataSourceConfigKeys.OFFSET);
+        if (!DataSourceConfigValidator.isValidOffset(offset, sourceType.name())) {
+            throw new AnalysisException("Invalid value for key 'offset': " + offset);
+        }
+        String sslMode = properties.get(DataSourceConfigKeys.SSL_MODE);
+        if (sslMode != null && !DataSourceConfigValidator.isValidSslMode(sslMode)) {
+            throw new AnalysisException("Invalid value for key 'ssl_mode': " + sslMode);
+        }
+        try {
+            DataSourceConfigValidator.validateSslVerifyCaPair(properties);
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+        validatePositiveIntIfPresent(properties, DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE);
+        validatePositiveIntIfPresent(properties, DataSourceConfigKeys.SNAPSHOT_PARALLELISM);
+        // TVF entrypoint shares server_id checks with the from-to path's validateSource.
+        try {
+            DataSourceConfigValidator.validateServerIdConfig(properties);
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+    }
+
+    private static void validatePositiveIntIfPresent(Map<String, String> properties, String key)
+            throws AnalysisException {
+        String value = properties.get(key);
+        if (value == null) {
+            return;
+        }
+        if (!DataSourceConfigValidator.isPositiveInt(value)) {
+            throw new AnalysisException("Invalid value for key '" + key + "': " + value);
+        }
+    }
+
+    private static void validatePgIdentifierIfPresent(Map<String, String> properties, String key)
+            throws AnalysisException {
+        String value = properties.get(key);
+        if (value == null) {
+            return;
+        }
+        if (!DataSourceConfigValidator.isValidPgIdentifier(value)) {
+            throw new AnalysisException("Invalid value for key '" + key + "': " + value);
         }
     }
 

@@ -23,6 +23,7 @@ import org.apache.doris.authentication.Principal;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Authentication outcome returned by the handler.
@@ -79,6 +80,15 @@ public final class AuthenticationOutcome {
      */
     public Optional<Principal> getPrincipal() {
         return authResult.principal();
+    }
+
+    /**
+     * Get the roles granted during authentication handling.
+     *
+     * @return immutable granted roles set
+     */
+    public Set<String> getGrantedRoles() {
+        return authResult.getGrantedRoles();
     }
 
     /**

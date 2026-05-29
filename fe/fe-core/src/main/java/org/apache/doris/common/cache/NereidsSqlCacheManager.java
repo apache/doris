@@ -59,7 +59,6 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.persist.TableMetaChange;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext;
@@ -113,31 +112,29 @@ public class NereidsSqlCacheManager {
     }
 
     public void invalidateAboutTable(TableIf tableIf) {
-        invalidateAboutTable(TableMetaChange.fromTable(tableIf));
-    }
-
-    public void invalidateAboutTable(TableMetaChange event) {
+        Set<String> invalidateKeys = new LinkedHashSet<>();
         FullTableName invalidateTableName = null;
-        if (event.getCatalogName() != null && event.getDbName() != null && event.getTableName() != null) {
-            invalidateTableName = new FullTableName(
-                    event.getCatalogName(), event.getDbName(), event.getTableName());
+        DatabaseIf database = tableIf.getDatabase();
+        if (database != null) {
+            CatalogIf catalog = database.getCatalog();
+            if (catalog != null) {
+                invalidateTableName = new FullTableName(
+                        database.getCatalog().getName(), database.getFullName(), tableIf.getName()
+                );
+            }
         }
 
-        Set<String> invalidateKeys = new LinkedHashSet<>();
         for (Entry<String, SqlCacheContext> kv : sqlCaches.asMap().entrySet()) {
             String key = kv.getKey();
             SqlCacheContext context = kv.getValue();
-            if (context == null) {
-                continue;
-            }
             for (Entry<FullTableName, TableVersion> nameToVersion : context.getUsedTables().entrySet()) {
                 FullTableName tableName = nameToVersion.getKey();
                 TableVersion tableVersion = nameToVersion.getValue();
-                if (tableVersion.id == event.getTableId()) {
+                if (tableVersion.id == tableIf.getId()) {
                     invalidateKeys.add(key);
                     break;
                 }
-                if (invalidateTableName != null && tableName.equals(invalidateTableName)) {
+                if (tableName.equals(invalidateTableName)) {
                     invalidateKeys.add(key);
                     break;
                 }
@@ -466,9 +463,6 @@ public class NereidsSqlCacheManager {
                 // some partitions have been dropped, or delete or updated or replaced,
                 // or insert rows into new partition?
                 if (currentTableVersion != cacheTableVersion) {
-                    return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
-                }
-                if (olapTable.getBaseSchemaVersion() != tableVersion.schemaVersion) {
                     return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
                 }
                 if (tableIf instanceof MTMV) {

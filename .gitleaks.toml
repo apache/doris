@@ -1,0 +1,14 @@
+title = "Doris gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Ignore the fake OIDC token fixture in AuthenticatorManagerTest"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^fe/fe-core/src/test/java/org/apache/doris/mysql/authenticate/AuthenticatorManagerTest\.java$''']
+regexes = ['''OIDC_ID_TOKEN\s*=\s*"eyJhbGciOiJub25lIn0\.eyJzdWIiOiJhbGljZSJ9\.signature"''']

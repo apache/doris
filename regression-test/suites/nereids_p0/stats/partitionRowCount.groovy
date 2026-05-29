@@ -29,6 +29,18 @@ suite("partitionRowCount") {
         distributed by hash(a) properties("replication_num"="1");
         insert into partitionRowCountTable values (5, 3, 0), (22, 150, 1), (333, 1, 2);
         insert into partitionRowCountTable values (5, 3, 10), (22, 150, 11), (333, 1, 12);
+    """
+    def tableData = sql "show data from partitionRowCountTable;"
+    def retry = 0
+    while (tableData[0][4] != "6" && retry < 120) {
+        sleep(1000)
+        tableData = sql "show data from partitionRowCountTable;"
+        retry++
+        logger.info("wait partitionRowCountTable row count, retry " + retry + " times, tableData: " + tableData)
+    }
+    assertEquals("6", tableData[0][4], "partitionRowCountTable row count is not reported: " + tableData)
+
+    sql """
         analyze table partitionRowCountTable with sync;
     """
     explain {

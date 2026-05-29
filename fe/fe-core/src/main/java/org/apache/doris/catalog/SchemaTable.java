@@ -815,6 +815,7 @@ public class SchemaTable extends Table {
                             .column("LABEL", ScalarType.createStringType())
                             .column("MSG", ScalarType.createStringType())
                             .column("COUNT", ScalarType.createType(PrimitiveType.INT))
+                            .column("VAULT_ID", ScalarType.createStringType())
                             .build()))
             .put("cluster_snapshot_properties",
                     new SchemaTable(SystemIdGenerator.getNextId(), "cluster_snapshot_properties", TableType.SCHEMA,
@@ -828,6 +829,17 @@ public class SchemaTable extends Table {
                         builder().column("NAME", ScalarType.createVarchar(256))
                             .column("TYPE", ScalarType.createVarchar(64))
                             .column("PROPERTIES", ScalarType.createStringType())
+                            .column("COMMENT", ScalarType.createStringType())
+                            .column("CREATE_USER", ScalarType.createStringType())
+                            .column("CREATE_TIME", ScalarType.createStringType())
+                            .column("ALTER_USER", ScalarType.createStringType())
+                            .column("MODIFY_TIME", ScalarType.createStringType())
+                            .build()))
+            .put("role_mappings",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "role_mappings", TableType.SCHEMA,
+                        builder().column("NAME", ScalarType.createVarchar(256))
+                            .column("INTEGRATION_NAME", ScalarType.createVarchar(256))
+                            .column("RULES", ScalarType.createStringType())
                             .column("COMMENT", ScalarType.createStringType())
                             .column("CREATE_USER", ScalarType.createStringType())
                             .column("CREATE_TIME", ScalarType.createStringType())

@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.BasicPrincipal;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -24,6 +26,9 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.UserProperty;
+import org.apache.doris.mysql.privilege.UserPropertyMgr;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -197,5 +202,30 @@ public class UserPropertyTest {
         userProperty = new UserProperty();
         userProperty.update(properties);
         Assert.assertEquals("exist_catalog",  userProperty.getInitCatalog());
+    }
+
+    @Test
+    public void testExternalTempUserUsesDefaultPropertyFallback() {
+        UserPropertyMgr propertyMgr = new UserPropertyMgr();
+        Assert.assertEquals(0, propertyMgr.getMaxConn("external_alice"));
+
+        ConnectContext ctx = new ConnectContext();
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("external_alice", "127.0.0.1"));
+        ctx.setIsTempUser(true);
+        ctx.setAuthenticatedPrincipal(BasicPrincipal.builder()
+                .name("external_alice")
+                .authenticator("corp_oidc")
+                .build());
+        ctx.setThreadLocalInfo();
+        try {
+            Assert.assertEquals(100, propertyMgr.getMaxConn("external_alice"));
+            Assert.assertEquals(-1, propertyMgr.getQueryTimeout("external_alice"));
+            Assert.assertEquals(-1, propertyMgr.getInsertTimeout("external_alice"));
+            Assert.assertEquals("internal", propertyMgr.getInitCatalog("external_alice"));
+            Assert.assertEquals(WorkloadGroupMgr.DEFAULT_GROUP_NAME,
+                    propertyMgr.getWorkloadGroup("external_alice"));
+        } finally {
+            ConnectContext.remove();
+        }
     }
 }

@@ -1600,8 +1600,8 @@ Status SegmentIterator::_init_index_iterators() {
                         data_type = inferred_type;
                     }
                 }
-                inverted_indexs_holder =
-                        variant_reader->find_subcolumn_tablet_indexes(column, data_type);
+                inverted_indexs_holder = variant_reader->find_subcolumn_tablet_indexes(
+                        column, data_type, _opts.stats);
                 // Extract raw pointers from shared_ptr for iteration
                 for (const auto& index_ptr : inverted_indexs_holder) {
                     inverted_indexs.push_back(index_ptr.get());
@@ -1611,9 +1611,38 @@ Status SegmentIterator::_init_index_iterators() {
             else {
                 inverted_indexs = _segment->_tablet_schema->inverted_indexs(column);
             }
+            if (column.is_extracted_column() && inverted_indexs.empty() && _opts.stats != nullptr) {
+                const auto relative_path = column.path_info_ptr()->copy_pop_front().get_path();
+                const auto diagnostic = fmt::format(
+                        "[VariantSearchBinding] phase=init_index_iterators "
+                        "result=no_candidate tablet_id={} rowset_id={} segment_id={} cid={} "
+                        "logical_path={} relative_path={} materialized_column={}",
+                        _tablet_id, _segment->rowset_id().to_string(), _segment->id(), cid,
+                        column.path_info_ptr()->get_path(), relative_path, column.name());
+                VLOG_DEBUG << diagnostic;
+                _opts.stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
+            }
             for (const auto& inverted_index : inverted_indexs) {
+                const bool had_iterator = _index_iterators[cid] != nullptr;
                 RETURN_IF_ERROR(_segment->new_index_iterator(column, inverted_index, _opts,
                                                              &_index_iterators[cid]));
+                if ((column.is_extracted_column() || column.is_variant_type()) &&
+                    _opts.stats != nullptr) {
+                    const auto diagnostic = fmt::format(
+                            "[VariantSearchBinding] phase=init_index_iterators "
+                            "result={} tablet_id={} rowset_id={} segment_id={} cid={} "
+                            "logical_path={} materialized_column={} index_id={} suffix={} "
+                            "field_pattern={} iterator_state={}",
+                            _index_iterators[cid] == nullptr ? "no_iterator" : "accepted",
+                            _tablet_id, _segment->rowset_id().to_string(), _segment->id(), cid,
+                            column.has_path_info() ? column.path_info_ptr()->get_path()
+                                                   : column.name(),
+                            column.name(), inverted_index->index_id(),
+                            inverted_index->get_index_suffix(), inverted_index->field_pattern(),
+                            had_iterator ? "preserved" : "created");
+                    VLOG_DEBUG << diagnostic;
+                    _opts.stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
+                }
             }
             if (_index_iterators[cid] != nullptr) {
                 _index_iterators[cid]->set_context(_index_query_context);
