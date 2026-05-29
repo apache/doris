@@ -69,6 +69,9 @@ public:
     // 返回列必须保持 file-local 语义，不能在这里补 default/generated/partition 列。
     Status get_block(Block* file_block, size_t* rows, bool* eof) override;
 
+    Status get_aggregate_result(const reader::FileAggregateRequest& request,
+                                reader::FileAggregateResult* result) override;
+
     Status close() override;
 
 protected:

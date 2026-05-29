@@ -268,14 +268,38 @@ void write_parquet_file(const std::string& file_path, int32_t id, const std::str
                                                       builder.build()));
 }
 
+void write_iceberg_equality_delete_parquet_file(const std::string& file_path, int32_t field_id,
+                                                int32_t value) {
+    const auto metadata =
+            arrow::key_value_metadata({"PARQUET:field_id"}, {std::to_string(field_id)});
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false)->WithMetadata(metadata),
+    });
+    auto table = arrow::Table::Make(schema, {build_int32_array({value})});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
+                                                      builder.build()));
+}
+
 void write_int_pair_parquet_file(const std::string& file_path, const std::vector<int32_t>& ids,
                                  const std::vector<int32_t>& scores,
                                  const std::vector<std::string>& values,
                                  int64_t row_group_size = -1) {
+    const auto id_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"0"});
+    const auto score_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"1"});
+    const auto value_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"2"});
     auto schema = arrow::schema({
-            arrow::field("id", arrow::int32(), false),
-            arrow::field("score", arrow::int32(), false),
-            arrow::field("value", arrow::utf8(), false),
+            arrow::field("id", arrow::int32(), false)->WithMetadata(id_metadata),
+            arrow::field("score", arrow::int32(), false)->WithMetadata(score_metadata),
+            arrow::field("value", arrow::utf8(), false)->WithMetadata(value_metadata),
     });
     auto table = arrow::Table::Make(schema, {build_int32_array(ids), build_int32_array(scores),
                                              build_string_array(values)});
@@ -394,6 +418,16 @@ TIcebergDeleteFileDesc make_iceberg_position_delete_file(const std::string& path
     TIcebergDeleteFileDesc delete_file;
     delete_file.__set_content(1);
     delete_file.__set_path(path);
+    delete_file.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+    return delete_file;
+}
+
+TIcebergDeleteFileDesc make_iceberg_equality_delete_file(const std::string& path,
+                                                         const std::vector<int32_t>& field_ids) {
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_content(2);
+    delete_file.__set_path(path);
+    delete_file.__set_field_ids(field_ids);
     delete_file.__set_file_format(TFileFormatType::FORMAT_PARQUET);
     return delete_file;
 }
@@ -557,6 +591,268 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, PushDownCountFromNewParquetReader) {
+    const auto test_dir = std::filesystem::temp_directory_path() / "doris_table_reader_count_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3, 4, 5}, {10, 20, 30, 40, 50},
+                                {"one", "two", "three", "four", "five"}, 2);
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 5);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, PushDownMinMaxFromNewParquetReader) {
+    const auto test_dir = std::filesystem::temp_directory_path() / "doris_table_reader_minmax_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_int_pair_parquet_file(file_path, {3, 1, 5, 2}, {30, 10, 50, 20},
+                                {"three", "one", "five", "two"}, 2);
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    projected_columns.push_back(make_table_column(1, "score", std::make_shared<DataTypeInt32>()));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .push_down_agg_type = TPushAggOp::type::MINMAX,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 2);
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& score_column = assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
+    EXPECT_EQ(id_column.get_element(0), 1);
+    EXPECT_EQ(id_column.get_element(1), 5);
+    EXPECT_EQ(score_column.get_element(0), 10);
+    EXPECT_EQ(score_column.get_element(1), 50);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, PushDownMinMaxCastsFileValueToTableType) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_minmax_cast_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_int_pair_parquet_file(file_path, {3, 1, 5, 2}, {30, 10, 50, 20},
+                                {"three", "one", "five", "two"}, 2);
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt64>()));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .push_down_agg_type = TPushAggOp::type::MINMAX,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 2);
+    const auto& id_column = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+    EXPECT_EQ(id_column.get_element(0), 1);
+    EXPECT_EQ(id_column.get_element(1), 5);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, PushDownCountFallsBackWithTableConjunct) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_count_conjunct_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(
+                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 2)),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 1);
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    EXPECT_EQ(id_column.get_element(0), 3);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, PushDownCountFallsBackWithColumnPredicate) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_count_predicate_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"}, 1);
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    TableColumnPredicates column_predicates;
+    column_predicates[0].push_back(create_comparison_predicate<PredicateType::GT>(
+            0, "id", std::make_shared<DataTypeInt32>(), Field::create_field<TYPE_INT>(2), false));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = std::move(column_predicates),
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 1);
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    EXPECT_EQ(id_column.get_element(0), 3);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, PushDownMinMaxFallsBackWithoutDirectFileMapping) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_minmax_missing_mapping_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_parquet_file(file_path, 1, "one");
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(
+            make_table_column(99, "missing_id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .push_down_agg_type = TPushAggOp::type::MINMAX,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 1);
+    EXPECT_EQ(block.get_by_position(0).column->get_int(0), 0);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_conjunct_filter_test";
@@ -685,6 +981,61 @@ TEST(TableReaderTest, OpenReaderBuildsColumnPredicateFilters) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, ColumnPredicateSurvivesReopenSplit) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_predicate_reopen_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const std::vector<std::string> file_paths = {
+            (test_dir / "split_1.parquet").string(),
+            (test_dir / "split_2.parquet").string(),
+    };
+    write_int_pair_parquet_file(file_paths[0], {1, 3}, {10, 30}, {"one", "three"}, 1);
+    write_int_pair_parquet_file(file_paths[1], {2, 4}, {20, 40}, {"two", "four"}, 1);
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    TableColumnPredicates column_predicates;
+    column_predicates[0].push_back(create_comparison_predicate<PredicateType::GT>(
+            0, "id", std::make_shared<DataTypeInt32>(), Field::create_field<TYPE_INT>(2), false));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = std::move(column_predicates),
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+
+    std::vector<int32_t> ids;
+    for (const auto& file_path : file_paths) {
+        ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+        Block block = build_table_block(projected_columns);
+        bool eos = false;
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        ASSERT_FALSE(eos);
+        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+        ASSERT_EQ(id_column.size(), 1);
+        ids.push_back(id_column.get_element(0));
+
+        ASSERT_TRUE(reader.close().ok());
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({3, 4}));
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     const std::vector<TableColumn> projected_columns = {
@@ -761,6 +1112,51 @@ TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
                               file_request.non_predicate_columns.end(),
                               predicate_column) == file_request.non_predicate_columns.end());
     }
+}
+
+TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const std::vector<TableColumn> projected_columns = {
+            make_table_column(0, "id", int_type),
+            make_table_column(1, "score", int_type),
+    };
+    const std::vector<SchemaField> file_schema = {
+            {.id = 0,
+             .name = "id",
+             .type = int_type,
+             .children = {},
+             .file_path = {0},
+             .field_id_path = {0},
+             .name_path = {"id"},
+             .column_type = DATA_COLUMN},
+            {.id = 1,
+             .name = "score",
+             .type = int_type,
+             .children = {},
+             .file_path = {1},
+             .field_id_path = {1},
+             .name_path = {"score"},
+             .column_type = DATA_COLUMN},
+    };
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(
+                    std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+            .slot_ids = {0},
+    };
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+
+    EXPECT_EQ(file_request.predicate_columns, std::vector<ColumnId>({0}));
+    EXPECT_EQ(file_request.non_predicate_columns, std::vector<ColumnId>({1}));
+    ASSERT_EQ(file_request.column_positions.size(), 2);
+    EXPECT_EQ(file_request.column_positions.at(0), 1);
+    EXPECT_EQ(file_request.column_positions.at(1), 0);
 }
 
 TEST(TableReaderTest, OpenReaderPushesMultiColumnConjunctToParquetReader) {
@@ -1194,6 +1590,7 @@ TEST(TableReaderTest, IcebergTableReaderAppliesDeletionVectorFile) {
                                     .runtime_state = &state,
                                     .scanner_profile = &profile,
                                     .allow_missing_columns = true,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
                                     .profile = make_table_read_profile(&profile),
                             })
                         .ok());
@@ -1205,6 +1602,226 @@ TEST(TableReaderTest, IcebergTableReaderAppliesDeletionVectorFile) {
     ASSERT_TRUE(reader.prepare_split(split_options).ok());
 
     EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({2, 3, 4}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithDeletes) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_aggregate_delete_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto dv_path = (test_dir / "delete-vector.bin").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+    const auto dv_size = write_iceberg_deletion_vector_file(dv_path, {0});
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                                    .allow_missing_columns = true,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                                    .profile = make_table_read_profile(&profile),
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_deletion_vector(dv_path, 0, dv_size)}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 2);
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    EXPECT_EQ(id_column.get_element(0), 2);
+    EXPECT_EQ(id_column.get_element(1), 3);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithPositionDelete) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_aggregate_position_delete_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "position-delete.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+    write_position_delete_parquet_file(delete_file_path, {file_path}, {1});
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                                    .allow_missing_columns = true,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                                    .profile = make_table_read_profile(&profile),
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_position_delete_file(delete_file_path)}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 2);
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    EXPECT_EQ(id_column.get_element(0), 1);
+    EXPECT_EQ(id_column.get_element(1), 3);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, IcebergPositionDeleteFallsBackToSplitPath) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_position_delete_path_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "position-delete.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+    write_position_delete_parquet_file(delete_file_path, {file_path}, {1});
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                                    .allow_missing_columns = true,
+                                    .profile = make_table_read_profile(&profile),
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    TTableFormatFileDesc table_format_params;
+    TIcebergFileDesc iceberg_params;
+    iceberg_params.__set_format_version(2);
+    iceberg_params.__set_delete_files({make_iceberg_position_delete_file(delete_file_path)});
+    table_format_params.__set_iceberg_params(iceberg_params);
+    split_options.current_range.__set_table_format_params(table_format_params);
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithEqualityDelete) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_aggregate_equality_delete_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+    write_iceberg_equality_delete_parquet_file(delete_file_path, 0, 2);
+
+    std::vector<TableColumn> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                                    .allow_missing_columns = true,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                                    .profile = make_table_read_profile(&profile),
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 2);
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    EXPECT_EQ(id_column.get_element(0), 1);
+    EXPECT_EQ(id_column.get_element(1), 3);
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
@@ -1332,8 +1949,9 @@ TEST(TableReaderTest, RowPositionDeletePredicateColumnIsNotRepeatedAsOutputColum
     EXPECT_EQ(request.non_predicate_columns, std::vector<ColumnId>({0}));
     ASSERT_TRUE(request.column_positions.contains(row_position_column_id));
     EXPECT_EQ(request.column_positions.at(row_position_column_id), 1);
-    ASSERT_EQ(request.expression_filters.size(), 1);
-    EXPECT_NE(request.expression_filters[0].delete_conjunct, nullptr);
+    ASSERT_TRUE(request.conjuncts.empty());
+    ASSERT_EQ(request.delete_conjuncts.size(), 1);
+    EXPECT_NE(request.delete_conjuncts[0], nullptr);
 }
 
 TEST(TableReaderTest, ParquetReaderReadsOnlyRowGroupsInFileRange) {

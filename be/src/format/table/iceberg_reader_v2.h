@@ -53,6 +53,8 @@ protected:
 
     Status customize_file_scan_request(reader::FileScanRequest* file_request) override;
 
+    bool _supports_aggregate_pushdown(TPushAggOp::type agg_type) const override;
+
     Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
                                        bool* has_delete_file) override;
 
@@ -93,17 +95,16 @@ private:
     static std::unique_ptr<io::FileDescription> _delete_file_description(
             const TFileRangeDesc& range);
 
-    static const reader::SchemaField* _find_delete_field(
-            const std::vector<reader::SchemaField>& schema, const std::string& name);
+    std::string _data_file_path() const;
 
+    // Append row position column to file scan request for position delete handling.
     Status _append_row_position_output_column(reader::FileScanRequest* request);
-
+    // Append equality delete predicates to file scan request based on the delete files in iceberg
+    // params. DeleteVector and position delete files use the common DeleteRows path in TableReader.
     Status _append_equality_delete_predicates(reader::FileScanRequest* request);
 
     Status _init_equality_delete_predicates(
             const std::vector<TIcebergDeleteFileDesc>& delete_files);
-
-    std::string _data_file_path() const;
 
     // Read equality/position delete files.
     Status _read_parquet_equality_delete_file(const TIcebergDeleteFileDesc& delete_file,

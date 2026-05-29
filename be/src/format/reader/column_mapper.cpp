@@ -43,6 +43,13 @@ struct FileSlotRewriteInfo {
     std::string file_column_name;
 };
 
+static VExprSPtr create_file_slot_ref(const VSlotRef& slot_ref,
+                                      const FileSlotRewriteInfo& rewrite_info) {
+    return TableSlotRef::create_shared(slot_ref.slot_id(),
+                                       cast_set<int>(rewrite_info.block_position), -1,
+                                       rewrite_info.file_type, rewrite_info.file_column_name);
+}
+
 static VExprSPtr rewrite_table_expr_to_file_expr(
         const VExprSPtr& expr,
         const std::map<int32_t, FileSlotRewriteInfo>& table_column_to_file_slot) {
@@ -54,9 +61,7 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
         const auto rewrite_it = table_column_to_file_slot.find(slot_ref->slot_id());
         if (rewrite_it != table_column_to_file_slot.end()) {
             const auto& rewrite_info = rewrite_it->second;
-            auto file_slot = TableSlotRef::create_shared(
-                    slot_ref->slot_id(), cast_set<int>(rewrite_info.block_position), -1,
-                    rewrite_info.file_type, rewrite_info.file_column_name);
+            auto file_slot = create_file_slot_ref(*slot_ref, rewrite_info);
             if (rewrite_info.file_type->equals(*rewrite_info.table_type)) {
                 return file_slot;
             }
@@ -65,6 +70,27 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
             return cast_expr;
         }
         return expr;
+    }
+    // rewrite_table_expr_to_file_expr localizes the expression tree in-place because VExpr does
+    // not provide a generic deep-clone API. A previous split may already have inserted Cast(slot)
+    // for the same table-level conjunct. Keep that rewrite idempotent: rewrite the cast child
+    // from table slot to the current split's file slot, and drop the cast when the current split
+    // no longer needs it.
+    if (dynamic_cast<const Cast*>(expr.get()) != nullptr && expr->get_num_children() == 1) {
+        const auto& child = expr->children()[0];
+        if (child->is_slot_ref()) {
+            const auto* slot_ref = assert_cast<const VSlotRef*>(child.get());
+            const auto rewrite_it = table_column_to_file_slot.find(slot_ref->slot_id());
+            if (rewrite_it != table_column_to_file_slot.end() &&
+                expr->data_type()->equals(*rewrite_it->second.table_type)) {
+                auto rewritten_child = create_file_slot_ref(*slot_ref, rewrite_it->second);
+                if (rewrite_it->second.file_type->equals(*rewrite_it->second.table_type)) {
+                    return rewritten_child;
+                }
+                expr->set_children({std::move(rewritten_child)});
+                return expr;
+            }
+        }
     }
 
     // VExpr currently does not provide a generic deep-clone API for arbitrary expression types.
@@ -85,12 +111,27 @@ static constexpr const char* ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER = "_last_update
 
 static void add_scan_column(FileScanRequest* file_request, ColumnId file_column_id,
                             std::vector<ColumnId>* scan_columns) {
+    if (scan_columns == &file_request->non_predicate_columns &&
+        std::find(file_request->predicate_columns.begin(), file_request->predicate_columns.end(),
+                  file_column_id) != file_request->predicate_columns.end()) {
+        return;
+    }
     // column_positions is the global read-column index for this scan request, so it also
     // deduplicates predicate_columns and non_predicate_columns across all filter/projection paths.
-    if (file_request->column_positions.count(file_column_id) == 0) {
+    const bool newly_added = file_request->column_positions.count(file_column_id) == 0;
+    if (newly_added) {
         file_request->column_positions.emplace(file_column_id,
                                                file_request->column_positions.size());
+    }
+    if (std::find(scan_columns->begin(), scan_columns->end(), file_column_id) ==
+        scan_columns->end()) {
         scan_columns->push_back(file_column_id);
+    }
+    if (scan_columns == &file_request->predicate_columns) {
+        file_request->non_predicate_columns.erase(
+                std::remove(file_request->non_predicate_columns.begin(),
+                            file_request->non_predicate_columns.end(), file_column_id),
+                file_request->non_predicate_columns.end());
     }
 }
 
@@ -293,7 +334,8 @@ Status TableColumnMapper::create_scan_request(const std::vector<TableFilter>& ta
     file_request->non_predicate_columns.clear();
     file_request->column_positions.clear();
     file_request->complex_projections.clear();
-    file_request->expression_filters.clear();
+    file_request->conjuncts.clear();
+    file_request->delete_conjuncts.clear();
     file_request->column_predicate_filters.clear();
     file_request->reader_expression_map.clear();
     // 1. Build referenced non-predicate columns
@@ -379,19 +421,9 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             continue;
         }
         if (table_filter.conjunct != nullptr) {
-            FileExpressionFilter expression_filter;
-            expression_filter.conjunct =
+            file_request->conjuncts.push_back(
                     VExprContext::create_shared(rewrite_table_expr_to_file_expr(
-                            table_filter.conjunct->root(), table_column_to_file_slot));
-            expression_filter.file_column_ids.reserve(table_filter.slot_ids.size());
-            for (const auto table_column_id : table_filter.slot_ids) {
-                const auto* mapping = _find_mapping(table_column_id);
-                if (mapping == nullptr || !mapping->file_column_id.has_value()) {
-                    continue;
-                }
-                expression_filter.file_column_ids.push_back(*mapping->file_column_id);
-            }
-            file_request->expression_filters.push_back(std::move(expression_filter));
+                            table_filter.conjunct->root(), table_column_to_file_slot)));
         }
     }
     for (const auto& [table_column_id, predicates] : table_column_predicates) {

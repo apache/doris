@@ -106,7 +106,7 @@ public:
 
     // 把 table-level scan 请求转换成 file-local scan 请求。
     // table_request 使用 table/global schema；file_request 只包含 FileReader 能理解的
-    // projected_file_columns、expression_filters、column_predicate_filters 和
+    // projected_file_columns、conjuncts、delete_conjuncts、column_predicate_filters 和
     // reader_expression_map。
     virtual Status create_scan_request(const std::vector<TableFilter>& table_filters,
                                        const TableColumnPredicates& table_column_predicates,
@@ -149,7 +149,9 @@ private:
     }
 
     bool _is_same_type(const DataTypePtr& table_type, const DataTypePtr& file_type) const {
-        return table_type == file_type;
+        DORIS_CHECK(table_type != nullptr);
+        DORIS_CHECK(file_type != nullptr);
+        return table_type->equals(*file_type);
     }
 
     TableColumnMapperOptions _options;

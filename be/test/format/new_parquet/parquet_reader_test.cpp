@@ -485,9 +485,7 @@ TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     auto request = std::make_unique<reader::FileScanRequest>();
     request->predicate_columns = {0};
     request->non_predicate_columns = {1};
-    reader::FileExpressionFilter expression_filter;
-    expression_filter.conjunct = create_int32_greater_than_conjunct(0, 2);
-    request->expression_filters.push_back(std::move(expression_filter));
+    request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
     reader::FileColumnPredicateFilter column_filter;
     column_filter.file_column_id = 0;
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
@@ -532,9 +530,7 @@ TEST_F(NewParquetReaderTest, ReadMultiPredicateColumnsBeforeExpressionFilter) {
     auto request = std::make_unique<reader::FileScanRequest>();
     request->predicate_columns = {0, 1};
     request->non_predicate_columns = {};
-    reader::FileExpressionFilter expression_filter;
-    expression_filter.conjunct = create_int32_sum_greater_than_conjunct(0, 1, 7);
-    request->expression_filters.push_back(std::move(expression_filter));
+    request->conjuncts.push_back(create_int32_sum_greater_than_conjunct(0, 1, 7));
     ASSERT_TRUE(reader->open(request).ok());
 
     size_t rows = 0;
@@ -567,9 +563,7 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByStatistics) {
     auto request = std::make_unique<reader::FileScanRequest>();
     request->predicate_columns = {0};
     request->non_predicate_columns = {1};
-    reader::FileExpressionFilter expression_filter;
-    expression_filter.conjunct = create_int32_greater_than_conjunct(0, 2);
-    request->expression_filters.push_back(std::move(expression_filter));
+    request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
     reader::FileColumnPredicateFilter column_filter;
     column_filter.file_column_id = 0;
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
@@ -756,9 +750,7 @@ TEST_F(NewParquetReaderTest, RowPositionReaderKeepsPositionsAfterSelection) {
             {0, 0},
             {parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID, 2},
     };
-    reader::FileExpressionFilter expression_filter;
-    expression_filter.conjunct = create_int32_greater_than_conjunct(0, 2);
-    request->expression_filters.push_back(std::move(expression_filter));
+    request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
     ASSERT_TRUE(reader->open(request).ok());
 
     size_t rows = 0;
@@ -800,11 +792,7 @@ TEST_F(NewParquetReaderTest, DeletePredicateFiltersRowPositions) {
             {0, 0},
             {parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID, 2},
     };
-    reader::FileExpressionFilter delete_filter;
-    delete_filter.delete_conjunct = VExprContext::create_shared(std::move(delete_predicate));
-    delete_filter.file_column_ids.push_back(
-            parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID);
-    request->expression_filters.push_back(std::move(delete_filter));
+    request->delete_conjuncts.push_back(VExprContext::create_shared(std::move(delete_predicate)));
     ASSERT_TRUE(reader->open(request).ok());
 
     size_t rows = 0;
@@ -846,13 +834,8 @@ TEST_F(NewParquetReaderTest, QueryPredicateAndDeletePredicateFilterRowPositions)
             {0, 0},
             {parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID, 2},
     };
-    reader::FileExpressionFilter expression_filter;
-    expression_filter.conjunct = create_int32_greater_than_conjunct(0, 2);
-    expression_filter.delete_conjunct = VExprContext::create_shared(std::move(delete_predicate));
-    expression_filter.file_column_ids.push_back(0);
-    expression_filter.file_column_ids.push_back(
-            parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID);
-    request->expression_filters.push_back(std::move(expression_filter));
+    request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
+    request->delete_conjuncts.push_back(VExprContext::create_shared(std::move(delete_predicate)));
     ASSERT_TRUE(reader->open(request).ok());
 
     size_t rows = 0;
