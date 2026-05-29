@@ -77,6 +77,7 @@ struct ColumnMapping {
     std::vector<ColumnMapping> child_mappings;
     bool is_trivial = false;
     bool is_constant = false;
+    bool is_missing = false;
     bool has_complex_projection = false;
     TableVirtualColumnType virtual_column_type = TableVirtualColumnType::INVALID;
     VExprContextSPtr default_expr;
