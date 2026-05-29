@@ -8437,7 +8437,7 @@ TEST_F(BlockFileCacheTest, fs_file_cache_storage_finalize_missing_writer_returns
     key.meta.type = io::FileCacheType::NORMAL;
     key.meta.expiration_time = 0;
 
-    auto st = storage.finalize(key, 4096);
+    auto st = storage.finalize(key);
 
     EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
     EXPECT_TRUE(st.to_string().find("file cache finalize missing writer") != std::string::npos)
