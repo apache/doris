@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -72,6 +73,7 @@ struct NestedScalarOverflow {
 struct NestedStructBatch {
     int64_t records_read = 0;
     int64_t levels_written = 0;
+    std::vector<size_t> scalar_child_indices;
     std::vector<NestedScalarBatch> child_batches;
 
     bool empty() const { return levels_written == 0; }
@@ -127,6 +129,7 @@ public:
                        std::vector<std::unique_ptr<ParquetColumnReader>> children)
             : _field_id(schema.top_level_field_id),
               _nullable_definition_level(schema.nullable_definition_level),
+              _repeated_repetition_level(schema.repeated_repetition_level),
               _type(std::move(type)),
               _name(schema.name),
               _children(std::move(children)) {}
@@ -139,12 +142,15 @@ public:
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
 
-    Status collect_scalar_children(std::vector<ScalarColumnReader*>* children) const;
+    Status skip_non_scalar_children(int64_t rows);
+    size_t child_count() const { return _children.size(); }
+    ParquetColumnReader* child_reader(size_t child_idx) const { return _children[child_idx].get(); }
     int16_t nullable_definition_level() const { return _nullable_definition_level; }
 
 private:
     int _field_id = -1;
     int16_t _nullable_definition_level = 0;
+    int16_t _repeated_repetition_level = 0;
     DataTypePtr _type;
     std::string _name;
     std::vector<std::unique_ptr<ParquetColumnReader>> _children;
@@ -466,8 +472,10 @@ Status append_scalar_values(const ScalarColumnReader& column_reader,
     return Status::OK();
 }
 
-Status read_nested_scalar_batch(ScalarColumnReader& column_reader, int64_t batch_rows,
-                                int16_t value_slot_definition_level, NestedScalarBatch* batch) {
+Status read_nested_scalar_batch(
+        ScalarColumnReader& column_reader, int64_t batch_rows, int16_t value_slot_definition_level,
+        NestedScalarBatch* batch,
+        int16_t value_slot_repetition_level = std::numeric_limits<int16_t>::max()) {
     if (batch == nullptr) {
         return Status::InvalidArgument("Nested scalar batch is null for column {}",
                                        column_reader.name());
@@ -481,8 +489,13 @@ Status read_nested_scalar_batch(ScalarColumnReader& column_reader, int64_t batch
                 "Dense nullable parquet nested reader is not supported for column {}",
                 column_reader.name());
     }
-    batch->levels_written = record_reader->levels_written();
+    batch->levels_written = record_reader->levels_position();
     batch->values_written = record_reader->values_written();
+    if (batch->levels_written > record_reader->levels_written()) {
+        return Status::Corruption(
+                "Invalid nested parquet level position for column {}: position={}, levels={}",
+                column_reader.name(), batch->levels_written, record_reader->levels_written());
+    }
     if (batch->levels_written == 0 && batch->records_read > 0 &&
         batch->values_written == batch->records_read &&
         column_reader.descriptor()->max_definition_level() == 0 &&
@@ -531,8 +544,18 @@ Status read_nested_scalar_batch(ScalarColumnReader& column_reader, int64_t batch
     int64_t value_idx = 0;
     const int16_t max_definition_level = column_reader.descriptor()->max_definition_level();
     NullMap value_null_map;
+    const bool dense_value_slots = batch->values_written == batch->levels_written;
     for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
-        if (batch->def_levels[level_idx] >= value_slot_definition_level) {
+        if (dense_value_slots && column_reader.type()->is_nullable()) {
+            value_null_map.push_back(batch->def_levels[level_idx] != max_definition_level);
+        }
+        if (batch->def_levels[level_idx] < value_slot_definition_level ||
+            batch->rep_levels[level_idx] > value_slot_repetition_level) {
+            continue;
+        }
+        if (dense_value_slots) {
+            batch->value_indices[level_idx] = level_idx;
+        } else {
             if (value_idx >= batch->values_written) {
                 return Status::Corruption(
                         "Nested parquet reader returned fewer values than definition levels for "
@@ -545,7 +568,7 @@ Status read_nested_scalar_batch(ScalarColumnReader& column_reader, int64_t batch
             }
         }
     }
-    if (value_idx != batch->values_written) {
+    if (!dense_value_slots && value_idx != batch->values_written) {
         return Status::Corruption(
                 "Nested parquet reader returned extra values for column {}: consumed={}, values={}",
                 column_reader.name(), value_idx, batch->values_written);
@@ -604,6 +627,7 @@ void move_nested_struct_tail(const NestedStructBatch& src, int64_t start_level,
     NestedStructBatch dst;
     dst.records_read = 0;
     dst.levels_written = src.levels_written - start_level;
+    dst.scalar_child_indices = src.scalar_child_indices;
     dst.child_batches.reserve(src.child_batches.size());
     for (const auto& child_batch : src.child_batches) {
         NestedScalarOverflow child_overflow;
@@ -634,12 +658,24 @@ Status read_nested_struct_batch(StructColumnReader& struct_reader, int64_t batch
     *batch = NestedStructBatch();
 
     std::vector<ScalarColumnReader*> scalar_children;
-    RETURN_IF_ERROR(struct_reader.collect_scalar_children(&scalar_children));
+    scalar_children.reserve(struct_reader.child_count());
+    std::vector<size_t> scalar_child_indices;
+    scalar_child_indices.reserve(struct_reader.child_count());
+    for (size_t child_idx = 0; child_idx < struct_reader.child_count(); ++child_idx) {
+        auto* scalar_child =
+                dynamic_cast<ScalarColumnReader*>(struct_reader.child_reader(child_idx));
+        if (scalar_child == nullptr) {
+            continue;
+        }
+        scalar_child_indices.push_back(child_idx);
+        scalar_children.push_back(scalar_child);
+    }
     if (scalar_children.empty()) {
         return Status::NotSupported("Parquet nested STRUCT column {} has no scalar children",
                                     struct_reader.name());
     }
 
+    batch->scalar_child_indices = std::move(scalar_child_indices);
     batch->child_batches.resize(scalar_children.size());
     for (size_t child_idx = 0; child_idx < scalar_children.size(); ++child_idx) {
         RETURN_IF_ERROR(read_nested_scalar_batch(*scalar_children[child_idx], batch_rows,
@@ -685,10 +721,7 @@ Status append_struct_batch_value(StructColumnReader& struct_reader, const Nested
             nullable_column == nullptr ? nullptr : &nullable_column->get_null_map_data();
     DORIS_CHECK(struct_column != nullptr);
 
-    std::vector<ScalarColumnReader*> scalar_children;
-    RETURN_IF_ERROR(struct_reader.collect_scalar_children(&scalar_children));
-    DCHECK_EQ(struct_column->get_columns().size(), scalar_children.size());
-    DCHECK_EQ(batch.child_batches.size(), scalar_children.size());
+    DCHECK_EQ(batch.child_batches.size(), batch.scalar_child_indices.size());
 
     const bool parent_is_null = batch.child_batches[0].def_levels[level_idx] <
                                 struct_reader.nullable_definition_level();
@@ -703,8 +736,8 @@ Status append_struct_batch_value(StructColumnReader& struct_reader, const Nested
     }
 
     std::vector<MutableColumnPtr> child_columns;
-    child_columns.reserve(scalar_children.size());
-    for (size_t child_idx = 0; child_idx < scalar_children.size(); ++child_idx) {
+    child_columns.reserve(struct_column->get_columns().size());
+    for (size_t child_idx = 0; child_idx < struct_column->get_columns().size(); ++child_idx) {
         child_columns.push_back(struct_column->get_column_ptr(child_idx)->assume_mutable());
     }
 
@@ -718,21 +751,46 @@ Status append_struct_batch_value(StructColumnReader& struct_reader, const Nested
         for (auto& child_column : child_columns) {
             child_column->insert_default();
         }
+        RETURN_IF_ERROR(struct_reader.skip_non_scalar_children(1));
     } else {
         if (parent_null_map != nullptr) {
             parent_null_map->push_back(0);
         }
-        for (size_t child_idx = 0; child_idx < scalar_children.size(); ++child_idx) {
-            if (!scalar_children[child_idx]->type()->is_nullable() &&
-                batch.child_batches[child_idx].def_levels[level_idx] !=
-                        scalar_children[child_idx]->descriptor()->max_definition_level()) {
+        for (size_t scalar_idx = 0; scalar_idx < batch.child_batches.size(); ++scalar_idx) {
+            const size_t child_idx = batch.scalar_child_indices[scalar_idx];
+            auto* scalar_child =
+                    dynamic_cast<ScalarColumnReader*>(struct_reader.child_reader(child_idx));
+            if (scalar_child == nullptr) {
+                return Status::Corruption(
+                        "Parquet STRUCT column {} child {} is not a scalar batch child",
+                        struct_reader.name(), child_idx);
+            }
+            if (!scalar_child->type()->is_nullable() &&
+                batch.child_batches[scalar_idx].def_levels[level_idx] !=
+                        scalar_child->descriptor()->max_definition_level()) {
                 return Status::Corruption(
                         "Parquet STRUCT column {} contains null for non-nullable child {}",
-                        struct_reader.name(), scalar_children[child_idx]->name());
+                        struct_reader.name(), scalar_child->name());
             }
-            RETURN_IF_ERROR(append_scalar_batch_value(*scalar_children[child_idx],
-                                                      batch.child_batches[child_idx], level_idx,
+            RETURN_IF_ERROR(append_scalar_batch_value(*scalar_child,
+                                                      batch.child_batches[scalar_idx], level_idx,
                                                       child_columns[child_idx]));
+        }
+        for (size_t child_idx = 0; child_idx < struct_reader.child_count(); ++child_idx) {
+            if (dynamic_cast<ScalarColumnReader*>(struct_reader.child_reader(child_idx)) !=
+                nullptr) {
+                continue;
+            }
+            int64_t child_rows = 0;
+            RETURN_IF_ERROR(struct_reader.child_reader(child_idx)->read(1, child_columns[child_idx],
+                                                                        &child_rows));
+            if (child_rows != 1) {
+                return Status::Corruption(
+                        "Parquet STRUCT child {} returned {} rows while appending one parent row "
+                        "for column {}",
+                        struct_reader.child_reader(child_idx)->name(), child_rows,
+                        struct_reader.name());
+            }
         }
     }
 
@@ -1011,22 +1069,27 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
     DCHECK_EQ(struct_column->get_columns().size(), _children.size());
 
     std::vector<ScalarColumnReader*> scalar_children;
+    std::vector<size_t> scalar_child_indices;
     scalar_children.reserve(_children.size());
+    scalar_child_indices.reserve(_children.size());
     bool all_scalar_children = true;
-    for (const auto& child_reader : _children) {
+    for (size_t child_idx = 0; child_idx < _children.size(); ++child_idx) {
+        const auto& child_reader = _children[child_idx];
         DORIS_CHECK(child_reader != nullptr);
         auto* scalar_child = dynamic_cast<ScalarColumnReader*>(child_reader.get());
         if (scalar_child == nullptr) {
             all_scalar_children = false;
-            break;
+            continue;
         }
+        scalar_child_indices.push_back(child_idx);
         scalar_children.push_back(scalar_child);
     }
     if (all_scalar_children) {
         std::vector<NestedScalarBatch> child_batches(scalar_children.size());
         int64_t expected_rows = -1;
         for (size_t child_idx = 0; child_idx < scalar_children.size(); ++child_idx) {
-            RETURN_IF_ERROR(read_nested_scalar_batch(*scalar_children[child_idx], rows, 0,
+            RETURN_IF_ERROR(read_nested_scalar_batch(*scalar_children[child_idx], rows,
+                                                     _nullable_definition_level,
                                                      &child_batches[child_idx]));
             if (expected_rows < 0) {
                 expected_rows = child_batches[child_idx].records_read;
@@ -1105,10 +1168,131 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
         return Status::OK();
     }
 
+    if (!scalar_children.empty()) {
+        std::vector<NestedScalarBatch> child_batches(scalar_children.size());
+        int64_t expected_rows = -1;
+        for (size_t scalar_idx = 0; scalar_idx < scalar_children.size(); ++scalar_idx) {
+            RETURN_IF_ERROR(read_nested_scalar_batch(
+                    *scalar_children[scalar_idx], rows, _nullable_definition_level,
+                    &child_batches[scalar_idx], _repeated_repetition_level));
+            int64_t child_rows = 0;
+            for (int64_t level_idx = 0; level_idx < child_batches[scalar_idx].levels_written;
+                 ++level_idx) {
+                if (child_batches[scalar_idx].rep_levels[level_idx] <= _repeated_repetition_level) {
+                    ++child_rows;
+                }
+            }
+            if (expected_rows < 0) {
+                expected_rows = child_rows;
+            } else if (child_rows != expected_rows) {
+                return Status::Corruption(
+                        "Parquet struct children returned different row counts in column {}: {} "
+                        "vs {}",
+                        _name, expected_rows, child_rows);
+            }
+        }
+        if (expected_rows <= 0) {
+            *rows_read = 0;
+            return Status::OK();
+        }
+
+        std::vector<MutableColumnPtr> child_columns;
+        child_columns.reserve(_children.size());
+        for (size_t child_idx = 0; child_idx < _children.size(); ++child_idx) {
+            child_columns.push_back(struct_column->get_column_ptr(child_idx)->assume_mutable());
+        }
+
+        NullMap parent_nulls;
+        parent_nulls.reserve(static_cast<size_t>(expected_rows));
+        std::vector<int64_t> level_indices(child_batches.size(), 0);
+        for (int64_t row_idx = 0; row_idx < expected_rows; ++row_idx) {
+            for (size_t scalar_idx = 0; scalar_idx < child_batches.size(); ++scalar_idx) {
+                while (level_indices[scalar_idx] < child_batches[scalar_idx].levels_written &&
+                       child_batches[scalar_idx].rep_levels[level_indices[scalar_idx]] >
+                               _repeated_repetition_level) {
+                    ++level_indices[scalar_idx];
+                }
+                if (level_indices[scalar_idx] >= child_batches[scalar_idx].levels_written) {
+                    return Status::Corruption("Parquet struct child {} ended before column {}",
+                                              scalar_children[scalar_idx]->name(), _name);
+                }
+            }
+            const bool parent_is_null =
+                    child_batches[0].def_levels[level_indices[0]] < _nullable_definition_level;
+            parent_nulls.push_back(parent_is_null);
+            for (size_t scalar_idx = 1; scalar_idx < child_batches.size(); ++scalar_idx) {
+                const bool child_parent_is_null =
+                        child_batches[scalar_idx].def_levels[level_indices[scalar_idx]] <
+                        _nullable_definition_level;
+                if (child_parent_is_null != parent_is_null) {
+                    return Status::Corruption(
+                            "Parquet struct children returned different null parent shape in "
+                            "column {}",
+                            _name);
+                }
+            }
+            for (size_t scalar_idx = 0; scalar_idx < scalar_children.size(); ++scalar_idx) {
+                const size_t child_idx = scalar_child_indices[scalar_idx];
+                if (parent_is_null) {
+                    child_columns[child_idx]->insert_default();
+                    continue;
+                }
+                if (!scalar_children[scalar_idx]->type()->is_nullable() &&
+                    child_batches[scalar_idx].def_levels[level_indices[scalar_idx]] !=
+                            scalar_children[scalar_idx]->descriptor()->max_definition_level()) {
+                    return Status::Corruption(
+                            "Parquet STRUCT column {} contains null for non-nullable child {}",
+                            _name, scalar_children[scalar_idx]->name());
+                }
+                RETURN_IF_ERROR(append_scalar_batch_value(
+                        *scalar_children[scalar_idx], child_batches[scalar_idx],
+                        level_indices[scalar_idx], child_columns[child_idx]));
+            }
+            for (size_t child_idx = 0; child_idx < _children.size(); ++child_idx) {
+                if (dynamic_cast<ScalarColumnReader*>(_children[child_idx].get()) != nullptr) {
+                    continue;
+                }
+                if (parent_is_null) {
+                    child_columns[child_idx]->insert_default();
+                    RETURN_IF_ERROR(_children[child_idx]->skip(1));
+                    continue;
+                }
+                int64_t child_rows = 0;
+                RETURN_IF_ERROR(
+                        _children[child_idx]->read(1, child_columns[child_idx], &child_rows));
+                if (child_rows != 1) {
+                    return Status::Corruption(
+                            "Parquet STRUCT child {} returned {} rows while reading one parent row "
+                            "for column {}",
+                            _children[child_idx]->name(), child_rows, _name);
+                }
+            }
+            for (auto& level_idx : level_indices) {
+                ++level_idx;
+            }
+        }
+        for (size_t child_idx = 0; child_idx < child_columns.size(); ++child_idx) {
+            struct_column->get_column_ptr(child_idx) = std::move(child_columns[child_idx]);
+        }
+        if (parent_null_map == nullptr) {
+            for (const auto parent_is_null : parent_nulls) {
+                if (parent_is_null) {
+                    return Status::Corruption(
+                            "Parquet STRUCT column {} contains null for non-nullable struct",
+                            _name);
+                }
+            }
+        } else {
+            append_parent_nulls(parent_null_map, parent_nulls);
+        }
+        *rows_read = expected_rows;
+        return Status::OK();
+    }
+
     if (parent_null_map != nullptr) {
         return Status::NotSupported(
-                "Current parquet nullable STRUCT reader only supports scalar children for column "
-                "{}",
+                "Current parquet nullable STRUCT reader requires at least one scalar child for "
+                "column {}",
                 _name);
     }
 
@@ -1144,24 +1328,16 @@ Status StructColumnReader::skip(int64_t rows) {
     return Status::OK();
 }
 
-Status StructColumnReader::collect_scalar_children(
-        std::vector<ScalarColumnReader*>* children) const {
-    if (children == nullptr) {
-        return Status::InvalidArgument("Scalar child container is null for struct column {}",
-                                       _name);
+Status StructColumnReader::skip_non_scalar_children(int64_t rows) {
+    if (rows <= 0) {
+        return Status::OK();
     }
-    children->clear();
-    children->reserve(_children.size());
-    for (const auto& child_reader : _children) {
+    for (auto& child_reader : _children) {
         DORIS_CHECK(child_reader != nullptr);
-        auto* scalar_child = dynamic_cast<ScalarColumnReader*>(child_reader.get());
-        if (scalar_child == nullptr) {
-            return Status::NotSupported(
-                    "Current parquet nested STRUCT reader only supports scalar children for column "
-                    "{}",
-                    _name);
+        if (dynamic_cast<ScalarColumnReader*>(child_reader.get()) != nullptr) {
+            continue;
         }
-        children->push_back(scalar_child);
+        RETURN_IF_ERROR(child_reader->skip(rows));
     }
     return Status::OK();
 }
@@ -1275,11 +1451,13 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
                     }
                     entry_counts->push_back(0);
                     parent_nulls->push_back(1);
+                    RETURN_IF_ERROR(element_reader->skip_non_scalar_children(1));
                     return Status::OK();
                 }
                 entry_counts->push_back(0);
                 parent_nulls->push_back(0);
                 if (def_level == self->_nullable_definition_level) {
+                    RETURN_IF_ERROR(element_reader->skip_non_scalar_children(1));
                     return Status::OK();
                 }
                 return append_element(batch, level_idx);
@@ -1930,11 +2108,13 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
                 }
                 entry_counts->push_back(0);
                 parent_nulls->push_back(1);
+                RETURN_IF_ERROR(value_reader->skip_non_scalar_children(1));
                 return Status::OK();
             }
             entry_counts->push_back(0);
             parent_nulls->push_back(0);
             if (def_level == self->_nullable_definition_level) {
+                RETURN_IF_ERROR(value_reader->skip_non_scalar_children(1));
                 return Status::OK();
             }
             return append_entry(key_batch, level_idx);
