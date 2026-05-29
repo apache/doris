@@ -52,7 +52,6 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -70,7 +69,6 @@ import java.util.Optional;
  */
 public abstract class Literal extends Expression implements LeafExpression {
 
-    private static final Logger logger = Logger.getLogger(Literal.class);
     protected final DataType dataType;
 
     /**
@@ -396,8 +394,6 @@ public abstract class Literal extends Expression implements LeafExpression {
         }
         BigDecimal result = bigDecimal.setScale(sTarget, RoundingMode.HALF_UP)
                 .round(new MathContext(pTarget, RoundingMode.HALF_UP));
-        logger.info("getDecimalLiteral orig bigDecimal: " + bigDecimal
-                + ", targetType: " + targetType + ", result big decimal: " + result);
         if (targetType.isDecimalV2Type()) {
             return new DecimalLiteral((DecimalV2Type) targetType, result);
         } else {
