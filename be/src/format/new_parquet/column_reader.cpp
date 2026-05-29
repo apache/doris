@@ -169,7 +169,6 @@ public:
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
 
-    Status collect_first_scalar_child(ScalarColumnReader** child) const;
     int16_t nullable_definition_level() const { return _nullable_definition_level; }
     int16_t repeated_repetition_level() const { return _repeated_repetition_level; }
     ParquetColumnReader* element_reader() const { return _element_reader.get(); }
@@ -1165,31 +1164,6 @@ Status StructColumnReader::collect_scalar_children(
         children->push_back(scalar_child);
     }
     return Status::OK();
-}
-
-Status ListColumnReader::collect_first_scalar_child(ScalarColumnReader** child) const {
-    if (child == nullptr) {
-        return Status::InvalidArgument("First scalar child output is null for LIST column {}",
-                                       _name);
-    }
-    DORIS_CHECK(_element_reader != nullptr);
-    if (auto* scalar_child = dynamic_cast<ScalarColumnReader*>(_element_reader.get())) {
-        *child = scalar_child;
-        return Status::OK();
-    }
-    if (auto* struct_child = dynamic_cast<StructColumnReader*>(_element_reader.get())) {
-        std::vector<ScalarColumnReader*> scalar_children;
-        RETURN_IF_ERROR(struct_child->collect_scalar_children(&scalar_children));
-        DORIS_CHECK(!scalar_children.empty());
-        *child = scalar_children[0];
-        return Status::OK();
-    }
-    if (auto* list_child = dynamic_cast<ListColumnReader*>(_element_reader.get())) {
-        return list_child->collect_first_scalar_child(child);
-    }
-    return Status::NotSupported(
-            "Current parquet LIST reader cannot find scalar child for nested element column {}",
-            _name);
 }
 
 Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
