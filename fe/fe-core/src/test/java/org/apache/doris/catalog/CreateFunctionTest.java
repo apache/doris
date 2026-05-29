@@ -133,6 +133,35 @@ public class CreateFunctionTest {
     }
 
     @Test
+    public void testCreatePythonFunctionRejectsObjectTypes() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database py_obj_type_db;");
+        dorisAssert = new DorisAssert(ctx);
+        dorisAssert.useDatabase("py_obj_type_db");
+
+        assertCreateFunctionAnalysisException(ctx, "create function py_obj_type_db.py_bitmap_arg(bitmap) returns int "
+                + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2');",
+                "PYTHON_UDF does not support argument 1 type bitmap");
+        assertCreateFunctionAnalysisException(ctx, "create function py_obj_type_db.j_bitmap_arg(bitmap) returns int "
+                + "properties('type'='JAVA_UDF', 'symbol'='evaluate');",
+                "JAVA_UDF does not support argument 1 type bitmap");
+        assertCreateFunctionAnalysisException(ctx, "create function py_obj_type_db.py_hll_ret(int) returns hll "
+                + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2');",
+                "PYTHON_UDF does not support return type hll");
+        assertCreateFunctionAnalysisException(ctx, "create aggregate function py_obj_type_db.py_quantile_arg"
+                + "(quantile_state) returns int properties('type'='PYTHON_UDF', 'symbol'='Agg', "
+                + "'runtime_version'='3.10.2');",
+                "PYTHON_UDF does not support argument 1 type quantile_state");
+        assertCreateFunctionAnalysisException(ctx, "create aggregate function py_obj_type_db.j_quantile_arg"
+                + "(quantile_state) returns int properties('type'='JAVA_UDF', 'symbol'='Agg');",
+                "JAVA_UDF does not support argument 1 type quantile_state");
+        assertCreateFunctionAnalysisException(ctx, "create tables function py_obj_type_db.py_bitmap_table(int) "
+                + "returns array<bitmap> properties('type'='PYTHON_UDF', 'symbol'='evaluate', "
+                + "'runtime_version'='3.10.2');",
+                "ARRAY unsupported sub-type: bitmap");
+    }
+
+    @Test
     public void testCreateGlobalFunction() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         ctx.getSessionVariable().setEnableFoldConstantByBe(false);
@@ -215,6 +244,12 @@ public class CreateFunctionTest {
         if (parsed instanceof CreateFunctionCommand) {
             ((CreateFunctionCommand) parsed).run(connectContext, stmtExecutor);
         }
+    }
+
+    private void assertCreateFunctionAnalysisException(ConnectContext ctx, String sql, String message) {
+        Exception exception = Assert.assertThrows(Exception.class, () -> createFunction(sql, ctx));
+        Assert.assertTrue("Expected error to contain: " + message + ", actual: " + exception.getMessage(),
+                exception.getMessage().contains(message));
     }
 
     private boolean containsIgnoreCase(String str, String sub) {

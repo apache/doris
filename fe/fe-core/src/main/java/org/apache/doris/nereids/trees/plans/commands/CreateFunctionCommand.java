@@ -37,6 +37,7 @@ import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -347,6 +348,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         if (binaryType == TFunctionBinaryType.JAVA_UDF) {
             FunctionUtil.checkEnableJavaUdf();
+            checkUdfSupportedTypes();
             if (!isAggregate && !isTableFunction) {
                 volatility = analyzeVolatility();
             }
@@ -364,6 +366,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             extractExpirationTime();
         } else if (binaryType == TFunctionBinaryType.PYTHON_UDF) {
             FunctionUtil.checkEnablePythonUdf();
+            checkUdfSupportedTypes();
             if (!isAggregate && !isTableFunction) {
                 volatility = analyzeVolatility();
             }
@@ -417,6 +420,36 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
 
     private static boolean validatePythonRuntimeVersion(String runtimeVersionString) {
         return runtimeVersionString != null && PYTHON_VERSION_PATTERN.matcher(runtimeVersionString).matches();
+    }
+
+    private void checkUdfSupportedTypes() throws AnalysisException {
+        Type[] argTypes = argsDef.getArgTypes();
+        for (int i = 0; i < argTypes.length; i++) {
+            checkUdfSupportedType(argTypes[i], "argument " + (i + 1));
+        }
+        checkUdfSupportedType(returnType.toCatalogDataType(), "return");
+        if (intermediateType != null) {
+            checkUdfSupportedType(intermediateType.toCatalogDataType(), "intermediate");
+        }
+    }
+
+    private void checkUdfSupportedType(Type type, String typePosition) throws AnalysisException {
+        // Reject bitmap/hll/quantile_state type
+        if (type.isObjectStored()) {
+            throw new AnalysisException(String.format(
+                    "%s does not support %s type %s", binaryType, typePosition, type.toSql()));
+        }
+
+        if (type.isArrayType()) {
+            checkUdfSupportedType(((ArrayType) type).getItemType(), typePosition + " element");
+        } else if (type.isMapType()) {
+            checkUdfSupportedType(((MapType) type).getKeyType(), typePosition + " key");
+            checkUdfSupportedType(((MapType) type).getValueType(), typePosition + " value");
+        } else if (type.isStructType()) {
+            for (StructField field : ((StructType) type).getFields()) {
+                checkUdfSupportedType(field.getType(), typePosition + " field " + field.getName());
+            }
+        }
     }
 
     private Boolean parseBooleanFromProperties(String propertyString) throws AnalysisException {
