@@ -15,28 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.exceptions;
-
-import java.util.Optional;
+package org.apache.doris.nereids.parser;
 
 /**
- * cast exception.
+ * Optional fast-path SPI for the parser's "current Origin" stack. A Thread
+ * subclass that runs the parser hot-path may implement this so {@link ParserUtils}
+ * can store and load the Origin in a plain field instead of paying a ThreadLocal
+ * lookup on every {@code withOrigin} call. Threads that don't implement this
+ * fall back to a ThreadLocal — correctness is identical either way.
+ *
+ * Implementations must only be called by the owning thread; no synchronization
+ * is required or expected.
  */
-public class CastException extends AnalysisException {
+public interface OriginAware {
+    Origin getOrigin();
 
-    private final String message;
-
-    public CastException(String message) {
-        super(ErrorCode.NONE, message, Optional.of(0), Optional.of(0));
-        this.message = message;
-    }
-
-    public CastException(String message, Throwable t) {
-        super(message, t);
-        this.message = message;
-    }
-
-    public String getMessage() {
-        return message;
-    }
+    void setOrigin(Origin origin);
 }

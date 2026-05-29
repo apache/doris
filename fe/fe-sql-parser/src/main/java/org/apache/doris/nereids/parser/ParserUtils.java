@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.parser;
 
-import org.apache.doris.nereids.util.MoreFieldsThread;
-
 import org.antlr.v4.runtime.CharStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.Token;
@@ -31,18 +29,18 @@ import java.util.function.Supplier;
  * Utils for parser.
  */
 public class ParserUtils {
-    private static final ThreadLocal<Origin> slowThreadLocal = new ThreadLocal<>();
+    private static final ThreadLocal<Origin> threadLocal = new ThreadLocal<>();
 
     /** getOrigin */
     public static Optional<Origin> getOrigin() {
         Thread thread = Thread.currentThread();
         Origin origin;
-        if (thread instanceof MoreFieldsThread) {
+        if (thread instanceof OriginAware) {
             // fast path
-            origin = ((MoreFieldsThread) thread).getOrigin();
+            origin = ((OriginAware) thread).getOrigin();
         } else {
             // slow path
-            origin = slowThreadLocal.get();
+            origin = threadLocal.get();
         }
         return Optional.ofNullable(origin);
     }
@@ -56,27 +54,27 @@ public class ParserUtils {
         );
 
         Thread thread = Thread.currentThread();
-        if (thread instanceof MoreFieldsThread) {
+        if (thread instanceof OriginAware) {
             // fast path
-            MoreFieldsThread moreFieldsThread = (MoreFieldsThread) thread;
-            Origin outerOrigin = moreFieldsThread.getOrigin();
+            OriginAware aware = (OriginAware) thread;
+            Origin outerOrigin = aware.getOrigin();
             try {
-                moreFieldsThread.setOrigin(origin);
+                aware.setOrigin(origin);
                 return f.get();
             } finally {
-                moreFieldsThread.setOrigin(outerOrigin);
+                aware.setOrigin(outerOrigin);
             }
         } else {
             // slow path
-            Origin outerOrigin = slowThreadLocal.get();
+            Origin outerOrigin = threadLocal.get();
             try {
-                slowThreadLocal.set(origin);
+                threadLocal.set(origin);
                 return f.get();
             } finally {
                 if (outerOrigin != null) {
-                    slowThreadLocal.set(outerOrigin);
+                    threadLocal.set(outerOrigin);
                 } else {
-                    slowThreadLocal.remove();
+                    threadLocal.remove();
                 }
             }
         }
