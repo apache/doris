@@ -89,6 +89,8 @@ public class JDHadoopHudiJniScanner extends JniScanner {
     private static final AtomicBoolean LOGGED_CLASSLOADING_INFO = new AtomicBoolean(false);
 
     private static final String HADOOP_CONF_PREFIX = "hadoop_conf.";
+    /** Doris slot types from BE, aligned with required_fields (same as Hive JNI scanner). */
+    private static final String COLUMNS_TYPES = "columns_types";
 
     // Hudi data info
     private final String basePath;
@@ -102,6 +104,8 @@ public class JDHadoopHudiJniScanner extends JniScanner {
     // schema info
     private final String hudiColumnNames;
     private final String[] hudiColumnTypes;
+    /** Doris query slot types from BE; used for JNI wire format (may differ from Hive hudi_column_types). */
+    private final String[] dorisColumnTypes;
     private final String[] requiredFields;
     private int[] requiredColumnIds;
     private ColumnType[] requiredTypes;
@@ -201,6 +205,7 @@ public class JDHadoopHudiJniScanner extends JniScanner {
 
         this.hudiColumnNames = requireNonEmptyParam(params, "hudi_column_names");
         this.hudiColumnTypes = splitRequired(params, "hudi_column_types", "#");
+        this.dorisColumnTypes = splitOptional(params, COLUMNS_TYPES, "#");
         if (StringUtils.isEmpty(params.get("required_fields"))) {
             this.requiredFields = splitRequired(params, "hudi_primary_keys", ",");
         } else {
@@ -420,33 +425,57 @@ public class JDHadoopHudiJniScanner extends JniScanner {
     }
 
     private void initRequiredColumnsAndTypes() {
-        if (useNewReader) {
-            // For new reader, types will be initialized after getting record reader
-            // Just initialize arrays with required fields length
-            requiredTypes = new ColumnType[requiredFields.length];
-            requiredColumnIds = new int[requiredFields.length];
-            // Will be filled in initNewReader after getting output fields
-        } else {
+        requiredTypes = new ColumnType[requiredFields.length];
+        requiredColumnIds = new int[requiredFields.length];
+        parseRequiredTypes();
+        if (!useNewReader) {
             String[] splitHudiColumnNames = hudiColumnNames.split(",");
-
             Map<String, Integer> hudiColNameToIdx =
                     IntStream.range(0, splitHudiColumnNames.length)
                             .boxed()
                             .collect(Collectors.toMap(i -> splitHudiColumnNames[i], i -> i));
-
-            Map<String, String> hudiColNameToType =
-                    IntStream.range(0, splitHudiColumnNames.length)
-                            .boxed()
-                            .collect(Collectors.toMap(i -> splitHudiColumnNames[i], i -> hudiColumnTypes[i]));
-
-            requiredTypes = Arrays.stream(requiredFields)
-                    .map(field -> ColumnType.parseType(field, hudiColNameToType.get(field)))
-                    .toArray(ColumnType[]::new);
-
             requiredColumnIds = Arrays.stream(requiredFields)
                     .mapToInt(hudiColNameToIdx::get)
                     .toArray();
         }
+    }
+
+    /**
+     * JNI column types must match Doris BE slot types (columns_types from BE).
+     * hudi_column_types carries Hive/HMS types and is only used for serde properties and fallback.
+     */
+    private void parseRequiredTypes() {
+        if (dorisColumnTypes.length == requiredFields.length) {
+            for (int i = 0; i < requiredFields.length; i++) {
+                requiredTypes[i] = ColumnType.parseType(requiredFields[i], dorisColumnTypes[i]);
+            }
+            return;
+        }
+        Map<String, String> hudiColNameToType = buildHudiColNameToTypeMap();
+        for (int i = 0; i < requiredFields.length; i++) {
+            String fieldName = requiredFields[i];
+            String hiveType = hudiColNameToType.get(fieldName);
+            if (hiveType == null) {
+                throw new IllegalArgumentException(
+                        "Required field " + fieldName + " not found in Hudi column names: " + hudiColumnNames);
+            }
+            requiredTypes[i] = ColumnType.parseType(fieldName, hiveType);
+        }
+    }
+
+    private Map<String, String> buildHudiColNameToTypeMap() {
+        String[] splitHudiColumnNames = hudiColumnNames.split(",");
+        return IntStream.range(0, splitHudiColumnNames.length)
+                .boxed()
+                .collect(Collectors.toMap(i -> splitHudiColumnNames[i], i -> hudiColumnTypes[i]));
+    }
+
+    private static String[] splitOptional(Map<String, String> params, String key, String delimiter) {
+        String value = params.get(key);
+        if (Strings.isNullOrEmpty(value)) {
+            return new String[0];
+        }
+        return value.split(delimiter);
     }
 
     private Properties getReaderProperties() {
@@ -560,34 +589,25 @@ public class JDHadoopHudiJniScanner extends JniScanner {
         // Keep this code package-agnostic to avoid compile/runtime conflicts when switching Hudi artifacts.
         List<?> outputFields = recordReader.outputFields();
 
-        // Build a map from field name to index and type
+        // Build a map from field name to index in Hoodie output row.
         Map<String, Integer> fieldNameToIndex = new HashMap<>();
-        Map<String, String> fieldNameToType = new HashMap<>();
         for (int i = 0; i < outputFields.size(); i++) {
             Object field = outputFields.get(i);
             try {
                 String fieldName = (String) field.getClass().getMethod("getName").invoke(field);
-                String fieldType = (String) field.getClass().getMethod("getType").invoke(field);
                 fieldNameToIndex.put(fieldName, i);
-                fieldNameToType.put(fieldName, fieldType);
             } catch (ReflectiveOperationException e) {
                 throw new IOException("Failed to read output field schema from HoodieRecordReader", e);
             }
         }
 
-        // Initialize types based on required fields
+        // Initialize column indices and inspectors. JNI types come from parseRequiredTypes().
         deserializer = initDeserializer(jobConf, properties);
         rowInspector = initRowObjectInspector();
         for (int i = 0; i < requiredFields.length; i++) {
             String fieldName = requiredFields[i];
-            String fieldType = fieldNameToType.get(fieldName);
-            if (fieldType != null) {
-                requiredTypes[i] = ColumnType.parseType(fieldName, fieldType);
+            if (fieldNameToIndex.containsKey(fieldName)) {
                 requiredColumnIds[i] = fieldNameToIndex.get(fieldName);
-                // Create ObjectInspector from field type
-                // For new reader, we need to create inspectors based on type string
-                // Since we're reading from ArrayWritable, we'll create a simple wrapper
-                // that can extract values from Writable objects
                 StructField field = rowInspector.getStructFieldRef(requiredFields[i]);
                 structFields[i] = field;
                 fieldInspectors[i] = field.getFieldObjectInspector();

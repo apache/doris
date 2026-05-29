@@ -1566,6 +1566,46 @@ public class JDHadoopHudiJniScannerTest {
     }
 
     @Test
+    public void testInitNewReaderUsesDorisSlotTypesForBinaryMappedToString() throws Exception {
+        Map<String, String> params = buildNewReaderParams();
+        params.put("HADOOP_USER_NAME", "new-user-binary");
+        params.put("HADOOP_USER_TOKEN", "new-token-binary");
+        params.put("serde", SimpleStructDeserializer.class.getName());
+        params.put("required_fields", "binary_col");
+        params.put("hudi_column_names", "binary_col");
+        params.put("hudi_column_types", "binary");
+        params.put("columns_types", "string");
+        params.put("serialized_input_split", encodeObject(createSerializableInputSplit()));
+        params.put("serialized_hoodie_table", encodeObject(null));
+        NoOpAppendScanner scanner = new NoOpAppendScanner(2, params);
+        Method initRequiredColumnsAndTypes = JDHadoopHudiJniScanner.class
+                .getDeclaredMethod("initRequiredColumnsAndTypes");
+        initRequiredColumnsAndTypes.setAccessible(true);
+        initRequiredColumnsAndTypes.invoke(scanner);
+        Method method = JDHadoopHudiJniScanner.class.getDeclaredMethod("initNewReader", Properties.class);
+        method.setAccessible(true);
+
+        ThreadPoolExecutor original = null;
+        try {
+            org.apache.hudi.hadoop.client.HoodieRecordReader reader =
+                    buildRecordReaderWithOutputFields(
+                            Collections.singletonList(new MockFieldSchema("binary_col", "binary")));
+            original = replaceInitExecutor(new FixedFutureExecutor(new ReadyFuture<>(reader)));
+            method.invoke(scanner, new Properties());
+            Field requiredTypesField = JDHadoopHudiJniScanner.class.getDeclaredField("requiredTypes");
+            requiredTypesField.setAccessible(true);
+            org.apache.doris.common.jni.vec.ColumnType[] requiredTypes =
+                    (org.apache.doris.common.jni.vec.ColumnType[]) requiredTypesField.get(scanner);
+            Assertions.assertEquals(org.apache.doris.common.jni.vec.ColumnType.Type.STRING,
+                    requiredTypes[0].getType());
+        } finally {
+            if (original != null) {
+                replaceInitExecutor(original);
+            }
+        }
+    }
+
+    @Test
     public void testInitNewReaderOutputFieldsAndSchemaMappingBranches() throws Exception {
         Map<String, String> params = buildNewReaderParams();
         params.put("HADOOP_USER_NAME", "new-user-c");

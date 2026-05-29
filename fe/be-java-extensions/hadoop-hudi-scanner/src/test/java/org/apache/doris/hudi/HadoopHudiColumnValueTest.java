@@ -195,6 +195,16 @@ public class HadoopHudiColumnValueTest {
         Assertions.assertNotNull(result);
     }
 
+    @Test
+    public void testGetStringAsBytesForBinaryMappedToString() {
+        byte[] data = new byte[]{0, 1, 2, (byte) 0xFF};
+        columnValue.setRow(new BytesWritable(data));
+        columnValue.setField(new ColumnType("col", ColumnType.Type.STRING),
+                PrimitiveObjectInspectorFactory.writableBinaryObjectInspector);
+        Assertions.assertTrue(columnValue.canGetStringAsBytes());
+        Assertions.assertArrayEquals(data, columnValue.getStringAsBytes());
+    }
+
     // ===================== getByte (unsupported) =====================
 
     @Test

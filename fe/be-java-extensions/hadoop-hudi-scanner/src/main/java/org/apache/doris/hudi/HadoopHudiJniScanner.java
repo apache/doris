@@ -71,6 +71,7 @@ public class HadoopHudiJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(HadoopHudiJniScanner.class);
 
     private static final String HADOOP_CONF_PREFIX = "hadoop_conf.";
+    private static final String COLUMNS_TYPES = "columns_types";
     /** One WARN per process: default BE log level often hides INFO where token-open was logged. */
 
     // Hudi data info
@@ -85,6 +86,7 @@ public class HadoopHudiJniScanner extends JniScanner {
     // schema info
     private final String hudiColumnNames;
     private final String[] hudiColumnTypes;
+    private final String[] dorisColumnTypes;
     private final String[] requiredFields;
     private List<Integer> requiredColumnIds;
     private ColumnType[] requiredTypes;
@@ -145,6 +147,12 @@ public class HadoopHudiJniScanner extends JniScanner {
 
         this.hudiColumnNames = params.get("hudi_column_names");
         this.hudiColumnTypes = params.get("hudi_column_types").split("#");
+        String columnsTypesParam = params.get(COLUMNS_TYPES);
+        if (Strings.isNullOrEmpty(columnsTypesParam)) {
+            this.dorisColumnTypes = new String[0];
+        } else {
+            this.dorisColumnTypes = columnsTypesParam.split("#");
+        }
         String requiredFieldsParam = params.getOrDefault("required_fields", "");
         if (!requiredFieldsParam.isEmpty()) {
             this.requiredFields = requiredFieldsParam.split(",");
@@ -268,13 +276,20 @@ public class HadoopHudiJniScanner extends JniScanner {
                         .collect(Collectors.toMap(i -> splitHudiColumnNames[i], i -> hudiColumnTypes[i]));
 
         requiredTypes = new ColumnType[requiredFields.length];
-        for (int i = 0; i < requiredFields.length; i++) {
-            String requiredField = requiredFields[i];
-            if (!hudiColNameToType.containsKey(requiredField)) {
-                throw new IllegalArgumentException(
-                        "Required field " + requiredField + " not found in Hudi column names: " + splitHudiColumnNames);
+        if (dorisColumnTypes.length == requiredFields.length) {
+            for (int i = 0; i < requiredFields.length; i++) {
+                requiredTypes[i] = ColumnType.parseType(requiredFields[i], dorisColumnTypes[i]);
             }
-            requiredTypes[i] = ColumnType.parseType(requiredField, hudiColNameToType.get(requiredField));
+        } else {
+            for (int i = 0; i < requiredFields.length; i++) {
+                String requiredField = requiredFields[i];
+                if (!hudiColNameToType.containsKey(requiredField)) {
+                    throw new IllegalArgumentException(
+                            "Required field " + requiredField + " not found in Hudi column names: "
+                                    + Arrays.toString(splitHudiColumnNames));
+                }
+                requiredTypes[i] = ColumnType.parseType(requiredField, hudiColNameToType.get(requiredField));
+            }
         }
 
         requiredColumnIds = Arrays.stream(requiredFields)

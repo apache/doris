@@ -30,9 +30,14 @@ import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.StructField;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
+import org.apache.hadoop.hive.serde2.objectinspector.primitive.BinaryObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.DateObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.TimestampObjectInspector;
+import org.apache.hadoop.io.ArrayWritable;
+import org.apache.hadoop.io.BytesWritable;
+import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Writable;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -78,6 +83,10 @@ public class HadoopHudiColumnValue implements ColumnValue {
 
     @Override
     public short getShort() {
+        // hudi lsm will read parquet short type as IntWritable
+        if (fieldData instanceof IntWritable) {
+            return (short) ((IntWritable) fieldData).get();
+        }
         return (short) inspectObject();
     }
 
@@ -108,7 +117,12 @@ public class HadoopHudiColumnValue implements ColumnValue {
 
     @Override
     public byte[] getBytes() {
-        return (byte[]) inspectObject();
+        byte[] bytes = getStringAsBytes();
+        if (bytes != null) {
+            return bytes;
+        }
+        Object value = inspectObject();
+        return value instanceof byte[] ? (byte[]) value : null;
     }
 
 
@@ -167,7 +181,7 @@ public class HadoopHudiColumnValue implements ColumnValue {
 
     @Override
     public boolean canGetStringAsBytes() {
-        return false;
+        return fieldInspector instanceof BinaryObjectInspector;
     }
 
     @Override
@@ -182,7 +196,18 @@ public class HadoopHudiColumnValue implements ColumnValue {
 
     @Override
     public byte[] getStringAsBytes() {
-        throw new UnsupportedOperationException("Hoodie type does not support getStringAsBytes");
+        if (fieldData == null) {
+            return null;
+        }
+        if (fieldInspector instanceof BinaryObjectInspector) {
+            BinaryObjectInspector binaryInspector = (BinaryObjectInspector) fieldInspector;
+            if (fieldData instanceof BytesWritable) {
+                return ((BytesWritable) fieldData).copyBytes();
+            }
+            Object value = binaryInspector.getPrimitiveJavaObject(fieldData);
+            return value instanceof byte[] ? (byte[]) value : null;
+        }
+        return null;
     }
 
     @Override
@@ -190,11 +215,23 @@ public class HadoopHudiColumnValue implements ColumnValue {
         ListObjectInspector inspector = (ListObjectInspector) fieldInspector;
         List<?> items = inspector.getList(fieldData);
         ObjectInspector itemInspector = inspector.getListElementObjectInspector();
+        ColumnType itemType = dorisType.getChildTypes().get(0);
         for (int i = 0; i < items.size(); i++) {
             Object item = items.get(i);
+            // Some parquet/hudi reader paths wrap array<string> elements as one-level nested array.
+            // Compat: flatten single-level wrappers for Doris string-like array elements.
+            if (item != null && itemType.isStringType()) {
+                if (item instanceof ArrayWritable) {
+                    Writable[] nested = ((ArrayWritable) item).get();
+                    item = nested.length > 0 ? nested[0] : null;
+                } else if (item instanceof List) {
+                    List<?> nested = (List<?>) item;
+                    item = nested.isEmpty() ? null : nested.get(0);
+                }
+            }
             HadoopHudiColumnValue childValue = new HadoopHudiColumnValue(zoneId);
             childValue.setRow(item);
-            childValue.setField(dorisType.getChildTypes().get(0), itemInspector);
+            childValue.setField(itemType, itemInspector);
             values.add(childValue);
         }
     }

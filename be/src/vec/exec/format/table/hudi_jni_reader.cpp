@@ -61,8 +61,17 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
     const bool use_new_reader = hudi_params.__isset.serialized_input_split &&
                                 !hudi_params.serialized_input_split.empty();
     std::vector<std::string> required_fields;
+    std::ostringstream columns_types;
+    int slot_index = 0;
     for (const auto& desc : _file_slot_descs) {
         required_fields.emplace_back(desc->col_name());
+        const std::string type = JniConnector::get_jni_type_with_different_string(desc->type());
+        if (slot_index == 0) {
+            columns_types << type;
+        } else {
+            columns_types << "#" << type;
+        }
+        ++slot_index;
     }
     // Legacy HadoopHudiJniScanner needs delta_file_paths; JDHadoopHudiJniScanner reads from serialized split.
     const std::string delta_paths =
@@ -79,6 +88,7 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
             {"hudi_column_types", join(_hudi_params.column_types, "#")},
             {"hudi_primary_keys", join(_hudi_params.primary_keys, ",")},
             {"required_fields", join(required_fields, ",")},
+            {"columns_types", columns_types.str()},
             {"instant_time", _hudi_params.instant_time},
             {"serde", _hudi_params.serde},
             {"input_format", _hudi_params.input_format},
