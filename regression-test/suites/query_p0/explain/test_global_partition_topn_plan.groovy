@@ -95,6 +95,16 @@ suite("test_global_partition_topn_plan") {
         }
     }
 
+    sql "SET global_partition_topn_threshold=2"
+    explain {
+        sql """shape plan select rn from (
+                select row_number() over (partition by c2 order by c2, c3) as rn
+                from test_global_partition_topn_plan
+            ) tmp where rn <= 100"""
+        contains"PhysicalPartitionTopN"
+        notContains"PhysicalQuickSort"
+    }
+
     explain {
         sql """select * from (
                 select l.c2 as lc2, r.c2 as rc2,

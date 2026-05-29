@@ -465,8 +465,9 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         WindowFrameGroup windowFrameGroup = window.getWindowFrameGroup();
         // all keys that need to be sorted, which includes BOTH partitionKeys and orderKeys from this group
         List<OrderKey> keysNeedToBeSorted = Lists.newArrayList();
-        if (!windowFrameGroup.getPartitionKeys().isEmpty()) {
-            keysNeedToBeSorted.addAll(windowFrameGroup.getPartitionKeys().stream().map(partitionKey -> {
+        Set<Expression> partitionKeys = windowFrameGroup.getPartitionKeys();
+        if (!partitionKeys.isEmpty()) {
+            keysNeedToBeSorted.addAll(partitionKeys.stream().map(partitionKey -> {
                 // todo: haven't support isNullFirst, and its default value is false(see AnalyticPlanner,
                 //  but in LogicalPlanBuilder, its default value is true)
                 return new OrderKey(partitionKey, true, false);
@@ -475,6 +476,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         if (!windowFrameGroup.getOrderKeys().isEmpty()) {
             keysNeedToBeSorted.addAll(windowFrameGroup.getOrderKeys().stream()
                     .map(OrderExpression::getOrderKey)
+                    .filter(orderKey -> !partitionKeys.contains(orderKey.getExpr()))
                     .collect(Collectors.toList())
             );
         }
