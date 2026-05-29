@@ -108,6 +108,61 @@ public class ColocationGroupProcDirTest extends TestWithFeService {
     }
 
     @Test
+    public void testCloudGlobalColocationGroupDetailFallback() throws Exception {
+        String originDeployMode = Config.deploy_mode;
+        createTable("CREATE TABLE global_colocate_t1 (k INT) DISTRIBUTED BY HASH(k) BUCKETS 2 "
+                + "PROPERTIES ('replication_num' = '1', 'colocate_with' = '__global__g1')");
+
+        OlapTable table1 = (OlapTable) db.getTableOrMetaException("global_colocate_t1");
+        GroupId groupId = Env.getCurrentColocateIndex().getGroup(table1.getId());
+        Assertions.assertEquals(0L, groupId.dbId.longValue());
+
+        ColocateTableIndex colocateTableIndex = Mockito.spy(Env.getCurrentColocateIndex());
+        Mockito.doReturn(Maps.<Tag, List<List<Long>>>newHashMap()).when(colocateTableIndex)
+                .getBackendsPerBucketSeq(groupId);
+        Config.deploy_mode = "cloud";
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedEnv.when(Env::getCurrentColocateIndex).thenReturn(colocateTableIndex);
+            ProcNodeInterface node = new ColocationGroupProcDir().lookup(groupId.toString());
+            ProcResult result = node.fetchResult();
+            Assertions.assertEquals(Lists.newArrayList("BucketIndex", "BackendIds"), result.getColumnNames());
+            Assertions.assertFalse(result.getRows().isEmpty());
+            Assertions.assertTrue(result.getRows().stream().anyMatch(row -> row.size() == 2 && !row.get(1).isEmpty()));
+        } finally {
+            Config.deploy_mode = originDeployMode;
+        }
+    }
+
+    @Test
+    public void testCloudColocationGroupDetailFallbackSkipsUnusableFirstTable() throws Exception {
+        String originDeployMode = Config.deploy_mode;
+        createTable("CREATE TABLE colocate_t5 (k INT) DISTRIBUTED BY HASH(k) BUCKETS 2 "
+                + "PROPERTIES ('replication_num' = '1', 'colocate_with' = 'g3')");
+        createTable("CREATE TABLE colocate_t6 (k INT) DISTRIBUTED BY HASH(k) BUCKETS 2 "
+                + "PROPERTIES ('replication_num' = '1', 'colocate_with' = 'g3')");
+
+        OlapTable table1 = (OlapTable) db.getTableOrMetaException("colocate_t5");
+        GroupId groupId = Env.getCurrentColocateIndex().getGroup(table1.getId());
+        db.unregisterTable(table1.getId());
+
+        ColocateTableIndex colocateTableIndex = Mockito.spy(Env.getCurrentColocateIndex());
+        Mockito.doReturn(Maps.<Tag, List<List<Long>>>newHashMap()).when(colocateTableIndex)
+                .getBackendsPerBucketSeq(groupId);
+        Config.deploy_mode = "cloud";
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedEnv.when(Env::getCurrentColocateIndex).thenReturn(colocateTableIndex);
+            ProcNodeInterface node = new ColocationGroupProcDir().lookup(groupId.toString());
+            ProcResult result = node.fetchResult();
+            Assertions.assertEquals(Lists.newArrayList("BucketIndex", "BackendIds"), result.getColumnNames());
+            Assertions.assertFalse(result.getRows().isEmpty());
+            Assertions.assertTrue(result.getRows().stream().anyMatch(row -> row.size() == 2 && !row.get(1).isEmpty()));
+        } finally {
+            db.registerTable(table1);
+            Config.deploy_mode = originDeployMode;
+        }
+    }
+
+    @Test
     public void testCloudColocationGroupReplicaAllocationIsNull() throws Exception {
         String originDeployMode = Config.deploy_mode;
         createTable("CREATE TABLE colocate_t3 (k INT) DISTRIBUTED BY HASH(k) BUCKETS 2 "

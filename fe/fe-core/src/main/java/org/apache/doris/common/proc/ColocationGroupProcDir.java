@@ -97,21 +97,33 @@ public class ColocationGroupProcDir implements ProcDirInterface {
     private Map<Tag, List<List<Long>>> getCloudBackendSeqsFromTablets(GroupId groupId, ColocateTableIndex index) {
         Map<Tag, List<List<Long>>> backendsSeq = Maps.newHashMap();
         List<Long> tableIds = index.getAllTableIds(groupId);
-        if (tableIds.isEmpty()) {
-            return backendsSeq;
+        for (Long tableId : tableIds) {
+            long dbId = groupId.dbId;
+            if (dbId == 0) {
+                Long tableDbId = index.getDbIdByTblIdNullable(groupId, tableId);
+                if (tableDbId == null) {
+                    continue;
+                }
+                dbId = tableDbId;
+            }
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+            if (db == null) {
+                continue;
+            }
+            Table table = db.getTableNullable(tableId);
+            if (!(table instanceof OlapTable)) {
+                continue;
+            }
+            backendsSeq = getCloudBackendSeqsFromTable((OlapTable) table);
+            if (!backendsSeq.isEmpty()) {
+                return backendsSeq;
+            }
         }
+        return backendsSeq;
+    }
 
-        long targetTableId = tableIds.get(0);
-        long targetDbId = groupId.dbId == 0 ? groupId.getDbIdByTblId(targetTableId) : groupId.dbId;
-        Database db = Env.getCurrentInternalCatalog().getDbNullable(targetDbId);
-        if (db == null) {
-            return backendsSeq;
-        }
-        Table table = db.getTableNullable(targetTableId);
-        if (!(table instanceof OlapTable)) {
-            return backendsSeq;
-        }
-        OlapTable olapTable = (OlapTable) table;
+    private Map<Tag, List<List<Long>>> getCloudBackendSeqsFromTable(OlapTable olapTable) {
+        Map<Tag, List<List<Long>>> backendsSeq = Maps.newHashMap();
         olapTable.readLock();
         try {
             Partition firstPartition = null;
@@ -125,7 +137,7 @@ public class ColocationGroupProcDir implements ProcDirInterface {
             MaterializedIndex baseIndex = firstPartition.getBaseIndex();
             List<Tablet> tablets = baseIndex.getTablets();
             List<List<Long>> bucketSeq = Lists.newArrayListWithCapacity(tablets.size());
-            backendsSeq.put(null, bucketSeq);
+            boolean hasBackend = false;
             for (int i = 0; i < tablets.size(); i++) {
                 List<Long> bucketBackends = new ArrayList<>();
                 for (Replica replica : tablets.get(i).getReplicas()) {
@@ -137,9 +149,13 @@ public class ColocationGroupProcDir implements ProcDirInterface {
                         continue;
                     }
                     bucketBackends.add(backendId);
+                    hasBackend = true;
                 }
                 // Cloud mode should not expose real tag here, use null as placeholder.
                 bucketSeq.add(bucketBackends);
+            }
+            if (hasBackend) {
+                backendsSeq.put(null, bucketSeq);
             }
         } finally {
             olapTable.readUnlock();

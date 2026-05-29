@@ -437,6 +437,19 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
+    public Long getDbIdByTblIdNullable(GroupId groupId, long tableId) {
+        readLock();
+        try {
+            GroupId tableGroupId = table2Group.get(tableId);
+            if (tableGroupId == null || !tableGroupId.equals(groupId)) {
+                return null;
+            }
+            return tableGroupId.tblId2DbId.get(tableId);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public Set<GroupId> getAllGroupIds() {
         readLock();
         try {
