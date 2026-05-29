@@ -740,6 +740,7 @@ protected:
 
     void read_and_validate(size_t field_idx) const {
         auto reader = create_reader(field_idx);
+        ASSERT_NE(reader, nullptr);
         MutableColumnPtr column = reader->type()->create_column();
         int64_t rows_read = 0;
         auto st = reader->read(ROW_COUNT, column, &rows_read);
