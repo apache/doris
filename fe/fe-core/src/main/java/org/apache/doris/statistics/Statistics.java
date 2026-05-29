@@ -24,7 +24,10 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.text.DecimalFormat;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -49,6 +52,7 @@ public class Statistics {
 
     private long actualRowCount = -1L;
     private boolean isFromHbo = false;
+    private final Set<Expression> conjunctsAppliedToRowCount;
 
     public Statistics(Statistics another) {
         this.rowCount = another.rowCount;
@@ -57,24 +61,27 @@ public class Statistics {
         this.tupleSize = another.tupleSize;
         this.deltaRowCount = another.getDeltaRowCount();
         this.isFromHbo = another.isFromHbo;
+        this.conjunctsAppliedToRowCount = another.conjunctsAppliedToRowCount;
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
-            Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount, boolean isFromHbo) {
+            Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount, boolean isFromHbo,
+            Set<Expression> conjunctsAppliedToRowCount) {
         this.rowCount = rowCount;
         this.widthInJoinCluster = widthInJoinCluster;
         this.expressionToColumnStats = expressionToColumnStats;
         this.deltaRowCount = deltaRowCount;
         this.isFromHbo = isFromHbo;
+        this.conjunctsAppliedToRowCount = ImmutableSet.copyOf(conjunctsAppliedToRowCount);
     }
 
     public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        this(rowCount, 1, expressionToColumnStats, 0, false);
+        this(rowCount, 1, expressionToColumnStats, 0, false, Collections.emptySet());
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
             Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        this(rowCount, widthInJoinCluster, expressionToColumnStats, 0, false);
+        this(rowCount, widthInJoinCluster, expressionToColumnStats, 0, false, Collections.emptySet());
     }
 
     public ColumnStatistic findColumnStatistics(Expression expression) {
@@ -91,11 +98,12 @@ public class Statistics {
 
     public Statistics withRowCount(double rowCount) {
         return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats),
-                0, isFromHbo);
+                0, isFromHbo, conjunctsAppliedToRowCount);
     }
 
     public Statistics withExpressionToColumnStats(Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, 0, isFromHbo);
+        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, 0, isFromHbo,
+                conjunctsAppliedToRowCount);
     }
 
     /**
@@ -103,7 +111,7 @@ public class Statistics {
      */
     public Statistics withRowCountAndEnforceValid(double rowCount) {
         Statistics statistics = new Statistics(rowCount, widthInJoinCluster,
-                expressionToColumnStats, 0, isFromHbo);
+                expressionToColumnStats, 0, isFromHbo, conjunctsAppliedToRowCount);
         statistics.normalizeColumnStatistics();
         return statistics;
     }
@@ -162,7 +170,7 @@ public class Statistics {
         }
         double newCount = rowCount * notNullSel + numNull;
         return new Statistics(newCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats),
-                0, isFromHbo);
+                0, isFromHbo, conjunctsAppliedToRowCount);
     }
 
     public Statistics addColumnStats(Expression expression, ColumnStatistic columnStatistic) {
@@ -333,6 +341,10 @@ public class Statistics {
 
     public boolean isFromHbo() {
         return this.isFromHbo;
+    }
+
+    public Set<Expression> getConjunctsAppliedToRowCount() {
+        return conjunctsAppliedToRowCount;
     }
 
     public StatisticsBuilder cleanHotValues() {

@@ -57,6 +57,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -133,6 +134,51 @@ public class StatsCalculatorTest {
         StatsCalculator.estimate(groupExpressionOr, null);
         Assertions.assertEquals(1448.555,
                 ownerGroupOr.getStatistics().getRowCount(), 0.1);
+    }
+
+    @Test
+    public void testFilterIgnoresRecordedPrunedPredicatesInStats() {
+        List<String> qualifier = ImmutableList.of("test", "t");
+        SlotReference partitionSlot = new SlotReference("p_col", IntegerType.INSTANCE, true, qualifier);
+        SlotReference dataSlot = new SlotReference("data_col", IntegerType.INSTANCE, true, qualifier);
+
+        EqualTo partitionEqual = new EqualTo(partitionSlot, new IntegerLiteral(1));
+        EqualTo dataEqual = new EqualTo(dataSlot, new IntegerLiteral(2));
+
+        ColumnStatisticBuilder partitionColumnStats = new ColumnStatisticBuilder();
+        partitionColumnStats.setNdv(100);
+        partitionColumnStats.setMinValue(0);
+        partitionColumnStats.setMaxValue(1000);
+        partitionColumnStats.setNumNulls(0);
+        ColumnStatisticBuilder dataColumnStats = new ColumnStatisticBuilder();
+        dataColumnStats.setNdv(10);
+        dataColumnStats.setMinValue(0);
+        dataColumnStats.setMaxValue(1000);
+        dataColumnStats.setNumNulls(0);
+
+        Map<Expression, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(partitionSlot, partitionColumnStats.build());
+        slotColumnStatsMap.put(dataSlot, dataColumnStats.build());
+        Statistics childStats = new StatisticsBuilder(new Statistics(1000, slotColumnStatsMap))
+                .setConjunctsAppliedToRowCount(ImmutableSet.of(partitionEqual))
+                .build();
+
+        Group childGroup = newFakeGroup();
+        childGroup.setStatistics(childStats);
+        GroupPlan groupPlan = new GroupPlan(childGroup);
+
+        LogicalFilter<GroupPlan> filter = new LogicalFilter<>(ImmutableSet.of(partitionEqual, dataEqual), groupPlan);
+        GroupExpression filterGroupExpression = new GroupExpression(filter, ImmutableList.of(childGroup));
+        Group ownerGroup = new Group(null, filterGroupExpression, null);
+        StatsCalculator.estimate(filterGroupExpression, null);
+        Assertions.assertEquals(100, ownerGroup.getStatistics().getRowCount(), 0.001);
+
+        LogicalFilter<GroupPlan> partitionOnlyFilter = new LogicalFilter<>(ImmutableSet.of(partitionEqual), groupPlan);
+        GroupExpression partitionOnlyGroupExpression =
+                new GroupExpression(partitionOnlyFilter, ImmutableList.of(childGroup));
+        Group partitionOnlyOwnerGroup = new Group(null, partitionOnlyGroupExpression, null);
+        StatsCalculator.estimate(partitionOnlyGroupExpression, null);
+        Assertions.assertEquals(1000, partitionOnlyOwnerGroup.getStatistics().getRowCount(), 0.001);
     }
 
     // a, b are in (0,100)

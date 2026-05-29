@@ -17,14 +17,24 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -91,5 +101,72 @@ public class PartitionPrunablePredicate {
 
     public Set<Expression> getPrunableConjuncts() {
         return prunableConjuncts;
+    }
+
+    /** Get rewritten prunable conjuncts for the scan output slots. */
+    public Set<Expression> getRewrittenPrunableConjuncts(OlapScan scan) {
+        if (!selectedPartitionIds.containsAll(scan.getSelectedPartitionIds())) {
+            return ImmutableSet.of();
+        }
+        Map<Expression, Expression> slotReplaceMap = buildSlotReplaceMap(
+                snapshotPartitionSlots, buildNameToSlotMap(scan));
+        if (slotReplaceMap == null) {
+            return ImmutableSet.of();
+        }
+        ImmutableSet.Builder<Expression> rewrittenConjuncts =
+                ImmutableSet.builderWithExpectedSize(prunableConjuncts.size());
+        for (Expression conjunct : prunableConjuncts) {
+            rewrittenConjuncts.add(slotReplaceMap.isEmpty()
+                    ? conjunct : ExpressionUtils.replace(conjunct, slotReplaceMap));
+        }
+        return rewrittenConjuncts.build();
+    }
+
+    private static Map<String, Slot> buildNameToSlotMap(OlapScan scan) {
+        OlapTable table = scan.getTable();
+        List<Slot> output = scan.getOutput();
+        Map<String, Slot> map = new HashMap<>(output.size());
+        if (scan.getSelectedIndexId() == table.getBaseIndexId()) {
+            for (Slot slot : output) {
+                map.put(slot.getName().toLowerCase(), slot);
+            }
+        } else {
+            for (Slot slot : output) {
+                if (!(slot instanceof SlotReference)) {
+                    continue;
+                }
+                SlotReference slotReference = (SlotReference) slot;
+                Optional<Column> columnOptional = slotReference.getOriginalColumn();
+                if (!columnOptional.isPresent()) {
+                    continue;
+                }
+                Expr expr = columnOptional.get().getDefineExpr();
+                if (!(expr instanceof SlotRef)) {
+                    continue;
+                }
+                map.put(((SlotRef) expr).getColumnName().toLowerCase(), slot);
+            }
+        }
+        return map;
+    }
+
+    /**
+     * Map each recorded snapshot slot to the scan's current output slot of the
+     * same column name. Returns null when any snapshot slot cannot be located,
+     * so the caller can skip this record.
+     */
+    private static Map<Expression, Expression> buildSlotReplaceMap(
+            List<Slot> snapshotSlots, Map<String, Slot> nameToOutputSlot) {
+        Map<Expression, Expression> replaceMap = new HashMap<>(snapshotSlots.size());
+        for (Slot snapshot : snapshotSlots) {
+            Slot current = nameToOutputSlot.get(snapshot.getName().toLowerCase());
+            if (current == null) {
+                return null;
+            }
+            if (!snapshot.equals(current)) {
+                replaceMap.put(snapshot, current);
+            }
+        }
+        return replaceMap;
     }
 }

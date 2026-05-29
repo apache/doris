@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
@@ -61,6 +62,14 @@ import java.util.HashMap;
 import java.util.Map;
 
 class FilterEstimationTest {
+    @Test
+    public void testBooleanLiteral() {
+        Statistics inputStats = new Statistics(1000, new HashMap<>());
+        FilterEstimation filterEstimation = new FilterEstimation();
+        Assertions.assertEquals(1000, filterEstimation.estimate(BooleanLiteral.TRUE, inputStats).getRowCount(), 0);
+        Assertions.assertEquals(0, filterEstimation.estimate(BooleanLiteral.FALSE, inputStats).getRowCount(), 0);
+    }
+
     // a > 500 or b < 100
     // b isNaN
     @Test

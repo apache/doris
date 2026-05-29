@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.PartitionPrunablePredicate;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -137,6 +138,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.AnalysisManager;
@@ -165,6 +167,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -632,6 +635,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             checkIfUnknownStatsUsedAsKey(builder);
             builder.setRowCount(selectedPartitionsRowCount);
+            Optional<PartitionPrunablePredicate> entryOpt = olapScan.getPartitionPrunablePredicates();
+            if (entryOpt.isPresent()) {
+                builder.setConjunctsAppliedToRowCount(entryOpt.get().getRewrittenPrunableConjuncts(olapScan));
+            }
         } else {
             // get table level stats
             for (SlotReference slot : visibleOutputSlots) {
@@ -1208,7 +1215,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * computeFilter
      */
     public Statistics computeFilter(Filter filter, Statistics inputStats) {
-        return new FilterEstimation().estimate(filter.getPredicate(), inputStats);
+        Set<Expression> conjuncts = new LinkedHashSet<>(filter.getConjuncts());
+        conjuncts.removeAll(inputStats.getConjunctsAppliedToRowCount());
+        return new FilterEstimation().estimate(ExpressionUtils.and(conjuncts), inputStats);
     }
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId) {
