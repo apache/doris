@@ -1898,6 +1898,7 @@ primitiveColType
     | type=VARBINARY
     | type=VARIANT
     | type=ALL
+    | type=NULL_TYPE
     ;
 
 complexColTypeList
