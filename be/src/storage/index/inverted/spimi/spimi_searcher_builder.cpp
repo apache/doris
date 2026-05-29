@@ -18,12 +18,19 @@
 #include "storage/index/inverted/spimi/spimi_searcher_builder.h"
 
 // clang-format off
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wshadow-field"
+// `-Wshadow-field` is clang-only (CLucene headers trip it under clang
+// strict builds); guard the whole block for __clang__ so g++ does not
+// fail under -Werror=pragmas (matches inverted_index_searcher.h).
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
 #include <CLucene/store/Directory.h>
 #include <CLucene/store/IndexInput.h>
 #include <CLucene/search/IndexSearcher.h>
-#pragma GCC diagnostic pop
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 // clang-format on
 
 #include <vector>

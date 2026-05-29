@@ -26,6 +26,7 @@
 #include <string_view>
 #include <vector>
 
+#include "gtest/gtest_prod.h"
 #include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
@@ -255,6 +256,12 @@ private:
 //
 // Thread-safety: not thread-safe. Each writer owns one instance.
 class SpimiPostingBuffer {
+    // Grant the hash unit tests access to the private `HashTerm` so they can
+    // assert per-instance keying / explicit-seed determinism without widening
+    // the public surface.
+    FRIEND_TEST(SpimiPostingBufferTest, KeyedHashDiffersAcrossDefaultInstances);
+    FRIEND_TEST(SpimiPostingBufferTest, ExplicitSeedHashIsDeterministic);
+
 public:
     // Per-instance limits. Default to the production constants above; tests
     // pass much smaller values so they can exercise saturation boundaries

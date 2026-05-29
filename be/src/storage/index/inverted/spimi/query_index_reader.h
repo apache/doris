@@ -18,19 +18,26 @@
 #pragma once
 
 // clang-format off
-// CLucene headers trigger -Wshadow-field on g++15 strict builds
+// CLucene headers trigger -Wshadow-field under clang strict builds
 // (parameter `length` in `ArrayString4_<T>` shadows the inherited
 // `ArrayBase<T>::length` member). The CLucene library itself is
 // built with looser flags; suppress the warning at the include
 // boundary so Doris -Werror doesn't trip on third-party code.
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wshadow-field"
+// `-Wshadow-field` is clang-only, so the whole block is guarded for
+// __clang__ (matches inverted_index_searcher.h); g++ does not know the
+// option and would fail under -Werror=pragmas.
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
 #include <CLucene/StdHeader.h>
 #include <CLucene/index/Terms.h>
 #include <CLucene/index/Term.h>
 #include <CLucene/index/IndexReader.h>
 #include <CLucene/index/_FieldInfos.h>
-#pragma GCC diagnostic pop
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 // clang-format on
 
 #include <cstdint>
