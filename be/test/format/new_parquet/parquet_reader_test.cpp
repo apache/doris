@@ -121,6 +121,36 @@ private:
     const std::string _expr_name = "Int32SumGreaterThanExpr";
 };
 
+class Int32AddExpr final : public VExpr {
+public:
+    Int32AddExpr(int column_id, int32_t value)
+            : VExpr(std::make_shared<DataTypeInt32>(), false),
+              _column_id(column_id),
+              _value(value) {}
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        const auto& input =
+                assert_cast<const ColumnInt32&>(*block->get_by_position(_column_id).column);
+        auto result = ColumnInt32::create();
+        auto& result_data = result->get_data();
+        result_data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const size_t input_row = selector == nullptr ? row : (*selector)[row];
+            result_data[row] = input.get_element(input_row) + _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    const int _column_id;
+    const int32_t _value;
+    const std::string _expr_name = "Int32AddExpr";
+};
+
 VExprContextSPtr create_int32_greater_than_conjunct(int column_id, int32_t value) {
     auto ctx =
             VExprContext::create_shared(std::make_shared<Int32GreaterThanExpr>(column_id, value));
@@ -133,6 +163,13 @@ VExprContextSPtr create_int32_sum_greater_than_conjunct(int left_column_id, int 
                                                         int32_t value) {
     auto ctx = VExprContext::create_shared(
             std::make_shared<Int32SumGreaterThanExpr>(left_column_id, right_column_id, value));
+    ctx->_prepared = true;
+    ctx->_opened = true;
+    return ctx;
+}
+
+VExprContextSPtr create_int32_add_expression(int column_id, int32_t value) {
+    auto ctx = VExprContext::create_shared(std::make_shared<Int32AddExpr>(column_id, value));
     ctx->_prepared = true;
     ctx->_opened = true;
     return ctx;
@@ -565,6 +602,43 @@ TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     EXPECT_EQ(rows, 0);
 }
 
+TEST_F(NewParquetReaderTest, ColumnPredicateFiltersRowsInsideSelectedRowGroup) {
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<reader::SchemaField> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    Block block = build_file_block(schema);
+
+    auto request = std::make_unique<reader::FileScanRequest>();
+    request->predicate_columns = {0};
+    request->non_predicate_columns = {1};
+    reader::FileColumnPredicateFilter column_filter;
+    column_filter.file_column_id = 0;
+    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
+            0, "id", schema[0].type, Field::create_field<TYPE_INT>(2), false));
+    request->column_predicate_filters.push_back(std::move(column_filter));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    ASSERT_EQ(rows, 3);
+
+    const auto& ids = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& values = assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+    ASSERT_EQ(ids.size(), 3);
+    ASSERT_EQ(values.size(), 3);
+    EXPECT_EQ(ids.get_element(0), 3);
+    EXPECT_EQ(ids.get_element(1), 4);
+    EXPECT_EQ(ids.get_element(2), 5);
+    EXPECT_EQ(values.get_data_at(0).to_string(), "three");
+    EXPECT_EQ(values.get_data_at(1).to_string(), "four");
+    EXPECT_EQ(values.get_data_at(2).to_string(), "five");
+}
+
 TEST_F(NewParquetReaderTest, ReadMultiPredicateColumnsBeforeExpressionFilter) {
     write_int_pair_parquet_file(_file_path);
     auto reader = create_reader();
@@ -595,6 +669,79 @@ TEST_F(NewParquetReaderTest, ReadMultiPredicateColumnsBeforeExpressionFilter) {
     EXPECT_EQ(ids.get_element(1), 5);
     EXPECT_EQ(scores.get_element(0), 4);
     EXPECT_EQ(scores.get_element(1), 5);
+}
+
+TEST_F(NewParquetReaderTest, ReaderExpressionMapRewritesPredicateColumnBeforeFilter) {
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<reader::SchemaField> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    Block block = build_file_block(schema);
+
+    auto request = std::make_unique<reader::FileScanRequest>();
+    request->predicate_columns = {0};
+    request->non_predicate_columns = {1};
+    request->reader_expression_map.emplace_back(0, create_int32_add_expression(0, 10));
+    reader::FileExpressionFilter expression_filter;
+    expression_filter.conjunct = create_int32_greater_than_conjunct(0, 12);
+    request->expression_filters.push_back(std::move(expression_filter));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    ASSERT_EQ(rows, 3);
+
+    const auto& ids = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& values = assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+    ASSERT_EQ(ids.size(), 3);
+    ASSERT_EQ(values.size(), 3);
+    EXPECT_EQ(ids.get_element(0), 13);
+    EXPECT_EQ(ids.get_element(1), 14);
+    EXPECT_EQ(ids.get_element(2), 15);
+    EXPECT_EQ(values.get_data_at(0).to_string(), "three");
+    EXPECT_EQ(values.get_data_at(1).to_string(), "four");
+    EXPECT_EQ(values.get_data_at(2).to_string(), "five");
+}
+
+TEST_F(NewParquetReaderTest, ReaderExpressionMapRewritesNonPredicateColumnAfterSelection) {
+    write_int_pair_parquet_file(_file_path);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<reader::SchemaField> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    Block block = build_file_block(schema);
+
+    auto request = std::make_unique<reader::FileScanRequest>();
+    request->predicate_columns = {0};
+    request->non_predicate_columns = {1};
+    request->reader_expression_map.emplace_back(1, create_int32_add_expression(1, 10));
+    reader::FileExpressionFilter expression_filter;
+    expression_filter.conjunct = create_int32_greater_than_conjunct(0, 2);
+    request->expression_filters.push_back(std::move(expression_filter));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    ASSERT_EQ(rows, 3);
+
+    const auto& ids = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& scores = assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
+    ASSERT_EQ(ids.size(), 3);
+    ASSERT_EQ(scores.size(), 3);
+    EXPECT_EQ(ids.get_element(0), 3);
+    EXPECT_EQ(ids.get_element(1), 4);
+    EXPECT_EQ(ids.get_element(2), 5);
+    EXPECT_EQ(scores.get_element(0), 13);
+    EXPECT_EQ(scores.get_element(1), 14);
+    EXPECT_EQ(scores.get_element(2), 15);
 }
 
 TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByStatistics) {
