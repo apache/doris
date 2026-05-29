@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -88,6 +89,13 @@ public:
     bool target_is_slot(int32_t target_node_id) const {
         check_target_node_id(target_node_id);
         return _contexts.find(target_node_id)->second.target_is_slot();
+    }
+
+    bool all_targets_are_slot() const {
+        std::shared_lock<std::shared_mutex> rlock(_rwlock);
+        return std::ranges::all_of(_contexts, [](const auto& entry) {
+            return entry.second.target_is_slot();
+        });
     }
 
     const TExpr& get_texpr(int32_t target_node_id) const {

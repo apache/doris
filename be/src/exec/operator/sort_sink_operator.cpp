@@ -51,10 +51,15 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     }
     switch (p._algorithm) {
     case TSortAlgorithm::HEAP_SORT: {
+        bool disable_local_topn_filter = false;
+        if (state->get_query_ctx()->has_runtime_predicate(p._node_id)) {
+            disable_local_topn_filter =
+                state->get_query_ctx()->get_runtime_predicate(p._node_id)
+                    .all_targets_are_slot();
+        }
         _shared_state->sorter = HeapSorter::create_shared(
                 _ordering_expr_ctxs, state, p._limit, p._offset, p._pool, p._is_asc_order,
-                p._nulls_first, p._child->row_desc(),
-                state->get_query_ctx()->has_runtime_predicate(p._node_id));
+            p._nulls_first, p._child->row_desc(), disable_local_topn_filter);
         break;
     }
     case TSortAlgorithm::TOPN_SORT: {
