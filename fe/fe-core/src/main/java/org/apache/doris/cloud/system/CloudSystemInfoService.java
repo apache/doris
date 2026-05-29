@@ -119,12 +119,20 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public ComputeGroup getComputeGroupByName(String computeGroupName) {
-        // Both maps are ConcurrentHashMap, so no extra lock is needed on the read path.
+        // rlock guards the compound name->id->group lookup: writers (add/remove/rename)
+        // update both maps under wlock, and the read must observe a consistent snapshot
+        // so callers like getPhysicalCluster don't transiently see a virtual group name
+        // with a null group and fall back to treating it as a physical cluster.
         if (LOG.isDebugEnabled()) {
             LOG.debug("get id {} computeGroupIdToComputeGroup : {} ", computeGroupName, computeGroupIdToComputeGroup);
         }
-        String id = clusterNameToId.get(computeGroupName);
-        return id == null ? null : computeGroupIdToComputeGroup.get(id);
+        try {
+            rlock.lock();
+            String id = clusterNameToId.get(computeGroupName);
+            return id == null ? null : computeGroupIdToComputeGroup.get(id);
+        } finally {
+            rlock.unlock();
+        }
     }
 
     public boolean containsCloudCluster(String clusterName) {

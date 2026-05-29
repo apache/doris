@@ -838,7 +838,7 @@ public class OlapTableSink extends DataSink {
                     } catch (ComputeGroupException e) {
                         LOG.warn("failed to get replica backend path for tablet " + tablet.getId(), e);
                         errMsgBuilder.append(", ").append(e.toString());
-                        throw new UserException(InternalErrorCode.INTERNAL_ERR, errMsgBuilder.toString());
+                        throw new UserException(InternalErrorCode.INTERNAL_ERR, errMsgBuilder.toString(), e);
                     }
                     if (!Config.isCloudMode()) {
                         debugWriteRandomChooseSink(tablet, partition.getVisibleVersion(), bePathsMap);
