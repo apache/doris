@@ -143,6 +143,7 @@ TEST_F(CloudCompactionTest, failure_base_compaction_tablet_sleep_test) {
     tablet1->set_last_base_compaction_failure_time(0);
     tablet1->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
     tablet1->_approximate_num_rowsets = 10;
+    tablet1->_approximate_cumu_num_rowsets = 0;
     mgr.put_tablet_for_UT(tablet1);
 
     CompactionScoreStats score_stats;
