@@ -73,12 +73,14 @@ public class ColocationGroupProcDir implements ProcDirInterface {
         GroupId groupId = new GroupId(dbId, grpId);
         ColocateTableIndex index = Env.getCurrentColocateIndex();
         Map<Tag, List<List<Long>>> beSeqs = index.getBackendsPerBucketSeq(groupId);
+        boolean showBackendIdsColumn = false;
         if ((beSeqs == null || beSeqs.isEmpty()) && Config.isCloudMode()) {
             // In cloud mode, legacy backend sequence metadata may be empty.
             // Build bucket->backend mapping from current tablet replicas for proc display.
             beSeqs = getCloudBackendSeqsFromTablets(groupId, index);
+            showBackendIdsColumn = true;
         }
-        return new ColocationGroupBackendSeqsProcNode(beSeqs);
+        return new ColocationGroupBackendSeqsProcNode(beSeqs, showBackendIdsColumn);
     }
 
     @Override

@@ -35,6 +35,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.List;
+import java.util.Map;
 
 public class ColocationGroupProcDirTest extends TestWithFeService {
     private Database db;
@@ -56,6 +57,26 @@ public class ColocationGroupProcDirTest extends TestWithFeService {
         for (Table table : db.getTables()) {
             dropTable(table.getName(), true);
         }
+    }
+
+    @Test
+    public void testLocalColocationGroupDetailKeepsTagColumns() throws Exception {
+        Tag tag1 = Tag.create(Tag.TYPE_LOCATION, "tag1");
+        Tag tag2 = Tag.create(Tag.TYPE_LOCATION, "tag2");
+        Map<Tag, List<List<Long>>> backendsSeq = Maps.newLinkedHashMap();
+        backendsSeq.put(tag1, Lists.newArrayList(
+                Lists.newArrayList(10001L, 10002L),
+                Lists.newArrayList(10003L)));
+        backendsSeq.put(tag2, Lists.newArrayList(
+                Lists.newArrayList(20001L),
+                Lists.newArrayList(20002L, 20003L)));
+
+        ProcResult result = new ColocationGroupBackendSeqsProcNode(backendsSeq).fetchResult();
+
+        Assertions.assertEquals(Lists.newArrayList("BucketIndex", tag1.toString(), tag2.toString()),
+                result.getColumnNames());
+        Assertions.assertEquals(Lists.newArrayList("0", "10001, 10002", "20001"), result.getRows().get(0));
+        Assertions.assertEquals(Lists.newArrayList("1", "10003", "20002, 20003"), result.getRows().get(1));
     }
 
     @Test

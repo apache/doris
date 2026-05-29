@@ -31,34 +31,53 @@ import java.util.Map;
  */
 public class ColocationGroupBackendSeqsProcNode implements ProcNodeInterface {
     private Map<Tag, List<List<Long>>> backendsSeq;
+    private boolean showBackendIdsColumn;
 
     public ColocationGroupBackendSeqsProcNode(Map<Tag, List<List<Long>>> backendsSeq) {
+        this(backendsSeq, false);
+    }
+
+    public ColocationGroupBackendSeqsProcNode(Map<Tag, List<List<Long>>> backendsSeq, boolean showBackendIdsColumn) {
         this.backendsSeq = backendsSeq;
+        this.showBackendIdsColumn = showBackendIdsColumn;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
-        List<String> titleNames = Lists.newArrayList("BucketIndex", "BackendIds");
+        List<String> titleNames = Lists.newArrayList();
+        titleNames.add("BucketIndex");
         int bucketNum = 0;
-        for (Map.Entry<Tag, List<List<Long>>> entry : backendsSeq.entrySet()) {
-            List<List<Long>> bucketBackends = entry.getValue();
-            if (bucketNum == 0) {
-                bucketNum = bucketBackends.size();
-            } else if (bucketNum != bucketBackends.size()) {
-                throw new AnalysisException("Invalid bucket number: "
-                        + bucketNum + " vs. " + bucketBackends.size());
+        for (Tag tag : backendsSeq.keySet()) {
+            if (!showBackendIdsColumn) {
+                titleNames.add(tag.toString());
             }
+            if (bucketNum == 0) {
+                bucketNum = backendsSeq.get(tag).size();
+            } else if (bucketNum != backendsSeq.get(tag).size()) {
+                throw new AnalysisException("Invalid bucket number: "
+                        + bucketNum + " vs. " + backendsSeq.get(tag).size());
+            }
+        }
+        if (showBackendIdsColumn) {
+            titleNames.add("BackendIds");
         }
         result.setNames(titleNames);
         for (int i = 0; i < bucketNum; i++) {
             List<String> info = Lists.newArrayList();
             info.add(String.valueOf(i)); // bucket index
-            List<Long> mergedBackendIds = Lists.newArrayList();
-            for (List<List<Long>> bucketBackends : backendsSeq.values()) {
-                mergedBackendIds.addAll(bucketBackends.get(i));
+            if (showBackendIdsColumn) {
+                List<Long> mergedBackendIds = Lists.newArrayList();
+                for (List<List<Long>> bucketBackends : backendsSeq.values()) {
+                    mergedBackendIds.addAll(bucketBackends.get(i));
+                }
+                info.add(Joiner.on(", ").join(mergedBackendIds));
+            } else {
+                for (Tag tag : backendsSeq.keySet()) {
+                    List<List<Long>> bucketBackends = backendsSeq.get(tag);
+                    info.add(Joiner.on(", ").join(bucketBackends.get(i)));
+                }
             }
-            info.add(Joiner.on(", ").join(mergedBackendIds));
             result.addRow(info);
         }
         return result;
