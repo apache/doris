@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -192,6 +193,8 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         PlanTranslatorContext context = new PlanTranslatorContext();
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
         TestScanNode scanNode = new TestScanNode();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(1));
 
         Mockito.when(fileScan.getId()).thenReturn(1);
         Mockito.when(fileScan.getRelationId()).thenReturn(RelationId.createGenerator().getNextId());
@@ -199,9 +202,10 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         Mockito.when(fileScan.getStats()).thenReturn(null);
 
         Method method = PhysicalPlanTranslator.class.getDeclaredMethod("getPlanFragmentForPhysicalFileScan",
-                PhysicalFileScan.class, PlanTranslatorContext.class, ScanNode.class);
+                PhysicalFileScan.class, PlanTranslatorContext.class, ScanNode.class,
+                ExternalTable.class, TupleDescriptor.class);
         method.setAccessible(true);
-        method.invoke(translator, fileScan, context, scanNode);
+        method.invoke(translator, fileScan, context, scanNode, table, tupleDescriptor);
 
         Assertions.assertTrue(scanNode.hasPartitionPredicate());
     }
