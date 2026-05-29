@@ -28,6 +28,7 @@ import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
@@ -63,12 +64,27 @@ public class SetSessionVarOp extends SetVarOp {
         this.isDefault = expression == null;
     }
 
+    public Expression getExpression() {
+        return expression;
+    }
+
     @Override
     public void validate(ConnectContext ctx) throws UserException {
         if (isDefault) {
             value = new StringLiteral("default");
             return;
         }
+        // Reject dotted identifiers (e.g. SET var = aaa.bbb) to avoid ambiguity.
+        // Users should use quoted strings instead: SET var = 'aaa.bbb'
+        if (expression instanceof UnboundSlot) {
+            UnboundSlot slot = (UnboundSlot) expression;
+            if (slot.getNameParts().size() > 1) {
+                throw new AnalysisException("Dotted identifiers are not supported in SET statements. "
+                        + "Use quoted strings instead. For example: SET " + name + " = '"
+                        + slot.getName() + "'");
+            }
+        }
+
         value = ExpressionUtils.analyzeAndFoldToLiteral(ctx, expression);
 
         if (getType() == SetType.GLOBAL) {
