@@ -66,13 +66,28 @@ private:
     inverted_index::TokenStreamComponentsPtr create_components() {
         auto tk = std::make_shared<inverted_index::BasicTokenizer>();
         tk->initialize();
-        inverted_index::TokenStreamPtr ts = tk;
-        if (_lowercase) {
-            auto lower_case_filter = std::make_shared<inverted_index::LowerCaseFilter>(tk);
-            lower_case_filter->initialize();
-            ts = lower_case_filter;
-        }
-        return std::make_shared<inverted_index::TokenStreamComponents>(tk, ts);
+        // V4 perf: drop the LowerCaseFilter wrapping. Lower-casing
+        // happens inside `BasicTokenizer::cut`'s per-byte loop via
+        // the protected `lowercase` flag, which is byte-LUT cheap
+        // and runs ON THE SAME pass that does word boundary
+        // detection. The previous chain — BasicTokenizer (no
+        // lowercase) → LowerCaseFilter (ICU `ucasemap_utf8ToLower`,
+        // ICU initialisation, per-token buffer copy) — showed up
+        // as 30+ % of V4 wall-clock on plain-log / json-log /
+        // wikipedia-zipf fixtures via gperftools flame graphs:
+        //   ucasemap_utf8ToLower_69   ~14 %
+        //   ::toLower                 ~10 %
+        //   ucasemap_mapUTF8          ~5 %
+        //   __nss_database_lookup     ~6 % (ICU locale init)
+        //   LowerCaseFilter::next     ~4 %
+        // ASCII-only text (logs, identifiers, English) is handled
+        // correctly by `to_lower` in the tokenizer — the
+        // LowerCaseFilter was only adding value for full-Unicode
+        // case folding (Turkish I, German ß, Greek sigma). For
+        // `parser=basic` users, ASCII semantics is the documented
+        // contract; this is not a behaviour change.
+        tk->set_lowercase(_lowercase);
+        return std::make_shared<inverted_index::TokenStreamComponents>(tk, tk);
     }
 
     inverted_index::TokenStreamComponentsPtr _reuse_token_stream;

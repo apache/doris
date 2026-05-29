@@ -33,11 +33,15 @@
 #include <tuple>
 #include <vector>
 
+#include "gen_cpp/segment_v2.pb.h"
 #include "storage/index/inverted/spimi/byte_output.h"
+#include "storage/index/inverted/spimi/freq_prox_encoder.h"
 #include "storage/index/inverted/spimi/pfor_encoder.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/segment_writer.h"
 #include "storage/index/inverted/spimi/term_dict_writer.h"
+#include "util/block_compression.h"
+#include "util/slice.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -294,6 +298,56 @@ struct ReconstructedTerm {
     std::vector<DecodedDoc> docs;
 };
 
+// Resolves a term's prox block (which begins with a 1-byte mode header: raw
+// VInt deltas, or a ZSTD-compressed payload) into the raw VInt position-delta
+// bytes for the term, mirroring SpimiProxReader.
+std::vector<uint8_t> ReadTermProxRaw(const std::vector<uint8_t>& prx, int64_t prox_pointer) {
+    ByteReader h(prx);
+    h.Seek(static_cast<size_t>(prox_pointer));
+    const uint8_t mode = h.Byte();
+    if (mode == 1) { // ZSTD
+        const auto uncomp = static_cast<uint32_t>(h.ReadVInt());
+        const auto comp = static_cast<uint32_t>(h.ReadVInt());
+        const size_t comp_off = h.pos();
+        std::vector<uint8_t> raw(uncomp);
+        BlockCompressionCodec* codec = nullptr;
+        EXPECT_TRUE(get_block_compression_codec(CompressionTypePB::ZSTD, &codec).ok());
+        Slice in(reinterpret_cast<const char*>(prx.data() + comp_off), comp);
+        Slice out(reinterpret_cast<char*>(raw.data()), uncomp);
+        EXPECT_TRUE(codec->decompress(in, &out).ok());
+        return raw;
+    }
+    EXPECT_EQ(mode, 0) << "unknown prox mode";
+    // Raw: return the tail from just past the mode byte; DecodeProxPositions
+    // reads only the freq-bounded number of VInts.
+    return {prx.begin() + h.pos(), prx.end()};
+}
+
+// Resolves a term's .frq block into its raw (uncompressed) bytes, mirroring
+// SpimiTermDocsReader: a large block is wrapped in a kCodeModeZstd envelope
+// (VInt(uncomp) VInt(comp) ZSTD-payload); a small block is the raw CodeMode
+// block verbatim. DecodeFrqDocs then reads the inner kDefault/kSpimiPfor block.
+std::vector<uint8_t> ReadTermFrqRaw(const std::vector<uint8_t>& frq, int64_t freq_pointer) {
+    ByteReader h(frq);
+    h.Seek(static_cast<size_t>(freq_pointer));
+    const uint8_t mode = h.Byte();
+    if (mode == FreqProxEncoder::kCodeModeZstd) {
+        const auto uncomp = static_cast<uint32_t>(h.ReadVInt());
+        const auto comp = static_cast<uint32_t>(h.ReadVInt());
+        const size_t comp_off = h.pos();
+        std::vector<uint8_t> raw(uncomp);
+        BlockCompressionCodec* codec = nullptr;
+        EXPECT_TRUE(get_block_compression_codec(CompressionTypePB::ZSTD, &codec).ok());
+        Slice in(reinterpret_cast<const char*>(frq.data() + comp_off), comp);
+        Slice out(reinterpret_cast<char*>(raw.data()), uncomp);
+        EXPECT_TRUE(codec->decompress(in, &out).ok());
+        return raw;
+    }
+    // Raw CodeMode block: return the tail from freq_pointer (mode byte included);
+    // DecodeFrqDocs reads only doc_freq-bounded data and ignores trailing skip.
+    return {frq.begin() + static_cast<size_t>(freq_pointer), frq.end()};
+}
+
 std::vector<ReconstructedTerm> ReconstructSegment(const std::vector<uint8_t>& tis,
                                                   const std::vector<uint8_t>& frq,
                                                   const std::vector<uint8_t>& prx,
@@ -301,12 +355,12 @@ std::vector<ReconstructedTerm> ReconstructSegment(const std::vector<uint8_t>& ti
     const std::vector<DecodedTermEntry> entries = DecodeTis(tis, skip_interval);
     std::vector<ReconstructedTerm> result;
     result.reserve(entries.size());
-    ByteReader fr(frq);
-    ByteReader pr(prx);
     for (const auto& entry : entries) {
-        fr.Seek(static_cast<size_t>(entry.freq_pointer));
-        pr.Seek(static_cast<size_t>(entry.prox_pointer));
+        const std::vector<uint8_t> term_frq = ReadTermFrqRaw(frq, entry.freq_pointer);
+        ByteReader fr(term_frq);
         const auto doc_freqs = DecodeFrqDocs(fr, entry.doc_freq);
+        const std::vector<uint8_t> term_prox = ReadTermProxRaw(prx, entry.prox_pointer);
+        ByteReader pr(term_prox);
         ReconstructedTerm rt;
         rt.term_wide = entry.term_wide;
         rt.docs.reserve(doc_freqs.size());
@@ -441,13 +495,73 @@ TEST(SegmentRoundtripTest, FilePointersInTermDictMatchByteOffsets) {
 
     // Each term's .frq block now opens with the Doris-CLucene codec
     // prefix `[CodeMode byte][VInt doc_count]` = 2 bytes for docFreq=1,
-    // followed by 1 byte of doc-encoding ⇒ 3 bytes per term. The .prx
-    // is still 1 byte per term (single VInt 0 position).
+    // followed by 1 byte of doc-encoding ⇒ 3 bytes per term. Each term's .prx
+    // block is `[prox-mode byte 0x00][VInt 0 position]` = 2 bytes (the prox
+    // block carries a 1-byte raw/ZSTD mode header, then the position deltas).
     EXPECT_EQ(entries[1].freq_pointer, 3);
     EXPECT_EQ(entries[2].freq_pointer, 6);
 
-    EXPECT_EQ(entries[1].prox_pointer, 1);
-    EXPECT_EQ(entries[2].prox_pointer, 2);
+    EXPECT_EQ(entries[1].prox_pointer, 2);
+    EXPECT_EQ(entries[2].prox_pointer, 4);
+}
+
+// A term whose whole-term .prx block exceeds kProxCompressMin and is highly
+// compressible must take the ZSTD envelope (mode byte kProxZstd) AND round-trip
+// bit-for-bit through the decompressing reader. Guards the .prx ZSTD-1 path.
+TEST(SegmentRoundtripTest, ProxZstdBlockRoundTripsAndUsesZstdMode) {
+    MemoryByteOutput tis, tii, frq, prx;
+    SegmentWriter w(&tis, &tii, &frq, &prx);
+    SpimiPostingBuffer buffer;
+    // One doc, 300 ascending positions ⇒ 300 VInt deltas (mostly 0x01) — well
+    // above kProxCompressMin (48) and trivially compressible.
+    constexpr int kPositions = 300;
+    std::vector<int32_t> expect_positions;
+    expect_positions.reserve(kPositions);
+    for (int32_t p = 0; p < kPositions; ++p) {
+        buffer.Append("term", /*doc=*/0, /*pos=*/p);
+        expect_positions.push_back(p);
+    }
+    buffer.Sort();
+    w.Emit(buffer, /*field=*/0);
+    w.Close();
+
+    // The single term's prox block starts at offset 0; assert the writer chose
+    // the ZSTD envelope (otherwise this test would silently not exercise it).
+    ASSERT_FALSE(prx.bytes().empty());
+    EXPECT_EQ(prx.bytes()[0], FreqProxEncoder::kProxZstd) << "large block must use ZSTD mode";
+
+    const auto reconstructed = ReconstructSegment(tis.bytes(), frq.bytes(), prx.bytes(),
+                                                  TermDictWriter::kDefaultSkipInterval);
+    ASSERT_EQ(reconstructed.size(), 1U);
+    ASSERT_EQ(reconstructed[0].docs.size(), 1U);
+    EXPECT_EQ(reconstructed[0].docs[0].doc_id, 0);
+    EXPECT_EQ(reconstructed[0].docs[0].positions, expect_positions);
+}
+
+// A term whose doc frequency crosses kForThreshold (512) graduates from VInt
+// slice chains to the SIMD frame-of-reference encoder. Exercise exactly one doc
+// past the boundary (513 docs) and round-trip every doc + position.
+TEST(SegmentRoundtripTest, ForGraduationPast512DocsRoundTrips) {
+    MemoryByteOutput tis, tii, frq, prx;
+    SegmentWriter w(&tis, &tii, &frq, &prx);
+    SpimiPostingBuffer buffer;
+    constexpr int kDocs = 513; // 512 boundary + 1
+    for (int32_t d = 0; d < kDocs; ++d) {
+        buffer.Append("t", /*doc=*/d, /*pos=*/d % 7); // a position per doc
+    }
+    buffer.Sort();
+    w.Emit(buffer, /*field=*/0);
+    w.Close();
+
+    const auto reconstructed = ReconstructSegment(tis.bytes(), frq.bytes(), prx.bytes(),
+                                                  TermDictWriter::kDefaultSkipInterval);
+    ASSERT_EQ(reconstructed.size(), 1U);
+    ASSERT_EQ(reconstructed[0].docs.size(), static_cast<size_t>(kDocs));
+    for (int32_t d = 0; d < kDocs; ++d) {
+        EXPECT_EQ(reconstructed[0].docs[d].doc_id, d) << "doc id at " << d;
+        EXPECT_EQ(reconstructed[0].docs[d].positions, (std::vector<int32_t> {d % 7}))
+                << "positions at doc " << d;
+    }
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

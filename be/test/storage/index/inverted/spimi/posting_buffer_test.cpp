@@ -525,7 +525,10 @@ TEST(SpimiPostingBufferTest, CompactModeGrowSlotsKeepsTermIdsConsistent) {
     // calling Sort() and checking the distinct text_ref count
     // equals total term count.
     buf.Append(fresh_terms[0], 350, 0);
-    buf.Sort();
+    // Force `_records` materialization: this white-box test inspects the
+    // distinct text_refs in the materialized records, which the compact
+    // direct-emit fast path deliberately skips producing.
+    buf.Sort(/*allow_direct_emit=*/false);
     std::unordered_set<uint32_t> distinct_text_refs;
     for (const auto& rec : buf.records()) {
         distinct_text_refs.insert(rec.text_ref);
@@ -563,7 +566,9 @@ TEST(SpimiPostingBufferTest, MaybeCompactPreservesDistinctTermsAcrossMigration) 
         }
     }
     EXPECT_EQ(buf.TermCount(), static_cast<size_t>(kTerms));
-    buf.Sort();
+    // Force `_records` materialization so this white-box test can inspect the
+    // post-migration records; the compact direct-emit fast path skips them.
+    buf.Sort(/*allow_direct_emit=*/false);
     std::unordered_set<uint32_t> distinct_text_refs;
     for (const auto& rec : buf.records()) {
         distinct_text_refs.insert(rec.text_ref);

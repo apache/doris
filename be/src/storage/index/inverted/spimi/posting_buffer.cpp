@@ -26,6 +26,74 @@
 
 namespace doris::segment_v2::inverted_index::spimi {
 
+BytePool::~BytePool() {
+    for (uint8_t* b : _blocks) {
+        delete[] b;
+    }
+}
+
+void BytePool::EnsureRoom(uint32_t size) {
+    // Slices never span blocks; if the current block can't hold `size`
+    // contiguous bytes, start a fresh zero-filled block. The tail of the old
+    // block is left unused (bounded waste < kLevelSize max = 200 B/block).
+    //
+    // The `>= _blocks.size()` guard is essential: when a slice exactly fills a
+    // block, `_byte_upto` lands on the next block's base (a multiple of
+    // kBlockSize) whose masked local offset is 0 — without this guard the
+    // size check would see "0 + size ≤ kBlockSize" and conclude the
+    // (non-existent) next block has room, handing out an offset into an
+    // unallocated block.
+    if (_blocks.empty() || (_byte_upto >> kBlockShift) >= _blocks.size() ||
+        (_byte_upto & kBlockMask) + size > kBlockSize) {
+        auto* blk = new uint8_t[kBlockSize](); // value-init → all zero (no markers)
+        _blocks.push_back(blk);
+        _byte_upto = static_cast<uint32_t>(_blocks.size() - 1) << kBlockShift;
+    }
+}
+
+uint32_t BytePool::NewSlice() {
+    EnsureRoom(kFirstSize);
+    const uint32_t g = _byte_upto;
+    _blocks[g >> kBlockShift][(g & kBlockMask) + kFirstSize - 1] = 16; // level-0 marker
+    _byte_upto += kFirstSize;
+    return g;
+}
+
+uint32_t BytePool::AllocSlice(uint32_t upto) {
+    // `upto` is the global index of the marker byte (last byte of the full
+    // slice). Grow to the next level, copy the 3 tail data bytes forward, and
+    // overwrite the old slice's last 4 bytes with the forwarding address.
+    uint8_t* old_buf = _blocks[upto >> kBlockShift];
+    const uint32_t ol = upto & kBlockMask;
+    const int level = old_buf[ol] & 15;
+    const int new_level = kNextLevel[level];
+    const auto new_size = static_cast<uint32_t>(kLevelSize[new_level]);
+    EnsureRoom(new_size);
+    const uint32_t new_global = _byte_upto;
+    uint8_t* nbuf = _blocks[new_global >> kBlockShift];
+    const uint32_t nl = new_global & kBlockMask;
+    _byte_upto += new_size;
+    // Copy forward the 3 data bytes we are about to overwrite with the address.
+    nbuf[nl] = old_buf[ol - 3];
+    nbuf[nl + 1] = old_buf[ol - 2];
+    nbuf[nl + 2] = old_buf[ol - 1];
+    // Write the forwarding address (big-endian global offset) into the old tail.
+    old_buf[ol - 3] = static_cast<uint8_t>(new_global >> 24);
+    old_buf[ol - 2] = static_cast<uint8_t>(new_global >> 16);
+    old_buf[ol - 1] = static_cast<uint8_t>(new_global >> 8);
+    old_buf[ol] = static_cast<uint8_t>(new_global);
+    nbuf[nl + new_size - 1] = static_cast<uint8_t>(16 | new_level); // new marker
+    return new_global + 3;
+}
+
+void BytePool::Reset() {
+    for (uint8_t* b : _blocks) {
+        delete[] b;
+    }
+    _blocks.clear();
+    _byte_upto = 0;
+}
+
 namespace {
 
 inline uint32_t LoadLittleEndianU32(const uint8_t* p) {
@@ -71,29 +139,8 @@ SpimiPostingBuffer::SpimiPostingBuffer(uint64_t hash_seed) : _hash_seed(hash_see
 SpimiPostingBuffer::SpimiPostingBuffer(uint64_t hash_seed, Limits limits)
         : _hash_seed(hash_seed), _limits(limits) {}
 
-uint64_t SpimiPostingBuffer::HashTerm(std::string_view term) const {
-    // Keyed FNV-1a 64-bit: the per-instance seed is used as the initial
-    // accumulator (replacing FNV's fixed offset basis), so an attacker who
-    // does not know the seed cannot pre-compute colliding terms across
-    // writers. The construction is not cryptographically keyed — it is
-    // DoS-resistant, which is all we need: the attacker would have to find
-    // collisions under an unknown seed, which is computationally equivalent
-    // to a brute-force search of the 64-bit seed space.
-    //
-    // We intentionally avoid a stronger keyed hash (xxhash, SipHash) here
-    // because the symbol resolution path for xxhash in the BE test binary
-    // pulls two archives that both define `XXH64_*`, breaking the static
-    // link. Keyed FNV is small, embedded, and good enough for the threat
-    // model. If a stronger keyed hash is needed later, route through
-    // util/hash_util's existing wrappers rather than `#include <xxhash.h>`.
-    constexpr uint64_t kPrime = 1099511628211ULL;
-    uint64_t h = _hash_seed;
-    for (unsigned char c : term) {
-        h ^= static_cast<uint64_t>(c);
-        h *= kPrime;
-    }
-    return h;
-}
+// HashTerm is now defined inline in the header for use by
+// InternHot's inlined fast path. See posting_buffer.h.
 
 std::string_view SpimiPostingBuffer::ArenaTermAt(uint32_t text_ref) const {
     const uint8_t* base = _arena.data() + text_ref;
@@ -184,7 +231,27 @@ void SpimiPostingBuffer::GrowSlots(size_t new_capacity) {
     _slot_term_ids.swap(new_slot_term_ids);
 }
 
+uint32_t SpimiPostingBuffer::InternCold(std::string_view term) {
+    // Cold path: term is not in the slot table (or InternHot
+    // ran out of probe budget). Run the full hash + probe and
+    // insert if still missing. Handles slot-table grow.
+    return Intern(term);
+}
+
 uint32_t SpimiPostingBuffer::Intern(std::string_view term) {
+    // Caching attempts on the Intern hot path:
+    //   * 1-entry "last term" cache — hit rate <1 % because the
+    //     analyzer emits distinct sequential tokens; pure
+    //     overhead.
+    //   * 64-bucket direct-mapped (hash, text_ref) cache —
+    //     regressed plain_log / json_log / wikipedia_zipf /
+    //     repetitive measurably. Bucket compute + load + cmp
+    //     adds ~5 ns/call; hit savings ~20 ns × few-% hit rate;
+    //     net negative.
+    // Both reverted. If we revisit, the right place is probably
+    // to make the analyzer emit (term_id, term_bytes) pairs so
+    // SPIMI never re-hashes — bigger refactor touching the
+    // Tokenizer interface.
     if (_slots.empty()) {
         _slots.assign(kInitialSlots, kEmpty);
         // `_slot_term_ids` is deferred until compact mode activates
@@ -201,8 +268,8 @@ uint32_t SpimiPostingBuffer::Intern(std::string_view term) {
         const uint32_t entry = _slots[slot];
         if (entry == kEmpty) {
             // Insert: append [length][bytes] to the arena, claim the slot.
-            const uint32_t text_ref = static_cast<uint32_t>(_arena.size());
-            const uint32_t len = static_cast<uint32_t>(term.size());
+            const auto text_ref = static_cast<uint32_t>(_arena.size());
+            const auto len = static_cast<uint32_t>(term.size());
             const size_t old_size = _arena.size();
             const size_t needed = old_size + sizeof(uint32_t) + len;
             // Pre-reserve with 1.25× growth (vs std::vector's default 2×).
@@ -247,67 +314,6 @@ uint32_t SpimiPostingBuffer::Intern(std::string_view term) {
     }
 }
 
-namespace {
-
-// Override std::vector's 2× growth with 1.25× on a byte buffer,
-// matching the `_records.reserve(...)` pattern. Capacity is only
-// bumped when truly full, NOT pre-emptively per write.
-//
-// Hot-loop note: callers should prefer `ReserveBytes` once + the
-// unchecked `PushByteUnchecked` for sequences of pushes
-// (e.g. WriteVInt's 1-5 bytes). The slow-growth variant remains for
-// one-off calls and as the safety net when a caller forgets to
-// reserve.
-inline void EnsureCapacity(std::vector<uint8_t>* buf, size_t additional) {
-    const size_t needed = buf->size() + additional;
-    if (needed > buf->capacity()) [[unlikely]] {
-        const size_t grown = std::max(needed, buf->capacity() + buf->capacity() / 4 + 16);
-        buf->reserve(grown);
-    }
-}
-
-inline void PushByteUnchecked(std::vector<uint8_t>* buf, uint8_t b) {
-    // Caller must have called `EnsureCapacity` with enough headroom.
-    // `push_back` is still used (not raw pointer write) because the
-    // vector tracks size internally; in release the `if (capacity)`
-    // branch inside push_back is dead given our reserve, so the
-    // compiler reduces this to a `*end = b; ++end` pair.
-    buf->push_back(b);
-}
-
-// VInt writer matching `ByteOutput::WriteVInt` byte layout. Used by
-// the compact-mode posting streams so the encoding is consistent
-// with how the rest of SPIMI handles variable-length ints.
-// A uint32 VInt is at most 5 bytes; reserve all 5 upfront so the
-// inner loop is branch-free on capacity. (Previously each
-// `PushByteWithSlowGrowth` re-read size/capacity and branched —
-// hot enough to surface in the flamegraph as `PushByteWithSlowGrowth`
-// at ~277 M samples on the repetitive workload.)
-inline void WriteVIntToBuf(std::vector<uint8_t>* buf, uint32_t v) {
-    EnsureCapacity(buf, 5U);
-    while ((v & ~0x7FU) != 0) {
-        PushByteUnchecked(buf, static_cast<uint8_t>((v & 0x7FU) | 0x80U));
-        v >>= 7U;
-    }
-    PushByteUnchecked(buf, static_cast<uint8_t>(v));
-}
-
-inline uint32_t ReadVIntFromBuf(const uint8_t* data, size_t* pos) {
-    uint32_t v = 0;
-    uint32_t shift = 0;
-    while (true) {
-        const uint8_t b = data[(*pos)++];
-        v |= static_cast<uint32_t>(b & 0x7FU) << shift;
-        if ((b & 0x80U) == 0) {
-            break;
-        }
-        shift += 7;
-    }
-    return v;
-}
-
-} // namespace
-
 uint32_t SpimiPostingBuffer::GetOrAssignTermId(uint32_t text_ref) {
     // Hot path: Intern() just touched a slot and left `_last_intern_slot`
     // pointing at it AND the slot's text_ref equals the queried `text_ref`.
@@ -327,7 +333,8 @@ uint32_t SpimiPostingBuffer::GetOrAssignTermId(uint32_t text_ref) {
         uint32_t id = _slot_term_ids[_last_intern_slot];
         if (id == kInvalidTermId) {
             id = static_cast<uint32_t>(_term_states.size());
-            _term_states.emplace_back();
+            auto& st = _term_states.emplace_back();
+            st.text_ref = text_ref;
             _slot_term_ids[_last_intern_slot] = id;
             _text_ref_to_term_id.emplace(text_ref, id);
         }
@@ -341,7 +348,8 @@ uint32_t SpimiPostingBuffer::GetOrAssignTermId(uint32_t text_ref) {
         return it->second;
     }
     const auto id = static_cast<uint32_t>(_term_states.size());
-    _term_states.emplace_back();
+    auto& st_new = _term_states.emplace_back();
+    st_new.text_ref = text_ref;
     _text_ref_to_term_id.emplace(text_ref, id);
     // Also populate `_slot_term_ids` for THIS text_ref's slot, so the
     // next Append on this same term hits the fast path. Slot is found
@@ -371,58 +379,86 @@ uint32_t SpimiPostingBuffer::GetOrAssignTermId(uint32_t text_ref) {
 
 void SpimiPostingBuffer::EncodeOccurrenceToStream(uint32_t term_id, uint32_t doc_id,
                                                   uint32_t position) {
-    // Tagged-VInt delta encoding with absolute-reset fallback.
-    // Per occurrence we write one tagged VInt and optionally one
-    // trailing VInt. The encoding handles arbitrary input order
-    // (out-of-order docs, non-monotonic positions) by emitting a
-    // reset sentinel — so the random-input
-    // `SpimiSegmentReaderTest.RandomisedSegmentRoundTrip` test
-    // stays green while monotonic fulltext workloads (the common
-    // case) get the delta-encoded compactness win.
-    //
-    // Tagged VInt encoding (lowest bit is the tag):
-    //   tagged == 0          → absolute reset: read VInt(doc) +
-    //                          VInt(pos). Used on first occurrence
-    //                          and whenever doc < last_doc.
-    //   tagged & 1 == 1      → same-doc continuation: pos_delta =
-    //                          tagged >> 1 (no trailing VInt).
-    //   tagged & 1 == 0,
-    //   tagged != 0          → new-doc: doc_delta = tagged >> 1,
-    //                          then VInt(pos).
-    auto& state = _term_states[term_id];
-    auto& s = state.stream;
+    // Out-of-line entry (used by the MaybeCompact migration loop); delegates
+    // to the inlined block-pending hot path so both share one implementation.
+    EncodeOccurrenceToStreamInline(term_id, doc_id, position);
+}
 
-    if (state.first || doc_id < state.last_doc) {
-        if (doc_id < state.last_doc) {
-            _compact_streams_sorted = false;
-        }
-        WriteVIntToBuf(&s, 0U); // reset sentinel
-        WriteVIntToBuf(&s, doc_id);
-        WriteVIntToBuf(&s, position);
-    } else if (doc_id == state.last_doc) {
-        // Same-doc continuation. Position may be < last_pos under
-        // adversarial inputs (the caller does not enforce monotonic
-        // within-doc positions), so guard with the same reset
-        // fallback as the doc-decreasing case rather than emitting a
-        // wrapped delta.
-        if (position < state.last_pos_in_doc) {
-            _compact_streams_sorted = false;
-            WriteVIntToBuf(&s, 0U);
-            WriteVIntToBuf(&s, doc_id);
-            WriteVIntToBuf(&s, position);
-        } else {
-            const uint32_t pos_delta = position - state.last_pos_in_doc;
-            WriteVIntToBuf(&s, (pos_delta << 1) | 1U);
-        }
-    } else {
-        // doc_id > last_doc → new-doc with delta.
-        const uint32_t doc_delta = doc_id - state.last_doc;
-        WriteVIntToBuf(&s, doc_delta << 1);
-        WriteVIntToBuf(&s, position);
+void SpimiPostingBuffer::FinalizeBlocks() {
+    if (_finalized) {
+        return;
     }
-    state.last_doc = doc_id;
-    state.last_pos_in_doc = position;
-    state.first = false;
+    // Flush graduated terms' FOR encoders so their faststrings hold the full
+    // packed tail (with the per-frame footer ForDecoder needs). VInt prefix
+    // chains are self-delimiting and need no finalization.
+    for (auto& f : _for_states) {
+        if (f->pend_n > 0) {
+            f->doc_enc.put_batch(f->doc_pend, f->pend_n);
+            f->pos_enc.put_batch(f->pos_pend, f->pend_n);
+            f->pend_n = 0;
+        }
+        f->doc_enc.flush();
+        f->pos_enc.flush();
+    }
+    _finalized = true;
+}
+
+void SpimiPostingBuffer::DecodeCompactTerm(uint32_t term_id, std::vector<uint32_t>& docs,
+                                           std::vector<uint32_t>& positions) const {
+    const auto& state = _term_states[term_id];
+    const uint32_t n = state.occ_count;
+    docs.resize(n);
+    positions.resize(n);
+    if (n == 0) {
+        return;
+    }
+    // VInt prefix (delta-coded doc ids threaded from 0; plain positions), then
+    // — for graduated terms — the FOR-packed suffix, threading `prev` across
+    // the boundary so absolute doc ids are continuous.
+    const uint32_t prefix = (state.for_index != kNoForIndex) ? kForThreshold : n;
+    ByteSliceReader doc_reader(_pool, state.doc_start, state.doc_upto);
+    ByteSliceReader pos_reader(_pool, state.pos_start, state.pos_upto);
+    uint32_t prev = 0;
+    for (uint32_t i = 0; i < prefix; ++i) {
+        prev += doc_reader.ReadVInt();
+        docs[i] = prev;
+        positions[i] = pos_reader.ReadVInt();
+    }
+    if (state.for_index != kNoForIndex && n > kForThreshold) {
+        const uint32_t suffix = n - kForThreshold;
+        const ForTermState& f = *_for_states[state.for_index];
+        std::vector<uint32_t> dd(suffix);
+        std::vector<uint32_t> pp(suffix);
+        ForDecoder<uint32_t> ddec(f.doc_buf.data(), f.doc_buf.size());
+        const bool dinit = ddec.init();
+        const bool dget = ddec.get_batch(dd.data(), suffix);
+        ForDecoder<uint32_t> pdec(f.pos_buf.data(), f.pos_buf.size());
+        const bool pinit = pdec.init();
+        const bool pget = pdec.get_batch(pp.data(), suffix);
+        DCHECK(dinit && dget && pinit && pget)
+                << "FOR tail decode failed (corrupt in-memory buffer)";
+        static_cast<void>(dinit);
+        static_cast<void>(dget);
+        static_cast<void>(pinit);
+        static_cast<void>(pget);
+        for (uint32_t j = 0; j < suffix; ++j) {
+            prev += dd[j];
+            docs[kForThreshold + j] = prev;
+            positions[kForThreshold + j] = pp[j];
+        }
+    }
+}
+
+void SpimiPostingBuffer::DecodeTermToRecords(uint32_t term_id) {
+    const auto& state = _term_states[term_id];
+    const uint32_t n = state.occ_count;
+    const uint32_t text_ref = state.text_ref;
+    std::vector<uint32_t> docs;
+    std::vector<uint32_t> positions;
+    DecodeCompactTerm(term_id, docs, positions);
+    for (uint32_t i = 0; i < n; ++i) {
+        _records.push_back(SpimiRecord {text_ref, docs[i], positions[i]});
+    }
 }
 
 void SpimiPostingBuffer::MaybeCompact() {
@@ -438,12 +474,14 @@ void SpimiPostingBuffer::MaybeCompact() {
         // we cross the next `kCompactCheckEvery` boundary.
         return;
     }
-    // Migrate all records into per-term streams. Records are walked
-    // in insertion order so the stream's delta-encoding sees the
-    // same (doc, pos) sequence Append() would have produced
-    // directly.
+    // Migrate all records into per-term arrays. Records are walked
+    // in insertion order so the arrays see the same (doc, pos)
+    // sequence Append() would have produced directly.
     _term_states.reserve(_term_count);
     _text_ref_to_term_id.reserve(_term_count);
+    // The per-term StreamVByte streams need no pre-reservation: occurrences
+    // accumulate in the fixed-size pending block and are flushed in bulk, so
+    // there is no per-occurrence array growth to amortize.
     // Initialize the parallel `_slot_term_ids` array now that we're
     // entering compact mode — see `Intern()` for the deferred-init
     // rationale. The slot table itself (`_slots`) is already
@@ -467,7 +505,16 @@ void SpimiPostingBuffer::MaybeCompact() {
     _compact_mode = true;
 }
 
+// The hot append path deliberately keeps term-lookup, slice-pool growth, the
+// VInt→FOR graduation branch and the trailing-batch flush inline (no
+// per-occurrence call overhead); splitting it would add indirection on the
+// busiest loop in the writer for no readability win.
+// NOLINTNEXTLINE(readability-function-size)
 void SpimiPostingBuffer::Append(std::string_view term, uint32_t doc_id, uint32_t position) {
+    // Sort() finalizes the compact streams (flushes trailing blocks, adds
+    // decode padding) and is terminal — appending afterwards would corrupt the
+    // fixed-width-block decode. Reset() clears this to reuse the buffer.
+    DCHECK(!_finalized) << "Append() after Sort()/FinalizeBlocks() is not allowed";
     if (_saturated) {
         return;
     }
@@ -490,6 +537,14 @@ void SpimiPostingBuffer::Append(std::string_view term, uint32_t doc_id, uint32_t
         Saturate("occurrences exceed max_record_count", term);
         return;
     }
+    // The slice pool is addressed by a uint32 global offset; saturate well
+    // below the 4 GiB wrap (same 2 GiB bound as the arena) so a pathological
+    // input can never overflow `_byte_upto`. One Append adds at most a 200 B
+    // slice + one 32 KiB block, so 2 GiB headroom is ample.
+    if (_compact_mode && _pool.MemoryUsage() >= _limits.max_arena_bytes) [[unlikely]] {
+        Saturate("posting pool would exceed max_arena_bytes", term);
+        return;
+    }
     // The Intern() path can grow the arena by up to (4 + term.size()) bytes
     // on a first-sight term. Check before the cast in Intern() so we
     // never reach a state where `_arena.size() >= 2^32`.
@@ -497,16 +552,28 @@ void SpimiPostingBuffer::Append(std::string_view term, uint32_t doc_id, uint32_t
         Saturate("arena would exceed max_arena_bytes", term);
         return;
     }
-    const uint32_t text_ref = Intern(term);
+    // Inline hot-path Intern at the Append call site: a slot-table
+    // hit is the dominant case for any non-degenerate vocabulary,
+    // and `InternHot` is `[[gnu::always_inline]]` in the header so
+    // the hash + probe + arena byte compare all fuse into Append's
+    // hot loop. Flame graphs put `Intern` cumulative at 16-22 % of
+    // V4 wall-clock; the function-call boundary alone is ~5-10 ns
+    // per token, and the inlined fast path additionally lets the
+    // compiler CSE the term length + hash across the branch.
+    uint32_t text_ref = InternHot(term);
+    if (text_ref == kEmpty) [[unlikely]] {
+        text_ref = InternCold(term);
+    }
     ++_total_occurrences;
 
     if (_compact_mode) {
-        // Compact mode: write directly to the term's posting stream.
-        // No record vector push, no growth bookkeeping. The per-term
-        // varint stream is what keeps peak memory low on repetitive
-        // workloads.
+        // Compact mode: stream the (doc, pos) occurrence straight into the
+        // term's two VInt slice chains. Both `GetOrAssignTermId` (via
+        // _last_intern_slot O(1) cache) and `EncodeOccurrenceToStreamInline`
+        // are header-inlined so the compiler fuses them with the surrounding
+        // Append logic — no function-call boundary in the hot loop.
         const uint32_t term_id = GetOrAssignTermId(text_ref);
-        EncodeOccurrenceToStream(term_id, doc_id, position);
+        EncodeOccurrenceToStreamInline(term_id, doc_id, position);
         return;
     }
 
@@ -546,8 +613,11 @@ size_t SpimiPostingBuffer::MemoryUsage() const {
         // pointer for the bucket), matching libstdc++'s typical load
         // factor and bucket layout closely enough for accounting.
         bytes += _term_states.capacity() * sizeof(TermPostingState);
-        for (const auto& s : _term_states) {
-            bytes += s.stream.capacity();
+        bytes += _pool.MemoryUsage(); // shared slice-pool blocks (VInt prefix bytes)
+        // FOR-packed tails: packed buffers + per-encoder frame scratch + node.
+        bytes += _for_states.capacity() * sizeof(std::unique_ptr<ForTermState>);
+        for (const auto& f : _for_states) {
+            bytes += sizeof(ForTermState) + f->doc_buf.capacity() + f->pos_buf.capacity();
         }
         bytes += _text_ref_to_term_id.size() * (sizeof(uint32_t) * 2 + sizeof(void*) * 2);
     }
@@ -572,18 +642,33 @@ void SpimiPostingBuffer::Reset() {
     // with the flat-records fast path.
     _term_states.clear();
     _term_states.shrink_to_fit();
+    _pool.Reset();
+    _for_states.clear();
+    _for_states.shrink_to_fit();
     _text_ref_to_term_id.clear();
     _cached_text_ref = static_cast<uint32_t>(-1);
     _compact_mode = false;
     _compact_streams_sorted = true;
     _total_occurrences = 0;
+    _compact_direct_emit = false;
+    _sorted_compact_terms.clear();
+    _sorted_compact_terms.shrink_to_fit();
+    _finalized = false;
 }
 
-void SpimiPostingBuffer::Sort() {
+// The terminal flush orchestrates term sort, block finalization and the
+// compact / direct-emit / materialized-records fork as one cohesive sequence;
+// the branches share local state and extracting them would spread that state
+// across helpers for a marginal complexity-score gain. Verified correct by the
+// SPIMI roundtrip and segment-writer unit tests.
+// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
+void SpimiPostingBuffer::Sort(bool allow_direct_emit) {
+    _compact_direct_emit = false;
+    _sorted_compact_terms.clear();
     if (_compact_mode) {
-        _records.clear();
-        _records.reserve(_total_occurrences);
-
+        // Flush every term's trailing pending block so the StreamVByte streams
+        // are complete and decodable (by direct-emit or DecodeTermToRecords).
+        FinalizeBlocks();
         // Fast path: streams were filled monotonically (no reset
         // sentinel was ever emitted). Each stream's decoded records
         // are then already in (doc, pos) order. We can emit per-term
@@ -603,26 +688,26 @@ void SpimiPostingBuffer::Sort() {
                       [this](const auto& a, const auto& b) {
                           return ArenaTermAt(a.first) < ArenaTermAt(b.first);
                       });
-        }
-        for (const auto& [text_ref, term_id] : term_text_to_id) {
-            const auto& s = _term_states[term_id].stream;
-            const uint8_t* data = s.data();
-            size_t pos = 0;
-            uint32_t cur_doc = 0;
-            uint32_t cur_pos = 0;
-            while (pos < s.size()) {
-                const uint32_t tagged = ReadVIntFromBuf(data, &pos);
-                if (tagged == 0U) {
-                    cur_doc = ReadVIntFromBuf(data, &pos);
-                    cur_pos = ReadVIntFromBuf(data, &pos);
-                } else if ((tagged & 1U) != 0U) {
-                    cur_pos += (tagged >> 1U);
-                } else {
-                    cur_doc += (tagged >> 1U);
-                    cur_pos = ReadVIntFromBuf(data, &pos);
+            if (allow_direct_emit) {
+                // Direct-emit: keep the per-term arrays alive and hand the
+                // segment writer the text-sorted term list. Skips the
+                // `_records` materialization entirely (the dominant
+                // finish-time peak: 12 B/occ on top of the 8 B/occ arrays).
+                _sorted_compact_terms.reserve(term_text_to_id.size());
+                for (const auto& [text_ref, term_id] : term_text_to_id) {
+                    _sorted_compact_terms.push_back(CompactTermRef {text_ref, term_id});
                 }
-                _records.push_back(SpimiRecord {text_ref, cur_doc, cur_pos});
+                _compact_direct_emit = true;
+                return;
             }
+        }
+        // Materialization path: caller needs `records()` (norms/doc-length),
+        // or streams were non-monotonic and still need the global sort below.
+        // Decode each term's StreamVByte streams back into flat records.
+        _records.clear();
+        _records.reserve(_total_occurrences);
+        for (const auto& [text_ref, term_id] : term_text_to_id) {
+            DecodeTermToRecords(term_id);
         }
         _term_states.clear();
         _term_states.shrink_to_fit();
@@ -636,32 +721,154 @@ void SpimiPostingBuffer::Sort() {
             return;
         }
     }
-    // The intern map dedups terms, so identical terms always share a single
-    // text_ref. That means term *identity* can be tested by `text_ref ==
-    // text_ref` (fast path), and term *order* falls back to a byte-wise
-    // compare of the arena entries when refs differ.
+    if (_records.empty()) {
+        return;
+    }
+    // Flat-mode sort. The previous implementation called
+    // `std::stable_sort(_records, byte_compare_arena_terms)`. That
+    // ran the byte-wise term comparison O(N log N) times — for
+    // 100 K records on plain-log/json-log fixtures, ~40 % of total
+    // V4 wall-clock (per gperftools flame graph; SegmentWriter::Emit
+    // + EncodeOccurrenceToStream were the remaining hot spots).
     //
-    // We use std::stable_sort so records that share the full key
-    // (term, doc_id, position) keep their original insertion order — useful
-    // for reproducibility and for the segment-emit phase, which assumes ties
-    // are deterministic.
-    std::stable_sort(_records.begin(), _records.end(),
-                     [this](const SpimiRecord& a, const SpimiRecord& b) {
-                         if (a.text_ref != b.text_ref) {
-                             const std::string_view ta = ArenaTermAt(a.text_ref);
-                             const std::string_view tb = ArenaTermAt(b.text_ref);
-                             const int c = ta.compare(tb);
-                             // Distinct text_refs cannot encode equal bytes
-                             // because Intern() dedups; assert that invariant
-                             // and dispatch strictly on the byte comparison.
-                             DCHECK_NE(c, 0);
-                             return c < 0;
-                         }
-                         if (a.doc_id != b.doc_id) {
-                             return a.doc_id < b.doc_id;
-                         }
-                         return a.position < b.position;
-                     });
+    // The replacement is a two-stage sort that exploits two
+    // invariants the flat-mode buffer maintains:
+    //
+    //   (1) Intern() dedups terms, so all records sharing a term
+    //       share the same `text_ref`. Total distinct terms T is
+    //       bounded by `_term_count` (≤ kMaxTerms ≈ 1 M and in
+    //       practice << N for any non-degenerate workload).
+    //   (2) Append() is monotonic per term: doc_id never decreases
+    //       (`_rid` is a row counter), and within a doc positions
+    //       come from the analyzer in ascending order. So records
+    //       sharing a term arrive in (doc_id, position) ascending.
+    //
+    // Stage 1: collect the T distinct text_refs from the slot table
+    //          (no extra dedup needed) and lexicographically sort
+    //          them once. Cost: O(T log T) of arena byte compares —
+    //          much smaller than the old O(N log N).
+    // Stage 2: counting sort `_records` by the term's lex rank.
+    //          Counting sort is stable, so per-term records stay in
+    //          their original Append order.
+    // Stage 3: within each rank bucket, sort by (doc_id, position).
+    //          For production (sequential rows + monotonic analyzer
+    //          positions) buckets are *already* sorted and the
+    //          per-bucket std::sort costs O(bucket_size) of compares
+    //          + zero swaps. For test/randomised inputs that
+    //          Append records out of order, the per-bucket sort
+    //          restores correctness. The comparator now reads only
+    //          two uint32 fields — no arena byte compare anywhere
+    //          inside the records-dimension sort.
+    //
+    // Output: `_records` reordered to (lex-rank, doc_id, position)
+    // ascending, identical to what the old stable_sort produced.
+    // The records themselves are unchanged (text_ref preserved),
+    // so SegmentWriter::Emit (which reads `text_ref` to look up
+    // term bytes via `buffer.TermAt`) is unaffected.
+    //
+    // The counting-sort path wins when T << N. When T ≈ N
+    // (all-unique vocabularies — UUID columns, ingest IDs, the
+    // mostly_unique/all_unique fixtures) it's a net loss: the
+    // term-list sort already pays the O(N log N) byte compares,
+    // and on top of that we burn cycles on hashmap build/lookup +
+    // a non-contiguous placement pass. Heuristic: use counting
+    // sort only when avg occurrences/term ≥ 4. For T ≈ N, fall
+    // through to a direct std::sort over `_records` (the previous
+    // baseline minus the unnecessary stable_sort overhead — all
+    // records have unique (text_ref, doc_id, position) triples
+    // because positions are monotonic within a doc and doc_ids
+    // differ across rows, so stability buys nothing).
+    constexpr size_t kCountingSortMinAvgOcc = 4;
+    const bool use_counting_sort =
+            _term_count > 0 && _records.size() / _term_count >= kCountingSortMinAvgOcc;
+    if (!use_counting_sort) {
+        std::sort(_records.begin(), _records.end(),
+                  [this](const SpimiRecord& a, const SpimiRecord& b) {
+                      if (a.text_ref != b.text_ref) {
+                          const std::string_view ta = ArenaTermAt(a.text_ref);
+                          const std::string_view tb = ArenaTermAt(b.text_ref);
+                          const int c = ta.compare(tb);
+                          DCHECK_NE(c, 0);
+                          return c < 0;
+                      }
+                      if (a.doc_id != b.doc_id) {
+                          return a.doc_id < b.doc_id;
+                      }
+                      return a.position < b.position;
+                  });
+        return;
+    }
+    std::vector<uint32_t> sorted_text_refs;
+    sorted_text_refs.reserve(_term_count);
+    for (uint32_t entry : _slots) {
+        if (entry != kEmpty) {
+            sorted_text_refs.push_back(entry);
+        }
+    }
+    DCHECK_EQ(sorted_text_refs.size(), _term_count);
+    std::sort(sorted_text_refs.begin(), sorted_text_refs.end(),
+              [this](uint32_t a, uint32_t b) { return ArenaTermAt(a) < ArenaTermAt(b); });
+
+    // text_ref → lex rank. text_refs are sparse arena offsets, but
+    // each Intern() call produces a *unique* text_ref bounded by
+    // `_arena.size()` (≤ kMaxArenaBytes = 16 MiB). For typical
+    // workloads `_term_count` is ~10 K and the hash map is the
+    // right shape; for pathological all-unique workloads it grows
+    // to N but is still amortised O(1) per insert.
+    std::unordered_map<uint32_t, uint32_t> rank_by_text_ref;
+    rank_by_text_ref.reserve(sorted_text_refs.size() * 2);
+    for (uint32_t i = 0; i < sorted_text_refs.size(); ++i) {
+        rank_by_text_ref.emplace(sorted_text_refs[i], i);
+    }
+
+    // Counting sort.
+    std::vector<uint32_t> bucket_count(sorted_text_refs.size(), 0);
+    std::vector<uint32_t> rank_for(_records.size());
+    for (size_t i = 0; i < _records.size(); ++i) {
+        const auto it = rank_by_text_ref.find(_records[i].text_ref);
+        DCHECK(it != rank_by_text_ref.end());
+        const uint32_t r = it->second;
+        rank_for[i] = r;
+        ++bucket_count[r];
+    }
+    std::vector<uint32_t> cursor(sorted_text_refs.size() + 1, 0);
+    for (size_t i = 0; i < sorted_text_refs.size(); ++i) {
+        cursor[i + 1] = cursor[i] + bucket_count[i];
+    }
+    // `cursor[i]` now == start offset for bucket i; we'll advance it
+    // in-place during placement.
+    std::vector<SpimiRecord> placed(_records.size());
+    // Snapshot the starting cursor for each bucket BEFORE the in-
+    // place placement advances it; we need both `start = original
+    // cursor[i]` and `end = cursor[i] after placement` to re-sort
+    // each bucket below.
+    std::vector<uint32_t> bucket_start = cursor;
+    for (size_t i = 0; i < _records.size(); ++i) {
+        const uint32_t r = rank_for[i];
+        placed[cursor[r]++] = _records[i];
+    }
+    _records = std::move(placed);
+
+    // Per-bucket (doc_id, position) sort. In production this is
+    // O(N) total across buckets because Append is monotonic per
+    // term and std::sort on sorted input does N-1 compares + 0
+    // swaps. For randomised input (unit tests) it's
+    // O(sum b_i log b_i) which is still bounded above by the old
+    // O(N log N) and runs on cheap uint32 comparisons rather than
+    // arena byte compares.
+    for (size_t i = 0; i < bucket_start.size() - 1; ++i) {
+        const auto begin = _records.begin() + bucket_start[i];
+        const auto end = _records.begin() + bucket_start[i + 1];
+        if (end - begin <= 1) {
+            continue;
+        }
+        std::sort(begin, end, [](const SpimiRecord& a, const SpimiRecord& b) {
+            if (a.doc_id != b.doc_id) {
+                return a.doc_id < b.doc_id;
+            }
+            return a.position < b.position;
+        });
+    }
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

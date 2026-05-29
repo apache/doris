@@ -17,23 +17,66 @@
 
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
 
+#include <zstd.h>
+
 #include <algorithm>
 
-#include "common/exception.h"
 #include "common/logging.h"
-#include "common/status.h"
 #include "storage/index/inverted/spimi/pfor_encoder.h"
+#include "util/faststring.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
+namespace {
+// Whole-term .frq/.prx compression uses ZSTD level 1. An isolated benchmark
+// (V4-vs-V2 interleaved write-time ratio — drift-immune — over the real
+// httplogs corpus at 1M and 3M rows/segment) showed level 1 matches level 3's
+// on-disk size while restoring V4's write-CPU edge over V2 (V4/V2 ratio 0.96
+// vs level 3's 1.00): level 3's per-term compress was eating the entire
+// write-CPU win for no size gain at this data's redundancy.
+//
+// We call ZSTD_compress directly because get_block_compression_codec(ZSTD)
+// hard-codes ZSTD_CLEVEL_DEFAULT (3) and exposes no level knob. Decompression
+// is level-independent, so the term-docs / prox readers still decode this via
+// the registry ZSTD codec unchanged (verified by the SPIMI roundtrip UT).
+//
+// Compress `data[0..n)` into `comp`; return true only when the result beats raw
+// by more than the 10-byte envelope header (mode byte + two VInt lengths), else
+// false so the caller emits the block raw. `comp` MUST be a caller-owned local
+// faststring (fresh per call, never a reused member) to avoid the
+// assign_copy-on-poisoned-buffer ASAN hazard.
+inline bool TryCompressBlock(const uint8_t* data, size_t n, faststring* comp) {
+    const size_t bound = ZSTD_compressBound(n);
+    comp->resize(bound);
+    const size_t csize = ZSTD_compress(comp->data(), bound, data, n, /*level=*/1);
+    if (ZSTD_isError(csize) || csize + 10 >= n) {
+        return false;
+    }
+    comp->resize(csize);
+    return true;
+}
+
+inline void AppendVInt(std::vector<uint8_t>& buf, uint32_t v) {
+    while (v & ~0x7FU) {
+        buf.push_back(static_cast<uint8_t>((v & 0x7FU) | 0x80U));
+        v >>= 7U;
+    }
+    buf.push_back(static_cast<uint8_t>(v));
+}
+} // namespace
+
 FreqProxEncoder::FreqProxEncoder(ByteOutput* frq_out, ByteOutput* prx_out, int32_t skip_interval,
                                  int32_t max_skip_levels, bool omit_term_freq_and_positions)
-        : _frq_out(frq_out),
+        : _frq_out(nullptr),
+          _frq_real(frq_out),
           _prx_out(prx_out),
           _skip_interval(skip_interval),
           _omit_tfap(omit_term_freq_and_positions),
           _skip_list_writer(skip_interval, max_skip_levels) {
-    DCHECK(_frq_out != nullptr);
+    DCHECK(_frq_real != nullptr);
+    // All per-term .frq writes go to the staging buffer; FinishTerm flushes it
+    // (raw or ZSTD) to the real output.
+    _frq_out = &_frq_term_buf;
     // _prx_out may be nullptr ONLY when omit_tfap is true. In that mode the
     // encoder never touches the prox stream so callers can pass nullptr to
     // make the intent explicit (or pass a real stream and rely on the
@@ -48,12 +91,14 @@ void FreqProxEncoder::StartTerm(int32_t expected_doc_freq) {
     DCHECK_GT(expected_doc_freq, 0) << "Lucene format requires df > 0 per term";
     _term_open = true;
     _expected_doc_freq = expected_doc_freq;
-    _term_freq_start = _frq_out->FilePointer();
+    _frq_term_buf.Clear();                       // stage this term's .frq
+    _term_freq_start = _frq_real->FilePointer(); // where the (flushed) block lands
     // In omit_tfap mode the prox pointer is always 0 (CLucene's contract:
     // every term's proxPointer is 0 because the prox stream is empty for
     // this field). Hardcoding 0 avoids touching `_prx_out` when it may be
     // nullptr.
     _term_prox_start = _omit_tfap ? 0 : _prx_out->FilePointer();
+    _prox_raw.clear(); // stage this term's position-deltas
     _doc_freq = 0;
     _last_doc = 0;
 
@@ -69,12 +114,16 @@ void FreqProxEncoder::StartTerm(int32_t expected_doc_freq) {
     _use_pfor = (expected_doc_freq >= _skip_interval);
     _pfor_doc_deltas.clear();
     _pfor_freqs.clear();
+    _pfor_freq_blocks.Clear();
 
     if (_use_pfor) {
         // PFOR mode: header byte only; sub-blocks (each carrying its
         // own VInt(count) + byte(width) + bitpacked payload) follow at
         // FinishTerm via `SpimiPforEncoder::EncodeBlock`.
         _frq_out->WriteByte(kCodeModeSpimiPfor);
+        // Anchor for PFOR skip entries (see header). Captured after the header
+        // byte, matching the FilePointer the prior buffered design observed.
+        _pfor_frq_anchor = _frq_out->FilePointer();
     } else {
         // kDefault mode (byte-equal to CLucene's
         // `SDocumentWriter::appendPostings:1330` for the same term):
@@ -100,11 +149,15 @@ void FreqProxEncoder::StartDoc(int32_t doc_id, int32_t freq) {
     // omit_tfap mode the prox pointer is always 0 (no prox stream).
     if (_doc_freq > 0 && (_doc_freq % _skip_interval) == 0) {
         const int64_t prox_ptr = _omit_tfap ? 0 : _prx_out->FilePointer();
-        _skip_list_writer.SetSkipData(_last_doc, _frq_out->FilePointer(), prox_ptr);
+        // Skip entries only occur in PFOR mode (skip_interval ≤ df). The .frq
+        // pointer is pinned to the post-header anchor so incremental doc-delta
+        // flushing does not shift the emitted skip bytes (byte-identical).
+        const int64_t frq_ptr = _use_pfor ? _pfor_frq_anchor : _frq_out->FilePointer();
+        _skip_list_writer.SetSkipData(_last_doc, frq_ptr, prox_ptr);
         _skip_list_writer.BufferSkip(_doc_freq);
     }
 
-    const uint32_t doc_delta = static_cast<uint32_t>(doc_id - _last_doc);
+    const auto doc_delta = static_cast<uint32_t>(doc_id - _last_doc);
     if (_use_pfor) {
         // Phase 35 PFOR mode — buffer the (doc_delta, freq) pair. The
         // PFOR sub-blocks are emitted in `FinishTerm` once the full
@@ -114,8 +167,22 @@ void FreqProxEncoder::StartDoc(int32_t doc_id, int32_t freq) {
         // of the buffer when omit_tfap is true (matches `kDefault`'s
         // branching).
         _pfor_doc_deltas.push_back(doc_delta);
+        if (_pfor_doc_deltas.size() == SpimiPforEncoder::kBlockSize) {
+            // Flush a full doc-delta sub-block immediately; bytes are identical
+            // to flushing it at FinishTerm (each block encodes independently).
+            SpimiPforEncoder::EncodeBlock(_pfor_doc_deltas.data(), _pfor_doc_deltas.size(),
+                                          _frq_out);
+            _pfor_doc_deltas.clear();
+        }
         if (!_omit_tfap) {
             _pfor_freqs.push_back(static_cast<uint32_t>(freq));
+            if (_pfor_freqs.size() == SpimiPforEncoder::kBlockSize) {
+                // Pack a full freq sub-block into the temp buffer (bytes
+                // identical to emitting it directly into the freq region).
+                SpimiPforEncoder::EncodeBlock(_pfor_freqs.data(), _pfor_freqs.size(),
+                                              &_pfor_freq_blocks);
+                _pfor_freqs.clear();
+            }
         }
     } else if (_omit_tfap) {
         // omit_tfap=true: .frq stores the raw doc-id delta as a VInt, with
@@ -154,7 +221,9 @@ void FreqProxEncoder::AddPosition(int32_t position) {
         return;
     }
     DCHECK_GT(_positions_remaining, 0);
-    _prx_out->WriteVInt(position - _last_position_in_doc);
+    // Stage the VInt position-delta for the whole term; FlushProxBlock() writes
+    // (and optionally ZSTD-compresses) the term's prox block at FinishTerm.
+    AppendVInt(_prox_raw, static_cast<uint32_t>(position - _last_position_in_doc));
     _last_position_in_doc = position;
     --_positions_remaining;
 }
@@ -185,31 +254,93 @@ TermInfo FreqProxEncoder::FinishTerm() {
         // term-info and consumes sub-blocks in order until that count
         // is reached, then (if has_prox) consumes another `doc_freq`
         // worth of sub-blocks for freqs.
-        auto emit_chunks = [this](std::vector<uint32_t>& values) {
-            const size_t total = values.size();
-            for (size_t pos = 0; pos < total; pos += SpimiPforEncoder::kBlockSize) {
-                const size_t chunk = std::min(SpimiPforEncoder::kBlockSize, total - pos);
-                SpimiPforEncoder::EncodeBlock(values.data() + pos, chunk, _frq_out);
-            }
-        };
-        emit_chunks(_pfor_doc_deltas);
+        // Full doc-delta sub-blocks were already streamed in StartDoc; flush
+        // only the trailing partial block here, then the freq region.
+        if (!_pfor_doc_deltas.empty()) {
+            SpimiPforEncoder::EncodeBlock(_pfor_doc_deltas.data(), _pfor_doc_deltas.size(),
+                                          _frq_out);
+        }
         if (!_omit_tfap) {
-            emit_chunks(_pfor_freqs);
+            // Flush the trailing partial freq block, then bulk-append the whole
+            // packed freq region (same bytes as emitting each sub-block here).
+            if (!_pfor_freqs.empty()) {
+                SpimiPforEncoder::EncodeBlock(_pfor_freqs.data(), _pfor_freqs.size(),
+                                              &_pfor_freq_blocks);
+            }
+            const auto& fr = _pfor_freq_blocks.bytes();
+            if (!fr.empty()) {
+                _frq_out->WriteBytes(fr.data(), fr.size());
+            }
         }
     }
 
+    // Write the whole-term prox block (mode header + raw or ZSTD payload) at
+    // _term_prox_start (nothing else wrote to _prx_out during the term).
+    FlushProxBlock();
+
+    // Skip data is written into the per-term buffer; its offset is relative to
+    // the term's .frq start (buffer offset 0). The term-docs reader reads the
+    // term whole and decodes sequentially, so it never consumes skip_offset —
+    // it is recorded relative to the (uncompressed) term .frq for completeness.
     const int64_t skip_pointer = _skip_list_writer.WriteSkip(_frq_out);
 
     TermInfo info;
     info.doc_freq = _doc_freq;
     info.freq_pointer = _term_freq_start;
     info.prox_pointer = _term_prox_start;
-    info.skip_offset = (_doc_freq >= _skip_interval)
-                               ? static_cast<int32_t>(skip_pointer - _term_freq_start)
-                               : 0;
+    info.skip_offset = (_doc_freq >= _skip_interval) ? static_cast<int32_t>(skip_pointer) : 0;
+
+    // Flush the whole term's staged .frq (raw, or ZSTD behind a kCodeModeZstd
+    // envelope) to the real output at _term_freq_start.
+    FlushFrqBlock();
 
     _term_open = false;
     return info;
+}
+
+void FreqProxEncoder::FlushFrqBlock() {
+    const auto& buf = _frq_term_buf.bytes();
+    const size_t n = buf.size();
+    faststring comp;
+    if (n >= kProxCompressMin && TryCompressBlock(buf.data(), n, &comp)) {
+        // A single term's .frq stays far below 2 GB (arena byte cap), so the
+        // VInt length casts below never lose bits.
+        DCHECK_LE(n, static_cast<size_t>(INT32_MAX));
+        _frq_real->WriteByte(kCodeModeZstd);
+        _frq_real->WriteVInt(static_cast<int32_t>(n));
+        _frq_real->WriteVInt(static_cast<int32_t>(comp.size()));
+        _frq_real->WriteBytes(comp.data(), comp.size());
+        return;
+    }
+    // Raw fallback: emit the term .frq verbatim (its first byte is the inner
+    // kCodeModeDefault/kCodeModeSpimiPfor mode, never kCodeModeZstd).
+    if (n > 0) {
+        _frq_real->WriteBytes(buf.data(), n);
+    }
+}
+
+void FreqProxEncoder::FlushProxBlock() {
+    if (_omit_tfap) {
+        return; // no prox stream in this mode
+    }
+    const size_t n = _prox_raw.size();
+    faststring comp;
+    // Only keep the compressed form if it actually wins after the mode-byte + two
+    // VInt length headers (~≤10 B) — TryCompressBlock enforces that margin.
+    if (n >= kProxCompressMin && TryCompressBlock(_prox_raw.data(), n, &comp)) {
+        DCHECK_LE(n, static_cast<size_t>(INT32_MAX)); // single-term .prx << 2 GB
+        _prx_out->WriteByte(kProxZstd);
+        _prx_out->WriteVInt(static_cast<int32_t>(n));
+        _prx_out->WriteVInt(static_cast<int32_t>(comp.size()));
+        _prx_out->WriteBytes(comp.data(), comp.size());
+        return;
+    }
+    // Raw fallback: mode byte then the VInt position-deltas. The reader knows
+    // the position count from the per-doc freqs, so no length prefix is needed.
+    _prx_out->WriteByte(kProxRaw);
+    if (n > 0) {
+        _prx_out->WriteBytes(_prox_raw.data(), n);
+    }
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

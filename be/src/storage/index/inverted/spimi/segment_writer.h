@@ -74,6 +74,14 @@ public:
     int64_t TermCount() const { return _term_count; }
 
 private:
+    // Emits from the flat `records()` vector (high-vocab flat mode, or
+    // compact mode that required `_records` materialization).
+    int64_t EmitFromRecords(const SpimiPostingBuffer& buffer, int32_t field_number);
+    // Emits straight from the compact per-term arrays in text-sorted order,
+    // used when `buffer.CompactDirectEmitReady()`. Avoids the `_records`
+    // materialization but produces byte-identical output to EmitFromRecords.
+    int64_t EmitFromCompactDirect(const SpimiPostingBuffer& buffer, int32_t field_number);
+
     TermDictWriter _dict;
     FreqProxEncoder _encoder;
     int64_t _term_count = 0;

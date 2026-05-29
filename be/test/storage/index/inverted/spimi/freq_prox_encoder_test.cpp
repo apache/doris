@@ -86,6 +86,7 @@ TEST(FreqProxEncoderTest, SingleDocSingleFreqEncodesAsTaggedVInt) {
     EXPECT_EQ(fr.remaining(), 0U) << "No skip data appended for short term";
 
     ByteReader pr(prx.bytes());
+    EXPECT_EQ(pr.Byte(), 0x00) << "prox block raw-mode header byte";
     EXPECT_EQ(pr.ReadVInt(), 3) << "position delta from 0";
     EXPECT_EQ(pr.remaining(), 0U);
 }
@@ -110,6 +111,7 @@ TEST(FreqProxEncoderTest, MultiFreqDocEncodesAsTwoVInts) {
     EXPECT_EQ(fr.ReadVInt(), 3) << "freq";
 
     ByteReader pr(prx.bytes());
+    EXPECT_EQ(pr.Byte(), 0x00) << "prox block raw-mode header byte";
     EXPECT_EQ(pr.ReadVInt(), 1); // 1 - 0
     EXPECT_EQ(pr.ReadVInt(), 4); // 5 - 1
     EXPECT_EQ(pr.ReadVInt(), 4); // 9 - 5
@@ -148,6 +150,7 @@ TEST(FreqProxEncoderTest, MultipleDocsWithDocDeltas) {
     EXPECT_EQ(fr.remaining(), 0U);
 
     ByteReader pr(prx.bytes());
+    EXPECT_EQ(pr.Byte(), 0x00) << "prox block raw-mode header byte";
     EXPECT_EQ(pr.ReadVInt(), 0);
     EXPECT_EQ(pr.ReadVInt(), 1);
     EXPECT_EQ(pr.ReadVInt(), 6);
@@ -174,6 +177,7 @@ TEST(FreqProxEncoderTest, ProxResetsPerDoc) {
     (void)e.FinishTerm();
 
     ByteReader pr(prx.bytes());
+    EXPECT_EQ(pr.Byte(), 0x00) << "prox block raw-mode header byte";
     EXPECT_EQ(pr.ReadVInt(), 2); // doc 1: 2 - 0
     EXPECT_EQ(pr.ReadVInt(), 5); // doc 1: 7 - 2
     EXPECT_EQ(pr.ReadVInt(), 3) << "doc 2: position delta reset to 0";

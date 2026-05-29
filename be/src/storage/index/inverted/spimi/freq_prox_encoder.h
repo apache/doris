@@ -69,6 +69,18 @@ public:
     // CLucene reader can't accidentally misinterpret a SPIMI block.
     static constexpr uint8_t kCodeModeDefault = 0x00;
     static constexpr uint8_t kCodeModeSpimiPfor = 0x05;
+    // Outer envelope marker: when a term's whole .frq block is ZSTD-compressed,
+    // the block starts with this byte (distinct from the inner mode bytes
+    // above), followed by VInt(uncompressed_len), VInt(compressed_len), payload.
+    // The term-docs reader reads a term's .frq whole (no intra-term skip-seek),
+    // so whole-term compression is safe and shrinks the FOR-coded .frq ~2x.
+    static constexpr uint8_t kCodeModeZstd = 0x80;
+
+    // `.prx` whole-term block mode marker (first byte of every term's prox
+    // block). Public because SpimiProxReader dispatches on these — sharing the
+    // writer's constants keeps reader and writer from drifting out of sync.
+    static constexpr uint8_t kProxRaw = 0;  // raw VInt position-deltas follow
+    static constexpr uint8_t kProxZstd = 1; // VInt(uncomp) VInt(comp) ZSTD-payload
 
     FreqProxEncoder(ByteOutput* frq_out, ByteOutput* prx_out,
                     int32_t skip_interval = kDefaultSkipInterval,
@@ -105,7 +117,12 @@ public:
     TermInfo FinishTerm();
 
 private:
+    // `_frq_out` points at `_frq_term_buf` (a per-term staging buffer); the real
+    // output is `_frq_real`. FinishTerm flushes the term's buffered .frq —
+    // raw, or ZSTD-compressed behind a kCodeModeZstd envelope — to `_frq_real`.
     ByteOutput* _frq_out;
+    ByteOutput* _frq_real;
+    MemoryByteOutput _frq_term_buf;
     ByteOutput* _prx_out;
     int32_t _skip_interval;
     bool _omit_tfap; // when true: doc-id-only .frq, no .prx writes at all
@@ -123,12 +140,44 @@ private:
     int32_t _last_position_in_doc = 0;
 
     // Phase 35 PFOR buffered mode. When `expected_doc_freq >=
-    // skip_interval`, StartDoc buffers (doc_delta, freq) into these
-    // vectors instead of writing immediately. FinishTerm flushes the
-    // buffers as one or more PFOR sub-blocks via `SpimiPforEncoder`.
+    // skip_interval`, StartDoc accumulates doc-deltas one PFOR sub-block at a
+    // time and flushes each full sub-block straight to `_frq_out` (so the
+    // doc-delta buffer never exceeds one block — the high-DF term no longer
+    // forces a whole-term materialization, the dominant finish-phase peak).
+    // Freqs still buffer for the whole term because the .frq layout writes the
+    // entire freq region after the entire doc-delta region. FinishTerm flushes
+    // the trailing partial doc-delta block, then the freq sub-blocks.
     bool _use_pfor = false;
-    std::vector<uint32_t> _pfor_doc_deltas;
-    std::vector<uint32_t> _pfor_freqs;
+    std::vector<uint32_t> _pfor_doc_deltas; // current doc-delta sub-block (≤kBlockSize)
+    std::vector<uint32_t> _pfor_freqs;      // current freq sub-block (≤kBlockSize)
+    // Freqs are PFOR-encoded per sub-block into this reused buffer as they fill,
+    // and bulk-appended to .frq after the doc-delta region at FinishTerm. The
+    // packed form is far smaller than the raw uint32 whole-term freq vector,
+    // and the bytes are identical to emitting the freq sub-blocks directly.
+    MemoryByteOutput _pfor_freq_blocks;
+    // Constant .frq pointer recorded into PFOR skip entries: the position right
+    // after the mode header byte. Doc-delta sub-blocks are now flushed
+    // incrementally, so the live FilePointer advances during the term; pinning
+    // skip entries to this anchor keeps the emitted skip bytes byte-identical
+    // to the prior whole-term-buffered behaviour (where nothing was written to
+    // .frq until FinishTerm, so FilePointer stayed at this anchor).
+    int64_t _pfor_frq_anchor = 0;
+
+    // Per-term position staging: AddPosition appends VInt position-deltas here
+    // instead of straight to `_prx_out`; FinishTerm writes the whole-term prox
+    // block (a 1-byte mode header + either raw VInt bytes, or — when the block
+    // is large enough to benefit — a ZSTD-compressed payload). V4's position
+    // deltas are tiny and highly cross-doc-redundant, which entropy coding
+    // exploits where bit-packing (TurboPFor) cannot — cutting the .prx stream
+    // ~2-4x. The reader (SpimiProxReader) reads a term's whole prox block at
+    // its prox_pointer and decodes sequentially, so whole-term framing needs no
+    // intra-term seek support.
+    std::vector<uint8_t> _prox_raw; // VInt position-deltas for the open term
+    // Compress only when the raw block is at least this big; smaller blocks keep
+    // raw form so per-term framing overhead stays ~1 byte (the mode header).
+    static constexpr size_t kProxCompressMin = 48;
+    void FlushProxBlock(); // writes the staged term prox block to _prx_out
+    void FlushFrqBlock();  // writes the staged term .frq block (raw/ZSTD) to _frq_real
 };
 
 } // namespace doris::segment_v2::inverted_index::spimi

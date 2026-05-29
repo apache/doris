@@ -19,7 +19,12 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <map>
 #include <string>
+#include <tuple>
+#include <utility>
+#include <vector>
 
 #include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
@@ -138,6 +143,7 @@ TEST(SegmentWriterTest, SingleTermSingleDocRoundTrip) {
 
     // .prx: one position delta 0 ⇒ single byte 0x00.
     ByteReader pr(prx.bytes());
+    EXPECT_EQ(pr.Byte(), 0x00) << "prox block raw-mode header byte";
     EXPECT_EQ(pr.ReadVInt(), 0);
     EXPECT_EQ(pr.remaining(), 0U);
 
@@ -224,6 +230,7 @@ TEST(SegmentWriterTest, MultiPositionDocsPreserveOrder) {
 
     // .prx: doc 5 positions 0,4,9 → deltas 0, 4, 5. doc 8 position 2 → delta 2.
     ByteReader pr(prx.bytes());
+    EXPECT_EQ(pr.Byte(), 0x00) << "prox block raw-mode header byte";
     EXPECT_EQ(pr.ReadVInt(), 0);
     EXPECT_EQ(pr.ReadVInt(), 4);
     EXPECT_EQ(pr.ReadVInt(), 5);
@@ -314,6 +321,175 @@ TEST(SegmentWriterTest, CloseIsIdempotent) {
     const auto bytes_first = tis.bytes();
     w.Close();
     EXPECT_EQ(tis.bytes(), bytes_first);
+}
+
+namespace {
+
+// Fills `b` with a compact-mode-triggering, monotonic workload: `docs` docs,
+// 16 terms, each term appearing `per_doc` times per doc at increasing
+// positions. With docs*16*per_doc >> 512 records and avg occ/term >> 32 the
+// buffer enters compact mode; doc/position order is monotonic so the streams
+// stay sorted and the direct-emit fast path is eligible. `docs` controls the
+// per-term doc frequency, which selects the .frq encoder mode (>=512 ⇒ PFOR).
+void BuildMonotonicCompact(SpimiPostingBuffer& b, uint32_t docs, uint32_t per_doc) {
+    for (uint32_t doc = 0; doc < docs; ++doc) {
+        uint32_t pos = 0;
+        for (int t = 0; t < 16; ++t) {
+            const std::string term = "term" + std::to_string(t);
+            for (uint32_t r = 0; r < per_doc; ++r) {
+                b.Append(term, doc, pos++);
+            }
+        }
+    }
+}
+
+// Emits `buffer` (already Sort()ed) into fresh memory streams and returns the
+// four output byte vectors.
+struct SegmentBytes {
+    std::vector<uint8_t> tis, tii, frq, prx;
+};
+SegmentBytes EmitToBytes(const SpimiPostingBuffer& buffer) {
+    MemoryByteOutput tis, tii, frq, prx;
+    SegmentWriter w(&tis, &tii, &frq, &prx);
+    w.Emit(buffer, /*field=*/0);
+    w.Close();
+    return SegmentBytes {
+            .tis = tis.bytes(), .tii = tii.bytes(), .frq = frq.bytes(), .prx = prx.bytes()};
+}
+
+// The compact direct-emit path (Sort(allow_direct_emit=true)) must produce
+// byte-for-byte identical .tis/.tii/.frq/.prx output to the legacy
+// records-materialization path (Sort(false)) on the same input.
+void ExpectDirectEmitMatchesRecords(uint32_t docs, uint32_t per_doc) {
+    SpimiPostingBuffer direct;
+    SpimiPostingBuffer records;
+    BuildMonotonicCompact(direct, docs, per_doc);
+    BuildMonotonicCompact(records, docs, per_doc);
+
+    direct.Sort(/*allow_direct_emit=*/true);
+    records.Sort(/*allow_direct_emit=*/false);
+
+    ASSERT_TRUE(direct.CompactDirectEmitReady())
+            << "expected compact direct-emit path for docs=" << docs;
+    ASSERT_FALSE(records.CompactDirectEmitReady());
+
+    const SegmentBytes a = EmitToBytes(direct);
+    const SegmentBytes b = EmitToBytes(records);
+    EXPECT_EQ(a.tis, b.tis);
+    EXPECT_EQ(a.tii, b.tii);
+    EXPECT_EQ(a.frq, b.frq);
+    EXPECT_EQ(a.prx, b.prx);
+}
+
+} // namespace
+
+TEST(SegmentWriterTest, CompactDirectEmitMatchesRecordsPathVInt) {
+    // df = 100 < skip_interval ⇒ .frq uses the kDefault VInt block mode.
+    ExpectDirectEmitMatchesRecords(/*docs=*/100, /*per_doc=*/2);
+}
+
+TEST(SegmentWriterTest, CompactDirectEmitMatchesRecordsPathPfor) {
+    // df = 600 >= skip_interval (512) ⇒ .frq uses the SPIMI PFOR block mode.
+    ExpectDirectEmitMatchesRecords(/*docs=*/600, /*per_doc=*/2);
+}
+
+// Independent-oracle test for the StreamVByte block codec. Builds known
+// monotonic postings with per-term occurrence counts spanning the
+// kPostingBlock(=64) boundary (1, 64, 65, 128, 200) plus a freq>1 term,
+// triggers compact mode, then decodes each term's streams via
+// DecodeCompactTerm and asserts they equal the appended truth recorded by the
+// test itself. The expected values come from the test's own bookkeeping — NOT
+// from the records-materialization path (which now shares the same decoder) —
+// so a prev-threading or block-boundary decode bug cannot pass unnoticed.
+TEST(SegmentWriterTest, CompactStreamDecodeMatchesIndependentTruth) {
+    SpimiPostingBuffer buf;
+    std::map<std::string, std::vector<std::pair<uint32_t, uint32_t>>> truth;
+
+    // 30 single-occurrence-per-doc terms with counts cycling through the
+    // block-boundary cases. 30 terms * ~92 avg > 512 records and avg > 32 ⇒
+    // compaction fires; every term is monotonic ⇒ direct-emit is eligible.
+    const std::vector<uint32_t> counts = {1, 64, 65, 128, 200};
+    for (int t = 0; t < 30; ++t) {
+        const std::string term = "term" + std::to_string(t);
+        const uint32_t n = counts[static_cast<size_t>(t) % counts.size()];
+        for (uint32_t i = 0; i < n; ++i) {
+            const uint32_t doc = i;           // one occurrence per doc, ascending
+            const uint32_t pos = i * 2U + 1U; // ascending positions
+            buf.Append(term, doc, pos);
+            truth[term].emplace_back(doc, pos);
+        }
+    }
+    // A freq>1 term: each doc holds three ascending positions (exercises the
+    // .prx per-doc reset and multi-position decode across block boundaries).
+    for (uint32_t d = 0; d < 40; ++d) {
+        for (uint32_t p = 0; p < 3; ++p) {
+            buf.Append("multi", d, p);
+            truth["multi"].emplace_back(d, p);
+        }
+    }
+
+    buf.Sort(/*allow_direct_emit=*/true);
+    ASSERT_TRUE(buf.CompactDirectEmitReady()) << "expected compact monotonic streams";
+
+    std::vector<uint32_t> docs;
+    std::vector<uint32_t> positions;
+    size_t verified = 0;
+    for (const auto& ref : buf.SortedCompactTerms()) {
+        const std::string term(buf.TermAt(ref.text_ref));
+        buf.DecodeCompactTerm(ref.term_id, docs, positions);
+        const auto& exp = truth[term];
+        ASSERT_EQ(docs.size(), exp.size()) << "term=" << term;
+        ASSERT_EQ(positions.size(), exp.size()) << "term=" << term;
+        for (size_t i = 0; i < exp.size(); ++i) {
+            EXPECT_EQ(docs[i], exp[i].first) << "term=" << term << " i=" << i;
+            EXPECT_EQ(positions[i], exp[i].second) << "term=" << term << " i=" << i;
+        }
+        ++verified;
+    }
+    EXPECT_EQ(verified, truth.size());
+}
+
+// Exercises the non-monotonic compact path: the SAME (term, doc, position)
+// multiset is appended two ways — sorted (the monotonic oracle, which takes the
+// direct-emit fast path) and reversed (non-monotonic, which must set
+// _compact_streams_sorted=false and go through DecodeTermToRecords +
+// global-sort materialization). Each term has 100 occurrences, so the streams
+// cross the kPostingBlock(=64) boundary. Both must emit byte-identical
+// segments, since Sort() canonicalizes both to the same (term, doc, pos) order.
+TEST(SegmentWriterTest, NonMonotonicCompactMatchesSortedReference) {
+    std::vector<std::tuple<std::string, uint32_t, uint32_t>> triples;
+    for (int t = 0; t < 20; ++t) {
+        const std::string term = "term" + std::to_string(t);
+        for (uint32_t d = 0; d < 100; ++d) {
+            triples.emplace_back(term, d, d % 7U);
+        }
+    }
+    std::vector<std::tuple<std::string, uint32_t, uint32_t>> sorted = triples;
+    std::ranges::sort(sorted);
+    std::vector<std::tuple<std::string, uint32_t, uint32_t>> reversed = sorted;
+    std::ranges::reverse(reversed);
+
+    SpimiPostingBuffer mono;
+    for (const auto& [term, d, p] : sorted) {
+        mono.Append(term, d, p);
+    }
+    SpimiPostingBuffer nonmono;
+    for (const auto& [term, d, p] : reversed) {
+        nonmono.Append(term, d, p);
+    }
+
+    mono.Sort(/*allow_direct_emit=*/true);
+    nonmono.Sort(/*allow_direct_emit=*/true);
+    EXPECT_TRUE(mono.CompactDirectEmitReady()) << "sorted append should be monotonic";
+    EXPECT_FALSE(nonmono.CompactDirectEmitReady())
+            << "reversed append must force the materialization path";
+
+    const SegmentBytes a = EmitToBytes(mono);
+    const SegmentBytes b = EmitToBytes(nonmono);
+    EXPECT_EQ(a.tis, b.tis);
+    EXPECT_EQ(a.tii, b.tii);
+    EXPECT_EQ(a.frq, b.frq);
+    EXPECT_EQ(a.prx, b.prx);
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

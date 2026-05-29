@@ -88,7 +88,7 @@ uint8_t EncodeLengthNorm(int32_t length) {
     if (length < kNumFreeNormValues) {
         return static_cast<uint8_t>(length);
     }
-    uint64_t i = static_cast<uint64_t>(length - kNumFreeNormValues);
+    auto i = static_cast<uint64_t>(length - kNumFreeNormValues);
     int32_t num_bits = 0;
     {
         uint64_t v = i;
@@ -146,6 +146,11 @@ void WriteNormsForField(ByteOutput* out, const SpimiPostingBuffer& buffer, int32
 
 } // namespace
 
+// The segment-emit entry point wires up the four output streams, the term dict,
+// field infos and (optional) norms in one linear sequence; the steps are
+// sequential setup with no reusable sub-unit, so inlining keeps the emit order
+// obvious. Exercised by the SPIMI unit tests.
+// NOLINTNEXTLINE(readability-function-size)
 int64_t SpimiFulltextWriter::EmitSegment(SpimiPostingBuffer& buffer, const SpimiSegmentSink& sink,
                                          const std::string& segment_name,
                                          const std::string& field_name, int32_t doc_count,
@@ -160,7 +165,13 @@ int64_t SpimiFulltextWriter::EmitSegment(SpimiPostingBuffer& buffer, const Spimi
     DCHECK(sink.segments_n != nullptr);
     DCHECK(sink.segments_gen != nullptr);
 
-    buffer.Sort();
+    // Norms (.nrm) are derived from per-doc token lengths via
+    // ComputeDocLengths(), which iterates buffer.records(). When norms will
+    // be written we must keep the materialized records, so disable the
+    // compact direct-emit fast path in that case. V4 (omit_norms=true) and
+    // any sink without a norm stream take the direct-emit path.
+    const bool need_norms = !omit_norms && sink.nrm != nullptr;
+    buffer.Sort(/*allow_direct_emit=*/!need_norms);
     SegmentWriter segment_writer(sink.tis, sink.tii, sink.frq, sink.prx,
                                  TermDictWriter::kDefaultIndexInterval,
                                  TermDictWriter::kDefaultSkipInterval,

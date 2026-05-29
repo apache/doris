@@ -22,9 +22,12 @@
 #include <algorithm>
 
 #include "common/logging.h"
+#include "gen_cpp/segment_v2.pb.h"
 #include "storage/index/inverted/spimi/byte_parser_error.h"
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
 #include "storage/index/inverted/spimi/pfor_encoder.h"
+#include "util/block_compression.h"
+#include "util/slice.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -125,7 +128,7 @@ std::vector<uint32_t> DecodePforRun(ByteStream& cur, int32_t count) {
         // than peek-back since ByteStream doesn't have a peek API and
         // adding one would just hide this).
         {
-            uint32_t vn = static_cast<uint32_t>(n);
+            auto vn = static_cast<uint32_t>(n);
             while ((vn & ~0x7FU) != 0) {
                 block.push_back(static_cast<uint8_t>((vn & 0x7FU) | 0x80U));
                 vn >>= 7U;
@@ -146,6 +149,29 @@ std::vector<uint32_t> DecodePforRun(ByteStream& cur, int32_t count) {
         SPIMI_THROW_CORRUPT("SPIMI .frq PFOR run total mismatch");
     }
     return values;
+}
+
+// Decompresses a whole-term ZSTD `.frq` envelope (the bytes after the
+// kCodeModeZstd marker: VInt(uncomp_len) VInt(comp_len) ZSTD-payload) into the
+// raw inner block, which itself begins with a kDefault/kPfor mode byte. All
+// reads are bounds-checked against the (untrusted) on-disk buffer.
+std::vector<uint8_t> DecompressZstdFrqBlock(ByteStream& cur) {
+    const auto uncomp = static_cast<uint32_t>(cur.ReadVInt());
+    const auto comp = static_cast<uint32_t>(cur.ReadVInt());
+    std::vector<uint8_t> packed;
+    cur.ReadInto(&packed, comp); // bounds-checked
+    std::vector<uint8_t> raw(uncomp);
+    BlockCompressionCodec* codec = nullptr;
+    if (!get_block_compression_codec(CompressionTypePB::ZSTD, &codec).ok() || codec == nullptr)
+            [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .frq: ZSTD codec unavailable");
+    }
+    Slice in(reinterpret_cast<const char*>(packed.data()), comp);
+    Slice slice_out(reinterpret_cast<char*>(raw.data()), uncomp);
+    if (!codec->decompress(in, &slice_out).ok() || slice_out.size != uncomp) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .frq: ZSTD decompress failed");
+    }
+    return raw;
 }
 
 } // namespace
@@ -169,6 +195,12 @@ std::vector<SpimiTermDocsReader::DocFreq> SpimiTermDocsReader::ReadTerm(const ui
 
     ByteStream cur(frq_data, frq_length);
     const uint8_t mode = cur.ReadByte();
+    if (mode == FreqProxEncoder::kCodeModeZstd) {
+        // Whole-term .frq was ZSTD-compressed: decompress, then decode the
+        // inner block (which begins with its own kDefault/kPfor mode byte).
+        const std::vector<uint8_t> raw = DecompressZstdFrqBlock(cur);
+        return ReadTerm(raw.data(), raw.size(), doc_freq, has_prox);
+    }
     std::vector<DocFreq> out;
     // Cap pre-reserve against the same DoS-bounding upper limit as
     // `DecodePforRun` above. Vector grows organically beyond the
@@ -188,7 +220,7 @@ std::vector<SpimiTermDocsReader::DocFreq> SpimiTermDocsReader::ReadTerm(const ui
         int32_t last_doc = 0;
         for (int32_t i = 0; i < doc_freq; ++i) {
             if (has_prox) {
-                const uint32_t code = static_cast<uint32_t>(cur.ReadVInt());
+                const auto code = static_cast<uint32_t>(cur.ReadVInt());
                 last_doc += static_cast<int32_t>(code >> 1U);
                 const int32_t freq = ((code & 1U) != 0) ? 1 : cur.ReadVInt();
                 out.emplace_back(last_doc, freq);
