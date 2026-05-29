@@ -196,7 +196,8 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         return getDbNullableWithoutCache(ctx, dbName);
     }
 
-    private ExternalDatabase<? extends ExternalTable> getDbNullableWithoutCache(SessionContext ctx, String remoteDbName) {
+    private ExternalDatabase<? extends ExternalTable> getDbNullableWithoutCache(SessionContext ctx,
+            String remoteDbName) {
         if (!databaseExists(ctx, remoteDbName)) {
             return null;
         }
