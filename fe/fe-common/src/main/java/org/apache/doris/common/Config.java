@@ -2454,18 +2454,6 @@ public class Config extends ConfigBase {
 
     @ConfField(
             mutable = true,
-            description = {
-                    "是否在 DDL 时写入 OP_TABLE_META_CHANGE edit log 通知 follower FE 清理 sql cache。"
-                            + "默认 false，开启后 master DDL 会广播表元数据变更信号到所有 follower",
-                    "Whether to write OP_TABLE_META_CHANGE edit log on DDL to notify follower FEs "
-                            + "to invalidate sql cache. Default false. When enabled, master DDL broadcasts "
-                            + "table metadata change signal to all followers"
-            }
-    )
-    public static boolean enable_write_op_table_meta_change = false;
-
-    @ConfField(
-            mutable = true,
             callbackClassString = "org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager$UpdateConfig",
             description = {
                     "当前默认设置为 100，用来控制控制 NereidsSortedPartitionsCacheManager 中有序分区元数据的缓存个数，"
