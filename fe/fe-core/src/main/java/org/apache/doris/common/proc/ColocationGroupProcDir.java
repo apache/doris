@@ -31,6 +31,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -129,12 +130,11 @@ public class ColocationGroupProcDir implements ProcDirInterface {
     }
 
     private Map<Tag, List<List<Long>>> getCloudBackendSeqsFromTable(OlapTable olapTable) {
-        // In cloud mode a replica is hashed to a different BE in each compute group,
-        // so build a separate bucket sequence per compute group (keyed by the raw scope
-        // key while holding the table lock). Merging across groups (picking an arbitrary
-        // first BE) would mix BEs from different compute groups into one bucket sequence,
-        // which is meaningless.
-        Map<String, List<List<Long>>> seqByScopeKey = Maps.newLinkedHashMap();
+        // Snapshot replicas (ordered by bucket) under the table lock only. Resolving the
+        // per-compute-group placement of colocate cloud replicas calls into
+        // CloudSystemInfoService / the colocate index, which must run outside the table
+        // lock to avoid nested lock acquisition.
+        List<List<Replica>> bucketReplicas = Lists.newArrayList();
         olapTable.readLock();
         try {
             Partition firstPartition = null;
@@ -146,46 +146,59 @@ public class ColocationGroupProcDir implements ProcDirInterface {
                 return Maps.newLinkedHashMap();
             }
             MaterializedIndex baseIndex = firstPartition.getBaseIndex();
-            List<Tablet> tablets = baseIndex.getTablets();
-
-            // Collect the cached clusterId -> backendId mapping of every replica once.
-            List<List<Map<String, Long>>> tabletReplicaBackends = Lists.newArrayListWithCapacity(tablets.size());
-            Set<String> scopeKeys = Sets.newLinkedHashSet();
-            for (Tablet tablet : tablets) {
-                List<Map<String, Long>> replicaBackends = new ArrayList<>();
-                for (Replica replica : tablet.getReplicas()) {
-                    Map<String, Long> clusterToBackend = replica.getClusterToBackendForProcDisplay();
-                    replicaBackends.add(clusterToBackend);
-                    scopeKeys.addAll(clusterToBackend.keySet());
-                }
-                tabletReplicaBackends.add(replicaBackends);
-            }
-
-            for (String scopeKey : scopeKeys) {
-                List<List<Long>> bucketSeq = Lists.newArrayListWithCapacity(tablets.size());
-                boolean hasBackend = false;
-                for (List<Map<String, Long>> replicaBackends : tabletReplicaBackends) {
-                    List<Long> bucketBackends = new ArrayList<>();
-                    for (Map<String, Long> clusterToBackend : replicaBackends) {
-                        Long backendId = clusterToBackend.get(scopeKey);
-                        if (backendId == null || backendId < 0) {
-                            continue;
-                        }
-                        bucketBackends.add(backendId);
-                        hasBackend = true;
-                    }
-                    bucketSeq.add(bucketBackends);
-                }
-                if (hasBackend) {
-                    seqByScopeKey.put(scopeKey, bucketSeq);
-                }
+            for (Tablet tablet : baseIndex.getTablets()) {
+                bucketReplicas.add(new ArrayList<>(tablet.getReplicas()));
             }
         } finally {
             olapTable.readUnlock();
         }
 
-        // Resolve scope keys to display tags outside the table lock: tag/name resolution
-        // acquires CloudSystemInfoService's lock and must not nest under olapTable's lock.
+        // Resolve each replica's per-compute-group placement outside the table lock. In
+        // cloud mode a replica is hashed to a different BE in each compute group, so build
+        // a separate bucket sequence per compute group. Merging across groups (picking an
+        // arbitrary first BE) would mix BEs from different compute groups into one bucket
+        // sequence, which is meaningless. For colocate cloud tables placement is computed
+        // on the fly; otherwise it comes from the cached clusterId -> backendId map (or an
+        // empty scope key for local-style replicas).
+        List<List<Map<String, Long>>> tabletReplicaBackends = Lists.newArrayListWithCapacity(bucketReplicas.size());
+        Set<String> scopeKeys = Sets.newLinkedHashSet();
+        // Shared across all replicas in this proc call so each compute group's backend
+        // list is fetched only once (colocate placement is resolved per compute group).
+        Map<String, List<Backend>> computeGroupBackendCache = Maps.newHashMap();
+        for (List<Replica> replicas : bucketReplicas) {
+            List<Map<String, Long>> replicaBackends = new ArrayList<>();
+            for (Replica replica : replicas) {
+                Map<String, Long> clusterToBackend =
+                        replica.getClusterToBackendForProcDisplay(computeGroupBackendCache);
+                replicaBackends.add(clusterToBackend);
+                scopeKeys.addAll(clusterToBackend.keySet());
+            }
+            tabletReplicaBackends.add(replicaBackends);
+        }
+
+        Map<String, List<List<Long>>> seqByScopeKey = Maps.newLinkedHashMap();
+        for (String scopeKey : scopeKeys) {
+            List<List<Long>> bucketSeq = Lists.newArrayListWithCapacity(tabletReplicaBackends.size());
+            boolean hasBackend = false;
+            for (List<Map<String, Long>> replicaBackends : tabletReplicaBackends) {
+                List<Long> bucketBackends = new ArrayList<>();
+                for (Map<String, Long> clusterToBackend : replicaBackends) {
+                    Long backendId = clusterToBackend.get(scopeKey);
+                    if (backendId == null || backendId < 0) {
+                        continue;
+                    }
+                    bucketBackends.add(backendId);
+                    hasBackend = true;
+                }
+                bucketSeq.add(bucketBackends);
+            }
+            if (hasBackend) {
+                seqByScopeKey.put(scopeKey, bucketSeq);
+            }
+        }
+
+        // Resolve scope keys to display tags (also outside the table lock): name
+        // resolution acquires CloudSystemInfoService's lock.
         Map<Tag, List<List<Long>>> backendsSeq = Maps.newLinkedHashMap();
         for (Map.Entry<String, List<List<Long>>> entry : seqByScopeKey.entrySet()) {
             backendsSeq.put(scopeKeyToTag(entry.getKey()), entry.getValue());

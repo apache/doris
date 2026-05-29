@@ -30,6 +30,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -185,10 +186,12 @@ public abstract class Replica {
         return getBackendIdValue();
     }
 
-    // For proc display only. Returns a "scope key -> backendId" mapping used to render
-    // the replica's placement. In local deployment there is a single scope (empty key);
-    // in cloud deployment each compute group is a separate scope (see CloudReplica).
-    public Map<String, Long> getClusterToBackendForProcDisplay() {
+    // For proc display only. Returns a "scope key -> backendId" mapping used to render the
+    // replica's placement. In local deployment there is a single scope (empty key) and the
+    // cache is unused; in cloud deployment each compute group is a separate scope and the
+    // cache lets a single proc call fetch each compute group's backends once (see
+    // CloudReplica). The cache is keyed by compute group id.
+    public Map<String, Long> getClusterToBackendForProcDisplay(Map<String, List<Backend>> computeGroupBackendCache) {
         Map<String, Long> result = new HashMap<>();
         long backendId = getBackendIdForProcDisplay();
         if (backendId != -1L) {
