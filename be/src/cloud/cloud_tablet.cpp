@@ -1482,13 +1482,37 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
             if ((compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
                  !config::enable_prune_delete_sign_when_base_compaction) &&
                 tablet_state() == TABLET_RUNNING) {
-                if (merged_rows + filtered_rows >= 0 &&
-                    merged_rows + filtered_rows != missed_rows_size) {
+                // Align with local tablet: for cluster key tables, filtered_rows should also
+                // be counted as missed rows because delete signs are pruned during compaction.
+                std::size_t merged_missed_rows_size = merged_rows;
+                if (!tablet_schema()->cluster_key_uids().empty()) {
+                    merged_missed_rows_size += filtered_rows;
+                }
+
+                if (merged_missed_rows_size != missed_rows_size) {
                     std::string err_msg = fmt::format(
                             "cumulative compaction: the merged rows({}), the filtered rows({}) is "
                             "not equal to missed rows({}) in rowid conversion, tablet_id: {}, "
                             "table_id:{}",
                             merged_rows, filtered_rows, missed_rows_size, tablet_id(), table_id());
+                    if (missed_rows_size == 0) {
+                        // Add debug info for easier diagnosis
+                        std::stringstream ss;
+                        ss << err_msg << ", debug info: ";
+                        DeleteBitmap subset_map(tablet_id());
+                        for (auto& rs : input_rowsets) {
+                            tablet_meta()->delete_bitmap().subset(
+                                    {rs->rowset_id(), 0, 0},
+                                    {rs->rowset_id(), rs->num_segments(),
+                                     (uint64_t)(version.second + 1)},
+                                    &subset_map);
+                            ss << "(rowset id: " << rs->rowset_id()
+                               << ", delete bitmap cardinality: " << subset_map.cardinality()
+                               << ")";
+                        }
+                        ss << ", version[0-" << version.second + 1 << "]";
+                        err_msg = ss.str();
+                    }
                     LOG(WARNING) << err_msg;
                     if (config::enable_mow_compaction_correctness_check_core) {
                         CHECK(false) << err_msg;
