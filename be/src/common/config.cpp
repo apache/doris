@@ -73,7 +73,7 @@ DEFINE_Int32(arrow_flight_sql_port, "8050");
 
 DEFINE_Int32(cdc_client_port, "9096");
 
-DEFINE_mString(cdc_client_java_opts, "");
+DEFINE_String(cdc_client_java_opts, "");
 
 // If the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
