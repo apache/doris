@@ -60,6 +60,10 @@ public class TableProperty implements GsonPostProcessable {
     // the follower variables are built from "properties"
     private DynamicPartitionProperty dynamicPartitionProperty =
             EnvFactory.getInstance().createDynamicPartitionProperty(Maps.newHashMap());
+    // True when "properties" carries dynamic_partition.* entries that are incomplete
+    // (missing required keys) and were ignored when building dynamicPartitionProperty.
+    // Derived from "properties", not persisted.
+    private boolean invalidDynamicPartition = false;
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private boolean isInMemory = false;
     private short minLoadReplicaNum = -1;
@@ -230,17 +234,27 @@ public class TableProperty implements GsonPostProcessable {
                 && !hasRequiredDynamicPartitionProperties(dynamicPartitionProperties)) {
             LOG.warn("Ignore incomplete dynamic partition properties: {}", dynamicPartitionProperties);
             dynamicPartitionProperty = EnvFactory.getInstance().createDynamicPartitionProperty(Maps.newHashMap());
+            invalidDynamicPartition = true;
             return this;
         }
+        invalidDynamicPartition = false;
         dynamicPartitionProperty = EnvFactory.getInstance().createDynamicPartitionProperty(dynamicPartitionProperties);
         return this;
     }
 
+    // Required keys of a usable dynamic partition config. END/BUCKETS have no null-safe default
+    // in DynamicPartitionProperty's constructor (Integer.parseInt), so a raw map carrying only
+    // optional keys (e.g. a leftover storage_medium/storage_policy from a failed ALTER) must be
+    // rejected here to avoid parseInt(null) during backup/selectiveCopy/image replay.
     private boolean hasRequiredDynamicPartitionProperties(Map<String, String> dynamicPartitionProperties) {
         return dynamicPartitionProperties.containsKey(DynamicPartitionProperty.TIME_UNIT)
                 && dynamicPartitionProperties.containsKey(DynamicPartitionProperty.END)
                 && dynamicPartitionProperties.containsKey(DynamicPartitionProperty.PREFIX)
                 && dynamicPartitionProperties.containsKey(DynamicPartitionProperty.BUCKETS);
+    }
+
+    public boolean hasInvalidDynamicPartition() {
+        return invalidDynamicPartition;
     }
 
     public TableProperty buildInMemory() {

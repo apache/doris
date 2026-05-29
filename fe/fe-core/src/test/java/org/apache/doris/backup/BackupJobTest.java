@@ -362,7 +362,10 @@ public class BackupJobTest {
         table2.setTableProperty(new TableProperty(dirtyProperties));
 
         Assert.assertFalse(table2.dynamicPartitionExists());
-        Assert.assertNotNull(table2.selectiveCopy(null, IndexExtState.VISIBLE, true));
+        OlapTable copied = table2.selectiveCopy(null, IndexExtState.VISIBLE, true);
+        Assert.assertNotNull(copied);
+        Assert.assertFalse(copied.dynamicPartitionExists());
+        Assert.assertTrue(copied.getTableProperty().hasInvalidDynamicPartition());
     }
 
     @Test
@@ -372,7 +375,10 @@ public class BackupJobTest {
         table2.setTableProperty(new TableProperty(dirtyProperties));
 
         Assert.assertFalse(table2.dynamicPartitionExists());
-        Assert.assertNotNull(table2.selectiveCopy(null, IndexExtState.VISIBLE, true));
+        OlapTable copied = table2.selectiveCopy(null, IndexExtState.VISIBLE, true);
+        Assert.assertNotNull(copied);
+        Assert.assertFalse(copied.dynamicPartitionExists());
+        Assert.assertTrue(copied.getTableProperty().hasInvalidDynamicPartition());
     }
 
     /**

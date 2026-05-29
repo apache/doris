@@ -1754,6 +1754,38 @@ public class DynamicPartitionTableTest {
     }
 
     @Test
+    public void testRejectDynamicPartitionStoragePolicyOnNonDynamicTable() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`non_dynamic_storage_policy` (\n"
+                + "  `k1` date NULL COMMENT \"\",\n"
+                + "  `v1` int NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`)\n"
+                + "PARTITION BY RANGE(`k1`)\n"
+                + "(\n"
+                + "PARTITION p1 VALUES [('2026-05-26'), ('2026-05-27')),\n"
+                + "PARTITION p2 VALUES [('2026-05-27'), ('2026-05-28'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");";
+        createTable(createOlapTblStmt);
+
+        String alterStmt = "ALTER TABLE test.`non_dynamic_storage_policy` "
+                + "SET (\"dynamic_partition.storage_policy\" = \"test_policy\")";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "is not a dynamic partition table",
+                () -> alterTable(alterStmt));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("non_dynamic_storage_policy");
+        Assert.assertFalse(table.dynamicPartitionExists());
+        Assert.assertFalse(table.getTableProperty().getProperties()
+                .containsKey(DynamicPartitionProperty.STORAGE_POLICY));
+        Assert.assertNotNull(table.selectiveCopy(null, IndexExtState.VISIBLE, true));
+    }
+
+    @Test
     public void testAlterDynamicPartitionStorageMediumOnDynamicTable() throws Exception {
         String createOlapTblStmt = "CREATE TABLE test.`dynamic_storage_medium` (\n"
                 + "  `k1` date NULL COMMENT \"\",\n"
