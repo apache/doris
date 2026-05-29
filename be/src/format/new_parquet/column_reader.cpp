@@ -68,6 +68,21 @@ struct NestedScalarOverflow {
     void clear() { batch = NestedScalarBatch(); }
 };
 
+struct NestedStructBatch {
+    int64_t records_read = 0;
+    int64_t levels_written = 0;
+    std::vector<NestedScalarBatch> child_batches;
+
+    bool empty() const { return levels_written == 0; }
+};
+
+struct NestedStructOverflow {
+    NestedStructBatch batch;
+
+    bool empty() const { return batch.empty(); }
+    void clear() { batch = NestedStructBatch(); }
+};
+
 class ScalarColumnReader final : public ParquetColumnReader {
 public:
     ScalarColumnReader(int parquet_leaf_column_id, const ::parquet::ColumnDescriptor* descriptor,
@@ -123,6 +138,9 @@ public:
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
 
+    Status collect_scalar_children(std::vector<ScalarColumnReader*>* children) const;
+    int16_t nullable_definition_level() const { return _nullable_definition_level; }
+
 private:
     int _field_id = -1;
     int16_t _nullable_definition_level = 0;
@@ -158,6 +176,7 @@ private:
     std::string _name;
     std::unique_ptr<ParquetColumnReader> _element_reader;
     NestedScalarOverflow _element_overflow;
+    NestedStructOverflow _struct_element_overflow;
 };
 
 class RowPositionColumnReader final : public ParquetColumnReader {
@@ -237,6 +256,7 @@ private:
     std::unique_ptr<ParquetColumnReader> _value_reader;
     NestedScalarOverflow _key_overflow;
     NestedScalarOverflow _value_overflow;
+    NestedStructOverflow _struct_value_overflow;
 };
 
 Status read_records(ScalarColumnReader& column_reader, int64_t batch_rows,
@@ -568,6 +588,26 @@ void move_nested_scalar_tail(const NestedScalarBatch& src, int64_t start_level,
     overflow->batch = std::move(dst);
 }
 
+void move_nested_struct_tail(const NestedStructBatch& src, int64_t start_level,
+                             NestedStructOverflow* overflow) {
+    DORIS_CHECK(overflow != nullptr);
+    if (start_level >= src.levels_written) {
+        overflow->clear();
+        return;
+    }
+
+    NestedStructBatch dst;
+    dst.records_read = 0;
+    dst.levels_written = src.levels_written - start_level;
+    dst.child_batches.reserve(src.child_batches.size());
+    for (const auto& child_batch : src.child_batches) {
+        NestedScalarOverflow child_overflow;
+        move_nested_scalar_tail(child_batch, start_level, &child_overflow);
+        dst.child_batches.push_back(std::move(child_overflow.batch));
+    }
+    overflow->batch = std::move(dst);
+}
+
 Status append_scalar_batch_value(const ScalarColumnReader& column_reader,
                                  const NestedScalarBatch& batch, int64_t level_idx,
                                  MutableColumnPtr& column) {
@@ -577,6 +617,123 @@ Status append_scalar_batch_value(const ScalarColumnReader& column_reader,
                                   column_reader.name());
     }
     column->insert_from(*batch.values_column, static_cast<size_t>(value_idx));
+    return Status::OK();
+}
+
+Status read_nested_struct_batch(StructColumnReader& struct_reader, int64_t batch_rows,
+                                int16_t value_slot_definition_level, NestedStructBatch* batch) {
+    if (batch == nullptr) {
+        return Status::InvalidArgument("Nested struct batch is null for column {}",
+                                       struct_reader.name());
+    }
+    *batch = NestedStructBatch();
+
+    std::vector<ScalarColumnReader*> scalar_children;
+    RETURN_IF_ERROR(struct_reader.collect_scalar_children(&scalar_children));
+    if (scalar_children.empty()) {
+        return Status::NotSupported("Parquet nested STRUCT column {} has no scalar children",
+                                    struct_reader.name());
+    }
+
+    batch->child_batches.resize(scalar_children.size());
+    for (size_t child_idx = 0; child_idx < scalar_children.size(); ++child_idx) {
+        RETURN_IF_ERROR(read_nested_scalar_batch(*scalar_children[child_idx], batch_rows,
+                                                 value_slot_definition_level,
+                                                 &batch->child_batches[child_idx]));
+        const auto& child_batch = batch->child_batches[child_idx];
+        if (child_idx == 0) {
+            batch->records_read = child_batch.records_read;
+            batch->levels_written = child_batch.levels_written;
+            continue;
+        }
+        if (child_batch.records_read != batch->records_read ||
+            child_batch.levels_written != batch->levels_written) {
+            return Status::Corruption(
+                    "Parquet STRUCT children returned different level counts in column {}",
+                    struct_reader.name());
+        }
+        for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
+            if (child_batch.rep_levels[level_idx] !=
+                batch->child_batches[0].rep_levels[level_idx]) {
+                return Status::Corruption(
+                        "Parquet STRUCT children returned different repetition levels in column {}",
+                        struct_reader.name());
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status append_struct_batch_value(StructColumnReader& struct_reader, const NestedStructBatch& batch,
+                                 int64_t level_idx, MutableColumnPtr& column) {
+    if (batch.child_batches.empty()) {
+        return Status::Corruption("Parquet STRUCT column {} has no child batch",
+                                  struct_reader.name());
+    }
+
+    auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
+    auto* struct_column =
+            nullable_column == nullptr
+                    ? assert_cast<ColumnStruct*>(column.get())
+                    : assert_cast<ColumnStruct*>(&nullable_column->get_nested_column());
+    auto* parent_null_map =
+            nullable_column == nullptr ? nullptr : &nullable_column->get_null_map_data();
+    DORIS_CHECK(struct_column != nullptr);
+
+    std::vector<ScalarColumnReader*> scalar_children;
+    RETURN_IF_ERROR(struct_reader.collect_scalar_children(&scalar_children));
+    DCHECK_EQ(struct_column->get_columns().size(), scalar_children.size());
+    DCHECK_EQ(batch.child_batches.size(), scalar_children.size());
+
+    const bool parent_is_null = batch.child_batches[0].def_levels[level_idx] <
+                                struct_reader.nullable_definition_level();
+    for (size_t child_idx = 1; child_idx < batch.child_batches.size(); ++child_idx) {
+        const bool child_parent_is_null = batch.child_batches[child_idx].def_levels[level_idx] <
+                                          struct_reader.nullable_definition_level();
+        if (child_parent_is_null != parent_is_null) {
+            return Status::Corruption(
+                    "Parquet STRUCT children returned different null parent shape in column {}",
+                    struct_reader.name());
+        }
+    }
+
+    std::vector<MutableColumnPtr> child_columns;
+    child_columns.reserve(scalar_children.size());
+    for (size_t child_idx = 0; child_idx < scalar_children.size(); ++child_idx) {
+        child_columns.push_back(struct_column->get_column_ptr(child_idx)->assume_mutable());
+    }
+
+    if (parent_is_null) {
+        if (parent_null_map == nullptr) {
+            return Status::Corruption(
+                    "Parquet STRUCT column {} contains null for non-nullable struct",
+                    struct_reader.name());
+        }
+        parent_null_map->push_back(1);
+        for (auto& child_column : child_columns) {
+            child_column->insert_default();
+        }
+    } else {
+        if (parent_null_map != nullptr) {
+            parent_null_map->push_back(0);
+        }
+        for (size_t child_idx = 0; child_idx < scalar_children.size(); ++child_idx) {
+            if (!scalar_children[child_idx]->type()->is_nullable() &&
+                batch.child_batches[child_idx].def_levels[level_idx] !=
+                        scalar_children[child_idx]->descriptor()->max_definition_level()) {
+                return Status::Corruption(
+                        "Parquet STRUCT column {} contains null for non-nullable child {}",
+                        struct_reader.name(), scalar_children[child_idx]->name());
+            }
+            RETURN_IF_ERROR(append_scalar_batch_value(*scalar_children[child_idx],
+                                                      batch.child_batches[child_idx], level_idx,
+                                                      child_columns[child_idx]));
+        }
+    }
+
+    for (size_t child_idx = 0; child_idx < child_columns.size(); ++child_idx) {
+        struct_column->get_column_ptr(child_idx) = std::move(child_columns[child_idx]);
+    }
     return Status::OK();
 }
 
@@ -691,6 +848,64 @@ Status assemble_repeated_levels(ScalarColumnReader& driver_reader, int16_t repea
                 if (*rows_read == 0) {
                     return Status::Corruption(
                             "Repeated parquet stream starts with repeated level for column {}",
+                            driver_reader.name());
+                }
+                RETURN_IF_ERROR(sink.append_repeated(*batch, level_idx));
+            }
+            ++level_idx;
+        }
+
+        if (from_overflow) {
+            overflow->clear();
+        }
+    }
+    return Status::OK();
+}
+
+template <typename Sink>
+Status assemble_repeated_struct_levels(StructColumnReader& driver_reader, int16_t repeated_level,
+                                       int16_t value_slot_definition_level, int64_t rows,
+                                       NestedStructOverflow* overflow, Sink& sink,
+                                       int64_t* rows_read) {
+    if (overflow == nullptr || rows_read == nullptr) {
+        return Status::InvalidArgument("Invalid repeated struct assembler arguments for column {}",
+                                       driver_reader.name());
+    }
+    *rows_read = 0;
+    while (*rows_read < rows) {
+        NestedStructBatch read_batch;
+        NestedStructBatch* batch = nullptr;
+        bool from_overflow = false;
+        if (!overflow->empty()) {
+            batch = &overflow->batch;
+            from_overflow = true;
+        } else {
+            const int64_t batch_rows = std::max<int64_t>(rows - *rows_read, NESTED_READ_BATCH_ROWS);
+            RETURN_IF_ERROR(read_nested_struct_batch(driver_reader, batch_rows,
+                                                     value_slot_definition_level, &read_batch));
+            if (read_batch.empty()) {
+                break;
+            }
+            batch = &read_batch;
+        }
+        RETURN_IF_ERROR(sink.start_batch(*batch));
+
+        int64_t level_idx = 0;
+        const auto& rep_levels = batch->child_batches[0].rep_levels;
+        while (level_idx < batch->levels_written) {
+            const bool starts_parent = rep_levels[level_idx] < repeated_level;
+            if (starts_parent && *rows_read >= rows) {
+                move_nested_struct_tail(*batch, level_idx, overflow);
+                return Status::OK();
+            }
+            if (starts_parent) {
+                RETURN_IF_ERROR(sink.start_parent(*batch, level_idx));
+                ++*rows_read;
+            } else {
+                if (*rows_read == 0) {
+                    return Status::Corruption(
+                            "Repeated parquet STRUCT stream starts with repeated level for column "
+                            "{}",
                             driver_reader.name());
                 }
                 RETURN_IF_ERROR(sink.append_repeated(*batch, level_idx));
@@ -912,6 +1127,28 @@ Status StructColumnReader::skip(int64_t rows) {
     return Status::OK();
 }
 
+Status StructColumnReader::collect_scalar_children(
+        std::vector<ScalarColumnReader*>* children) const {
+    if (children == nullptr) {
+        return Status::InvalidArgument("Scalar child container is null for struct column {}",
+                                       _name);
+    }
+    children->clear();
+    children->reserve(_children.size());
+    for (const auto& child_reader : _children) {
+        DORIS_CHECK(child_reader != nullptr);
+        auto* scalar_child = dynamic_cast<ScalarColumnReader*>(child_reader.get());
+        if (scalar_child == nullptr) {
+            return Status::NotSupported(
+                    "Current parquet nested STRUCT reader only supports scalar children for column "
+                    "{}",
+                    _name);
+        }
+        children->push_back(scalar_child);
+    }
+    return Status::OK();
+}
+
 Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
     if (column.get() == nullptr || rows_read == nullptr) {
         return Status::InvalidArgument("Invalid parquet list read result pointer for column {}",
@@ -921,11 +1158,6 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
         return Status::InternalError("Parquet list element reader is not initialized for column {}",
                                      _name);
     }
-    auto* element_reader = dynamic_cast<ScalarColumnReader*>(_element_reader.get());
-    if (element_reader == nullptr) {
-        return Status::NotSupported(
-                "Current parquet LIST reader only supports scalar elements for column {}", _name);
-    }
     auto* array_column = array_column_from_output(column);
     DORIS_CHECK(array_column != nullptr);
     auto* parent_null_map = null_map_from_nullable_output(column);
@@ -933,21 +1165,98 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
     std::vector<uint64_t> entry_counts;
     NullMap parent_nulls;
     const int16_t element_slot_definition_level = _nullable_definition_level + 1;
-    const int16_t element_max_definition_level =
-            element_reader->descriptor()->max_definition_level();
 
-    struct ListSink {
+    if (auto* element_reader = dynamic_cast<ScalarColumnReader*>(_element_reader.get())) {
+        const int16_t element_max_definition_level =
+                element_reader->descriptor()->max_definition_level();
+
+        struct ScalarListSink {
+            ListColumnReader* self = nullptr;
+            ScalarColumnReader* element_reader = nullptr;
+            MutableColumnPtr* nested_column = nullptr;
+            std::vector<uint64_t>* entry_counts = nullptr;
+            NullMap* parent_nulls = nullptr;
+            int16_t element_max_definition_level = 0;
+
+            Status start_batch(const NestedScalarBatch&) { return Status::OK(); }
+
+            Status start_parent(const NestedScalarBatch& batch, int64_t level_idx) {
+                const int16_t def_level = batch.def_levels[level_idx];
+                if (def_level < self->_nullable_definition_level) {
+                    if (!self->_type->is_nullable()) {
+                        return Status::Corruption(
+                                "Parquet LIST column {} contains null for non-nullable list",
+                                self->_name);
+                    }
+                    entry_counts->push_back(0);
+                    parent_nulls->push_back(1);
+                    return Status::OK();
+                }
+                entry_counts->push_back(0);
+                parent_nulls->push_back(0);
+                if (def_level == self->_nullable_definition_level) {
+                    return Status::OK();
+                }
+                return append_element(batch, level_idx);
+            }
+
+            Status append_repeated(const NestedScalarBatch& batch, int64_t level_idx) {
+                if (entry_counts->empty()) {
+                    return Status::Corruption("Invalid repeated LIST level for column {}",
+                                              self->_name);
+                }
+                return append_element(batch, level_idx);
+            }
+
+            Status append_element(const NestedScalarBatch& batch, int64_t level_idx) {
+                const int16_t def_level = batch.def_levels[level_idx];
+                if (def_level == element_max_definition_level) {
+                    RETURN_IF_ERROR(append_scalar_batch_value(*element_reader, batch, level_idx,
+                                                              *nested_column));
+                } else {
+                    if (!element_reader->type()->is_nullable()) {
+                        return Status::Corruption(
+                                "Parquet LIST column {} contains null for non-nullable element",
+                                self->_name);
+                    }
+                    (*nested_column)->insert_default();
+                }
+                ++entry_counts->back();
+                return Status::OK();
+            }
+        };
+
+        ScalarListSink sink {this,          element_reader, &nested_column,
+                             &entry_counts, &parent_nulls,  element_max_definition_level};
+        RETURN_IF_ERROR(assemble_repeated_levels(*element_reader, _repeated_repetition_level,
+                                                 element_slot_definition_level, rows,
+                                                 &_element_overflow, sink, rows_read));
+
+        array_column->get_data_ptr() = std::move(nested_column);
+        append_offsets(array_column->get_offsets(), entry_counts);
+        append_parent_nulls(parent_null_map, parent_nulls);
+        return Status::OK();
+    }
+
+    auto* struct_element_reader = dynamic_cast<StructColumnReader*>(_element_reader.get());
+    if (struct_element_reader == nullptr) {
+        return Status::NotSupported(
+                "Current parquet LIST reader only supports scalar or scalar-child STRUCT elements "
+                "for column {}",
+                _name);
+    }
+
+    struct StructListSink {
         ListColumnReader* self = nullptr;
-        ScalarColumnReader* element_reader = nullptr;
+        StructColumnReader* element_reader = nullptr;
         MutableColumnPtr* nested_column = nullptr;
         std::vector<uint64_t>* entry_counts = nullptr;
         NullMap* parent_nulls = nullptr;
-        int16_t element_max_definition_level = 0;
 
-        Status start_batch(const NestedScalarBatch&) { return Status::OK(); }
+        Status start_batch(const NestedStructBatch&) { return Status::OK(); }
 
-        Status start_parent(const NestedScalarBatch& batch, int64_t level_idx) {
-            const int16_t def_level = batch.def_levels[level_idx];
+        Status start_parent(const NestedStructBatch& batch, int64_t level_idx) {
+            const int16_t def_level = batch.child_batches[0].def_levels[level_idx];
             if (def_level < self->_nullable_definition_level) {
                 if (!self->_type->is_nullable()) {
                     return Status::Corruption(
@@ -966,36 +1275,25 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
             return append_element(batch, level_idx);
         }
 
-        Status append_repeated(const NestedScalarBatch& batch, int64_t level_idx) {
+        Status append_repeated(const NestedStructBatch& batch, int64_t level_idx) {
             if (entry_counts->empty()) {
                 return Status::Corruption("Invalid repeated LIST level for column {}", self->_name);
             }
             return append_element(batch, level_idx);
         }
 
-        Status append_element(const NestedScalarBatch& batch, int64_t level_idx) {
-            const int16_t def_level = batch.def_levels[level_idx];
-            if (def_level == element_max_definition_level) {
-                RETURN_IF_ERROR(append_scalar_batch_value(*element_reader, batch, level_idx,
-                                                          *nested_column));
-            } else {
-                if (!element_reader->type()->is_nullable()) {
-                    return Status::Corruption(
-                            "Parquet LIST column {} contains null for non-nullable element",
-                            self->_name);
-                }
-                (*nested_column)->insert_default();
-            }
+        Status append_element(const NestedStructBatch& batch, int64_t level_idx) {
+            RETURN_IF_ERROR(
+                    append_struct_batch_value(*element_reader, batch, level_idx, *nested_column));
             ++entry_counts->back();
             return Status::OK();
         }
     };
 
-    ListSink sink {this,          element_reader, &nested_column,
-                   &entry_counts, &parent_nulls,  element_max_definition_level};
-    RETURN_IF_ERROR(assemble_repeated_levels(*element_reader, _repeated_repetition_level,
-                                             element_slot_definition_level, rows,
-                                             &_element_overflow, sink, rows_read));
+    StructListSink sink {this, struct_element_reader, &nested_column, &entry_counts, &parent_nulls};
+    RETURN_IF_ERROR(assemble_repeated_struct_levels(
+            *struct_element_reader, _repeated_repetition_level, element_slot_definition_level, rows,
+            &_struct_element_overflow, sink, rows_read));
 
     array_column->get_data_ptr() = std::move(nested_column);
     append_offsets(array_column->get_offsets(), entry_counts);
@@ -1007,21 +1305,34 @@ Status ListColumnReader::skip(int64_t rows) {
     if (rows <= 0) {
         return Status::OK();
     }
-    auto* element_reader = dynamic_cast<ScalarColumnReader*>(_element_reader.get());
-    if (element_reader == nullptr) {
-        return Status::NotSupported(
-                "Current parquet LIST reader only supports scalar elements for column {}", _name);
-    }
     struct SkipSink {
         Status start_batch(const NestedScalarBatch&) { return Status::OK(); }
         Status start_parent(const NestedScalarBatch&, int64_t) { return Status::OK(); }
         Status append_repeated(const NestedScalarBatch&, int64_t) { return Status::OK(); }
     };
-    SkipSink sink;
     int64_t rows_read = 0;
-    RETURN_IF_ERROR(assemble_repeated_levels(*element_reader, _repeated_repetition_level,
-                                             _nullable_definition_level + 1, rows,
-                                             &_element_overflow, sink, &rows_read));
+    if (auto* element_reader = dynamic_cast<ScalarColumnReader*>(_element_reader.get())) {
+        SkipSink sink;
+        RETURN_IF_ERROR(assemble_repeated_levels(*element_reader, _repeated_repetition_level,
+                                                 _nullable_definition_level + 1, rows,
+                                                 &_element_overflow, sink, &rows_read));
+    } else if (auto* struct_element_reader =
+                       dynamic_cast<StructColumnReader*>(_element_reader.get())) {
+        struct StructSkipSink {
+            Status start_batch(const NestedStructBatch&) { return Status::OK(); }
+            Status start_parent(const NestedStructBatch&, int64_t) { return Status::OK(); }
+            Status append_repeated(const NestedStructBatch&, int64_t) { return Status::OK(); }
+        };
+        StructSkipSink sink;
+        RETURN_IF_ERROR(assemble_repeated_struct_levels(
+                *struct_element_reader, _repeated_repetition_level, _nullable_definition_level + 1,
+                rows, &_struct_element_overflow, sink, &rows_read));
+    } else {
+        return Status::NotSupported(
+                "Current parquet LIST reader only supports scalar or scalar-child STRUCT elements "
+                "for column {}",
+                _name);
+    }
     if (rows_read != rows) {
         return Status::Corruption("Failed to skip parquet LIST column {}: skipped {} of {} rows",
                                   _name, rows_read, rows);
@@ -1040,9 +1351,12 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
     }
     auto* key_reader = dynamic_cast<ScalarColumnReader*>(_key_reader.get());
     auto* value_reader = dynamic_cast<ScalarColumnReader*>(_value_reader.get());
-    if (key_reader == nullptr || value_reader == nullptr) {
+    auto* struct_value_reader = dynamic_cast<StructColumnReader*>(_value_reader.get());
+    if (key_reader == nullptr || (value_reader == nullptr && struct_value_reader == nullptr)) {
         return Status::NotSupported(
-                "Current parquet MAP reader only supports scalar key/value for column {}", _name);
+                "Current parquet MAP reader only supports scalar key with scalar or scalar-child "
+                "STRUCT value for column {}",
+                _name);
     }
 
     auto* map_column = map_column_from_output(column);
@@ -1054,31 +1368,164 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
     NullMap parent_nulls;
     const int16_t entry_definition_level = _nullable_definition_level + 1;
     const int16_t key_max_definition_level = key_reader->descriptor()->max_definition_level();
-    const int16_t value_max_definition_level = value_reader->descriptor()->max_definition_level();
 
-    struct MapSink {
+    if (value_reader != nullptr) {
+        const int16_t value_max_definition_level =
+                value_reader->descriptor()->max_definition_level();
+
+        struct ScalarMapSink {
+            MapColumnReader* self = nullptr;
+            ScalarColumnReader* key_reader = nullptr;
+            ScalarColumnReader* value_reader = nullptr;
+            MutableColumnPtr* key_column = nullptr;
+            MutableColumnPtr* value_column = nullptr;
+            std::vector<uint64_t>* entry_counts = nullptr;
+            NullMap* parent_nulls = nullptr;
+            int16_t key_max_definition_level = 0;
+            int16_t value_max_definition_level = 0;
+
+            Status read_value_batch(int64_t batch_rows, NestedScalarBatch* out_value_batch) {
+                if (!self->_value_overflow.empty()) {
+                    *out_value_batch = std::move(self->_value_overflow.batch);
+                    self->_value_overflow.clear();
+                    return Status::OK();
+                }
+                return read_nested_scalar_batch(*value_reader, batch_rows,
+                                                self->_nullable_definition_level + 1,
+                                                out_value_batch);
+            }
+
+            Status validate_value_alignment(const NestedScalarBatch& key_batch,
+                                            const NestedScalarBatch& candidate_value_batch) {
+                if (candidate_value_batch.records_read != key_batch.records_read ||
+                    candidate_value_batch.levels_written != key_batch.levels_written) {
+                    return Status::Corruption(
+                            "Parquet MAP key/value levels are not aligned for column {}: key "
+                            "rows={}, key levels={}, value rows={}, value levels={}",
+                            self->_name, key_batch.records_read, key_batch.levels_written,
+                            candidate_value_batch.records_read,
+                            candidate_value_batch.levels_written);
+                }
+                for (int64_t level_idx = 0; level_idx < key_batch.levels_written; ++level_idx) {
+                    if (candidate_value_batch.rep_levels[level_idx] !=
+                        key_batch.rep_levels[level_idx]) {
+                        return Status::Corruption(
+                                "Parquet MAP key/value repetition levels are not aligned for "
+                                "column {}",
+                                self->_name);
+                    }
+                }
+                return Status::OK();
+            }
+
+            Status start_batch(const NestedScalarBatch& key_batch) {
+                RETURN_IF_ERROR(read_value_batch(key_batch.records_read, &value_batch));
+                RETURN_IF_ERROR(validate_value_alignment(key_batch, value_batch));
+                return Status::OK();
+            }
+
+            Status start_parent(const NestedScalarBatch& key_batch, int64_t level_idx) {
+                const int16_t def_level = key_batch.def_levels[level_idx];
+                if (def_level < self->_nullable_definition_level) {
+                    if (!self->_type->is_nullable()) {
+                        return Status::Corruption(
+                                "Parquet MAP column {} contains null for non-nullable map",
+                                self->_name);
+                    }
+                    entry_counts->push_back(0);
+                    parent_nulls->push_back(1);
+                    return Status::OK();
+                }
+                entry_counts->push_back(0);
+                parent_nulls->push_back(0);
+                if (def_level == self->_nullable_definition_level) {
+                    return Status::OK();
+                }
+                return append_entry(key_batch, level_idx);
+            }
+
+            Status append_repeated(const NestedScalarBatch& key_batch, int64_t level_idx) {
+                if (entry_counts->empty()) {
+                    return Status::Corruption("Invalid repeated MAP level for column {}",
+                                              self->_name);
+                }
+                return append_entry(key_batch, level_idx);
+            }
+
+            Status append_entry(const NestedScalarBatch& key_batch, int64_t level_idx) {
+                if (key_batch.def_levels[level_idx] != key_max_definition_level) {
+                    return Status::Corruption("Parquet MAP column {} contains null map key",
+                                              self->_name);
+                }
+                RETURN_IF_ERROR(
+                        append_scalar_batch_value(*key_reader, key_batch, level_idx, *key_column));
+                if (value_batch.def_levels[level_idx] == value_max_definition_level) {
+                    RETURN_IF_ERROR(append_scalar_batch_value(*value_reader, value_batch, level_idx,
+                                                              *value_column));
+                } else {
+                    if (!value_reader->type()->is_nullable()) {
+                        return Status::Corruption(
+                                "Parquet MAP column {} contains null for non-nullable value",
+                                self->_name);
+                    }
+                    (*value_column)->insert_default();
+                }
+                ++entry_counts->back();
+                return Status::OK();
+            }
+
+            NestedScalarBatch value_batch;
+        };
+
+        ScalarMapSink sink;
+        sink.self = this;
+        sink.key_reader = key_reader;
+        sink.value_reader = value_reader;
+        sink.key_column = &key_column;
+        sink.value_column = &value_column;
+        sink.entry_counts = &entry_counts;
+        sink.parent_nulls = &parent_nulls;
+        sink.key_max_definition_level = key_max_definition_level;
+        sink.value_max_definition_level = value_max_definition_level;
+        RETURN_IF_ERROR(assemble_repeated_levels(*key_reader, _repeated_repetition_level,
+                                                 entry_definition_level, rows, &_key_overflow, sink,
+                                                 rows_read));
+        if (!_key_overflow.empty()) {
+            move_nested_scalar_tail(
+                    sink.value_batch,
+                    sink.value_batch.levels_written - _key_overflow.batch.levels_written,
+                    &_value_overflow);
+        }
+
+        map_column->get_keys_ptr() = std::move(key_column);
+        map_column->get_values_ptr() = std::move(value_column);
+        append_offsets(map_column->get_offsets(), entry_counts);
+        append_parent_nulls(parent_null_map, parent_nulls);
+        return Status::OK();
+    }
+
+    struct StructMapSink {
         MapColumnReader* self = nullptr;
         ScalarColumnReader* key_reader = nullptr;
-        ScalarColumnReader* value_reader = nullptr;
+        StructColumnReader* value_reader = nullptr;
         MutableColumnPtr* key_column = nullptr;
         MutableColumnPtr* value_column = nullptr;
         std::vector<uint64_t>* entry_counts = nullptr;
         NullMap* parent_nulls = nullptr;
         int16_t key_max_definition_level = 0;
-        int16_t value_max_definition_level = 0;
 
-        Status read_value_batch(int64_t batch_rows, NestedScalarBatch* out_value_batch) {
-            if (!self->_value_overflow.empty()) {
-                *out_value_batch = std::move(self->_value_overflow.batch);
-                self->_value_overflow.clear();
+        Status read_value_batch(int64_t batch_rows, NestedStructBatch* out_value_batch) {
+            if (!self->_struct_value_overflow.empty()) {
+                *out_value_batch = std::move(self->_struct_value_overflow.batch);
+                self->_struct_value_overflow.clear();
                 return Status::OK();
             }
-            return read_nested_scalar_batch(*value_reader, batch_rows,
+            return read_nested_struct_batch(*value_reader, batch_rows,
                                             self->_nullable_definition_level + 1, out_value_batch);
         }
 
         Status validate_value_alignment(const NestedScalarBatch& key_batch,
-                                        const NestedScalarBatch& candidate_value_batch) {
+                                        const NestedStructBatch& candidate_value_batch) {
             if (candidate_value_batch.records_read != key_batch.records_read ||
                 candidate_value_batch.levels_written != key_batch.levels_written) {
                 return Status::Corruption(
@@ -1087,9 +1534,13 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
                         self->_name, key_batch.records_read, key_batch.levels_written,
                         candidate_value_batch.records_read, candidate_value_batch.levels_written);
             }
+            if (candidate_value_batch.child_batches.empty()) {
+                return Status::Corruption(
+                        "Parquet MAP value STRUCT has no child batch for column {}", self->_name);
+            }
+            const auto& value_rep_levels = candidate_value_batch.child_batches[0].rep_levels;
             for (int64_t level_idx = 0; level_idx < key_batch.levels_written; ++level_idx) {
-                if (candidate_value_batch.rep_levels[level_idx] !=
-                    key_batch.rep_levels[level_idx]) {
+                if (value_rep_levels[level_idx] != key_batch.rep_levels[level_idx]) {
                     return Status::Corruption(
                             "Parquet MAP key/value repetition levels are not aligned for column {}",
                             self->_name);
@@ -1138,42 +1589,32 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
             }
             RETURN_IF_ERROR(
                     append_scalar_batch_value(*key_reader, key_batch, level_idx, *key_column));
-            if (value_batch.def_levels[level_idx] == value_max_definition_level) {
-                RETURN_IF_ERROR(append_scalar_batch_value(*value_reader, value_batch, level_idx,
-                                                          *value_column));
-            } else {
-                if (!value_reader->type()->is_nullable()) {
-                    return Status::Corruption(
-                            "Parquet MAP column {} contains null for non-nullable value",
-                            self->_name);
-                }
-                (*value_column)->insert_default();
-            }
+            RETURN_IF_ERROR(append_struct_batch_value(*value_reader, value_batch, level_idx,
+                                                      *value_column));
             ++entry_counts->back();
             return Status::OK();
         }
 
-        NestedScalarBatch value_batch;
+        NestedStructBatch value_batch;
     };
 
-    MapSink sink;
+    StructMapSink sink;
     sink.self = this;
     sink.key_reader = key_reader;
-    sink.value_reader = value_reader;
+    sink.value_reader = struct_value_reader;
     sink.key_column = &key_column;
     sink.value_column = &value_column;
     sink.entry_counts = &entry_counts;
     sink.parent_nulls = &parent_nulls;
     sink.key_max_definition_level = key_max_definition_level;
-    sink.value_max_definition_level = value_max_definition_level;
     RETURN_IF_ERROR(assemble_repeated_levels(*key_reader, _repeated_repetition_level,
                                              entry_definition_level, rows, &_key_overflow, sink,
                                              rows_read));
     if (!_key_overflow.empty()) {
-        move_nested_scalar_tail(
+        move_nested_struct_tail(
                 sink.value_batch,
                 sink.value_batch.levels_written - _key_overflow.batch.levels_written,
-                &_value_overflow);
+                &_struct_value_overflow);
     }
 
     map_column->get_keys_ptr() = std::move(key_column);
@@ -1191,68 +1632,138 @@ Status MapColumnReader::skip(int64_t rows) {
     DORIS_CHECK(_value_reader != nullptr);
     auto* key_reader = dynamic_cast<ScalarColumnReader*>(_key_reader.get());
     auto* value_reader = dynamic_cast<ScalarColumnReader*>(_value_reader.get());
-    if (key_reader == nullptr || value_reader == nullptr) {
+    auto* struct_value_reader = dynamic_cast<StructColumnReader*>(_value_reader.get());
+    if (key_reader == nullptr || (value_reader == nullptr && struct_value_reader == nullptr)) {
         return Status::NotSupported(
-                "Current parquet MAP reader only supports scalar key/value for column {}", _name);
+                "Current parquet MAP reader only supports scalar key with scalar or scalar-child "
+                "STRUCT value for column {}",
+                _name);
     }
-    struct SkipSink {
-        MapColumnReader* self = nullptr;
-        ScalarColumnReader* value_reader = nullptr;
 
-        Status read_value_batch(int64_t batch_rows, NestedScalarBatch* out_value_batch) {
-            if (!self->_value_overflow.empty()) {
-                *out_value_batch = std::move(self->_value_overflow.batch);
-                self->_value_overflow.clear();
-                return Status::OK();
-            }
-            return read_nested_scalar_batch(*value_reader, batch_rows,
-                                            self->_nullable_definition_level + 1, out_value_batch);
-        }
+    int64_t rows_read = 0;
+    if (value_reader != nullptr) {
+        struct SkipSink {
+            MapColumnReader* self = nullptr;
+            ScalarColumnReader* value_reader = nullptr;
 
-        Status validate_value_alignment(const NestedScalarBatch& key_batch,
-                                        const NestedScalarBatch& candidate_value_batch) {
-            if (candidate_value_batch.records_read != key_batch.records_read ||
-                candidate_value_batch.levels_written != key_batch.levels_written) {
-                return Status::Corruption(
-                        "Parquet MAP key/value levels are not aligned for column {} while "
-                        "skipping",
-                        self->_name);
+            Status read_value_batch(int64_t batch_rows, NestedScalarBatch* out_value_batch) {
+                if (!self->_value_overflow.empty()) {
+                    *out_value_batch = std::move(self->_value_overflow.batch);
+                    self->_value_overflow.clear();
+                    return Status::OK();
+                }
+                return read_nested_scalar_batch(*value_reader, batch_rows,
+                                                self->_nullable_definition_level + 1,
+                                                out_value_batch);
             }
-            for (int64_t level_idx = 0; level_idx < key_batch.levels_written; ++level_idx) {
-                if (candidate_value_batch.rep_levels[level_idx] !=
-                    key_batch.rep_levels[level_idx]) {
+
+            Status validate_value_alignment(const NestedScalarBatch& key_batch,
+                                            const NestedScalarBatch& candidate_value_batch) {
+                if (candidate_value_batch.records_read != key_batch.records_read ||
+                    candidate_value_batch.levels_written != key_batch.levels_written) {
                     return Status::Corruption(
-                            "Parquet MAP key/value repetition levels are not aligned for column {}",
+                            "Parquet MAP key/value levels are not aligned for column {} while "
+                            "skipping",
                             self->_name);
                 }
+                for (int64_t level_idx = 0; level_idx < key_batch.levels_written; ++level_idx) {
+                    if (candidate_value_batch.rep_levels[level_idx] !=
+                        key_batch.rep_levels[level_idx]) {
+                        return Status::Corruption(
+                                "Parquet MAP key/value repetition levels are not aligned for "
+                                "column {}",
+                                self->_name);
+                    }
+                }
+                return Status::OK();
             }
-            return Status::OK();
+
+            Status start_batch(const NestedScalarBatch& key_batch) {
+                RETURN_IF_ERROR(read_value_batch(key_batch.records_read, &value_batch));
+                RETURN_IF_ERROR(validate_value_alignment(key_batch, value_batch));
+                return Status::OK();
+            }
+
+            Status start_parent(const NestedScalarBatch&, int64_t) { return Status::OK(); }
+
+            Status append_repeated(const NestedScalarBatch&, int64_t) { return Status::OK(); }
+
+            NestedScalarBatch value_batch;
+        };
+        SkipSink sink;
+        sink.self = this;
+        sink.value_reader = value_reader;
+        RETURN_IF_ERROR(assemble_repeated_levels(*key_reader, _repeated_repetition_level,
+                                                 _nullable_definition_level + 1, rows,
+                                                 &_key_overflow, sink, &rows_read));
+        if (!_key_overflow.empty()) {
+            move_nested_scalar_tail(
+                    sink.value_batch,
+                    sink.value_batch.levels_written - _key_overflow.batch.levels_written,
+                    &_value_overflow);
         }
+    } else {
+        struct StructSkipSink {
+            MapColumnReader* self = nullptr;
+            StructColumnReader* value_reader = nullptr;
 
-        Status start_batch(const NestedScalarBatch& key_batch) {
-            RETURN_IF_ERROR(read_value_batch(key_batch.records_read, &value_batch));
-            RETURN_IF_ERROR(validate_value_alignment(key_batch, value_batch));
-            return Status::OK();
+            Status read_value_batch(int64_t batch_rows, NestedStructBatch* out_value_batch) {
+                if (!self->_struct_value_overflow.empty()) {
+                    *out_value_batch = std::move(self->_struct_value_overflow.batch);
+                    self->_struct_value_overflow.clear();
+                    return Status::OK();
+                }
+                return read_nested_struct_batch(*value_reader, batch_rows,
+                                                self->_nullable_definition_level + 1,
+                                                out_value_batch);
+            }
+
+            Status validate_value_alignment(const NestedScalarBatch& key_batch,
+                                            const NestedStructBatch& candidate_value_batch) {
+                if (candidate_value_batch.records_read != key_batch.records_read ||
+                    candidate_value_batch.levels_written != key_batch.levels_written ||
+                    candidate_value_batch.child_batches.empty()) {
+                    return Status::Corruption(
+                            "Parquet MAP key/value levels are not aligned for column {} while "
+                            "skipping",
+                            self->_name);
+                }
+                const auto& value_rep_levels = candidate_value_batch.child_batches[0].rep_levels;
+                for (int64_t level_idx = 0; level_idx < key_batch.levels_written; ++level_idx) {
+                    if (value_rep_levels[level_idx] != key_batch.rep_levels[level_idx]) {
+                        return Status::Corruption(
+                                "Parquet MAP key/value repetition levels are not aligned for "
+                                "column {}",
+                                self->_name);
+                    }
+                }
+                return Status::OK();
+            }
+
+            Status start_batch(const NestedScalarBatch& key_batch) {
+                RETURN_IF_ERROR(read_value_batch(key_batch.records_read, &value_batch));
+                RETURN_IF_ERROR(validate_value_alignment(key_batch, value_batch));
+                return Status::OK();
+            }
+
+            Status start_parent(const NestedScalarBatch&, int64_t) { return Status::OK(); }
+
+            Status append_repeated(const NestedScalarBatch&, int64_t) { return Status::OK(); }
+
+            NestedStructBatch value_batch;
+        };
+        StructSkipSink sink;
+        sink.self = this;
+        sink.value_reader = struct_value_reader;
+        RETURN_IF_ERROR(assemble_repeated_levels(*key_reader, _repeated_repetition_level,
+                                                 _nullable_definition_level + 1, rows,
+                                                 &_key_overflow, sink, &rows_read));
+        if (!_key_overflow.empty()) {
+            move_nested_struct_tail(
+                    sink.value_batch,
+                    sink.value_batch.levels_written - _key_overflow.batch.levels_written,
+                    &_struct_value_overflow);
         }
-
-        Status start_parent(const NestedScalarBatch&, int64_t) { return Status::OK(); }
-
-        Status append_repeated(const NestedScalarBatch&, int64_t) { return Status::OK(); }
-
-        NestedScalarBatch value_batch;
-    };
-    SkipSink sink;
-    sink.self = this;
-    sink.value_reader = value_reader;
-    int64_t rows_read = 0;
-    RETURN_IF_ERROR(assemble_repeated_levels(*key_reader, _repeated_repetition_level,
-                                             _nullable_definition_level + 1, rows, &_key_overflow,
-                                             sink, &rows_read));
-    if (!_key_overflow.empty()) {
-        move_nested_scalar_tail(
-                sink.value_batch,
-                sink.value_batch.levels_written - _key_overflow.batch.levels_written,
-                &_value_overflow);
     }
     if (rows_read != rows) {
         return Status::Corruption("Failed to skip parquet MAP column {}: skipped {} of {} rows",
@@ -1493,8 +2004,16 @@ Status ParquetColumnReaderFactory::create_list_column_reader(
                                     column_schema.name);
     }
     std::unique_ptr<ParquetColumnReader> element_reader;
-    RETURN_IF_ERROR(
-            create_nested_scalar_column_reader(*column_schema.children[0], &element_reader));
+    const auto& element_schema = *column_schema.children[0];
+    if (element_schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
+        RETURN_IF_ERROR(create_nested_scalar_column_reader(element_schema, &element_reader));
+    } else if (element_schema.kind == ParquetColumnSchemaKind::STRUCT) {
+        RETURN_IF_ERROR(create_struct_column_reader(element_schema, nullptr, &element_reader));
+    } else {
+        return Status::NotSupported(
+                "Current parquet LIST reader does not support nested complex element column {}",
+                column_schema.name);
+    }
     *reader = std::make_unique<ListColumnReader>(column_schema, column_schema.type,
                                                  std::move(element_reader));
     return Status::OK();
@@ -1518,8 +2037,16 @@ Status ParquetColumnReaderFactory::create_map_column_reader(
     std::unique_ptr<ParquetColumnReader> key_reader;
     RETURN_IF_ERROR(create_nested_scalar_column_reader(*key_value_schema.children[0], &key_reader));
     std::unique_ptr<ParquetColumnReader> value_reader;
-    RETURN_IF_ERROR(
-            create_nested_scalar_column_reader(*key_value_schema.children[1], &value_reader));
+    const auto& value_schema = *key_value_schema.children[1];
+    if (value_schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
+        RETURN_IF_ERROR(create_nested_scalar_column_reader(value_schema, &value_reader));
+    } else if (value_schema.kind == ParquetColumnSchemaKind::STRUCT) {
+        RETURN_IF_ERROR(create_struct_column_reader(value_schema, nullptr, &value_reader));
+    } else {
+        return Status::NotSupported(
+                "Current parquet MAP reader does not support nested complex value column {}",
+                column_schema.name);
+    }
     *reader = std::make_unique<MapColumnReader>(column_schema, column_schema.type,
                                                 std::move(key_reader), std::move(value_reader));
     return Status::OK();
