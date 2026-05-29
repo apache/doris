@@ -27,18 +27,21 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.cloud.catalog.CloudReplica;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.resource.Tag;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /*
  * show proc "/colocation_group";
@@ -76,9 +79,12 @@ public class ColocationGroupProcDir implements ProcDirInterface {
         boolean showBackendIdsColumn = false;
         if ((beSeqs == null || beSeqs.isEmpty()) && Config.isCloudMode()) {
             // In cloud mode, legacy backend sequence metadata may be empty.
-            // Build bucket->backend mapping from current tablet replicas for proc display.
+            // Use only local replica metadata for proc display. This path must not
+            // resolve cloud backends because that may auto-start a compute group.
             beSeqs = getCloudBackendSeqsFromTablets(groupId, index);
-            showBackendIdsColumn = true;
+            // A null tag key means there is no per-compute-group information (e.g.
+            // local-style replicas), so fall back to a single merged BackendIds column.
+            showBackendIdsColumn = beSeqs.containsKey(null);
         }
         return new ColocationGroupBackendSeqsProcNode(beSeqs, showBackendIdsColumn);
     }
@@ -123,7 +129,12 @@ public class ColocationGroupProcDir implements ProcDirInterface {
     }
 
     private Map<Tag, List<List<Long>>> getCloudBackendSeqsFromTable(OlapTable olapTable) {
-        Map<Tag, List<List<Long>>> backendsSeq = Maps.newHashMap();
+        // In cloud mode a replica is hashed to a different BE in each compute group,
+        // so build a separate bucket sequence per compute group (keyed by the raw scope
+        // key while holding the table lock). Merging across groups (picking an arbitrary
+        // first BE) would mix BEs from different compute groups into one bucket sequence,
+        // which is meaningless.
+        Map<String, List<List<Long>>> seqByScopeKey = Maps.newLinkedHashMap();
         olapTable.readLock();
         try {
             Partition firstPartition = null;
@@ -132,34 +143,74 @@ public class ColocationGroupProcDir implements ProcDirInterface {
                 break;
             }
             if (firstPartition == null) {
-                return backendsSeq;
+                return Maps.newLinkedHashMap();
             }
             MaterializedIndex baseIndex = firstPartition.getBaseIndex();
             List<Tablet> tablets = baseIndex.getTablets();
-            List<List<Long>> bucketSeq = Lists.newArrayListWithCapacity(tablets.size());
-            boolean hasBackend = false;
-            for (int i = 0; i < tablets.size(); i++) {
-                List<Long> bucketBackends = new ArrayList<>();
-                for (Replica replica : tablets.get(i).getReplicas()) {
-                    long backendId = replica.getBackendIdWithoutException();
-                    if (backendId < 0 && replica instanceof CloudReplica) {
-                        backendId = ((CloudReplica) replica).getPrimaryBackendId();
-                    }
-                    if (backendId < 0) {
-                        continue;
-                    }
-                    bucketBackends.add(backendId);
-                    hasBackend = true;
+
+            // Collect the cached clusterId -> backendId mapping of every replica once.
+            List<List<Map<String, Long>>> tabletReplicaBackends = Lists.newArrayListWithCapacity(tablets.size());
+            Set<String> scopeKeys = Sets.newLinkedHashSet();
+            for (Tablet tablet : tablets) {
+                List<Map<String, Long>> replicaBackends = new ArrayList<>();
+                for (Replica replica : tablet.getReplicas()) {
+                    Map<String, Long> clusterToBackend = replica.getClusterToBackendForProcDisplay();
+                    replicaBackends.add(clusterToBackend);
+                    scopeKeys.addAll(clusterToBackend.keySet());
                 }
-                // Cloud mode should not expose real tag here, use null as placeholder.
-                bucketSeq.add(bucketBackends);
+                tabletReplicaBackends.add(replicaBackends);
             }
-            if (hasBackend) {
-                backendsSeq.put(null, bucketSeq);
+
+            for (String scopeKey : scopeKeys) {
+                List<List<Long>> bucketSeq = Lists.newArrayListWithCapacity(tablets.size());
+                boolean hasBackend = false;
+                for (List<Map<String, Long>> replicaBackends : tabletReplicaBackends) {
+                    List<Long> bucketBackends = new ArrayList<>();
+                    for (Map<String, Long> clusterToBackend : replicaBackends) {
+                        Long backendId = clusterToBackend.get(scopeKey);
+                        if (backendId == null || backendId < 0) {
+                            continue;
+                        }
+                        bucketBackends.add(backendId);
+                        hasBackend = true;
+                    }
+                    bucketSeq.add(bucketBackends);
+                }
+                if (hasBackend) {
+                    seqByScopeKey.put(scopeKey, bucketSeq);
+                }
             }
         } finally {
             olapTable.readUnlock();
         }
+
+        // Resolve scope keys to display tags outside the table lock: tag/name resolution
+        // acquires CloudSystemInfoService's lock and must not nest under olapTable's lock.
+        Map<Tag, List<List<Long>>> backendsSeq = Maps.newLinkedHashMap();
+        for (Map.Entry<String, List<List<Long>>> entry : seqByScopeKey.entrySet()) {
+            backendsSeq.put(scopeKeyToTag(entry.getKey()), entry.getValue());
+        }
         return backendsSeq;
+    }
+
+    // Map a proc-display scope key to its display tag. An empty key means there is no
+    // per-compute-group information (local-style replicas), rendered as null so the
+    // caller falls back to a single merged BackendIds column. Otherwise the key is a
+    // cloud compute group id, shown as a compute group tag (resolved to its name).
+    private Tag scopeKeyToTag(String scopeKey) {
+        if (Strings.isNullOrEmpty(scopeKey)) {
+            return null;
+        }
+        String computeGroupName = scopeKey;
+        try {
+            String name = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getClusterNameByClusterId(scopeKey);
+            if (!Strings.isNullOrEmpty(name)) {
+                computeGroupName = name;
+            }
+        } catch (Exception e) {
+            // Fall back to the raw compute group id if name resolution is unavailable.
+        }
+        return Tag.createNotCheck(Tag.COMPUTE_GROUP_NAME, computeGroupName);
     }
 }

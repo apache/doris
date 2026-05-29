@@ -44,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -214,6 +215,16 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         }
 
         return primaryClusterToBackend.getOrDefault(clusterId, -1L);
+    }
+
+    // For proc display only. In cloud mode a replica is hashed to a different BE in
+    // each compute group, so expose the whole clusterId -> backendId cache. The proc
+    // display builds a separate bucket sequence per compute group from this map so the
+    // sequence is consistent within each group. Do not collapse this into a single BE
+    // (e.g. the first one): backends differ across compute groups and would not match.
+    @Override
+    public Map<String, Long> getClusterToBackendForProcDisplay() {
+        return new HashMap<>(primaryClusterToBackend);
     }
 
     private String getCurrentClusterId() throws ComputeGroupException {

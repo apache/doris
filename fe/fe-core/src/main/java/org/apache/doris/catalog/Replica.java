@@ -29,6 +29,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * This class represents the olap replica related metadata.
@@ -177,6 +179,22 @@ public abstract class Replica {
 
     protected long getBackendIdValue() {
         return -1L;
+    }
+
+    public long getBackendIdForProcDisplay() {
+        return getBackendIdValue();
+    }
+
+    // For proc display only. Returns a "scope key -> backendId" mapping used to render
+    // the replica's placement. In local deployment there is a single scope (empty key);
+    // in cloud deployment each compute group is a separate scope (see CloudReplica).
+    public Map<String, Long> getClusterToBackendForProcDisplay() {
+        Map<String, Long> result = new HashMap<>();
+        long backendId = getBackendIdForProcDisplay();
+        if (backendId != -1L) {
+            result.put("", backendId);
+        }
+        return result;
     }
 
     public void setBackendId(long backendId) {
