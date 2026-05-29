@@ -27,10 +27,17 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
@@ -41,6 +48,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,7 +61,12 @@ import java.util.Set;
  * <p>Two-pass CustomRewriter:
  * <ol>
  * <li><b>Collector (top-down)</b>: walk the plan tree, find qualifying TopNs,
- *     walk into their descendants to find Projects with pull-able expressions.</li>
+ *     walk into their descendants to find Projects with pull-able expressions.
+ *     Any operator that references a slot blocks pulling up expressions that
+ *     output that slot past it. Boundary nodes (Aggregate, Window, Repeat,
+ *     Relation, CTEProducer) stop the walk.
+ *     Set operators are treated as blockers for the current TopN but their
+ *     children are still traversed so nested TopNs inside them are visited.</li>
  * <li><b>Replacer (bottom-up)</b>: simplify found Projects and add upper
  *     Projects above TopN to restore pulled-up expressions.</li>
  * </ol>
@@ -93,7 +106,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                 = new LinkedHashMap<>();
         final Map<ExprId, List<Slot>> baseSlotsByExpr = new HashMap<>();
 
-        PullUpInfo(LogicalTopN topN) {
+    PullUpInfo(LogicalTopN topN) {
             this.topN = topN;
             this.originalTopNOutput = ImmutableList.copyOf(topN.getOutput());
         }
@@ -161,13 +174,11 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                 return visit(topN, context);
             }
             PullUpInfo info = new PullUpInfo(topN);
-            Set<ExprId> collectedOutputExprIds = new HashSet<>();
-            // Seed pathUsedExprIds with this TopN's order key ExprIds so that
-            // canPullUp doesn't need to check order keys separately.
-            Set<ExprId> pathUsedExprIds = buildOrderKeyExprIds(topN);
-            boolean blocked = walkAndCollect((Plan) topN.child(0), topN, info, collectedOutputExprIds,
-                    pathUsedExprIds, context);
-            if (!blocked && !info.allPulledUpExprs.isEmpty()) {
+            // Seed blockedExprIds with this TopN's order key ExprIds so that
+            // expressions used by order keys are not pulled up past this TopN.
+            Set<ExprId> blockedExprIds = buildOrderKeyExprIds(topN);
+            collectFromNode((Plan) topN.child(0), info, blockedExprIds);
+            if (!info.allPulledUpExprs.isEmpty()) {
                 context.topNToPullUpInfo.put(topN, info);
             }
             return visit(topN, context);
@@ -175,98 +186,80 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
     }
 
     /**
-     * Walk down from a qualifying TopN's child to find Projects with pull-able expressions.
-     * {@code pathUsedExprIds} accumulates ExprIds referenced by operators along the path
-     * from the outer TopN to the current node (analogous to OperativeColumnDerive).
-     * At each Project, expressions whose output is in this set are NOT pulled up.
+     * Recursively walk down from a TopN's child to find Projects with pull-able expressions.
+     *
+     * <p>{@code blockedExprIds} contains ExprIds of slots that are referenced by operators
+     * along the path from the TopN to the current node. An expression whose output ExprId
+     * is in this set cannot be pulled up past the operators that reference it.
      */
-    private static boolean walkAndCollect(Plan node, LogicalTopN topN, PullUpInfo info,
-            Set<ExprId> collectedOutputExprIds, Set<ExprId> pathUsedExprIds, CollectorContext context) {
+    private static void collectFromNode(Plan node, PullUpInfo info, Set<ExprId> blockedExprIds) {
         if (node instanceof LogicalProject) {
             LogicalProject<? extends Plan> project = (LogicalProject<? extends Plan>) node;
             for (NamedExpression ne : project.getProjects()) {
-                if (canPullUp(ne) && !pathUsedExprIds.contains(ne.getExprId())) {
+                if (canPullUp(ne) && !blockedExprIds.contains(ne.getExprId())) {
                     info.addPulledUpExpr(project, ne);
-                    collectedOutputExprIds.add(ne.getExprId());
                 }
             }
-            Plan child = (Plan) project.child(0);
-            if (child instanceof LogicalProject) {
-                return false;
-            }
-            if (!isScanNode(child)) {
-                return walkAndCollect(child, topN, info, collectedOutputExprIds,
-                        pathUsedExprIds, context);
-            }
-            return false;
+            // Continue into the project's child. Chained projects are all visited.
+            collectFromNode((Plan) project.child(0), info, blockedExprIds);
+            return;
         }
 
         if (node instanceof LogicalTopN) {
             LogicalTopN inner = (LogicalTopN) node;
-            if (!qualifiesForLazyMatThreshold(inner)) {
-                return false;
+            // TopN preserves all input columns, so it doesn't block by itself.
+            // However, its order keys consume slots, so add them to blocked set.
+            // Do NOT reset blockedExprIds — intermediate operators between the
+            // outer and inner TopN must still block expressions.
+            Set<ExprId> newBlocked = new HashSet<>(blockedExprIds);
+            newBlocked.addAll(buildOrderKeyExprIds(inner));
+            collectFromNode((Plan) inner.child(0), info, newBlocked);
+            return;
+        }
+
+        // Stop at boundary nodes that transform the schema or are data sources.
+        if (node instanceof LogicalRelation || node instanceof LogicalCTEProducer
+                || isBlockingNode(node)) {
+            return;
+        }
+
+        // For set operators, walk into each child.
+        // blockedExprIds must be mapped from the set operator's output ExprIds
+        // to each child's output ExprIds via regularChildrenOutputs.
+        //
+        // Union ALL is transparent: it only concatenates rows and does not
+        // access individual columns, so its outputs are not blocked.
+        // Union DISTINCT, Except and Intersect need to compare/deduplicate rows,
+        // so they consume all output columns and their outputs are blocked.
+        if (node instanceof LogicalSetOperation) {
+            LogicalSetOperation setOp = (LogicalSetOperation) node;
+            Set<ExprId> newBlocked = new HashSet<>(blockedExprIds);
+            if (shouldBlockSetOpOutputs(setOp)) {
+                for (NamedExpression output : setOp.getOutputs()) {
+                    newBlocked.add(output.getExprId());
+                }
             }
-            // Walk through inner TopN with a fresh path context: each TopN
-            // has its own set of "used" expressions (its order keys, plus
-            // downstream operators).
-            return walkAndCollect((Plan) inner.child(0), topN, info, collectedOutputExprIds,
-                    new HashSet<>(), context);
+            for (int childIdx = 0; childIdx < node.children().size(); childIdx++) {
+                Set<ExprId> childBlocked = mapBlockedExprIdsForSetOpChild(setOp, childIdx, newBlocked);
+                collectFromNode(node.child(childIdx), info, childBlocked);
+            }
+            return;
         }
 
-        // Stop at data-transform operators and CTE boundaries.
-        if (node instanceof LogicalCTEProducer || node instanceof LogicalRelation
-                || isAggOrWindow(node)) {
-            return false;
-        }
-
-        // Accumulate ExprIds from this operator's expressions (predicates,
-        // keys, conditions, etc.) into the path. Any expression whose output
-        // is used by this operator cannot be pulled past it.
+        // For all other nodes, add their input slot ExprIds to the blocked set.
+        // Any operator that references a slot in its expressions prevents
+        // expressions that output that slot from being pulled up past it.
+        Set<ExprId> newBlocked = new HashSet<>(blockedExprIds);
         for (Expression expr : node.getExpressions()) {
-            pathUsedExprIds.addAll(expr.getInputSlotExprIds());
+            newBlocked.addAll(expr.getInputSlotExprIds());
             if (expr instanceof NamedExpression) {
-                pathUsedExprIds.add(((NamedExpression) expr).getExprId());
+                newBlocked.add(((NamedExpression) expr).getExprId());
             }
         }
 
-        // Walk into children.
         for (Plan child : node.children()) {
-            boolean blocked = walkAndCollect((Plan) child, topN, info, collectedOutputExprIds,
-                    pathUsedExprIds, context);
-            if (blocked) {
-                return true;
-            }
+            collectFromNode(child, info, newBlocked);
         }
-        return false;
-    }
-
-    private static boolean isScanNode(Plan node) {
-        return node instanceof LogicalRelation;
-    }
-
-    /**
-     * Check whether any expression of an intermediate operator references
-     * the output slots of already-collected pull-up expressions.
-     */
-    private static void removePulledUpExprsByOutput(PullUpInfo info, Set<ExprId> toRemove,
-            Set<ExprId> collectedOutputExprIds) {
-        Set<ExprId> removed = new HashSet<>();
-        List<NamedExpression> remaining = new ArrayList<>();
-        for (NamedExpression ne : info.allPulledUpExprs) {
-            if (toRemove.contains(ne.getExprId())) {
-                removed.add(ne.getExprId());
-            } else {
-                remaining.add(ne);
-            }
-        }
-        info.allPulledUpExprs.clear();
-        info.allPulledUpExprs.addAll(remaining);
-        info.projectToPulledUpExprs.values().forEach(
-                list -> list.removeIf(e -> toRemove.contains(e.getExprId())));
-        info.projectToPulledUpExprs.entrySet().removeIf(
-                e -> e.getValue().isEmpty());
-        removed.forEach(info.baseSlotsByExpr::remove);
-        collectedOutputExprIds.removeAll(toRemove);
     }
 
     // =========================================================================
@@ -275,7 +268,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
 
     /**
      * Check if a named expression can be pulled up above TopN.
-     * Eligible: Alias with non-trivial child, not in order keys, no NoneMovableFunction.
+     * Eligible: Alias with non-trivial child, not blocked, no NoneMovableFunction.
      */
     static boolean canPullUp(NamedExpression ne) {
         if (!(ne instanceof Alias)) {
@@ -291,21 +284,107 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         return true;
     }
 
-    private static boolean isAggOrWindow(Plan node) {
-        return node instanceof org.apache.doris.nereids.trees.plans.logical.LogicalAggregate
-                || node instanceof org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+    private static boolean isBlockingNode(Plan node) {
+        return node instanceof LogicalAggregate
+                || node instanceof LogicalWindow
+                || node instanceof LogicalRepeat;
     }
 
-    private static Set<ExprId> buildOrderKeyExprIds(LogicalTopN topN) {
+    /**
+     * Determine whether a set operator's outputs should be treated as blocked.
+     *
+     * <p>Union ALL is transparent (just concatenates rows).
+     * Union DISTINCT, Except and Intersect consume all output columns
+     * for deduplication/comparison, so their outputs are blocked.
+     */
+    private static boolean shouldBlockSetOpOutputs(LogicalSetOperation setOp) {
+        if (setOp instanceof LogicalUnion) {
+            return setOp.getQualifier() == org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier.DISTINCT;
+        }
+        // Except and Intersect always block.
+        return setOp instanceof LogicalExcept || setOp instanceof LogicalIntersect;
+    }
+
+    private static Set<ExprId> buildOrderKeyExprIds(LogicalTopN<?> topN) {
         Set<ExprId> orderKeyExprIds = new HashSet<>();
-        for (Object obj : topN.getOrderKeys()) {
-            Expression keyExpr = ((OrderKey) obj).getExpr();
+        for (OrderKey orderKey : topN.getOrderKeys()) {
+            Expression keyExpr = orderKey.getExpr();
             orderKeyExprIds.addAll(keyExpr.getInputSlotExprIds());
             if (keyExpr instanceof NamedExpression) {
                 orderKeyExprIds.add(((NamedExpression) keyExpr).getExprId());
             }
         }
         return orderKeyExprIds;
+    }
+
+    /**
+     * Map blocked ExprIds from a set operator's output scope to a specific child's output scope.
+     *
+     * <p>Set operators project each child's outputs (regularChildrenOutputs[i]) into the set
+     * operator's outputs by position. An ExprId that is blocked at the set operator level
+     * corresponds to the same-position child output ExprId when we walk into that child.
+     */
+    private static Set<ExprId> mapBlockedExprIdsForSetOpChild(
+            LogicalSetOperation setOp, int childIdx, Set<ExprId> blockedExprIds) {
+        Set<ExprId> childBlocked = new HashSet<>();
+        List<org.apache.doris.nereids.trees.expressions.SlotReference> childOutputs
+                = setOp.getRegularChildOutput(childIdx);
+        List<NamedExpression> setOutputs = setOp.getOutputs();
+
+        // Map by position: set operator output j corresponds to child output j.
+        for (int i = 0; i < setOutputs.size() && i < childOutputs.size(); i++) {
+            if (blockedExprIds.contains(setOutputs.get(i).getExprId())) {
+                childBlocked.add(childOutputs.get(i).getExprId());
+            }
+        }
+
+        // Also preserve any child output ExprIds that happen to already be in the blocked set.
+        for (org.apache.doris.nereids.trees.expressions.SlotReference childOutput : childOutputs) {
+            if (blockedExprIds.contains(childOutput.getExprId())) {
+                childBlocked.add(childOutput.getExprId());
+            }
+        }
+
+        return childBlocked;
+    }
+
+    /**
+     * Deduplicate pull-up expressions so that each expression in a Project is only
+     * pulled up to the outermost TopN that collects it.
+     *
+     * <p>Since {@link CollectorContext#topNToPullUpInfo} is a {@link LinkedHashMap}
+     * and the Collector visits the plan top-down, iteration order is outer-to-inner.
+     * We keep the first occurrence of each (project-reference, exprId) pair and
+     * remove duplicates from inner TopNs.
+     */
+    private static void deduplicatePullUps(CollectorContext context) {
+        // Use IdentityHashMap because we need to distinguish Project nodes by object
+        // reference, not by content equality.
+        Map<LogicalProject<? extends Plan>, Set<ExprId>> handled = new IdentityHashMap<>();
+
+        for (PullUpInfo info : context.topNToPullUpInfo.values()) {
+            List<NamedExpression> toRemove = new ArrayList<>();
+            for (Map.Entry<LogicalProject<? extends Plan>, List<NamedExpression>> entry
+                    : info.projectToPulledUpExprs.entrySet()) {
+                LogicalProject<? extends Plan> project = entry.getKey();
+                Set<ExprId> projectHandled = handled.computeIfAbsent(project, k -> new HashSet<>());
+                for (NamedExpression expr : entry.getValue()) {
+                    if (projectHandled.contains(expr.getExprId())) {
+                        toRemove.add(expr);
+                    } else {
+                        projectHandled.add(expr.getExprId());
+                    }
+                }
+            }
+            for (NamedExpression expr : toRemove) {
+                info.allPulledUpExprs.remove(expr);
+                for (List<NamedExpression> list : info.projectToPulledUpExprs.values()) {
+                    list.removeIf(e -> e == expr);
+                }
+                info.projectToPulledUpExprs.entrySet().removeIf(e -> e.getValue().isEmpty());
+                info.baseSlotsByExpr.remove(expr.getExprId());
+            }
+        }
     }
 
     // =========================================================================
@@ -331,11 +410,11 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         @Override
         public Plan visitLogicalTopN(LogicalTopN topN, CollectorContext context) {
             LogicalTopN rewritten = (LogicalTopN) visit(topN, context);
-            if (!context.hasPullUpInfo(rewritten)) {
-                return rewritten;
-            }
             PullUpInfo info = context.getPullUpInfo(rewritten);
-            if (info.allPulledUpExprs.isEmpty()) {
+            if (info == null && rewritten != topN) {
+                info = context.getPullUpInfo(topN);
+            }
+            if (info == null || info.allPulledUpExprs.isEmpty()) {
                 return rewritten;
             }
             return addUpperProject(rewritten, info);
