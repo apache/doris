@@ -156,6 +156,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         }
         validatePositiveIntIfPresent(properties, DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE);
         validatePositiveIntIfPresent(properties, DataSourceConfigKeys.SNAPSHOT_PARALLELISM);
+        validateBooleanIfPresent(properties, DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL);
         // TVF entrypoint shares server_id checks with the from-to path's validateSource.
         try {
             DataSourceConfigValidator.validateServerIdConfig(properties);
@@ -182,6 +183,17 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
             return;
         }
         if (!DataSourceConfigValidator.isValidPgIdentifier(value)) {
+            throw new AnalysisException("Invalid value for key '" + key + "': " + value);
+        }
+    }
+
+    private static void validateBooleanIfPresent(Map<String, String> properties, String key)
+            throws AnalysisException {
+        String value = properties.get(key);
+        if (value == null) {
+            return;
+        }
+        if (!DataSourceConfigValidator.isValidBoolean(value)) {
             throw new AnalysisException("Invalid value for key '" + key + "': " + value);
         }
     }

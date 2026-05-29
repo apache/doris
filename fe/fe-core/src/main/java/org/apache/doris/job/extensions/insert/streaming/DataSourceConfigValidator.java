@@ -50,6 +50,7 @@ public class DataSourceConfigValidator {
             DataSourceConfigKeys.EXCLUDE_TABLES,
             DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE,
             DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
+            DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL,
             DataSourceConfigKeys.SSL_MODE,
             DataSourceConfigKeys.SSL_ROOTCERT,
             DataSourceConfigKeys.SLOT_NAME,
@@ -208,10 +209,19 @@ public class DataSourceConfigValidator {
                 || key.equals(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
             return isPositiveInt(value);
         }
+        if (key.equals(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL)) {
+            return isValidBoolean(value);
+        }
         if (key.equals(DataSourceConfigKeys.SERVER_ID)) {
             return parseServerIdRange(value) != null;
         }
         return true;
+    }
+
+    // Strict boolean: only "true"/"false" (case-insensitive); Boolean.parseBoolean would
+    // silently coerce typos like "yes" to false.
+    public static boolean isValidBoolean(String value) {
+        return "true".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value);
     }
 
     public static boolean isPositiveInt(String value) {
