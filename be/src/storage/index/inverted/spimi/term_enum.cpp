@@ -63,8 +63,7 @@ std::string WideToUtf8(const std::wstring& wide) {
 // query-path reader's translation unit.
 class Cursor {
 public:
-    Cursor(const uint8_t* data, size_t len, size_t pos = 0)
-            : _data(data), _len(len), _pos(pos) {}
+    Cursor(const uint8_t* data, size_t len, size_t pos = 0) : _data(data), _len(len), _pos(pos) {}
 
     uint8_t ReadByte() {
         if (_pos >= _len) [[unlikely]] {
@@ -213,8 +212,8 @@ bool TermEnum::Next() {
     // Front-coded term: prefix_len, suffix_len, suffix bytes, field_number.
     const int32_t prefix_len = cur.ReadVInt();
     const int32_t suffix_len = cur.ReadVInt();
-    if (prefix_len < 0 || suffix_len < 0 ||
-        static_cast<size_t>(prefix_len) > _last_term.size()) [[unlikely]] {
+    if (prefix_len < 0 || suffix_len < 0 || static_cast<size_t>(prefix_len) > _last_term.size())
+            [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: malformed prefix/suffix length");
     }
 

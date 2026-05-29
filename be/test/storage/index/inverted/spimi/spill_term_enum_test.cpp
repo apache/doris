@@ -108,7 +108,7 @@ TEST(TermEnumTest, MultipleTermsInSortedOrder) {
 TEST(TermEnumTest, PrefixDecodingSharesCommonPrefix) {
     SpimiPostingBuffer buffer;
     buffer.Append("apple", 0, 0);
-    buffer.Append("apply", 1, 0); // shares "appl" with "apple"
+    buffer.Append("apply", 1, 0);       // shares "appl" with "apple"
     buffer.Append("application", 2, 0); // shares "appl" with "apply"
     auto tis = EmitTis(buffer);
 

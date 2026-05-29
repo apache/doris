@@ -69,11 +69,10 @@ int64_t SpillManager::FlushBuffer(SpimiPostingBuffer& buffer, int32_t doc_count)
     // V4 spill segments always use omit_norms=true (scoring not
     // supported in V4) and index_version V1 (matching the finish()
     // path in inverted_index_writer.cpp).
-    seg.term_count = SpimiFulltextWriter::EmitSegment(
-            buffer, sink, seg.segment_name, _field_name, doc_count,
-            FieldInfosWriter::kIndexVersionV1,
-            /*omit_term_freq_and_positions=*/false,
-            /*omit_norms=*/true);
+    seg.term_count = SpimiFulltextWriter::EmitSegment(buffer, sink, seg.segment_name, _field_name,
+                                                      doc_count, FieldInfosWriter::kIndexVersionV1,
+                                                      /*omit_term_freq_and_positions=*/false,
+                                                      /*omit_norms=*/true);
 
     // Move the byte vectors into the spill segment.
     seg.tis_bytes = std::move(m_tis.mutable_bytes());

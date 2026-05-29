@@ -22,7 +22,6 @@
 #include <string>
 
 #include "gtest/gtest_prod.h"
-
 #include "storage/index/inverted/spimi/fulltext_writer.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/spill_manager.h"
@@ -69,6 +68,7 @@ struct SpimiFinishConfig {
 class SpimiIndexWriter {
     FRIEND_TEST(SpimiIndexWriterTest, GetFileNamesV4);
     FRIEND_TEST(SpimiIndexWriterTest, GetFileNamesShadow);
+
 public:
     explicit SpimiIndexWriter(std::string field_name);
 

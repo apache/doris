@@ -76,8 +76,8 @@ public:
 
 private:
     const std::vector<uint8_t>& _tis_bytes;
-    size_t _pos = 0;            // current byte offset past header
-    size_t _data_end = 0;       // byte offset of the footer (== size - 8)
+    size_t _pos = 0;      // current byte offset past header
+    size_t _data_end = 0; // byte offset of the footer (== size - 8)
     int32_t _index_interval = 0;
     int32_t _skip_interval = 0;
     int64_t _total_entries = 0; // from footer

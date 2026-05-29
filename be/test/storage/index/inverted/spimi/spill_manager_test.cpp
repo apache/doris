@@ -107,8 +107,8 @@ TEST(SpillManagerTest, TotalSpillBytesAccountsForAllStreams) {
     const size_t total = mgr.TotalSpillBytes();
     const auto& s = mgr.Spills()[0];
     const size_t expected = s.tis_bytes.size() + s.tii_bytes.size() + s.frq_bytes.size() +
-                            s.prx_bytes.size() + s.fnm_bytes.size() +
-                            s.segments_n_bytes.size() + s.segments_gen_bytes.size();
+                            s.prx_bytes.size() + s.fnm_bytes.size() + s.segments_n_bytes.size() +
+                            s.segments_gen_bytes.size();
     EXPECT_EQ(total, expected);
 }
 
@@ -162,8 +162,7 @@ TEST(SpillManagerTest, FlushResetsFlushNeededLatch) {
 // Helper: fill buffer with enough records to activate compact mode.
 // Uses sequential doc_ids (matching Doris's monotonic guarantee)
 // so _compact_streams_sorted stays true and the fast path is used.
-static void FillBufferForCompact(SpimiPostingBuffer& buffer,
-                                 const std::vector<std::string>& vocab,
+static void FillBufferForCompact(SpimiPostingBuffer& buffer, const std::vector<std::string>& vocab,
                                  int64_t num_records) {
     uint32_t doc_id = 0;
     uint32_t pos = 0;

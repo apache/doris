@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/spimi/posting_decoder.h"
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -24,6 +22,7 @@
 
 #include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
+#include "storage/index/inverted/spimi/posting_decoder.h"
 #include "storage/index/inverted/spimi/term_dict_writer.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
@@ -39,7 +38,8 @@ struct EncodedTerm {
 };
 
 // Encode a single term with positions using the default (VInt) code mode.
-EncodedTerm EncodeOneTermWithProx(const std::vector<std::pair<int32_t, std::vector<int32_t>>>& docs) {
+EncodedTerm EncodeOneTermWithProx(
+        const std::vector<std::pair<int32_t, std::vector<int32_t>>>& docs) {
     MemoryByteOutput frq_out, prx_out;
     FreqProxEncoder enc(&frq_out, &prx_out);
     const auto df = static_cast<int32_t>(docs.size());
@@ -58,8 +58,7 @@ EncodedTerm EncodeOneTermWithProx(const std::vector<std::pair<int32_t, std::vect
 // Encode a single term without positions (omit_term_freq_and_positions).
 EncodedTerm EncodeOneTermNoProx(const std::vector<int32_t>& doc_ids) {
     MemoryByteOutput frq_out, prx_out;
-    FreqProxEncoder enc(&frq_out, &prx_out,
-                        TermDictWriter::kDefaultSkipInterval,
+    FreqProxEncoder enc(&frq_out, &prx_out, TermDictWriter::kDefaultSkipInterval,
                         TermDictWriter::kMaxSkipLevels,
                         /*omit_term_freq_and_positions=*/true);
     const auto df = static_cast<int32_t>(doc_ids.size());
@@ -76,10 +75,9 @@ EncodedTerm EncodeOneTermNoProx(const std::vector<int32_t>& doc_ids) {
 
 TEST(PostingDecoderTest, DefaultModeSingleDocOnePosition) {
     auto encoded = EncodeOneTermWithProx({{0, {5}}});
-    auto docs = PostingDecoder::Decode(
-            encoded.frq_bytes.data(), encoded.frq_bytes.size(),
-            encoded.prx_bytes.data(), encoded.prx_bytes.size(),
-            /*doc_freq=*/1, /*has_prox=*/true);
+    auto docs = PostingDecoder::Decode(encoded.frq_bytes.data(), encoded.frq_bytes.size(),
+                                       encoded.prx_bytes.data(), encoded.prx_bytes.size(),
+                                       /*doc_freq=*/1, /*has_prox=*/true);
 
     ASSERT_EQ(docs.size(), 1U);
     EXPECT_EQ(docs[0].doc_id, 0);
@@ -90,10 +88,9 @@ TEST(PostingDecoderTest, DefaultModeSingleDocOnePosition) {
 
 TEST(PostingDecoderTest, DefaultModeMultiDoc) {
     auto encoded = EncodeOneTermWithProx({{2, {0}}, {7, {3}}, {15, {1, 4}}});
-    auto docs = PostingDecoder::Decode(
-            encoded.frq_bytes.data(), encoded.frq_bytes.size(),
-            encoded.prx_bytes.data(), encoded.prx_bytes.size(),
-            /*doc_freq=*/3, /*has_prox=*/true);
+    auto docs = PostingDecoder::Decode(encoded.frq_bytes.data(), encoded.frq_bytes.size(),
+                                       encoded.prx_bytes.data(), encoded.prx_bytes.size(),
+                                       /*doc_freq=*/3, /*has_prox=*/true);
 
     ASSERT_EQ(docs.size(), 3U);
     EXPECT_EQ(docs[0].doc_id, 2);
@@ -116,10 +113,9 @@ TEST(PostingDecoderTest, DefaultModeMultiDoc) {
 TEST(PostingDecoderTest, DefaultModeHighFreqDoc) {
     // One doc with freq=3 at positions 0, 4, 9.
     auto encoded = EncodeOneTermWithProx({{5, {0, 4, 9}}});
-    auto docs = PostingDecoder::Decode(
-            encoded.frq_bytes.data(), encoded.frq_bytes.size(),
-            encoded.prx_bytes.data(), encoded.prx_bytes.size(),
-            /*doc_freq=*/1, /*has_prox=*/true);
+    auto docs = PostingDecoder::Decode(encoded.frq_bytes.data(), encoded.frq_bytes.size(),
+                                       encoded.prx_bytes.data(), encoded.prx_bytes.size(),
+                                       /*doc_freq=*/1, /*has_prox=*/true);
 
     ASSERT_EQ(docs.size(), 1U);
     EXPECT_EQ(docs[0].doc_id, 5);
@@ -132,10 +128,9 @@ TEST(PostingDecoderTest, DefaultModeHighFreqDoc) {
 
 TEST(PostingDecoderTest, NoProxModeDecodesDocIdsOnly) {
     auto encoded = EncodeOneTermNoProx({0, 3, 10});
-    auto docs = PostingDecoder::Decode(
-            encoded.frq_bytes.data(), encoded.frq_bytes.size(),
-            nullptr, 0,
-            /*doc_freq=*/3, /*has_prox=*/false);
+    auto docs =
+            PostingDecoder::Decode(encoded.frq_bytes.data(), encoded.frq_bytes.size(), nullptr, 0,
+                                   /*doc_freq=*/3, /*has_prox=*/false);
 
     ASSERT_EQ(docs.size(), 3U);
     EXPECT_EQ(docs[0].doc_id, 0);
@@ -149,10 +144,9 @@ TEST(PostingDecoderTest, NoProxModeDecodesDocIdsOnly) {
 TEST(PostingDecoderTest, MultiPositionDocPositionDeltaResetsPerDoc) {
     // Two docs with positions; position deltas reset to 0 at each new doc.
     auto encoded = EncodeOneTermWithProx({{1, {0, 2, 5}}, {4, {1, 3}}});
-    auto docs = PostingDecoder::Decode(
-            encoded.frq_bytes.data(), encoded.frq_bytes.size(),
-            encoded.prx_bytes.data(), encoded.prx_bytes.size(),
-            /*doc_freq=*/2, /*has_prox=*/true);
+    auto docs = PostingDecoder::Decode(encoded.frq_bytes.data(), encoded.frq_bytes.size(),
+                                       encoded.prx_bytes.data(), encoded.prx_bytes.size(),
+                                       /*doc_freq=*/2, /*has_prox=*/true);
 
     ASSERT_EQ(docs.size(), 2U);
 
@@ -199,10 +193,9 @@ TEST(PostingDecoderTest, UnknownCodeModeThrows) {
 TEST(PostingDecoderTest, LargeDocIdDelta) {
     // Two docs with a large gap to test VInt delta encoding.
     auto encoded = EncodeOneTermWithProx({{0, {0}}, {10000, {5}}});
-    auto docs = PostingDecoder::Decode(
-            encoded.frq_bytes.data(), encoded.frq_bytes.size(),
-            encoded.prx_bytes.data(), encoded.prx_bytes.size(),
-            /*doc_freq=*/2, /*has_prox=*/true);
+    auto docs = PostingDecoder::Decode(encoded.frq_bytes.data(), encoded.frq_bytes.size(),
+                                       encoded.prx_bytes.data(), encoded.prx_bytes.size(),
+                                       /*doc_freq=*/2, /*has_prox=*/true);
 
     ASSERT_EQ(docs.size(), 2U);
     EXPECT_EQ(docs[0].doc_id, 0);
@@ -214,10 +207,9 @@ TEST(PostingDecoderTest, LargeDocIdDelta) {
 TEST(PostingDecoderTest, SingleDocNoPositions) {
     // Single doc, freq=1, no positions.
     auto encoded = EncodeOneTermNoProx({42});
-    auto docs = PostingDecoder::Decode(
-            encoded.frq_bytes.data(), encoded.frq_bytes.size(),
-            nullptr, 0,
-            /*doc_freq=*/1, /*has_prox=*/false);
+    auto docs =
+            PostingDecoder::Decode(encoded.frq_bytes.data(), encoded.frq_bytes.size(), nullptr, 0,
+                                   /*doc_freq=*/1, /*has_prox=*/false);
 
     ASSERT_EQ(docs.size(), 1U);
     EXPECT_EQ(docs[0].doc_id, 42);

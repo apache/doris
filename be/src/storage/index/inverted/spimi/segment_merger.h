@@ -70,8 +70,7 @@ public:
     // Returns the number of distinct terms in the merged segment.
     static int64_t Merge(const std::vector<Input>& inputs, const SpimiSegmentSink& sink,
                          const std::string& segment_name, const std::string& field_name,
-                         int32_t total_doc_count,
-                         int32_t index_version,
+                         int32_t total_doc_count, int32_t index_version,
                          bool omit_term_freq_and_positions, bool omit_norms);
 };
 

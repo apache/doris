@@ -110,8 +110,7 @@ TEST(SpimiIndexWriterTest, MemoryUsageIncreasesAfterSpill) {
     EXPECT_GT(after, 0);
     // The buffer still has base overhead after reset, so MemoryUsage >=
     // the spill manager's bytes.
-    EXPECT_GE(static_cast<size_t>(after),
-              writer.spill_manager()->TotalSpillBytes());
+    EXPECT_GE(static_cast<size_t>(after), writer.spill_manager()->TotalSpillBytes());
 }
 
 // --- Cleanup ---

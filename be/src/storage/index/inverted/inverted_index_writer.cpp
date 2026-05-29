@@ -546,8 +546,8 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
                             // defensive guard.
                             if (term_len > 0) {
                                 _spimi_writer->AppendToken(std::string_view(term_buf, term_len),
-                                                      static_cast<uint32_t>(_rid),
-                                                      static_cast<uint32_t>(pos));
+                                                           static_cast<uint32_t>(_rid),
+                                                           static_cast<uint32_t>(pos));
                                 // Mid-row saturation check. The buffer's
                                 // `Append` is silently no-op once
                                 // saturated; without polling here the
@@ -568,7 +568,7 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
                         // value at position 0 — same semantics CLucene's
                         // setValue(char*, len) produces.
                         _spimi_writer->AppendToken(std::string_view(v->get_data(), v->get_size()),
-                                              static_cast<uint32_t>(_rid), 0);
+                                                   static_cast<uint32_t>(_rid), 0);
                     }
                     // Poll saturation after each row's worth of Appends.
                     // The buffer's `Append` is void / silent on
@@ -636,7 +636,7 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
                     // append the whole value at position 0 here.
                     if (!_should_analyzer) {
                         _spimi_writer->AppendToken(std::string_view(v->get_data(), v->get_size()),
-                                              static_cast<uint32_t>(_rid), 0);
+                                                   static_cast<uint32_t>(_rid), 0);
                     }
                     if (static_cast<int32_t>(_rid) + 1 > _spimi_doc_count) {
                         _spimi_doc_count = static_cast<int32_t>(_rid) + 1;
@@ -923,7 +923,8 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
                             !(get_parser_phrase_support_string_from_properties(
                                       _index_meta->properties()) ==
                               INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
-                    spimi_config.field_name_utf8 = std::string(_field_name.begin(), _field_name.end());
+                    spimi_config.field_name_utf8 =
+                            std::string(_field_name.begin(), _field_name.end());
                     spimi_config.doc_count = _spimi_doc_count;
                     _spimi_writer->Finish(_dir.get(), spimi_config);
                 }

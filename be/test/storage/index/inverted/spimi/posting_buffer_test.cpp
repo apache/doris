@@ -591,8 +591,7 @@ TEST(SpimiPostingBufferTest, RecordCountReturnsTotalOccurrencesInCompactMode) {
                    static_cast<uint32_t>(i % 10));
     }
     // Compact mode should have activated: _records cleared but data persists.
-    EXPECT_TRUE(buf.records().empty())
-            << "MaybeCompact should have cleared _records vector";
+    EXPECT_TRUE(buf.records().empty()) << "MaybeCompact should have cleared _records vector";
     EXPECT_EQ(buf.RecordCount(), static_cast<size_t>(kRecords))
             << "RecordCount() must return _total_occurrences in compact mode";
 }
@@ -604,8 +603,7 @@ TEST(SpimiPostingBufferTest, CompactModeActivatesAtExactThreshold) {
     for (uint32_t i = 0; i < 512; ++i) {
         buf.Append("term", i / 10, i % 10);
     }
-    EXPECT_TRUE(buf.records().empty())
-            << "MaybeCompact should activate at kCompactCheckEvery=512";
+    EXPECT_TRUE(buf.records().empty()) << "MaybeCompact should activate at kCompactCheckEvery=512";
     EXPECT_EQ(buf.RecordCount(), 512U);
 }
 

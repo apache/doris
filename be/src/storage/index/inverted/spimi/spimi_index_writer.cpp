@@ -32,15 +32,15 @@ namespace doris::segment_v2::inverted_index::spimi {
 // "_spimi_0.*" to avoid clashing with the CLucene-emitted segment.
 SpimiIndexWriter::FileNames SpimiIndexWriter::GetFileNames(bool is_v4) {
     if (is_v4) {
-        return {"_0.tis", "_0.tii", "_0.frq", "_0.prx",
+        return {"_0.tis", "_0.tii", "_0.frq",     "_0.prx",
                 "_0.fnm", "_0.nrm", "segments_1", "segments.gen"};
     }
-    return {"_spimi_0.tis", "_spimi_0.tii", "_spimi_0.frq", "_spimi_0.prx",
+    return {"_spimi_0.tis", "_spimi_0.tii", "_spimi_0.frq",     "_spimi_0.prx",
             "_spimi_0.fnm", "_spimi_0.nrm", "segments_spimi_1", "segments_spimi.gen"};
 }
 
 SpimiIndexWriter::OutputStreams SpimiIndexWriter::CreateOutputStreams(DorisFSDirectory* dir,
-                                                                       const FileNames& names) {
+                                                                      const FileNames& names) {
     OutputStreams s;
     s.tis.reset(dir->createOutput(names.tis));
     s.tii.reset(dir->createOutput(names.tii));
@@ -92,7 +92,7 @@ void SpimiIndexWriter::Cleanup() {
 }
 
 EmittedSegmentByteCounts SpimiIndexWriter::EmitDirect(const OutputStreams& streams,
-                                                       const SpimiFinishConfig& config) {
+                                                      const SpimiFinishConfig& config) {
     IndexOutputByteOutput tis_bo(streams.tis.get());
     IndexOutputByteOutput tii_bo(streams.tii.get());
     IndexOutputByteOutput frq_bo(streams.frq.get());
@@ -114,16 +114,13 @@ EmittedSegmentByteCounts SpimiIndexWriter::EmitDirect(const OutputStreams& strea
 
     const bool omit_norms = config.is_v4;
     EmittedSegmentByteCounts byte_counts;
-    SpimiFulltextWriter::EmitSegment(*_buffer, sink, /*segment_name=*/"_0",
-                                     config.field_name_utf8, config.doc_count,
-                                     FieldInfosWriter::kIndexVersionV0,
-                                     config.omit_term_freq_and_positions, omit_norms,
-                                     &byte_counts);
+    SpimiFulltextWriter::EmitSegment(*_buffer, sink, /*segment_name=*/"_0", config.field_name_utf8,
+                                     config.doc_count, FieldInfosWriter::kIndexVersionV0,
+                                     config.omit_term_freq_and_positions, omit_norms, &byte_counts);
     return byte_counts;
 }
 
-void SpimiIndexWriter::EmitMerged(const OutputStreams& streams,
-                                   const SpimiFinishConfig& config) {
+void SpimiIndexWriter::EmitMerged(const OutputStreams& streams, const SpimiFinishConfig& config) {
     // Flush remaining buffer contents as one more spill segment.
     if (_buffer->ShouldFlush() || _buffer->RecordCount() > 0) {
         _spill_manager->FlushBuffer(*_buffer, config.doc_count);
@@ -175,8 +172,7 @@ void SpimiIndexWriter::Finish(DorisFSDirectory* dir, const SpimiFinishConfig& co
     // If the buffer is saturated with zero terms we still need to emit
     // an empty segment so the reader can open it. But if it's truly
     // empty and not saturated there's no data at all.
-    if (_buffer->RecordCount() == 0 && !_buffer->Saturated() &&
-        _spill_manager->SpillCount() == 0) {
+    if (_buffer->RecordCount() == 0 && !_buffer->Saturated() && _spill_manager->SpillCount() == 0) {
         _buffer.reset();
         return;
     }

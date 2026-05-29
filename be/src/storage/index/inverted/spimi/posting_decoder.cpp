@@ -123,8 +123,7 @@ std::vector<uint32_t> DecodePforRun(Cursor& cur, int32_t count) {
 //       vint  position_delta_j   (delta resets to 0 at every new doc)
 //
 // `docs` must already have doc_id and freq populated.
-void DecodePositions(const uint8_t* prx_data, size_t prx_length,
-                     std::vector<DecodedDoc>& docs) {
+void DecodePositions(const uint8_t* prx_data, size_t prx_length, std::vector<DecodedDoc>& docs) {
     if (prx_data == nullptr || prx_length == 0) {
         return;
     }
@@ -143,8 +142,8 @@ void DecodePositions(const uint8_t* prx_data, size_t prx_length,
 } // namespace
 
 std::vector<DecodedDoc> PostingDecoder::Decode(const uint8_t* frq_data, size_t frq_length,
-                                                const uint8_t* prx_data, size_t prx_length,
-                                                int32_t doc_freq, bool has_prox) {
+                                               const uint8_t* prx_data, size_t prx_length,
+                                               int32_t doc_freq, bool has_prox) {
     if (doc_freq <= 0 || frq_length == 0U) [[unlikely]] {
         SPIMI_THROW_CORRUPT("PostingDecoder: bad doc_freq / buffer length");
     }
