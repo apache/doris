@@ -89,7 +89,7 @@ public:
         const size_t result_size = select_vector.num_values() - select_vector.num_filtered();
         size_t data_index = 0;
         uint8_t* data = nullptr;
-        if (auto* fixed_length_column =
+        if (auto fixed_length_column =
                     check_and_get_column<ColumnFixedLengthObject>(*doris_column)) {
             DCHECK_EQ(fixed_length_column->item_size(), _type_length);
             data_index = fixed_length_column->size() * _type_length;

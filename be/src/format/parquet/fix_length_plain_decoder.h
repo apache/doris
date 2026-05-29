@@ -48,7 +48,7 @@ public:
         }
 
         size_t primitive_length = _type_length;
-        if (const auto* fixed_length_column =
+        if (const auto fixed_length_column =
                     check_and_get_column<ColumnFixedLengthObject>(*doris_column)) {
             DCHECK_EQ(fixed_length_column->item_size(), _type_length);
         } else {
