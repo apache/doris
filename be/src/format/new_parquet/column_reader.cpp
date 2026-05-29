@@ -794,8 +794,7 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
         std::vector<NestedScalarBatch> child_batches(scalar_children.size());
         int64_t expected_rows = -1;
         for (size_t child_idx = 0; child_idx < scalar_children.size(); ++child_idx) {
-            RETURN_IF_ERROR(read_nested_scalar_batch(*scalar_children[child_idx], rows,
-                                                     _nullable_definition_level,
+            RETURN_IF_ERROR(read_nested_scalar_batch(*scalar_children[child_idx], rows, 0,
                                                      &child_batches[child_idx]));
             if (expected_rows < 0) {
                 expected_rows = child_batches[child_idx].records_read;
