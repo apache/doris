@@ -32,6 +32,7 @@
 #include "benchmark_string_replace.hpp"
 #include "benchmark_zone_map_index.hpp"
 #include "binary_cast_benchmark.hpp"
+#include "benchmark_spimi_spill.hpp"
 #include "core/block/block.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type.h"

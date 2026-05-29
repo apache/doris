@@ -259,10 +259,22 @@ public:
     // Per-instance limits. Default to the production constants above; tests
     // pass much smaller values so they can exercise saturation boundaries
     // without allocating 2 GiB. Sized so it can be passed by value cheaply.
+    // Soft memory budget for spill-to-disk. When the buffer's resident
+    // bytes cross this threshold, `ShouldFlush()` returns true and the
+    // caller (SpillManager / InvertedIndexColumnWriter) should flush the
+    // buffer to a temporary segment on disk and call Reset() to reclaim
+    // memory. Unlike `Saturated()` (a hard limit that freezes the buffer),
+    // `ShouldFlush()` is advisory: Append() continues to work after the
+    // budget is exceeded, but each additional record increases peak RAM.
+    // Default 256 MiB balances spill frequency against merge cost for
+    // typical OLAP fulltext workloads.
+    static constexpr size_t kDefaultMemoryBudget = size_t {256} << 20;
+
     struct Limits {
         size_t max_term_bytes = kMaxTermBytes;
         size_t max_arena_bytes = kMaxArenaBytes;
         size_t max_record_count = kMaxRecordCount;
+        size_t memory_budget_bytes = kDefaultMemoryBudget;
     };
     static_assert(sizeof(Limits) <= 32, "Limits must stay cheap-by-value");
 
@@ -299,8 +311,24 @@ public:
     // have been (or will be) dropped. Latches; cleared only by Reset().
     bool Saturated() const { return _saturated; }
 
-    // Number of records appended so far.
-    size_t RecordCount() const { return _records.size(); }
+    // True when the buffer's resident memory has crossed the soft budget
+    // (`Limits::memory_budget_bytes`). The caller should flush the buffer
+    // to a spill segment and call Reset() to reclaim memory. Unlike
+    // `Saturated()`, this is non-fatal: Append() keeps working, but peak
+    // RAM grows with each additional record. Latches until
+    // `ResetFlushNeeded()` is called (typically after the flush completes).
+    bool ShouldFlush() const { return _flush_needed; }
+
+    // Clears the `ShouldFlush()` latch. Called by the integration layer
+    // after a successful flush-to-disk so the buffer can signal again on
+    // the next budget crossing.
+    void ResetFlushNeeded() { _flush_needed = false; }
+
+    // Number of records appended so far. In flat mode this is
+    // _records.size(); in compact mode the record vector has been
+    // freed and occurrences live in per-term streams, so we return
+    // _total_occurrences instead.
+    size_t RecordCount() const { return _compact_mode ? _total_occurrences : _records.size(); }
 
     // Number of distinct terms interned so far.
     size_t TermCount() const { return _term_count; }
@@ -672,6 +700,7 @@ private:
     std::vector<uint32_t> _slots;
     size_t _term_count = 0;
     bool _saturated = false;
+    bool _flush_needed = false;
 
     // Compact-mode storage. Empty (and zero-capacity) while
     // `_compact_mode` is false. The map's key (text_ref) is an

@@ -579,4 +579,34 @@ TEST(SpimiPostingBufferTest, MaybeCompactPreservesDistinctTermsAcrossMigration) 
     EXPECT_EQ(buf.records().size(), static_cast<size_t>(kTerms * kOccPerTerm));
 }
 
+TEST(SpimiPostingBufferTest, RecordCountReturnsTotalOccurrencesInCompactMode) {
+    // Core regression: RecordCount() previously returned _records.size()
+    // which is 0 in compact mode (after MaybeCompact clears _records).
+    // The fix makes it return _total_occurrences instead.
+    SpimiPostingBuffer buf;
+    const std::vector<std::string> vocab = {"a", "b", "c", "d", "e"};
+    constexpr int kRecords = 600; // > 512 to trigger compact
+    for (int i = 0; i < kRecords; ++i) {
+        buf.Append(vocab[i % vocab.size()], static_cast<uint32_t>(i / 10),
+                   static_cast<uint32_t>(i % 10));
+    }
+    // Compact mode should have activated: _records cleared but data persists.
+    EXPECT_TRUE(buf.records().empty())
+            << "MaybeCompact should have cleared _records vector";
+    EXPECT_EQ(buf.RecordCount(), static_cast<size_t>(kRecords))
+            << "RecordCount() must return _total_occurrences in compact mode";
+}
+
+TEST(SpimiPostingBufferTest, CompactModeActivatesAtExactThreshold) {
+    // Boundary test: compact mode check fires at exactly 512 records.
+    SpimiPostingBuffer buf;
+    // 512 / 1 term = 512 avg_occ >> kCompactAvgOcc(8)
+    for (uint32_t i = 0; i < 512; ++i) {
+        buf.Append("term", i / 10, i % 10);
+    }
+    EXPECT_TRUE(buf.records().empty())
+            << "MaybeCompact should activate at kCompactCheckEvery=512";
+    EXPECT_EQ(buf.RecordCount(), 512U);
+}
+
 } // namespace doris::segment_v2::inverted_index::spimi

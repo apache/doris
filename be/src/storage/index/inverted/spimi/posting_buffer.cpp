@@ -553,6 +553,12 @@ void SpimiPostingBuffer::Append(std::string_view term, uint32_t doc_id, uint32_t
             term_id = GetOrAssignTermIdCold(text_ref);
         }
         EncodeOccurrenceToStreamInline(term_id, doc_id, position);
+        // Soft memory budget check (same as the flat-mode path below). The
+        // SpimiIndexWriter facade polls FlushNeeded() to spill to disk once
+        // the per-term varint streams cross the configured budget.
+        if (!_flush_needed && MemoryUsage() >= _limits.memory_budget_bytes) {
+            _flush_needed = true;
+        }
         return;
     }
 
@@ -575,6 +581,16 @@ void SpimiPostingBuffer::Append(std::string_view term, uint32_t doc_id, uint32_t
     // vocabulary is small enough, switch to compact mode (one-way).
     if (_records.size() % kCompactCheckEvery == 0) {
         MaybeCompact();
+    }
+
+    // Soft memory budget check. When the buffer's resident bytes cross
+    // the configured budget, latch `_flush_needed` so the caller knows
+    // to spill to disk. Unlike saturation this is non-fatal: subsequent
+    // Appends continue to work, but the caller should flush ASAP to
+    // keep peak RAM bounded. The check is cheap (one MemoryUsage()
+    // call per Append) and only latches once per flush cycle.
+    if (!_flush_needed && MemoryUsage() >= _limits.memory_budget_bytes) {
+        _flush_needed = true;
     }
 }
 
@@ -611,6 +627,7 @@ void SpimiPostingBuffer::Reset() {
     std::fill(_slot_term_ids.begin(), _slot_term_ids.end(), kInvalidTermId);
     _term_count = 0;
     _saturated = false;
+    _flush_needed = false;
     _last_intern_slot = static_cast<size_t>(-1);
     // Compact-mode state: drop per-term streams but don't keep them
     // around — they're heavy and a reused buffer should start over

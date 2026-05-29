@@ -30,16 +30,17 @@
 #include "storage/olap_common.h"
 #include "storage/segment/common.h"
 
-// SPIMI writer types are held only as a unique_ptr member (SpimiPostingBuffer)
-// and a unique_ptr member (TeeTokenStream), and dereferenced only in the .cpp.
-// Forward-declaring them here — instead of #include-ing posting_buffer.h /
-// tee_token_stream.h — keeps those heavy SPIMI headers OUT of this header. This
-// header is pulled in transitively by exec_env.h (→ effectively all of BE), so
-// a posting_buffer.h edit used to recompile ~95 translation units; with the
+// SPIMI write types are held only as unique_ptr members (the SpimiIndexWriter
+// facade and its TeeTokenStream), dereferenced only in the .cpp. Forward-
+// declaring them here — instead of #include-ing spimi_index_writer.h /
+// tee_token_stream.h (both of which transitively pull in the heavy
+// posting_buffer.h) — keeps those SPIMI headers OUT of this header. This header
+// is pulled in transitively by exec_env.h (→ effectively all of BE), so a
+// posting_buffer.h edit used to recompile ~95 translation units; with the
 // forward declarations a posting_buffer.h change only rebuilds the handful of
 // SPIMI .cpp files plus inverted_index_writer.cpp.
 namespace doris::segment_v2::inverted_index::spimi {
-class SpimiPostingBuffer;
+class SpimiIndexWriter;
 class TeeTokenStream;
 } // namespace doris::segment_v2::inverted_index::spimi
 
@@ -93,7 +94,7 @@ public:
     // For tests: returns the resident bytes of the V4 SPIMI posting
     // buffer (arena + intern slots + per-term state + slice pool), or 0 when
     // this writer is on the V1/V2/V3 (CLucene) path. Defined out-of-line in the
-    // .cpp because SpimiPostingBuffer is only forward-declared in this header.
+    // .cpp because SpimiIndexWriter is only forward-declared in this header.
     size_t spimi_buffer_memory_usage() const override;
     void write_null_bitmap(lucene::store::IndexOutput* null_bitmap_out);
     Status finish() override;
@@ -123,26 +124,16 @@ private:
     uint32_t _ignore_above;
     bool _should_analyzer = false;
 
-    // SPIMI shadow-mode accumulator. Populated alongside the CLucene
-    // IndexWriter path when `config::inverted_index_fulltext_spimi` is true
-    // at init_fulltext_index() time. At finish() the buffer is emitted into
-    // a sibling segment (`_spimi_0.tis` / `.tii` / `.frq` / `.prx` / `.fnm`
-    // + `spimi_segments_1` + `spimi_segments.gen`) so the segment can be
-    // compared against CLucene's primary output without disrupting the
-    // existing write path. `nullptr` when the flag is off.
-    std::unique_ptr<segment_v2::inverted_index::spimi::SpimiPostingBuffer> _spimi_buffer = nullptr;
+    // SPIMI write facade. Encapsulates the posting buffer, spill
+    // manager, and segment emission logic. Created in
+    // init_fulltext_index() for V4 (pure SPIMI) or shadow mode.
+    // `nullptr` when SPIMI is not active.
+    std::unique_ptr<segment_v2::inverted_index::spimi::SpimiIndexWriter> _spimi_writer = nullptr;
     // unique_ptr (not by-value) so this header only needs a forward declaration
-    // of TeeTokenStream; lazily constructed in add_values() alongside the field.
+    // of TeeTokenStream; constructed in init_fulltext_index() alongside the
+    // facade. Non-owning over the upstream analyser stream it tees from.
     std::unique_ptr<segment_v2::inverted_index::spimi::TeeTokenStream> _spimi_tee;
     int32_t _spimi_doc_count = 0;
-
-    // V4 storage format = pure SPIMI write path. When true, the
-    // writer does NOT create a CLucene IndexWriter / Document /
-    // Field; tokens flow directly from the analyzer's
-    // reusableTokenStream into `_spimi_buffer`. This is what
-    // delivers the SPIMI project's 50%+ memory savings target —
-    // running CLucene alongside (the legacy shadow mode) doubles
-    // RAM. V4 makes SPIMI standalone.
     bool _is_v4 = false;
 };
 
