@@ -100,8 +100,14 @@ SegmentMerger::Input ToInput(const SpillSegment& seg) {
 struct OwnedSink {
     MemoryByteOutput tis, tii, frq, prx, fnm, nrm, seg_n, seg_gen;
     SpimiSegmentSink AsSink() {
-        return {.tis = &tis, .tii = &tii, .frq = &frq, .prx = &prx,
-                .fnm = &fnm, .nrm = &nrm, .segments_n = &seg_n, .segments_gen = &seg_gen};
+        return {.tis = &tis,
+                .tii = &tii,
+                .frq = &frq,
+                .prx = &prx,
+                .fnm = &fnm,
+                .nrm = &nrm,
+                .segments_n = &seg_n,
+                .segments_gen = &seg_gen};
     }
 };
 
@@ -155,7 +161,13 @@ static void BM_BufferSort(benchmark::State& state) {
     }
     state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * num_records);
 }
-BENCHMARK(BM_BufferSort)->Args({10000, 100})->Args({100000, 100})->Args({500000, 100})->Args({10000, 50000})->Args({100000, 50000})->Args({500000, 50000});
+BENCHMARK(BM_BufferSort)
+        ->Args({10000, 100})
+        ->Args({100000, 100})
+        ->Args({500000, 100})
+        ->Args({10000, 50000})
+        ->Args({100000, 50000})
+        ->Args({500000, 50000});
 
 // ===========================================================================
 // 3. SpillManager FlushBuffer (sort + emit segment)
@@ -176,7 +188,13 @@ static void BM_SpillFlush(benchmark::State& state) {
     }
     state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * num_records);
 }
-BENCHMARK(BM_SpillFlush)->Args({10000, 100})->Args({50000, 100})->Args({100000, 100})->Args({10000, 5000})->Args({50000, 5000})->Args({100000, 5000});
+BENCHMARK(BM_SpillFlush)
+        ->Args({10000, 100})
+        ->Args({50000, 100})
+        ->Args({100000, 100})
+        ->Args({10000, 5000})
+        ->Args({50000, 5000})
+        ->Args({100000, 5000});
 
 // ===========================================================================
 // 4. SegmentMerger k-way merge
@@ -207,13 +225,69 @@ static void BM_SegmentMerge(benchmark::State& state) {
                              FieldInfosWriter::kIndexVersionV1, false, true);
         benchmark::DoNotOptimize(owned);
     }
-    state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * num_segments * records_per_seg);
+    state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * num_segments *
+                            records_per_seg);
 }
 BENCHMARK(BM_SegmentMerge)
-    ->Args({2, 10000, 100})->Args({4, 10000, 100})->Args({8, 10000, 100})->Args({16, 10000, 100})
-    ->Args({2, 50000, 100})->Args({4, 50000, 100})->Args({8, 50000, 100})
-    ->Args({2, 10000, 5000})->Args({4, 10000, 5000})->Args({8, 10000, 5000})
-    ->Args({2, 50000, 5000})->Args({4, 50000, 5000})->Args({8, 50000, 5000});
+        // num_segments==1 exercises the single-input byte-copy fast path.
+        ->Args({1, 10000, 100})
+        ->Args({1, 50000, 100})
+        ->Args({1, 10000, 5000})
+        ->Args({1, 50000, 5000})
+        ->Args({2, 10000, 100})
+        ->Args({4, 10000, 100})
+        ->Args({8, 10000, 100})
+        ->Args({16, 10000, 100})
+        ->Args({2, 50000, 100})
+        ->Args({4, 50000, 100})
+        ->Args({8, 50000, 100})
+        ->Args({2, 10000, 5000})
+        ->Args({4, 10000, 5000})
+        ->Args({8, 10000, 5000})
+        ->Args({2, 50000, 5000})
+        ->Args({4, 50000, 5000})
+        ->Args({8, 50000, 5000});
+
+// Direct A/B for the single-input fast path: byte-copy vs forced
+// decode/re-encode over the SAME one-segment data. range(2)==1 selects
+// omit_norms=true, which routes through MergeSingleInput (byte copy);
+// range(2)==0 selects omit_norms=false, which fails the fast-path guard
+// and forces the general k-way merge path (full decode/re-encode). The
+// posting payload is identical between the two, so the throughput delta
+// isolates the cost the fast path eliminates.
+static void BM_SegmentMergeSingleInput(benchmark::State& state) {
+    const int64_t records = state.range(0);
+    const int64_t vocab_size = state.range(1);
+    const bool fast_path = state.range(2) != 0;
+    auto vocab = MakeVocab(vocab_size);
+
+    for (auto _ : state) {
+        state.PauseTiming();
+        SpillManager mgr("content");
+        SpimiPostingBuffer buffer;
+        FillBuffer(buffer, vocab, records, 1000);
+        mgr.FlushBuffer(buffer, 1000);
+        auto input = ToInput(mgr.Spills().back());
+        OwnedSink owned;
+        state.ResumeTiming();
+        SegmentMerger::Merge({input}, owned.AsSink(), "_merged", "content", 1000,
+                             FieldInfosWriter::kIndexVersionV0,
+                             /*omit_term_freq_and_positions=*/false,
+                             /*omit_norms=*/fast_path);
+        benchmark::DoNotOptimize(owned);
+    }
+    state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * records);
+    state.SetLabel(fast_path ? "fast(byte-copy)" : "slow(re-encode)");
+}
+BENCHMARK(BM_SegmentMergeSingleInput)
+        ->Args({10000, 100, 1})
+        ->Args({10000, 100, 0})
+        ->Args({50000, 100, 1})
+        ->Args({50000, 100, 0})
+        ->Args({10000, 5000, 1})
+        ->Args({10000, 5000, 0})
+        ->Args({50000, 5000, 1})
+        ->Args({50000, 5000, 0});
 
 // ===========================================================================
 // 5. End-to-end: single large buffer vs multiple spills + merge
@@ -238,7 +312,11 @@ static void BM_NoSpill_EmitOnce(benchmark::State& state) {
     }
     state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * total_records);
 }
-BENCHMARK(BM_NoSpill_EmitOnce)->Args({100000, 500})->Args({500000, 500})->Args({100000, 10000})->Args({500000, 10000});
+BENCHMARK(BM_NoSpill_EmitOnce)
+        ->Args({100000, 500})
+        ->Args({500000, 500})
+        ->Args({100000, 10000})
+        ->Args({500000, 10000});
 
 // Spill path: split into N spills, then k-way merge.
 static void BM_WithSpill_MergeN(benchmark::State& state) {
@@ -260,17 +338,25 @@ static void BM_WithSpill_MergeN(benchmark::State& state) {
         }
         OwnedSink owned;
         state.ResumeTiming();
-        SegmentMerger::Merge(inputs, owned.AsSink(), "_merged", "content",
-                             50000, FieldInfosWriter::kIndexVersionV1, false, true);
+        SegmentMerger::Merge(inputs, owned.AsSink(), "_merged", "content", 50000,
+                             FieldInfosWriter::kIndexVersionV1, false, true);
         benchmark::DoNotOptimize(owned);
     }
     state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * total_records);
 }
 BENCHMARK(BM_WithSpill_MergeN)
-    ->Args({100000, 500, 2})->Args({100000, 500, 4})->Args({100000, 500, 8})
-    ->Args({500000, 500, 2})->Args({500000, 500, 4})->Args({500000, 500, 8})
-    ->Args({100000, 10000, 2})->Args({100000, 10000, 4})->Args({100000, 10000, 8})
-    ->Args({500000, 10000, 2})->Args({500000, 10000, 4})->Args({500000, 10000, 8});
+        ->Args({100000, 500, 2})
+        ->Args({100000, 500, 4})
+        ->Args({100000, 500, 8})
+        ->Args({500000, 500, 2})
+        ->Args({500000, 500, 4})
+        ->Args({500000, 500, 8})
+        ->Args({100000, 10000, 2})
+        ->Args({100000, 10000, 4})
+        ->Args({100000, 10000, 8})
+        ->Args({500000, 10000, 2})
+        ->Args({500000, 10000, 4})
+        ->Args({500000, 10000, 8});
 
 // ===========================================================================
 // 6. Memory overhead: measure bytes per record at different cardinalities
@@ -291,8 +377,14 @@ static void BM_BufferMemoryPerRecord(benchmark::State& state) {
     }
 }
 BENCHMARK(BM_BufferMemoryPerRecord)
-    ->Args({10000, 100})->Args({100000, 100})->Args({500000, 100})
-    ->Args({10000, 5000})->Args({100000, 5000})->Args({500000, 5000})
-    ->Args({10000, 50000})->Args({100000, 50000})->Args({500000, 50000});
+        ->Args({10000, 100})
+        ->Args({100000, 100})
+        ->Args({500000, 100})
+        ->Args({10000, 5000})
+        ->Args({100000, 5000})
+        ->Args({500000, 5000})
+        ->Args({10000, 50000})
+        ->Args({100000, 50000})
+        ->Args({500000, 50000});
 
 } // namespace doris::segment_v2::inverted_index::spimi

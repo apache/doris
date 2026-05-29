@@ -34,6 +34,70 @@ namespace doris::segment_v2::inverted_index::spimi {
 
 namespace {
 
+// Single-input fast path: copies posting bytes (.tis/.tii/.frq/.prx)
+// directly from the input to the output without decode/re-encode,
+// then rebuilds metadata (.fnm, segments_N, segments.gen) with the
+// caller's parameters.
+//
+// Safe when the single input's encoding matches the output format:
+//   - doc_offset is 0 (always true for the first/only input)
+//   - omit_term_freq_and_positions is false (spill always has positions)
+//   - omit_norms is true (spill always omits norms)
+// This covers the V4 (pure SPIMI) path.
+int64_t MergeSingleInput(const SegmentMerger::Input& input, const SpimiSegmentSink& sink,
+                         const std::string& segment_name, const std::string& field_name,
+                         int32_t total_doc_count, int32_t index_version,
+                         bool omit_term_freq_and_positions, bool omit_norms) {
+    // The byte-copy is only valid when the single input's on-disk
+    // encoding matches these output flags (positions present, norms
+    // omitted).  The dispatch guard in Merge() enforces this; the
+    // DCHECK makes the coupling crash-loud in debug for any future
+    // caller that bypasses the guard.
+    DCHECK(omit_norms && !omit_term_freq_and_positions);
+
+    // Copy all posting bytes directly — no decode/re-encode cycle.
+    // The single input's doc_offset is 0, so TermInfo pointers in
+    // .tis remain valid and posting data needs no adjustment.
+    sink.tis->WriteBytes(input.tis_bytes.data(), input.tis_bytes.size());
+    sink.tii->WriteBytes(input.tii_bytes.data(), input.tii_bytes.size());
+    sink.frq->WriteBytes(input.frq_bytes.data(), input.frq_bytes.size());
+    sink.prx->WriteBytes(input.prx_bytes.data(), input.prx_bytes.size());
+
+    // Rebuild .fnm with the caller's index_version and field flags.
+    // The spill's .fnm may have used kIndexVersionV1; the final
+    // output may need V0.  Only .fnm needs rewriting because the
+    // index_version tag lives there, not in the posting bytes.
+    {
+        FieldInfoEntry fi;
+        fi.name = field_name;
+        fi.is_indexed = true;
+        fi.has_prox = !omit_term_freq_and_positions;
+        fi.omit_norms = omit_norms;
+        fi.index_version = index_version;
+        fi.flags = 0;
+        FieldInfosWriter(sink.fnm).Write({fi});
+    }
+
+    // Rebuild segments_N and segments.gen with the correct segment
+    // name and total doc count.
+    {
+        SegmentInfoEntry seg;
+        seg.name = segment_name;
+        seg.doc_count = total_doc_count;
+        seg.del_gen = -1;
+        seg.doc_store_offset = -1;
+        seg.has_single_norm_file = true;
+        seg.is_compound_file = -1;
+        SegmentInfosWriter manifest_writer;
+        manifest_writer.WriteSegmentsN(sink.segments_n, /*version=*/1, /*counter=*/1, {seg});
+        manifest_writer.WriteSegmentsGen(sink.segments_gen, /*generation=*/1);
+    }
+
+    // Return the term count from the input's .tis footer.
+    TermEnum tenum(input.tis_bytes);
+    return tenum.TotalEntries();
+}
+
 // One cursor walking a single input segment's TermEnum.
 struct MergeCursor {
     int32_t input_index = 0;
@@ -66,33 +130,36 @@ struct HeapEntry {
 // `prox_end` is the next term's prox_pointer, or prx_bytes.size()
 // for the last term.
 std::pair<const uint8_t*, size_t> PrxRange(const std::vector<uint8_t>& prx_bytes,
-                                            int64_t prox_start, int64_t prox_end) {
+                                           int64_t prox_start, int64_t prox_end) {
     if (prox_start < 0 || prox_start >= static_cast<int64_t>(prx_bytes.size())) {
         return {nullptr, 0};
     }
     if (prox_end <= prox_start) {
         return {nullptr, 0};
     }
-    return {prx_bytes.data() + prox_start,
-            static_cast<size_t>(prox_end - prox_start)};
+    return {prx_bytes.data() + prox_start, static_cast<size_t>(prox_end - prox_start)};
 }
 
 } // namespace
 
 int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmentSink& sink,
-                              const std::string& segment_name, const std::string& field_name,
-                              int32_t total_doc_count, int32_t index_version,
-                              bool omit_term_freq_and_positions, bool omit_norms) {
+                             const std::string& segment_name, const std::string& field_name,
+                             int32_t total_doc_count, int32_t index_version,
+                             bool omit_term_freq_and_positions, bool omit_norms) {
     if (inputs.empty()) {
         return 0;
     }
 
-    // Single-input fast path: just copy the bytes through.  The
-    // caller could have skipped the merge entirely, but going through
-    // this path ensures the .fnm / segments_N are written correctly.
-    // (We don't short-circuit to a byte-copy because the term dict
-    // and posting data may need re-encoding when the segment name /
-    // doc_count differ.)
+    // Single-input fast path: when there is exactly one input and
+    // the output format matches the spill format (has positions,
+    // omits norms — always true for V4), copy posting bytes
+    // directly and rebuild only metadata.  This eliminates the
+    // decode/re-encode cycle for the common case where the buffer
+    // was flushed exactly once before finish.
+    if (inputs.size() == 1 && !omit_term_freq_and_positions && omit_norms) {
+        return MergeSingleInput(inputs[0], sink, segment_name, field_name, total_doc_count,
+                                index_version, omit_term_freq_and_positions, omit_norms);
+    }
 
     // Compute per-input doc_id offsets.
     std::vector<int32_t> doc_offsets(inputs.size(), 0);
@@ -160,9 +227,9 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
             const int64_t prx_end = static_cast<int64_t>(input.prx_bytes.size());
             auto [prx_ptr, prx_len] = PrxRange(input.prx_bytes, prx_start, prx_end);
 
-            auto docs = PostingDecoder::Decode(
-                    input.frq_bytes.data() + frq_start, frq_len, prx_ptr, prx_len,
-                    entry.info.doc_freq, !omit_term_freq_and_positions);
+            auto docs = PostingDecoder::Decode(input.frq_bytes.data() + frq_start, frq_len, prx_ptr,
+                                               prx_len, entry.info.doc_freq,
+                                               !omit_term_freq_and_positions);
 
             // Apply doc_id offset and append.
             for (auto& d : docs) {
@@ -198,10 +265,9 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
         // In practice the offsets guarantee strict ordering so
         // this is a no-op merge of already-sorted runs — but we
         // sort defensively.
-        std::stable_sort(merged_docs.begin(), merged_docs.end(),
-                         [](const DecodedDoc& a, const DecodedDoc& b) {
-                             return a.doc_id < b.doc_id;
-                         });
+        std::stable_sort(
+                merged_docs.begin(), merged_docs.end(),
+                [](const DecodedDoc& a, const DecodedDoc& b) { return a.doc_id < b.doc_id; });
 
         // Deduplicate: if two inputs happen contain the same doc_id
         // (shouldn't happen with correct offsets, but guard anyway),
