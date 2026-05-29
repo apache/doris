@@ -19,7 +19,8 @@
 
 #include <parquet/api/reader.h>
 #include <parquet/api/schema.h>
-#include <parquet/column_reader.h>
+#include <parquet/column_page.h>
+#include <parquet/encoding.h>
 #include <parquet/statistics.h>
 #include <parquet/types.h>
 
@@ -219,28 +220,39 @@ bool read_dictionary_words(::parquet::ParquetFileReader* file_reader, int row_gr
     if (page_reader == nullptr) {
         return false;
     }
-    auto column_reader =
-            ::parquet::ColumnReader::Make(column_schema.descriptor, std::move(page_reader));
-    if (column_reader == nullptr) {
-        return false;
-    }
 
-    int32_t dictionary_length = 0;
-    const void* dictionary = nullptr;
+    std::shared_ptr<::parquet::Page> page;
     try {
-        dictionary = column_reader->ReadDictionary(&dictionary_length);
+        page = page_reader->NextPage();
     } catch (const ::parquet::ParquetException&) {
         return false;
     } catch (const std::exception&) {
         return false;
     }
-    if (dictionary == nullptr || dictionary_length <= 0) {
+    if (page == nullptr || page->type() != ::parquet::PageType::DICTIONARY_PAGE) {
         return false;
     }
+    const auto* dictionary_page = static_cast<const ::parquet::DictionaryPage*>(page.get());
+    if (dictionary_page->encoding() != ::parquet::Encoding::PLAIN &&
+        dictionary_page->encoding() != ::parquet::Encoding::PLAIN_DICTIONARY) {
+        return false;
+    }
+    const int32_t dictionary_length = dictionary_page->num_values();
+    if (dictionary_length <= 0) {
+        return false;
+    }
+    const auto* dictionary_data = dictionary_page->data();
+    const int dictionary_size = dictionary_page->size();
 
     dict_words->values.reserve(static_cast<size_t>(dictionary_length));
     if (column_schema.descriptor->physical_type() == ::parquet::Type::BYTE_ARRAY) {
-        const auto* byte_array_values = reinterpret_cast<const ::parquet::ByteArray*>(dictionary);
+        auto decoder = ::parquet::MakeTypedDecoder<::parquet::ByteArrayType>(
+                ::parquet::Encoding::PLAIN, column_schema.descriptor);
+        decoder->SetData(dictionary_length, dictionary_data, dictionary_size);
+        std::vector<::parquet::ByteArray> byte_array_values(static_cast<size_t>(dictionary_length));
+        if (decoder->Decode(byte_array_values.data(), dictionary_length) != dictionary_length) {
+            return false;
+        }
         for (int32_t dict_idx = 0; dict_idx < dictionary_length; ++dict_idx) {
             dict_words->values.emplace_back(
                     reinterpret_cast<const char*>(byte_array_values[dict_idx].ptr),
@@ -254,7 +266,14 @@ bool read_dictionary_words(::parquet::ParquetFileReader* file_reader, int row_gr
         if (type_length <= 0) {
             return false;
         }
-        const auto* flba_values = reinterpret_cast<const ::parquet::FixedLenByteArray*>(dictionary);
+        auto decoder = ::parquet::MakeTypedDecoder<::parquet::FLBAType>(::parquet::Encoding::PLAIN,
+                                                                        column_schema.descriptor);
+        decoder->SetData(dictionary_length, dictionary_data, dictionary_size);
+        std::vector<::parquet::FixedLenByteArray> flba_values(
+                static_cast<size_t>(dictionary_length));
+        if (decoder->Decode(flba_values.data(), dictionary_length) != dictionary_length) {
+            return false;
+        }
         for (int32_t dict_idx = 0; dict_idx < dictionary_length; ++dict_idx) {
             dict_words->values.emplace_back(
                     reinterpret_cast<const char*>(flba_values[dict_idx].ptr), type_length);
