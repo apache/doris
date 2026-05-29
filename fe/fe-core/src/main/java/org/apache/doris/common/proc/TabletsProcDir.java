@@ -17,8 +17,8 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.DataSizeDisplayUtil;
 import org.apache.doris.catalog.CloudTabletStatMgr;
+import org.apache.doris.catalog.DataSizeDisplayUtil;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
