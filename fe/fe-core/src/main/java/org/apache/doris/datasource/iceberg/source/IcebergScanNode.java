@@ -583,15 +583,22 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
-        if (!IcebergUtils.isManifestCacheEnabled(source.getCatalog())) {
-            return splitFiles(scan);
-        }
+        long startTime = System.currentTimeMillis();
         try {
-            return planFileScanTaskWithManifestCache(scan);
-        } catch (Exception e) {
-            manifestCacheFailures++;
-            LOG.warn("Plan with manifest cache failed, fallback to original scan: " + e.getMessage(), e);
-            return splitFiles(scan);
+            if (!IcebergUtils.isManifestCacheEnabled(source.getCatalog())) {
+                return splitFiles(scan);
+            }
+            try {
+                return planFileScanTaskWithManifestCache(scan);
+            } catch (Exception e) {
+                manifestCacheFailures++;
+                LOG.warn("Plan with manifest cache failed, fallback to original scan: " + e.getMessage(), e);
+                return splitFiles(scan);
+            }
+        } finally {
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
+            }
         }
     }
 

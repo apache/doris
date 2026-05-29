@@ -399,8 +399,6 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     private void getPartitionSplits(HivePartition partition, List<Split> splits) throws IOException {
-        long startTime = System.currentTimeMillis();
-
         String partitionName;
         if (partition.isDummyPartition()) {
             partitionName = "";
@@ -434,15 +432,13 @@ public class HudiScanNode extends HiveScanNode {
                     .forEach(fileSlice -> splits.add(
                             generateHudiSplit(fileSlice, partition.getPartitionValues(), queryInstant)));
         }
-        if (getSummaryProfile() != null) {
-            getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
-        }
     }
 
     private void getPartitionsSplits(List<HivePartition> partitions, List<Split> splits) {
         Executor executor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
         CountDownLatch countDownLatch = new CountDownLatch(partitions.size());
         AtomicReference<Throwable> throwable = new AtomicReference<>();
+        long startTime = System.currentTimeMillis();
         partitions.forEach(partition -> executor.execute(() -> {
             try {
                 getPartitionSplits(partition, splits);
@@ -459,6 +455,9 @@ public class HudiScanNode extends HiveScanNode {
         }
         if (throwable.get() != null) {
             throw new RuntimeException(throwable.get().getMessage(), throwable.get());
+        }
+        if (getSummaryProfile() != null) {
+            getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
         }
     }
 
@@ -505,6 +504,7 @@ public class HudiScanNode extends HiveScanNode {
         }
         AtomicInteger numFinishedPartitions = new AtomicInteger(0);
         ExecutorService scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
+        long startTime = System.currentTimeMillis();
         CompletableFuture.runAsync(() -> {
             for (HivePartition partition : prunedPartitions) {
                 if (batchException.get() != null || splitAssignment.isStop()) {
@@ -534,6 +534,10 @@ public class HudiScanNode extends HiveScanNode {
                             splitAssignment.setException(batchException.get());
                         }
                         if (numFinishedPartitions.incrementAndGet() == prunedPartitions.size()) {
+                            if (getSummaryProfile() != null) {
+                                getSummaryProfile().addExternalTableGetFileScanTasksTime(
+                                        System.currentTimeMillis() - startTime);
+                            }
                             splitAssignment.finishSchedule();
                         }
                     }

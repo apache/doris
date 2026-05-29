@@ -231,6 +231,7 @@ public class HiveScanNode extends FileQueryScanNode {
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
         AtomicInteger numFinishedPartitions = new AtomicInteger(0);
+        long startTime = System.currentTimeMillis();
         CompletableFuture.runAsync(() -> {
             for (HivePartition partition : prunedPartitions) {
                 if (batchException.get() != null || splitAssignment.isStop()) {
@@ -258,6 +259,10 @@ public class HiveScanNode extends FileQueryScanNode {
                                 splitAssignment.setException(batchException.get());
                             }
                             if (numFinishedPartitions.incrementAndGet() == prunedPartitions.size()) {
+                                if (getSummaryProfile() != null) {
+                                    getSummaryProfile().addExternalTableGetPartitionFilesTime(
+                                            System.currentTimeMillis() - startTime);
+                                }
                                 splitAssignment.finishSchedule();
                             }
                         }
@@ -312,7 +317,7 @@ public class HiveScanNode extends FileQueryScanNode {
             fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
                     directoryLister, hmsTable);
         }
-        if (getSummaryProfile() != null) {
+        if (!isBatchMode && getSummaryProfile() != null) {
             getSummaryProfile().addExternalTableGetPartitionFilesTime(System.currentTimeMillis() - startTime);
         }
 
