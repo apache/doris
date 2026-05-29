@@ -1418,11 +1418,6 @@ public class EditLog {
                     // TODO: implement
                     break;
                 }
-                case OperationType.OP_TABLE_META_CHANGE: {
-                    TableMetaChange op = (TableMetaChange) journal.getData();
-                    env.replayTableMetaChange(op);
-                    break;
-                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
@@ -2508,9 +2503,5 @@ public class EditLog {
 
     public long logBeginSnapshot(SnapshotState snapshotState) {
         return logEdit(OperationType.OP_BEGIN_SNAPSHOT, snapshotState);
-    }
-
-    public void logTableMetaChange(TableMetaChange op) {
-        logEdit(OperationType.OP_TABLE_META_CHANGE, op);
     }
 }

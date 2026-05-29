@@ -220,7 +220,6 @@ import org.apache.doris.persist.SetTableStatusOperationLog;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.TableInfo;
-import org.apache.doris.persist.TableMetaChange;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TruncateTableInfo;
@@ -6935,9 +6934,7 @@ public class Env {
                 LOG.warn("ignore set same state {} for table {}. is replay: {}.",
                             olapTable.getState(), tableName, isReplay);
             }
-            if (!isReplay) {
-                notifyTableMetaChange(olapTable);
-            }
+            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
@@ -7045,9 +7042,7 @@ public class Env {
                 LOG.info("set replica {} of tablet {} on backend {} as version {}, last success version {}, "
                         + "last failed version {}, update time {}. is replay: {}", replica.getId(), tabletId,
                         backendId, version, lastSuccessVersion, lastFailedVersion, updateTime, isReplay);
-                if (!isReplay) {
-                    notifyTableMetaChange(table);
-                }
+                Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(table);
             } finally {
                 table.writeUnlock();
             }
@@ -7128,9 +7123,7 @@ public class Env {
                         + " {}.", partitionId, oldVersion, visibleVersion, database, table, isReplay);
             }
 
-            if (!isReplay) {
-                notifyTableMetaChange(olapTable);
-            }
+            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
@@ -7357,35 +7350,6 @@ public class Env {
 
     public NereidsSortedPartitionsCacheManager getSortedPartitionsCacheManager() {
         return sortedPartitionsCacheManager;
-    }
-
-    public void notifyTableMetaChange(TableIf table) {
-        if (table == null) {
-            return;
-        }
-        TableMetaChange change =
-                TableMetaChange.fromTable(table);
-        fanOutTableMetaChange(change);
-        if (isMaster() && editLog != null && Config.enable_write_op_table_meta_change) {
-            editLog.logTableMetaChange(change);
-        }
-    }
-
-    public void replayTableMetaChange(TableMetaChange change) {
-        if (change == null) {
-            return;
-        }
-        fanOutTableMetaChange(change);
-    }
-
-    private void fanOutTableMetaChange(TableMetaChange change) {
-        if (sqlCacheManager != null) {
-            sqlCacheManager.invalidateAboutTable(change);
-        }
-        if (sortedPartitionsCacheManager != null) {
-            sortedPartitionsCacheManager.invalidateTable(
-                    change.getCatalogName(), change.getDbName(), change.getTableName());
-        }
     }
 
     public SplitSourceManager getSplitSourceManager() {
