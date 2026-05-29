@@ -35,10 +35,8 @@ public class DataSizeDisplayUtil {
         long remoteDataSize = partition.getRemoteDataSize();
         if (!needCloudSizeMapping(remoteDataSize)) {
             return Pair.of(localDataSize, remoteDataSize);
-        } else if (localDataSize > 0) {
-            return Pair.of(0L, localDataSize);
         }
-        return getDisplayDataSize(localDataSize, remoteDataSize, getPartitionLocalIndexAndSegmentSize(partition));
+        return getPartitionDisplayDataSize(partition);
     }
 
     private static Pair<Long, Long> getDisplayDataSize(long localDataSize, long remoteDataSize,
@@ -59,16 +57,19 @@ public class DataSizeDisplayUtil {
         return Config.isCloudMode() && remoteDataSize == 0;
     }
 
-    private static long getPartitionLocalIndexAndSegmentSize(Partition partition) {
-        long localIndexAndSegmentSize = 0L;
+    private static Pair<Long, Long> getPartitionDisplayDataSize(Partition partition) {
+        long localDataSize = 0L;
+        long remoteDataSize = 0L;
         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
             for (Tablet tablet : index.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
-                    localIndexAndSegmentSize += getLocalIndexAndSegmentSize(replica);
+                    Pair<Long, Long> displayDataSize = getDisplayDataSize(replica);
+                    localDataSize += displayDataSize.first;
+                    remoteDataSize += displayDataSize.second;
                 }
             }
         }
-        return localIndexAndSegmentSize;
+        return Pair.of(localDataSize, remoteDataSize);
     }
 
     private static long getLocalIndexAndSegmentSize(Replica replica) {

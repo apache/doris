@@ -83,6 +83,33 @@ public class DataSizeDisplayUtilTest {
     }
 
     @Test
+    public void testPartitionDisplaySizeAggregatesMixedReplicaDisplaySize() {
+        MaterializedIndex baseIndex = new MaterializedIndex(10L, IndexState.NORMAL);
+
+        CloudTablet tabletWithDataSize = new CloudTablet(20L);
+        CloudReplica replicaWithDataSize = new CloudReplica(30L, 1L, Replica.ReplicaState.NORMAL, 2L, 0,
+                100L, 200L, 300L, 10L, 0L);
+        replicaWithDataSize.setDataSize(123L);
+        tabletWithDataSize.addReplica(replicaWithDataSize, true);
+        baseIndex.addTablet(tabletWithDataSize, null, true);
+
+        CloudTablet tabletWithFallbackSize = new CloudTablet(21L);
+        CloudReplica replicaWithFallbackSize = new CloudReplica(31L, 1L, Replica.ReplicaState.NORMAL, 2L, 0,
+                100L, 200L, 300L, 10L, 1L);
+        replicaWithFallbackSize.setDataSize(0L);
+        replicaWithFallbackSize.setLocalInvertedIndexSize(111L);
+        replicaWithFallbackSize.setLocalSegmentSize(222L);
+        tabletWithFallbackSize.addReplica(replicaWithFallbackSize, true);
+        baseIndex.addTablet(tabletWithFallbackSize, null, true);
+
+        Partition partition = new Partition(300L, "p1", baseIndex, new RandomDistributionInfo(2));
+
+        Pair<Long, Long> displayDataSize = DataSizeDisplayUtil.getDisplayDataSize(partition);
+        Assert.assertEquals(0L, displayDataSize.first.longValue());
+        Assert.assertEquals(456L, displayDataSize.second.longValue());
+    }
+
+    @Test
     public void testReplicaDisplaySizeFallbackToReplicaIndexAndSegmentSize() {
         CloudReplica replica = new CloudReplica(30L, 1L, Replica.ReplicaState.NORMAL, 2L, 0,
                 100L, 200L, 300L, 10L, 0L);
