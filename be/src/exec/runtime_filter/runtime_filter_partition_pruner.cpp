@@ -122,10 +122,16 @@ Status ParsedPartitionBoundaries::parse(
                 }                                                                              \
             }                                                                                  \
         } else {                                                                               \
+            bool range_has_null = false;                                                       \
+            if (is_nullable && !tb.__isset.range_start) {                                      \
+                range_has_null = true;                                                         \
+            }                                                                                  \
             if (tb.__isset.range_start) {                                                      \
                 auto parsed = parse_texpr_node(tb.range_start);                                \
                 if (parsed) {                                                                  \
                     static_cast<void>(cvr.add_range(FILTER_LARGER_OR_EQUAL, *parsed));         \
+                } else if (is_nullable) {                                                      \
+                    range_has_null = true;                                                     \
                 }                                                                              \
             }                                                                                  \
             if (tb.__isset.range_end) {                                                        \
@@ -140,6 +146,9 @@ Status ParsedPartitionBoundaries::parse(
                                     : FILTER_LESS;                                             \
                     static_cast<void>(cvr.add_range(upper_op, *parsed));                       \
                 }                                                                              \
+            }                                                                                  \
+            if (range_has_null) {                                                              \
+                boundary.contains_null = true;                                                 \
             }                                                                                  \
         }                                                                                      \
         boundary.boundary_cvr = std::move(cvr);                                                \

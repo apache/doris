@@ -1108,6 +1108,39 @@ suite("rf_partition_pruning", "nonConcurrent") {
         JOIN rf_prune_dim_null d ON f.part_col <=> d.dim_key
     """
 
+    // Test 32b: Nullable RANGE partition columns can store NULL rows in the
+    // MINVALUE-side first partition. A null-aware RF containing only NULL must
+    // keep that partition even though its non-NULL value set is empty.
+    sql "set allow_partition_column_nullable = true;"
+    sql "drop table if exists rf_prune_range_nullable"
+    sql """
+        CREATE TABLE rf_prune_range_nullable (
+            id INT NOT NULL,
+            part_col INT NULL,
+            value VARCHAR(64)
+        )
+        PARTITION BY RANGE(part_col) (
+            PARTITION p_low VALUES LESS THAN ("10"),
+            PARTITION p_mid VALUES LESS THAN ("20"),
+            PARTITION p_high VALUES LESS THAN ("30")
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """INSERT INTO rf_prune_range_nullable VALUES
+        (1, NULL, 'n'), (2, 5, 'a'), (3, 15, 'b'), (4, 25, 'c')"""
+    def rangeNullableNullsafeRows = sql """
+        SELECT /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */
+            f.id, f.part_col, f.value
+        FROM rf_prune_range_nullable f
+        JOIN rf_prune_dim_null d ON f.part_col <=> d.dim_key
+        ORDER BY f.id
+    """
+    assertEquals([[1, null, "n"]], rangeNullableNullsafeRows)
+    assertPruningProfile(
+        "* FROM rf_prune_range_nullable f JOIN rf_prune_dim_null d ON f.part_col <=> d.dim_key",
+        "IN_OR_BLOOM_FILTER", 3, 2)
+
     // ============================================================
     // Tests 33-34: Multi-column RANGE projection (closed [L1, U1])
     // ============================================================
