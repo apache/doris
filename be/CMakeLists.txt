@@ -260,7 +260,21 @@ set(USE_STAT64 0)
 set(USE_BTHREAD OFF)
 
 # Out of source build need to set the binary dir
+# On macOS, clucene's src/ext/for builds bitpack_*.o via add_custom_command that
+# invokes the C compiler directly with c_flags_list (derived from CMAKE_C_FLAGS).
+# Such raw invocations do not pick up CMAKE_OSX_SYSROOT, so the SDK headers
+# (stdio.h, ...) are not found. Inject -isysroot into CMAKE_C_FLAGS for the
+# clucene subtree only, then restore.
+if (APPLE)
+    execute_process(COMMAND xcrun --show-sdk-path
+        OUTPUT_VARIABLE MACOS_SDK_PATH OUTPUT_STRIP_TRAILING_WHITESPACE)
+    set(_saved_cmake_c_flags "${CMAKE_C_FLAGS}")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -isysroot ${MACOS_SDK_PATH}")
+endif()
 add_subdirectory(${CONTRIB_PATH}/clucene ${PROJECT_BINARY_DIR}/clucene EXCLUDE_FROM_ALL)
+if (APPLE)
+    set(CMAKE_C_FLAGS "${_saved_cmake_c_flags}")
+endif()
 
 set(clucene_options -w -Wall)
 if (COMPILER_CLANG)
@@ -337,6 +351,14 @@ add_compile_options(-g
                     -fno-omit-frame-pointer
                     $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
+if (OS_MACOSX)
+    # macOS CI runners (GitHub Actions macos-15) have 7 GB RAM. Linking the
+    # ~2 GB doris_be_test binary with full DWARF debug info triggers OOM in
+    # ld/dsymutil. Disable debug info on macOS; crash diagnosis can be done
+    # locally where memory is not constrained.
+    add_compile_options(-g0)
+endif()
+
 add_compile_options(-Wno-unused-parameter
                     -Wno-sign-compare)
 
@@ -377,6 +399,13 @@ if (COMPILER_CLANG)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         add_definitions(-DUSE_LIBCPP)
+    endif()
+    if (OS_MACOSX)
+        # Several unscoped enum values in Doris headers (bitmap_value.h BITMAP,
+        # memtable_memory_limiter.h NONE/SOFT/HARD) shadow values in protobuf-
+        # generated headers. Clang@18 started detecting these. Suppress on macOS
+        # for local UT builds; the test binary already suppresses via -Wno-shadow.
+        add_compile_options(-Wno-shadow -Wno-shadow-field)
     endif()
 endif ()
 
@@ -490,6 +519,16 @@ else()
     message(FATAL_ERROR "Unknown build type: ${CMAKE_BUILD_TYPE}")
 endif()
 
+if (OS_MACOSX AND "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
+    # CMake appends CMAKE_CXX_FLAGS_RELEASE (default "-O3 -DNDEBUG") AFTER
+    # CMAKE_CXX_FLAGS, so any -UNDEBUG added via EXTRA_CXX_FLAGS gets
+    # overridden. Re-append -UNDEBUG here so the BE UT (macOS) build keeps
+    # internal self-check methods enabled (Block::check_type_and_column and
+    # similar are gated by #ifndef NDEBUG; tests rely on them).
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -UNDEBUG")
+    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -UNDEBUG")
+endif()
+
 # Add flags that are common across build types
 set(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS} ${EXTRA_CXX_FLAGS}")
 
@@ -511,6 +550,13 @@ include_directories(
 include_directories(
     ${SRC_DIR}/
 )
+
+if (OS_MACOSX)
+    # Apple SDK lazy_split_view.h bug: __outer_iterator/__inner_iterator are forward-declared
+    # private but defined public, causing a hard error in Apple Clang 17. Patch fixes
+    # the forward declarations by moving them to the public section.
+    include_directories(BEFORE ${SRC_DIR}/macos_patches)
+endif()
 
 include_directories(
     SYSTEM
@@ -915,6 +961,13 @@ if (ENABLE_PCH)
     endif()
     if (COMPILER_CLANG)
         target_compile_options(pch PRIVATE -Xclang -fno-pch-timestamp)
+        if (OS_MACOSX)
+            # Suppress shadow warnings in PCH, consistent with doris_be_test's own compile options.
+            # bitmap_value.h has an unscoped enum value 'BITMAP' that shadows the one in
+            # olap_file.pb.h; Apple Clang detects this and fails the PCH compile. Scope this
+            # to macOS so Linux clang builds keep full shadow-warning coverage.
+            target_compile_options(pch PRIVATE -Wno-shadow -Wno-shadow-field)
+        endif()
     endif()
 endif()
 
@@ -933,6 +986,17 @@ add_subdirectory(${SRC_DIR}/exprs)
 add_subdirectory(${SRC_DIR}/format)
 add_subdirectory(${SRC_DIR}/gen_cpp)
 add_subdirectory(${SRC_DIR}/io)
+if(DISABLE_ANN)
+    # Propagate the flag as a C++ preprocessor macro so headers can guard
+    # FAISS-specific includes (e.g. function_array_distance.h, ann_index_writer.cpp).
+    # Must be set BEFORE add_subdirectory(storage/index/ann) so that the ann_index
+    # library itself sees the flag.
+    add_compile_definitions(DISABLE_ANN)
+endif()
+# Always build ann_index so production code (Storage, Exprs) can link against
+# the ANN infrastructure classes.  When DISABLE_ANN is ON the subdirectory
+# skips the FAISS/OpenMP sub-libraries and guards the FAISS-specific code
+# paths, producing a stub library that satisfies all symbol references.
 add_subdirectory(${SRC_DIR}/storage/index/ann)
 add_subdirectory(${SRC_DIR}/storage)
 add_subdirectory(${SRC_DIR}/runtime)

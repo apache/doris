@@ -176,7 +176,6 @@ TEST_F(AnnIndexWriterTest, TestAddArrayValuesSuccess) {
     ASSERT_TRUE(writer->init().ok());
 
     // Prepare test data
-    const size_t dim = 4;
     const size_t num_rows = 3;
     std::vector<float> vectors = {
             1.0f, 2.0f,  3.0f,  4.0f, // Row 0
@@ -313,7 +312,6 @@ TEST_F(AnnIndexWriterTest, TestFinish) {
     ASSERT_TRUE(writer->init().ok());
 
     // Add some test data before finishing
-    const size_t dim = 4;
     const size_t num_rows = 2;
     std::vector<float> vectors = {
             1.0f, 2.0f, 3.0f, 4.0f, // Row 0
@@ -344,7 +342,6 @@ TEST_F(AnnIndexWriterTest, TestFullWorkflow) {
     ASSERT_TRUE(writer->init().ok());
 
     // 2. Add multiple batches of data
-    const size_t dim = 4;
 
     // Batch 1
     {
@@ -392,7 +389,7 @@ TEST_F(AnnIndexWriterTest, TestInvalidIndexType) {
     EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
 
     // This should throw an exception due to invalid index type
-    EXPECT_THROW(writer->init(), doris::Exception);
+    EXPECT_THROW((void)writer->init(), doris::Exception);
 }
 
 TEST_F(AnnIndexWriterTest, TestInvalidMetricType) {
@@ -412,7 +409,7 @@ TEST_F(AnnIndexWriterTest, TestInvalidMetricType) {
     EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
 
     // This should throw an exception due to invalid metric type
-    EXPECT_THROW(writer->init(), doris::Exception);
+    EXPECT_THROW((void)writer->init(), doris::Exception);
 }
 
 TEST_F(AnnIndexWriterTest, TestAddMoreThanChunkSize) {
@@ -436,7 +433,6 @@ TEST_F(AnnIndexWriterTest, TestAddMoreThanChunkSize) {
     EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
 
     // CHUNK_SIZE = 10
-    const size_t dim = 4;
 
     {
         const size_t num_rows = 6;
@@ -550,7 +546,6 @@ TEST_F(AnnIndexWriterTest, TestAddArrayValuesIVF) {
     ASSERT_TRUE(writer->init().ok());
 
     // Prepare test data
-    const size_t dim = 4;
     const size_t num_rows = 3;
     std::vector<float> vectors = {
             1.0f, 2.0f,  3.0f,  4.0f, // Row 0
@@ -596,7 +591,6 @@ TEST_F(AnnIndexWriterTest, TestAddMoreThanChunkSizeIVF) {
     EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
 
     // CHUNK_SIZE = 10
-    const size_t dim = 4;
 
     {
         const size_t num_rows = 6;
@@ -670,8 +664,6 @@ TEST_F(AnnIndexWriterTest, TestSkipTrainWhenRemainderLessThanNlist) {
     EXPECT_CALL(*mock_index, add(2, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
 
-    const size_t dim = 4;
-
     // Add 12 rows total
     {
         const size_t num_rows = 10;
@@ -742,8 +734,6 @@ TEST_F(AnnIndexWriterTest, TestLargeDataVolumeWithRemainderSkip) {
     EXPECT_CALL(*mock_index, train(3, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, add(3, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
-
-    const size_t dim = 4;
 
     // Add 3 batches: 10 + 10 + 3 = 23 rows
     for (int batch = 0; batch < 2; ++batch) {
@@ -817,8 +807,6 @@ TEST_F(AnnIndexWriterTest, TestLargeDataVolumeSkipRemainder) {
     EXPECT_CALL(*mock_index, add(2, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
 
-    const size_t dim = 4;
-
     // Add 2 batches of 10 rows
     for (int batch = 0; batch < 2; ++batch) {
         const size_t num_rows = 10;
@@ -885,8 +873,6 @@ TEST_F(AnnIndexWriterTest, TestSkipIndexWhenTotalRowsLessThanNlist) {
     EXPECT_CALL(*mock_index, train(testing::_, testing::_)).Times(0);
     EXPECT_CALL(*mock_index, add(testing::_, testing::_)).Times(0);
     EXPECT_CALL(*mock_index, save(testing::_)).Times(0);
-
-    const size_t dim = 4;
 
     // Add 3 rows
     {

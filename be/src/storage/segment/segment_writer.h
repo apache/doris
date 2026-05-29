@@ -189,8 +189,12 @@ private:
             IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
     Status _generate_short_key_index(std::vector<IOlapColumnDataAccessor*>& key_columns,
                                      size_t num_rows, const std::vector<size_t>& short_key_pos);
-    bool _is_mow();
-    bool _is_mow_with_cluster_key();
+    bool _is_mow() {
+        return _tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write;
+    }
+    bool _is_mow_with_cluster_key() {
+        return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
+    }
 
 protected:
     // Build key index for derived writers that override append_block.

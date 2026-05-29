@@ -33,7 +33,9 @@
 #include "storage/index/ann/ann_index_result_cache/ann_index_result_cache_handle.h"
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/ann/ann_search_params.h"
+#ifndef DISABLE_ANN
 #include "storage/index/ann/faiss_ann_index.h"
+#endif
 #include "storage/index/index_file_reader.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "util/once.h"
@@ -86,6 +88,7 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
                 return Status::IOError("Failed to open index file: {}",
                                        compound_dir.error().to_string());
             }
+#ifndef DISABLE_ANN
             _vector_index = std::make_unique<FaissVectorIndex>();
             _vector_index->set_metric(_metric_type);
             _vector_index->set_type(_index_type);
@@ -97,6 +100,9 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
                     ->set_ivfdata_cache_key_prefix(
                             _index_file_reader->get_index_file_cache_key(&_index_meta));
             RETURN_IF_ERROR(_vector_index->load(compound_dir->get()));
+#else
+            return Status::NotSupported("ANN index is disabled in this build");
+#endif
             // Keep the compound directory alive. For IVF_ON_DISK the
             // CachedRandomAccessReader holds a cloned CSIndexInput whose
             // `base` raw pointer references the compound reader's underlying

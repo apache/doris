@@ -703,9 +703,9 @@ TEST_F(ScannerContextTest, get_free_block) {
             scanners, limit, scan_dependency, &shared_limit, nullptr, nullptr, 0, false,
             parallel_tasks);
     scanner_context->_newly_create_free_blocks_num = newly_create_free_blocks_num.get();
-    scanner_context->_newly_create_free_blocks_num->set(0L);
+    scanner_context->_newly_create_free_blocks_num->set(int64_t {0});
     scanner_context->_scanner_memory_used_counter = scanner_memory_used_counter.get();
-    scanner_context->_scanner_memory_used_counter->set(0L);
+    scanner_context->_scanner_memory_used_counter->set(int64_t {0});
     BlockUPtr block = scanner_context->get_free_block(/*force=*/true);
     ASSERT_NE(block, nullptr);
     ASSERT_TRUE(scanner_context->_newly_create_free_blocks_num->value() == 1);

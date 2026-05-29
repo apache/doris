@@ -2721,8 +2721,8 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         for (const auto& value : values) {
-            status = column_writer->add_values(column.name(), reinterpret_cast<const void*>(&value),
-                                               1);
+            status = column_writer->add_values(column.name(),
+                                               reinterpret_cast<const void*>(&value), 1);
             EXPECT_TRUE(status.ok()) << status;
         }
 
@@ -3500,8 +3500,10 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         for (const auto& value : values) {
-            status = column_writer->add_values(column.name(), reinterpret_cast<const void*>(&value),
-                                               1);
+            // vector<bool> elements are proxies; copy to a local to get a real address
+            const T local_value = value;
+            status = column_writer->add_values(column.name(),
+                                               reinterpret_cast<const void*>(&local_value), 1);
             EXPECT_TRUE(status.ok()) << status;
         }
 

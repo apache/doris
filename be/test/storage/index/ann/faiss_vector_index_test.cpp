@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#ifndef DISABLE_ANN
+
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexIVFFlat.h>
 #include <gmock/gmock.h>
@@ -1540,3 +1542,5 @@ TEST_F(VectorSearchTest, IVFOnDiskConcurrentSearchStampedeProtection) {
 }
 
 } // namespace doris
+
+#endif // DISABLE_ANN

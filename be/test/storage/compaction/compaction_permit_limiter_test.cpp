@@ -17,6 +17,8 @@
 
 #include "storage/compaction/compaction_permit_limiter.h"
 
+#include <thread>
+
 #include <gmock/gmock-actions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest-message.h>

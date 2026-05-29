@@ -40,8 +40,8 @@ TEST_F(VectorSearchTest, TestAnnIndexStatsInitialization) {
     EXPECT_EQ(stats.load_index_costs_ns.value(), 0);
 
     // Test setting values
-    stats.search_costs_ns.set(1000L);
-    stats.load_index_costs_ns.set(2000L);
+    stats.search_costs_ns.set(int64_t {1000});
+    stats.load_index_costs_ns.set(int64_t {2000});
 
     EXPECT_EQ(stats.search_costs_ns.value(), 1000);
     EXPECT_EQ(stats.load_index_costs_ns.value(), 2000);
@@ -49,8 +49,8 @@ TEST_F(VectorSearchTest, TestAnnIndexStatsInitialization) {
 
 TEST_F(VectorSearchTest, TestAnnIndexStatsCopyConstructor) {
     doris::segment_v2::AnnIndexStats original;
-    original.search_costs_ns.set(1500L);
-    original.load_index_costs_ns.set(2500L);
+    original.search_costs_ns.set(int64_t {1500});
+    original.load_index_costs_ns.set(int64_t {2500});
 
     doris::segment_v2::AnnIndexStats copied(original);
 

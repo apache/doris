@@ -56,7 +56,7 @@ TEST(RuntimeProfileTest, Basic) {
     counter_a->update(10);
     counter_a->update(-5);
     EXPECT_EQ(counter_a->value(), 5);
-    counter_a->set(1L);
+    counter_a->set(int64_t {1});
     EXPECT_EQ(counter_a->value(), 1);
 
     counter_b = profile_a2.add_counter("B", TUnit::BYTES);
@@ -129,7 +129,7 @@ TEST(RuntimeProfileTest, ProtoBasic) {
     counter_a->update(10);
     counter_a->update(-5);
     EXPECT_EQ(counter_a->value(), 5);
-    counter_a->set(1L);
+    counter_a->set(int64_t {1});
     EXPECT_EQ(counter_a->value(), 1);
 
     counter_b = profile_a2.add_counter("B", TUnit::BYTES);
@@ -421,7 +421,7 @@ TEST(RuntimeProfileTest, DerivedCounters) {
     RuntimeProfile::Counter* bytes_counter = profile.add_counter("bytes", TUnit::BYTES);
     RuntimeProfile::Counter* ticks_counter = profile.add_counter("ticks", TUnit::TIME_NS);
     // set to 1 sec
-    ticks_counter->set(1000L * 1000L * 1000L);
+    ticks_counter->set(int64_t {1000LL * 1000LL * 1000LL});
 
     RuntimeProfile::DerivedCounter* throughput_counter = profile.add_derived_counter(
             "throughput", TUnit::BYTES,
@@ -430,9 +430,9 @@ TEST(RuntimeProfileTest, DerivedCounters) {
             },
             RuntimeProfile::ROOT_COUNTER);
 
-    bytes_counter->set(10L);
+    bytes_counter->set(int64_t {10});
     EXPECT_EQ(throughput_counter->value(), 10);
-    bytes_counter->set(20L);
+    bytes_counter->set(int64_t {20});
     EXPECT_EQ(throughput_counter->value(), 20);
     ticks_counter->set(ticks_counter->value() / 2);
     EXPECT_EQ(throughput_counter->value(), 40);
@@ -523,7 +523,7 @@ TEST(RuntimeProfileTest, ProtoInfoStringTest) {
 // TEST(RuntimeProfileTest, AddSameCounter) {
 //     RuntimeProfile profile("Profile");
 //     RuntimeProfile::Counter* counter = profile.add_counter("counter", TUnit::UNIT);
-//     counter->set(10L);
+//     counter->set(int64_t {10});
 //     EXPECT_EQ(counter->value(), 10L);
 
 //     // Adding the same counter again should fail.

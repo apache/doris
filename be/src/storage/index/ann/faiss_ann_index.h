@@ -17,6 +17,8 @@
 
 #pragma once
 
+#ifndef DISABLE_ANN
+
 #include <CLucene.h>
 #include <CLucene/store/IndexInput.h>
 #include <CLucene/store/IndexOutput.h>
@@ -303,3 +305,5 @@ private:
     std::string _ivfdata_cache_key_prefix; ///< Cache key prefix for ivfdata blocks
 };
 } // namespace doris::segment_v2
+
+#endif // DISABLE_ANN

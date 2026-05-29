@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <bit>
 #include <cstdint>
 #include <type_traits>
 

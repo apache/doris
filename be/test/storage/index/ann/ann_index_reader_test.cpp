@@ -32,6 +32,8 @@
 #include "storage/index/ann/vector_search_utils.h"
 #include "storage/tablet/tablet_schema.h"
 
+#ifndef DISABLE_ANN
+
 using namespace doris::vector_search_utils;
 
 namespace doris {
@@ -649,3 +651,5 @@ TEST_F(AnnIndexReaderTest, AnnIndexReaderIVFRangeSearch) {
 }
 
 } // namespace doris
+
+#endif // DISABLE_ANN

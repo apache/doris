@@ -17,8 +17,43 @@
 
 #pragma once
 
+#ifndef DISABLE_ANN
 #include <faiss/impl/platform_macros.h>
 #include <faiss/utils/distances.h>
+#else
+// When FAISS is disabled (e.g. macOS local UT builds), provide inline stubs
+// for the FAISS functions used by L1/L2/InnerProduct distance classes and
+// no-op definitions for the float-control pragmas.
+#include <cmath>
+#include <cstddef>
+#define FAISS_PRAGMA_IMPRECISE_FUNCTION_BEGIN
+#define FAISS_PRAGMA_IMPRECISE_FUNCTION_END
+namespace faiss {
+inline float fvec_L1(const float* x, const float* y, std::size_t d) {
+    float s = 0;
+    for (std::size_t i = 0; i < d; ++i) {
+        s += std::abs(x[i] - y[i]);
+    }
+    return s;
+}
+inline float fvec_L2sqr(const float* x, const float* y, std::size_t d) {
+    float s = 0;
+    for (std::size_t i = 0; i < d; ++i) {
+        float diff = x[i] - y[i];
+        s += diff * diff;
+    }
+    return s;
+}
+inline float fvec_inner_product(const float* x, const float* y, std::size_t d) {
+    float s = 0;
+    for (std::size_t i = 0; i < d; ++i) {
+        s += x[i] * y[i];
+    }
+    return s;
+}
+} // namespace faiss
+#endif
+
 #include <gen_cpp/Types_types.h>
 
 #include "common/exception.h"

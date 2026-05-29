@@ -28,6 +28,8 @@
 #include "storage/index/ann/faiss_ann_index.h"
 #include "storage/index/ann/vector_search_utils.h"
 
+#ifndef DISABLE_ANN
+
 using namespace doris::vector_search_utils;
 
 namespace doris::segment_v2 {
@@ -339,3 +341,5 @@ TEST_F(AnnIndexIteratorTest, TestSuccessfulWorkflow) {
 }
 
 } // namespace doris::segment_v2
+
+#endif // DISABLE_ANN

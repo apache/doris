@@ -17,6 +17,8 @@
 
 #include "storage/index/ann/vector_search_utils.h"
 
+#ifndef DISABLE_ANN
+
 #include <faiss/IndexHNSW.h>
 
 #include <cstddef>
@@ -287,3 +289,5 @@ create_tmp_ann_index_reader(std::map<std::string, std::string> properties) {
     return std::make_pair(std::move(mock_tablet_index), ann_reader);
 }
 } // namespace doris::vector_search_utils
+
+#endif // DISABLE_ANN

@@ -47,6 +47,28 @@ fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
 export TP_INSTALLED_DIR="${DORIS_THIRDPARTY}/installed"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
+
+# On macOS, prefer Apple's Clang 17 (from Xcode Command Line Tools) over
+# Homebrew's llvm@18/20. Apple Clang 17:
+#  - Does not have libc++ 18/20 breaking changes (atomic static_assert, compressed_pair)
+#  - Accepts template-template params with default args (P0522R0), which llvm@18 rejects
+#  - Does not have the structured-binding-in-OpenMP Clang@18 restriction
+if [[ "$(uname -s)" == 'Darwin' && -x "/Library/Developer/CommandLineTools/usr/bin/clang++" ]]; then
+    export DORIS_CLANG_HOME="/Library/Developer/CommandLineTools/usr"
+fi
+
+# On macOS, env.sh requires JDK-17. If JAVA_HOME is not set, auto-detect the
+# Homebrew openjdk@17 installation. Use the real JDK home (Contents/Home) rather
+# than the Homebrew prefix, so that find_libjvm.sh can locate libjvm.dylib and
+# cmake can find the JNI headers.
+if [[ "$(uname -s)" == 'Darwin' && -z "${JAVA_HOME}" ]]; then
+    _jdk_home="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+    if [[ -x "${_jdk_home}/bin/java" ]]; then
+        export JAVA_HOME="${_jdk_home}"
+    fi
+    unset _jdk_home
+fi
+
 . "${DORIS_HOME}/env.sh"
 
 # Check args
@@ -260,6 +282,31 @@ else
     BUILD_TYPE="${CMAKE_BUILD_TYPE}"
 fi
 
+OPENMP_CMAKE_VARS=()
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    OPENMP_CMAKE_VARS=(
+        # ANN (faiss/openblas) has libc++ compatibility issues with llvm@20 on macOS.
+        # Disable it for local UT builds; CI runs on Linux where it compiles fine.
+        "-DDISABLE_ANN=ON"
+        # Clang@18 does not support capturing structured bindings in OpenMP parallel
+        # regions (variant_util.cpp uses this pattern). Disable OpenMP for macOS local
+        # UT builds: #pragma omp directives become no-ops, which is fine for testing.
+        "-DOpenMP_C_FLAGS="
+        "-DOpenMP_CXX_FLAGS="
+        "-DOpenMP_C_LIB_NAMES=none"
+        "-DOpenMP_CXX_LIB_NAMES=none"
+        "-DCMAKE_DISABLE_FIND_PACKAGE_OpenMP=ON"
+        # Apple's clang requires an explicit sysroot to find standard C headers
+        # (stdio.h etc.) in third-party C code (clucene, vp4d.c, …).
+        "-DCMAKE_OSX_SYSROOT=$(xcrun --show-sdk-path)"
+        # Apple's ar/ranlib use a 32-bit archive offset table that overflows when
+        # ASAN-instrumented .o files exceed ~4 GB total. Use LLVM's ar/ranlib
+        # (from Homebrew llvm@18) which supports the GNU 64-bit extended format.
+        "-DCMAKE_AR=/opt/homebrew/opt/llvm@18/bin/llvm-ar"
+        "-DCMAKE_RANLIB=/opt/homebrew/opt/llvm@18/bin/llvm-ranlib"
+    )
+fi
+
 cd "${CMAKE_BUILD_DIR}"
 "${CMAKE_CMD}" -G "${GENERATOR}" \
     -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
@@ -282,6 +329,7 @@ cd "${CMAKE_BUILD_DIR}"
     -DDORIS_JAVA_HOME="${JAVA_HOME}" \
     -DBUILD_AZURE="${BUILD_AZURE}" \
     -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
+    "${OPENMP_CMAKE_VARS[@]}" \
     "${DORIS_HOME}/be"
 "${BUILD_SYSTEM}" -j "${PARALLEL}"
 
