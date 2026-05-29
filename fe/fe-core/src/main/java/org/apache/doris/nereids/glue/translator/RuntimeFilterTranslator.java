@@ -226,6 +226,7 @@ public class RuntimeFilterTranslator {
                 }
                 origFilter.setBitmapFilterNotIn(head.isBitmapFilterNotIn());
                 origFilter.setBloomFilterSizeCalculatedByNdv(head.isBloomFilterSizeCalculatedByNdv());
+                setWaitTimeMs(origFilter, head.isNonBlocking(), isLocalTarget);
                 org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
                 scanNodeList.stream().filter(CTEScanNode.class::isInstance)
                         .forEach(f -> {
@@ -317,23 +318,7 @@ public class RuntimeFilterTranslator {
                 }
                 origFilter.setBitmapFilterNotIn(filter.isBitmapFilterNotIn());
                 origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
-                if (filter.isNonBlocking()) {
-                    origFilter.setWaitTimeMs(0);
-                } else {
-                    if (ConnectContext.get() != null) {
-                        SessionVariable sessionVar = ConnectContext.get().getSessionVariable();
-                        if (sessionVar.runtimeFilterWaitInfinitely
-                                || origFilter.getType() == TRuntimeFilterType.BITMAP
-                                || !origFilter.hasRemoteTargets()) {
-                            // wait infinitely
-                            origFilter.setWaitTimeMs(sessionVar.getQueryTimeoutS() * 1000);
-                        } else {
-                            origFilter.setWaitTimeMs(sessionVar.getRuntimeFilterWaitTimeMs());
-                        }
-                    } else {
-                        origFilter.setWaitTimeMs(1000);
-                    }
-                }
+                setWaitTimeMs(origFilter, filter.isNonBlocking(), isLocalTarget);
                 org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
                 scanNodeList.stream().filter(CTEScanNode.class::isInstance)
                         .forEach(f -> {
@@ -358,6 +343,27 @@ public class RuntimeFilterTranslator {
         origFilter.assignToPlanNodes();
         origFilter.extractTargetsPosition();
         return origFilter;
+    }
+
+    private void setWaitTimeMs(org.apache.doris.planner.RuntimeFilter filter,
+            boolean isNonBlocking, boolean isLocalTarget) {
+        if (isNonBlocking) {
+            filter.setWaitTimeMs(0);
+        } else {
+            if (ConnectContext.get() != null) {
+                SessionVariable sessionVar = ConnectContext.get().getSessionVariable();
+                if (sessionVar.runtimeFilterWaitInfinitely
+                        || filter.getType() == TRuntimeFilterType.BITMAP
+                        || isLocalTarget) {
+                    // wait infinitely
+                    filter.setWaitTimeMs(sessionVar.getQueryTimeoutS() * 1000);
+                } else {
+                    filter.setWaitTimeMs(sessionVar.getRuntimeFilterWaitTimeMs());
+                }
+            } else {
+                filter.setWaitTimeMs(1000);
+            }
+        }
     }
 
     private Expr castTargetToSourceTypeIfNeeded(Expr src, Expr targetExpr, TRuntimeFilterType filterType) {
