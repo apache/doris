@@ -29,6 +29,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "common/metrics/doris_metrics.h"
 #include "json2pb/json_to_pb.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/olap_common.h"
@@ -242,6 +243,48 @@ TEST_F(CloudCompactionTest, split_cumu_compaction_score_stats_before_filter) {
     ASSERT_EQ(score_stats.time_series_max_score, 13);
     ASSERT_EQ(tablets.size(), 1);
     ASSERT_EQ(tablets[0]->tablet_id(), 10000);
+}
+
+TEST_F(CloudCompactionTest, generate_cloud_compaction_tasks_updates_policy_metrics) {
+    CloudTabletMgr& mgr = _engine.tablet_mgr();
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(*_tablet_meta));
+    tablet_meta->_tablet_id = 11000;
+    tablet_meta->set_compaction_policy(std::string(CUMULATIVE_SIZE_BASED_POLICY));
+    auto tablet = std::make_shared<CloudTablet>(_engine, tablet_meta);
+    tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    tablet->_approximate_cumu_num_deltas = 7;
+    mgr.put_tablet_for_UT(tablet);
+
+    auto* metrics = DorisMetrics::instance();
+    metrics->tablet_cumulative_max_compaction_score->set_value(101);
+    metrics->tablet_time_series_max_compaction_score->set_value(200);
+
+    auto tablets = _engine.generate_cloud_compaction_tasks_for_test(
+            CompactionType::CUMULATIVE_COMPACTION, false);
+    ASSERT_EQ(tablets.size(), 1);
+    ASSERT_EQ(tablets[0]->tablet_id(), 11000);
+    ASSERT_EQ(metrics->tablet_cumulative_max_compaction_score->value(), 7);
+    ASSERT_EQ(metrics->tablet_time_series_max_compaction_score->value(), 200);
+
+    tablets = _engine.generate_cloud_compaction_tasks_for_test(
+            CompactionType::CUMULATIVE_COMPACTION, true);
+    ASSERT_EQ(tablets.size(), 1);
+    ASSERT_EQ(tablets[0]->tablet_id(), 11000);
+    ASSERT_EQ(metrics->tablet_cumulative_max_compaction_score->value(), 7);
+    ASSERT_EQ(metrics->tablet_time_series_max_compaction_score->value(), 0);
+}
+
+TEST_F(CloudCompactionTest, generate_cloud_compaction_tasks_clears_metrics_without_tablets) {
+    auto* metrics = DorisMetrics::instance();
+    metrics->tablet_cumulative_max_compaction_score->set_value(101);
+    metrics->tablet_time_series_max_compaction_score->set_value(200);
+
+    auto tablets = _engine.generate_cloud_compaction_tasks_for_test(
+            CompactionType::CUMULATIVE_COMPACTION, true);
+
+    ASSERT_TRUE(tablets.empty());
+    ASSERT_EQ(metrics->tablet_cumulative_max_compaction_score->value(), 0);
+    ASSERT_EQ(metrics->tablet_time_series_max_compaction_score->value(), 0);
 }
 
 static RowsetSharedPtr create_rowset(Version version, int num_segments, bool overlapping,

@@ -378,6 +378,23 @@ public:
 
     int64_t get_compaction_num_per_round() const { return _compaction_num_per_round; }
 
+#ifdef BE_TEST
+    std::vector<TabletSharedPtr> generate_compaction_tasks_for_test(
+            CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
+        auto tablet_contexts = _generate_compaction_tasks(compaction_type, data_dirs, check_score);
+        std::vector<TabletSharedPtr> tablets;
+        tablets.reserve(tablet_contexts.size());
+        for (auto& context : tablet_contexts) {
+            tablets.emplace_back(std::move(context.tablet));
+        }
+        return tablets;
+    }
+
+    CompactionSubmitRegistry& compaction_submit_registry_for_test() {
+        return _compaction_submit_registry;
+    }
+#endif
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.

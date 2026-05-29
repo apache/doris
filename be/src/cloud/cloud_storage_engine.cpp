@@ -645,9 +645,12 @@ bool CloudStorageEngine::register_index_change_compaction(
 
 std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_tasks(
         CompactionType compaction_type, bool check_score) {
+    DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
+           compaction_type == CompactionType::CUMULATIVE_COMPACTION);
     std::vector<std::shared_ptr<CloudTablet>> tablets_compaction;
 
     CompactionScoreStats score_stats;
+    bool got_score_stats = false;
     std::unordered_set<int64_t> tablet_preparing_cumu_compaction;
     std::unordered_map<int64_t, std::vector<std::shared_ptr<CloudCumulativeCompaction>>>
             submitted_cumu_compactions;
@@ -729,11 +732,12 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
             LOG(WARNING) << "failed to get tablets to compact, err=" << st;
             break;
         }
+        got_score_stats = true;
         if (!need_pick_tablet) break;
         tablets_compaction = std::move(tablets);
     } while (false);
 
-    if (score_stats.scanned) {
+    if (got_score_stats && score_stats.scanned) {
         if (compaction_type == CompactionType::BASE_COMPACTION && score_stats.max_score > 0) {
             DorisMetrics::instance()->tablet_base_max_compaction_score->set_value(
                     score_stats.max_score);
@@ -746,9 +750,6 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
                 DorisMetrics::instance()->tablet_time_series_max_compaction_score->set_value(
                         score_stats.time_series_max_score);
             }
-        } else if (score_stats.max_score > 0) {
-            DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(
-                    score_stats.max_score);
         }
     }
 
