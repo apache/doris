@@ -350,6 +350,8 @@ public class DorisFE {
                 .desc("Specify the recovery truncate journal id, and journals greater than this id will be removed")
                 .build());
         options.addOption("c", "cluster_snapshot", true, "Specify the cluster snapshot json file");
+        options.addOption(Option.builder().longOpt(FeConstants.DROP_BACKENDS_KEY)
+                .desc("When this FE becomes MASTER, drop all backends from cluster metadata (destructive)").build());
 
         CommandLine cmd = null;
         try {
@@ -393,6 +395,9 @@ public class DorisFE {
                 System.exit(-1);
             }
             System.setProperty(FeConstants.RECOVERY_JOURNAL_ID_KEY, recoveryJournalId.trim());
+        }
+        if (cmd.hasOption(FeConstants.DROP_BACKENDS_KEY)) {
+            System.setProperty(FeConstants.DROP_BACKENDS_KEY, "true");
         }
         if (cmd.hasOption('b') || cmd.hasOption("bdb")) {
             if (cmd.hasOption('l') || cmd.hasOption("listdb")) {
