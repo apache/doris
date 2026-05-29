@@ -122,6 +122,9 @@ DECLARE_Int32(arrow_flight_sql_port);
 // port for cdc client scan oltp cdc data
 DECLARE_Int32(cdc_client_port);
 
+// JVM options passed to cdc_client (whitespace-separated). Inserted before -jar.
+DECLARE_mString(cdc_client_java_opts);
+
 // If the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
 // There are usually two usage scenarios:

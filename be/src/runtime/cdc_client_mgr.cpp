@@ -34,9 +34,12 @@
 
 #include <atomic>
 #include <chrono>
+#include <iterator>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -149,9 +152,25 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
             _child_pid.store(0);
         }
 #endif
-    } else {
+    } else if (!_adopted_external.load()) {
         LOG(INFO) << "CDC client has never been started";
     }
+
+#ifndef BE_TEST
+    // Adopt an externally-managed cdc_client if the port already answers
+    // healthy (e.g. one started manually for debug / hotfix).
+    {
+        std::string adopt_response;
+        if (check_cdc_client_health(1, 0, adopt_response).ok()) {
+            if (!_adopted_external.exchange(true)) {
+                LOG(INFO) << "Adopting external cdc client on port "
+                          << doris::config::cdc_client_port;
+            }
+            return Status::OK();
+        }
+    }
+    _adopted_external.store(false);
+#endif
 
     const char* doris_home = getenv("DORIS_HOME");
     const char* log_dir = getenv("LOG_DIR");
@@ -215,10 +234,31 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
         dup2(out_fd, STDERR_FILENO);
         close(out_fd);
 
-        // java -jar -Dlog.path=xx cdc-client.jar --server.port=9096 --backend.http.port=8040
-        execlp(java_bin.c_str(), "java", java_opts.c_str(), "-jar", cdc_jar_path.c_str(),
-               cdc_jar_port.c_str(), backend_http_port.c_str(), cluster_token.c_str(), (char*)NULL);
-        // If execlp returns, it means it failed
+        // java <user_java_opts...> -Dlog.path=xx -jar cdc-client.jar
+        //      --server.port=9096 --backend.http.port=8040 --cluster.token=...
+        std::vector<std::string> argv_storage;
+        argv_storage.emplace_back("java");
+        const std::string user_java_opts = doris::config::cdc_client_java_opts;
+        if (!user_java_opts.empty()) {
+            std::istringstream iss(user_java_opts);
+            argv_storage.insert(argv_storage.end(), std::istream_iterator<std::string>(iss),
+                                std::istream_iterator<std::string>());
+        }
+        argv_storage.emplace_back(java_opts);
+        argv_storage.emplace_back("-jar");
+        argv_storage.emplace_back(cdc_jar_path);
+        argv_storage.emplace_back(cdc_jar_port);
+        argv_storage.emplace_back(backend_http_port);
+        argv_storage.emplace_back(cluster_token);
+
+        std::vector<char*> argv;
+        argv.reserve(argv_storage.size() + 1);
+        for (auto& s : argv_storage) {
+            argv.push_back(const_cast<char*>(s.c_str()));
+        }
+        argv.push_back(nullptr);
+        execv(java_bin.c_str(), argv.data());
+        // If execv returns, it means it failed
         perror("Cdc client child process error");
         exit(1);
     } else {
@@ -233,7 +273,17 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
             _child_pid.store(0);
             st = Status::InternalError("Start cdc client failed.");
             st.to_protobuf(result->mutable_status());
+        } else if (kill(pid, 0) != 0) {
+            // Port healthy but our child has exited: an external process is
+            // answering. Treat as adoption instead of masking dead PID as success.
+            _child_pid.store(0);
+            if (!_adopted_external.exchange(true)) {
+                LOG(INFO) << "Forked cdc client " << pid << " exited but port "
+                          << doris::config::cdc_client_port
+                          << " is healthy, adopting external instance";
+            }
         } else {
+            _adopted_external.store(false);
             LOG(INFO) << "Start cdc client success, pid=" << pid
                       << ", status=" << status.to_string() << ", response=" << health_response;
         }
