@@ -97,6 +97,11 @@ public class ScannerLoader {
     //   2) rebuilding a fresh URLClassLoader on every eviction produced multiple coexisting
     //      ClassLoaders for the same UDF, which broke lazy class resolution and reflective
     //      lookups inside user UDF code.
+    // NOTE: a cache miss in BaseExecutor.getClassCache() is NOT only reachable after
+    // cleanUdfClassLoader() — concurrent first-time loads of the same signature can also
+    // both observe a miss. cacheClassLoader() must therefore insert atomically via
+    // putIfAbsent and must never close a cache that was already published to the map,
+    // because another executor may already be holding it.
     private static final Map<String, UdfClassCache> udfLoadedClasses = new ConcurrentHashMap<>();
     private static final String CLASS_SUFFIX = ".class";
     private static final String LOAD_PACKAGE = "org.apache.doris";
@@ -127,27 +132,38 @@ public class ScannerLoader {
 
     /**
      * Cache the UDF class metadata for the given function signature.
-     * The {@code expirationTime} parameter is kept for backward compatibility with the
+     *
+     * <p>Insertion is atomic via {@link Map#putIfAbsent}: if another executor thread has
+     * already published a cache entry for {@code functionSignature}, the {@code classCache}
+     * argument is treated as a redundant build and closed here (it has not yet been handed
+     * to any executor, so closing its URLClassLoader is safe). The already-published entry
+     * is returned to the caller so the current executor can switch to it.</p>
+     *
+     * <p>The {@code expirationTime} parameter is kept for backward compatibility with the
      * existing call sites and DDL property {@code expiration_time}, but is no longer used:
      * cached entries are not evicted by time. Removal happens only via
-     * {@link #cleanUdfClassLoader(String)} on DROP FUNCTION.
+     * {@link #cleanUdfClassLoader(String)} on DROP FUNCTION.</p>
+     *
+     * @return the {@link UdfClassCache} actually held in the map after this call —
+     *         either {@code classCache} (we won the race) or the pre-existing entry
+     *         (another thread won; {@code classCache} has been closed and must not be used).
      */
-    public static void cacheClassLoader(String functionSignature, UdfClassCache classCache,
+    public static UdfClassCache cacheClassLoader(String functionSignature, UdfClassCache classCache,
             long expirationTime) {
         LOG.info("Cache UDF for: " + functionSignature);
-        UdfClassCache previous = udfLoadedClasses.put(functionSignature, classCache);
-        if (previous != null && previous != classCache) {
-            // A previous entry existed; close it now to avoid leaking the URLClassLoader.
-            // No live executor should still be holding it because the cache miss path that
-            // led us here only fires when getUdfClassLoader() returned null — which only
-            // happens after an explicit cleanUdfClassLoader() removed the previous entry.
-            // Defensive close in case callers race.
-            try {
-                previous.close();
-            } catch (Exception e) {
-                LOG.warn("Failed to close previous UdfClassCache for " + functionSignature, e);
-            }
+        UdfClassCache existing = udfLoadedClasses.putIfAbsent(functionSignature, classCache);
+        if (existing == null) {
+            return classCache;
         }
+        // Lost the race against a concurrent first-time load. The cache we just built has
+        // never been exposed to any executor, so closing its URLClassLoader here cannot
+        // affect anyone. Do NOT touch `existing` — another executor may already be using it.
+        try {
+            classCache.close();
+        } catch (Exception e) {
+            LOG.warn("Failed to close redundant UdfClassCache for " + functionSignature, e);
+        }
+        return existing;
     }
 
     public void cleanUdfClassLoader(String functionSignature) {
