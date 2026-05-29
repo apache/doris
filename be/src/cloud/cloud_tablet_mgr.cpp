@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "runtime/memory/cache_policy.h"
+#include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "util/debug_points.h"
 #include "util/lru_cache.h"
 #include "util/stack_util.h"
@@ -426,10 +427,11 @@ void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
 
 Status CloudTabletMgr::get_topn_tablets_to_compact(
         int n, CompactionType compaction_type, const std::function<bool(CloudTablet*)>& filter_out,
-        std::vector<std::shared_ptr<CloudTablet>>* tablets, int64_t* max_score) {
+        std::vector<std::shared_ptr<CloudTablet>>* tablets, CompactionScoreStats* score_stats) {
     DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
            compaction_type == CompactionType::CUMULATIVE_COMPACTION);
-    *max_score = 0;
+    *score_stats = {};
+    score_stats->scanned = true;
     int64_t max_score_tablet_id = 0;
     // clang-format off
     auto score = [compaction_type](CloudTablet* t) {
@@ -489,9 +491,18 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
 
         int64_t s = score(t.get());
         if (s <= 0) { continue; }
-        if (s > *max_score) {
+        if (s > score_stats->max_score) {
             max_score_tablet_id = t->tablet_id();
-            *max_score = s;
+            score_stats->max_score = s;
+        }
+        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+            int64_t* policy_max_score =
+                    t->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY
+                            ? &score_stats->time_series_max_score
+                            : &score_stats->size_based_max_score;
+            if (s > *policy_max_score) {
+                *policy_max_score = s;
+            }
         }
 
         if (filter_out(t.get())) { ++num_filtered; continue; }
@@ -506,7 +517,7 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
     LOG_EVERY_N(INFO, 1000) << "get_topn_compaction_score, n=" << n << " type=" << compaction_type
                << " num_tablets=" << weak_tablets.size() << " num_skipped=" << num_skipped
                << " num_disabled=" << num_disabled << " num_filtered=" << num_filtered
-               << " max_score=" << *max_score << " max_score_tablet=" << max_score_tablet_id
+               << " max_score=" << score_stats->max_score << " max_score_tablet=" << max_score_tablet_id
                << " tablets=[" << [&buf] { std::stringstream ss; for (auto& i : buf) ss << i.first->tablet_id() << ":" << i.second << ","; return ss.str(); }() << "]"
                ;
     // clang-format on

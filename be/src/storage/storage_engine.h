@@ -232,7 +232,8 @@ public:
 
     std::vector<TabletCompactionContext> pick_topn_tablets_for_compaction(
             TabletManager* tablet_mgr, DataDir* data_dir, CompactionType compaction_type,
-            const CumuCompactionPolicyTable& cumu_compaction_policies, uint32_t* disk_max_score);
+            const CumuCompactionPolicyTable& cumu_compaction_policies,
+            CompactionScoreStats* disk_score_stats);
 
 private:
     TabletSet& _get_tablet_set(DataDir* dir, CompactionType compaction_type);

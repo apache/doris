@@ -1193,9 +1193,12 @@ void report_tablet_callback(StorageEngine& engine, const ClusterInfo* cluster_in
     engine.tablet_manager()->get_partitions_visible_version(&partitions_version);
     request.__set_partitions_version(std::move(partitions_version));
 
+    auto* metrics = DorisMetrics::instance();
     int64_t max_compaction_score =
-            std::max(DorisMetrics::instance()->tablet_cumulative_max_compaction_score->value(),
-                     DorisMetrics::instance()->tablet_base_max_compaction_score->value());
+            std::max(metrics->tablet_cumulative_max_compaction_score->value(),
+                     metrics->tablet_base_max_compaction_score->value());
+    max_compaction_score = std::max(max_compaction_score,
+                                    metrics->tablet_time_series_max_compaction_score->value());
     request.__set_tablet_max_compaction_score(max_compaction_score);
     request.__set_report_version(report_version);
 

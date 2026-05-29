@@ -647,7 +647,7 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
         CompactionType compaction_type, bool check_score) {
     std::vector<std::shared_ptr<CloudTablet>> tablets_compaction;
 
-    int64_t max_compaction_score = 0;
+    CompactionScoreStats score_stats;
     std::unordered_set<int64_t> tablet_preparing_cumu_compaction;
     std::unordered_map<int64_t, std::vector<std::shared_ptr<CloudCumulativeCompaction>>>
             submitted_cumu_compactions;
@@ -724,7 +724,7 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     do {
         std::vector<CloudTabletSPtr> tablets;
         auto st = tablet_mgr().get_topn_tablets_to_compact(n, compaction_type, filter_out, &tablets,
-                                                           &max_compaction_score);
+                                                           &score_stats);
         if (!st.ok()) {
             LOG(WARNING) << "failed to get tablets to compact, err=" << st;
             break;
@@ -733,13 +733,22 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
         tablets_compaction = std::move(tablets);
     } while (false);
 
-    if (max_compaction_score > 0) {
-        if (compaction_type == CompactionType::BASE_COMPACTION) {
+    if (score_stats.scanned) {
+        if (compaction_type == CompactionType::BASE_COMPACTION && score_stats.max_score > 0) {
             DorisMetrics::instance()->tablet_base_max_compaction_score->set_value(
-                    max_compaction_score);
-        } else {
+                    score_stats.max_score);
+        } else if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+            if (check_score || score_stats.size_based_max_score > 0) {
+                DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(
+                        score_stats.size_based_max_score);
+            }
+            if (check_score || score_stats.time_series_max_score > 0) {
+                DorisMetrics::instance()->tablet_time_series_max_compaction_score->set_value(
+                        score_stats.time_series_max_score);
+            }
+        } else if (score_stats.max_score > 0) {
             DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(
-                    max_compaction_score);
+                    score_stats.max_score);
         }
     }
 
