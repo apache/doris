@@ -27,7 +27,7 @@ public class CastException extends AnalysisException {
     private final String message;
 
     public CastException(String message) {
-        super(ErrorCode.NONE, message, Optional.of(0), Optional.of(0), Optional.empty());
+        super(ErrorCode.NONE, message, Optional.of(0), Optional.of(0));
         this.message = message;
     }
 
