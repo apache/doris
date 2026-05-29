@@ -29,6 +29,7 @@
 #include "core/column/column_array.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/array/function_array_distance.h"
 #include "exprs/vexpr_context.h"
@@ -43,7 +44,7 @@
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
-Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr) {
+Result<ColumnFloat32::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr) {
     if (arg_expr->is_constant() == false) {
         return ResultError(Status::InvalidArgument("Ann topn expr must be constant, got\n{}",
                                                    arg_expr->debug_string()));
@@ -99,7 +100,14 @@ Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr) {
         values_holder_col = value_nullable_col->get_nested_column_ptr();
     }
 
-    return values_holder_col;
+    auto float_col = check_and_get_column_ptr<ColumnFloat32>(values_holder_col);
+    if (float_col.get() == nullptr) {
+        return ResultError(Status::InvalidArgument(
+                "Ann topn query vector elements must be Float32, got column: {}",
+                values_holder_col->get_name()));
+    }
+
+    return float_col;
 }
 
 Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
@@ -188,10 +196,10 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::AnnIndexIterator* 
     DCHECK(ann_index_iterator != nullptr);
     DCHECK(_order_by_expr_ctx != nullptr);
     DCHECK(_order_by_expr_ctx->root() != nullptr);
-    size_t query_array_size = _query_array->size();
-    if (_query_array.get() == nullptr || query_array_size == 0) {
+    if (_query_array.get() == nullptr || _query_array->size() == 0) {
         return Status::InternalError("Ann topn query vector is not initialized");
     }
+    size_t query_array_size = _query_array->size();
 
     // TODO:(zhiqiang) Maybe we can move this dimension check to prepare phase.
 
@@ -203,9 +211,8 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::AnnIndexIterator* 
                 "Ann topn query vector dimension {} does not match index dimension {}",
                 query_array_size, ann_index_reader->get_dimension());
     }
-    const ColumnFloat32* query = assert_cast<const ColumnFloat32*>(_query_array.get());
     segment_v2::AnnTopNParam ann_query_params {
-            .query_value = query->get_data().data(),
+            .query_value = _query_array->get_data().data(),
             .query_value_size = query_array_size,
             .limit = _limit,
             ._user_params = _user_params,

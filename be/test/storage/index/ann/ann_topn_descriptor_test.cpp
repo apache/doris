@@ -116,8 +116,7 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
     ASSERT_TRUE(st.ok()) << fmt::format("st: {}, expr {}", st.to_string(),
                                         predicate->get_order_by_expr_ctx()->root()->debug_string());
 
-    const ColumnFloat32* query_column =
-            assert_cast<const ColumnFloat32*>(predicate->_query_array.get());
+    const auto& query_column = predicate->_query_array;
     const float* query_value = query_column->get_data().data();
     const size_t query_value_size = predicate->_query_array->size();
     ASSERT_EQ(query_value_size, 8);
