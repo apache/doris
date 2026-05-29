@@ -200,7 +200,35 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
     }
     std::string path(java_home);
     std::string java_bin = path + "/bin/java";
-    // Capture signal to prevent child process from becoming a zombie process
+
+    // Pre-build everything the child needs before fork(): heap allocation after
+    // fork() in a multi-threaded process can deadlock on inherited libc locks.
+    std::vector<std::string> argv_storage;
+    argv_storage.emplace_back("java");
+    const std::string user_java_opts = doris::config::cdc_client_java_opts;
+    if (!user_java_opts.empty()) {
+        std::istringstream iss(user_java_opts);
+        argv_storage.insert(argv_storage.end(), std::istream_iterator<std::string>(iss),
+                            std::istream_iterator<std::string>());
+    }
+    argv_storage.emplace_back(java_opts);
+    // OOM safety net (last-wins, user opts cannot disable).
+    argv_storage.emplace_back("-XX:+ExitOnOutOfMemoryError");
+    argv_storage.emplace_back("-jar");
+    argv_storage.emplace_back(cdc_jar_path);
+    argv_storage.emplace_back(cdc_jar_port);
+    argv_storage.emplace_back(backend_http_port);
+    argv_storage.emplace_back(cluster_token);
+
+    std::vector<char*> argv;
+    argv.reserve(argv_storage.size() + 1);
+    for (auto& s : argv_storage) {
+        argv.push_back(const_cast<char*>(s.c_str()));
+    }
+    argv.push_back(nullptr);
+
+    const std::string cdc_out_file = std::string(log_dir) + "/cdc-client.out";
+
     struct sigaction act;
     act.sa_flags = 0;
     act.sa_handler = handle_sigchld;
@@ -213,54 +241,25 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
 #else
     pid_t pid = fork();
     if (pid < 0) {
-        // Fork failed
         st = Status::InternalError("Fork cdc client failed.");
         st.to_protobuf(result->mutable_status());
         return st;
     } else if (pid == 0) {
-        // Child process
-        // When the parent process is killed, the child process also needs to exit
+        // Child: async-signal-safe operations only until execv().
 #ifndef __APPLE__
         prctl(PR_SET_PDEATHSIG, SIGKILL);
 #endif
-        // Redirect stdout and stderr to log out file
-        std::string cdc_out_file = std::string(log_dir) + "/cdc-client.out";
         int out_fd = open(cdc_out_file.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
         if (out_fd < 0) {
             perror("open cdc-client.out file failed");
-            exit(1);
+            _exit(1);
         }
         dup2(out_fd, STDOUT_FILENO);
         dup2(out_fd, STDERR_FILENO);
         close(out_fd);
-
-        // java <user_java_opts...> -Dlog.path=xx -jar cdc-client.jar
-        //      --server.port=9096 --backend.http.port=8040 --cluster.token=...
-        std::vector<std::string> argv_storage;
-        argv_storage.emplace_back("java");
-        const std::string user_java_opts = doris::config::cdc_client_java_opts;
-        if (!user_java_opts.empty()) {
-            std::istringstream iss(user_java_opts);
-            argv_storage.insert(argv_storage.end(), std::istream_iterator<std::string>(iss),
-                                std::istream_iterator<std::string>());
-        }
-        argv_storage.emplace_back(java_opts);
-        argv_storage.emplace_back("-jar");
-        argv_storage.emplace_back(cdc_jar_path);
-        argv_storage.emplace_back(cdc_jar_port);
-        argv_storage.emplace_back(backend_http_port);
-        argv_storage.emplace_back(cluster_token);
-
-        std::vector<char*> argv;
-        argv.reserve(argv_storage.size() + 1);
-        for (auto& s : argv_storage) {
-            argv.push_back(const_cast<char*>(s.c_str()));
-        }
-        argv.push_back(nullptr);
         execv(java_bin.c_str(), argv.data());
-        // If execv returns, it means it failed
         perror("Cdc client child process error");
-        exit(1);
+        _exit(1);
     } else {
         // Parent process: save PID and wait for startup
         _child_pid.store(pid);
