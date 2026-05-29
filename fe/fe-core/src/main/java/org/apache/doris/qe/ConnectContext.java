@@ -57,6 +57,7 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.mysql.ProxyMysqlChannel;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
@@ -366,6 +367,46 @@ public class ConnectContext {
         lastDBOfCatalog.clear();
     }
 
+    public void resetConnection() {
+        closeTxn();
+        if (!dbToTempTableNamesMap.isEmpty()) {
+            deleteTempTable();
+        }
+        dbToTempTableNamesMap.clear();
+        resetSessionVariable();
+        userVars = new HashMap<>();
+        preparedQuerys.clear();
+        preparedStatementContextMap.clear();
+        preparedStmtId = Integer.MIN_VALUE;
+        runningQuery = null;
+        changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+        clearLastDBOfCatalog();
+        command = MysqlCommand.COM_SLEEP;
+        returnRows = 0;
+    }
+
+    private void resetSessionVariable() {
+        sessionVariable = VariableMgr.newSessionVariable();
+        applyUserSessionVariableDefaults();
+        if (Config.use_fuzzy_session_variable) {
+            sessionVariable.initFuzzyModeVariables();
+        }
+    }
+
+    private void applyUserSessionVariableDefaults() {
+        String qualifiedUser = getQualifiedUser();
+        if (Strings.isNullOrEmpty(qualifiedUser)) {
+            return;
+        }
+        Env currentEnv = env == null ? Env.getCurrentEnv() : env;
+        Auth auth = currentEnv == null ? null : currentEnv.getAuth();
+        if (auth == null) {
+            return;
+        }
+        setUserQueryTimeout(auth.getQueryTimeout(qualifiedUser));
+        setUserInsertTimeout(auth.getInsertTimeout(qualifiedUser));
+    }
+
     public void setNotEvalNondeterministicFunction(boolean notEvalNondeterministicFunction) {
         this.notEvalNondeterministicFunction = notEvalNondeterministicFunction;
     }
@@ -382,12 +423,9 @@ public class ConnectContext {
         state = new QueryState();
         returnRows = 0;
         isKilled = false;
-        sessionVariable = VariableMgr.newSessionVariable();
+        resetSessionVariable();
         userVars = new HashMap<>();
         command = MysqlCommand.COM_SLEEP;
-        if (Config.use_fuzzy_session_variable) {
-            sessionVariable.initFuzzyModeVariables();
-        }
 
         sessionId = UUID.randomUUID().toString();
         if (!FeConstants.runningUnitTest) {

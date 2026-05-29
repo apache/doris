@@ -18,6 +18,8 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -70,6 +72,50 @@ public class ConnectContextTest {
 
     @Before
     public void setUp() throws Exception {
+    }
+
+    @Test
+    public void testResetConnectionClearsSessionState() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(env);
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(auth.getQueryTimeout("testUser")).thenReturn(123);
+        Mockito.when(auth.getInsertTimeout("testUser")).thenReturn(456);
+        ctx.setUserQueryTimeout(123);
+        ctx.setUserInsertTimeout(456);
+        VariableMgr.setVar(ctx.getSessionVariable(),
+                new SetVar(SessionVariable.SQL_SELECT_LIMIT, new StringLiteral("0")));
+        ctx.getSessionVariable().setQueryTimeoutS(1);
+        ctx.getSessionVariable().setInsertTimeoutS(2);
+        ctx.setUserVar("user_var", new StringLiteral("value"));
+        ctx.changeDefaultCatalog("external_catalog");
+        ctx.currentDb = "test_db";
+        ctx.currentDbId = 10;
+        ctx.addLastDBOfCatalog("external_catalog", "test_db");
+        ctx.addPreparedQuery("1", "select 1");
+        ctx.setRunningQuery("select 1");
+        ctx.setCommand(MysqlCommand.COM_QUERY);
+        ctx.updateReturnRows(10);
+
+        Assert.assertEquals(0, ctx.getSessionVariable().getSqlSelectLimit());
+        Assert.assertEquals(1, ctx.getSessionVariable().getQueryTimeoutS());
+        Assert.assertEquals(2, ctx.getSessionVariable().getInsertTimeoutS());
+        Assert.assertFalse(ctx.getUserVars().isEmpty());
+
+        ctx.resetConnection();
+
+        Assert.assertEquals(-1, ctx.getSessionVariable().getSqlSelectLimit());
+        Assert.assertEquals(123, ctx.getSessionVariable().getQueryTimeoutS());
+        Assert.assertEquals(456, ctx.getSessionVariable().getInsertTimeoutS());
+        Assert.assertTrue(ctx.getUserVars().isEmpty());
+        Assert.assertEquals(InternalCatalog.INTERNAL_CATALOG_NAME, ctx.getDefaultCatalog());
+        Assert.assertEquals("", ctx.getDatabase());
+        Assert.assertNull(ctx.getLastDBOfCatalog("external_catalog"));
+        Assert.assertNull(ctx.getPreparedQuery("1"));
+        Assert.assertNull(ctx.getRunningQuery());
+        Assert.assertEquals(MysqlCommand.COM_SLEEP, ctx.getCommand());
+        Assert.assertEquals(0, ctx.getReturnRows());
     }
 
     @Test
