@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <string_view>
 
 #include "cloud/cloud_base_compaction.h"
 #include "cloud/cloud_cluster_info.h"
@@ -29,6 +30,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "json2pb/json_to_pb.h"
+#include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
@@ -143,11 +145,13 @@ TEST_F(CloudCompactionTest, failure_base_compaction_tablet_sleep_test) {
     tablet1->_approximate_num_rowsets = 10;
     mgr.put_tablet_for_UT(tablet1);
 
-    int64_t max_score;
+    CompactionScoreStats score_stats;
     std::vector<std::shared_ptr<CloudTablet>> tablets {};
     Status st = mgr.get_topn_tablets_to_compact(1, CompactionType::BASE_COMPACTION, filter_out,
-                                                &tablets, &max_score);
+                                                &tablets, &score_stats);
     ASSERT_EQ(st, Status::OK());
+    ASSERT_TRUE(score_stats.scanned);
+    ASSERT_EQ(score_stats.max_score, 10);
     ASSERT_EQ(tablets.size(), 1);
 
     tablet1->set_last_base_compaction_failure_time(
@@ -155,8 +159,10 @@ TEST_F(CloudCompactionTest, failure_base_compaction_tablet_sleep_test) {
                     std::chrono::system_clock::now().time_since_epoch())
                     .count());
     st = mgr.get_topn_tablets_to_compact(1, CompactionType::BASE_COMPACTION, filter_out, &tablets,
-                                         &max_score);
+                                         &score_stats);
     ASSERT_EQ(st, Status::OK());
+    ASSERT_TRUE(score_stats.scanned);
+    ASSERT_EQ(score_stats.max_score, 10);
     ASSERT_EQ(tablets.size(), 0);
 }
 
@@ -182,11 +188,15 @@ TEST_F(CloudCompactionTest, failure_cumu_compaction_tablet_sleep_test) {
     tablet1->_approximate_cumu_num_deltas = 10;
     mgr.put_tablet_for_UT(tablet1);
 
-    int64_t max_score;
+    CompactionScoreStats score_stats;
     std::vector<std::shared_ptr<CloudTablet>> tablets {};
     Status st = mgr.get_topn_tablets_to_compact(1, CompactionType::CUMULATIVE_COMPACTION,
-                                                filter_out, &tablets, &max_score);
+                                                filter_out, &tablets, &score_stats);
     ASSERT_EQ(st, Status::OK());
+    ASSERT_TRUE(score_stats.scanned);
+    ASSERT_EQ(score_stats.max_score, 10);
+    ASSERT_EQ(score_stats.size_based_max_score, 10);
+    ASSERT_EQ(score_stats.time_series_max_score, 0);
     ASSERT_EQ(tablets.size(), 1);
 
     tablet1->set_last_cumu_compaction_failure_time(
@@ -194,9 +204,43 @@ TEST_F(CloudCompactionTest, failure_cumu_compaction_tablet_sleep_test) {
                     std::chrono::system_clock::now().time_since_epoch())
                     .count());
     st = mgr.get_topn_tablets_to_compact(1, CompactionType::BASE_COMPACTION, filter_out, &tablets,
-                                         &max_score);
+                                         &score_stats);
     ASSERT_EQ(st, Status::OK());
+    ASSERT_TRUE(score_stats.scanned);
+    ASSERT_EQ(score_stats.max_score, 0);
     ASSERT_EQ(tablets.size(), 0);
+}
+
+TEST_F(CloudCompactionTest, split_cumu_compaction_score_stats_before_filter) {
+    CloudTabletMgr mgr(_engine);
+
+    auto create_tablet = [this, &mgr](int64_t tablet_id, std::string_view compaction_policy,
+                                      int64_t score) {
+        TabletMetaSharedPtr tablet_meta(new TabletMeta(*_tablet_meta));
+        tablet_meta->_tablet_id = tablet_id;
+        tablet_meta->set_compaction_policy(std::string(compaction_policy));
+        auto tablet = std::make_shared<CloudTablet>(_engine, tablet_meta);
+        tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+        tablet->_approximate_cumu_num_deltas = score;
+        mgr.put_tablet_for_UT(tablet);
+        return tablet;
+    };
+
+    create_tablet(10000, CUMULATIVE_SIZE_BASED_POLICY, 7);
+    create_tablet(10001, CUMULATIVE_TIME_SERIES_POLICY, 13);
+
+    auto filter_time_series = [](CloudTablet* t) { return t->tablet_id() == 10001; };
+    CompactionScoreStats score_stats;
+    std::vector<std::shared_ptr<CloudTablet>> tablets;
+    Status st = mgr.get_topn_tablets_to_compact(1, CompactionType::CUMULATIVE_COMPACTION,
+                                                filter_time_series, &tablets, &score_stats);
+    ASSERT_EQ(st, Status::OK());
+    ASSERT_TRUE(score_stats.scanned);
+    ASSERT_EQ(score_stats.max_score, 13);
+    ASSERT_EQ(score_stats.size_based_max_score, 7);
+    ASSERT_EQ(score_stats.time_series_max_score, 13);
+    ASSERT_EQ(tablets.size(), 1);
+    ASSERT_EQ(tablets[0]->tablet_id(), 10000);
 }
 
 static RowsetSharedPtr create_rowset(Version version, int num_segments, bool overlapping,
