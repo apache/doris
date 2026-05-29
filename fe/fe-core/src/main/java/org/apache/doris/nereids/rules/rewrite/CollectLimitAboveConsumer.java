@@ -20,8 +20,6 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -44,7 +42,6 @@ public class CollectLimitAboveConsumer implements RewriteRuleFactory {
                     return ctx.root;
                 }).toRule(RuleType.COLLECT_LIMIT_ABOVE_CTE_CONSUMER),
                 logicalLimit(logicalProject(logicalCTEConsumer()))
-                        .when(limit -> isRowPreservingProject(limit.child()))
                         .thenApply(ctx -> {
                             LogicalLimit<LogicalProject<LogicalCTEConsumer>> limit = ctx.root;
                             collectLimitRows(ctx.cascadesContext, limit, limit.child().child());
@@ -57,17 +54,5 @@ public class CollectLimitAboveConsumer implements RewriteRuleFactory {
             LogicalCTEConsumer cteConsumer) {
         cascadesContext.putConsumerIdToLimitRows(
                 cteConsumer.getRelationId(), limit.getLimit() + limit.getOffset());
-    }
-
-    private boolean isRowPreservingProject(LogicalProject<?> project) {
-        if (project.isDistinct()) {
-            return false;
-        }
-        for (NamedExpression expression : project.getProjects()) {
-            if (expression.containsType(TableGeneratingFunction.class)) {
-                return false;
-            }
-        }
-        return true;
     }
 }

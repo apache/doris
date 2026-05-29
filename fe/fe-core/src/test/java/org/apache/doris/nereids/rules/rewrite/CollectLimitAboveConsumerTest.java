@@ -19,18 +19,13 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
@@ -110,42 +105,5 @@ class CollectLimitAboveConsumerTest {
 
         Map<RelationId, Long> collected = cascadesContext.getStatementContext().getConsumerIdToLimitRows();
         Assertions.assertEquals(7L, collected.get(consumer.getRelationId()));
-    }
-
-    @Test
-    void testSkipLimitAboveProjectWithUnnest() {
-        LogicalOlapScan producerPlan = PlanConstructor.newLogicalOlapScan(3, "t4", 0);
-        LogicalCTEConsumer consumer = new LogicalCTEConsumer(
-                PlanConstructor.getNextRelationId(), new CTEId(4), "cte4", producerPlan);
-        SlotReference arr = new SlotReference("arr", ArrayType.of(IntegerType.INSTANCE));
-        LogicalProject<LogicalCTEConsumer> project = new LogicalProject<>(
-                ImmutableList.of(new Alias(new Unnest(arr), "a")), consumer);
-        LogicalLimit<LogicalProject<LogicalCTEConsumer>> limit = new LogicalLimit<>(
-                3, 0, LimitPhase.ORIGIN, project);
-
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(new ConnectContext(), limit);
-        List<Rule> rules = new CollectLimitAboveConsumer().buildRules();
-        Assertions.assertFalse(rules.get(1).getPattern().matchPlanTree(limit));
-
-        Map<RelationId, Long> collected = cascadesContext.getStatementContext().getConsumerIdToLimitRows();
-        Assertions.assertFalse(collected.containsKey(consumer.getRelationId()));
-    }
-
-    @Test
-    void testSkipLimitAboveDistinctProject() {
-        LogicalOlapScan producerPlan = PlanConstructor.newLogicalOlapScan(4, "t5", 0);
-        LogicalCTEConsumer consumer = new LogicalCTEConsumer(
-                PlanConstructor.getNextRelationId(), new CTEId(5), "cte5", producerPlan);
-        LogicalProject<LogicalCTEConsumer> project = new LogicalProject<>(
-                ImmutableList.copyOf(consumer.getOutput()), true, consumer);
-        LogicalLimit<LogicalProject<LogicalCTEConsumer>> limit = new LogicalLimit<>(
-                3, 0, LimitPhase.ORIGIN, project);
-
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(new ConnectContext(), limit);
-        List<Rule> rules = new CollectLimitAboveConsumer().buildRules();
-        Assertions.assertFalse(rules.get(1).getPattern().matchPlanTree(limit));
-
-        Map<RelationId, Long> collected = cascadesContext.getStatementContext().getConsumerIdToLimitRows();
-        Assertions.assertFalse(collected.containsKey(consumer.getRelationId()));
     }
 }
