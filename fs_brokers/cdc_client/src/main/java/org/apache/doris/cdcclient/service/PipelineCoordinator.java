@@ -168,6 +168,7 @@ public class PipelineCoordinator {
                     long elapsedTime = System.currentTimeMillis() - startTime;
                     boolean timeoutReached = elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
                     if (shouldStop(
+                            sourceReader,
                             isSnapshotSplit,
                             hasReceivedData,
                             lastMessageIsHeartbeat,
@@ -315,6 +316,7 @@ public class PipelineCoordinator {
                     boolean timeoutReached = elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
 
                     if (shouldStop(
+                            sourceReader,
                             isSnapshotSplit,
                             hasReceivedData,
                             lastMessageIsHeartbeat,
@@ -484,6 +486,7 @@ public class PipelineCoordinator {
                                     && elapsedTime >= maxIntervalMillis;
 
                     if (shouldStop(
+                            sourceReader,
                             isSnapshotSplit,
                             scannedRows > 0,
                             lastMessageIsHeartbeat,
@@ -615,6 +618,7 @@ public class PipelineCoordinator {
      * @return true if should stop, false if should continue
      */
     private boolean shouldStop(
+            SourceReader sourceReader,
             boolean isSnapshotSplit,
             boolean hasData,
             boolean lastMessageIsHeartbeat,
@@ -622,11 +626,13 @@ public class PipelineCoordinator {
             long maxIntervalMillis,
             boolean timeoutReached) {
 
-        // 1. Snapshot split with data: if no more data in queue, stop immediately (no need to wait
-        // for timeout)
-        // snapshot split will be written to the debezium queue all at once.
-        // multiple snapshot splits are handled in the source reader.
+        // Snapshot split: wait until every split has received its high-watermark event;
+        // an empty poll alone is not a finish signal under pollWithoutBuffer where the
+        // fetcher returns one ChangeEventQueue batch at a time.
         if (isSnapshotSplit) {
+            if (!sourceReader.isSnapshotFinished()) {
+                return false;
+            }
             LOG.info(
                     "Snapshot split finished, no more data available. Total elapsed: {} ms",
                     elapsedTime);

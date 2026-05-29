@@ -279,6 +279,10 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         // support scan partition table
         configFactory.setIncludePartitionedTables(true);
 
+        // FE injects "true" on TVF path; from-to leaves it absent → default false.
+        configFactory.skipSnapshotBackfill(
+                Boolean.parseBoolean(cdcConfig.get(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL)));
+
         // subtaskId use pg create slot in snapshot phase, slotname is slot_name_subtaskId
         return configFactory.create(subtaskId);
     }
