@@ -482,7 +482,7 @@ Status read_nested_scalar_batch(ScalarColumnReader& column_reader, int64_t batch
                 column_reader.name());
     }
     batch->def_levels.resize(static_cast<size_t>(batch->levels_written));
-    if (def_levels == nullptr) {
+    if (column_reader.descriptor()->max_definition_level() == 0 || def_levels == nullptr) {
         std::fill(batch->def_levels.begin(), batch->def_levels.end(),
                   column_reader.descriptor()->max_definition_level());
     } else {
@@ -496,7 +496,7 @@ Status read_nested_scalar_batch(ScalarColumnReader& column_reader, int64_t batch
                 column_reader.name());
     }
     batch->rep_levels.resize(static_cast<size_t>(batch->levels_written));
-    if (rep_levels == nullptr) {
+    if (column_reader.descriptor()->max_repetition_level() == 0 || rep_levels == nullptr) {
         std::fill(batch->rep_levels.begin(), batch->rep_levels.end(), 0);
     } else {
         std::copy(rep_levels, rep_levels + batch->levels_written, batch->rep_levels.begin());
@@ -507,8 +507,7 @@ Status read_nested_scalar_batch(ScalarColumnReader& column_reader, int64_t batch
     const int16_t max_definition_level = column_reader.descriptor()->max_definition_level();
     NullMap value_null_map;
     for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
-        const bool has_value = batch->def_levels[level_idx] == max_definition_level;
-        if (batch->def_levels[level_idx] >= value_slot_definition_level && has_value) {
+        if (batch->def_levels[level_idx] >= value_slot_definition_level) {
             if (value_idx >= batch->values_written) {
                 return Status::Corruption(
                         "Nested parquet reader returned fewer values than definition levels for "
@@ -516,10 +515,8 @@ Status read_nested_scalar_batch(ScalarColumnReader& column_reader, int64_t batch
                         column_reader.name());
             }
             batch->value_indices[level_idx] = value_idx++;
-        }
-        if (batch->def_levels[level_idx] >= value_slot_definition_level) {
             if (column_reader.type()->is_nullable()) {
-                value_null_map.push_back(!has_value);
+                value_null_map.push_back(batch->def_levels[level_idx] != max_definition_level);
             }
         }
     }
