@@ -24,6 +24,7 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -163,6 +164,8 @@ public class AggregateUnionPlanTest extends TestWithFeService implements MemoPat
 
         PlanChecker.from(connectContext).checkPlannerResult(
                 "SELECT * FROM test_agg_union.v_decimal_distinct_sum");
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(
+                "EXPLAIN SELECT * FROM test_agg_union.v_decimal_distinct_sum").contains("PLAN FRAGMENT"));
     }
 
     /**
