@@ -1243,7 +1243,7 @@ suite("rf_partition_pruning", "nonConcurrent") {
     // VARCHAR columns as RANGE partition keys.
 
     // ============================================================
-    // Tests 42-49: Expression target pruning
+    // Tests 42-50: Expression target pruning
     //
     // Identity partition slots still drive pruning without monotonicity metadata.
     // Non-identity target expressions must be rooted on a partition column and be
@@ -1380,8 +1380,27 @@ suite("rf_partition_pruning", "nonConcurrent") {
         "f.id FROM rf_prune_auto_expr_date f JOIN rf_prune_dim_datev2 d ON f.dt = d.dim_dt",
         "IN_OR_BLOOM_FILTER")
 
+    // Test 50: LIST pruning accepts target expressions that reference the same
+    // partition slot more than once. FE classifies this as a unique partition
+    // slot target; BE must not reject the repeated VSlotRef while projecting
+    // LIST partition values through the target expression.
+    sql "drop table if exists rf_prune_dim_region_twice"
+    sql """
+        CREATE TABLE rf_prune_dim_region_twice (
+            dim_region INT NOT NULL,
+            dim_val VARCHAR(32)
+        )
+        DISTRIBUTED BY HASH(dim_region) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """INSERT INTO rf_prune_dim_region_twice VALUES (2, 'a'), (6, 'b')"""
+    assertPruningProfile(
+        "count(*) FROM rf_prune_list_int f JOIN rf_prune_dim_region_twice d "
+                + "ON f.region_id + f.region_id = d.dim_region",
+        "IN_OR_BLOOM_FILTER", 5, 3)
+
     // ============================================================
-    // Test 50: String partition column (LIST partition on VARCHAR).
+    // Test 51: String partition column (LIST partition on VARCHAR).
     //
     // Regression coverage for the BE pruner string path. ColumnValueRange
     // for string types uses CppType=std::string while RF literals/HybridSet
@@ -1425,7 +1444,7 @@ suite("rf_partition_pruning", "nonConcurrent") {
         "IN_OR_BLOOM_FILTER", 4, 3)
 
     // ============================================================
-    // Test 51: Grouped RF with multiple targets.
+    // Test 52: Grouped RF with multiple targets.
     //
     // The RF generated from d.dim_key -> f1.part_col is expanded through the
     // inner join f1.part_col = f2.part_col, so Nereids creates two RF objects
@@ -1462,7 +1481,7 @@ suite("rf_partition_pruning", "nonConcurrent") {
         "IN_OR_BLOOM_FILTER", 8, 6)
 
     // ============================================================
-    // Test 52: Switch off enable_runtime_filter_partition_prune -> no pruning
+    // Test 53: Switch off enable_runtime_filter_partition_prune -> no pruning
     // ============================================================
     sql "set enable_runtime_filter_partition_prune=false"
     def token_off = UUID.randomUUID().toString()

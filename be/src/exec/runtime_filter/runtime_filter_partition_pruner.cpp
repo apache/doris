@@ -194,22 +194,34 @@ Status ParsedPartitionBoundaries::parse(
 }
 // NOLINTEND(readability-function-cognitive-complexity,readability-function-size)
 
-static const VSlotRef* find_unique_slot_ref(const VExpr* expr) {
+static bool find_unique_slot_ref_impl(const VExpr* expr, const VSlotRef** found) {
     if (!expr) {
-        return nullptr;
+        return true;
     }
     if (expr->is_slot_ref()) {
-        return assert_cast<const VSlotRef*>(expr);
-    }
-    const VSlotRef* found = nullptr;
-    for (const auto& child : expr->children()) {
-        const VSlotRef* c = find_unique_slot_ref(child.get());
-        if (c) {
-            if (found) {
-                return nullptr; // multiple slot refs, can't handle
-            }
-            found = c;
+        const auto* slot = assert_cast<const VSlotRef*>(expr);
+        if (*found == nullptr) {
+            *found = slot;
+            return true;
         }
+        if ((*found)->slot_id() != slot->slot_id()) {
+            return false;
+        }
+        DORIS_CHECK((*found)->column_id() == slot->column_id());
+        return true;
+    }
+    for (const auto& child : expr->children()) {
+        if (!find_unique_slot_ref_impl(child.get(), found)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static const VSlotRef* find_unique_slot_ref(const VExpr* expr) {
+    const VSlotRef* found = nullptr;
+    if (!find_unique_slot_ref_impl(expr, &found)) {
+        return nullptr;
     }
     return found;
 }
