@@ -22,6 +22,7 @@ import org.apache.doris.authentication.AuthenticationIntegrationMeta;
 import org.apache.doris.authentication.RoleMappingMeta;
 import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataSizeDisplayUtil;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -47,6 +48,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
@@ -1914,14 +1916,9 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setStringVal("")); // NODEGROUP (not available)
                     trow.addToColumnValue(new TCell().setStringVal("")); // TABLESPACE_NAME (not available)
 
-                    long localDataSize = partition.getDataSize(false);
-                    long remoteDataSize = partition.getRemoteDataSize();
-                    // In cloud mode, FE replica dataSize may hold remote bytes while remoteDataSize is 0.
-                    // Keep the output semantic consistent with backend_tablets.
-                    if (Config.isCloudMode() && remoteDataSize == 0 && localDataSize > 0) {
-                        remoteDataSize = localDataSize;
-                        localDataSize = 0;
-                    }
+                    Pair<Long, Long> displayDataSize = DataSizeDisplayUtil.getDisplayDataSize(partition);
+                    long localDataSize = displayDataSize.first;
+                    long remoteDataSize = displayDataSize.second;
                     Pair<Double, String> sizePair = DebugUtil.getByteUint(localDataSize);
                     String readableDateSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
                             + sizePair.second;
@@ -1931,8 +1928,9 @@ public class MetadataGenerator {
                             + sizePair.second;
                     trow.addToColumnValue(new TCell().setStringVal(readableDateSize)); // REMOTE_DATA_SIZE
                     trow.addToColumnValue(new TCell().setStringVal(partition.getState().toString())); // STATE
-                    String replicaAllocation = PartitionsProcDir.getReplicaAllocationDisplay(
-                            partitionInfo.getReplicaAllocation(partitionId).toCreateStmt());
+                    String replicaAllocation = getPartitionsReplicaAllocationDisplay(
+                            PartitionsProcDir.getReplicaAllocationDisplay(partitionInfo.getReplicaAllocation(
+                                    partitionId).toCreateStmt()));
                     trow.addToColumnValue(new TCell().setStringVal(replicaAllocation)); // REPLICA_ALLOCATION
                     trow.addToColumnValue(new TCell().setIntVal(partitionInfo.getReplicaAllocation(partitionId)
                             .getTotalReplicaNum())); // REPLICA_NUM
@@ -1995,6 +1993,10 @@ public class MetadataGenerator {
                 olapTable.readUnlock();
             }
         } // for table
+    }
+
+    private static String getPartitionsReplicaAllocationDisplay(String replicaAllocation) {
+        return FeConstants.null_string.equals(replicaAllocation) ? "NULL" : replicaAllocation;
     }
 
     private static void partitionsForExternalCatalog(UserIdentity currentUserIdentity,

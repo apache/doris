@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.catalog.DataSizeDisplayUtil;
 import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
@@ -29,6 +30,7 @@ import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -193,24 +195,9 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(displayLastSuccessVersion);
                         tabletInfo.add(replica.getLastFailedVersion());
                         tabletInfo.add(TimeUtils.longToTimeString(replica.getLastFailedTimestamp()));
-                        long localDataSize = replica.getDataSize();
-                        long remoteDataSize = replica.getRemoteDataSize();
-                        // In cloud mode, FE replica dataSize may hold remote bytes while remoteDataSize is 0.
-                        // Keep the output semantic consistent with backend_tablets.
-                        if (Config.isCloudMode()) {
-                            if (remoteDataSize == 0 && localDataSize > 0) {
-                                remoteDataSize = localDataSize;
-                                localDataSize = 0;
-                            } else if (remoteDataSize == 0 && localDataSize == 0) {
-                                // For some cloud stats paths, data_size may be 0 while
-                                // index/segment sizes are already available.
-                                long derivedRemoteSize =
-                                        replica.getLocalInvertedIndexSize() + replica.getLocalSegmentSize();
-                                if (derivedRemoteSize > 0) {
-                                    remoteDataSize = derivedRemoteSize;
-                                }
-                            }
-                        }
+                        Pair<Long, Long> displayDataSize = DataSizeDisplayUtil.getDisplayDataSize(replica);
+                        long localDataSize = displayDataSize.first;
+                        long remoteDataSize = displayDataSize.second;
                         tabletInfo.add(localDataSize);
                         tabletInfo.add(remoteDataSize);
                         tabletInfo.add(replica.getRowCount());
