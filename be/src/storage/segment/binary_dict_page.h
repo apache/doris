@@ -106,10 +106,9 @@ private:
 
     EncodingTypePB _encoding_type;
 
-    EncodingTypePB
-            _dict_word_page_encoding_type; // currently only support PLAIN_ENCODING and PLAIN_ENCODING_V2
-    EncodingTypePB
-            _fallback_binary_encoding_type; // currently only support PLAIN_ENCODING and PLAIN_ENCODING_V2
+    // Binary-plain flavor (V1 or V2) used both for the dictionary word page and for the data
+    // page when the dictionary overflows. Resolved from PageBuilderOptions::dict_binary_plain_encoding.
+    const EncodingTypePB _binary_plain_encoding_type;
 
     struct HashOfSlice {
         size_t operator()(const Slice& slice) const { return crc32_hash(slice.data, slice.size); }

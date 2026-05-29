@@ -283,7 +283,8 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
-    options.encoding = EncodingInfo::get_default_encoding(type, {}, false);
+    // Zone map page always uses PLAIN_ENCODING. Do not change.
+    options.encoding = PLAIN_ENCODING;
     options.compression = NO_COMPRESSION; // currently not compressed
 
     IndexedColumnWriter writer(options, type, file_writer);

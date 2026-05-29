@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -85,7 +87,12 @@ struct ColumnWriterOptions {
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
     const TabletIndex* ann_index = nullptr;
 
-    EncodingPreference encoding_preference {};
+    // Storage format of the owning tablet (V2 or V3). Set once by the segment writer
+    // (from TabletMeta::storage_format()) and propagated down to aux child writers
+    // (null / array-length / map-length), struct subcolumn writers and variant subcolumn
+    // writers. All encoding-default decisions consult this via resolve_default_encoding().
+    // Also forwarded to BinaryDictPageBuilder via PageBuilderOptions::binary_plain_encoding.
+    TabletStorageFormatPB storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
 
     std::string to_string() const {
         std::stringstream ss;

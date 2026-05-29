@@ -232,11 +232,11 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
 
     if (opts.pre_decode) {
         const auto* encoding_info = opts.encoding_info;
-        if (opts.is_dict_page) {
-            // for dict page, we need to use encoding_info based on footer->dict_page_footer().encoding()
-            // to get its pre_decoder
+        if (footer->type() == DICTIONARY_PAGE) {
+            // dict page uses its own encoding from footer->dict_page_footer().encoding()
+            // to look up the pre_decoder
             RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                              footer->dict_page_footer().encoding(), {},
+                                              footer->dict_page_footer().encoding(),
                                               &encoding_info));
         }
         if (encoding_info) {

@@ -51,6 +51,7 @@
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/column_writer.h"
+#include "storage/segment/encoding_info.h"
 #include "storage/segment/variant/nested_group_path.h"
 #include "storage/segment/variant/nested_group_routing_plan.h"
 #include "storage/segment/variant/variant_writer_helpers.h"
@@ -63,13 +64,13 @@ namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
 void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
-                       CompressionTypePB compression_type) {
+                       const ColumnWriterOptions& opts) {
     meta->Clear();
     meta->set_column_id(column_id);
     meta->set_type(int(column.type()));
     meta->set_length(column.length());
-    meta->set_encoding(DEFAULT_ENCODING);
-    meta->set_compression(compression_type);
+    meta->set_encoding(EncodingInfo::resolve_default_encoding(opts.storage_format, column));
+    meta->set_compression(opts.compression_type);
     meta->set_is_nullable(column.is_nullable());
     meta->set_default_value(column.default_value());
     meta->set_precision(column.precision());
@@ -80,8 +81,7 @@ void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColum
     }
     meta->set_unique_id(column.unique_id());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
-        _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i),
-                          compression_type);
+        _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i), opts);
     }
     if (column.is_variant_type()) {
         meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
@@ -95,7 +95,7 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
                              std::unique_ptr<ColumnWriter>* writer,
                              TabletIndexes& subcolumn_indexes, ColumnWriterOptions* opt,
                              int64_t none_null_value_size, bool need_record_none_null_value_size) {
-    _init_column_meta(opt->meta, cid, column, opt->compression_type);
+    _init_column_meta(opt->meta, cid, column, *opt);
     // no need to record none null value size for typed column or nested column, since it's compaction stage
     // will directly pick it as sub column
     if (need_record_none_null_value_size) {
@@ -456,6 +456,7 @@ Status prepare_materialized_subcolumn_writer(
     opts.compression_type = base_opts.compression_type;
     opts.rowset_ctx = base_opts.rowset_ctx;
     opts.file_writer = base_opts.file_writer;
+    opts.storage_format = base_opts.storage_format;
     std::unique_ptr<ColumnWriter> writer;
     variant_util::inherit_column_attributes(parent_column, tablet_column);
 
@@ -939,7 +940,7 @@ Status UnifiedSparseColumnWriter::init_single(const TabletColumn& sparse_column,
                                               SegmentFooterPB* footer) {
     _single_opts = base_opts;
     _single_opts.meta = footer->add_columns();
-    _init_column_meta(_single_opts.meta, column_id, sparse_column, base_opts.compression_type);
+    _init_column_meta(_single_opts.meta, column_id, sparse_column, base_opts);
     RETURN_IF_ERROR(ColumnWriter::create_map_writer(_single_opts, &sparse_column,
                                                     base_opts.file_writer, &_single_writer));
     RETURN_IF_ERROR(_single_writer->init());
@@ -959,7 +960,7 @@ Status UnifiedSparseColumnWriter::init_buckets(int bucket_num, const TabletColum
         TabletColumn bucket_col = variant_util::create_sparse_shard_column(parent_column, b);
         _bucket_opts[b] = base_opts;
         _bucket_opts[b].meta = footer->add_columns();
-        _init_column_meta(_bucket_opts[b].meta, column_id, bucket_col, base_opts.compression_type);
+        _init_column_meta(_bucket_opts[b].meta, column_id, bucket_col, base_opts);
         RETURN_IF_ERROR(ColumnWriter::create_map_writer(
                 _bucket_opts[b], &bucket_col, base_opts.file_writer, &_bucket_writers[b]));
         RETURN_IF_ERROR(_bucket_writers[b]->init());
@@ -1184,8 +1185,7 @@ Status VariantDocWriter::init(const TabletColumn* parent_column, int bucket_num,
                 variant_util::create_doc_value_column(*parent_column, b);
         _doc_value_column_opts[b] = opts;
         _doc_value_column_opts[b].meta = footer->add_columns();
-        _init_column_meta(_doc_value_column_opts[b].meta, column_id, bucket_column,
-                          opts.compression_type);
+        _init_column_meta(_doc_value_column_opts[b].meta, column_id, bucket_column, opts);
         RETURN_IF_ERROR(ColumnWriter::create_map_writer(_doc_value_column_opts[b], &bucket_column,
                                                         opts.file_writer,
                                                         &_doc_value_column_writers[b]));
@@ -1483,7 +1483,7 @@ Status prepare_subcolumn_writer_target(
     opts.compression_type = base_opts.compression_type;
     opts.rowset_ctx = base_opts.rowset_ctx;
     opts.file_writer = base_opts.file_writer;
-    opts.encoding_preference = base_opts.encoding_preference;
+    opts.storage_format = base_opts.storage_format;
     variant_util::inherit_column_attributes(parent_column, tablet_column);
 
     bool need_record_none_null_value_size =
@@ -2222,7 +2222,7 @@ Status VariantDocCompactWriter::_write_doc_value_column(const TabletColumn& pare
     int bucket_value = std::stoi(doc_value_column_path.substr(pos + 1));
     TabletColumn doc_value_column =
             variant_util::create_doc_value_column(parent_column, bucket_value);
-    _init_column_meta(_opts.meta, column_id, doc_value_column, _opts.compression_type);
+    _init_column_meta(_opts.meta, column_id, doc_value_column, _opts);
     RETURN_IF_ERROR(ColumnWriter::create_map_writer(_opts, &doc_value_column, _opts.file_writer,
                                                     &_doc_value_column_writer));
     RETURN_IF_ERROR(_doc_value_column_writer->init());
