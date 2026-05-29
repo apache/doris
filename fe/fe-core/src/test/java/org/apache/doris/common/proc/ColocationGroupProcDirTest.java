@@ -68,11 +68,11 @@ public class ColocationGroupProcDirTest extends TestWithFeService {
     public void testLocalColocationGroupDetailKeepsTagColumns() throws Exception {
         Tag tag1 = Tag.create(Tag.TYPE_LOCATION, "tag1");
         Tag tag2 = Tag.create(Tag.TYPE_LOCATION, "tag2");
-        Map<Tag, List<List<Long>>> backendsSeq = Maps.newLinkedHashMap();
-        backendsSeq.put(tag1, Lists.newArrayList(
+        Map<String, List<List<Long>>> backendsSeq = Maps.newLinkedHashMap();
+        backendsSeq.put(tag1.toString(), Lists.newArrayList(
                 Lists.newArrayList(10001L, 10002L),
                 Lists.newArrayList(10003L)));
-        backendsSeq.put(tag2, Lists.newArrayList(
+        backendsSeq.put(tag2.toString(), Lists.newArrayList(
                 Lists.newArrayList(20001L),
                 Lists.newArrayList(20002L, 20003L)));
 
@@ -273,21 +273,20 @@ public class ColocationGroupProcDirTest extends TestWithFeService {
 
     @Test
     public void testColocationGroupDetailPerComputeGroupColumns() throws Exception {
-        // Two compute groups each get their own column, and within a compute group the
-        // per-bucket backend sequence is self-consistent (not mixed across groups).
-        Tag cgA = Tag.createNotCheck(Tag.COMPUTE_GROUP_NAME, "cg_a");
-        Tag cgB = Tag.createNotCheck(Tag.COMPUTE_GROUP_NAME, "cg_b");
-        Map<Tag, List<List<Long>>> backendsSeq = Maps.newLinkedHashMap();
-        backendsSeq.put(cgA, Lists.newArrayList(
+        // Two compute groups each get their own column (named by the compute group), and
+        // within a compute group the per-bucket backend sequence is self-consistent (not
+        // mixed across groups).
+        Map<String, List<List<Long>>> backendsSeq = Maps.newLinkedHashMap();
+        backendsSeq.put("cg_a", Lists.newArrayList(
                 Lists.newArrayList(10001L),
                 Lists.newArrayList(10002L)));
-        backendsSeq.put(cgB, Lists.newArrayList(
+        backendsSeq.put("cg_b", Lists.newArrayList(
                 Lists.newArrayList(20001L),
                 Lists.newArrayList(20002L)));
 
-        ProcResult result = new ColocationGroupBackendSeqsProcNode(backendsSeq, false).fetchResult();
+        ProcResult result = new ColocationGroupBackendSeqsProcNode(backendsSeq).fetchResult();
 
-        Assertions.assertEquals(Lists.newArrayList("BucketIndex", cgA.toString(), cgB.toString()),
+        Assertions.assertEquals(Lists.newArrayList("BucketIndex", "cg_a", "cg_b"),
                 result.getColumnNames());
         Assertions.assertEquals(Lists.newArrayList("0", "10001", "20001"), result.getRows().get(0));
         Assertions.assertEquals(Lists.newArrayList("1", "10002", "20002"), result.getRows().get(1));

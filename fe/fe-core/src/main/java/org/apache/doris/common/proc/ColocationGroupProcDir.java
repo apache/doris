@@ -77,17 +77,22 @@ public class ColocationGroupProcDir implements ProcDirInterface {
         GroupId groupId = new GroupId(dbId, grpId);
         ColocateTableIndex index = Env.getCurrentColocateIndex();
         Map<Tag, List<List<Long>>> beSeqs = index.getBackendsPerBucketSeq(groupId);
-        boolean showBackendIdsColumn = false;
+        Map<String, List<List<Long>>> columns;
         if ((beSeqs == null || beSeqs.isEmpty()) && Config.isCloudMode()) {
-            // In cloud mode, legacy backend sequence metadata may be empty.
-            // Use only local replica metadata for proc display. This path must not
-            // resolve cloud backends because that may auto-start a compute group.
-            beSeqs = getCloudBackendSeqsFromTablets(groupId, index);
-            // A null tag key means there is no per-compute-group information (e.g.
-            // local-style replicas), so fall back to a single merged BackendIds column.
-            showBackendIdsColumn = beSeqs.containsKey(null);
+            // In cloud mode, legacy backend sequence metadata may be empty. Derive the
+            // sequence from current tablets, one column per compute group. This path must
+            // not resolve cloud backends in a way that auto-starts a compute group.
+            columns = getCloudBackendSeqsFromTablets(groupId, index);
+        } else {
+            // Local mode: one column per resource tag.
+            columns = Maps.newLinkedHashMap();
+            if (beSeqs != null) {
+                for (Map.Entry<Tag, List<List<Long>>> entry : beSeqs.entrySet()) {
+                    columns.put(entry.getKey().toString(), entry.getValue());
+                }
+            }
         }
-        return new ColocationGroupBackendSeqsProcNode(beSeqs, showBackendIdsColumn);
+        return new ColocationGroupBackendSeqsProcNode(columns);
     }
 
     @Override
@@ -101,8 +106,8 @@ public class ColocationGroupProcDir implements ProcDirInterface {
         return result;
     }
 
-    private Map<Tag, List<List<Long>>> getCloudBackendSeqsFromTablets(GroupId groupId, ColocateTableIndex index) {
-        Map<Tag, List<List<Long>>> backendsSeq = Maps.newHashMap();
+    private Map<String, List<List<Long>>> getCloudBackendSeqsFromTablets(GroupId groupId, ColocateTableIndex index) {
+        Map<String, List<List<Long>>> backendsSeq = Maps.newLinkedHashMap();
         List<Long> tableIds = index.getAllTableIds(groupId);
         for (Long tableId : tableIds) {
             long dbId = groupId.dbId;
@@ -129,7 +134,7 @@ public class ColocationGroupProcDir implements ProcDirInterface {
         return backendsSeq;
     }
 
-    private Map<Tag, List<List<Long>>> getCloudBackendSeqsFromTable(OlapTable olapTable) {
+    private Map<String, List<List<Long>>> getCloudBackendSeqsFromTable(OlapTable olapTable) {
         // Snapshot replicas (ordered by bucket) under the table lock only. Resolving the
         // per-compute-group placement of colocate cloud replicas calls into
         // CloudSystemInfoService / the colocate index, which must run outside the table
@@ -197,33 +202,32 @@ public class ColocationGroupProcDir implements ProcDirInterface {
             }
         }
 
-        // Resolve scope keys to display tags (also outside the table lock): name
+        // Resolve scope keys to display column names (also outside the table lock): name
         // resolution acquires CloudSystemInfoService's lock.
-        Map<Tag, List<List<Long>>> backendsSeq = Maps.newLinkedHashMap();
+        Map<String, List<List<Long>>> backendsSeq = Maps.newLinkedHashMap();
         for (Map.Entry<String, List<List<Long>>> entry : seqByScopeKey.entrySet()) {
-            backendsSeq.put(scopeKeyToTag(entry.getKey()), entry.getValue());
+            backendsSeq.put(scopeKeyToColumnName(entry.getKey()), entry.getValue());
         }
         return backendsSeq;
     }
 
-    // Map a proc-display scope key to its display tag. An empty key means there is no
-    // per-compute-group information (local-style replicas), rendered as null so the
-    // caller falls back to a single merged BackendIds column. Otherwise the key is a
-    // cloud compute group id, shown as a compute group tag (resolved to its name).
-    private Tag scopeKeyToTag(String scopeKey) {
+    // Map a proc-display scope key to its column name. An empty key means there is no
+    // per-compute-group breakdown (local-style replicas), shown as a single "BackendIds"
+    // column. Otherwise the key is a cloud compute group id, shown by its compute group
+    // name (falling back to the raw id when the name cannot be resolved).
+    private String scopeKeyToColumnName(String scopeKey) {
         if (Strings.isNullOrEmpty(scopeKey)) {
-            return null;
+            return "BackendIds";
         }
-        String computeGroupName = scopeKey;
         try {
             String name = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getClusterNameByClusterId(scopeKey);
             if (!Strings.isNullOrEmpty(name)) {
-                computeGroupName = name;
+                return name;
             }
         } catch (Exception e) {
             // Fall back to the raw compute group id if name resolution is unavailable.
         }
-        return Tag.createNotCheck(Tag.COMPUTE_GROUP_NAME, computeGroupName);
+        return scopeKey;
     }
 }
