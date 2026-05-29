@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_count_distinct_with_collection_type", "p0") {
-    // not support array/map/struct
+    // array is supported now, map/struct are still unsupported
     sql " drop table if exists test_collection_type;"
     sql """ CREATE TABLE IF NOT EXISTS `test_collection_type` (
       `id` int(11) NULL,
@@ -37,29 +37,32 @@ suite("test_count_distinct_with_collection_type", "p0") {
     "enable_single_replica_compaction" = "false"
     ); """
 
-        test {
-            sql"""select count(distinct a) from test_collection_type;"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
+    test {
+        sql """
+            select count(distinct arr)
+            from (
+                select [1, 2] as arr
+                union all
+                select [1, 2]
+                union all
+                select [2, 1]
+                union all
+                select cast(null as array<int>)
+            ) t
+        """
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception == null)
+            assertEquals(2, result[0][0])
         }
+    }
 
-        test {
-            sql"""select count(distinct m) from test_collection_type;"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
+    test {
+        sql """select count(distinct m) from test_collection_type;"""
+        exception "COUNT DISTINCT could not process type"
+    }
 
-        test {
-            sql"""select count(distinct s) from test_collection_type;"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-
-
+    test {
+        sql """select count(distinct s) from test_collection_type;"""
+        exception "COUNT DISTINCT could not process type"
+    }
 }
