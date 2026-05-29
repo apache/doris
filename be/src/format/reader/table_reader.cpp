@@ -153,6 +153,7 @@ Status TableReader::init(TableReadOptions options) {
     _io_ctx = options.io_ctx;
     _runtime_state = options.runtime_state;
     _scanner_profile = options.scanner_profile;
+    _push_down_agg_type = options.push_down_agg_type;
     _projected_columns = std::move(options.projected_columns);
     _system_properties = create_system_properties(_scan_params);
     _profile = std::move(options.profile);
@@ -173,19 +174,13 @@ Status TableReader::_build_table_filters_from_conjuncts() {
 
 Status TableReader::_open_local_filter_exprs(const FileScanRequest& file_request) {
     RowDescriptor row_desc;
-    for (const auto& expression_filter : file_request.expression_filters) {
-        if (expression_filter.conjunct == nullptr) {
-            if (expression_filter.delete_conjunct == nullptr) {
-                continue;
-            }
-        } else {
-            RETURN_IF_ERROR(expression_filter.conjunct->prepare(_runtime_state, row_desc));
-            RETURN_IF_ERROR(expression_filter.conjunct->open(_runtime_state));
-        }
-        if (expression_filter.delete_conjunct != nullptr) {
-            RETURN_IF_ERROR(expression_filter.delete_conjunct->prepare(_runtime_state, row_desc));
-            RETURN_IF_ERROR(expression_filter.delete_conjunct->open(_runtime_state));
-        }
+    for (const auto& conjunct : file_request.conjuncts) {
+        RETURN_IF_ERROR(conjunct->prepare(_runtime_state, row_desc));
+        RETURN_IF_ERROR(conjunct->open(_runtime_state));
+    }
+    for (const auto& delete_conjunct : file_request.delete_conjuncts) {
+        RETURN_IF_ERROR(delete_conjunct->prepare(_runtime_state, row_desc));
+        RETURN_IF_ERROR(delete_conjunct->open(_runtime_state));
     }
     return Status::OK();
 }
@@ -235,6 +230,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _current_task = std::make_unique<ScanTask>();
     _current_task->data_file = create_file_description(options.current_range);
     _delete_rows = nullptr;
+    _aggregate_pushdown_tried = false;
     return _parse_delete_predicates(options);
 }
 

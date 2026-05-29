@@ -36,6 +36,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/field.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/new_parquet/column_reader.h"
@@ -43,6 +44,7 @@
 #include "format/reader/expr/delete_predicate.h"
 #include "format/reader/expr/slot_ref.h"
 #include "format/reader/file_reader.h"
+#include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
 
 namespace doris {
@@ -66,8 +68,8 @@ struct TableColumn {
     bool is_partition_key = false;
 };
 
-// table-level filter。
-// TableColumnMapper 负责把它转换成 FileExpressionFilter 或 reader_expression_map。
+// All complex predicates on table/global schema, which cannot be directly localized to file
+// schema. They will be evaluated at table level and may depend on multiple columns.
 struct TableFilter {
     // 表达式过滤，适合表达 cast、复杂表达式、复杂列提取等语义。
     VExprContextSPtr conjunct;
@@ -108,21 +110,29 @@ struct ReadProfile {
 };
 
 struct TableReadOptions {
+    // Columns need to be read from file and output by table reader. They are all in table/global
+    // schema semantics.
     const std::vector<TableColumn> projected_columns;
+    // Simple predicates for a single column, which is parsed on scan operator.
     const TableColumnPredicates column_predicates;
-    // All conjuncts from scan operator
+    // All complex conjuncts from scan operator
     const VExprContext conjuncts;
+    // File format of the underlying data files, needed for reader initialization and reader-level
+    // filter pushdown.
     const FileFormat format;
     TFileScanRangeParams* scan_params;
     std::shared_ptr<io::IOContext> io_ctx;
     RuntimeState* runtime_state;
     RuntimeProfile* scanner_profile;
     const bool allow_missing_columns = true;
+    // Push-down aggregate type.
+    const TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
 
     std::unique_ptr<ReadProfile> profile;
 };
 
 struct SplitReadOptions {
+    // Split-level information for reader initialization, which may include file path, partition values, delete file info, etc. The content is table format specific and opaque to table reader base class; it's the responsibility of the concrete table reader implementation to parse necessary information for reader initialization and filter pushdown.
     std::map<std::string, Field> partition_values;
     ShardedKVCache* cache;
     TFileRangeDesc current_range;
@@ -171,6 +181,18 @@ public:
                 RETURN_IF_ERROR(create_next_reader(eos));
                 if (!_data_reader.reader) {
                     DCHECK(*eos);
+                    return Status::OK();
+                }
+            }
+
+            // Materialize a reduced row set for upper aggregate operators when aggregate
+            // pushdown can be applied. This is not the final aggregate result: COUNT emits
+            // `count` default rows for the upper COUNT(*), and MIN/MAX emits two rows containing
+            // file-level min/max values for the upper MIN/MAX.
+            if (!_aggregate_pushdown_tried) {
+                bool pushed_down = false;
+                RETURN_IF_ERROR(_try_materialize_aggregate_pushdown_rows(block, &pushed_down));
+                if (pushed_down) {
                     return Status::OK();
                 }
             }
@@ -329,10 +351,8 @@ protected:
                 std::make_shared<DataTypeInt64>(),
                 parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME));
 
-        FileExpressionFilter delete_filter;
-        delete_filter.delete_conjunct = VExprContext::create_shared(std::move(delete_predicate));
-        delete_filter.file_column_ids.push_back(row_position_column_id);
-        request->expression_filters.push_back(std::move(delete_filter));
+        request->delete_conjuncts.push_back(
+                VExprContext::create_shared(std::move(delete_predicate)));
         return Status::OK();
     }
 
@@ -343,7 +363,6 @@ protected:
         _data_reader.reader.reset();
         _data_reader.column_mapper.clear();
         _table_filters.clear();
-        _table_column_predicates.clear();
         _data_reader.file_schema.clear();
         _data_reader.block_schema.clear();
         _data_reader.block_template.clear();
@@ -367,6 +386,62 @@ protected:
 
     // Materialize virtual columns in table block, such as _row_id and _last_updated_sequence_number in Iceberg. This is called after finalize_chunk, so the virtual column can be referenced in finalize_expr.
     virtual Status materialize_virtual_columns(Block* table_block) { return Status::OK(); }
+
+    Status _try_materialize_aggregate_pushdown_rows(Block* block, bool* pushed_down) {
+        DORIS_CHECK(block != nullptr);
+        DORIS_CHECK(pushed_down != nullptr);
+        *pushed_down = false;
+        block->clear_column_data(_projected_columns.size());
+        _aggregate_pushdown_tried = true;
+        if (!_supports_aggregate_pushdown(_push_down_agg_type)) {
+            return Status::OK();
+        }
+
+        FileAggregateRequest file_request;
+        _build_file_aggregate_request(_push_down_agg_type, &file_request);
+        FileAggregateResult file_result;
+        const auto status = _data_reader.reader->get_aggregate_result(file_request, &file_result);
+        if (status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(status);
+        RETURN_IF_ERROR(
+                _materialize_aggregate_pushdown_rows(_push_down_agg_type, file_result, block));
+        *pushed_down = true;
+        RETURN_IF_ERROR(close_current_reader());
+        return Status::OK();
+    }
+
+    virtual bool _supports_aggregate_pushdown(TPushAggOp::type agg_type) const {
+        // Only COUNT and MIN/MAX can be push down.
+        if (agg_type != TPushAggOp::type::COUNT && agg_type != TPushAggOp::type::MINMAX) {
+            return false;
+        }
+        // Only support aggregate pushdown when there is no delete, filter and column predicate, so
+        // the reduced rows consumed by the upper aggregate remain semantically equivalent to a
+        // normal scan.
+        if (_delete_rows != nullptr && !_delete_rows->empty()) {
+            return false;
+        }
+        if (!_table_filters.empty() || !_table_column_predicates.empty()) {
+            return false;
+        }
+        if (agg_type == TPushAggOp::type::COUNT) {
+            return true;
+        }
+        // For MIN/MAX, only support direct file-to-table column mappings. The two emitted rows
+        // must be enough for the upper MIN/MAX aggregate without evaluating projections, default
+        // expressions or virtual columns.
+        for (const auto& mapping : _data_reader.column_mapper.mappings()) {
+            if (!mapping.file_column_id.has_value() || mapping.has_complex_projection ||
+                mapping.virtual_column_type != TableVirtualColumnType::INVALID ||
+                mapping.default_expr != nullptr || mapping.file_type == nullptr ||
+                mapping.table_type == nullptr) {
+                return false;
+            }
+        }
+        return true;
+    }
 
     Status _materialize_mapping_column(const ColumnMapping& mapping, Block* current_block,
                                        const size_t rows, ColumnPtr* column) {
@@ -411,6 +486,82 @@ protected:
         return Status::OK();
     }
 
+    void _build_file_aggregate_request(TPushAggOp::type agg_type,
+                                       FileAggregateRequest* request) const {
+        DORIS_CHECK(request != nullptr);
+        DORIS_CHECK(_supports_aggregate_pushdown(agg_type));
+        request->agg_type = agg_type;
+        request->columns.clear();
+        if (agg_type == TPushAggOp::type::COUNT) {
+            return;
+        }
+        request->columns.reserve(_data_reader.column_mapper.mappings().size());
+        for (const auto& mapping : _data_reader.column_mapper.mappings()) {
+            DORIS_CHECK(mapping.file_column_id.has_value());
+            request->columns.push_back({*mapping.file_column_id});
+        }
+    }
+
+    Status _materialize_aggregate_pushdown_rows(TPushAggOp::type agg_type,
+                                                const FileAggregateResult& file_result,
+                                                Block* block) {
+        if (agg_type == TPushAggOp::type::COUNT) {
+            // COUNT pushdown is not a final count value. It emits `count` default rows so the
+            // upper COUNT(*) aggregate can count them and produce the final result, including
+            // zero rows when count is 0.
+            for (size_t column_idx = 0; column_idx < block->columns(); ++column_idx) {
+                block->replace_by_position(column_idx,
+                                           block->get_by_position(column_idx)
+                                                   .type->create_column_const_with_default_value(
+                                                           cast_set<size_t>(file_result.count)));
+            }
+            return Status::OK();
+        }
+        // MIN/MAX pushdown emits two rows, min first and max second, for each projected column.
+        // The upper MIN/MAX aggregate consumes those two rows to produce the final aggregate value.
+        DORIS_CHECK(file_result.columns.size() == _data_reader.column_mapper.mappings().size());
+        DORIS_CHECK(block->columns() == _data_reader.column_mapper.mappings().size());
+        Block file_block;
+        file_block.reserve(_data_reader.block_schema.size());
+        for (const auto& field : _data_reader.block_schema) {
+            file_block.insert({field.type->create_column(), field.type, field.name});
+        }
+        for (size_t column_idx = 0; column_idx < file_result.columns.size(); ++column_idx) {
+            const auto& result_column = file_result.columns[column_idx];
+            if (!result_column.has_min || !result_column.has_max) {
+                return Status::NotSupported("Missing min/max aggregate result for column {}",
+                                            _projected_columns[column_idx].name);
+            }
+            const auto& mapping = _data_reader.column_mapper.mappings()[column_idx];
+            DORIS_CHECK(mapping.file_column_id.has_value());
+            bool found_file_column = false;
+            for (size_t block_position = 0; block_position < _data_reader.block_schema.size();
+                 ++block_position) {
+                if (_data_reader.block_schema[block_position].id == *mapping.file_column_id) {
+                    found_file_column = true;
+                    auto column =
+                            file_block.get_by_position(block_position).column->assume_mutable();
+                    if (column->empty()) {
+                        column->insert(result_column.min_value);
+                        column->insert(result_column.max_value);
+                        file_block.replace_by_position(block_position, std::move(column));
+                    }
+                    break;
+                }
+            }
+            DORIS_CHECK(found_file_column);
+        }
+        for (size_t column_idx = 0; column_idx < _data_reader.column_mapper.mappings().size();
+             ++column_idx) {
+            ColumnPtr table_column;
+            RETURN_IF_ERROR(
+                    _materialize_mapping_column(_data_reader.column_mapper.mappings()[column_idx],
+                                                &file_block, 2, &table_column));
+            block->replace_by_position(column_idx, std::move(table_column));
+        }
+        return Status::OK();
+    }
+
     struct DataReader {
         std::unique_ptr<FileReader> reader;
         TableColumnMapper column_mapper;
@@ -426,6 +577,7 @@ protected:
     std::shared_ptr<io::FileSystemProperties> _system_properties;
     // partition key -> value
     std::map<std::string, Field> _partition_values;
+    // Predicates built from scan conjuncts before file-level localization.
     std::vector<TableFilter> _table_filters;
     TableColumnPredicates _table_column_predicates;
     VExprContext _conjuncts {nullptr};
@@ -437,6 +589,8 @@ protected:
     RuntimeState* _runtime_state;
     RuntimeProfile* _scanner_profile;
     FileFormat _format;
+    TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
+    bool _aggregate_pushdown_tried = false;
 
 private:
     static const SchemaField* _find_schema_field(const std::vector<SchemaField>& schema,

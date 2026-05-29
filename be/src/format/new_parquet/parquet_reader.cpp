@@ -323,35 +323,27 @@ Status ParquetReader::_read_filter_columns(int64_t batch_rows, Block* file_block
 Status ParquetReader::_execute_filter_conjuncts(int64_t batch_rows, Block* file_block,
                                                 SelectionVector* selection,
                                                 uint16_t* selected_rows) {
-    // Expression filters may reference several predicate columns. Execute them only after all
+    // Conjuncts may reference several predicate columns. Execute them only after all referenced
     // predicate columns in the file-local block have been materialized.
-    for (const auto& expression_filter : _request->expression_filters) {
-        if (expression_filter.conjunct == nullptr) {
-            if (expression_filter.delete_conjunct == nullptr) {
-                continue;
-            }
-        } else {
-            if (*selected_rows == 0) {
-                break;
-            }
-            IColumn::Filter filter(static_cast<size_t>(batch_rows), 1);
-            bool can_filter_all = false;
-            RETURN_IF_ERROR(expression_filter.conjunct->execute_filter(
-                    file_block, filter.data(), static_cast<size_t>(batch_rows), false,
-                    &can_filter_all));
-            *selected_rows =
-                    can_filter_all ? 0
-                                   : _apply_filter_to_selection(filter, selection, *selected_rows);
-        }
+    for (const auto& conjunct : _request->conjuncts) {
         if (*selected_rows == 0) {
             break;
         }
-        if (expression_filter.delete_conjunct == nullptr) {
-            continue;
+        IColumn::Filter filter(static_cast<size_t>(batch_rows), 1);
+        bool can_filter_all = false;
+        RETURN_IF_ERROR(conjunct->execute_filter(file_block, filter.data(),
+                                                 static_cast<size_t>(batch_rows), false,
+                                                 &can_filter_all));
+        *selected_rows =
+                can_filter_all ? 0 : _apply_filter_to_selection(filter, selection, *selected_rows);
+    }
+    for (const auto& delete_conjunct : _request->delete_conjuncts) {
+        if (*selected_rows == 0) {
+            break;
         }
         int result_column_id = -1;
-        RETURN_IF_ERROR(expression_filter.delete_conjunct->root()->execute(
-                expression_filter.delete_conjunct.get(), file_block, &result_column_id));
+        RETURN_IF_ERROR(delete_conjunct->root()->execute(delete_conjunct.get(), file_block,
+                                                         &result_column_id));
         DORIS_CHECK(result_column_id >= 0 &&
                     result_column_id < static_cast<int>(file_block->columns()));
         const auto& delete_filter = assert_cast<const ColumnUInt8&>(
@@ -742,6 +734,76 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         // TODO: Compute _request->reader_expression_map to filter file_block
         return Status::OK();
     }
+}
+
+Status ParquetReader::get_aggregate_result(const reader::FileAggregateRequest& request,
+                                           reader::FileAggregateResult* result) {
+    DORIS_CHECK(result != nullptr);
+    if (_state == nullptr || _state->metadata == nullptr || _state->schema == nullptr) {
+        return Status::Uninitialized("ParquetReader is not open");
+    }
+    result->count = 0;
+    result->columns.clear();
+    if (request.agg_type != TPushAggOp::type::COUNT &&
+        request.agg_type != TPushAggOp::type::MINMAX) {
+        return Status::NotSupported("Unsupported parquet aggregate pushdown type {}",
+                                    request.agg_type);
+    }
+
+    // Aggregate row count in all selected row groups. For MIN/MAX aggregate, this is used to determine whether there is no row group selected.
+    for (const auto row_group_idx : _state->selected_row_groups) {
+        auto row_group_metadata = _state->metadata->RowGroup(row_group_idx);
+        DORIS_CHECK(row_group_metadata != nullptr);
+        result->count += row_group_metadata->num_rows();
+    }
+    if (request.agg_type == TPushAggOp::type::COUNT) {
+        return Status::OK();
+    }
+
+    result->columns.resize(request.columns.size());
+    for (size_t request_column_idx = 0; request_column_idx < request.columns.size();
+         ++request_column_idx) {
+        const auto file_column_id = request.columns[request_column_idx].file_column_id;
+        if (file_column_id < 0 ||
+            file_column_id >= static_cast<int32_t>(_state->file_schema.size())) {
+            return Status::InvalidArgument("Invalid parquet aggregate column id {}",
+                                           file_column_id);
+        }
+        const auto& column_schema = _state->file_schema[file_column_id];
+        DORIS_CHECK(column_schema != nullptr);
+        // TODO: Support min/max pushdown for complex column by traversing down to the leaf column readers. This requires supporting complex column statistics in parquet file reader, which is currently not implemented in parquet-cpp.
+        if (column_schema->leaf_column_id < 0) {
+            return Status::NotSupported(
+                    "Parquet aggregate pushdown only supports primitive column {}",
+                    column_schema->name);
+        }
+
+        auto& aggregate_column = result->columns[request_column_idx];
+        for (const auto row_group_idx : _state->selected_row_groups) {
+            auto row_group_metadata = _state->metadata->RowGroup(row_group_idx);
+            DORIS_CHECK(row_group_metadata != nullptr);
+            auto column_chunk = row_group_metadata->ColumnChunk(column_schema->leaf_column_id);
+            DORIS_CHECK(column_chunk != nullptr);
+            const auto statistics = ParquetStatisticsUtils::TransformColumnStatistics(
+                    *column_schema, column_chunk->statistics());
+            if (!statistics.has_min_max) {
+                return Status::NotSupported("Missing parquet min/max statistics for column {}",
+                                            column_schema->name);
+            }
+            if (!aggregate_column.has_min || statistics.min_value < aggregate_column.min_value) {
+                aggregate_column.min_value = statistics.min_value;
+                aggregate_column.has_min = true;
+            }
+            if (!aggregate_column.has_max || aggregate_column.max_value < statistics.max_value) {
+                aggregate_column.max_value = statistics.max_value;
+                aggregate_column.has_max = true;
+            }
+        }
+        if (!aggregate_column.has_min || !aggregate_column.has_max) {
+            return Status::NotSupported("No parquet row group selected for min/max pushdown");
+        }
+    }
+    return Status::OK();
 }
 
 Status ParquetReader::close() {

@@ -27,7 +27,9 @@
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "core/field.h"
 #include "exprs/vexpr_fwd.h"
+#include "gen_cpp/PlanNodes_types.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
 
@@ -75,15 +77,6 @@ struct FieldProjection {
     std::vector<FieldProjection> children;
 };
 
-// File-local expression filter. It may reference multiple predicate_columns, so FileReader should
-// evaluate it after all referenced predicate columns have been materialized in the file-local block.
-struct FileExpressionFilter {
-    VExprContextSPtr conjunct;
-    // DeletePredicate
-    VExprContextSPtr delete_conjunct;
-    std::vector<ColumnId> file_column_ids;
-};
-
 // File-local single-column predicates for file-layer pruning, such as min/max, page index,
 // dictionary and bloom filter. Predicates must all belong to file_column_id.
 struct FileColumnPredicateFilter {
@@ -108,10 +101,35 @@ struct FileScanRequest {
     std::vector<ColumnId> non_predicate_columns;
     std::map<ColumnId, size_t> column_positions; // file_column_id -> file-local block position
     std::map<ColumnId, FieldProjection> complex_projections;
-    std::vector<FileExpressionFilter> expression_filters;
+    // Complex conjuncts converted to file-local predicates from table-level predicates.
+    VExprContextSPtrs conjuncts;
+    // Delete predicates converted to file-local predicates.
+    VExprContextSPtrs delete_conjuncts;
+    // Only simple predicates that can be directly evaluated on column, such as `a` > 1. Now we use it for zone-map filtering.
     std::vector<FileColumnPredicateFilter> column_predicate_filters;
     // fallback path if filters cannot be localized to file-local predicates. The expression can reference projected_file_columns and partition columns.
     std::vector<std::pair<ColumnId, VExprContextSPtr>> reader_expression_map;
+};
+
+struct FileAggregateRequest {
+    struct Column {
+        ColumnId file_column_id = -1;
+    };
+
+    TPushAggOp::type agg_type = TPushAggOp::type::NONE;
+    std::vector<Column> columns;
+};
+
+struct FileAggregateResult {
+    struct Column {
+        bool has_min = false;
+        bool has_max = false;
+        Field min_value;
+        Field max_value;
+    };
+
+    int64_t count = 0;
+    std::vector<Column> columns;
 };
 
 // 文件物理读取层通用接口。
@@ -186,6 +204,11 @@ public:
         }
         _eof = true;
         return Status::OK();
+    }
+
+    virtual Status get_aggregate_result(const FileAggregateRequest& request,
+                                        FileAggregateResult* result) {
+        return Status::NotSupported("FileReader does not support aggregate pushdown");
     }
 
     // 关闭当前物理文件 reader 并释放文件层状态。
