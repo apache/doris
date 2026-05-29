@@ -276,9 +276,13 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     size_t already_read = 0;
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().cached_remote_reader_read_at);
 
+    const IOContext default_io_ctx;
+    if (io_ctx == nullptr) {
+        io_ctx = &default_io_ctx;
+    }
+    DCHECK(io_ctx);
     const bool is_dryrun = io_ctx->is_dryrun;
     DCHECK(!closed());
-    DCHECK(io_ctx);
     if (offset > size()) {
         return Status::InvalidArgument(
                 fmt::format("offset exceeds file size(offset: {}, file size: {}, path: {})", offset,
