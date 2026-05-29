@@ -440,6 +440,99 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForStructChildren) {
     EXPECT_EQ(projected_type->get_element_name(0), "b");
 }
 
+TEST(TableColumnMapperTest, CreatesComplexProjectionForMapValueStructChildren) {
+    auto key_type = std::make_shared<DataTypeInt32>();
+    auto a_type = std::make_shared<DataTypeInt32>();
+    auto b_type = std::make_shared<DataTypeString>();
+    auto value_type =
+            std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
+
+    reader::SchemaField key_field;
+    key_field.id = 0;
+    key_field.name = "key";
+    key_field.type = key_type;
+    key_field.file_path = {0, 0, 0};
+    reader::SchemaField a_field;
+    a_field.id = 0;
+    a_field.name = "a";
+    a_field.type = a_type;
+    a_field.file_path = {0, 0, 1, 0};
+    reader::SchemaField b_field;
+    b_field.id = 0;
+    b_field.name = "b";
+    b_field.type = b_type;
+    b_field.file_path = {0, 0, 1, 1};
+    reader::SchemaField value_field;
+    value_field.id = 0;
+    value_field.name = "value";
+    value_field.type = value_type;
+    value_field.file_path = {0, 0, 1};
+    value_field.children = {a_field, b_field};
+    reader::SchemaField entry_field;
+    entry_field.id = 0;
+    entry_field.name = "entries";
+    entry_field.type = std::make_shared<DataTypeStruct>(DataTypes {key_type, value_type},
+                                                        Strings {"key", "value"});
+    entry_field.file_path = {0, 0};
+    entry_field.children = {key_field, value_field};
+    reader::SchemaField map_field;
+    map_field.id = 0;
+    map_field.name = "m";
+    map_field.type = std::make_shared<DataTypeMap>(key_type, value_type);
+    map_field.file_path = {0};
+    map_field.children = {entry_field};
+
+    reader::TableColumn table_value_child;
+    table_value_child.id = 103;
+    table_value_child.name = "b";
+    table_value_child.type = b_type;
+    reader::TableColumn table_value;
+    table_value.id = 102;
+    table_value.name = "value";
+    table_value.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
+    table_value.children = {table_value_child};
+    reader::TableColumn table_entry;
+    table_entry.id = 101;
+    table_entry.name = "entries";
+    table_entry.type =
+            std::make_shared<DataTypeStruct>(DataTypes {table_value.type}, Strings {"value"});
+    table_entry.children = {table_value};
+    reader::TableColumn table_column;
+    table_column.id = 100;
+    table_column.name = "m";
+    table_column.type = std::make_shared<DataTypeMap>(key_type, table_value.type);
+    table_column.children = {table_entry};
+
+    reader::TableColumnMapperOptions options;
+    options.mode = reader::TableColumnMappingMode::BY_NAME;
+    reader::TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {map_field}).ok());
+
+    auto request = std::make_unique<reader::FileScanRequest>();
+    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_column}, request.get()).ok());
+    ASSERT_EQ(request->non_predicate_columns, std::vector<reader::ColumnId>({0}));
+    ASSERT_EQ(request->complex_projections.size(), 1);
+    const auto& projection = request->complex_projections.at(0);
+    EXPECT_EQ(projection.file_path, std::vector<int32_t>({0}));
+    ASSERT_FALSE(projection.project_all_children);
+    ASSERT_EQ(projection.children.size(), 1);
+    EXPECT_EQ(projection.children[0].file_path, std::vector<int32_t>({0, 0}));
+    ASSERT_EQ(projection.children[0].children.size(), 1);
+    EXPECT_EQ(projection.children[0].children[0].file_path, std::vector<int32_t>({0, 0, 1}));
+    ASSERT_EQ(projection.children[0].children[0].children.size(), 1);
+    EXPECT_EQ(projection.children[0].children[0].children[0].file_path,
+              std::vector<int32_t>({0, 0, 1, 1}));
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    const auto* projected_type =
+            assert_cast<const DataTypeMap*>(mapper.mappings()[0].file_type.get());
+    EXPECT_EQ(remove_nullable(projected_type->get_key_type())->get_primitive_type(), TYPE_INT);
+    const auto* projected_value =
+            assert_cast<const DataTypeStruct*>(projected_type->get_value_type().get());
+    ASSERT_EQ(projected_value->get_elements().size(), 1);
+    EXPECT_EQ(projected_value->get_element_name(0), "b");
+}
+
 class NewParquetReaderTest : public testing::Test {
 protected:
     void SetUp() override {

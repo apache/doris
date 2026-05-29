@@ -255,12 +255,18 @@ static Status rebuild_projected_file_type(ColumnMapping* mapping) {
     case TYPE_MAP:
         DORIS_CHECK(child_types.size() == 1);
         DORIS_CHECK(remove_nullable(child_types[0])->get_primitive_type() == TYPE_STRUCT);
+        DORIS_CHECK(mapping->file_type != nullptr);
+        DORIS_CHECK(remove_nullable(mapping->file_type)->get_primitive_type() == TYPE_MAP);
         {
             const auto* entry_type =
                     assert_cast<const DataTypeStruct*>(remove_nullable(child_types[0]).get());
-            DORIS_CHECK(entry_type->get_elements().size() == 2);
-            projected_type = std::make_shared<DataTypeMap>(entry_type->get_element(0),
-                                                           entry_type->get_element(1));
+            DORIS_CHECK(entry_type->get_elements().size() == 1 ||
+                        entry_type->get_elements().size() == 2);
+            const auto value_idx = entry_type->get_elements().size() == 1 ? 0 : 1;
+            projected_type = std::make_shared<DataTypeMap>(
+                    assert_cast<const DataTypeMap*>(remove_nullable(mapping->file_type).get())
+                            ->get_key_type(),
+                    entry_type->get_element(value_idx));
         }
         break;
     default:
