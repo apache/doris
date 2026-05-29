@@ -1157,6 +1157,66 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                         });
     }
 
+    // CTE + union all + wide aggregate should keep partition lineage inside each plan boundary.
+    @Test
+    public void testCteUnionAllWideAggregatePartitionLineage() {
+        PlanChecker.from(connectContext)
+                .checkExplain("with union_src as (\n"
+                                + "  select\n"
+                                + "    L_SHIPDATE as part_date,\n"
+                                + "    L_ORDERKEY as order_key,\n"
+                                + "    L_QUANTITY as metric1,\n"
+                                + "    L_EXTENDEDPRICE as metric2,\n"
+                                + "    L_DISCOUNT as metric3,\n"
+                                + "    L_TAX as metric4,\n"
+                                + "    L_RETURNFLAG as flag\n"
+                                + "  from lineitem\n"
+                                + "  union all\n"
+                                + "  select\n"
+                                + "    O_ORDERDATE as part_date,\n"
+                                + "    O_ORDERKEY as order_key,\n"
+                                + "    O_TOTALPRICE as metric1,\n"
+                                + "    O_TOTALPRICE as metric2,\n"
+                                + "    O_TOTALPRICE as metric3,\n"
+                                + "    O_TOTALPRICE as metric4,\n"
+                                + "    O_ORDERSTATUS as flag\n"
+                                + "  from orders\n"
+                                + "), wide_project as (\n"
+                                + "  select\n"
+                                + "    date_trunc(part_date, 'day') as part_day,\n"
+                                + "    part_date,\n"
+                                + "    order_key,\n"
+                                + "    metric1,\n"
+                                + "    metric2,\n"
+                                + "    metric3,\n"
+                                + "    metric4,\n"
+                                + "    flag\n"
+                                + "  from union_src\n"
+                                + ")\n"
+                                + "select\n"
+                                + "  part_day,\n"
+                                + "  flag,\n"
+                                + "  count(*) as cnt,\n"
+                                + "  sum(metric1) as sum_metric1,\n"
+                                + "  sum(metric2) as sum_metric2,\n"
+                                + "  sum(metric3) as sum_metric3,\n"
+                                + "  sum(metric4) as sum_metric4,\n"
+                                + "  max(order_key) as max_key,\n"
+                                + "  min(order_key) as min_key\n"
+                                + "from wide_project\n"
+                                + "group by part_day, flag",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfos("part_day", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            successWith(relatedTableInfo, ImmutableSet.of(
+                                            ImmutableList.of("lineitem", "l_shipdate", "true", "true"),
+                                            ImmutableList.of("orders", "o_orderdate", "true", "true")),
+                                    "day");
+                        });
+    }
+
 
     // test with union but not union all
     @Test
