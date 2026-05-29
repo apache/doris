@@ -382,19 +382,14 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             long strictDecoupledNdv = getStrictNdv(decoupledBuilder.right(), resolvedSrcExpr);
             long strictStandardNdv = getStrictNdv(join.right(), equalTo.right());
 
-            // Prune decoupled RFs that won't be selective enough.
-            // With stats: if source NDV covers a large fraction of target NDV, bloom filter
-            // passes most rows -> useless.
+            // Prune decoupled RFs that won't be selective enough when stats are unknown.
+            // With known stats: always create the decoupled RF — shouldPreferDecoupledRf()
+            // decides below whether to prefer it or keep both with decoupled non-blocking.
             // Without stats: if the builder's build side has no filter predicates,
             // it likely outputs all distinct values -> non-selective.
-            if (strictDecoupledNdv > 0 && strictStandardNdv > 0) {
-                if ((double) strictDecoupledNdv / strictStandardNdv >= ndvRatioThreshold) {
-                    continue;
-                }
-            } else {
-                if (!hasFilterInSubtree(decoupledBuilder.right())) {
-                    continue;
-                }
+            if (!(strictDecoupledNdv > 0 && strictStandardNdv > 0)
+                    && !hasFilterInSubtree(decoupledBuilder.right())) {
+                continue;
             }
 
             boolean preferDecoupled = shouldPreferDecoupledRf(
@@ -497,7 +492,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         && rf.getSrcExpr().equals(pushDownContext.srcExpr)
                         && rf.getType().equals(pushDownContext.type)) {
                     rf.setNonBlocking(true);
-                    return;
                 }
             }
         }
