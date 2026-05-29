@@ -25,7 +25,9 @@
 #include "common/status.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/types.h"
+#include "core/value/large_int_value.h"
 #include "exprs/function/function_test_util.h"
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
@@ -50,6 +52,10 @@ __int128_t murmur_hash3_128_for_test(const std::vector<std::string>& values) {
         murmur_hash3_x64_process(value.data(), value.size(), h1, h2);
     }
     return pack_murmur_hash3_128_for_test(h1, h2);
+}
+
+std::string murmur_hash3_u128_for_test(const std::vector<std::string>& values) {
+    return LargeIntValue::to_string(static_cast<__uint128_t>(murmur_hash3_128_for_test(values)));
 }
 
 } // namespace
@@ -173,24 +179,76 @@ TEST(HashFunctionTest, murmur_hash_3_128_test) {
 }
 
 TEST(HashFunctionTest, murmur_hash_3_128_empty_arguments_test) {
-    Block block;
-    auto return_type = std::make_shared<DataTypeInt128>();
-    FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
-            "murmur_hash3_128", block.get_columns_with_type_and_name(), return_type);
-    ASSERT_TRUE(func != nullptr);
+    auto check_empty_arguments = [](const std::string& func_name, const DataTypePtr& return_type) {
+        Block block;
+        FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
+                func_name, block.get_columns_with_type_and_name(), return_type);
+        ASSERT_TRUE(func != nullptr);
 
-    FunctionUtils fn_utils(return_type, {}, false);
-    auto* fn_ctx = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+        FunctionUtils fn_utils(return_type, {}, false);
+        auto* fn_ctx = fn_utils.get_fn_ctx();
+        ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
+        ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
 
-    block.insert({nullptr, return_type, "result"});
-    const auto st = func->execute(fn_ctx, block, {}, 0, 1);
-    EXPECT_FALSE(st.ok());
-    EXPECT_NE(st.to_string().find("requires at least one argument"), std::string::npos);
+        block.insert({nullptr, return_type, "result"});
+        const auto st = func->execute(fn_ctx, block, {}, 0, 1);
+        EXPECT_FALSE(st.ok());
+        EXPECT_NE(st.to_string().find("requires at least one argument"), std::string::npos);
 
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    };
+
+    check_empty_arguments("murmur_hash3_128", std::make_shared<DataTypeInt128>());
+    check_empty_arguments("murmur_hash3_u128", std::make_shared<DataTypeString>());
+}
+
+TEST(HashFunctionTest, murmur_hash_3_u128_test) {
+    std::string func_name = "murmur_hash3_u128";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {
+                {{Null()}, Null()},
+                {{std::string("")}, std::string("0")},
+                {{std::string("hello world")}, murmur_hash3_u128_for_test({"hello world"})}};
+
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    };
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {{{std::string("hello"), std::string("world")},
+                             murmur_hash3_u128_for_test({"hello", "world"})},
+                            {{std::string("hello"), Null()}, Null()}};
+
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    };
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {{{std::string("hello"), std::string("world"), std::string("!")},
+                             murmur_hash3_u128_for_test({"hello", "world", "!"})},
+                            {{std::string("hello"), std::string("world"), Null()}, Null()}};
+
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    };
+}
+
+TEST(HashFunctionTest, murmur_hash_3_u128_unsigned_range_test) {
+    std::string func_name = "murmur_hash3_u128";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {
+            {{std::string("hello world")}, std::string("228083453807047072434243676435732455694")}};
+
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
 TEST(HashFunctionTest, murmur_hash_get_name_test) {

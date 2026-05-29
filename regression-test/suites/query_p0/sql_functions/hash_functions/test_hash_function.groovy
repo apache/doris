@@ -92,6 +92,7 @@ suite("test_hash_function", "arrow_flight_sql") {
     qt_mmh3_64_v2_table "SELECT id, MURMUR_HASH3_64_V2(str_col) FROM test_hash_tbl ORDER BY id;"
     qt_mmh3_u64_v2_table "SELECT id, MURMUR_HASH3_U64_V2(str_col) FROM test_hash_tbl ORDER BY id;"
     qt_sql_mmh3_128_table "SELECT id, MURMUR_HASH3_128(str_col) FROM test_hash_tbl ORDER BY id;"
+    qt_sql_mmh3_u128_table "SELECT id, MURMUR_HASH3_U128(str_col) FROM test_hash_tbl ORDER BY id;"
 
     qt_sql_mmh3_128_multi_arg_table """
         SELECT id,
@@ -102,7 +103,14 @@ suite("test_hash_function", "arrow_flight_sql") {
         ORDER BY id;
     """
 
-    sql "DROP TABLE IF EXISTS test_hash_tbl;"
+    qt_sql_mmh3_u128_multi_arg_table """
+        SELECT id,
+               MURMUR_HASH3_U128(str_col, 'world'),
+               MURMUR_HASH3_U128('hello', str_col),
+               MURMUR_HASH3_U128(str_col, str_col)
+        FROM test_hash_tbl
+        ORDER BY id;
+    """
 
     // Constant folding tests
     qt_mmh3_64_v2_fold_1 "SELECT MURMUR_HASH3_64_V2('test') + 1;"
@@ -127,10 +135,32 @@ suite("test_hash_function", "arrow_flight_sql") {
                MURMUR_HASH3_128(CAST(123.45 AS DECIMAL(9, 2))),
                MURMUR_HASH3_128(CAST('2026-05-28' AS DATE));
     """
+    qt_sql_mmh3_u128_null "SELECT MURMUR_HASH3_U128(NULL);"
+    qt_sql_mmh3_u128_empty "SELECT MURMUR_HASH3_U128('');"
+    qt_sql_mmh3_u128_hello "SELECT MURMUR_HASH3_U128('hello');"
+    qt_sql_mmh3_u128_hello_world "SELECT MURMUR_HASH3_U128('hello world');"
+    qt_sql_mmh3_u128_apache_doris "SELECT MURMUR_HASH3_U128('apache doris');"
+    qt_sql_mmh3_u128_two_args "SELECT MURMUR_HASH3_U128('hello', 'world');"
+    qt_sql_mmh3_u128_three_args "SELECT MURMUR_HASH3_U128('hello', 'world', '!');"
+    qt_sql_mmh3_u128_null_second "SELECT MURMUR_HASH3_U128('hello', NULL);"
+    qt_sql_mmh3_u128_null_first "SELECT MURMUR_HASH3_U128(NULL, 'hello');"
+    qt_sql_mmh3_u128_all_null "SELECT MURMUR_HASH3_U128(NULL, NULL);"
+    qt_sql_mmh3_u128_unicode_zh "SELECT MURMUR_HASH3_U128('你好🤣');"
+    qt_sql_mmh3_u128_unicode_ja "SELECT MURMUR_HASH3_U128('アパッチドリス');"
+    qt_sql_mmh3_u128_other_types """
+        SELECT MURMUR_HASH3_U128(123),
+               MURMUR_HASH3_U128(CAST(123.45 AS DECIMAL(9, 2))),
+               MURMUR_HASH3_U128(CAST('2026-05-28' AS DATE));
+    """
 
     test {
         sql "SELECT MURMUR_HASH3_128();"
         exception "hash3_128"
+    }
+
+    test {
+        sql "SELECT MURMUR_HASH3_U128();"
+        exception "hash3_u128"
     }
 
     qt_sql "SELECT xxhash_32(null);"
