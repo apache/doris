@@ -463,7 +463,11 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         //  Distribution: partitionKeys
         //  Order: requiredOrderKeys
         WindowFrameGroup windowFrameGroup = window.getWindowFrameGroup();
-        // all keys that need to be sorted, which includes BOTH partitionKeys and orderKeys from this group
+        // Window execution keeps the original semantic order keys in WindowFrameGroup. This list is only the
+        // required child physical property: rows must be grouped by partition keys first, then ordered inside each
+        // partition. If an order key repeats a partition key, e.g. PARTITION BY c2 ORDER BY c2, c3, the partition
+        // key is already covered by the leading required order. Keeping it again would require [c2, c2, c3] and may
+        // introduce a redundant sort above PartitionTopN, although [c2, c3] already satisfies the Window.
         List<OrderKey> keysNeedToBeSorted = Lists.newArrayList();
         Set<Expression> partitionKeys = windowFrameGroup.getPartitionKeys();
         if (!partitionKeys.isEmpty()) {
