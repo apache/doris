@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForDateArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -70,6 +72,42 @@ public class DaysAdd extends ScalarFunction implements BinaryExpression, Explici
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        if (!isPrestoDialect()) {
+            return ComputeSignatureForDateArithmetic.super.computeSignature(signature);
+        }
+
+        Expression firstChild = child(0);
+
+        if (firstChild.getDataType().isStringLikeType() && firstChild.getDataType().isVarcharType()) {
+            return FunctionSignature.ret(DateV2Type.INSTANCE)
+                    .args(DateV2Type.INSTANCE, IntegerType.INSTANCE);
+        }
+
+        if (firstChild instanceof Cast) {
+            Cast cast = (Cast) firstChild;
+            if (!cast.isExplicitType()
+                    && cast.child().getDataType().isStringLikeType()
+                    && cast.child().getDataType().isVarcharType()) {
+                // Non-explicit cast from VARCHAR should use DATEV2 in Presto dialect
+                // but only if the cast output is a date-like type (not datetime)
+                if (cast.getDataType() instanceof DateV2Type) {
+                    return FunctionSignature.ret(DateV2Type.INSTANCE)
+                            .args(DateV2Type.INSTANCE, IntegerType.INSTANCE);
+                }
+            }
+        }
+
+        return ComputeSignatureForDateArithmetic.super.computeSignature(signature);
+    }
+
+    private static boolean isPrestoDialect() {
+        ConnectContext context = ConnectContext.get();
+        return context != null
+                && context.getSessionVariable().getSqlDialect().equalsIgnoreCase("presto");
     }
 
     @Override

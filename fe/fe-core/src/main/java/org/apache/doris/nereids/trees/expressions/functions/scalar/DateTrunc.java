@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
@@ -30,8 +31,10 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -95,6 +98,28 @@ public class DateTrunc extends ScalarFunction
 
     @Override
     public FunctionSignature customSignature() {
+        // Presto dialect: when the date-like arg is VARCHAR or a non-explicit Cast from VARCHAR,
+        // prefer DateV2 signature (Presto treats date_add/date_sub first arg as date, not datetime)
+        if (isPrestoDialect()) {
+            Expression dateArg = getArgument(0).getDataType().isDateLikeType() ? getArgument(0) : getArgument(1);
+            if (dateArg.getDataType().isStringLikeType() && dateArg.getDataType().isVarcharType()) {
+                return FunctionSignature.ret(DateV2Type.INSTANCE)
+                        .args(DateV2Type.INSTANCE, VarcharType.SYSTEM_DEFAULT);
+            }
+            if (dateArg instanceof Cast) {
+                Cast cast = (Cast) dateArg;
+                if (!cast.isExplicitType()
+                        && cast.child().getDataType().isStringLikeType()
+                        && cast.child().getDataType().isVarcharType()) {
+                    // but only if the cast output is a date-like type (not datetime)
+                    if (cast.getDataType() instanceof DateV2Type) {
+                        return FunctionSignature.ret(DateV2Type.INSTANCE)
+                                .args(DateV2Type.INSTANCE, VarcharType.SYSTEM_DEFAULT);
+                    }
+                }
+            }
+        }
+
         // should never return V1 Type
         // Handle TimeStampTzType first, before isDateLikeType check
         // Because getCurrentType() would convert TimeStampTzType to DateTimeV2Type
@@ -177,5 +202,11 @@ public class DateTrunc extends ScalarFunction
     public Expression withConstantArgs(Expression literal) {
         return getArgument(0).getDataType().isDateLikeType()
                 ? new DateTrunc(literal, child(1)) : new DateTrunc(child(0), literal);
+    }
+
+    private static boolean isPrestoDialect() {
+        ConnectContext context = ConnectContext.get();
+        return context != null
+                && context.getSessionVariable().getSqlDialect().equalsIgnoreCase("presto");
     }
 }
