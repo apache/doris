@@ -38,6 +38,43 @@ static std::string get_or_default(const std::map<std::string, std::string>& prop
     return default_value;
 }
 
+// Project the FAISS build parameters down to the FAISS-free subset the memory
+// estimator needs. Done here (inside the ANN translation unit, which has the
+// FAISS include path) so ann_index_writer.h can stay FAISS-free.
+static AnnBuildMemoryParams to_memory_params(const FaissBuildParameter& p) {
+    AnnBuildMemoryParams m;
+    switch (p.index_type) {
+    case FaissBuildParameter::IndexType::HNSW:
+        m.index_type = AnnBuildMemoryParams::IndexKind::HNSW;
+        break;
+    case FaissBuildParameter::IndexType::IVF:
+        m.index_type = AnnBuildMemoryParams::IndexKind::IVF;
+        break;
+    case FaissBuildParameter::IndexType::IVF_ON_DISK:
+        m.index_type = AnnBuildMemoryParams::IndexKind::IVF_ON_DISK;
+        break;
+    }
+    switch (p.quantizer) {
+    case FaissBuildParameter::Quantizer::FLAT:
+        m.quantizer = AnnBuildMemoryParams::Quantizer::FLAT;
+        break;
+    case FaissBuildParameter::Quantizer::SQ4:
+        m.quantizer = AnnBuildMemoryParams::Quantizer::SQ4;
+        break;
+    case FaissBuildParameter::Quantizer::SQ8:
+        m.quantizer = AnnBuildMemoryParams::Quantizer::SQ8;
+        break;
+    case FaissBuildParameter::Quantizer::PQ:
+        m.quantizer = AnnBuildMemoryParams::Quantizer::PQ;
+        break;
+    }
+    m.dim = p.dim;
+    m.max_degree = p.max_degree;
+    m.ivf_nlist = p.ivf_nlist;
+    m.pq_m = p.pq_m;
+    return m;
+}
+
 AnnIndexColumnWriter::AnnIndexColumnWriter(IndexFileWriter* index_file_writer,
                                            const TabletIndex* index_meta)
         : _index_file_writer(index_file_writer), _index_meta(index_meta) {}
@@ -83,7 +120,7 @@ Status AnnIndexColumnWriter::init() {
     faiss_index->build(build_parameter);
 
     _vector_index = faiss_index;
-    _build_params = build_parameter;
+    _build_params = to_memory_params(build_parameter);
     _dimension = cast_set<size_t>(build_parameter.dim);
     _chunk_rows = compute_chunk_rows(_dimension);
 
@@ -94,7 +131,7 @@ Status AnnIndexColumnWriter::init() {
             build_parameter.max_degree, build_parameter.ef_construction, quantizer, _chunk_rows,
             _chunk_rows * _dimension * sizeof(float));
 
-    RETURN_IF_ERROR(_acquire_memory_budget(build_parameter));
+    RETURN_IF_ERROR(_acquire_memory_budget());
 
     return Status::OK();
 }
@@ -107,7 +144,7 @@ int64_t AnnIndexColumnWriter::_oom_wait_timeout_ms() {
     return config::ann_index_build_memory_wait_timeout_ms;
 }
 
-Status AnnIndexColumnWriter::_acquire_memory_budget(const FaissBuildParameter& params) {
+Status AnnIndexColumnWriter::_acquire_memory_budget() {
     if (config::ann_index_build_memory_budget_bytes <= 0) {
         // Admission control disabled.
         return Status::OK();
@@ -116,7 +153,8 @@ Status AnnIndexColumnWriter::_acquire_memory_budget(const FaissBuildParameter& p
     // estimate one chunk's worth as a floor. _ensure_reservation_for_rows() then
     // grows the reservation toward the real footprint as rows accumulate, so the
     // global budget reflects actual memory rather than just a per-chunk floor.
-    const int64_t estimated = estimate_ann_build_memory(params, /*expected_rows=*/0, _chunk_rows);
+    const int64_t estimated =
+            estimate_ann_build_memory(_build_params, /*expected_rows=*/0, _chunk_rows);
     const int64_t timeout_ms = _oom_wait_timeout_ms();
     _reservation = AnnBuildMemoryReservation::try_acquire(estimated, timeout_ms);
     if (_reservation.active() || estimated <= 0) {

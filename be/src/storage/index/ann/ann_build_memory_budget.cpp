@@ -38,16 +38,16 @@ int omp_threads_cap() {
     return std::max(1, CpuInfo::num_cores());
 }
 
-int64_t per_row_store_bytes(const FaissBuildParameter& params) {
+int64_t per_row_store_bytes(const AnnBuildMemoryParams& params) {
     const int64_t dim = std::max(0, params.dim);
     switch (params.quantizer) {
-    case FaissBuildParameter::Quantizer::FLAT:
+    case AnnBuildMemoryParams::Quantizer::FLAT:
         return dim * static_cast<int64_t>(sizeof(float));
-    case FaissBuildParameter::Quantizer::SQ8:
+    case AnnBuildMemoryParams::Quantizer::SQ8:
         return dim;
-    case FaissBuildParameter::Quantizer::SQ4:
+    case AnnBuildMemoryParams::Quantizer::SQ4:
         return (dim + 1) / 2;
-    case FaissBuildParameter::Quantizer::PQ:
+    case AnnBuildMemoryParams::Quantizer::PQ:
         return std::max(0, params.pq_m);
     }
     return dim * static_cast<int64_t>(sizeof(float));
@@ -163,7 +163,7 @@ AnnBuildMemoryReservation AnnBuildMemoryReservation::try_acquire(int64_t bytes,
     return AnnBuildMemoryReservation(bytes);
 }
 
-int64_t estimate_ann_build_memory(const FaissBuildParameter& params, int64_t expected_rows,
+int64_t estimate_ann_build_memory(const AnnBuildMemoryParams& params, int64_t expected_rows,
                                   int64_t chunk_rows) {
     const int64_t dim = std::max(0, params.dim);
     if (dim == 0) {
@@ -183,14 +183,14 @@ int64_t estimate_ann_build_memory(const FaissBuildParameter& params, int64_t exp
 
     int64_t structure_bytes = 0;
     switch (params.index_type) {
-    case FaissBuildParameter::IndexType::HNSW: {
+    case AnnBuildMemoryParams::IndexKind::HNSW: {
         const int64_t degree = std::max(1, params.max_degree);
         structure_bytes =
                 static_cast<int64_t>(expected_rows * degree * kHnswEdgeBytes * kHnswGraphFactor);
         break;
     }
-    case FaissBuildParameter::IndexType::IVF:
-    case FaissBuildParameter::IndexType::IVF_ON_DISK: {
+    case AnnBuildMemoryParams::IndexKind::IVF:
+    case AnnBuildMemoryParams::IndexKind::IVF_ON_DISK: {
         // Coarse quantizer centroids (flat) + small per-list overhead.
         const int64_t nlist = std::max(1, params.ivf_nlist);
         const int64_t centroid_bytes = nlist * dim * static_cast<int64_t>(sizeof(float));

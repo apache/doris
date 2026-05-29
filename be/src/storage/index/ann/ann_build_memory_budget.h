@@ -21,9 +21,23 @@
 #include <cstdint>
 #include <mutex>
 
-#include "storage/index/ann/faiss_ann_index.h"
-
 namespace doris::segment_v2 {
+
+// FAISS-free mirror of the few FaissBuildParameter fields the memory estimator
+// needs. Kept independent of <faiss/*> on purpose: this header is pulled in
+// (via ann_index_writer.h -> column_writer.h) by many translation units that do
+// NOT have the FAISS include path, so it must not leak FAISS headers. The writer
+// fills this in init() from its FaissBuildParameter.
+struct AnnBuildMemoryParams {
+    enum class IndexKind { HNSW, IVF, IVF_ON_DISK };
+    enum class Quantizer { FLAT, SQ4, SQ8, PQ };
+    IndexKind index_type = IndexKind::HNSW;
+    Quantizer quantizer = Quantizer::FLAT;
+    int dim = 0;
+    int max_degree = 0;
+    int ivf_nlist = 0;
+    int pq_m = 0;
+};
 
 // Global byte budget shared by every concurrent ANN/vector index build on this
 // BE. Acts as admission control: writers reserve their estimated peak before
@@ -120,7 +134,7 @@ private:
 //
 // The model is intentionally conservative: precision is not the goal, the
 // goal is to refuse builds that would obviously blow past the budget.
-int64_t estimate_ann_build_memory(const FaissBuildParameter& params, int64_t expected_rows,
+int64_t estimate_ann_build_memory(const AnnBuildMemoryParams& params, int64_t expected_rows,
                                   int64_t chunk_rows);
 
 } // namespace doris::segment_v2

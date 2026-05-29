@@ -188,9 +188,9 @@ TEST_F(AnnBuildMemoryBudgetTest, GrowWakesWhenOtherBuildReleases) {
 }
 
 TEST_F(AnnBuildMemoryBudgetTest, EstimateGrowsWithRowsAndDim) {
-    FaissBuildParameter p;
-    p.index_type = FaissBuildParameter::IndexType::HNSW;
-    p.quantizer = FaissBuildParameter::Quantizer::FLAT;
+    AnnBuildMemoryParams p;
+    p.index_type = AnnBuildMemoryParams::IndexKind::HNSW;
+    p.quantizer = AnnBuildMemoryParams::Quantizer::FLAT;
     p.dim = 128;
     p.max_degree = 32;
     const int64_t small = estimate_ann_build_memory(p, /*expected_rows=*/1000, /*chunk_rows=*/100);
@@ -200,9 +200,9 @@ TEST_F(AnnBuildMemoryBudgetTest, EstimateGrowsWithRowsAndDim) {
 }
 
 TEST_F(AnnBuildMemoryBudgetTest, EstimateUnknownRowsFallsBackToChunk) {
-    FaissBuildParameter p;
-    p.index_type = FaissBuildParameter::IndexType::HNSW;
-    p.quantizer = FaissBuildParameter::Quantizer::FLAT;
+    AnnBuildMemoryParams p;
+    p.index_type = AnnBuildMemoryParams::IndexKind::HNSW;
+    p.quantizer = AnnBuildMemoryParams::Quantizer::FLAT;
     p.dim = 64;
     p.max_degree = 16;
     const int64_t unknown = estimate_ann_build_memory(p, /*expected_rows=*/0, /*chunk_rows=*/4096);
@@ -212,18 +212,18 @@ TEST_F(AnnBuildMemoryBudgetTest, EstimateUnknownRowsFallsBackToChunk) {
 }
 
 TEST_F(AnnBuildMemoryBudgetTest, EstimateQuantizersShrinkStore) {
-    FaissBuildParameter p;
-    p.index_type = FaissBuildParameter::IndexType::HNSW;
+    AnnBuildMemoryParams p;
+    p.index_type = AnnBuildMemoryParams::IndexKind::HNSW;
     p.dim = 256;
     p.max_degree = 32;
 
-    p.quantizer = FaissBuildParameter::Quantizer::FLAT;
+    p.quantizer = AnnBuildMemoryParams::Quantizer::FLAT;
     const int64_t flat = estimate_ann_build_memory(p, 10000, 1000);
-    p.quantizer = FaissBuildParameter::Quantizer::SQ8;
+    p.quantizer = AnnBuildMemoryParams::Quantizer::SQ8;
     const int64_t sq8 = estimate_ann_build_memory(p, 10000, 1000);
-    p.quantizer = FaissBuildParameter::Quantizer::SQ4;
+    p.quantizer = AnnBuildMemoryParams::Quantizer::SQ4;
     const int64_t sq4 = estimate_ann_build_memory(p, 10000, 1000);
-    p.quantizer = FaissBuildParameter::Quantizer::PQ;
+    p.quantizer = AnnBuildMemoryParams::Quantizer::PQ;
     p.pq_m = 16;
     const int64_t pq = estimate_ann_build_memory(p, 10000, 1000);
 
@@ -235,7 +235,7 @@ TEST_F(AnnBuildMemoryBudgetTest, EstimateQuantizersShrinkStore) {
 }
 
 TEST_F(AnnBuildMemoryBudgetTest, EstimateHandlesZeroDim) {
-    FaissBuildParameter p;
+    AnnBuildMemoryParams p;
     p.dim = 0;
     EXPECT_EQ(estimate_ann_build_memory(p, 1000, 100), 0);
 }

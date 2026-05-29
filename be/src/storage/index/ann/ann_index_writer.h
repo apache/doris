@@ -32,7 +32,6 @@
 #include "core/pod_array.h"
 #include "storage/index/ann/ann_build_memory_budget.h"
 #include "storage/index/ann/ann_index.h"
-#include "storage/index/ann/faiss_ann_index.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
@@ -84,7 +83,8 @@ protected:
     // Reserve the estimated build-memory peak from AnnBuildMemoryBudget. On
     // success the reservation is held in _reservation until destruction. On
     // failure, applies ann_index_build_on_oom_action ("wait"/"skip"/"fail").
-    Status _acquire_memory_budget(const FaissBuildParameter& params);
+    // Uses _build_params, which init() must populate first.
+    Status _acquire_memory_budget();
     Status _apply_oom_action(int64_t estimated_bytes, int64_t waited_ms);
     // Grow _reservation so it covers `total_rows` of accumulated, resident
     // vectors. Called before each streaming add() so the global budget tracks
@@ -120,8 +120,10 @@ protected:
     // Rows already added to the index via full chunks. Used to size incremental
     // budget reservations against the real (accumulated) footprint.
     size_t _added_rows = 0;
-    // Build parameters captured at init() so reservation growth can re-estimate
-    // the footprint as the segment's row count becomes known.
-    FaissBuildParameter _build_params;
+    // FAISS-free build parameters captured at init() so reservation growth can
+    // re-estimate the footprint as the segment's row count becomes known. Kept
+    // FAISS-free so this header does not leak <faiss/*> into the many non-ANN
+    // translation units that pull in column_writer.h.
+    AnnBuildMemoryParams _build_params;
 };
 } // namespace doris::segment_v2
