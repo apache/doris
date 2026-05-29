@@ -19,9 +19,12 @@
 
 #include <parquet/api/reader.h>
 #include <parquet/api/schema.h>
+#include <parquet/column_reader.h>
 #include <parquet/statistics.h>
 #include <parquet/types.h>
 
+#include <cstddef>
+#include <exception>
 #include <memory>
 #include <string>
 #include <utility>
@@ -103,6 +106,165 @@ bool is_null_only_predicate(const ColumnPredicate& predicate) {
            predicate.type() == PredicateType::IS_NOT_NULL;
 }
 
+bool is_supported_dictionary_predicate(const ColumnPredicate& predicate) {
+    switch (predicate.type()) {
+    case PredicateType::EQ:
+    case PredicateType::IN_LIST:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool is_dictionary_data_encoding(::parquet::Encoding::type encoding) {
+    return encoding == ::parquet::Encoding::PLAIN_DICTIONARY ||
+           encoding == ::parquet::Encoding::RLE_DICTIONARY;
+}
+
+bool is_level_encoding(::parquet::Encoding::type encoding) {
+    return encoding == ::parquet::Encoding::RLE || encoding == ::parquet::Encoding::BIT_PACKED;
+}
+
+bool is_data_page_type(::parquet::PageType::type page_type) {
+    return page_type == ::parquet::PageType::DATA_PAGE ||
+           page_type == ::parquet::PageType::DATA_PAGE_V2;
+}
+
+bool is_dictionary_encoded_chunk(const ::parquet::ColumnChunkMetaData& column_metadata) {
+    if (!column_metadata.has_dictionary_page()) {
+        return false;
+    }
+
+    const auto& encoding_stats = column_metadata.encoding_stats();
+    if (!encoding_stats.empty()) {
+        bool has_dictionary_data_page = false;
+        for (const auto& encoding_stat : encoding_stats) {
+            if (!is_data_page_type(encoding_stat.page_type) || encoding_stat.count <= 0) {
+                continue;
+            }
+            if (!is_dictionary_data_encoding(encoding_stat.encoding)) {
+                return false;
+            }
+            has_dictionary_data_page = true;
+        }
+        return has_dictionary_data_page;
+    }
+
+    bool has_dictionary_encoding = false;
+    for (const auto encoding : column_metadata.encodings()) {
+        if (is_dictionary_data_encoding(encoding)) {
+            has_dictionary_encoding = true;
+            continue;
+        }
+        if (!is_level_encoding(encoding)) {
+            return false;
+        }
+    }
+    return has_dictionary_encoding;
+}
+
+bool supports_dictionary_pruning(const ParquetColumnSchema& column_schema,
+                                 const ::parquet::ColumnChunkMetaData& column_metadata,
+                                 const reader::FileColumnPredicateFilter& column_filter) {
+    if (column_schema.kind != ParquetColumnSchemaKind::PRIMITIVE ||
+        column_schema.descriptor == nullptr || column_schema.type == nullptr) {
+        return false;
+    }
+    if (!column_schema.type_descriptor.is_string_like) {
+        return false;
+    }
+    if (column_metadata.type() != ::parquet::Type::BYTE_ARRAY &&
+        column_metadata.type() != ::parquet::Type::FIXED_LEN_BYTE_ARRAY) {
+        return false;
+    }
+    for (const auto& column_predicate : column_filter.predicates) {
+        if (column_predicate == nullptr || !is_supported_dictionary_predicate(*column_predicate)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+struct OwnedDictionaryWords {
+    std::vector<std::string> values;
+    std::vector<StringRef> refs;
+
+    void clear() {
+        values.clear();
+        refs.clear();
+    }
+
+    void build_refs() {
+        refs.reserve(values.size());
+        for (const auto& value : values) {
+            refs.emplace_back(value.data(), value.size());
+        }
+    }
+};
+
+bool read_dictionary_words(::parquet::ParquetFileReader* file_reader, int row_group_idx,
+                           int leaf_column_id, const ParquetColumnSchema& column_schema,
+                           OwnedDictionaryWords* dict_words) {
+    DORIS_CHECK(dict_words != nullptr);
+    dict_words->clear();
+    if (file_reader == nullptr || leaf_column_id < 0) {
+        return false;
+    }
+
+    auto row_group_reader = file_reader->RowGroup(row_group_idx);
+    if (row_group_reader == nullptr) {
+        return false;
+    }
+    auto page_reader = row_group_reader->GetColumnPageReader(leaf_column_id);
+    if (page_reader == nullptr) {
+        return false;
+    }
+    auto column_reader =
+            ::parquet::ColumnReader::Make(column_schema.descriptor, std::move(page_reader));
+    if (column_reader == nullptr) {
+        return false;
+    }
+
+    int32_t dictionary_length = 0;
+    const void* dictionary = nullptr;
+    try {
+        dictionary = column_reader->ReadDictionary(&dictionary_length);
+    } catch (const ::parquet::ParquetException&) {
+        return false;
+    } catch (const std::exception&) {
+        return false;
+    }
+    if (dictionary == nullptr || dictionary_length <= 0) {
+        return false;
+    }
+
+    dict_words->values.reserve(static_cast<size_t>(dictionary_length));
+    if (column_schema.descriptor->physical_type() == ::parquet::Type::BYTE_ARRAY) {
+        const auto* byte_array_values = reinterpret_cast<const ::parquet::ByteArray*>(dictionary);
+        for (int32_t dict_idx = 0; dict_idx < dictionary_length; ++dict_idx) {
+            dict_words->values.emplace_back(
+                    reinterpret_cast<const char*>(byte_array_values[dict_idx].ptr),
+                    byte_array_values[dict_idx].len);
+        }
+        dict_words->build_refs();
+        return true;
+    }
+    if (column_schema.descriptor->physical_type() == ::parquet::Type::FIXED_LEN_BYTE_ARRAY) {
+        const int type_length = column_schema.descriptor->type_length();
+        if (type_length <= 0) {
+            return false;
+        }
+        const auto* flba_values = reinterpret_cast<const ::parquet::FixedLenByteArray*>(dictionary);
+        for (int32_t dict_idx = 0; dict_idx < dictionary_length; ++dict_idx) {
+            dict_words->values.emplace_back(
+                    reinterpret_cast<const char*>(flba_values[dict_idx].ptr), type_length);
+        }
+        dict_words->build_refs();
+        return true;
+    }
+    return false;
+}
+
 segment_v2::ZoneMap to_column_predicate_statistics(const ParquetColumnStatistics& statistics) {
     segment_v2::ZoneMap predicate_statistics;
     predicate_statistics.min_value = statistics.min_value;
@@ -181,26 +343,46 @@ bool ParquetStatisticsUtils::CheckStatistics(const reader::FileColumnPredicateFi
 }
 
 bool ParquetStatisticsUtils::RowGroupExcludes(
-        const ::parquet::RowGroupMetaData& row_group,
-        const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
+        const ::parquet::RowGroupMetaData& row_group, ::parquet::ParquetFileReader* file_reader,
+        int row_group_idx, const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
         const reader::FileColumnPredicateFilter& column_filter) {
     if (column_filter.predicates.empty()) {
         return false;
     }
-    DCHECK(column_filter.file_column_id >= 0 &&
-           column_filter.file_column_id < row_group.num_columns());
     DCHECK_LT(column_filter.file_column_id, schema.size());
-    auto column_chunk = row_group.ColumnChunk(column_filter.file_column_id);
+    const auto& column_schema = *schema[column_filter.file_column_id];
+    if (column_schema.kind != ParquetColumnSchemaKind::PRIMITIVE ||
+        column_schema.leaf_column_id < 0) {
+        return false;
+    }
+    DCHECK_LT(column_schema.leaf_column_id, row_group.num_columns());
+    auto column_chunk = row_group.ColumnChunk(column_schema.leaf_column_id);
     if (column_chunk == nullptr) {
         return false;
     }
-    return CheckStatistics(column_filter,
-                           TransformColumnStatistics(*schema[column_filter.file_column_id],
-                                                     column_chunk->statistics()));
+    if (CheckStatistics(column_filter,
+                        TransformColumnStatistics(column_schema, column_chunk->statistics()))) {
+        return true;
+    }
+    if (!supports_dictionary_pruning(column_schema, *column_chunk, column_filter) ||
+        !is_dictionary_encoded_chunk(*column_chunk)) {
+        return false;
+    }
+    OwnedDictionaryWords dict_words;
+    if (!read_dictionary_words(file_reader, row_group_idx, column_schema.leaf_column_id,
+                               column_schema, &dict_words)) {
+        return false;
+    }
+    for (const auto& column_predicate : column_filter.predicates) {
+        if (!column_predicate->evaluate_and(dict_words.refs.data(), dict_words.refs.size())) {
+            return true;
+        }
+    }
+    return false;
 }
 
 Status ParquetStatisticsUtils::SelectRowGroups(
-        const ::parquet::FileMetaData& metadata,
+        const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const reader::FileScanRequest& request, std::vector<int>* selected_row_groups) {
     if (selected_row_groups == nullptr) {
@@ -218,7 +400,8 @@ Status ParquetStatisticsUtils::SelectRowGroups(
         }
         bool drop = false;
         for (const auto& column_filter : request.column_predicate_filters) {
-            if (RowGroupExcludes(*row_group, file_schema, column_filter)) {
+            if (RowGroupExcludes(*row_group, file_reader, row_group_idx, file_schema,
+                                 column_filter)) {
                 drop = true;
                 break;
             }
@@ -246,10 +429,10 @@ bool ParquetStatisticsUtils::BloomFilterSupported(const ParquetColumnSchema& col
 }
 
 Status select_row_groups_by_statistics(
-        const ::parquet::FileMetaData& metadata,
+        const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const reader::FileScanRequest& request, std::vector<int>* selected_row_groups) {
-    return ParquetStatisticsUtils::SelectRowGroups(metadata, file_schema, request,
+    return ParquetStatisticsUtils::SelectRowGroups(metadata, file_reader, file_schema, request,
                                                    selected_row_groups);
 }
 

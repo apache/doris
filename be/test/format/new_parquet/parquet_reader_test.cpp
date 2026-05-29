@@ -203,6 +203,30 @@ void write_int_pair_parquet_file(const std::string& file_path, int64_t row_group
                                                       row_group_size, builder.build()));
 }
 
+void write_dictionary_filter_parquet_file(const std::string& file_path) {
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false),
+            arrow::field("value", arrow::utf8(), false),
+    });
+    auto table =
+            arrow::Table::Make(schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
+                                        build_string_array({"aa", "az", "lm", "lz", "za", "zz"})});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    builder.enable_dictionary("value");
+    builder.disable_dictionary("id");
+    builder.disable_statistics();
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
+                                                      builder.build()));
+}
+
 Block build_file_block(const std::vector<reader::SchemaField>& schema) {
     Block block;
     for (const auto& field : schema) {
@@ -574,6 +598,103 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByStatistics) {
 
     EXPECT_EQ(ids, std::vector<int32_t>({3, 4, 5}));
     EXPECT_EQ(values, std::vector<std::string>({"three", "four", "five"}));
+}
+
+TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
+    write_dictionary_filter_parquet_file(_file_path);
+    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 6);
+    for (int row_group_idx = 0; row_group_idx < 6; ++row_group_idx) {
+        auto row_group = parquet_file_reader->metadata()->RowGroup(row_group_idx);
+        ASSERT_NE(row_group, nullptr);
+        auto value_chunk = row_group->ColumnChunk(1);
+        ASSERT_NE(value_chunk, nullptr);
+        ASSERT_TRUE(value_chunk->has_dictionary_page());
+        ASSERT_TRUE(value_chunk->statistics() == nullptr ||
+                    !value_chunk->statistics()->HasMinMax());
+    }
+
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<reader::SchemaField> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_unique<reader::FileScanRequest>();
+    request->predicate_columns = {1};
+    request->non_predicate_columns = {0};
+    reader::FileColumnPredicateFilter column_filter;
+    column_filter.file_column_id = 1;
+    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::EQ>(
+            1, "value", schema[1].type, Field::create_field<TYPE_STRING>("lm"), false));
+    request->column_predicate_filters.push_back(std::move(column_filter));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    std::vector<std::string> values;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+        const auto& value_column =
+                assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+            values.push_back(value_column.get_data_at(row).to_string());
+        }
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({3}));
+    EXPECT_EQ(values, std::vector<std::string>({"lm"}));
+}
+
+TEST_F(NewParquetReaderTest, InPredicateFiltersRowGroupsByDictionary) {
+    write_dictionary_filter_parquet_file(_file_path);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<reader::SchemaField> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_unique<reader::FileScanRequest>();
+    request->predicate_columns = {1};
+    request->non_predicate_columns = {0};
+    auto set = build_set<TYPE_STRING>();
+    set->insert(const_cast<char*>("az"), 2);
+    set->insert(const_cast<char*>("za"), 2);
+    reader::FileColumnPredicateFilter column_filter;
+    column_filter.file_column_id = 1;
+    column_filter.predicates.push_back(create_in_list_predicate<PredicateType::IN_LIST>(
+            1, "value", schema[1].type, set, false));
+    request->column_predicate_filters.push_back(std::move(column_filter));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    std::vector<std::string> values;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+        const auto& value_column =
+                assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+            values.push_back(value_column.get_data_at(row).to_string());
+        }
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({2, 5}));
+    EXPECT_EQ(values, std::vector<std::string>({"az", "za"}));
 }
 
 TEST_F(NewParquetReaderTest, RowPositionReaderReturnsFileLocalPositions) {

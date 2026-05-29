@@ -26,6 +26,7 @@
 
 namespace parquet {
 class FileMetaData;
+class ParquetFileReader;
 class RowGroupMetaData;
 class Statistics;
 } // namespace parquet
@@ -66,11 +67,12 @@ struct ParquetStatisticsUtils {
                                 const ParquetColumnStatistics& statistics);
 
     static bool RowGroupExcludes(const ::parquet::RowGroupMetaData& row_group,
+                                 ::parquet::ParquetFileReader* file_reader, int row_group_idx,
                                  const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
                                  const reader::FileColumnPredicateFilter& column_filter);
 
     static Status SelectRowGroups(
-            const ::parquet::FileMetaData& metadata,
+            const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
             const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
             const reader::FileScanRequest& request, std::vector<int>* selected_row_groups);
 
@@ -82,7 +84,7 @@ struct ParquetStatisticsUtils {
 // 后续 page index、dictionary、bloom filter 等文件格式优化也应继续收敛在这一层，避免污染
 // ParquetReader 的 scan 调度代码。
 Status select_row_groups_by_statistics(
-        const ::parquet::FileMetaData& metadata,
+        const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const reader::FileScanRequest& request, std::vector<int>* selected_row_groups);
 

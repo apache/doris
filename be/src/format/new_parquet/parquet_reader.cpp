@@ -675,8 +675,9 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
         reader::SchemaField projected_field;
         RETURN_IF_ERROR(_get_projected_schema_field(file_column_id, &projection, &projected_field));
     }
-    RETURN_IF_ERROR(select_row_groups_by_statistics(*_state->metadata, _state->file_schema,
-                                                    *_request, &_state->selected_row_groups));
+    RETURN_IF_ERROR(select_row_groups_by_statistics(*_state->metadata, _state->file_reader.get(),
+                                                    _state->file_schema, *_request,
+                                                    &_state->selected_row_groups));
     std::vector<int> range_selected_row_groups;
     range_selected_row_groups.reserve(_state->selected_row_groups.size());
     for (const auto row_group_idx : _state->selected_row_groups) {
