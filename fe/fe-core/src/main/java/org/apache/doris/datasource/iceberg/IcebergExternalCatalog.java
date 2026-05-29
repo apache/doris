@@ -18,11 +18,16 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalObjectLog;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
@@ -138,8 +143,12 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
     @Override
     protected List<String> listDatabaseNames() {
+        return super.listDatabaseNames();
+    }
+
+    protected List<String> listDatabaseNames(SessionContext ctx) {
         if (isIcebergRestUserSessionPropertyEnabled()) {
-            return ((IcebergMetadataOps) metadataOps).listDatabaseNames(currentSessionContext());
+            return ((IcebergMetadataOps) metadataOps).listDatabaseNames(ctx);
         }
         return super.listDatabaseNames();
     }
@@ -148,7 +157,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public List<String> getDbNames() {
         if (isIcebergRestUserSessionPropertyEnabled()) {
             makeSureInitialized();
-            return listDatabaseNames();
+            return listDatabaseNames(currentSessionContext());
         }
         return super.getDbNames();
     }
@@ -164,6 +173,55 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
             }
         }
         return super.getDbNamesOrEmpty();
+    }
+
+    @Override
+    public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
+        if (dbName == null || dbName.isEmpty() || isSystemDatabase(dbName)) {
+            return super.getDbNullable(dbName);
+        }
+        SessionContext ctx = currentSessionContext();
+        if (!ctx.hasDelegatedCredential()) {
+            return super.getDbNullable(dbName);
+        }
+        try {
+            makeSureInitialized();
+        } catch (Exception e) {
+            LOG.warn("failed to get db {} in catalog {}", dbName, getName(), e);
+            return null;
+        }
+        if (!isIcebergRestUserSessionEnabled()) {
+            return super.getDbNullable(dbName);
+        }
+        return getDbNullableWithoutCache(ctx, dbName);
+    }
+
+    private ExternalDatabase<? extends ExternalTable> getDbNullableWithoutCache(SessionContext ctx, String remoteDbName) {
+        if (!databaseExists(ctx, remoteDbName)) {
+            return null;
+        }
+        String localDbName = localDatabaseName(remoteDbName);
+        return buildDbForInit(remoteDbName, localDbName, Util.genIdByName(getName(), localDbName),
+                InitCatalogLog.Type.ICEBERG, false);
+    }
+
+    private boolean isSystemDatabase(String dbName) {
+        return dbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME) || dbName.equalsIgnoreCase(MysqlDb.DATABASE_NAME);
+    }
+
+    private String localDatabaseName(String remoteDbName) {
+        String localDbName = fromRemoteDatabaseName(remoteDbName);
+        if (getLowerCaseDatabaseNames() == 1) {
+            return localDbName.toLowerCase();
+        }
+        if (getLowerCaseDatabaseNames() == 2) {
+            return remoteDbName;
+        }
+        return localDbName;
+    }
+
+    protected boolean databaseExists(SessionContext ctx, String dbName) {
+        return ((IcebergMetadataOps) metadataOps).databaseExist(ctx, dbName);
     }
 
     /**

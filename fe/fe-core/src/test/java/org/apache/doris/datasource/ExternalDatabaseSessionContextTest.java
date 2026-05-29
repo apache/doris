@@ -29,7 +29,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class ExternalDatabaseSessionContextTest extends TestWithFeService {
 
@@ -50,6 +52,36 @@ public class ExternalDatabaseSessionContextTest extends TestWithFeService {
         Assertions.assertEquals(Lists.newArrayList("token_a", "token_b"), catalog.tokensUsedToListTables);
     }
 
+    @Test
+    public void testDelegatedSessionDatabaseLookupBypassesSharedCache() {
+        SessionAwareIcebergCatalog catalog = new SessionAwareIcebergCatalog();
+
+        withDelegatedToken("token_a", () -> Assertions.assertNotNull(catalog.getDbNullable("db_a")));
+        withDelegatedToken("token_b", () -> Assertions.assertNull(catalog.getDbNullable("db_a")));
+        withDelegatedToken("token_b", () -> Assertions.assertNotNull(catalog.getDbNullable("db_b")));
+        Assertions.assertEquals(Lists.newArrayList("token_a", "token_b", "token_b"),
+                catalog.tokensUsedToListDatabases);
+    }
+
+    @Test
+    public void testDelegatedSessionDatabaseNamesDoNotPopulateSharedCache() {
+        SessionAwareIcebergCatalog catalog = new SessionAwareIcebergCatalog();
+
+        withDelegatedToken("token_a", () -> Assertions.assertEquals(
+                Lists.newArrayList("db_a"), catalog.getDbNames()));
+        withDelegatedToken("token_b", () -> Assertions.assertEquals(
+                Lists.newArrayList("db_b"), catalog.getDbNames()));
+        Assertions.assertEquals(Lists.newArrayList("token_a", "token_b"), catalog.tokensUsedToListDatabases);
+
+        withDelegatedToken("token_a", () -> {
+            List<String> sharedDatabaseNames = catalog.getSharedDatabaseNames();
+            Assertions.assertTrue(sharedDatabaseNames.contains("db1"));
+            Assertions.assertFalse(sharedDatabaseNames.contains("db_a"));
+        });
+        Assertions.assertEquals(Lists.newArrayList("token_a", "token_b", "bootstrap"),
+                catalog.tokensUsedToListDatabases);
+    }
+
     private static void withDelegatedToken(String token, Runnable action) {
         ConnectContext context = new ConnectContext();
         context.setSessionContext(SessionContext.of(new DelegatedCredential(
@@ -64,10 +96,19 @@ public class ExternalDatabaseSessionContextTest extends TestWithFeService {
 
     private static class SessionAwareIcebergCatalog extends IcebergExternalCatalog {
         private final List<String> tokensUsedToListTables = Lists.newArrayList();
+        private final List<String> tokensUsedToListDatabases = Lists.newArrayList();
 
         private SessionAwareIcebergCatalog() {
             super(1L, "session_catalog", "");
-            catalogProperty = new CatalogProperty(null, Collections.emptyMap());
+            Map<String, String> props = new HashMap<>();
+            props.put("type", "iceberg");
+            props.put("iceberg.catalog.type", "rest");
+            props.put("iceberg.rest.uri", "http://localhost:8181");
+            props.put("iceberg.rest.security.type", "oauth2");
+            props.put("iceberg.rest.session", "user");
+            props.put("iceberg.rest.oauth2.credential", "client_credentials");
+            props.put("iceberg.rest.oauth2.server-uri", "http://auth.example.com/token");
+            catalogProperty = new CatalogProperty(null, props);
         }
 
         @Override
@@ -78,14 +119,37 @@ public class ExternalDatabaseSessionContextTest extends TestWithFeService {
 
         @Override
         protected List<String> listDatabaseNames() {
-            return Collections.singletonList("db1");
+            tokensUsedToListDatabases.add("bootstrap");
+            return databaseNamesForToken("bootstrap");
+        }
+
+        @Override
+        protected List<String> listDatabaseNames(SessionContext ctx) {
+            String token = token(ctx);
+            tokensUsedToListDatabases.add(token);
+            return databaseNamesForToken(token);
+        }
+
+        @Override
+        protected boolean databaseExists(SessionContext ctx, String dbName) {
+            String token = token(ctx);
+            tokensUsedToListDatabases.add(token);
+            return databaseNamesForToken(token).contains(dbName);
+        }
+
+        private List<String> databaseNamesForToken(String token) {
+            if ("token_a".equals(token)) {
+                return Lists.newArrayList("db_a");
+            }
+            if ("token_b".equals(token)) {
+                return Lists.newArrayList("db_b");
+            }
+            return Lists.newArrayList("db1");
         }
 
         @Override
         protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
-            String token = ctx.getDelegatedCredential()
-                    .map(DelegatedCredential::getToken)
-                    .orElse("bootstrap");
+            String token = token(ctx);
             tokensUsedToListTables.add(token);
             if ("token_a".equals(token)) {
                 return Lists.newArrayList("table_a");
@@ -104,6 +168,17 @@ public class ExternalDatabaseSessionContextTest extends TestWithFeService {
         @Override
         public boolean isIcebergRestUserSessionEnabled() {
             return true;
+        }
+
+        private List<String> getSharedDatabaseNames() {
+            makeSureInitialized();
+            return metaCache.listNames();
+        }
+
+        private static String token(SessionContext ctx) {
+            return ctx.getDelegatedCredential()
+                    .map(DelegatedCredential::getToken)
+                    .orElse("bootstrap");
         }
     }
 }
