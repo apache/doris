@@ -3844,6 +3844,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public Index getInvertedIndex(Column column, List<String> subPath, String analyzer) {
+        if (indexes == null) {
+            return null;
+        }
         List<Index> invertedIndexes = new ArrayList<>();
         for (Index index : indexes.getIndexes()) {
             if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
