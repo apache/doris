@@ -25,13 +25,15 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
-import org.apache.doris.mtmv.ivm.IvmAggMeta;
-import org.apache.doris.mtmv.ivm.IvmAggMeta.AggTarget;
-import org.apache.doris.mtmv.ivm.IvmAggMeta.AggType;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmNormalizeResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.mtmv.ivm.agg.IvmAggFunctionRegistry;
+import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;
+import org.apache.doris.mtmv.ivm.agg.IvmAggStateKey;
+import org.apache.doris.mtmv.ivm.agg.IvmAggTarget;
+import org.apache.doris.mtmv.ivm.agg.IvmAggTargetSpec;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -41,11 +43,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -66,7 +64,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -141,9 +138,6 @@ import java.util.stream.Collectors;
 public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.NormalizeContext>
         implements CustomRewriter {
 
-    private static final Set<Class<? extends AggregateFunction>> SUPPORTED_AGG_FUNCTIONS =
-            ImmutableSet.of(Count.class, Sum.class, Avg.class, Min.class, Max.class);
-
     static final class NormalizeContext {
         private static final NormalizeContext ROOT = new NormalizeContext(true, false, false, false);
 
@@ -190,6 +184,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
     }
 
     private final IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
+    private final IvmAggFunctionRegistry aggFunctionRegistry = IvmAggFunctionRegistry.INSTANCE;
     private StatementContext statementContext;
 
     @Override
@@ -417,7 +412,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
      * <p>This method:
      * <ol>
      *   <li>Recurses into child (injects base scan row-id, unused at agg level)</li>
-     *   <li>Validates all aggregate functions via {@link #checkAggFunctions}</li>
+     *   <li>Validates and normalizes all aggregate functions via {@link IvmAggFunctionRegistry}</li>
      *   <li>Adds hidden state aggregate columns to the Aggregate output</li>
      *   <li>Wraps with a Project that computes row-id = hash(group keys) or constant</li>
      *   <li>Stores {@link IvmAggMeta} in {@link IvmNormalizeResult}</li>
@@ -450,25 +445,22 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
             }
         }
 
-        // Validate aggregate functions
-        List<AggregateFunction> aggFunctions = new ArrayList<>();
-        for (Alias alias : aggAliases) {
-            aggFunctions.add((AggregateFunction) alias.child());
-        }
-        checkAggFunctions(aggFunctions);
-
-        // Build hidden aggregate expressions and AggTarget metadata
+        // Build hidden aggregate expressions and IvmAggTarget metadata
         // __DORIS_IVM_AGG_COUNT_COL__ = COUNT(*) for group multiplicity
         Alias groupCountAlias = new Alias(new Count(), Column.IVM_AGG_COUNT_COL);
 
         List<NamedExpression> hiddenAggOutputs = new ArrayList<>();
         hiddenAggOutputs.add(groupCountAlias);
 
-        List<AggTarget> aggTargets = new ArrayList<>();
+        List<IvmAggTarget> aggTargets = new ArrayList<>();
         for (int i = 0; i < aggAliases.size(); i++) {
             Alias origAlias = aggAliases.get(i);
             AggregateFunction aggFunc = (AggregateFunction) origAlias.child();
-            buildHiddenStateForAgg(i, aggFunc, origAlias, hiddenAggOutputs, aggTargets);
+            // The registry chooses the aggregate processor. The processor owns the hidden state set for its
+            // function, so adding a new aggregate function should only require a new processor registration.
+            IvmAggTargetSpec aggTargetSpec = aggFunctionRegistry.buildTargetSpec(i, aggFunc, origAlias);
+            hiddenAggOutputs.addAll(aggTargetSpec.getHiddenAggregateOutputs());
+            aggTargets.add(aggTargetSpec.toPlaceholderTarget());
         }
 
         // Build new Aggregate with hidden agg outputs AFTER original outputs
@@ -478,7 +470,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
         LogicalAggregate<Plan> newAgg = agg.withAggOutputChild(newAggOutputs.build(), newChild);
 
         // Build wrapping Project that computes row-id and exposes all slots
-        // Layout: [row_id, original visible outputs, hidden state outputs]
+        // Output order: [row_id, original visible outputs, hidden state outputs]
         // groupByExprs are already Slots after NormalizeAggregate
         Expression rowIdExpr = IvmUtil.buildRowIdHash(groupByExprs);
         Alias rowIdAlias = new Alias(rowIdExpr, Column.IVM_ROW_ID_COL);
@@ -493,11 +485,11 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
             projectOutputs.add(aggOutput.toSlot());
         }
 
-        // Resolve AggTarget slots from the new Aggregate output
+        // Resolve IvmAggTarget slots from the new Aggregate output
         List<Slot> newAggSlots = newAgg.getOutput();
         // groupCountSlot is at origOutputs.size() (first hidden output after original outputs)
         Slot groupCountSlot = newAggSlots.get(origOutputs.size());
-        List<AggTarget> resolvedTargets = resolveAggTargetSlots(aggTargets, newAggSlots);
+        List<IvmAggTarget> resolvedTargets = resolveAggTargetSlots(aggTargets, newAggSlots);
 
         // After NormalizeAggregate, group-by exprs are all Slots; cast directly
         List<Slot> resolvedGroupKeys = groupByExprs.stream()
@@ -535,70 +527,10 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
     }
 
     /**
-     * For each user-visible aggregate, creates the hidden state columns needed for IVM delta.
-     * Appends hidden Alias expressions to {@code hiddenAggOutputs} and builds an AggTarget
-     * (with placeholder slots that will be resolved later from the new Aggregate output).
-     */
-    private void buildHiddenStateForAgg(int ordinal, AggregateFunction aggFunc, Alias origAlias,
-            List<NamedExpression> hiddenAggOutputs, List<AggTarget> aggTargets) {
-        AggType aggType;
-        Map<AggType, Alias> hiddenAliases = new LinkedHashMap<>();
-
-        if (aggFunc instanceof Count) {
-            aggType = AggType.COUNT;
-            // No hidden columns for either COUNT(*) or COUNT(expr).
-            // COUNT(*) visible = global group count; COUNT(expr) visible stores count directly.
-        } else if (aggFunc instanceof Sum) {
-            aggType = AggType.SUM;
-            // No hidden SUM column: visible column stores SUM directly.
-            // Hidden COUNT is needed for the assertNonNegative guard and null-count logic.
-            addHiddenAlias(hiddenAliases, ordinal, AggType.COUNT, new Count(aggFunc.child(0)));
-        } else if (aggFunc instanceof Avg) {
-            aggType = AggType.AVG;
-            addHiddenAlias(hiddenAliases, ordinal, AggType.SUM, new Sum(aggFunc.child(0)));
-            addHiddenAlias(hiddenAliases, ordinal, AggType.COUNT, new Count(aggFunc.child(0)));
-        } else if (aggFunc instanceof Min) {
-            aggType = AggType.MIN;
-            // No hidden MIN column: the visible column already stores the extremal value.
-            // Only a hidden COUNT is needed for the guard / zero-count NULL logic.
-            addHiddenAlias(hiddenAliases, ordinal, AggType.COUNT, new Count(aggFunc.child(0)));
-        } else if (aggFunc instanceof Max) {
-            aggType = AggType.MAX;
-            addHiddenAlias(hiddenAliases, ordinal, AggType.COUNT, new Count(aggFunc.child(0)));
-        } else {
-            throw new IvmException(IvmFailureReason.AGG_UNSUPPORTED,
-                    "IVM: unsupported aggregate function: " + aggFunc.getName());
-        }
-
-        hiddenAggOutputs.addAll(hiddenAliases.values());
-
-        // Build AggTarget with placeholder slots (to be resolved after Aggregate is rebuilt)
-        ImmutableMap.Builder<AggType, Slot> placeholderHiddenSlots = ImmutableMap.builder();
-        for (Map.Entry<AggType, Alias> entry : hiddenAliases.entrySet()) {
-            placeholderHiddenSlots.put(entry.getKey(), entry.getValue().toSlot());
-        }
-
-        List<Expression> exprArgs = ImmutableList.of();
-        if (!(aggFunc instanceof Count && ((Count) aggFunc).isCountStar())) {
-            exprArgs = ImmutableList.of(aggFunc.child(0));
-        }
-
-        aggTargets.add(new AggTarget(ordinal, aggType, origAlias.toSlot(),
-                placeholderHiddenSlots.build(), exprArgs));
-    }
-
-    /** Adds a single hidden alias to the map with the standard IVM column name. */
-    private void addHiddenAlias(Map<AggType, Alias> hiddenAliases, int ordinal,
-            AggType stateType, AggregateFunction aggFunc) {
-        hiddenAliases.put(stateType, new Alias(aggFunc,
-                IvmUtil.ivmAggHiddenColumnName(ordinal, stateType.name())));
-    }
-
-    /**
-     * Resolves placeholder AggTarget slots to actual slots from the rebuilt Aggregate output.
+     * Resolves placeholder IvmAggTarget slots to actual slots from the rebuilt Aggregate output.
      * Matching is done by column name.
      */
-    private List<AggTarget> resolveAggTargetSlots(List<AggTarget> placeholderTargets,
+    private List<IvmAggTarget> resolveAggTargetSlots(List<IvmAggTarget> placeholderTargets,
             List<Slot> newAggSlots) {
         // Build name→slot map from the new Aggregate output
         Map<String, Slot> slotByName = new LinkedHashMap<>();
@@ -606,8 +538,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
             slotByName.put(slot.getName(), slot);
         }
 
-        List<AggTarget> resolved = new ArrayList<>();
-        for (AggTarget target : placeholderTargets) {
+        List<IvmAggTarget> resolved = new ArrayList<>();
+        for (IvmAggTarget target : placeholderTargets) {
             // Resolve visible slot
             Slot resolvedVisible = slotByName.get(target.getVisibleSlot().getName());
             if (resolvedVisible == null) {
@@ -617,8 +549,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
             }
 
             // Resolve hidden state slots
-            ImmutableMap.Builder<AggType, Slot> resolvedHidden = ImmutableMap.builder();
-            for (Map.Entry<AggType, Slot> entry : target.getHiddenStateSlots().entrySet()) {
+            ImmutableMap.Builder<IvmAggStateKey, Slot> resolvedHidden = ImmutableMap.builder();
+            for (Map.Entry<IvmAggStateKey, Slot> entry : target.getHiddenStateSlots().entrySet()) {
                 Slot resolvedSlot = slotByName.get(entry.getValue().getName());
                 if (resolvedSlot == null) {
                     throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
@@ -628,7 +560,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
                 resolvedHidden.put(entry.getKey(), resolvedSlot);
             }
 
-            resolved.add(new AggTarget(target.getOrdinal(), target.getAggType(),
+            resolved.add(new IvmAggTarget(target.getOrdinal(), target.getFunctionKind(),
                     resolvedVisible, resolvedHidden.build(), target.getExprArgs()));
         }
         return resolved;
@@ -658,7 +590,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
 
     /**
      * Rewrites output expressions to include IVM hidden columns from the child.
-     * Layout: [row_id, original visible outputs, other hidden cols (count, per-agg states)].
+     * Output order: [row_id, original visible outputs, other hidden cols (count, per-agg states)].
      */
     private List<NamedExpression> rewriteOutputsWithIvmHiddenColumns(
             Plan normalizedChild, List<NamedExpression> outputs) {
@@ -809,29 +741,4 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
         return MTMVPartitionUtil.isTableExcluded(statementContext.getExcludedTriggerTables(), tableNameInfo);
     }
 
-    /**
-     * Validates that all aggregate functions are supported for IVM.
-     *
-     * <p>Rules enforced:
-     * <ol>
-     *   <li>Bare GROUP BY (no aggregate functions) is allowed — the group-level count
-     *       hidden column alone is sufficient for incremental maintenance.</li>
-     *   <li>DISTINCT aggregates are not supported.</li>
-     *   <li>Only count, sum, avg, min, and max are supported.</li>
-     * </ol>
-     *
-     * @throws IvmException if validation fails
-     */
-    private static void checkAggFunctions(List<AggregateFunction> aggFunctions) {
-        for (AggregateFunction aggFunc : aggFunctions) {
-            if (aggFunc.isDistinct()) {
-                throw new IvmException(IvmFailureReason.AGG_UNSUPPORTED,
-                        "Aggregate DISTINCT is not supported for IVM: " + aggFunc.toSql());
-            }
-            if (!SUPPORTED_AGG_FUNCTIONS.contains(aggFunc.getClass())) {
-                throw new IvmException(IvmFailureReason.AGG_UNSUPPORTED,
-                        "Unsupported aggregate function for IVM: " + aggFunc.getName());
-            }
-        }
-    }
 }
