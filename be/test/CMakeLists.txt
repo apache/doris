@@ -61,6 +61,7 @@ list(REMOVE_ITEM UT_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/segment_iterator_apply_index_expr_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/decimal_value_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/util/decompress_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/util/snappy_block_decompressor_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/util/url_coding_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/io/fs/remote_file_system_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage/remote_rowset_gc_test.cpp
