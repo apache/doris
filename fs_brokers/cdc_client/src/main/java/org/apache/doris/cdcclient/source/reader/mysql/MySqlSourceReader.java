@@ -489,6 +489,9 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
             return Collections.emptyIterator();
         }
 
+        // A split is finished only after its high-watermark event has been consumed.
+        refreshCompletedSplits();
+
         if (completedSplitIds.size() >= snapshotReaderContexts.size()) {
             LOG.info("All {} snapshot splits have been completed", snapshotReaderContexts.size());
             return Collections.emptyIterator();
@@ -533,6 +536,11 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
             final int index = i;
             SnapshotReaderContext<MySqlSnapshotSplit, SnapshotSplitReader, MySqlSnapshotSplitState>
                     context = snapshotReaderContexts.get(index);
+            // Skip splits already drained to high-watermark; otherwise their poll futures spin
+            // returning null and starve siblings.
+            if (completedSplitIds.contains(context.getSplit().splitId())) {
+                continue;
+            }
 
             CompletableFuture<PollResult> future =
                     CompletableFuture.supplyAsync(
@@ -587,11 +595,12 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                     snapshot.remove(future);
                     PollResult result = future.get();
                     if (result != null) {
+                        // Split completion is determined later by splitState.getHighWatermark()
+                        // != null, not by receiving a non-empty batch.
                         LOG.info(
                                 "Got result from reader {}, {} futures remaining",
                                 result.context.getSplit().splitId(),
                                 snapshot.size());
-                        completedSplitIds.add(result.context.getSplit().splitId());
                         return result;
                     }
                     // If result is null (no data), continue checking other futures
@@ -992,6 +1001,10 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                     objectPath, cdcConfig.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY));
         }
 
+        // FE injects "true" on TVF path; from-to leaves it absent → default false.
+        configFactory.skipSnapshotBackfill(
+                Boolean.parseBoolean(cdcConfig.get(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL)));
+
         return configFactory.createConfig(subtaskId);
     }
 
@@ -1011,6 +1024,29 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         MySqlSnapshotSplitState snapshotState = (MySqlSnapshotSplitState) splitState;
         BinlogOffset highWatermark = snapshotState.getHighWatermark();
         return new HashMap<>(highWatermark.getOffset());
+    }
+
+    @Override
+    public boolean isSnapshotFinished() {
+        if (snapshotReaderContexts.isEmpty()) {
+            return true;
+        }
+        for (SnapshotReaderContext<MySqlSnapshotSplit, SnapshotSplitReader, MySqlSnapshotSplitState>
+                context : snapshotReaderContexts) {
+            if (context.getSplitState().getHighWatermark() == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void refreshCompletedSplits() {
+        for (SnapshotReaderContext<MySqlSnapshotSplit, SnapshotSplitReader, MySqlSnapshotSplitState>
+                context : snapshotReaderContexts) {
+            if (context.getSplitState().getHighWatermark() != null) {
+                completedSplitIds.add(context.getSplit().splitId());
+            }
+        }
     }
 
     @Override
