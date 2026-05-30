@@ -31,7 +31,11 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
@@ -104,6 +108,36 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
                 ImmutableList.of("test_db"));
         return delta ? (LogicalOlapScan) scan.withIsDelta(true) : scan;
+    }
+
+    private LogicalAggregate<LogicalOlapScan> buildScalarMixedAgg(LogicalOlapScan scan) {
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        return new LogicalAggregate<>(
+                ImmutableList.of(),
+                ImmutableList.of(
+                        new Alias(new Count(nameSlot), "cnt_name"),
+                        new Alias(new Sum(idSlot), "sum_id"),
+                        new Alias(new Avg(idSlot), "avg_id"),
+                        new Alias(new Min(nameSlot), "min_name"),
+                        new Alias(new Max(nameSlot), "max_name")),
+                true, Optional.empty(), scan);
+    }
+
+    private String transientDeltaColumnName(int ordinal, String suffix) {
+        return Column.IVM_HIDDEN_COLUMN_PREFIX + "TRANSIENT_" + ordinal + "_" + suffix + "_COL__";
+    }
+
+    private void assertDeltaTopProjectCoalesce(LogicalProject<?> deltaTopProject,
+            String outputName, boolean expected) {
+        List<NamedExpression> matches = deltaTopProject.getProjects().stream()
+                .filter(expr -> outputName.equals(expr.getName()))
+                .collect(Collectors.toList());
+        Assertions.assertEquals(1, matches.size(), "Expected one delta top project output: " + outputName);
+        NamedExpression output = matches.get(0);
+        boolean actual = output instanceof Alias && ((Alias) output).child() instanceof Coalesce;
+        Assertions.assertEquals(expected, actual, "Unexpected COALESCE state for " + outputName
+                + ", expression: " + output.toSql());
     }
 
     @Test
@@ -294,6 +328,46 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         List<String> outputNames = deltaAgg.getOutput().stream().map(Slot::getName).collect(Collectors.toList());
         Assertions.assertTrue(outputNames.contains(Column.IVM_DELTA_GROUP_COUNT_COL));
         Assertions.assertTrue(outputNames.stream().anyMatch(name -> name.contains("COUNT")));
+    }
+
+    @Test
+    void testMixedAggDeltaSubPlanExposesHandlerOwnedOutputs() {
+        AggRewriteResult result = rewriteAgg(buildScalarMixedAgg(buildScan()));
+        LogicalAggregate<?> deltaAgg = (LogicalAggregate<?>) getDeltaTopProject(result).child();
+
+        List<String> outputNames = deltaAgg.getOutput().stream().map(Slot::getName).collect(Collectors.toList());
+        Assertions.assertEquals(12, outputNames.size());
+        Assertions.assertTrue(outputNames.contains(Column.IVM_DELTA_GROUP_COUNT_COL));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "COUNT")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(1, "SUM")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(1, "COUNT")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(2, "SUM")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(2, "COUNT")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(3, "MIN")));
+        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(3, "DELMIN")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(3, "COUNT")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(4, "MAX")));
+        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(4, "DELMAX")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(4, "COUNT")));
+    }
+
+    @Test
+    void testScalarDeltaTopProjectCoalescesOnlyZeroDefaultOutputs() {
+        AggRewriteResult result = rewriteAgg(buildScalarMixedAgg(buildScan()));
+        LogicalProject<?> deltaTopProject = getDeltaTopProject(result);
+
+        assertDeltaTopProjectCoalesce(deltaTopProject, Column.IVM_DELTA_GROUP_COUNT_COL, true);
+        assertDeltaTopProjectCoalesce(deltaTopProject, IvmUtil.ivmAggHiddenColumnName(0, "COUNT"), true);
+        assertDeltaTopProjectCoalesce(deltaTopProject, IvmUtil.ivmAggHiddenColumnName(1, "SUM"), true);
+        assertDeltaTopProjectCoalesce(deltaTopProject, IvmUtil.ivmAggHiddenColumnName(1, "COUNT"), true);
+        assertDeltaTopProjectCoalesce(deltaTopProject, IvmUtil.ivmAggHiddenColumnName(2, "SUM"), true);
+        assertDeltaTopProjectCoalesce(deltaTopProject, IvmUtil.ivmAggHiddenColumnName(2, "COUNT"), true);
+        assertDeltaTopProjectCoalesce(deltaTopProject, IvmUtil.ivmAggHiddenColumnName(3, "MIN"), false);
+        assertDeltaTopProjectCoalesce(deltaTopProject, transientDeltaColumnName(3, "DELMIN"), false);
+        assertDeltaTopProjectCoalesce(deltaTopProject, IvmUtil.ivmAggHiddenColumnName(3, "COUNT"), true);
+        assertDeltaTopProjectCoalesce(deltaTopProject, IvmUtil.ivmAggHiddenColumnName(4, "MAX"), false);
+        assertDeltaTopProjectCoalesce(deltaTopProject, transientDeltaColumnName(4, "DELMAX"), false);
+        assertDeltaTopProjectCoalesce(deltaTopProject, IvmUtil.ivmAggHiddenColumnName(4, "COUNT"), true);
     }
 
     @Test

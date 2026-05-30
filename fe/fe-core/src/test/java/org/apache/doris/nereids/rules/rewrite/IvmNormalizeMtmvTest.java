@@ -28,13 +28,14 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
-import org.apache.doris.mtmv.ivm.IvmAggMeta;
-import org.apache.doris.mtmv.ivm.IvmAggMeta.AggTarget;
-import org.apache.doris.mtmv.ivm.IvmAggMeta.AggType;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmNormalizeResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.mtmv.ivm.agg.IvmAggFunctionKind;
+import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;
+import org.apache.doris.mtmv.ivm.agg.IvmAggStateKey;
+import org.apache.doris.mtmv.ivm.agg.IvmAggTarget;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.JobContext;
@@ -472,12 +473,12 @@ class IvmNormalizeMtmvTest {
 
         // One agg target: SUM
         Assertions.assertEquals(1, aggMeta.getAggTargets().size());
-        AggTarget target = aggMeta.getAggTargets().get(0);
+        IvmAggTarget target = aggMeta.getAggTargets().get(0);
         Assertions.assertEquals(0, target.getOrdinal());
-        Assertions.assertEquals(AggType.SUM, target.getAggType());
+        Assertions.assertEquals(IvmAggFunctionKind.SUM, target.getFunctionKind());
         Assertions.assertEquals("sum_name", target.getVisibleSlot().getName());
-        Assertions.assertNull(target.getHiddenStateSlot(AggType.SUM));
-        Assertions.assertNotNull(target.getHiddenStateSlot(AggType.COUNT));
+        Assertions.assertFalse(target.getHiddenStateSlots().containsKey(IvmAggStateKey.SUM));
+        Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.COUNT));
 
         // Row-id determinism: grouped agg → deterministic
         Assertions.assertTrue(normalizeResult.isDeterministic(rowIdAlias.toSlot()));
@@ -503,7 +504,7 @@ class IvmNormalizeMtmvTest {
         Assertions.assertTrue(aggMeta.isScalarAgg());
         Assertions.assertTrue(aggMeta.getGroupKeySlots().isEmpty());
         Assertions.assertEquals(1, aggMeta.getAggTargets().size());
-        Assertions.assertEquals(AggType.COUNT, aggMeta.getAggTargets().get(0).getAggType());
+        Assertions.assertEquals(IvmAggFunctionKind.COUNT, aggMeta.getAggTargets().get(0).getFunctionKind());
         Assertions.assertTrue(aggMeta.getAggTargets().get(0).isCountStar());
         Assertions.assertTrue(aggMeta.getAggTargets().get(0).getExprArgs().isEmpty());
 
@@ -534,21 +535,21 @@ class IvmNormalizeMtmvTest {
         Assertions.assertEquals(3, aggMeta.getAggTargets().size());
 
         // ordinal 0: COUNT(*) → no hidden columns
-        AggTarget t0 = aggMeta.getAggTargets().get(0);
-        Assertions.assertEquals(AggType.COUNT, t0.getAggType());
+        IvmAggTarget t0 = aggMeta.getAggTargets().get(0);
+        Assertions.assertEquals(IvmAggFunctionKind.COUNT, t0.getFunctionKind());
         Assertions.assertTrue(t0.isCountStar());
         Assertions.assertEquals(0, t0.getHiddenStateSlots().size());
 
         // ordinal 1: SUM → hidden: COUNT only (no hidden SUM)
-        AggTarget t1 = aggMeta.getAggTargets().get(1);
-        Assertions.assertEquals(AggType.SUM, t1.getAggType());
+        IvmAggTarget t1 = aggMeta.getAggTargets().get(1);
+        Assertions.assertEquals(IvmAggFunctionKind.SUM, t1.getFunctionKind());
         Assertions.assertEquals(1, t1.getHiddenStateSlots().size());
-        Assertions.assertNotNull(t1.getHiddenStateSlot(AggType.COUNT));
-        Assertions.assertNull(t1.getHiddenStateSlot(AggType.SUM));
+        Assertions.assertNotNull(t1.getHiddenStateSlot(IvmAggStateKey.COUNT));
+        Assertions.assertFalse(t1.getHiddenStateSlots().containsKey(IvmAggStateKey.SUM));
 
         // ordinal 2: AVG → hidden: SUM, COUNT (both needed)
-        AggTarget t2 = aggMeta.getAggTargets().get(2);
-        Assertions.assertEquals(AggType.AVG, t2.getAggType());
+        IvmAggTarget t2 = aggMeta.getAggTargets().get(2);
+        Assertions.assertEquals(IvmAggFunctionKind.AVG, t2.getFunctionKind());
         Assertions.assertEquals(2, t2.getHiddenStateSlots().size());
 
         // Verify hidden column naming in the project output
@@ -577,7 +578,7 @@ class IvmNormalizeMtmvTest {
         new IvmNormalizeMtmv().rewriteRoot(agg, jobContext);
 
         IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmNormalizeResult().get().getAggMeta();
-        Assertions.assertEquals(AggType.COUNT, aggMeta.getAggTargets().get(0).getAggType());
+        Assertions.assertEquals(IvmAggFunctionKind.COUNT, aggMeta.getAggTargets().get(0).getFunctionKind());
         Assertions.assertFalse(aggMeta.getAggTargets().get(0).isCountStar());
         Assertions.assertEquals(1, aggMeta.getAggTargets().get(0).getExprArgs().size());
     }
@@ -634,10 +635,9 @@ class IvmNormalizeMtmvTest {
         IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmNormalizeResult().get().getAggMeta();
         Assertions.assertNotNull(aggMeta);
         Assertions.assertEquals(1, aggMeta.getAggTargets().size());
-        AggTarget target = aggMeta.getAggTargets().get(0);
-        Assertions.assertEquals(AggType.MIN, target.getAggType());
-        Assertions.assertNull(target.getHiddenStateSlot(AggType.MIN));
-        Assertions.assertNotNull(target.getHiddenStateSlot(AggType.COUNT));
+        IvmAggTarget target = aggMeta.getAggTargets().get(0);
+        Assertions.assertEquals(IvmAggFunctionKind.MIN, target.getFunctionKind());
+        Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.COUNT));
 
         LogicalProject<?> topProject = (LogicalProject<?>) result;
         Set<String> outputNames = topProject.getOutput().stream()
@@ -663,10 +663,9 @@ class IvmNormalizeMtmvTest {
         IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmNormalizeResult().get().getAggMeta();
         Assertions.assertNotNull(aggMeta);
         Assertions.assertEquals(1, aggMeta.getAggTargets().size());
-        AggTarget target = aggMeta.getAggTargets().get(0);
-        Assertions.assertEquals(AggType.MAX, target.getAggType());
-        Assertions.assertNull(target.getHiddenStateSlot(AggType.MAX));
-        Assertions.assertNotNull(target.getHiddenStateSlot(AggType.COUNT));
+        IvmAggTarget target = aggMeta.getAggTargets().get(0);
+        Assertions.assertEquals(IvmAggFunctionKind.MAX, target.getFunctionKind());
+        Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.COUNT));
 
         LogicalProject<?> topProject = (LogicalProject<?>) result;
         Set<String> outputNames = topProject.getOutput().stream()
@@ -725,8 +724,8 @@ class IvmNormalizeMtmvTest {
         Assertions.assertNotNull(aggMeta);
         Assertions.assertEquals(1, aggMeta.getAggTargets().size());
 
-        AggTarget target = aggMeta.getAggTargets().get(0);
-        Assertions.assertEquals(AggType.SUM, target.getAggType());
+        IvmAggTarget target = aggMeta.getAggTargets().get(0);
+        Assertions.assertEquals(IvmAggFunctionKind.SUM, target.getFunctionKind());
         // exprArgs should contain the Add expression, not a Slot
         Assertions.assertEquals(1, target.getExprArgs().size());
         Assertions.assertInstanceOf(org.apache.doris.nereids.trees.expressions.Add.class,
@@ -755,14 +754,14 @@ class IvmNormalizeMtmvTest {
         Assertions.assertNotNull(aggMeta);
         Assertions.assertEquals(2, aggMeta.getAggTargets().size());
 
-        AggTarget minTarget = aggMeta.getAggTargets().get(0);
-        Assertions.assertEquals(AggType.MIN, minTarget.getAggType());
+        IvmAggTarget minTarget = aggMeta.getAggTargets().get(0);
+        Assertions.assertEquals(IvmAggFunctionKind.MIN, minTarget.getFunctionKind());
         Assertions.assertEquals(1, minTarget.getExprArgs().size());
         Assertions.assertInstanceOf(org.apache.doris.nereids.trees.expressions.Multiply.class,
                 minTarget.getExprArgs().get(0));
 
-        AggTarget maxTarget = aggMeta.getAggTargets().get(1);
-        Assertions.assertEquals(AggType.MAX, maxTarget.getAggType());
+        IvmAggTarget maxTarget = aggMeta.getAggTargets().get(1);
+        Assertions.assertEquals(IvmAggFunctionKind.MAX, maxTarget.getFunctionKind());
         Assertions.assertEquals(1, maxTarget.getExprArgs().size());
         Assertions.assertInstanceOf(org.apache.doris.nereids.trees.expressions.Multiply.class,
                 maxTarget.getExprArgs().get(0));
