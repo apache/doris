@@ -20,9 +20,12 @@
 #include <algorithm>
 
 #include "common/logging.h"
+#include "gen_cpp/segment_v2.pb.h"
 #include "storage/index/inverted/spimi/byte_parser_error.h"
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
 #include "storage/index/inverted/spimi/pfor_encoder.h"
+#include "util/block_compression.h"
+#include "util/slice.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -116,18 +119,80 @@ std::vector<uint32_t> DecodePforRun(Cursor& cur, int32_t count) {
     return values;
 }
 
+// Resolves jk's whole-term ZSTD envelope on the `.frq` stream. The caller has
+// already consumed the leading `kCodeModeZstd` marker; what follows is
+// `VInt(uncomp_len) VInt(comp_len) ZSTD-payload`, decompressing to the raw inner
+// block (which itself begins with a kDefault/kPfor mode byte). Mirrors
+// term_docs_reader.cpp's DecompressZstdFrqBlock; all reads are bounds-checked
+// against the (untrusted) input.
+std::vector<uint8_t> DecompressZstdFrqBlock(Cursor& cur) {
+    const auto uncomp = static_cast<uint32_t>(cur.ReadVInt());
+    const auto comp = static_cast<uint32_t>(cur.ReadVInt());
+    std::vector<uint8_t> packed;
+    cur.ReadInto(&packed, comp); // bounds-checked
+    std::vector<uint8_t> raw(uncomp);
+    BlockCompressionCodec* codec = nullptr;
+    if (!get_block_compression_codec(CompressionTypePB::ZSTD, &codec).ok() || codec == nullptr)
+            [[unlikely]] {
+        SPIMI_THROW_CORRUPT("PostingDecoder .frq: ZSTD codec unavailable");
+    }
+    Slice in(reinterpret_cast<const char*>(packed.data()), comp);
+    Slice slice_out(reinterpret_cast<char*>(raw.data()), uncomp);
+    if (!codec->decompress(in, &slice_out).ok() || slice_out.size != uncomp) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("PostingDecoder .frq: ZSTD decompress failed");
+    }
+    return raw;
+}
+
 // Decodes position deltas from the `.prx` stream for all documents.
-// The `.prx` format for a term is:
+// The term's `.prx` block begins with a 1-byte mode header (kProxRaw = raw VInt
+// deltas, or kProxZstd = ZSTD-compressed payload behind VInt(uncomp) VInt(comp)).
+// After resolving the envelope, the inner format for a term is:
 //   for each doc d_i (in ascending order):
 //     for each position p_j (in ascending order within d_i):
 //       vint  position_delta_j   (delta resets to 0 at every new doc)
 //
-// `docs` must already have doc_id and freq populated.
+// Mirrors prox_reader.cpp's envelope handling. `docs` must already have doc_id
+// and freq populated.
 void DecodePositions(const uint8_t* prx_data, size_t prx_length, std::vector<DecodedDoc>& docs) {
     if (prx_data == nullptr || prx_length == 0) {
         return;
     }
-    Cursor prx(prx_data, prx_length);
+    // Resolve the whole-term prox envelope (kProxRaw / kProxZstd) so the cursor
+    // below sees only the inner VInt position-delta stream.
+    const uint8_t* data = prx_data;
+    size_t len = prx_length;
+    std::vector<uint8_t> decompressed;
+    const uint8_t mode = prx_data[0];
+    if (mode == FreqProxEncoder::kProxZstd) {
+        Cursor hdr(prx_data + 1, prx_length - 1);
+        const auto uncomp = static_cast<uint32_t>(hdr.ReadVInt());
+        const auto comp = static_cast<uint32_t>(hdr.ReadVInt());
+        const size_t hpos = 1 + hdr.pos();
+        if (hpos + comp > prx_length || hpos + comp < hpos) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("PostingDecoder .prx: compressed length exceeds block");
+        }
+        decompressed.resize(uncomp);
+        BlockCompressionCodec* codec = nullptr;
+        if (!get_block_compression_codec(CompressionTypePB::ZSTD, &codec).ok() || codec == nullptr)
+                [[unlikely]] {
+            SPIMI_THROW_CORRUPT("PostingDecoder .prx: ZSTD codec unavailable");
+        }
+        Slice in(reinterpret_cast<const char*>(prx_data + hpos), comp);
+        Slice slice_out(reinterpret_cast<char*>(decompressed.data()), uncomp);
+        if (!codec->decompress(in, &slice_out).ok() || slice_out.size != uncomp) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("PostingDecoder .prx: ZSTD decompress failed");
+        }
+        data = decompressed.data();
+        len = uncomp;
+    } else if (mode == FreqProxEncoder::kProxRaw) {
+        data = prx_data + 1;
+        len = prx_length - 1;
+    } else [[unlikely]] {
+        SPIMI_THROW_CORRUPT("PostingDecoder .prx: unknown prox block mode");
+    }
+
+    Cursor prx(data, len);
     for (auto& doc : docs) {
         doc.positions.reserve(static_cast<size_t>(doc.freq));
         int32_t last_pos = 0;
@@ -148,6 +213,17 @@ std::vector<DecodedDoc> PostingDecoder::Decode(const uint8_t* frq_data, size_t f
         SPIMI_THROW_CORRUPT("PostingDecoder: bad doc_freq / buffer length");
     }
 
+    // Decode the .frq stream (resolving any whole-term kCodeModeZstd envelope)
+    // into per-doc {doc_id, freq}, then attach positions from the .prx stream.
+    std::vector<DecodedDoc> docs = DecodeInner(frq_data, frq_length, doc_freq, has_prox);
+    if (has_prox) {
+        DecodePositions(prx_data, prx_length, docs);
+    }
+    return docs;
+}
+
+std::vector<DecodedDoc> PostingDecoder::DecodeInner(const uint8_t* frq_data, size_t frq_length,
+                                                    int32_t doc_freq, bool has_prox) {
     Cursor cur(frq_data, frq_length);
     const uint8_t mode = cur.ReadByte();
 
@@ -155,6 +231,10 @@ std::vector<DecodedDoc> PostingDecoder::Decode(const uint8_t* frq_data, size_t f
     constexpr size_t kSafeReserveCap = 1U << 24;
     docs.reserve(std::min(static_cast<size_t>(doc_freq), kSafeReserveCap));
 
+    if (mode == FreqProxEncoder::kCodeModeZstd) {
+        const std::vector<uint8_t> raw = DecompressZstdFrqBlock(cur);
+        return DecodeInner(raw.data(), raw.size(), doc_freq, has_prox);
+    }
     if (mode == FreqProxEncoder::kCodeModeDefault) {
         const int32_t recorded = cur.ReadVInt();
         if (recorded != doc_freq) [[unlikely]] {
@@ -190,11 +270,6 @@ std::vector<DecodedDoc> PostingDecoder::Decode(const uint8_t* frq_data, size_t f
         }
     } else {
         SPIMI_THROW_CORRUPT("PostingDecoder: unknown .frq CodeMode byte");
-    }
-
-    // Decode positions from the .prx stream.
-    if (has_prox) {
-        DecodePositions(prx_data, prx_length, docs);
     }
 
     return docs;

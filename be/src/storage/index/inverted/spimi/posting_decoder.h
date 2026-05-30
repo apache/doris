@@ -37,9 +37,13 @@ struct DecodedDoc {
 // only recovers doc_id + freq) by additionally decoding position
 // deltas from the `.prx` stream.
 //
-// Supports both `.frq` code modes the writer produces:
-//   - `kCodeModeDefault` (0x00): per-doc VInt delta encoding
-//   - `kCodeModeSpimiPfor` (0x05): PFOR bit-packed sub-blocks
+// Supports every `.frq`/`.prx` envelope the writer produces:
+//   - `.frq` `kCodeModeDefault` (0x00): per-doc VInt delta encoding
+//   - `.frq` `kCodeModeSpimiPfor` (0x05): PFOR bit-packed sub-blocks
+//   - `.frq` `kCodeModeZstd` (0x80): whole-term ZSTD-compressed wrapper around
+//     one of the above inner modes
+//   - `.prx` `kProxRaw` / `kProxZstd`: raw or whole-term ZSTD-compressed
+//     position-delta stream
 //
 // The segment merger uses this to recover the raw posting list from
 // each spill segment so it can re-encode the merged list through
@@ -64,6 +68,13 @@ public:
     static std::vector<DecodedDoc> Decode(const uint8_t* frq_data, size_t frq_length,
                                           const uint8_t* prx_data, size_t prx_length,
                                           int32_t doc_freq, bool has_prox);
+
+private:
+    // Decodes only the `.frq` stream into per-doc {doc_id, freq}, resolving a
+    // whole-term `kCodeModeZstd` envelope (recursing on the decompressed inner
+    // block). Positions are attached separately by `Decode`.
+    static std::vector<DecodedDoc> DecodeInner(const uint8_t* frq_data, size_t frq_length,
+                                               int32_t doc_freq, bool has_prox);
 };
 
 } // namespace doris::segment_v2::inverted_index::spimi

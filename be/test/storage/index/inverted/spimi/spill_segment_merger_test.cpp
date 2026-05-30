@@ -32,10 +32,46 @@
 #include "storage/index/inverted/spimi/segment_merger.h"
 #include "storage/index/inverted/spimi/spill_manager.h"
 #include "storage/index/inverted/spimi/term_enum.h"
+#include "gen_cpp/segment_v2.pb.h"
+#include "util/block_compression.h"
+#include "util/slice.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
 namespace {
+
+// Returns the effective inner .frq mode byte for the term whose block starts at
+// `frq_start`, transparently unwrapping jk's whole-term ZSTD envelope
+// (kCodeModeZstd: VInt(uncomp) VInt(comp) ZSTD-payload). When the block is not
+// ZSTD-wrapped the first byte is returned as-is. Lets structural assertions
+// check the real codec (kDefault / kSpimiPfor) regardless of whole-term
+// compression.
+uint8_t FrqInnerModeByte(const std::vector<uint8_t>& frq_bytes, int64_t frq_start) {
+    const uint8_t* p = frq_bytes.data() + frq_start;
+    if (p[0] != FreqProxEncoder::kCodeModeZstd) {
+        return p[0];
+    }
+    size_t pos = 1;
+    auto read_vint = [&]() {
+        uint32_t v = 0, shift = 0;
+        while (true) {
+            const uint8_t b = p[pos++];
+            v |= static_cast<uint32_t>(b & 0x7FU) << shift;
+            if ((b & 0x80U) == 0) break;
+            shift += 7;
+        }
+        return v;
+    };
+    const uint32_t uncomp = read_vint();
+    const uint32_t comp = read_vint();
+    std::vector<uint8_t> raw(uncomp);
+    BlockCompressionCodec* codec = nullptr;
+    EXPECT_TRUE(get_block_compression_codec(CompressionTypePB::ZSTD, &codec).ok());
+    Slice in(reinterpret_cast<const char*>(p + pos), comp);
+    Slice out(reinterpret_cast<char*>(raw.data()), uncomp);
+    EXPECT_TRUE(codec->decompress(in, &out).ok());
+    return raw.empty() ? 0 : raw[0];
+}
 
 // Build a SegmentMerger::Input from a SpillSegment.
 SegmentMerger::Input ToInput(const SpillSegment& seg) {
@@ -678,10 +714,13 @@ TEST(SegmentMergerTest, SlowPathReEncodesHighFreqTermAsPfor) {
     EXPECT_EQ(terms[0].info.doc_freq, 2 * kDocsPerInput)
             << "input_b doc_ids must be offset past input_a's, doubling doc_freq";
 
-    // The .frq block for this term must begin with the PFOR mode byte.
+    // The .frq block for this term must be PFOR-encoded. jk's freq/prox encoder
+    // may additionally wrap the whole term in a ZSTD envelope (outer byte
+    // kCodeModeZstd), so check the inner mode byte through that envelope rather
+    // than the raw first byte.
     const int64_t frq_start = terms[0].info.freq_pointer;
     ASSERT_LT(static_cast<size_t>(frq_start), result.frq_bytes.size());
-    EXPECT_EQ(result.frq_bytes[frq_start], FreqProxEncoder::kCodeModeSpimiPfor)
+    EXPECT_EQ(FrqInnerModeByte(result.frq_bytes, frq_start), FreqProxEncoder::kCodeModeSpimiPfor)
             << "doc_freq >= skip_interval must re-encode .frq as PFOR";
 
     // And it must still decode to monotonically increasing doc_ids.
