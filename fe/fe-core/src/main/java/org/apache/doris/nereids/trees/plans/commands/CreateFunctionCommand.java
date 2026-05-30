@@ -331,11 +331,10 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
 
         userFile = properties.getOrDefault(FILE_KEY, properties.get(OBJECT_FILE_KEY));
         originalUserFile = userFile; // Keep original jar name for BE
-        // Convert userFile to realUrl only for FE checksum calculation
-        if (!Strings.isNullOrEmpty(userFile) && binaryType != TFunctionBinaryType.RPC) {
+        // Inline Python code is authoritative. Keep FILE in metadata for replay, but do not load or validate it here.
+        if (Strings.isNullOrEmpty(functionCode) && !Strings.isNullOrEmpty(userFile)
+                && binaryType != TFunctionBinaryType.RPC) {
             userFile = getRealUrl(userFile);
-        }
-        if (!Strings.isNullOrEmpty(userFile) && binaryType != TFunctionBinaryType.RPC) {
             try {
                 computeObjectChecksum();
             } catch (IOException | NoSuchAlgorithmException e) {
