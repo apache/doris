@@ -40,6 +40,7 @@ public:
     MockVectorIndex() { _dimension = 4; } // Set dimension for test
     MOCK_METHOD(doris::Status, train, (Int64 n, const float* vec), (override));
     MOCK_METHOD(doris::Status, add, (Int64 n, const float* vec), (override));
+    MOCK_METHOD(bool, needs_training, (), (const, override));
     MOCK_METHOD(doris::Status, ann_topn_search,
                 (const float* query_vec, int k, const segment_v2::IndexSearchParameters& params,
                  segment_v2::IndexSearchResult& result),
@@ -427,11 +428,13 @@ TEST_F(AnnIndexWriterTest, TestAddMoreThanChunkSize) {
     ASSERT_TRUE(writer->init().ok());
     writer->set_vector_index(mock_index);
 
+    // Index requires training (e.g. IVF/PQ). After the fix train() is invoked only
+    // once on the first full chunk; the remainder reuses the already-trained state.
+    EXPECT_CALL(*mock_index, needs_training()).WillRepeatedly(testing::Return(true));
     EXPECT_CALL(*mock_index, train(10, testing::_))
             .Times(1)
             .WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, add(10, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
-    EXPECT_CALL(*mock_index, train(2, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, add(2, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
 
@@ -587,11 +590,13 @@ TEST_F(AnnIndexWriterTest, TestAddMoreThanChunkSizeIVF) {
     ASSERT_TRUE(writer->init().ok());
     writer->set_vector_index(mock_index);
 
+    // Index requires training (e.g. IVF/PQ). After the fix train() is invoked only
+    // once on the first full chunk; the remainder reuses the already-trained state.
+    EXPECT_CALL(*mock_index, needs_training()).WillRepeatedly(testing::Return(true));
     EXPECT_CALL(*mock_index, train(10, testing::_))
             .Times(1)
             .WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, add(10, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
-    EXPECT_CALL(*mock_index, train(2, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, add(2, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
 
@@ -662,6 +667,7 @@ TEST_F(AnnIndexWriterTest, TestSkipTrainWhenRemainderLessThanNlist) {
     // CHUNK_SIZE = 10, nlist = 5
     // Add 12 rows: first 10 will be trained/added in one batch, remaining 2 < 5
     // Since we have trained data before (_need_save_index = true), we should add the remaining 2 rows and save
+    EXPECT_CALL(*mock_index, needs_training()).WillRepeatedly(testing::Return(true));
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(5));
     EXPECT_CALL(*mock_index, train(10, testing::_))
             .Times(1)
@@ -731,15 +737,18 @@ TEST_F(AnnIndexWriterTest, TestLargeDataVolumeWithRemainderSkip) {
     writer->set_vector_index(mock_index);
 
     // CHUNK_SIZE = 10, nlist = 3
-    // Add 23 rows: 2 full chunks of 10, remaining 3 == nlist, so train remaining
+    // Add 23 rows: 2 full chunks of 10, remaining 3 == nlist.
+    // After the fix train() is called exactly once on the first full chunk; the
+    // remaining 3 rows are added without re-training (which would otherwise
+    // re-cluster IVF and invalidate the vectors already added).
+    EXPECT_CALL(*mock_index, needs_training()).WillRepeatedly(testing::Return(true));
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(3));
     EXPECT_CALL(*mock_index, train(10, testing::_))
-            .Times(2)
-            .WillRepeatedly(testing::Return(Status::OK()));
+            .Times(1)
+            .WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, add(10, testing::_))
             .Times(2)
             .WillRepeatedly(testing::Return(Status::OK()));
-    EXPECT_CALL(*mock_index, train(3, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, add(3, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
 
@@ -806,11 +815,13 @@ TEST_F(AnnIndexWriterTest, TestLargeDataVolumeSkipRemainder) {
 
     // CHUNK_SIZE = 10, nlist = 4
     // Add 22 rows: 2 full chunks of 10, remaining 2 < 4
-    // Since we have trained data before (_need_save_index = true), we should add the remaining 2 rows and save
+    // Since we have trained data before (_need_save_index = true), we should add the remaining 2 rows and save.
+    // After the fix train() runs once on the first full chunk; later chunks only add().
+    EXPECT_CALL(*mock_index, needs_training()).WillRepeatedly(testing::Return(true));
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(4));
     EXPECT_CALL(*mock_index, train(10, testing::_))
-            .Times(2)
-            .WillRepeatedly(testing::Return(Status::OK()));
+            .Times(1)
+            .WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, add(10, testing::_))
             .Times(2)
             .WillRepeatedly(testing::Return(Status::OK()));
@@ -881,6 +892,7 @@ TEST_F(AnnIndexWriterTest, TestSkipIndexWhenTotalRowsLessThanNlist) {
     // Add only 3 rows, which is less than nlist (5)
     // Since no data was trained before (_need_save_index = false), we should skip index building entirely
     // No train, add, or save should be called
+    EXPECT_CALL(*mock_index, needs_training()).WillRepeatedly(testing::Return(true));
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(5));
     EXPECT_CALL(*mock_index, train(testing::_, testing::_)).Times(0);
     EXPECT_CALL(*mock_index, add(testing::_, testing::_)).Times(0);
@@ -923,17 +935,17 @@ TEST_F(AnnIndexWriterTest, TestPQMinTrainRows) {
     writer->set_vector_index(mock_index);
 
     // Set up expectations: mock a very large min_train_rows threshold.
-    // Since we only provide 1000 vectors, which is less than 131072, training will happen in batches
-    // but finish() will skip saving since remaining data is insufficient
+    // 1000 vectors split into 100 full chunks of 10. After the fix train() runs once
+    // on the first chunk; every later chunk only add()s. At finish() there are 0
+    // leftover rows and _need_save_index = true, so save() is invoked.
+    EXPECT_CALL(*mock_index, needs_training()).WillRepeatedly(testing::Return(true));
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(131072));
-    // 1000 vectors will be processed in 100 batches of 10 vectors each
     EXPECT_CALL(*mock_index, train(10, testing::_))
-            .Times(100)
-            .WillRepeatedly(testing::Return(Status::OK()));
+            .Times(1)
+            .WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, add(10, testing::_))
             .Times(100)
             .WillRepeatedly(testing::Return(Status::OK()));
-    // Since we have trained data in batches, the index will be saved even though total data is insufficient
     EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
 
     const size_t dim = 4;
@@ -978,8 +990,10 @@ TEST_F(AnnIndexWriterTest, TestSQMinTrainRows) {
 
     // Set up expectations: SQ should require at least 20 training vectors
     // Since we only provide 15 vectors, training will happen in batches but finish() will skip saving
+    EXPECT_CALL(*mock_index, needs_training()).WillRepeatedly(testing::Return(true));
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(20));
-    // 15 vectors will be processed in 1 batch of 10 vectors and remaining 5 vectors
+    // 15 vectors will be processed in 1 batch of 10 vectors and remaining 5 vectors.
+    // train() runs once on the first full chunk; the trailing 5 rows only add().
     EXPECT_CALL(*mock_index, train(10, testing::_))
             .Times(1)
             .WillOnce(testing::Return(Status::OK()));
@@ -1028,12 +1042,14 @@ TEST_F(AnnIndexWriterTest, TestPQWithSufficientData) {
     writer->set_vector_index(mock_index);
 
     // Mock min_train_rows to 131072 and provide exactly that amount.
+    // 131072 vectors split into 13107 full chunks of 10 (= 131070 rows) plus 2 leftover.
+    // After the fix train() runs once on the first chunk; the rest is pure add() at
+    // each chunk boundary plus one trailing add(2) in finish().
+    EXPECT_CALL(*mock_index, needs_training()).WillRepeatedly(testing::Return(true));
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(131072));
-    // Since we provide exactly 131072 vectors, they will be trained and added in chunks
-    // Each chunk is 10 vectors, so we expect 13107 train calls and 13107 add calls for full chunks
     EXPECT_CALL(*mock_index, train(10, testing::_))
-            .Times(13107)
-            .WillRepeatedly(testing::Return(Status::OK()));
+            .Times(1)
+            .WillOnce(testing::Return(Status::OK()));
     EXPECT_CALL(*mock_index, add(10, testing::_))
             .Times(13107)
             .WillRepeatedly(testing::Return(Status::OK()));
@@ -1063,6 +1079,50 @@ TEST_F(AnnIndexWriterTest, TestPQWithSufficientData) {
 
     // Finish should successfully build the index
     Status status = writer->finish();
+    EXPECT_TRUE(status.ok());
+}
+
+TEST_F(AnnIndexWriterTest, TestHnswSkipsTrainCall) {
+    // An index that reports needs_training() == false (HNSW + FLAT) must never have
+    // train() invoked, even when multiple full chunks flow through add().
+    auto mock_index = std::make_shared<MockVectorIndex>();
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             _tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    writer->set_vector_index(mock_index);
+
+    // CHUNK_SIZE = 10. Push 2 full chunks + a 5-row remainder.
+    EXPECT_CALL(*mock_index, needs_training()).WillRepeatedly(testing::Return(false));
+    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(0));
+    EXPECT_CALL(*mock_index, train(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, add(10, testing::_))
+            .Times(2)
+            .WillRepeatedly(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, add(5, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+
+    const size_t dim = 4;
+    const size_t num_rows = 25;
+    std::vector<float> vectors(num_rows * dim);
+    for (size_t i = 0; i < num_rows * dim; ++i) {
+        vectors[i] = static_cast<float>(i % 100);
+    }
+    std::vector<size_t> offsets;
+    for (size_t i = 0; i <= num_rows; ++i) {
+        offsets.push_back(i * dim);
+    }
+
+    Status status =
+            writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                     reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
+    EXPECT_TRUE(status.ok());
+
+    status = writer->finish();
     EXPECT_TRUE(status.ok());
 }
 

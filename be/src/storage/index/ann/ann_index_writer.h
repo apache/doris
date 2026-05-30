@@ -71,6 +71,12 @@ public:
     Status finish() override;
 
 private:
+    // Train the underlying index exactly once over its lifetime. The first call
+    // trains (when the index needs it) and latches _trained; later calls are no-ops.
+    // This prevents re-training the IVF quantizer on every chunk, which would re-fit
+    // the SQ/PQ codebook and invalidate vectors added under the earlier codebook.
+    Status _train_once_if_needed(Int64 n, const float* vec);
+
     // VectorIndex shoule be managed by some cache.
     // VectorIndex should be weak shared by AnnIndexWriter and VectorIndexReader
     // This should be a weak_ptr
@@ -82,5 +88,7 @@ private:
     const TabletIndex* _index_meta;
     std::shared_ptr<DorisFSDirectory> _dir;
     bool _need_save_index = false;
+    // Latched once the index has been trained (or determined not to need training).
+    bool _trained = false;
 };
 } // namespace doris::segment_v2

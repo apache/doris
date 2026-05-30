@@ -198,6 +198,8 @@ public:
      */
     doris::Status train(Int64 n, const float* vec) override;
 
+    bool needs_training() const override;
+
     /**
      * @brief Adds vectors to the index for future searches.
      *

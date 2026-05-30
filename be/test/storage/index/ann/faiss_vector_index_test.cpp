@@ -46,6 +46,40 @@ using namespace doris::segment_v2;
 
 namespace doris {
 
+// needs_training() must be true for IVF (k-means coarse quantizer) and for any
+// scalar/product quantizer, and false only for HNSW + FLAT. This drives the writer
+// to train the index exactly once; mis-reporting it would either skip required
+// training or re-train and corrupt SQ/PQ codes.
+TEST_F(VectorSearchTest, NeedsTrainingMatrix) {
+    auto build = [](FaissBuildParameter::IndexType type, FaissBuildParameter::Quantizer quantizer) {
+        auto index = std::make_unique<FaissVectorIndex>();
+        FaissBuildParameter params;
+        params.dim = 16;
+        params.max_degree = 16;
+        params.pq_m = 4;
+        params.pq_nbits = 8;
+        params.ivf_nlist = 4;
+        params.index_type = type;
+        params.quantizer = quantizer;
+        index->build(params);
+        return index;
+    };
+
+    using IndexType = FaissBuildParameter::IndexType;
+    using Quantizer = FaissBuildParameter::Quantizer;
+
+    // HNSW only learns nothing with a FLAT quantizer.
+    EXPECT_FALSE(build(IndexType::HNSW, Quantizer::FLAT)->needs_training());
+    EXPECT_TRUE(build(IndexType::HNSW, Quantizer::SQ8)->needs_training());
+    EXPECT_TRUE(build(IndexType::HNSW, Quantizer::PQ)->needs_training());
+
+    // IVF always trains its coarse quantizer, regardless of the encoding quantizer.
+    for (auto q : {Quantizer::FLAT, Quantizer::SQ4, Quantizer::SQ8, Quantizer::PQ}) {
+        EXPECT_TRUE(build(IndexType::IVF, q)->needs_training());
+        EXPECT_TRUE(build(IndexType::IVF_ON_DISK, q)->needs_training());
+    }
+}
+
 // Test saving and loading an index
 TEST_F(VectorSearchTest, TestSaveAndLoad) {
     std::vector<FaissBuildParameter::Quantizer> quantizers = {

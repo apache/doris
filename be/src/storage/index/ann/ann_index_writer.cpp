@@ -83,6 +83,17 @@ Status AnnIndexColumnWriter::init() {
     return Status::OK();
 }
 
+Status AnnIndexColumnWriter::_train_once_if_needed(Int64 n, const float* vec) {
+    if (_trained) {
+        return Status::OK();
+    }
+    if (_vector_index->needs_training()) {
+        RETURN_IF_ERROR(_vector_index->train(n, vec));
+    }
+    _trained = true;
+    return Status::OK();
+}
+
 Status AnnIndexColumnWriter::add_values(const std::string fn, const void* values, size_t count) {
     return Status::OK();
 }
@@ -122,7 +133,7 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
 
         if (_float_array.size() == full_elements) {
             RETURN_IF_ERROR(
-                    _vector_index->train(AnnIndexColumnWriter::chunk_size(), _float_array.data()));
+                    _train_once_if_needed(AnnIndexColumnWriter::chunk_size(), _float_array.data()));
             RETURN_IF_ERROR(
                     _vector_index->add(AnnIndexColumnWriter::chunk_size(), _float_array.data()));
             _float_array.clear();
@@ -166,7 +177,7 @@ Status AnnIndexColumnWriter::finish() {
         Int64 num_rows = _float_array.size() / _vector_index->get_dimension();
 
         if (num_rows >= min_train_rows) {
-            RETURN_IF_ERROR(_vector_index->train(num_rows, _float_array.data()));
+            RETURN_IF_ERROR(_train_once_if_needed(num_rows, _float_array.data()));
             RETURN_IF_ERROR(_vector_index->add(num_rows, _float_array.data()));
             _float_array.clear();
             return _vector_index->save(_dir.get());

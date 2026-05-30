@@ -452,6 +452,17 @@ private:
     size_t _file_size;
 };
 
+bool FaissVectorIndex::needs_training() const {
+    // IVF performs k-means clustering for the coarse quantizer, and any quantizer
+    // other than FLAT (SQ/PQ) also has to learn parameters from the data, so both
+    // must be trained. HNSW with a FLAT quantizer learns nothing from train().
+    if (_params.index_type == FaissBuildParameter::IndexType::IVF ||
+        _params.index_type == FaissBuildParameter::IndexType::IVF_ON_DISK) {
+        return true;
+    }
+    return _params.quantizer != FaissBuildParameter::Quantizer::FLAT;
+}
+
 doris::Status FaissVectorIndex::train(Int64 n, const float* vec) {
     DCHECK(vec != nullptr);
     DCHECK(_index != nullptr);

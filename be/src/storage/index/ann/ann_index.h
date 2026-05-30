@@ -78,6 +78,14 @@ public:
 
     virtual doris::Status train(Int64 n, const float* x) = 0;
 
+    // Whether the underlying index must be trained once before add().
+    // HNSW with a FLAT quantizer has nothing to learn from the data and overrides
+    // to false; IVF (k-means coarse quantizer) and any scalar/product quantizer
+    // (SQ/PQ) must be trained. Callers must train at most once per index lifetime:
+    // a second train() on the same index would re-fit the quantizer codebook and
+    // make vectors already added under the earlier codebook inconsistent.
+    virtual bool needs_training() const { return false; }
+
     /** Add n vectors of dimension d vectors to the index.
      *
      * Vectors are implicitly assigned labels ntotal .. ntotal + n - 1
