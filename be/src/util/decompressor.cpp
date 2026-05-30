@@ -676,6 +676,16 @@ Status SnappyBlockDecompressor::decompress(uint8_t* input, uint32_t input_len,
                                                &decompressed_small_block_len)) {
                 return Status::InternalError("Failed to do snappy decompress.");
             }
+            // snappy::RawUncompress writes decompressed_small_block_len bytes to output_ptr
+            // without a destination-capacity argument, so the header-declared length must be
+            // checked against the remaining output buffer to avoid an out-of-bounds write.
+            std::size_t available_output_len = output_max_len - (output_ptr - output);
+            if (decompressed_small_block_len > available_output_len) {
+                return Status::InternalError(
+                        "Failed to do snappy decompress, output buffer is too small. "
+                        "decompressed_len: {}, available_output_len: {}",
+                        decompressed_small_block_len, available_output_len);
+            }
             if (!snappy::RawUncompress(reinterpret_cast<const char*>(input_ptr),
                                        compressed_small_block_len,
                                        reinterpret_cast<char*>(output_ptr))) {
