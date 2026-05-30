@@ -21,6 +21,7 @@
 #include <atomic>
 #include <cstring>
 #include <random>
+#include <unordered_map>
 
 #include "common/logging.h"
 
@@ -299,9 +300,10 @@ uint32_t SpimiPostingBuffer::Intern(std::string_view term) {
             // _records and _arena.
             if (_term_count * 4 > _slots.size() * 3) {
                 GrowSlots(_slots.size() * 2);
-                // `_last_intern_slot` is now stale — caller should
-                // re-resolve via `_text_ref_to_term_id` for this
-                // single insertion (cold path).
+                // `_last_intern_slot` now points into the OLD table layout —
+                // invalidate it so the compact-mode term-id resolution takes
+                // the cold path (re-probe `_slots`→`_slot_term_ids`) for this
+                // single insertion.
                 _last_intern_slot = static_cast<size_t>(-1);
             }
             return text_ref;
@@ -314,65 +316,41 @@ uint32_t SpimiPostingBuffer::Intern(std::string_view term) {
     }
 }
 
-uint32_t SpimiPostingBuffer::GetOrAssignTermId(uint32_t text_ref) {
-    // Hot path: Intern() just touched a slot and left `_last_intern_slot`
-    // pointing at it AND the slot's text_ref equals the queried `text_ref`.
-    // The parallel `_slot_term_ids` array then gives the term_id in O(1)
-    // — no hashmap probe.
-    //
-    // The `_slots[_last_intern_slot] == text_ref` check is LOAD-BEARING.
-    // Without it the function silently returns whatever term_id sits at
-    // the stale slot, collapsing distinct terms onto term_id 0. Two paths
-    // exercise this: (a) `MaybeCompact`'s migration loop walks `_records`
-    // calling GetOrAssignTermId without first calling Intern per record,
-    // so `_last_intern_slot` points at the last-Append'd term, not the
-    // record's term; (b) any future caller that forgets the implicit
-    // "you must Intern with this exact text_ref first" contract.
+uint32_t SpimiPostingBuffer::GetOrAssignTermIdCold(uint32_t text_ref) {
+    // Reached when `GetOrAssignTermIdHot` returned kInvalidTermId — either the
+    // term's first occurrence (slot cache valid, but no id assigned yet) or a
+    // stale slot cache (MaybeCompact migration loop / post-GrowSlots). Resolve
+    // the slot, then read-or-assign its dense term_id via `_slot_term_ids` —
+    // the sole source of truth (kept in lockstep with `_slots` by GrowSlots).
+    size_t slot;
     if (_last_intern_slot != static_cast<size_t>(-1) && _last_intern_slot < _slot_term_ids.size() &&
-        _slots[_last_intern_slot] == text_ref) [[likely]] {
-        uint32_t id = _slot_term_ids[_last_intern_slot];
-        if (id == kInvalidTermId) {
-            id = static_cast<uint32_t>(_term_states.size());
-            auto& st = _term_states.emplace_back();
-            st.text_ref = text_ref;
-            _slot_term_ids[_last_intern_slot] = id;
-            _text_ref_to_term_id.emplace(text_ref, id);
-        }
-        return id;
-    }
-    // Cold fallback: text_ref doesn't match the last-Intern'd slot, OR
-    // _last_intern_slot is invalidated (post-GrowSlots, MaybeCompact
-    // migration loop). The hashmap is the source of truth.
-    auto it = _text_ref_to_term_id.find(text_ref);
-    if (it != _text_ref_to_term_id.end()) {
-        return it->second;
-    }
-    const auto id = static_cast<uint32_t>(_term_states.size());
-    auto& st_new = _term_states.emplace_back();
-    st_new.text_ref = text_ref;
-    _text_ref_to_term_id.emplace(text_ref, id);
-    // Also populate `_slot_term_ids` for THIS text_ref's slot, so the
-    // next Append on this same term hits the fast path. Slot is found
-    // by re-probing the intern table — same hash + linear probe as
-    // Intern. Cheap on miss (executed once per first-sight term in
-    // cold mode, ≪ Append frequency).
-    if (!_slots.empty()) {
+        _slots[_last_intern_slot] == text_ref) {
+        // Slot cache is valid (common: first occurrence of a term Intern just
+        // inserted). The `_slots[_last_intern_slot] == text_ref` check is
+        // LOAD-BEARING: without it a stale slot would collapse distinct terms.
+        slot = _last_intern_slot;
+    } else {
+        // Stale cache: re-probe the slot table for text_ref. The term IS
+        // interned (Append always Interns before resolving a term_id), so the
+        // matching slot is guaranteed present — assert it rather than guarding.
+        DCHECK(!_slots.empty());
         const size_t mask = _slots.size() - 1;
         const std::string_view term = ArenaTermAt(text_ref);
-        size_t slot = HashTerm(term) & mask;
-        while (true) {
-            const uint32_t entry = _slots[slot];
-            if (entry == text_ref) {
-                _slot_term_ids[slot] = id;
-                break;
-            }
-            if (entry == kEmpty) {
-                break;  // text_ref not actually interned — shouldn't
-                        // happen but defensively bail rather than loop
-                        // forever.
-            }
+        slot = HashTerm(term) & mask;
+        while (_slots[slot] != text_ref) {
+            DCHECK(_slots[slot] != kEmpty); // text_ref must be interned
             slot = (slot + 1) & mask;
         }
+    }
+    // `_slot_term_ids` is sized in lockstep with `_slots` (MaybeCompact assigns
+    // it; GrowSlots migrates it), so the resolved slot indexes it in bounds.
+    DCHECK_LT(slot, _slot_term_ids.size());
+    uint32_t id = _slot_term_ids[slot];
+    if (id == kInvalidTermId) {
+        id = static_cast<uint32_t>(_term_states.size());
+        auto& st = _term_states.emplace_back();
+        st.text_ref = text_ref;
+        _slot_term_ids[slot] = id;
     }
     return id;
 }
@@ -388,18 +366,32 @@ void SpimiPostingBuffer::FinalizeBlocks() {
     if (_finalized) {
         return;
     }
-    // Flush graduated terms' FOR encoders so their faststrings hold the full
-    // packed tail (with the per-frame footer ForDecoder needs). VInt prefix
-    // chains are self-delimiting and need no finalization.
-    for (auto& f : _for_states) {
-        if (f->pend_n > 0) {
-            f->doc_enc.put_batch(f->doc_pend, f->pend_n);
-            f->pos_enc.put_batch(f->pos_pend, f->pend_n);
-            f->pend_n = 0;
+    // Close every term's last open doc: its (docCode, freq) is still buffered in
+    // cur_doc_freq/cur_doc_delta and must be flushed to the freq chain so the
+    // chain holds one entry per doc for the whole term. (Per-doc freq is written
+    // on doc transitions during Append; the final doc has no transition.)
+    // docCode is VInt64-coded (delta<<1|flag in uint64) for the same
+    // backward-delta-safety reason as the Append hot path.
+    for (auto& s : _term_states) {
+        if (s.occ_count == 0) {
+            continue;
         }
-        f->doc_enc.flush();
-        f->pos_enc.flush();
+        if (s.cur_doc_freq == 1) {
+            s.doc_upto = _pool.WriteVInt64(s.doc_upto,
+                                           (static_cast<uint64_t>(s.cur_doc_delta) << 1U) | 1U);
+        } else {
+            s.doc_upto =
+                    _pool.WriteVInt64(s.doc_upto, static_cast<uint64_t>(s.cur_doc_delta) << 1U);
+            s.doc_upto = _pool.WriteVInt(s.doc_upto, s.cur_doc_freq);
+        }
     }
+    // NOTE: the intern slot tables (_slots/_slot_term_ids) are NOT freed here.
+    // FinalizeBlocks() runs before Sort()'s path fork, and the compact-mode
+    // records-fallback path (non-monotonic streams) decodes into _records, sets
+    // _compact_mode=false, then falls through to the FLAT-mode counting sort
+    // which reads _slots. Freeing them here would empty that sort's input. They
+    // are instead freed in the direct-emit branch of Sort(), where _slots is
+    // provably dead (emit iterates _sorted_compact_terms, never _slots).
     _finalized = true;
 }
 
@@ -412,39 +404,21 @@ void SpimiPostingBuffer::DecodeCompactTerm(uint32_t term_id, std::vector<uint32_
     if (n == 0) {
         return;
     }
-    // VInt prefix (delta-coded doc ids threaded from 0; plain positions), then
-    // — for graduated terms — the FOR-packed suffix, threading `prev` across
-    // the boundary so absolute doc ids are continuous.
-    const uint32_t prefix = (state.for_index != kNoForIndex) ? kForThreshold : n;
-    ByteSliceReader doc_reader(_pool, state.doc_start, state.doc_upto);
+    // Per-doc freq chain (docCode = doc_delta<<1, low bit = freq==1, else a
+    // trailing VInt(freq)) + per-occurrence absolute positions in the prox chain.
+    // Expand back to the per-occurrence (doc, position) sequence as appended.
+    ByteSliceReader freq_reader(_pool, state.doc_start, state.doc_upto);
     ByteSliceReader pos_reader(_pool, state.pos_start, state.pos_upto);
     uint32_t prev = 0;
-    for (uint32_t i = 0; i < prefix; ++i) {
-        prev += doc_reader.ReadVInt();
-        docs[i] = prev;
-        positions[i] = pos_reader.ReadVInt();
-    }
-    if (state.for_index != kNoForIndex && n > kForThreshold) {
-        const uint32_t suffix = n - kForThreshold;
-        const ForTermState& f = *_for_states[state.for_index];
-        std::vector<uint32_t> dd(suffix);
-        std::vector<uint32_t> pp(suffix);
-        ForDecoder<uint32_t> ddec(f.doc_buf.data(), f.doc_buf.size());
-        const bool dinit = ddec.init();
-        const bool dget = ddec.get_batch(dd.data(), suffix);
-        ForDecoder<uint32_t> pdec(f.pos_buf.data(), f.pos_buf.size());
-        const bool pinit = pdec.init();
-        const bool pget = pdec.get_batch(pp.data(), suffix);
-        DCHECK(dinit && dget && pinit && pget)
-                << "FOR tail decode failed (corrupt in-memory buffer)";
-        static_cast<void>(dinit);
-        static_cast<void>(dget);
-        static_cast<void>(pinit);
-        static_cast<void>(pget);
-        for (uint32_t j = 0; j < suffix; ++j) {
-            prev += dd[j];
-            docs[kForThreshold + j] = prev;
-            positions[kForThreshold + j] = pp[j];
+    uint32_t i = 0;
+    while (i < n) {
+        const uint64_t code = freq_reader.ReadVInt64();
+        prev += static_cast<uint32_t>(code >> 1U); // modular doc delta; round-trips any order
+        const uint32_t freq = (code & 1U) ? 1U : freq_reader.ReadVInt();
+        for (uint32_t k = 0; k < freq; ++k) {
+            docs[i] = prev;
+            positions[i] = pos_reader.ReadVInt();
+            ++i;
         }
     }
 }
@@ -476,9 +450,9 @@ void SpimiPostingBuffer::MaybeCompact() {
     }
     // Migrate all records into per-term arrays. Records are walked
     // in insertion order so the arrays see the same (doc, pos)
-    // sequence Append() would have produced directly.
-    _term_states.reserve(_term_count);
-    _text_ref_to_term_id.reserve(_term_count);
+    // sequence Append() would have produced directly. `_term_states` is a
+    // std::deque, so no reserve() — it grows in fixed chunks without ever
+    // reallocating, sidestepping the vector doubling overshoot + copy spike.
     // The per-term StreamVByte streams need no pre-reservation: occurrences
     // accumulate in the fixed-size pending block and are flushed in bulk, so
     // there is no per-occurrence array growth to amortize.
@@ -491,13 +465,14 @@ void SpimiPostingBuffer::MaybeCompact() {
     _slot_term_ids.assign(_slots.size(), kInvalidTermId);
     // Force the cold path during migration: `_last_intern_slot` is
     // stale (points at the last flat-mode Append's term) and would
-    // mis-route records onto term_id 0 (P51 corruption bug). The
-    // cold path uses the hashmap (correct) and ALSO populates
-    // `_slot_term_ids[slot]` via re-probing, so post-migration
-    // Appends still hit the fast path.
+    // mis-route records onto term_id 0 (P51 corruption bug). The cold
+    // path (`GetOrAssignTermIdCold`) re-probes `_slots` for each record's
+    // text_ref and assigns/reads `_slot_term_ids[slot]`, so it is correct
+    // for the stale-cache case AND leaves `_slot_term_ids` populated so
+    // post-migration Appends hit the fast path.
     _last_intern_slot = static_cast<size_t>(-1);
     for (const auto& rec : _records) {
-        const uint32_t term_id = GetOrAssignTermId(rec.text_ref);
+        const uint32_t term_id = GetOrAssignTermIdCold(rec.text_ref);
         EncodeOccurrenceToStream(term_id, rec.doc_id, rec.position);
     }
     _records.clear();
@@ -568,11 +543,15 @@ void SpimiPostingBuffer::Append(std::string_view term, uint32_t doc_id, uint32_t
 
     if (_compact_mode) {
         // Compact mode: stream the (doc, pos) occurrence straight into the
-        // term's two VInt slice chains. Both `GetOrAssignTermId` (via
-        // _last_intern_slot O(1) cache) and `EncodeOccurrenceToStreamInline`
-        // are header-inlined so the compiler fuses them with the surrounding
-        // Append logic — no function-call boundary in the hot loop.
-        const uint32_t term_id = GetOrAssignTermId(text_ref);
+        // term's two VInt slice chains. The repeated-term term-id lookup is
+        // header-inlined (`GetOrAssignTermIdHot`, a single `_slot_term_ids`
+        // load) so it fuses into Append's hot loop; only first-sight / stale-
+        // cache tokens take the out-of-line cold path. `EncodeOccurrence...`
+        // is likewise header-inlined — no call boundary in the steady state.
+        uint32_t term_id = GetOrAssignTermIdHot(text_ref);
+        if (term_id == kInvalidTermId) [[unlikely]] {
+            term_id = GetOrAssignTermIdCold(text_ref);
+        }
         EncodeOccurrenceToStreamInline(term_id, doc_id, position);
         return;
     }
@@ -607,19 +586,12 @@ size_t SpimiPostingBuffer::MemoryUsage() const {
                    _slot_term_ids.capacity() * sizeof(uint32_t);
     bytes += _records.capacity() * sizeof(SpimiRecord);
     if (_compact_mode) {
-        // Per-term stream capacities + vector<TermPostingState>
-        // backing array overhead + map slots. Map slot bytes are
-        // approximated as 2× live entries × (sizeof(key)+sizeof(value)+
-        // pointer for the bucket), matching libstdc++'s typical load
-        // factor and bucket layout closely enough for accounting.
-        bytes += _term_states.capacity() * sizeof(TermPostingState);
-        bytes += _pool.MemoryUsage(); // shared slice-pool blocks (VInt prefix bytes)
-        // FOR-packed tails: packed buffers + per-encoder frame scratch + node.
-        bytes += _for_states.capacity() * sizeof(std::unique_ptr<ForTermState>);
-        for (const auto& f : _for_states) {
-            bytes += sizeof(ForTermState) + f->doc_buf.capacity() + f->pos_buf.capacity();
-        }
-        bytes += _text_ref_to_term_id.size() * (sizeof(uint32_t) * 2 + sizeof(void*) * 2);
+        // Per-term state array + the shared slice-pool blocks holding the
+        // doc/pos VInt chains. (No FOR tails — in-memory FOR removed.)
+        // `_term_states` is a std::deque: size()*sizeof is exact to within one
+        // partially-filled chunk (no capacity() overshoot to account for).
+        bytes += _term_states.size() * sizeof(TermPostingState);
+        bytes += _pool.MemoryUsage();
     }
     return bytes;
 }
@@ -627,26 +599,25 @@ size_t SpimiPostingBuffer::MemoryUsage() const {
 void SpimiPostingBuffer::Reset() {
     _records.clear();
     _arena.clear();
-    // Keep the slot table allocated and re-zero it in place rather than
-    // shrinking to empty. The previous Reset() cleared `_slots`, which
-    // forced the next Append() to re-allocate the slot table from scratch
-    // every time the buffer was reused across segments — defeating the
-    // "keeps allocated capacity for reuse" contract advertised on Reset.
+    // Re-zero the slot tables in place to preserve their capacity for buffer
+    // reuse (avoids re-allocating the slot table on the next segment). Two
+    // cases: (a) a flat-mode or non-direct-emit segment leaves the tables
+    // populated, so this fill resets them cheaply; (b) the compact direct-emit
+    // path freed them at finalize, so these vectors are empty here and the fill
+    // is a no-op — the next Append()'s Intern() re-allocates `_slots` (its
+    // `if (_slots.empty())` branch) and MaybeCompact() re-sizes `_slot_term_ids`.
+    // Both cases are correct.
     std::fill(_slots.begin(), _slots.end(), kEmpty);
     std::fill(_slot_term_ids.begin(), _slot_term_ids.end(), kInvalidTermId);
     _term_count = 0;
     _saturated = false;
     _last_intern_slot = static_cast<size_t>(-1);
-    // Compact-mode state: drop streams + maps but don't keep them
+    // Compact-mode state: drop per-term streams but don't keep them
     // around — they're heavy and a reused buffer should start over
     // with the flat-records fast path.
     _term_states.clear();
     _term_states.shrink_to_fit();
     _pool.Reset();
-    _for_states.clear();
-    _for_states.shrink_to_fit();
-    _text_ref_to_term_id.clear();
-    _cached_text_ref = static_cast<uint32_t>(-1);
     _compact_mode = false;
     _compact_streams_sorted = true;
     _total_occurrences = 0;
@@ -678,10 +649,13 @@ void SpimiPostingBuffer::Sort(bool allow_direct_emit) {
         // bench this drops `finish` from ~16 ms to ~2 ms (matches
         // CLucene's finish time).
         const bool can_skip_global_sort = _compact_streams_sorted;
+        // Enumerate every (text_ref, term_id) pair directly from `_term_states`
+        // (dense, indexed by term_id; `.text_ref` is the arena offset). This
+        // replaced an iteration over the removed `_text_ref_to_term_id` map.
         std::vector<std::pair<uint32_t, uint32_t>> term_text_to_id; // (text_ref, term_id)
-        term_text_to_id.reserve(_text_ref_to_term_id.size());
-        for (const auto& [text_ref, term_id] : _text_ref_to_term_id) {
-            term_text_to_id.emplace_back(text_ref, term_id);
+        term_text_to_id.reserve(_term_states.size());
+        for (uint32_t term_id = 0; term_id < _term_states.size(); ++term_id) {
+            term_text_to_id.emplace_back(_term_states[term_id].text_ref, term_id);
         }
         if (can_skip_global_sort) {
             std::sort(term_text_to_id.begin(), term_text_to_id.end(),
@@ -697,6 +671,14 @@ void SpimiPostingBuffer::Sort(bool allow_direct_emit) {
                 for (const auto& [text_ref, term_id] : term_text_to_id) {
                     _sorted_compact_terms.push_back(CompactTermRef {text_ref, term_id});
                 }
+                // The intern slot tables are now dead: this terminal direct-emit
+                // path hands the segment writer _sorted_compact_terms + the
+                // per-term arrays, and EmitFromCompactDirect never reads _slots.
+                // Free them (swap-to-empty deallocates without a realloc copy) to
+                // drop the emit-phase peak. Reset() re-inits them for buffer
+                // reuse. Byte-identical: no emitted byte depends on _slots.
+                std::vector<uint32_t>().swap(_slots);
+                std::vector<uint32_t>().swap(_slot_term_ids);
                 _compact_direct_emit = true;
                 return;
             }
@@ -711,8 +693,6 @@ void SpimiPostingBuffer::Sort(bool allow_direct_emit) {
         }
         _term_states.clear();
         _term_states.shrink_to_fit();
-        _text_ref_to_term_id.clear();
-        _cached_text_ref = static_cast<uint32_t>(-1);
         _compact_mode = false;
         if (can_skip_global_sort) {
             // Records are now in (term-text, doc, pos) order without

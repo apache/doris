@@ -20,15 +20,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <limits>
 #include <memory>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 #include "storage/index/inverted/spimi/byte_output.h"
-#include "util/faststring.h"
-#include "util/frame_of_reference_coding.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -127,6 +125,21 @@ public:
         return WriteByte(upto, static_cast<uint8_t>(v));
     }
 
+    // 64-bit LEB128. Used for the per-doc freq-chain docCode (`doc_delta << 1 |
+    // freq_flag`): a full uint32 doc-delta shifted left by one needs 33 bits, so
+    // it must NOT be truncated to uint32 (that loses the top bit and corrupts
+    // backward — i.e. non-monotonic — doc transitions, which the records-fallback
+    // path must round-trip). For the common small monotonic delta the encoded
+    // bytes are byte-identical to WriteVInt; only large/backward deltas spend
+    // the extra byte.
+    [[gnu::always_inline]] inline uint32_t WriteVInt64(uint32_t upto, uint64_t v) {
+        while (v & ~0x7FULL) {
+            upto = WriteByte(upto, static_cast<uint8_t>((v & 0x7F) | 0x80));
+            v >>= 7;
+        }
+        return WriteByte(upto, static_cast<uint8_t>(v));
+    }
+
     uint8_t ByteAt(uint32_t off) const { return _blocks[off >> kBlockShift][off & kBlockMask]; }
 
     // Raw block pointer (for the slice reader). Block `i` is a fixed kBlockSize
@@ -184,6 +197,21 @@ public:
         while (b & 0x80) {
             b = ReadByte();
             v |= static_cast<uint32_t>(b & 0x7F) << shift;
+            shift += 7;
+        }
+        return v;
+    }
+
+    // 64-bit LEB128 read — pairs with BytePool::WriteVInt64 for the freq-chain
+    // docCode (see WriteVInt64). The caller recovers the doc-delta as
+    // `code >> 1` and the freq flag as `code & 1`.
+    uint64_t ReadVInt64() {
+        uint8_t b = ReadByte();
+        uint64_t v = b & 0x7FULL;
+        int shift = 7;
+        while (b & 0x80) {
+            b = ReadByte();
+            v |= static_cast<uint64_t>(b & 0x7F) << shift;
             shift += 7;
         }
         return v;
@@ -314,26 +342,11 @@ public:
         uint32_t pos_start;
         uint32_t pos_end;
         uint32_t occ_count;
-        uint32_t doc_count;               // distinct docs == doc_freq for StartTerm
-        uint32_t prefix_count;            // VInt-prefix occurrences in the slice chains
-        const uint8_t* for_doc = nullptr; // FOR-packed doc-delta tail (null if not graduated)
-        size_t for_doc_len = 0;
-        const uint8_t* for_pos = nullptr; // FOR-packed position tail
-        size_t for_pos_len = 0;
+        uint32_t doc_count; // distinct docs == doc_freq for StartTerm
     };
     CompactTermStreams CompactStreamsFor(uint32_t term_id) const {
         const auto& s = _term_states[term_id];
-        CompactTermStreams r {s.doc_start, s.doc_upto,  s.pos_start, s.pos_upto,
-                              s.occ_count, s.doc_count, s.occ_count};
-        if (s.for_index != kNoForIndex) {
-            const ForTermState& f = *_for_states[s.for_index];
-            r.prefix_count = kForThreshold;
-            r.for_doc = f.doc_buf.data();
-            r.for_doc_len = f.doc_buf.size();
-            r.for_pos = f.pos_buf.data();
-            r.for_pos_len = f.pos_buf.size();
-        }
-        return r;
+        return {s.doc_start, s.doc_upto, s.pos_start, s.pos_upto, s.occ_count, s.doc_count};
     }
     const BytePool& Pool() const { return _pool; }
 
@@ -375,52 +388,54 @@ private:
                                                                       uint32_t doc_id,
                                                                       uint32_t position) {
         auto& state = _term_states[term_id];
-        uint32_t doc_delta;
-        if (state.any) [[likely]] {
+        // CLucene/Lucene in-memory layout: the `doc_*` chain holds ONE entry PER
+        // DOC (docCode = doc_delta<<1, with the low bit flagging freq==1, plus a
+        // VInt(freq) when freq>1) and the `pos_*` chain holds the absolute
+        // position PER OCCURRENCE. The previous per-OCCURRENCE doc-delta scheme
+        // wrote a (mostly-zero) doc-delta for every occurrence, which exploded on
+        // large high-freq-per-doc text — Wikipedia measured 4.2x V2's RAM. Grouping
+        // freq per doc collapses a word's hundreds of same-doc hits into one entry.
+        // The current doc's freq is buffered in `cur_doc_freq` and flushed to the
+        // chain when the doc closes (here on a new doc, or at FinalizeBlocks).
+        if (state.occ_count == 0) [[unlikely]] {
+            state.doc_start = state.doc_upto = _pool.NewSlice(); // freq chain
+            state.pos_start = state.pos_upto = _pool.NewSlice(); // prox chain
+            state.last_doc = doc_id;
+            state.cur_doc_delta = doc_id; // delta from implicit 0
+            state.cur_doc_freq = 1;
+            state.doc_count = 1;
+        } else if (doc_id != state.last_doc) {
             if (doc_id < state.last_doc) [[unlikely]] {
                 _compact_streams_sorted = false;
-            } else if (doc_id == state.last_doc && position < state.last_pos) [[unlikely]] {
+            }
+            // Close the previous doc: write its (docCode, freq) to the freq chain.
+            // docCode = (doc_delta << 1) | (freq==1) is computed in uint64 and
+            // VInt64-coded — a full uint32 backward delta needs 33 bits, so a
+            // uint32 << 1 would drop the top bit and corrupt non-monotonic runs.
+            if (state.cur_doc_freq == 1) {
+                state.doc_upto = _pool.WriteVInt64(
+                        state.doc_upto, (static_cast<uint64_t>(state.cur_doc_delta) << 1U) | 1U);
+            } else {
+                state.doc_upto = _pool.WriteVInt64(
+                        state.doc_upto, static_cast<uint64_t>(state.cur_doc_delta) << 1U);
+                state.doc_upto = _pool.WriteVInt(state.doc_upto, state.cur_doc_freq);
+            }
+            state.cur_doc_delta = doc_id - state.last_doc; // modular delta (full uint32)
+            state.last_doc = doc_id;
+            state.cur_doc_freq = 1;
+            ++state.doc_count;
+        } else {
+            if (position < state.last_pos) [[unlikely]] {
                 _compact_streams_sorted = false;
             }
-            if (doc_id != state.last_doc) {
-                ++state.doc_count; // new doc (exact for the monotonic direct-emit path)
-            }
-            doc_delta = doc_id - state.last_doc; // modular delta; round-trips any order
-        } else {
-            state.doc_count = 1;
-            // First occurrence: open the term's two slice chains lazily.
-            state.doc_start = state.doc_upto = _pool.NewSlice();
-            state.pos_start = state.pos_upto = _pool.NewSlice();
-            doc_delta = doc_id; // delta from implicit 0
+            ++state.cur_doc_freq;
         }
-        if (state.for_index != kNoForIndex) {
-            // Graduated: stage the (doc-delta, position) tail and feed the SIMD
-            // FOR encoder one frame (kForBatch) at a time. Deltas are
-            // per-occurrence (continuous across the VInt-prefix→FOR-suffix
-            // boundary), so decode just keeps threading `prev`.
-            ForTermState& f = *_for_states[state.for_index];
-            f.doc_pend[f.pend_n] = doc_delta;
-            f.pos_pend[f.pend_n] = position;
-            if (++f.pend_n == kForBatch) [[unlikely]] {
-                f.doc_enc.put_batch(f.doc_pend, kForBatch);
-                f.pos_enc.put_batch(f.pos_pend, kForBatch);
-                f.pend_n = 0;
-            }
-        } else {
-            // VInt prefix: delta-coded doc id + plain position, 1-3 bytes each
-            // straight into the shared slice pool (no per-term scratch).
-            state.doc_upto = _pool.WriteVInt(state.doc_upto, doc_delta);
-            state.pos_upto = _pool.WriteVInt(state.pos_upto, position);
-        }
-        state.last_doc = doc_id;
+        // Absolute position per occurrence — same bytes the per-occ scheme stored,
+        // so emit's StartDoc/AddPosition sequence (and the on-disk .prx) is byte-
+        // identical; only the freq/doc chain layout changed.
+        state.pos_upto = _pool.WriteVInt(state.pos_upto, position);
         state.last_pos = position;
-        state.any = true;
         ++state.occ_count;
-        if (state.occ_count == kForThreshold && state.for_index == kNoForIndex) [[unlikely]] {
-            // Graduate: this term is high-DF; pack its remaining occurrences.
-            state.for_index = static_cast<uint32_t>(_for_states.size());
-            _for_states.push_back(std::make_unique<ForTermState>());
-        }
     }
 
     // Inline hot path of Intern(): checks the open-addressing
@@ -543,49 +558,29 @@ private:
     // round-trips any uint32 sequence (modular deltas), so a non-monotonic
     // stream is decoded exactly and `_compact_streams_sorted` tells emit to
     // re-sort it.
-    // Hybrid graduation threshold. A term's first kForThreshold occurrences are
-    // byte-aligned VInt in the slice pool (cheap, no per-term scratch — right
-    // for the Zipfian low-DF tail). Once a term crosses it, the remaining
-    // occurrences are SIMD frame-of-reference (FOR) bit-packed sub-byte via
-    // ForEncoder — high-DF terms hold the bulk of occurrences, so packing their
-    // tail beats the ~2 B/occ byte floor, while the bounded VInt prefix and the
-    // per-FOR-term frame scratch stay small (few terms graduate).
-    static constexpr uint32_t kForThreshold = 512;
-    static constexpr uint32_t kNoForIndex = 0xFFFFFFFFU;
-
+    // Per-term compact posting state. Occurrences are stored as two VInt slice
+    // chains in the shared pool (delta-coded doc ids; plain positions). There is
+    // NO in-memory FOR/bit-packing: a probe showed it cost more memory than it
+    // saved and was slightly slower; the on-disk PFOR is applied at emit. This
+    // mirrors CLucene/Lucene (VInt in RAM, bit-pack on serialize).
     struct TermPostingState {
-        uint32_t doc_start = 0; // global pool offset: first byte of doc chain
-        uint32_t doc_upto = 0;  // global pool offset: next doc-chain write
-        uint32_t pos_start = 0; // global pool offset: first byte of pos chain
-        uint32_t pos_upto = 0;  // global pool offset: next pos-chain write
-        uint32_t occ_count = 0; // total occurrences (sizes the decode)
-        uint32_t doc_count = 0; // doc-id transitions; == distinct docs (doc_freq) for the
-                                // monotonic direct-emit path (its only consumer). On
-                                // non-monotonic streams it may over-count, but those take the
-                                // records fallback which recomputes doc_freq, so it's unused there.
-        uint32_t text_ref = 0;  // arena offset of the term bytes
-        uint32_t last_doc = 0;  // last appended doc id (delta seed + monotonic check)
-        uint32_t last_pos = 0;  // last appended position (monotonic check)
-        uint32_t for_index = kNoForIndex; // index into _for_states once graduated
-        bool any = false;                 // at least one occurrence appended
-    };
-
-    // Per-graduated-term FOR-packed tail (heap-stable: the ForEncoders hold
-    // faststring* into the same node, which must not dangle when _for_states
-    // grows — hence unique_ptr nodes, never moved).
-    static constexpr uint32_t kForBatch = 128; // == ForEncoder frame size
-    struct ForTermState {
-        faststring doc_buf;
-        faststring pos_buf;
-        ForEncoder<uint32_t> doc_enc;
-        ForEncoder<uint32_t> pos_enc;
-        // Small staging buffers so occurrences are fed to ForEncoder in
-        // frame-sized put_batch() calls instead of one out-of-line put() per
-        // occurrence (the dominant FOR-path CPU cost on the flame graph).
-        uint32_t doc_pend[kForBatch];
-        uint32_t pos_pend[kForBatch];
-        uint32_t pend_n = 0;
-        ForTermState() : doc_enc(&doc_buf), pos_enc(&pos_buf) {}
+        uint32_t doc_start = 0;     // pool offset: first byte of the per-doc freq chain
+        uint32_t doc_upto = 0;      // pool offset: next freq-chain write
+        uint32_t pos_start = 0;     // pool offset: first byte of the per-occ prox chain
+        uint32_t pos_upto = 0;      // pool offset: next prox-chain write
+        uint32_t occ_count = 0;     // total occurrences (sizes the decode)
+        uint32_t doc_count = 0;     // distinct docs (== doc_freq) for the direct-emit path.
+        uint32_t text_ref = 0;      // arena offset of the term bytes
+        uint32_t last_doc = 0;      // last appended doc id (delta seed + monotonic check)
+        uint32_t last_pos = 0;      // last appended position (monotonic check)
+        uint32_t cur_doc_delta = 0; // raw modular doc-delta of the CURRENT open doc (full
+                                    // uint32; the <<1 freq-flag pack is applied at write time
+                                    // in uint64 so a backward delta's top bit is never lost)
+        uint32_t cur_doc_freq = 0;  // freq within the CURRENT open doc, pending flush to chain
+        // "first occurrence" is `occ_count == 0` — no separate bool needed (it
+        // would add 4 padding bytes per term; on a 560 K-term Wikipedia segment
+        // that is ~2 MB of pure padding). occ_count is incremented at the end of
+        // every Append, so it is 0 iff nothing has been appended yet.
     };
 
     // Seals the compact streams (terminal). VInt chains are self-delimiting and
@@ -600,13 +595,22 @@ private:
     // runs when records count crosses `kCompactCheckEvery` AND the
     // average occurrences per distinct term exceed `kCompactAvgOcc`.
     // Tuned so:
-    //   - mostly_unique / all_unique workloads (avg ~1 occ/term)
-    //     never trigger — keeps the existing fast path.
-    //   - repetitive workloads (vocab << records) trigger after the
-    //     first ~512 records — keeps the compact peak well below
-    //     CLucene's per-term posting overhead.
+    //   - mostly_unique / all_unique workloads (avg ~1-3 occ/term)
+    //     never trigger — flat records are lighter there (one 12 B record
+    //     per occurrence beats a 44 B per-term state + 2 slice chains when
+    //     terms barely repeat).
+    //   - any workload with real term repetition (avg >= 8 occ/term)
+    //     migrates to the compact slice-pool representation, whose peak is
+    //     below CLucene's. This caught the large-vocabulary fulltext case
+    //     (e.g. Wikipedia: avg ~20 occ/term, ~560 K terms) that the old
+    //     threshold of 32 left stranded in flat mode — there flat
+    //     materialized an ~11 M-record vector (12 B/occ) plus a same-size
+    //     stable_sort scratch buffer, peaking ~4x CLucene's RAM. The
+    //     crossover where compact wins is ~3-4 occ/term (the deque-backed
+    //     per-term state has no realloc overshoot), so 8 sits safely above
+    //     it while still leaving genuinely-diverse data on the flat path.
     static constexpr size_t kCompactCheckEvery = 512;
-    static constexpr size_t kCompactAvgOcc = 32;
+    static constexpr size_t kCompactAvgOcc = 8;
 
     // Returns true after `MaybeCompact()` has migrated records into
     // `_term_streams` and freed `_records`. While true, Append
@@ -633,10 +637,28 @@ private:
     // same buffer.
     void MaybeCompact();
 
-    // Looks up (or assigns) the dense term id for `text_ref`. Term
-    // ids index into `_term_streams` / `_term_states` and are
-    // assigned in first-Append order per term.
-    uint32_t GetOrAssignTermId(uint32_t text_ref);
+    // Inline hot path of term-id resolution: when Intern() just touched
+    // `text_ref`'s slot (the dominant case for any repeated term), the parallel
+    // `_slot_term_ids` array gives the dense term id with a single load — no
+    // hashmap, no re-probe. Returns kInvalidTermId on first sight OR when the
+    // slot cache is stale (post-GrowSlots / migration loop); the caller then
+    // falls through to the out-of-line `GetOrAssignTermIdCold`. Header-inlined
+    // so it fuses into Append's hot loop (the old out-of-line GetOrAssignTermId
+    // showed up as a separate ~1.4 % per-token call frame on the flame graph).
+    [[gnu::always_inline]] inline uint32_t GetOrAssignTermIdHot(uint32_t text_ref) const {
+        if (_last_intern_slot != static_cast<size_t>(-1) &&
+            _last_intern_slot < _slot_term_ids.size() &&
+            _slots[_last_intern_slot] == text_ref) [[likely]] {
+            return _slot_term_ids[_last_intern_slot]; // kInvalidTermId on first sight
+        }
+        return kInvalidTermId;
+    }
+
+    // Out-of-line term-id resolution: assigns a fresh dense id on first sight,
+    // or recovers the existing id by re-probing `_slots`→`_slot_term_ids` when
+    // the slot cache is stale. `_slot_term_ids` (kept in lockstep with `_slots`
+    // by GrowSlots) is the sole source of truth — there is no auxiliary map.
+    uint32_t GetOrAssignTermIdCold(uint32_t text_ref);
 
     // Appends one delta-encoded (doc, pos) pair into the term's
     // posting stream. Handles the first-occurrence, same-doc, and
@@ -662,28 +684,35 @@ private:
     // when parsing untrusted on-disk bytes), the keyed-hash
     // requirement that `_slots` enforces does not extend to this
     // map. Documented for the next reader.
-    std::vector<TermPostingState> _term_states;
+    // Per-term posting state, indexed densely by term_id. A std::deque (NOT a
+    // vector) on purpose: it never reallocates existing elements as it grows, so
+    // it avoids BOTH of std::vector's growth costs that dominated the old peak —
+    // (a) the up-to-2x capacity overshoot left after the final doubling, and
+    // (b) the transient old+new copy during that doubling (a momentary 2x of the
+    // whole array). On a 560 K-term Wikipedia segment these together added ~48 MB
+    // of pure peak. The deque grows in small fixed chunks (waste < one chunk) and
+    // never copies, so the array's resident size tracks the term count exactly.
+    // term_id is a contiguous 0..N index (see GetOrAssignTermId*), so deque's
+    // O(1) operator[] is the only access pattern; the extra map indirection per
+    // occurrence is negligible next to the slice-pool VInt writes.
+    std::deque<TermPostingState> _term_states;
     // Shared slice pool backing every term's doc/pos VInt prefix chains. Never
     // reallocates handed-out blocks, so it carries no per-term realloc
     // high-water — the dominant component of the old representation's peak.
     BytePool _pool;
-    // FOR-packed tails for graduated (high-DF) terms; indexed by
-    // TermPostingState::for_index. unique_ptr nodes keep the ForEncoders'
-    // faststring pointers stable across growth.
-    std::vector<std::unique_ptr<ForTermState>> _for_states;
-    // Compact-mode optimization (post-flamegraph): parallel array
-    // to `_slots`, holding the term_id per slot for compact-mode
-    // Append's O(1) lookup. Replaces the per-Append
-    // `unordered_map::find` hot path (the flame graph hottest non-
-    // analyzer frame was `_text_ref_to_term_id.find()` from
-    // `GetOrAssignTermId`). With this, compact mode Append does:
-    //   Intern → text_ref      (already touches the slot)
-    //   _slot_term_ids[slot]   → term_id   (no second hash)
-    // Same size + grow behaviour as `_slots`. `kInvalidTermId`
-    // marks "no term_id assigned to this slot yet"; assigned on
-    // either first Intern after compact-mode is active, or during
-    // the MaybeCompact migration when a slot's existing text_ref
-    // is being indexed for the first time.
+    // Compact-mode term-id index: parallel array to `_slots`, holding the dense
+    // term_id per slot. This is the SOLE source of truth for text_ref→term_id
+    // (an earlier `_text_ref_to_term_id` unordered_map was removed — it cost a
+    // per-term node allocation and ~3 MB of resident map on high-cardinality
+    // unicode corpora, and added allocator-lock contention under concurrent
+    // load, all for a cold-path lookup the slot table already answers via a
+    // re-probe). Compact-mode Append does:
+    //   Intern → text_ref          (already touches the slot)
+    //   _slot_term_ids[slot]       → term_id   (no second hash, no map)
+    // Same size + grow behaviour as `_slots` (GrowSlots migrates both in
+    // lockstep). `kInvalidTermId` marks "no term_id assigned to this slot yet";
+    // assigned on first Intern after compact mode activates, or during the
+    // MaybeCompact migration when a slot's existing text_ref is first indexed.
     std::vector<uint32_t> _slot_term_ids;
     static constexpr uint32_t kInvalidTermId = 0xFFFFFFFFU;
     // Set by `Intern` to the slot index it ended up at. Compact-
@@ -692,12 +721,6 @@ private:
     // value to keep Intern's main return type unchanged for the
     // flat-mode callers.
     size_t _last_intern_slot = 0;
-    std::unordered_map<uint32_t, uint32_t> _text_ref_to_term_id;
-    // (P48 single-entry text_ref → term_id cache removed in P49 —
-    // the slot-parallel `_slot_term_ids` array makes the lookup
-    // O(1) without any cache. Keeping `_cached_text_ref` as a
-    // legacy member would only burn a cache line.)
-    uint32_t _cached_text_ref = static_cast<uint32_t>(-1);
     size_t _total_occurrences = 0; // running total for emit/test inspection
 
     // Compact direct-emit view, populated by Sort(allow_direct_emit=true) on a

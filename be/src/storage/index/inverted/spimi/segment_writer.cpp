@@ -18,7 +18,6 @@
 #include "storage/index/inverted/spimi/segment_writer.h"
 
 #include "common/logging.h"
-#include "util/frame_of_reference_coding.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -116,80 +115,32 @@ int64_t SegmentWriter::EmitFromCompactDirect(const SpimiPostingBuffer& buffer,
     // forces a multi-MB docs/positions materialization. This is the finish-
     // phase peak fix; the StartTerm / StartDoc / AddPosition / FinishDoc /
     // FinishTerm sequence is unchanged, so .frq/.prx/.tis/.tii stay identical.
-    std::vector<int32_t> doc_positions; // current doc's positions (bounded by max freq-in-doc)
-    // Reused FOR-suffix decode chunk buffers (bounded — never the whole term).
-    constexpr uint32_t kChunk = 1024;
-    std::vector<uint32_t> dchunk;
-    std::vector<uint32_t> pchunk;
     for (const auto& term : terms) {
         const auto st = buffer.CompactStreamsFor(term.term_id);
         const uint32_t n = st.occ_count;
         // Every interned term has at least one occurrence.
         DCHECK_GT(n, 0U);
         _encoder.StartTerm(static_cast<int32_t>(st.doc_count));
-        uint32_t prev_doc = 0;
-        uint32_t cur_doc = 0;
-        bool doc_started = false;
-        doc_positions.clear();
-        // One occurrence (doc-delta, position) → per-doc grouped encoder calls.
-        // Buffers only the current doc's positions, so a high-DF term never
-        // forces a multi-MB materialization (the finish-phase peak fix).
-        auto emit_occ = [&](uint32_t doc_delta, int32_t pos) {
-            prev_doc += doc_delta; // threaded from 0, continuous across prefix→suffix
-            const uint32_t doc_id = prev_doc;
-            if (doc_started && doc_id != cur_doc) {
-                _encoder.StartDoc(static_cast<int32_t>(cur_doc),
-                                  static_cast<int32_t>(doc_positions.size()));
-                for (int32_t p : doc_positions) {
-                    _encoder.AddPosition(p);
-                }
-                _encoder.FinishDoc();
-                doc_positions.clear();
-            }
-            cur_doc = doc_id;
-            doc_started = true;
-            doc_positions.push_back(pos);
-        };
-        // VInt prefix from the slice chains.
-        ByteSliceReader doc_reader(buffer.Pool(), st.doc_start, st.doc_end);
+        // The freq chain is already grouped PER DOC (docCode = doc_delta<<1, low
+        // bit = freq==1, else a trailing VInt(freq)); the prox chain holds the
+        // absolute positions per occurrence. Replay doc-by-doc directly into the
+        // encoder — no per-occurrence regrouping needed. The StartDoc/AddPosition/
+        // FinishDoc sequence (hence .frq/.prx output) is byte-identical.
+        ByteSliceReader freq_reader(buffer.Pool(), st.doc_start, st.doc_end);
         ByteSliceReader pos_reader(buffer.Pool(), st.pos_start, st.pos_end);
-        for (uint32_t i = 0; i < st.prefix_count; ++i) {
-            emit_occ(doc_reader.ReadVInt(), static_cast<int32_t>(pos_reader.ReadVInt()));
-        }
-        // FOR-packed suffix (graduated terms), decoded in bounded chunks.
-        if (st.for_doc != nullptr && n > st.prefix_count) {
-            const uint32_t suffix = n - st.prefix_count;
-            ForDecoder<uint32_t> ddec(st.for_doc, st.for_doc_len);
-            const bool dinit = ddec.init();
-            DCHECK(dinit) << "FOR doc-tail decoder init failed (corrupt in-memory buffer)";
-            ForDecoder<uint32_t> pdec(st.for_pos, st.for_pos_len);
-            const bool pinit = pdec.init();
-            DCHECK(pinit) << "FOR pos-tail decoder init failed (corrupt in-memory buffer)";
-            static_cast<void>(dinit);
-            static_cast<void>(pinit);
-            uint32_t done = 0;
-            while (done < suffix) {
-                const uint32_t c = std::min(kChunk, suffix - done);
-                dchunk.resize(c);
-                pchunk.resize(c);
-                const bool dg = ddec.get_batch(dchunk.data(), c);
-                const bool pg = pdec.get_batch(pchunk.data(), c);
-                DCHECK(dg && pg) << "FOR tail get_batch underflow (in-memory buffer)";
-                static_cast<void>(dg);
-                static_cast<void>(pg);
-                for (uint32_t k = 0; k < c; ++k) {
-                    emit_occ(dchunk[k], static_cast<int32_t>(pchunk[k]));
-                }
-                done += c;
+        uint32_t prev_doc = 0;
+        uint32_t emitted_occ = 0;
+        while (emitted_occ < n) {
+            const uint64_t code = freq_reader.ReadVInt64();
+            prev_doc += static_cast<uint32_t>(code >> 1U);
+            const uint32_t freq = (code & 1U) ? 1U : freq_reader.ReadVInt();
+            _encoder.StartDoc(static_cast<int32_t>(prev_doc), static_cast<int32_t>(freq));
+            for (uint32_t k = 0; k < freq; ++k) {
+                _encoder.AddPosition(static_cast<int32_t>(pos_reader.ReadVInt()));
             }
+            _encoder.FinishDoc();
+            emitted_occ += freq;
         }
-        // Flush the final doc.
-        _encoder.StartDoc(static_cast<int32_t>(cur_doc),
-                          static_cast<int32_t>(doc_positions.size()));
-        for (int32_t p : doc_positions) {
-            _encoder.AddPosition(p);
-        }
-        _encoder.FinishDoc();
 
         const TermInfo info = _encoder.FinishTerm();
         const std::string_view term_text = buffer.TermAt(term.text_ref);

@@ -538,9 +538,11 @@ TEST(SegmentRoundtripTest, ProxZstdBlockRoundTripsAndUsesZstdMode) {
     EXPECT_EQ(reconstructed[0].docs[0].positions, expect_positions);
 }
 
-// A term whose doc frequency crosses kForThreshold (512) graduates from VInt
-// slice chains to the SIMD frame-of-reference encoder. Exercise exactly one doc
-// past the boundary (513 docs) and round-trip every doc + position.
+// A term whose doc frequency is large (513 docs, past the skip_interval) drives
+// the on-disk PFOR + skip-list .frq path. (The old in-memory frame-of-reference
+// "graduation" was removed; the in-memory postings are now uniformly slice-chain
+// VInt and the PFOR/skip encoding happens only at emit.) Round-trip every doc +
+// position to verify that high-DF on-disk path.
 TEST(SegmentRoundtripTest, ForGraduationPast512DocsRoundTrips) {
     MemoryByteOutput tis, tii, frq, prx;
     SegmentWriter w(&tis, &tii, &frq, &prx);
