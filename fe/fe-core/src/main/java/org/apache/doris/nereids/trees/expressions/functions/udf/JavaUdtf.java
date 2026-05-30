@@ -28,6 +28,7 @@ import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
@@ -51,6 +52,7 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
     private final FunctionSignature signature;
     private final NullableMode nullableMode;
     private final FunctionVolatility volatility;
+    private final VolatileIdentity volatileIdentity;
     private final String objectFile;
     private final String symbol;
     private final String prepareFn;
@@ -64,7 +66,8 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
      */
     public JavaUdtf(String name, long functionId, String dbName, Function.BinaryType binaryType,
             FunctionSignature signature,
-            NullableMode nullableMode, FunctionVolatility volatility, String objectFile, String symbol,
+            NullableMode nullableMode, FunctionVolatility volatility, VolatileIdentity volatileIdentity,
+            String objectFile, String symbol,
             String prepareFn, String closeFn,
             String checkSum, boolean isStaticLoad, long expirationTime, Expression... args) {
         super(name, args);
@@ -74,6 +77,7 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
         this.signature = signature;
         this.nullableMode = nullableMode;
         this.volatility = volatility;
+        this.volatileIdentity = volatileIdentity;
         this.objectFile = objectFile;
         this.symbol = symbol;
         this.prepareFn = prepareFn;
@@ -90,8 +94,48 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
     public JavaUdtf withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == this.children.size());
         return new JavaUdtf(getName(), functionId, dbName, binaryType, signature, nullableMode,
-                volatility, objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad, expirationTime,
+                volatility, volatileIdentity, objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad,
+                expirationTime,
                 children.toArray(new Expression[0]));
+    }
+
+    @Override
+    public VolatileIdentity getVolatileIdentity() {
+        return volatileIdentity;
+    }
+
+    @Override
+    public JavaUdtf withIgnoreUniqueId(boolean ignoreUniqueId) {
+        Preconditions.checkState(isVolatile(), "Only volatile Java UDTF can ignore unique id");
+        return new JavaUdtf(getName(), functionId, dbName, binaryType, signature, nullableMode,
+                volatility, volatileIdentity.withIgnoreUniqueId(ignoreUniqueId),
+                objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad, expirationTime,
+                children.toArray(new Expression[0]));
+    }
+
+    @Override
+    public JavaUdtf withFreshVolatileIdentity() {
+        if (volatility != FunctionVolatility.VOLATILE) {
+            return this;
+        }
+        return new JavaUdtf(getName(), functionId, dbName, binaryType, signature, nullableMode,
+                volatility, VolatileIdentity.newVolatileIdentity(),
+                objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad, expirationTime,
+                children.toArray(new Expression[0]));
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof JavaUdtf)) {
+            return false;
+        }
+        JavaUdtf other = (JavaUdtf) o;
+        return volatileIdentity.equalsByIdentity(other.volatileIdentity, super.equals(o));
+    }
+
+    @Override
+    public int computeHashCode() {
+        return volatileIdentity.hashCodeByIdentity(super.computeHashCode());
     }
 
     @Override
@@ -158,6 +202,7 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
         JavaUdtf udf = new JavaUdtf(fnName, scalar.getId(), dbName, scalar.getBinaryType(), sig,
                 scalar.getNullableMode(),
                 scalar.getVolatility(),
+                Udf.createVolatileIdentity(scalar.getVolatility()),
                 scalar.getLocation() == null ? null : scalar.getLocation().getLocation(),
                 scalar.getSymbolName(),
                 scalar.getPrepareFnSymbol(),

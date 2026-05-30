@@ -28,7 +28,6 @@ import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
@@ -46,7 +45,7 @@ import java.util.stream.Collectors;
 /**
  * Python UDF for Nereids
  */
-public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSignature, Udf, VolatileExpression {
+public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSignature, Udf {
     private final String dbName;
     private final long functionId;
     private final Function.BinaryType binaryType;
@@ -139,6 +138,7 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
     }
 
     /** Return a copy with a new per-call identity when this UDF is VOLATILE. */
+    @Override
     public PythonUdf withFreshVolatileIdentity() {
         if (volatility != FunctionVolatility.VOLATILE) {
             return this;
@@ -183,7 +183,7 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
                 .toArray(SlotReference[]::new);
 
         PythonUdf udf = new PythonUdf(fnName, scalar.getId(), dbName, scalar.getBinaryType(), sig,
-                scalar.getNullableMode(), scalar.getVolatility(), createVolatileIdentity(scalar.getVolatility()),
+                scalar.getNullableMode(), scalar.getVolatility(), Udf.createVolatileIdentity(scalar.getVolatility()),
                 scalar.getLocation() == null ? null : scalar.getLocation().getLocation(),
                 scalar.getSymbolName(),
                 scalar.getPrepareFnSymbol(),
@@ -233,10 +233,5 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
     @Override
     public FunctionVolatility getVolatility() {
         return volatility;
-    }
-
-    private static VolatileIdentity createVolatileIdentity(FunctionVolatility volatility) {
-        return volatility == FunctionVolatility.VOLATILE
-                ? VolatileIdentity.newVolatileIdentity() : VolatileIdentity.NON_VOLATILE;
     }
 }

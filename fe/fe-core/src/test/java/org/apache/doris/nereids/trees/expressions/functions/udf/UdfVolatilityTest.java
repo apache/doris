@@ -23,6 +23,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -83,6 +84,7 @@ class UdfVolatilityTest {
         Assertions.assertTrue(immutable.isDeterministic());
         Assertions.assertFalse(stable.isDeterministic());
         Assertions.assertEquals(FunctionVolatility.STABLE, stable.getCatalogFunction().getVolatility());
+        Assertions.assertFalse(stable.containsVolatileExpression());
     }
 
     @Test
@@ -93,6 +95,20 @@ class UdfVolatilityTest {
         Assertions.assertTrue(immutable.isDeterministic());
         Assertions.assertFalse(volatileUdtf.isDeterministic());
         Assertions.assertEquals(FunctionVolatility.VOLATILE, volatileUdtf.getCatalogFunction().getVolatility());
+        Assertions.assertTrue(volatileUdtf.containsVolatileExpression());
+    }
+
+    @Test
+    void testVolatilePythonUdafUsesUniqueIdentity() {
+        PythonUdaf first = pythonUdaf(FunctionVolatility.VOLATILE);
+        PythonUdaf second = pythonUdaf(FunctionVolatility.VOLATILE);
+
+        Assertions.assertTrue(first.containsVolatileExpression());
+        Assertions.assertNotEquals(first, second);
+
+        Expression ignoredFirst = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(first, true);
+        Expression ignoredSecond = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(second, true);
+        Assertions.assertEquals(ignoredFirst, ignoredSecond);
     }
 
     private PythonUdf pythonUdf(FunctionVolatility volatility, VolatileIdentity volatileIdentity) {
@@ -110,14 +126,14 @@ class UdfVolatilityTest {
 
     private PythonUdaf pythonUdaf(FunctionVolatility volatility) {
         return new PythonUdaf("py_agg", 1, "db1", Function.BinaryType.PYTHON_UDF, signature(),
-                IntegerType.INSTANCE, NullableMode.ALWAYS_NULLABLE, volatility,
+                IntegerType.INSTANCE, NullableMode.ALWAYS_NULLABLE, volatility, Udf.createVolatileIdentity(volatility),
                 null, "Agg", null, null, null, null, null, null, null, false, "", false, 360,
                 "3.10.2", "", new IntegerLiteral(1));
     }
 
     private PythonUdtf pythonUdtf(FunctionVolatility volatility) {
         return new PythonUdtf("py_table", 1, "db1", Function.BinaryType.PYTHON_UDF, signature(),
-                NullableMode.ALWAYS_NULLABLE, volatility,
+                NullableMode.ALWAYS_NULLABLE, volatility, Udf.createVolatileIdentity(volatility),
                 null, "evaluate", null, null, "", false, 360, "3.10.2", "", new IntegerLiteral(1));
     }
 

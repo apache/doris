@@ -28,6 +28,7 @@ import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -52,6 +53,7 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
     private final DataType intermediateType;
     private final NullableMode nullableMode;
     private final FunctionVolatility volatility;
+    private final VolatileIdentity volatileIdentity;
     private final String objectFile;
     private final String symbol;
     private final String initFn;
@@ -73,7 +75,8 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
     public PythonUdaf(String name, long functionId, String dbName, Function.BinaryType binaryType,
                       FunctionSignature signature,
                       DataType intermediateType, NullableMode nullableMode,
-                      FunctionVolatility volatility, String objectFile, String symbol,
+                      FunctionVolatility volatility, VolatileIdentity volatileIdentity,
+                      String objectFile, String symbol,
                       String initFn, String updateFn, String mergeFn,
                       String serializeFn, String finalizeFn, String getValueFn, String removeFn,
                       boolean isDistinct, String checkSum, boolean isStaticLoad, long expirationTime,
@@ -86,6 +89,7 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
         this.intermediateType = intermediateType == null ? signature.returnType : intermediateType;
         this.nullableMode = nullableMode;
         this.volatility = volatility;
+        this.volatileIdentity = volatileIdentity;
         this.objectFile = objectFile;
         this.symbol = symbol;
         this.initFn = initFn;
@@ -129,10 +133,51 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
     public PythonUdaf withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == this.children.size());
         return new PythonUdaf(getName(), functionId, dbName, binaryType, signature, intermediateType, nullableMode,
-                volatility, objectFile, symbol, initFn, updateFn, mergeFn, serializeFn, finalizeFn, getValueFn,
-                removeFn,
+                volatility, volatileIdentity, objectFile, symbol, initFn, updateFn, mergeFn, serializeFn, finalizeFn,
+                getValueFn, removeFn,
                 isDistinct, checkSum, isStaticLoad, expirationTime, runtimeVersion, functionCode,
                 children.toArray(new Expression[0]));
+    }
+
+    @Override
+    public VolatileIdentity getVolatileIdentity() {
+        return volatileIdentity;
+    }
+
+    @Override
+    public PythonUdaf withIgnoreUniqueId(boolean ignoreUniqueId) {
+        Preconditions.checkState(isVolatile(), "Only volatile Python UDAF can ignore unique id");
+        return new PythonUdaf(getName(), functionId, dbName, binaryType, signature, intermediateType, nullableMode,
+                volatility, volatileIdentity.withIgnoreUniqueId(ignoreUniqueId),
+                objectFile, symbol, initFn, updateFn, mergeFn, serializeFn, finalizeFn, getValueFn, removeFn,
+                distinct, checkSum, isStaticLoad, expirationTime, runtimeVersion, functionCode,
+                children.toArray(new Expression[0]));
+    }
+
+    @Override
+    public PythonUdaf withFreshVolatileIdentity() {
+        if (volatility != FunctionVolatility.VOLATILE) {
+            return this;
+        }
+        return new PythonUdaf(getName(), functionId, dbName, binaryType, signature, intermediateType, nullableMode,
+                volatility, VolatileIdentity.newVolatileIdentity(),
+                objectFile, symbol, initFn, updateFn, mergeFn, serializeFn, finalizeFn, getValueFn, removeFn,
+                distinct, checkSum, isStaticLoad, expirationTime, runtimeVersion, functionCode,
+                children.toArray(new Expression[0]));
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof PythonUdaf)) {
+            return false;
+        }
+        PythonUdaf other = (PythonUdaf) o;
+        return volatileIdentity.equalsByIdentity(other.volatileIdentity, super.equals(o));
+    }
+
+    @Override
+    public int computeHashCode() {
+        return volatileIdentity.hashCodeByIdentity(super.computeHashCode());
     }
 
     /**
@@ -163,6 +208,7 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
                 intermediateType,
                 aggregate.getNullableMode(),
                 aggregate.getVolatility(),
+                Udf.createVolatileIdentity(aggregate.getVolatility()),
                 aggregate.getLocation() == null ? null : aggregate.getLocation().getLocation(),
                 aggregate.getSymbolName(),
                 aggregate.getInitFnSymbol(),
