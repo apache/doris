@@ -69,6 +69,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -626,7 +627,14 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         (EqualPredicate) condition, leftOutputSet);
                 if (eq.left().getInputSlots().equals(exprSlots)
                         && eq.right().getInputSlots().size() == 1) {
-                    return eq.right();
+                    // Rewrite the full expression shape by replacing the equivalent slot,
+                    // rather than returning only the right-side slot. This preserves the
+                    // expression structure through descendant joins. For example, when
+                    // expr = t1.k + 1 and the equi-cond is t1.k = t2.k, we return
+                    // t2.k + 1 instead of just t2.k.
+                    Map<Expression, Expression> replaceMap = new HashMap<>();
+                    replaceMap.put(eq.left(), eq.right());
+                    return expr.rewriteDownShortCircuit(e -> replaceMap.getOrDefault(e, e));
                 }
             }
         }

@@ -148,6 +148,13 @@ Status RuntimeFilterProducerHelper::build(
             for (size_t idx : _decoupled_filter_indices) {
                 int result_column_id = -1;
                 RETURN_IF_ERROR(_filter_expr_contexts[idx]->execute(block, &result_column_id));
+                // Materialize ColumnConst to a full column before insert.
+                // A decoupled source expression like k * 0 may produce a
+                // ColumnConst (single value), but _insert() expects a
+                // full-length column when inserting starting at a non-zero offset.
+                block->get_by_position(result_column_id).column =
+                        block->get_by_position(result_column_id)
+                                .column->convert_to_full_column_if_const();
             }
             constexpr int HASH_JOIN_INSERT_OFFSET = 1; // the first row is mocked on hash join sink
             RETURN_IF_ERROR(_insert(block, HASH_JOIN_INSERT_OFFSET));
