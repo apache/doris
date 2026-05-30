@@ -41,6 +41,7 @@
 #include <atomic>
 #include <array>
 #include <cmath>
+#include <thread>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -63,6 +64,7 @@
 #include "storage/tablet/tablet_schema.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/spimi/posting_buffer.h"
 
 namespace doris::segment_v2 {
 
@@ -486,6 +488,46 @@ inline void tokenize_only(const std::string& parser, const std::vector<std::stri
     static_cast<void>(sink);
 }
 
+// Tokenize + FNV-hash each token (no intern table, no probe, no encode). Used
+// to put a hard upper bound on the CPU a "tokenizer emits term_id" scheme could
+// ever remove from V4: SPIMI is the sole interner, so the most such a scheme can
+// save is the per-token hash (measured here) + the term-equality memcmp
+// (separately ~3% on the flame graph). hash_cost = HashOnly − TokenizeOnly.
+inline void hash_only(const std::string& parser, const std::vector<std::string>& rows) {
+    ensure_env_inited();
+    SCOPED_INIT_THREAD_CONTEXT();
+    TabletIndex idx_meta = make_index_meta(parser);
+    doris::InvertedIndexAnalyzerConfig cfg;
+    cfg.analyzer_name = get_analyzer_name_from_properties(idx_meta.properties());
+    cfg.parser_type = get_inverted_index_parser_type_from_string(
+            get_parser_string_from_properties(idx_meta.properties()));
+    cfg.parser_mode = get_parser_mode_string_from_properties(idx_meta.properties());
+    cfg.char_filter_map = get_parser_char_filter_map_from_properties(idx_meta.properties());
+    cfg.lower_case = get_parser_lowercase_from_properties<true>(idx_meta.properties());
+    cfg.stop_words = get_parser_stopwords_from_properties(idx_meta.properties());
+
+    auto reader = inverted_index::InvertedIndexAnalyzer::create_reader(cfg.char_filter_map);
+    auto analyzer = inverted_index::InvertedIndexAnalyzer::create_analyzer(&cfg);
+    inverted_index::spimi::SpimiPostingBuffer buf(0xD0D0F00DULL); // fixed seed; HashTerm is const
+    lucene::analysis::Token tok;
+    volatile uint64_t sink = 0;
+    for (const auto& r : rows) {
+        if (r.empty()) {
+            continue;
+        }
+        reader->init(r.data(), static_cast<int32_t>(r.size()), false);
+        auto* stream = analyzer->reusableTokenStream(L"request", reader);
+        stream->reset();
+        while (stream->next(&tok) != nullptr) {
+            const size_t len = tok.termLength<char>();
+            if (len > 0) {
+                sink ^= buf.HashTerm(std::string_view(tok.termBuffer<char>(), len));
+            }
+        }
+    }
+    static_cast<void>(sink);
+}
+
 } // namespace spimi_bench_detail
 
 // Default 30K real http_logs request lines (overridable via
@@ -569,6 +611,60 @@ static void BM_SpimiAgentlogsWriteV4Unicode(benchmark::State& state) {
 }
 BENCHMARK(BM_SpimiAgentlogsWriteV4Unicode)->Unit(benchmark::kMillisecond)->UseRealTime();
 
+// ---- Concurrent write: N threads writing unicode segments simultaneously ----
+// The cluster's original "V4 1.5x SLOWER than V2" was a CONCURRENCY effect:
+// at ~36-way import the dominant cost was ALLOCATION CONTENTION, not per-thread
+// CPU (single-thread was near-parity). Flat-mode V4 allocated an ~11M-record
+// vector + an equal-size stable_sort scratch per segment, so 36 threads hammered
+// the allocator. The compact-mode + deque fix removes those big allocations, so
+// this benchmark checks whether V4 now wins at concurrency. Aggregate throughput
+// (items_per_second over wall-clock with UseRealTime) is the V4-vs-V2 metric;
+// thread count via ->Arg(N).
+static void run_concurrent_write_unicode(benchmark::State& state,
+                                         InvertedIndexStorageFormatPB format) {
+    const int n_threads = static_cast<int>(state.range(0));
+    const auto& rows = spimi_unicode_rows();
+    spimi_bench_detail::ensure_env_inited(); // init once, OUTSIDE the timed region
+    std::atomic<int64_t> run {0};
+    for (auto _ : state) {
+        const int64_t base = run.fetch_add(1) * n_threads;
+        std::vector<std::thread> threads;
+        threads.reserve(static_cast<size_t>(n_threads));
+        for (int t = 0; t < n_threads; ++t) {
+            threads.emplace_back([&rows, format, base, t] {
+                // Unique run_id per (iteration, thread) keeps segment file paths
+                // from colliding across the concurrent writers.
+                spimi_bench_detail::write_one_segment(format, "unicode", rows, base + t);
+            });
+        }
+        for (auto& th : threads) {
+            th.join();
+        }
+    }
+    state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(n_threads) *
+                            static_cast<int64_t>(rows.size()));
+}
+
+static void BM_SpimiConcurrentWriteV2Unicode(benchmark::State& state) {
+    run_concurrent_write_unicode(state, InvertedIndexStorageFormatPB::V2);
+}
+BENCHMARK(BM_SpimiConcurrentWriteV2Unicode)
+        ->Arg(16)
+        ->Arg(32)
+        ->Unit(benchmark::kMillisecond)
+        ->UseRealTime()
+        ->Iterations(3);
+
+static void BM_SpimiConcurrentWriteV4Unicode(benchmark::State& state) {
+    run_concurrent_write_unicode(state, InvertedIndexStorageFormatPB::V4);
+}
+BENCHMARK(BM_SpimiConcurrentWriteV4Unicode)
+        ->Arg(16)
+        ->Arg(32)
+        ->Unit(benchmark::kMillisecond)
+        ->UseRealTime()
+        ->Iterations(3);
+
 static void BM_SpimiAgentlogsTokenizeUnicode(benchmark::State& state) {
     const auto& rows = spimi_unicode_rows();
     for (auto _ : state) {
@@ -577,6 +673,19 @@ static void BM_SpimiAgentlogsTokenizeUnicode(benchmark::State& state) {
     state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(rows.size()));
 }
 BENCHMARK(BM_SpimiAgentlogsTokenizeUnicode)->Unit(benchmark::kMillisecond)->UseRealTime();
+
+// Upper bound on a "tokenizer emits term_id" scheme: HashOnly − TokenizeOnly is
+// the per-token FNV hash cost (the largest piece such a scheme could remove,
+// together with the ~3% term-equality memcmp). If this delta is small, the
+// scheme cannot approach the 20%-faster target.
+static void BM_SpimiAgentlogsHashOnlyUnicode(benchmark::State& state) {
+    const auto& rows = spimi_unicode_rows();
+    for (auto _ : state) {
+        spimi_bench_detail::hash_only("unicode", rows);
+    }
+    state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(rows.size()));
+}
+BENCHMARK(BM_SpimiAgentlogsHashOnlyUnicode)->Unit(benchmark::kMillisecond)->UseRealTime();
 
 // Tokenize-only baselines. storage_layer = WriteVx - TokenizeOnly.
 // Compute V4-vs-V2 storage ratio as
