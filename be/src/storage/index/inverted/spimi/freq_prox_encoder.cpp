@@ -45,10 +45,17 @@ namespace {
 // false so the caller emits the block raw. `comp` MUST be a caller-owned local
 // faststring (fresh per call, never a reused member) to avoid the
 // assign_copy-on-poisoned-buffer ASAN hazard.
-inline bool TryCompressBlock(const uint8_t* data, size_t n, faststring* comp) {
+//
+// `cctx` is the encoder's single reused compression context. ZSTD_compressCCtx
+// reuses its internal workspace across calls; the previous ZSTD_compress one-shot
+// allocated+initialised+freed a fresh CCtx on EVERY term, which on a large-vocab
+// segment is hundreds of thousands of malloc/init/free cycles — pure write-CPU
+// burned for no benefit. Reusing one context is the dominant ZSTD CPU saving and
+// produces byte-identical output (level + input fully determine the result).
+inline bool TryCompressBlock(ZSTD_CCtx* cctx, const uint8_t* data, size_t n, faststring* comp) {
     const size_t bound = ZSTD_compressBound(n);
     comp->resize(bound);
-    const size_t csize = ZSTD_compress(comp->data(), bound, data, n, /*level=*/1);
+    const size_t csize = ZSTD_compressCCtx(cctx, comp->data(), bound, data, n, /*level=*/1);
     if (ZSTD_isError(csize) || csize + 10 >= n) {
         return false;
     }
@@ -83,6 +90,14 @@ FreqProxEncoder::FreqProxEncoder(ByteOutput* frq_out, ByteOutput* prx_out, int32
     // branching below — either works).
     DCHECK(_omit_tfap || _prx_out != nullptr);
     DCHECK_GT(_skip_interval, 0);
+    // One compression context reused for every term's .frq/.prx block (see
+    // TryCompressBlock). Created once here, freed in the destructor.
+    _cctx = ZSTD_createCCtx();
+    DCHECK(_cctx != nullptr);
+}
+
+FreqProxEncoder::~FreqProxEncoder() {
+    ZSTD_freeCCtx(_cctx); // null-safe per the ZSTD contract
 }
 
 void FreqProxEncoder::StartTerm(int32_t expected_doc_freq) {
@@ -121,9 +136,22 @@ void FreqProxEncoder::StartTerm(int32_t expected_doc_freq) {
         // own VInt(count) + byte(width) + bitpacked payload) follow at
         // FinishTerm via `SpimiPforEncoder::EncodeBlock`.
         _frq_out->WriteByte(kCodeModeSpimiPfor);
-        // Anchor for PFOR skip entries (see header). Captured after the header
-        // byte, matching the FilePointer the prior buffered design observed.
-        _pfor_frq_anchor = _frq_out->FilePointer();
+        // Anchor for PFOR skip entries, in REAL .frq coordinates (the space the
+        // skip list's pointers live in): _term_freq_start is where this term's
+        // staged block will land in _frq_real, and _frq_out->FilePointer() is
+        // the post-header offset within the staging buffer (== 1, just past the
+        // codec byte). Their sum is the real file offset just past the header.
+        //
+        // This MUST be real-space: SkipListWriter::Reset() seeds
+        // _last_skip_freq_pointer with _term_freq_start (also real), and
+        // WriteSkipEntry stores `_cur_freq_pointer - _last_skip_freq_pointer`.
+        // The previous code captured only the staging FilePointer (~1), so for
+        // every term after the first (where _term_freq_start has advanced) the
+        // delta went negative — silently writing a wrapped VInt into the skip
+        // list in release builds (corrupt skip data; only large-df PFOR terms
+        // emit skips, so small-df tests never tripped it), and aborting the
+        // ASAN DCHECK_GE(freq_delta, 0) in SkipListWriter.
+        _pfor_frq_anchor = _term_freq_start + _frq_out->FilePointer();
     } else {
         // kDefault mode (byte-equal to CLucene's
         // `SDocumentWriter::appendPostings:1330` for the same term):
@@ -302,7 +330,7 @@ void FreqProxEncoder::FlushFrqBlock() {
     const auto& buf = _frq_term_buf.bytes();
     const size_t n = buf.size();
     faststring comp;
-    if (n >= kProxCompressMin && TryCompressBlock(buf.data(), n, &comp)) {
+    if (n >= kProxCompressMin && TryCompressBlock(_cctx, buf.data(), n, &comp)) {
         // A single term's .frq stays far below 2 GB (arena byte cap), so the
         // VInt length casts below never lose bits.
         DCHECK_LE(n, static_cast<size_t>(INT32_MAX));
@@ -327,7 +355,7 @@ void FreqProxEncoder::FlushProxBlock() {
     faststring comp;
     // Only keep the compressed form if it actually wins after the mode-byte + two
     // VInt length headers (~≤10 B) — TryCompressBlock enforces that margin.
-    if (n >= kProxCompressMin && TryCompressBlock(_prox_raw.data(), n, &comp)) {
+    if (n >= kProxCompressMin && TryCompressBlock(_cctx, _prox_raw.data(), n, &comp)) {
         DCHECK_LE(n, static_cast<size_t>(INT32_MAX)); // single-term .prx << 2 GB
         _prx_out->WriteByte(kProxZstd);
         _prx_out->WriteVInt(static_cast<int32_t>(n));

@@ -24,6 +24,11 @@
 #include "storage/index/inverted/spimi/skip_list_writer.h"
 #include "storage/index/inverted/spimi/term_dict_writer.h"
 
+// Opaque ZSTD compression context, forward-declared so this header doesn't pull
+// in <zstd.h> (matches zstd.h's own typedef, which is legal to repeat). The
+// encoder reuses one context across all terms; see freq_prox_encoder.cpp.
+typedef struct ZSTD_CCtx_s ZSTD_CCtx; // NOLINT(modernize-use-using)
+
 namespace doris::segment_v2::inverted_index::spimi {
 
 // Streaming encoder for the Lucene 2.x V0/V1 freq (`.frq`) and prox (`.prx`)
@@ -87,6 +92,8 @@ public:
                     int32_t max_skip_levels = kDefaultMaxSkipLevels,
                     bool omit_term_freq_and_positions = false);
 
+    ~FreqProxEncoder();
+
     FreqProxEncoder(const FreqProxEncoder&) = delete;
     FreqProxEncoder& operator=(const FreqProxEncoder&) = delete;
 
@@ -127,6 +134,10 @@ private:
     int32_t _skip_interval;
     bool _omit_tfap; // when true: doc-id-only .frq, no .prx writes at all
     SkipListWriter _skip_list_writer;
+    // Single ZSTD compression context reused for every term's .frq/.prx block.
+    // Created in the ctor, freed in the dtor; ZSTD_compressCCtx reuses its
+    // workspace so we don't pay a CCtx alloc/init/free per term.
+    ZSTD_CCtx* _cctx = nullptr;
 
     bool _term_open = false;
     bool _doc_open = false;
