@@ -19,41 +19,29 @@ package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.mtmv.ivm.IvmAggMeta.AggTarget;
-import org.apache.doris.mtmv.ivm.IvmAggMeta.AggType;
+import org.apache.doris.mtmv.ivm.agg.IvmAggApplyContext;
+import org.apache.doris.mtmv.ivm.agg.IvmAggDeltaSlotRef;
+import org.apache.doris.mtmv.ivm.agg.IvmAggExpressionBuilder;
+import org.apache.doris.mtmv.ivm.agg.IvmAggFunctionRegistry;
+import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;
+import org.apache.doris.mtmv.ivm.agg.IvmAggTarget;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.CaseWhen;
-import org.apache.doris.nereids.trees.expressions.Cast;
-import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.IsNull;
-import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.WhenClause;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -64,16 +52,17 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Aggregate delta rewrite handler for IVM.
@@ -90,7 +79,7 @@ import java.util.Optional;
  * <ol>
  *   <li><b>Delta sub-plan</b>: transforms the normalized aggregate into a signed delta aggregate
  *       where each output is weighted by {@code dml_factor} (+1 for inserts, -1 for deletes).</li>
- *   <li><b>Apply plan</b>: LEFT JOINs the delta against the MV's current state on {@code row_id},
+ *   <li><b>Apply plan</b>: RIGHT JOINs the MV's current state against the delta on {@code row_id},
  *       computes new hidden states (COALESCE(old,0) + delta), derives visible values, and
  *       maps the final row state to {@code __DORIS_IVM_DML_FACTOR_COL__}.</li>
  *   <li><b>Insert command</b>: wraps the result in an {@code InsertIntoTableCommand} that writes
@@ -103,12 +92,9 @@ import java.util.Optional;
  */
 class IvmAggDeltaHandler {
 
-    /** Transient semantic key for MIN of deleted values (not stored in MV). */
-    private static final String DELMIN = "DELMIN";
-    /** Transient semantic key for MAX of deleted values (not stored in MV). */
-    private static final String DELMAX = "DELMAX";
-
     private final IvmDeltaRewriteHelper helper = IvmDeltaRewriteHelper.INSTANCE;
+    private final IvmAggFunctionRegistry aggFunctionRegistry = IvmAggFunctionRegistry.INSTANCE;
+    private final IvmAggExpressionBuilder aggExpressionBuilder = IvmAggExpressionBuilder.INSTANCE;
 
     /**
      * Intermediate result from {@link #buildDeltaSubPlan}.
@@ -119,20 +105,19 @@ class IvmAggDeltaHandler {
         private final LogicalProject<?> topDeltaProject;
         /** Row-id slot from the top project (hash of group keys, or 0 for scalar). */
         private final Slot rowIdSlot;
-        /**
-         * Semantic slot map keyed by "{ordinal}:{stateType}" (e.g. "2:SUM").
-         * Maps each per-target delta output to the corresponding slot in topDeltaProject.
-         * Also contains the delta_group_count under key {@link Column#IVM_DELTA_GROUP_COUNT_COL}.
-         */
-        private final Map<String, Slot> semanticSlots;
+        /** Delta group-count slot resolved from topDeltaProject output. */
+        private final Slot deltaGroupCountSlot;
+        /** Per-target delta slots consumed by aggregate function processors during apply. */
+        private final Map<IvmAggDeltaSlotRef, Slot> applyDeltaSlots;
         /** Group key slots resolved from topDeltaProject output, keyed by column name. */
         private final Map<String, Slot> groupKeySlotsByName;
 
-        private DeltaPlanParts(LogicalProject<?> topDeltaProject, Slot rowIdSlot,
-                Map<String, Slot> semanticSlots, Map<String, Slot> groupKeySlotsByName) {
+        private DeltaPlanParts(LogicalProject<?> topDeltaProject, Slot rowIdSlot, Slot deltaGroupCountSlot,
+                Map<IvmAggDeltaSlotRef, Slot> applyDeltaSlots, Map<String, Slot> groupKeySlotsByName) {
             this.topDeltaProject = topDeltaProject;
             this.rowIdSlot = rowIdSlot;
-            this.semanticSlots = semanticSlots;
+            this.deltaGroupCountSlot = deltaGroupCountSlot;
+            this.applyDeltaSlots = applyDeltaSlots;
             this.groupKeySlotsByName = groupKeySlotsByName;
         }
     }
@@ -141,10 +126,10 @@ class IvmAggDeltaHandler {
      * Core entry point: builds the entire agg delta + apply plan.
      *
      * <p>Steps:
-     * 1. Validates normalize result and agg metadata exist.
+     * 1. Validates normalize result and aggregate metadata exist.
      * 2. Walks the aggregate's child subtree to inject dml_factor (via super's visitor).
      * 3. Builds the delta sub-plan (signed aggregate).
-     * 4. Builds the apply plan (LEFT JOIN + state merge + visible derivation + dml_factor).
+     * 4. Builds the apply plan (RIGHT JOIN + state merge + visible derivation + dml_factor).
      * 5. Returns IvmDeltaRewriteResult with the apply plan's dml_factor.
      */
     IvmDeltaRewriteResult rewriteAggregate(LogicalAggregate<? extends Plan> agg,
@@ -155,7 +140,7 @@ class IvmAggDeltaHandler {
         }
         IvmAggMeta aggMeta = normalizeResult.getAggMeta();
         if (aggMeta == null) {
-            throw new AnalysisException("IVM agg delta rewrite requires agg metadata");
+            throw new AnalysisException("IVM agg delta rewrite requires aggregate metadata");
         }
 
         // Walk agg child to inject dml_factor
@@ -213,32 +198,11 @@ class IvmAggDeltaHandler {
         Alias deltaGroupCount = new Alias(new Sum(dmlFactorSlot), Column.IVM_DELTA_GROUP_COUNT_COL);
         deltaAggOutputs.add(deltaGroupCount);
 
-        for (AggTarget target : aggMeta.getAggTargets()) {
-            switch (target.getAggType()) {
-                case COUNT:
-                    if (!target.isCountStar()) {
-                        deltaAggOutputs.add(new Alias(
-                                new Sum(ifExprNotNull(target.getExprArgs().get(0), dmlFactorSlot)),
-                                target.stateColumnName(AggType.COUNT)));
-                    }
-                    break;
-                case SUM:
-                case AVG:
-                    deltaAggOutputs.add(new Alias(
-                            new Sum(signedExpr(target.getExprArgs().get(0), dmlFactorSlot)),
-                            target.stateColumnName(AggType.SUM)));
-                    deltaAggOutputs.add(new Alias(
-                            new Sum(ifExprNotNull(target.getExprArgs().get(0), dmlFactorSlot)),
-                            target.stateColumnName(AggType.COUNT)));
-                    break;
-                case MIN:
-                case MAX:
-                    buildExtremalDeltaOutputs(deltaAggOutputs, target, dmlFactorSlot);
-                    break;
-                default:
-                    throw new AnalysisException("IVM agg delta rewrite does not support aggregate type: "
-                            + target.getAggType());
-            }
+        // Dispatch each normalized aggregate target to its processor. The processor appends only the delta outputs
+        // needed by that aggregate function, such as signed SUM, non-NULL COUNT, or MIN/MAX insert/delete extrema.
+        for (IvmAggTarget target : aggMeta.getAggTargets()) {
+            aggFunctionRegistry.appendDeltaAggregateOutputs(
+                    target, dmlFactorSlot, deltaAggOutputs, aggExpressionBuilder);
         }
 
         LogicalAggregate<?> deltaAgg = normalizedAgg.withAggOutputChild(deltaAggOutputs, newAggChild);
@@ -247,9 +211,11 @@ class IvmAggDeltaHandler {
                 IvmUtil.buildRowIdHash(deltaAgg.getOutput().subList(0, groupKeySize)), Column.IVM_ROW_ID_COL);
         topOutputs.add(rowIdAlias);
 
+        Set<String> zeroDefaultDeltaOutputNames = collectZeroDefaultDeltaOutputNames(aggMeta);
         for (Slot slot : deltaAgg.getOutput()) {
-            if (needsCoalesceInTopProject(slot, aggMeta)) {
-                topOutputs.add(new Alias(new Coalesce(slot, zeroOf(slot.getDataType())), slot.getName()));
+            if (zeroDefaultDeltaOutputNames.contains(slot.getName())) {
+                topOutputs.add(new Alias(new Coalesce(slot, aggExpressionBuilder.zeroOf(slot.getDataType())),
+                        slot.getName()));
             } else {
                 topOutputs.add(slot);
             }
@@ -257,37 +223,14 @@ class IvmAggDeltaHandler {
 
         LogicalProject<?> topDeltaProject = new LogicalProject<>(ImmutableList.copyOf(topOutputs), deltaAgg);
         Map<String, Slot> outputByName = indexSlotsByName(topDeltaProject.getOutput());
-        Map<String, Slot> semanticSlots = new LinkedHashMap<>();
-        semanticSlots.put(Column.IVM_DELTA_GROUP_COUNT_COL,
-                outputByName.get(Column.IVM_DELTA_GROUP_COUNT_COL));
-        for (AggTarget target : aggMeta.getAggTargets()) {
-            switch (target.getAggType()) {
-                case COUNT:
-                    if (target.isCountStar()) {
-                        semanticSlots.put(hiddenKey(target, AggType.COUNT),
-                                outputByName.get(Column.IVM_DELTA_GROUP_COUNT_COL));
-                    } else {
-                        semanticSlots.put(hiddenKey(target, AggType.COUNT),
-                                outputByName.get(target.stateColumnName(AggType.COUNT)));
-                    }
-                    break;
-                case SUM:
-                case AVG:
-                    semanticSlots.put(hiddenKey(target, AggType.SUM),
-                            outputByName.get(target.stateColumnName(AggType.SUM)));
-                    semanticSlots.put(hiddenKey(target, AggType.COUNT),
-                            outputByName.get(target.stateColumnName(AggType.COUNT)));
-                    break;
-                case MIN:
-                case MAX:
-                    putExtremalSemanticSlots(semanticSlots, outputByName, target);
-                    break;
-                default:
-                    throw new AnalysisException("IVM agg delta rewrite does not support aggregate type: "
-                            + target.getAggType());
-            }
+        Slot deltaGroupCountSlot = outputByName.get(Column.IVM_DELTA_GROUP_COUNT_COL);
+        Map<IvmAggDeltaSlotRef, Slot> applyDeltaSlots = new LinkedHashMap<>();
+        for (IvmAggTarget target : aggMeta.getAggTargets()) {
+            // Convert generated delta output names into stable logical keys before the apply project starts building
+            // expressions. Apply expressions should depend on target ordinal + logical slot kind, not string names.
+            aggFunctionRegistry.mapApplyDeltaSlots(
+                    target, outputByName, applyDeltaSlots, deltaGroupCountSlot, aggExpressionBuilder);
         }
-
         Map<String, Slot> groupKeySlotsByName = new LinkedHashMap<>();
         for (Slot groupKey : aggMeta.getGroupKeySlots()) {
             Slot resolved = outputByName.get(groupKey.getName());
@@ -299,7 +242,7 @@ class IvmAggDeltaHandler {
         }
 
         return new DeltaPlanParts(topDeltaProject, outputByName.get(Column.IVM_ROW_ID_COL),
-                semanticSlots, groupKeySlotsByName);
+                deltaGroupCountSlot, applyDeltaSlots, groupKeySlotsByName);
     }
 
     /**
@@ -318,7 +261,7 @@ class IvmAggDeltaHandler {
      * <ul>
      *   <li>group keys: from delta side</li>
      *   <li>hidden state: COALESCE(mv_old, 0) + delta (with assert_true for non-negative counts)</li>
-     *   <li>visible value: derived from new hidden state (see {@link #buildTargetExpressions})</li>
+     *   <li>visible value: derived from new hidden state via per-function processors</li>
      * </ul>
      *
      * <p>Dml factor represents final row action rather than input delta polarity:
@@ -340,8 +283,9 @@ class IvmAggDeltaHandler {
         Plan joinInput = aggMeta.isScalarAgg() ? join : buildNetZeroFilter(join, delta, mvRowId);
 
         Map<String, Expression> finalByColumnName = new LinkedHashMap<>();
-        Expression newGroupCount = assertNonNegative(
-                new Add(coalesceMvSlot(rawMvScan, aggMeta.getGroupCountSlot().getName()), deltaGroupCount(delta)),
+        Expression newGroupCount = aggExpressionBuilder.assertNonNegative(
+                new Add(aggExpressionBuilder.zeroIfNullMvSlot(rawMvScan, aggMeta.getGroupCountSlot().getName()),
+                        deltaGroupCount(delta)),
                 "negative group count");
         finalByColumnName.put(Column.IVM_ROW_ID_COL, delta.rowIdSlot);
         finalByColumnName.put(aggMeta.getGroupCountSlot().getName(), newGroupCount);
@@ -349,8 +293,12 @@ class IvmAggDeltaHandler {
             finalByColumnName.put(groupKey.getName(), deltaGroupKey(delta, groupKey.getName()));
         }
 
-        for (AggTarget target : aggMeta.getAggTargets()) {
-            buildTargetExpressions(finalByColumnName, rawMvScan, delta, target, newGroupCount);
+        IvmAggApplyContext applyContext = new IvmAggApplyContext(
+                finalByColumnName, rawMvScan, delta.applyDeltaSlots, newGroupCount, aggExpressionBuilder);
+        for (IvmAggTarget target : aggMeta.getAggTargets()) {
+            // The same processor that declared the target's delta outputs now merges old MV state and resolved delta
+            // slots into the final visible column and any hidden state columns.
+            aggFunctionRegistry.appendApplyExpressions(target, applyContext);
         }
 
         Expression dmlFactor = aggMeta.isScalarAgg()
@@ -371,85 +319,6 @@ class IvmAggDeltaHandler {
         }
         finalOutputs.add(new Alias(dmlFactor, Column.IVM_DML_FACTOR_COL));
         return new LogicalProject<>(ImmutableList.copyOf(finalOutputs), joinInput);
-    }
-
-    /**
-     * Computes new hidden state and visible value for one aggregate target.
-     *
-     * <p>State merging formula: {@code new_X = COALESCE(mv_old_X, 0) + delta_X}
-     *
-     * <p>Visible value derivation per type:
-     * <ul>
-     *   <li>COUNT(*): new_group_count (cast if needed) — no hidden columns</li>
-     *   <li>COUNT(expr): IF(new_count > 0, new_count, 0) — no hidden columns,
-     *       old count read from visible column</li>
-     *   <li>SUM(expr): IF(new_count > 0, new_sum, NULL) — no hidden SUM,
-     *       old sum read from visible column; hidden COUNT persisted</li>
-     *   <li>AVG(expr): IF(new_count > 0, CAST(new_sum / new_count AS visible_type), NULL)
-     *       — hidden SUM + COUNT persisted</li>
-     * </ul>
-     *
-     * <p>Count values are wrapped with {@link #assertNonNegative} to catch data corruption.
-     */
-    private void buildTargetExpressions(Map<String, Expression> finalByColumnName, LogicalOlapScan rawMvScan,
-            DeltaPlanParts delta, AggTarget target, Expression newGroupCount) {
-        switch (target.getAggType()) {
-            case COUNT: {
-                if (target.isCountStar()) {
-                    // No hidden columns. Visible value equals the global group count.
-                    finalByColumnName.put(target.getVisibleSlot().getName(),
-                            castIfNeeded(newGroupCount, target.getVisibleSlot().getDataType()));
-                } else {
-                    // No hidden columns. Old count read from visible column.
-                    Expression newCount = assertNonNegative(new Add(
-                            coalesceMvSlot(rawMvScan, target.getVisibleSlot().getName()),
-                            delta.semanticSlots.get(hiddenKey(target, AggType.COUNT))),
-                            "negative count for " + target.getVisibleSlot().getName());
-                    finalByColumnName.put(target.getVisibleSlot().getName(),
-                            new If(isPositive(newCount),
-                                    castIfNeeded(newCount, target.getVisibleSlot().getDataType()),
-                                    zeroOf(target.getVisibleSlot().getDataType())));
-                }
-                return;
-            }
-            case SUM: {
-                // No hidden SUM column. Old sum read from visible column.
-                // Hidden COUNT is persisted for assertNonNegative and null-count logic.
-                Expression newSum = new Add(
-                        coalesceMvSlot(rawMvScan, target.getVisibleSlot().getName()),
-                        delta.semanticSlots.get(hiddenKey(target, AggType.SUM)));
-                Expression newCount = buildNewCount(rawMvScan, delta, target);
-                finalByColumnName.put(target.getHiddenStateSlot(AggType.COUNT).getName(), newCount);
-                Expression visibleValue = castIfNeeded(newSum, target.getVisibleSlot().getDataType());
-                finalByColumnName.put(target.getVisibleSlot().getName(),
-                        new If(isPositive(newCount), visibleValue,
-                                new NullLiteral(target.getVisibleSlot().getDataType())));
-                return;
-            }
-            case AVG: {
-                // Both hidden SUM and COUNT are persisted (visible is AVG ≠ SUM or COUNT).
-                Expression newSum = new Add(
-                        coalesceMvSlot(rawMvScan, target.getHiddenStateSlot(AggType.SUM).getName()),
-                        delta.semanticSlots.get(hiddenKey(target, AggType.SUM)));
-                Expression newCount = buildNewCount(rawMvScan, delta, target);
-                finalByColumnName.put(target.getHiddenStateSlot(AggType.SUM).getName(), newSum);
-                finalByColumnName.put(target.getHiddenStateSlot(AggType.COUNT).getName(), newCount);
-                Expression divisor = castIfNeeded(newCount, newSum.getDataType());
-                Expression visibleValue = castIfNeeded(new Divide(newSum, divisor),
-                        target.getVisibleSlot().getDataType());
-                finalByColumnName.put(target.getVisibleSlot().getName(),
-                        new If(isPositive(newCount), visibleValue,
-                                new NullLiteral(target.getVisibleSlot().getDataType())));
-                return;
-            }
-            case MIN:
-            case MAX:
-                buildExtremalTargetExpressions(finalByColumnName, rawMvScan, delta, target);
-                return;
-            default:
-                throw new AnalysisException("IVM agg delta rewrite does not support aggregate type: "
-                        + target.getAggType());
-        }
     }
 
     private LogicalFilter<Plan> buildNetZeroFilter(LogicalJoin<Plan, Plan> join, DeltaPlanParts delta, Slot mvRowId) {
@@ -473,47 +342,9 @@ class IvmAggDeltaHandler {
                 ImmutableList.of());
     }
 
-    /**
-     * Signs an expression by dml_factor: positive factor → expr, negative → -expr.
-     * Uses conditional branch (not multiplication) to avoid TinyInt × Decimal precision loss.
-     */
-    private Expression signedExpr(Expression expr, Slot dmlFactorSlot) {
-        return new If(new GreaterThan(dmlFactorSlot, new TinyIntLiteral((byte) 0)),
-                expr, new Subtract(zeroOf(expr.getDataType()), expr));
-    }
-
-    /**
-     * Produces a NULL-aware count contribution:
-     * IF(expr IS NULL, 0, dml_factor).
-     * Used for COUNT(expr) and hidden count of SUM/AVG targets.
-     */
-    private Expression ifExprNotNull(Expression expr, Slot dmlFactorSlot) {
-        return new If(new IsNull(expr), new TinyIntLiteral((byte) 0), dmlFactorSlot);
-    }
-
-    /**
-     * Wraps expr in assert_true(expr >= 0, message); throws at runtime if violated.
-     *
-     * <p>IMPORTANT: the false branch must differ from the true branch to prevent
-     * {@code FoldConstantRuleOnFE.visitIf} from collapsing {@code IF(cond, x, x)} into {@code x},
-     * which would silently discard the assert_true guard. Since assert_true either returns TRUE
-     * (condition satisfied) or throws (condition violated), the false branch is unreachable —
-     * we use a NullLiteral as a distinct, never-reached placeholder.
-     */
-    private Expression assertNonNegative(Expression expr, String message) {
-        return new If(new AssertTrue(new GreaterThanEqual(expr,
-                new BigIntLiteral(0)), new StringLiteral(message)),
-                expr, new NullLiteral(expr.getDataType()));
-    }
-
-    /** Predicate: expr > 0. Used to guard visible value derivation. */
-    private Expression isPositive(Expression expr) {
-        return new GreaterThan(expr, new BigIntLiteral(0));
-    }
-
     /** Looks up the delta_group_count slot from delta plan parts. */
     private Expression deltaGroupCount(DeltaPlanParts delta) {
-        return delta.semanticSlots.get(Column.IVM_DELTA_GROUP_COUNT_COL);
+        return delta.deltaGroupCountSlot;
     }
 
     private Expression deltaGroupKey(DeltaPlanParts delta, String name) {
@@ -524,38 +355,25 @@ class IvmAggDeltaHandler {
         return slot;
     }
 
-    /** Reads old MV hidden state with NULL-safe default: COALESCE(mv_slot, 0). */
-    private Expression coalesceMvSlot(LogicalOlapScan rawMvScan, String slotName) {
-        Slot slot = helper.findSlotByName(rawMvScan.getOutput(), slotName);
-        return new Coalesce(slot, zeroOf(slot.getDataType()));
-    }
-
     /**
-     * Determines whether a delta aggregate output slot needs COALESCE wrapping.
+     * Collects delta output names where NULL should be normalized to zero before apply.
      *
-     * <p>Needed when the SUM might return NULL:
+     * <p>Needed for arithmetic merge operands where NULL means "no delta contribution":
      * <ul>
-     *   <li>Scalar agg: all outputs can be NULL when base table is empty</li>
-     *   <li>SUM/AVG hidden sum: SUM(signedExpr) returns NULL when all input exprs are NULL</li>
+     *   <li>Scalar aggregate group count can be NULL when base table is empty</li>
+     *   <li>SUM-like signed deltas can be NULL when all input expressions are NULL</li>
      * </ul>
      */
-    private boolean needsCoalesceInTopProject(Slot slot, IvmAggMeta aggMeta) {
-        if (aggMeta.isScalarAgg() && Column.IVM_DELTA_GROUP_COUNT_COL.equals(slot.getName())) {
-            return true;
+    private Set<String> collectZeroDefaultDeltaOutputNames(IvmAggMeta aggMeta) {
+        Set<String> outputNames = new LinkedHashSet<>();
+        if (aggMeta.isScalarAgg()) {
+            outputNames.add(Column.IVM_DELTA_GROUP_COUNT_COL);
         }
-        for (AggTarget target : aggMeta.getAggTargets()) {
-            if (aggMeta.isScalarAgg()
-                    && slot.getName().equals(target.stateColumnName(AggType.COUNT))) {
-                return true;
-            }
-            if ((target.getAggType() == AggType.SUM || target.getAggType() == AggType.AVG)
-                    && slot.getName().equals(target.stateColumnName(AggType.SUM))) {
-                return true;
-            }
-            // MIN/MAX visible values and their transient DELMIN/DELMAX slots carry semantic NULLs
-            // and must NOT be coalesced — fall through to default false.
+        for (IvmAggTarget target : aggMeta.getAggTargets()) {
+            aggFunctionRegistry.collectZeroDefaultDeltaOutputNames(
+                    target, aggMeta.isScalarAgg(), outputNames, aggExpressionBuilder);
         }
-        return false;
+        return outputNames;
     }
 
     private Map<String, Slot> indexSlotsByName(List<Slot> slots) {
@@ -566,190 +384,4 @@ class IvmAggDeltaHandler {
         return slotByName;
     }
 
-    /** Semantic key for per-target delta slots: "{ordinal}:{aggType}", e.g. "2:SUM". */
-    private String hiddenKey(AggTarget target, AggType aggType) {
-        return target.getOrdinal() + ":" + aggType.name();
-    }
-
-    /** Semantic key for transient delta slots: "{ordinal}:{suffix}", e.g. "0:DELMIN". */
-    private String hiddenKey(AggTarget target, String transientSuffix) {
-        return target.getOrdinal() + ":" + transientSuffix;
-    }
-
-    /** Produces a zero literal of the given numeric type via checked cast from TinyInt(0). */
-    private Expression zeroOf(DataType dataType) {
-        return new TinyIntLiteral((byte) 0).checkedCastTo(dataType);
-    }
-
-    private Expression castIfNeeded(Expression expr, DataType dataType) {
-        return expr.getDataType().equals(dataType) ? expr : new Cast(expr, dataType);
-    }
-
-    /**
-     * Expression for the insert-only stream: IF(dml_factor > 0, expr, NULL).
-     * Used for MIN/MAX delta aggregates — only insert rows contribute to the new extreme.
-     */
-    private Expression insertOnlyExpr(Expression expr, Slot dmlFactorSlot) {
-        return new If(new GreaterThan(dmlFactorSlot, new TinyIntLiteral((byte) 0)),
-                expr, new NullLiteral(expr.getDataType()));
-    }
-
-    /**
-     * Expression for the delete-only stream: IF(dml_factor < 0, expr, NULL).
-     * Used as input to MIN/MAX over deleted values, to detect boundary violations.
-     */
-    private Expression deleteOnlyExpr(Expression expr, Slot dmlFactorSlot) {
-        return new If(new LessThan(dmlFactorSlot, new TinyIntLiteral((byte) 0)),
-                expr, new NullLiteral(expr.getDataType()));
-    }
-
-    /**
-     * Transient column name for min/max of deleted values.
-     * This column exists only in the delta sub-plan aggregate and is NOT stored in the MV.
-     */
-    private String transientDelHiddenName(AggTarget target, String suffix) {
-        return Column.IVM_HIDDEN_COLUMN_PREFIX + "TRANSIENT_" + target.getOrdinal() + "_" + suffix + "_COL__";
-    }
-
-    // ---- Extracted common methods for MIN/MAX and SUM/AVG deduplication ----
-
-    /**
-     * Builds delta aggregate outputs for a MIN or MAX target.
-     *
-     * <p>For MIN, produces: MIN(insertOnly), MIN(deleteOnly), SUM(ifExprNotNull).
-     * For MAX, produces: MAX(insertOnly), MAX(deleteOnly), SUM(ifExprNotNull).
-     * The insert-only agg computes the new extremal from inserted rows; the delete-only
-     * agg captures deleted extremal values for the boundary guard check.
-     */
-    private void buildExtremalDeltaOutputs(List<NamedExpression> deltaAggOutputs,
-            AggTarget target, Slot dmlFactorSlot) {
-        boolean isMin = target.getAggType() == AggType.MIN;
-        AggType stateType = isMin ? AggType.MIN : AggType.MAX;
-        String delKey = isMin ? DELMIN : DELMAX;
-        Expression exprArg = target.getExprArgs().get(0);
-
-        Expression insertAgg = isMin
-                ? new Min(insertOnlyExpr(exprArg, dmlFactorSlot))
-                : new Max(insertOnlyExpr(exprArg, dmlFactorSlot));
-        Expression deleteAgg = isMin
-                ? new Min(deleteOnlyExpr(exprArg, dmlFactorSlot))
-                : new Max(deleteOnlyExpr(exprArg, dmlFactorSlot));
-
-        deltaAggOutputs.add(new Alias(insertAgg,
-                IvmUtil.ivmAggHiddenColumnName(target.getOrdinal(), stateType.name())));
-        deltaAggOutputs.add(new Alias(deleteAgg, transientDelHiddenName(target, delKey)));
-        deltaAggOutputs.add(new Alias(
-                new Sum(ifExprNotNull(exprArg, dmlFactorSlot)),
-                target.getHiddenStateSlot(AggType.COUNT).getName()));
-    }
-
-    /**
-     * Puts semantic slot mappings for a MIN or MAX target into the semantic slots map.
-     *
-     * <p>Maps: stateType (MIN/MAX), delKey (DELMIN/DELMAX), and COUNT.
-     */
-    private void putExtremalSemanticSlots(Map<String, Slot> semanticSlots,
-            Map<String, Slot> outputByName, AggTarget target) {
-        boolean isMin = target.getAggType() == AggType.MIN;
-        AggType stateType = isMin ? AggType.MIN : AggType.MAX;
-        String delKey = isMin ? DELMIN : DELMAX;
-
-        semanticSlots.put(hiddenKey(target, stateType),
-                outputByName.get(IvmUtil.ivmAggHiddenColumnName(target.getOrdinal(), stateType.name())));
-        semanticSlots.put(hiddenKey(target, delKey),
-                outputByName.get(transientDelHiddenName(target, delKey)));
-        semanticSlots.put(hiddenKey(target, AggType.COUNT),
-                outputByName.get(target.getHiddenStateSlot(AggType.COUNT).getName()));
-    }
-
-    /**
-     * Computes the new count for a target: assertNonNegative(COALESCE(old, 0) + delta).
-     *
-     * <p>Only called for targets that have a physical hidden COUNT column
-     * (SUM, AVG, MIN, MAX). COUNT targets handle their counts
-     * directly in {@link #buildTargetExpressions}.
-     */
-    private Expression buildNewCount(LogicalOlapScan rawMvScan, DeltaPlanParts delta, AggTarget target) {
-        return assertNonNegative(new Add(
-                coalesceMvSlot(rawMvScan, target.getHiddenStateSlot(AggType.COUNT).getName()),
-                delta.semanticSlots.get(hiddenKey(target, AggType.COUNT))),
-                "negative hidden count for " + target.getVisibleSlot().getName());
-    }
-
-    /**
-     * Builds target expressions for a MIN or MAX aggregate target.
-     *
-     * <p>The structure is identical for MIN and MAX; only the comparison direction,
-     * merge function (LEAST vs GREATEST), and aggregate type differ:
-     * <ul>
-     *   <li><b>Guard</b>: assert_true(newCount == 0 OR deltaDelExtreme IS NULL
-     *       OR oldExtreme IS NULL OR deltaDelExtreme {&gt;|&lt;} oldExtreme) — bypassed
-     *       when all non-null rows are deleted (count drops to 0), since the result
-     *       is NULL regardless; otherwise, if a deleted row matches the current
-     *       extreme, incremental computation is impossible and falls back to COMPLETE.</li>
-     *   <li><b>Merge</b>: CASE WHEN newCount=0 THEN NULL WHEN old IS NULL THEN deltaInsert
-     *       WHEN deltaInsert IS NULL THEN old ELSE {LEAST|GREATEST}(old, deltaInsert).</li>
-     *   <li><b>Outputs</b>: visible value (guarded extreme or NULL when count=0), and count.</li>
-     * </ul>
-     */
-    private void buildExtremalTargetExpressions(Map<String, Expression> finalByColumnName,
-            LogicalOlapScan rawMvScan, DeltaPlanParts delta, AggTarget target) {
-        boolean isMin = target.getAggType() == AggType.MIN;
-        AggType stateType = isMin ? AggType.MIN : AggType.MAX;
-        String delKey = isMin ? DELMIN : DELMAX;
-        String guardMsg = isMin
-                ? "IVM: deleted row may be current MIN value, fallback to COMPLETE"
-                : "IVM: deleted row may be current MAX value, fallback to COMPLETE";
-
-        Slot oldExtreme = helper.findSlotByName(rawMvScan.getOutput(),
-                target.getVisibleSlot().getName());
-        Expression deltaInsert = delta.semanticSlots.get(hiddenKey(target, stateType));
-        Expression deltaDel = delta.semanticSlots.get(hiddenKey(target, delKey));
-
-        // Compute new non-null count first — needed for both guard bypass and visible value.
-        Expression newCount = buildNewCount(rawMvScan, delta, target);
-
-        // Guard: when the non-null count drops to 0 (all non-null rows deleted), skip the
-        // boundary check because visible will be set to NULL regardless. Otherwise, assert
-        // that the deleted extremal value does not match the current extreme.
-        // For MIN: deleted value must be > current min (otherwise we lose the min).
-        // For MAX: deleted value must be < current max (otherwise we lose the max).
-        Expression guardComparison = isMin
-                ? new GreaterThan(deltaDel, oldExtreme)
-                : new LessThan(deltaDel, oldExtreme);
-        Expression guardCond = new Or(ImmutableList.of(
-                new EqualTo(newCount, new BigIntLiteral(0L)),
-                new IsNull(deltaDel),
-                new IsNull(oldExtreme),
-                guardComparison
-        ));
-        Expression guard = new AssertTrue(guardCond, new StringLiteral(guardMsg));
-
-        // Null-safe merge via CASE WHEN with count-zero fallback to NULL:
-        Expression mergeFunc = isMin
-                ? new Least(oldExtreme, deltaInsert)
-                : new Greatest(oldExtreme, deltaInsert);
-        Expression newExtremeRaw = new CaseWhen(
-                ImmutableList.of(
-                        new WhenClause(new EqualTo(newCount, new BigIntLiteral(0L)),
-                                new NullLiteral(oldExtreme.getDataType())),
-                        new WhenClause(new IsNull(oldExtreme), deltaInsert),
-                        new WhenClause(new IsNull(deltaInsert), oldExtreme)
-                ),
-                mergeFunc
-        );
-        // Embed guard: false branch uses NullLiteral to prevent IF constant folding.
-        // assert_true either returns TRUE (pass) or throws (fail), so false branch is unreachable.
-        Expression newExtremeGuarded = new If(guard, newExtremeRaw,
-                new NullLiteral(newExtremeRaw.getDataType()));
-
-        // No hidden MIN/MAX column: the visible column stores the extremal value directly.
-        // When count drops to 0, visible becomes NULL; next refresh reads NULL as old,
-        // which is correctly handled by the merge logic (IF old IS NULL, take deltaInsert).
-        finalByColumnName.put(target.getHiddenStateSlot(AggType.COUNT).getName(), newCount);
-        finalByColumnName.put(target.getVisibleSlot().getName(),
-                new If(isPositive(newCount),
-                        castIfNeeded(newExtremeGuarded, target.getVisibleSlot().getDataType()),
-                        new NullLiteral(target.getVisibleSlot().getDataType())));
-    }
 }

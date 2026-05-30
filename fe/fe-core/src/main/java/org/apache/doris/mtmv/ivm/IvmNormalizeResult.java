@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -64,7 +65,7 @@ public class IvmNormalizeResult {
         this.normalizedPlan = normalizedPlan;
     }
 
-    /** Returns the aggregate IVM metadata, or null if the MV is not an agg MV. */
+    /** Returns the normalized aggregate MV metadata, or null if the MV is not an agg MV. */
     public IvmAggMeta getAggMeta() {
         return aggMeta;
     }
