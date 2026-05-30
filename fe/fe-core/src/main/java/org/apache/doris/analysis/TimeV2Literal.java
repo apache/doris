@@ -103,7 +103,27 @@ public class TimeV2Literal extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
-        return 0;
+        throw new RuntimeException("Not support comparison between TIMEV2 literals");
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (!(obj instanceof TimeV2Literal)) {
+            return false;
+        }
+        return Double.compare(this.getValue(), ((TimeV2Literal) obj).getValue()) == 0;
+    }
+
+    @Override
+    public int hashCode() {
+        // Must mirror equals(), which only compares getValue(). super.hashCode()
+        // mixes in the ScalarType, so TIMEV2(0) and TIMEV2(6) would otherwise
+        // produce different hashes for the same logical time value and break the
+        // equals/hashCode contract — predicate dedup would bucket them apart.
+        return Double.hashCode(getValue());
     }
 
     @Override
