@@ -26,11 +26,22 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/inverted_index_parser.h"
-#include "storage/index/inverted/spimi/posting_buffer.h"
-#include "storage/index/inverted/spimi/tee_token_stream.h"
 #include "storage/index/inverted/util/reader.h"
 #include "storage/olap_common.h"
 #include "storage/segment/common.h"
+
+// SPIMI writer types are held only as a unique_ptr member (SpimiPostingBuffer)
+// and a unique_ptr member (TeeTokenStream), and dereferenced only in the .cpp.
+// Forward-declaring them here — instead of #include-ing posting_buffer.h /
+// tee_token_stream.h — keeps those heavy SPIMI headers OUT of this header. This
+// header is pulled in transitively by exec_env.h (→ effectively all of BE), so
+// a posting_buffer.h edit used to recompile ~95 translation units; with the
+// forward declarations a posting_buffer.h change only rebuilds the handful of
+// SPIMI .cpp files plus inverted_index_writer.cpp.
+namespace doris::segment_v2::inverted_index::spimi {
+class SpimiPostingBuffer;
+class TeeTokenStream;
+} // namespace doris::segment_v2::inverted_index::spimi
 
 namespace doris {
 
@@ -80,11 +91,10 @@ public:
     int64_t size() const override;
 
     // For tests: returns the resident bytes of the V4 SPIMI posting
-    // buffer (12 B/record + arena + intern slots), or 0 when this
-    // writer is on the V1/V2/V3 (CLucene) path.
-    size_t spimi_buffer_memory_usage() const override {
-        return _spimi_buffer == nullptr ? 0 : _spimi_buffer->MemoryUsage();
-    }
+    // buffer (arena + intern slots + per-term state + slice pool), or 0 when
+    // this writer is on the V1/V2/V3 (CLucene) path. Defined out-of-line in the
+    // .cpp because SpimiPostingBuffer is only forward-declared in this header.
+    size_t spimi_buffer_memory_usage() const override;
     void write_null_bitmap(lucene::store::IndexOutput* null_bitmap_out);
     Status finish() override;
 
@@ -121,7 +131,9 @@ private:
     // compared against CLucene's primary output without disrupting the
     // existing write path. `nullptr` when the flag is off.
     std::unique_ptr<segment_v2::inverted_index::spimi::SpimiPostingBuffer> _spimi_buffer = nullptr;
-    segment_v2::inverted_index::spimi::TeeTokenStream _spimi_tee;
+    // unique_ptr (not by-value) so this header only needs a forward declaration
+    // of TeeTokenStream; lazily constructed in add_values() alongside the field.
+    std::unique_ptr<segment_v2::inverted_index::spimi::TeeTokenStream> _spimi_tee;
     int32_t _spimi_doc_count = 0;
 
     // V4 storage format = pure SPIMI write path. When true, the

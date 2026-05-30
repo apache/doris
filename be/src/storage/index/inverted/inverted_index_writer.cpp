@@ -17,11 +17,15 @@
 
 #include "storage/index/inverted/inverted_index_writer.h"
 
+#include <cstdlib>
+
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/index/inverted/spimi/fulltext_writer.h"
 #include "storage/index/inverted/spimi/index_output_byte_output.h"
+#include "storage/index/inverted/spimi/posting_buffer.h"
+#include "storage/index/inverted/spimi/tee_token_stream.h"
 #include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/faststring.h"
@@ -59,6 +63,14 @@ InvertedIndexColumnWriter<field_type>::~InvertedIndexColumnWriter() {
     if (_index_writer != nullptr || (_is_v4 && _dir != nullptr)) {
         close_on_error();
     }
+}
+
+template <FieldType field_type>
+size_t InvertedIndexColumnWriter<field_type>::spimi_buffer_memory_usage() const {
+    // Out-of-line because SpimiPostingBuffer is only forward-declared in the
+    // header (so a posting_buffer.h edit doesn't recompile every TU that
+    // transitively includes inverted_index_writer.h via exec_env.h).
+    return _spimi_buffer == nullptr ? 0 : _spimi_buffer->MemoryUsage();
 }
 
 template <FieldType field_type>
@@ -185,7 +197,17 @@ Status InvertedIndexColumnWriter<field_type>::create_field(lucene::document::Fie
             !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
               INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES));
     if (_should_analyzer) {
-        (*field)->setOmitNorms(false);
+        // Default (production): analyzed fields keep norms — upstream behaviour.
+        //
+        // LOCAL-ONLY BENCHMARK TOGGLE (must NOT be committed): set env
+        // SPIMI_OMIT_V2_NORMS=1 to omit the per-doc length norms CLucene writes
+        // for analyzed fields (the ~13% `.nrm` stream). Doris fulltext columns
+        // filter/match rather than BM25-score (the reader synthesizes a
+        // default-norm array and never parses `.nrm`), so dropping norms loses
+        // nothing functionally and makes the V2 on-disk size apples-to-apples
+        // with V4 (which always omits norms) for fair storage benchmarking.
+        const char* omit_v2_norms = std::getenv("SPIMI_OMIT_V2_NORMS");
+        (*field)->setOmitNorms(omit_v2_norms != nullptr && omit_v2_norms[0] == '1');
     }
 
     DBUG_EXECUTE_IF("InvertedIndexColumnWriter::always_omit_norms",
@@ -265,6 +287,7 @@ Status InvertedIndexColumnWriter<field_type>::init_fulltext_index() {
     }
     if (_is_v4) {
         _spimi_buffer = std::make_unique<segment_v2::inverted_index::spimi::SpimiPostingBuffer>();
+        _spimi_tee = std::make_unique<segment_v2::inverted_index::spimi::TeeTokenStream>();
         LOG_FIRST_N(INFO, 1) << "V4 storage format: pure SPIMI write path (no CLucene)";
     }
     _analyzer_config.analyzer_name = get_analyzer_name_from_properties(_index_meta->properties());
@@ -429,8 +452,8 @@ void InvertedIndexColumnWriter<field_type>::new_char_token_stream(const char* s,
         // guarantees the two segments share an identical token sequence
         // without re-tokenising. The tee is a non-owning member; the
         // upstream stream's lifetime is managed by the analyser.
-        _spimi_tee.Configure(stream, _spimi_buffer.get(), static_cast<uint32_t>(_rid));
-        field->setValue(&_spimi_tee, /*own_stream=*/false);
+        _spimi_tee->Configure(stream, _spimi_buffer.get(), static_cast<uint32_t>(_rid));
+        field->setValue(_spimi_tee.get(), /*own_stream=*/false);
     } else {
         field->setValue(stream);
     }
