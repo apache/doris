@@ -327,7 +327,7 @@ class IvmOuterJoinDeltaHandler {
         // the three repair branches. Unique functions such as random()/uuid() are
         // also rejected before this path, because recomputing them in different
         // event branches would produce unstable keys.
-        IvmDeltaRewriteResult joinedResult = rewriteNullSideBareJoinDelta(deltaContext);
+        List<Slot> targetOutputs = buildBareJoinDeltaOutputs(deltaContext);
         Pair<Plan, Map<Slot, Slot>> retainedSnapshot = helper.remapOutputs(
                 helper.freshPlan(deltaContext.nonDeltaSideResult().plan));
         NullSideEventPlan nullSideEvents = buildNullSideEventPlan(deltaContext, equiJoinKeys, context);
@@ -345,7 +345,7 @@ class IvmOuterJoinDeltaHandler {
         LogicalJoin<Plan, Plan> eventJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                 hashConjuncts.build(), ImmutableList.of(), join.getDistributeHint(),
                 retainedSnapshot.first, nullSideEvents.plan, JoinReorderContext.EMPTY);
-        LogicalProject<Plan> outputProject = projectEventJoinOutputs(joinedResult.plan.getOutput(),
+        LogicalProject<Plan> outputProject = projectEventJoinOutputs(targetOutputs,
                 eventJoin, retainedSnapshot.second, nullSideEvents.nullSideOutputMapping,
                 nullSideEvents.dmlFactorSlot);
         Slot dmlFactor = findSlotByName(outputProject.getOutput(), Column.IVM_DML_FACTOR_COL);
@@ -353,16 +353,17 @@ class IvmOuterJoinDeltaHandler {
     }
 
     /**
-     * Build the ordinary joined-row change:
-     *   retained_snapshot INNER JOIN null_side_delta
+     * Build the target output schema for the ordinary joined-row change.
      *
-     * This is shared by both null-side strategies. The dml factor comes from the null-side delta.
+     * <p>The event path projects back to this schema, but does not need the bare join plan itself. Still build a
+     * transient INNER JOIN here instead of hand-concatenating child outputs, so the target schema follows the same
+     * output rule as the real joined-row delta branch.
      */
-    private IvmDeltaRewriteResult rewriteNullSideBareJoinDelta(NullSideDeltaContext deltaContext) {
+    private List<Slot> buildBareJoinDeltaOutputs(NullSideDeltaContext deltaContext) {
         LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
         LogicalJoin<Plan, Plan> innerJoin = join.withTypeChildren(JoinType.INNER_JOIN,
                 deltaContext.leftResult.plan, deltaContext.rightResult.plan, JoinReorderContext.EMPTY);
-        return new IvmDeltaRewriteResult(innerJoin, deltaContext.deltaSideResult().dmlFactorSlot);
+        return innerJoin.getOutput();
     }
 
     /**
