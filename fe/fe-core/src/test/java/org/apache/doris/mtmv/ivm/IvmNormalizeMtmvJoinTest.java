@@ -633,7 +633,8 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
 
         IvmNormalizeResult result = getNormalizeResult(aggregate);
 
-        Assertions.assertNotNull(result.getAggMeta(), "Root aggregate should keep aggregate IVM metadata");
+        Assertions.assertNotNull(result.getAggMeta(),
+                "Root aggregate should keep aggregate IVM rewrite plan");
     }
 
     @Test
