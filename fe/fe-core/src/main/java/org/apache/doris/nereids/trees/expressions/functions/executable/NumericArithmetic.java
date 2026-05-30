@@ -324,6 +324,9 @@ public class NumericArithmetic {
             boolean isLowerInclusive, boolean isUpperInclusive) {
         if (input instanceof DoubleLiteral) {
             double inputValue = ((DoubleLiteral) input).getValue();
+            if (Double.isNaN(inputValue)) {
+                return false;
+            }
             boolean lowerCheck = isLowerInclusive ? (inputValue >= lowerBound) : (inputValue > lowerBound);
             // Check upper bound
             boolean upperCheck = isUpperInclusive ? (inputValue <= upperBound) : (inputValue < upperBound);
