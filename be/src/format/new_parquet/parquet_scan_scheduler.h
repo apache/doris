@@ -40,7 +40,7 @@ struct FileScanRequest;
 
 namespace doris::parquet {
 
-class ParquetFileContext;
+struct ParquetFileContext;
 struct ParquetColumnSchema;
 
 class ParquetScanScheduler {
