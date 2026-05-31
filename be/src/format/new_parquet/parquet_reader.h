@@ -132,16 +132,6 @@ private:
                                        reader::SchemaField* field) const;
     Status _read_filter_columns(int64_t batch_rows, Block* file_block, SelectionVector* selection,
                                 uint16_t* selected_rows);
-    Status _execute_column_predicate_filters(int64_t batch_rows, Block* file_block,
-                                             SelectionVector* selection, uint16_t* selected_rows);
-    Status _execute_filter_conjuncts(int64_t batch_rows, Block* file_block,
-                                     SelectionVector* selection, uint16_t* selected_rows);
-    Status _execute_reader_expression_map(Block* file_block,
-                                          const std::vector<reader::ColumnId>& target_columns);
-    IColumn::Filter _selection_to_filter(const SelectionVector& selection, uint16_t selected_rows,
-                                         int64_t batch_rows);
-    uint16_t _apply_filter_to_selection(const IColumn::Filter& filter, SelectionVector* selection,
-                                        uint16_t selected_rows);
     Status _open_next_row_group(bool* has_row_group);
     Status _read_current_row_group_batch(int64_t batch_rows, Block* file_block, size_t* rows);
 
