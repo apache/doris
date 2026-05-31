@@ -17,9 +17,6 @@
 
 #include "format/new_parquet/parquet_reader.h"
 
-#include <arrow/buffer.h>
-#include <arrow/io/interfaces.h>
-#include <arrow/result.h>
 #include <parquet/api/reader.h>
 
 #include <algorithm>
@@ -45,12 +42,11 @@
 #include "exprs/vexpr_context.h"
 #include "format/new_parquet/column_reader.h"
 #include "format/new_parquet/parquet_column_schema.h"
+#include "format/new_parquet/parquet_file_context.h"
 #include "format/new_parquet/parquet_statistics.h"
 #include "format/new_parquet/selection_vector.h"
-#include "io/fs/file_reader.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/schema.h"
-#include "util/slice.h"
 
 namespace doris::parquet {
 
@@ -179,108 +175,8 @@ Status build_predicate_column(const ColumnWithTypeAndName& column, size_t rows,
                                       predicate_column);
 }
 
-Status arrow_status_to_doris_status(const arrow::Status& status) {
-    if (status.ok()) {
-        return Status::OK();
-    }
-    if (status.IsIOError()) {
-        return Status::IOError(status.ToString());
-    }
-    if (status.IsInvalid()) {
-        return Status::InvalidArgument(status.ToString());
-    }
-    return Status::InternalError(status.ToString());
-}
-
-class DorisRandomAccessFile final : public arrow::io::RandomAccessFile {
-public:
-    DorisRandomAccessFile(io::FileReaderSPtr file_reader, io::IOContext* io_ctx)
-            : _file_reader(std::move(file_reader)), _io_ctx(io_ctx) {
-        set_mode(arrow::io::FileMode::READ);
-    }
-
-    arrow::Status Close() override {
-        _closed = true;
-        return arrow::Status::OK();
-    }
-
-    bool closed() const override { return _closed; }
-
-    arrow::Result<int64_t> Tell() const override { return _pos; }
-
-    arrow::Status Seek(int64_t position) override {
-        if (position < 0) {
-            return arrow::Status::Invalid("negative seek position");
-        }
-        _pos = position;
-        return arrow::Status::OK();
-    }
-
-    arrow::Result<int64_t> GetSize() override {
-        if (!_file_reader) {
-            return arrow::Status::IOError("Doris file reader is not open");
-        }
-        return static_cast<int64_t>(_file_reader->size());
-    }
-
-    arrow::Result<int64_t> Read(int64_t nbytes, void* out) override {
-        ARROW_ASSIGN_OR_RAISE(auto bytes_read, ReadAt(_pos, nbytes, out));
-        _pos += bytes_read;
-        return bytes_read;
-    }
-
-    arrow::Result<std::shared_ptr<arrow::Buffer>> Read(int64_t nbytes) override {
-        ARROW_ASSIGN_OR_RAISE(auto buffer, arrow::AllocateResizableBuffer(nbytes));
-        ARROW_ASSIGN_OR_RAISE(auto bytes_read, Read(nbytes, buffer->mutable_data()));
-        ARROW_RETURN_NOT_OK(buffer->Resize(bytes_read, false));
-        buffer->ZeroPadding();
-        return buffer;
-    }
-
-    arrow::Result<int64_t> ReadAt(int64_t position, int64_t nbytes, void* out) override {
-        if (!_file_reader) {
-            return arrow::Status::IOError("Doris file reader is not open");
-        }
-        if (position < 0 || nbytes < 0) {
-            return arrow::Status::Invalid("negative read position or length");
-        }
-        size_t bytes_read = 0;
-        Status st = _file_reader->read_at(
-                static_cast<size_t>(position),
-                Slice(static_cast<uint8_t*>(out), static_cast<size_t>(nbytes)), &bytes_read,
-                _io_ctx);
-        if (!st.ok()) {
-            return arrow::Status::IOError(st.to_string_no_stack());
-        }
-        return static_cast<int64_t>(bytes_read);
-    }
-
-    arrow::Result<std::shared_ptr<arrow::Buffer>> ReadAt(int64_t position,
-                                                         int64_t nbytes) override {
-        ARROW_ASSIGN_OR_RAISE(auto buffer, arrow::AllocateResizableBuffer(nbytes));
-        ARROW_ASSIGN_OR_RAISE(auto bytes_read, ReadAt(position, nbytes, buffer->mutable_data()));
-        ARROW_RETURN_NOT_OK(buffer->Resize(bytes_read, false));
-        buffer->ZeroPadding();
-        return buffer;
-    }
-
-private:
-    io::FileReaderSPtr _file_reader;
-    io::IOContext* _io_ctx = nullptr;
-    int64_t _pos = 0;
-    bool _closed = false;
-};
-
 struct ParquetReaderScanState {
-    // Doris 文件句柄适配成 Arrow RandomAccessFile。该对象只处理随机读，不携带
-    // table/global schema 语义。
-    std::shared_ptr<arrow::io::RandomAccessFile> arrow_file;
-
-    // Arrow Parquet core reader 和 footer metadata。ParquetReader 只依赖 core API，
-    // 不使用 parquet::arrow reader，也不输出 Arrow Array/RecordBatch。
-    std::unique_ptr<::parquet::ParquetFileReader> file_reader;
-    std::shared_ptr<::parquet::FileMetaData> metadata;
-    const ::parquet::SchemaDescriptor* schema = nullptr;
+    ParquetFileContext file_context;
     std::vector<std::unique_ptr<ParquetColumnSchema>> file_schema;
 
     // 当前 scan 的 top-level file-local projection 和 row group 列表。projected_fields
@@ -586,7 +482,7 @@ Status ParquetReader::_open_next_row_group(bool* has_row_group) {
     while (_state->next_row_group_idx < _state->selected_row_groups.size()) {
         const int row_group_idx = _state->selected_row_groups[_state->next_row_group_idx++];
         try {
-            _state->current_row_group = _state->file_reader->RowGroup(row_group_idx);
+            _state->current_row_group = _state->file_context.file_reader->RowGroup(row_group_idx);
         } catch (const ::parquet::ParquetException& e) {
             return Status::Corruption("Failed to open parquet row group {}: {}", row_group_idx,
                                       e.what());
@@ -595,7 +491,7 @@ Status ParquetReader::_open_next_row_group(bool* has_row_group) {
                                          e.what());
         }
 
-        auto row_group_metadata = _state->metadata->RowGroup(row_group_idx);
+        auto row_group_metadata = _state->file_context.metadata->RowGroup(row_group_idx);
         _state->current_row_group_rows =
                 row_group_metadata == nullptr ? 0 : row_group_metadata->num_rows();
         if (_state->current_row_group_rows < 0) {
@@ -612,8 +508,8 @@ Status ParquetReader::_open_next_row_group(bool* has_row_group) {
         _state->current_predicate_columns.clear();
         _state->current_non_predicate_columns.clear();
 
-        ParquetColumnReaderFactory column_reader_factory(_state->current_row_group,
-                                                         _state->schema->num_columns());
+        ParquetColumnReaderFactory column_reader_factory(
+                _state->current_row_group, _state->file_context.schema->num_columns());
         for (const auto file_column_id : _request->predicate_columns) {
             if (file_column_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
                 _state->current_predicate_columns.push_back(
@@ -740,7 +636,7 @@ bool ParquetReader::_is_row_group_outside_range(int row_group_idx) const {
         return false;
     }
 
-    auto row_group_metadata = _state->metadata->RowGroup(row_group_idx);
+    auto row_group_metadata = _state->file_context.metadata->RowGroup(row_group_idx);
     DORIS_CHECK(row_group_metadata != nullptr);
     DORIS_CHECK(row_group_metadata->num_columns() > 0);
     const auto first_column = row_group_metadata->ColumnChunk(0);
@@ -769,24 +665,9 @@ ParquetReader::~ParquetReader() = default;
 Status ParquetReader::init(RuntimeState* state) {
     RETURN_IF_ERROR(reader::FileReader::init(state));
     _state = std::make_unique<ParquetReaderScanState>();
-    _state->arrow_file =
-            std::make_shared<DorisRandomAccessFile>(_tracing_file_reader, _io_ctx.get());
-
-    try {
-        _state->file_reader = ::parquet::ParquetFileReader::Open(
-                _state->arrow_file, ::parquet::default_reader_properties());
-        _state->metadata = _state->file_reader->metadata();
-        _state->schema = _state->metadata != nullptr ? _state->metadata->schema() : nullptr;
-    } catch (const ::parquet::ParquetException& e) {
-        return Status::Corruption("Failed to open parquet file: {}", e.what());
-    } catch (const std::exception& e) {
-        return Status::InternalError("Failed to open parquet file: {}", e.what());
-    }
-
-    if (_state->metadata == nullptr || _state->schema == nullptr) {
-        return Status::Corruption("Failed to read parquet metadata");
-    }
-    RETURN_IF_ERROR(build_parquet_column_schema(*_state->schema, &_state->file_schema));
+    RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get()));
+    RETURN_IF_ERROR(
+            build_parquet_column_schema(*_state->file_context.schema, &_state->file_schema));
     return Status::OK();
 }
 
@@ -795,7 +676,7 @@ Status ParquetReader::get_schema(std::vector<reader::SchemaField>* file_schema) 
         return Status::InvalidArgument("file_schema is null");
     }
     file_schema->clear();
-    if (_state == nullptr || _state->schema == nullptr) {
+    if (_state == nullptr || _state->file_context.schema == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
     }
 
@@ -810,7 +691,8 @@ Status ParquetReader::get_schema(std::vector<reader::SchemaField>* file_schema) 
 }
 
 Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
-    if (_state == nullptr || _state->metadata == nullptr || _state->schema == nullptr) {
+    if (_state == nullptr || _state->file_context.metadata == nullptr ||
+        _state->file_context.schema == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
     }
     RETURN_IF_ERROR(reader::FileReader::open(request));
@@ -903,9 +785,9 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
         reader::SchemaField projected_field;
         RETURN_IF_ERROR(_get_projected_schema_field(file_column_id, &projection, &projected_field));
     }
-    RETURN_IF_ERROR(select_row_groups_by_statistics(*_state->metadata, _state->file_reader.get(),
-                                                    _state->file_schema, *_request,
-                                                    &_state->selected_row_groups));
+    RETURN_IF_ERROR(select_row_groups_by_statistics(
+            *_state->file_context.metadata, _state->file_context.file_reader.get(),
+            _state->file_schema, *_request, &_state->selected_row_groups));
     std::vector<int> range_selected_row_groups;
     range_selected_row_groups.reserve(_state->selected_row_groups.size());
     for (const auto row_group_idx : _state->selected_row_groups) {
@@ -914,12 +796,12 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
         }
     }
     _state->selected_row_groups = std::move(range_selected_row_groups);
-    _state->row_group_first_rows.resize(_state->metadata->num_row_groups());
+    _state->row_group_first_rows.resize(_state->file_context.metadata->num_row_groups());
     int64_t next_row_group_first_row = 0;
-    for (int row_group_idx = 0; row_group_idx < _state->metadata->num_row_groups();
+    for (int row_group_idx = 0; row_group_idx < _state->file_context.metadata->num_row_groups();
          ++row_group_idx) {
         _state->row_group_first_rows[row_group_idx] = next_row_group_first_row;
-        auto row_group_metadata = _state->metadata->RowGroup(row_group_idx);
+        auto row_group_metadata = _state->file_context.metadata->RowGroup(row_group_idx);
         DORIS_CHECK(row_group_metadata != nullptr);
         next_row_group_first_row += row_group_metadata->num_rows();
     }
@@ -929,7 +811,8 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
 }
 
 Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
-    if (_state == nullptr || _state->file_reader == nullptr || _state->schema == nullptr) {
+    if (_state == nullptr || _state->file_context.file_reader == nullptr ||
+        _state->file_context.schema == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
     }
     *rows = 0;
@@ -1044,16 +927,7 @@ Status ParquetReader::get_aggregate_result(const reader::FileAggregateRequest& r
 
 Status ParquetReader::close() {
     if (_state != nullptr) {
-        if (_state->file_reader != nullptr) {
-            try {
-                _state->file_reader->Close();
-            } catch (const std::exception&) {
-                // close 需要保持幂等；这里不覆盖此前 scan 路径上的真实错误。
-            }
-        }
-        if (_state->arrow_file != nullptr) {
-            static_cast<void>(arrow_status_to_doris_status(_state->arrow_file->Close()));
-        }
+        RETURN_IF_ERROR(_state->file_context.close());
         _state = std::make_unique<ParquetReaderScanState>();
     }
     return FileReader::close();
