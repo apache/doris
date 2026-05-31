@@ -253,6 +253,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HourSecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HumanReadableSeconds;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ignore;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
@@ -827,6 +828,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(HoursAdd.class, "hours_add"),
             scalar(HoursDiff.class, "hours_diff"),
             scalar(HoursSub.class, "hours_sub"),
+            scalar(HumanReadableSeconds.class, "human_readable_seconds"),
             scalar(If.class, "if"),
             scalar(Ignore.class, "ignore"),
             scalar(Initcap.class, "initcap"),

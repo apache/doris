@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -208,5 +209,39 @@ class DateTimeExtractAndTransformTest {
                         new DateTimeV2Literal("2021-10-31 03:00:00"),
                         new VarcharLiteral("Europe/Paris"),
                         new VarcharLiteral("UTC")));
+    public void testHumanReadableSeconds() {
+        // Presto/Trino round to whole seconds, drop the sign, and never emit milliseconds.
+        Assertions.assertEquals(new VarcharLiteral("1 minute, 36 seconds"),
+                DateTimeExtractAndTransform.humanReadableSeconds(new DoubleLiteral(96.0)));
+        Assertions.assertEquals(new VarcharLiteral("1 hour, 2 minutes, 42 seconds"),
+                DateTimeExtractAndTransform.humanReadableSeconds(new DoubleLiteral(3762.0)));
+        Assertions.assertEquals(new VarcharLiteral("93 weeks, 1 day, 8 hours, 31 minutes, 3 seconds"),
+                DateTimeExtractAndTransform.humanReadableSeconds(new DoubleLiteral(56363463.0)));
+        Assertions.assertEquals(new VarcharLiteral("0 seconds"),
+                DateTimeExtractAndTransform.humanReadableSeconds(new DoubleLiteral(0.0)));
+        // fractional input is rounded, not rendered as milliseconds
+        Assertions.assertEquals(new VarcharLiteral("7 minutes, 55 seconds"),
+                DateTimeExtractAndTransform.humanReadableSeconds(new DoubleLiteral(475.33)));
+        Assertions.assertEquals(new VarcharLiteral("1 second"),
+                DateTimeExtractAndTransform.humanReadableSeconds(new DoubleLiteral(0.9)));
+        // negative input uses absolute value (no leading '-')
+        Assertions.assertEquals(new VarcharLiteral("1 minute, 36 seconds"),
+                DateTimeExtractAndTransform.humanReadableSeconds(new DoubleLiteral(-96.0)));
+        Assertions.assertEquals(new VarcharLiteral("1 second"),
+                DateTimeExtractAndTransform.humanReadableSeconds(new DoubleLiteral(-0.5)));
+        // very large finite inputs saturate at Long.MAX_VALUE (Math.round), and BE matches
+        Assertions.assertEquals(
+                new VarcharLiteral("15250284452471 weeks, 3 days, 15 hours, 30 minutes, 7 seconds"),
+                DateTimeExtractAndTransform.humanReadableSeconds(new DoubleLiteral(1e20)));
+        Assertions.assertEquals(
+                new VarcharLiteral("15250284452471 weeks, 3 days, 15 hours, 30 minutes, 7 seconds"),
+                DateTimeExtractAndTransform.humanReadableSeconds(new DoubleLiteral(-1e20)));
+        // NaN / Infinity are rejected
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.humanReadableSeconds(
+                        new DoubleLiteral(Double.NaN)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.humanReadableSeconds(
+                        new DoubleLiteral(Double.POSITIVE_INFINITY)));
     }
 }
