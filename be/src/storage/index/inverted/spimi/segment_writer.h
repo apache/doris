@@ -55,7 +55,9 @@ public:
                   int32_t index_interval = TermDictWriter::kDefaultIndexInterval,
                   int32_t skip_interval = TermDictWriter::kDefaultSkipInterval,
                   int32_t max_skip_levels = TermDictWriter::kMaxSkipLevels,
-                  bool omit_term_freq_and_positions = false);
+                  bool omit_term_freq_and_positions = false,
+                  // V4 windowed `.frq`/`.prx` framing (see WindowFrameEncoder).
+                  bool use_windowed = false);
 
     SegmentWriter(const SegmentWriter&) = delete;
     SegmentWriter& operator=(const SegmentWriter&) = delete;

@@ -168,6 +168,37 @@ std::vector<uint8_t> DecompressZstdFrqBlock(Cursor& cur) {
     return raw;
 }
 
+// Resolves one V4 window payload tuple (win_mode, VInt(uncomp), optional
+// VInt(comp), bytes) to its inflated inner bytes.
+std::vector<uint8_t> ReadWindowPayload(Cursor& cur) {
+    const uint8_t win_mode = cur.ReadByte();
+    if (win_mode == 0 /*raw*/) {
+        const auto uncomp = static_cast<uint32_t>(cur.ReadVInt());
+        std::vector<uint8_t> raw;
+        cur.ReadInto(&raw, uncomp);
+        return raw;
+    }
+    if (win_mode == 1 /*zstd*/) {
+        const auto uncomp = static_cast<uint32_t>(cur.ReadVInt());
+        const auto comp = static_cast<uint32_t>(cur.ReadVInt());
+        std::vector<uint8_t> packed;
+        cur.ReadInto(&packed, comp);
+        std::vector<uint8_t> raw(uncomp);
+        BlockCompressionCodec* codec = nullptr;
+        if (!get_block_compression_codec(CompressionTypePB::ZSTD, &codec).ok() || codec == nullptr)
+                [[unlikely]] {
+            SPIMI_THROW_CORRUPT("PostingDecoder window: ZSTD codec unavailable");
+        }
+        Slice in(reinterpret_cast<const char*>(packed.data()), comp);
+        Slice slice_out(reinterpret_cast<char*>(raw.data()), uncomp);
+        if (!codec->decompress(in, &slice_out).ok() || slice_out.size != uncomp) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("PostingDecoder window: ZSTD decompress failed");
+        }
+        return raw;
+    }
+    SPIMI_THROW_CORRUPT("PostingDecoder window: unknown win_mode");
+}
+
 // Decodes position deltas from the `.prx` stream for all documents.
 // The term's `.prx` block begins with a 1-byte mode header (kProxRaw = raw VInt
 // deltas, or kProxZstd = ZSTD-compressed payload behind VInt(uncomp) VInt(comp)).
@@ -212,6 +243,23 @@ void DecodePositions(const uint8_t* prx_data, size_t prx_length, std::vector<Dec
     } else if (mode == FreqProxEncoder::kProxRaw) {
         data = prx_data + 1;
         len = prx_length - 1;
+    } else if (mode == FreqProxEncoder::kProxWindowed) {
+        // V4 windowed .prx: byte mode, VInt(W), VInt(num_windows), then
+        // per-window payloads. Concatenating the inflated per-window PART_POS
+        // bytes reproduces the term's whole contiguous VInt position stream, so
+        // we inflate all windows into `decompressed` then decode per-doc below.
+        Cursor wc(prx_data + 1, prx_length - 1);
+        (void)wc.ReadVInt(); // W
+        const int32_t num_windows = wc.ReadVInt();
+        if (num_windows <= 0) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("PostingDecoder .prx windowed: num_windows out of range");
+        }
+        for (int32_t w = 0; w < num_windows; ++w) {
+            const std::vector<uint8_t> inner = ReadWindowPayload(wc);
+            decompressed.insert(decompressed.end(), inner.begin(), inner.end());
+        }
+        data = decompressed.data();
+        len = decompressed.size();
     } else [[unlikely]] {
         SPIMI_THROW_CORRUPT("PostingDecoder .prx: unknown prox block mode");
     }
@@ -258,6 +306,67 @@ std::vector<DecodedDoc> PostingDecoder::DecodeInner(const uint8_t* frq_data, siz
     if (mode == FreqProxEncoder::kCodeModeZstd) {
         const std::vector<uint8_t> raw = DecompressZstdFrqBlock(cur);
         return DecodeInner(raw.data(), raw.size(), doc_freq, has_prox);
+    }
+    if (mode == FreqProxEncoder::kCodeModeSpimiWindowed) {
+        const uint8_t inner_mode = cur.ReadByte();
+        (void)cur.ReadVInt(); // W
+        const int32_t num_windows = cur.ReadVInt();
+        if (num_windows <= 0 || num_windows > doc_freq) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("PostingDecoder .frq windowed: num_windows out of range");
+        }
+        std::vector<int32_t> win_doc_count(static_cast<size_t>(num_windows));
+        int64_t total = 0;
+        for (int32_t w = 0; w < num_windows; ++w) {
+            win_doc_count[static_cast<size_t>(w)] = cur.ReadVInt();
+            (void)cur.ReadVInt(); // win_byte_offset
+            (void)cur.ReadVInt(); // win_min_docid
+            (void)cur.ReadVInt(); // win_max_docid_delta
+            const int32_t c = win_doc_count[static_cast<size_t>(w)];
+            if (c <= 0 || c > doc_freq) [[unlikely]] {
+                SPIMI_THROW_CORRUPT("PostingDecoder .frq windowed: win_doc_count out of range");
+            }
+            total += c;
+        }
+        if (total != doc_freq) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("PostingDecoder .frq windowed: window counts disagree");
+        }
+        int32_t last_doc = 0;
+        for (int32_t w = 0; w < num_windows; ++w) {
+            const std::vector<uint8_t> inner = ReadWindowPayload(cur);
+            const int32_t wc = win_doc_count[static_cast<size_t>(w)];
+            Cursor wcur(inner.data(), inner.size());
+            if (inner_mode == FreqProxEncoder::kCodeModeSpimiPfor) {
+                const auto dd = DecodePforRun(wcur, wc);
+                std::vector<uint32_t> fq;
+                if (has_prox) {
+                    fq = DecodePforRun(wcur, wc);
+                }
+                for (int32_t i = 0; i < wc; ++i) {
+                    DecodedDoc d;
+                    last_doc += static_cast<int32_t>(dd[static_cast<size_t>(i)]);
+                    d.doc_id = last_doc;
+                    d.freq = has_prox ? static_cast<int32_t>(fq[static_cast<size_t>(i)]) : 1;
+                    docs.push_back(std::move(d));
+                }
+            } else if (inner_mode == FreqProxEncoder::kCodeModeDefault) {
+                for (int32_t i = 0; i < wc; ++i) {
+                    DecodedDoc d;
+                    if (has_prox) {
+                        const auto code = static_cast<uint32_t>(wcur.ReadVInt());
+                        last_doc += static_cast<int32_t>(code >> 1U);
+                        d.freq = ((code & 1U) != 0) ? 1 : wcur.ReadVInt();
+                    } else {
+                        last_doc += static_cast<int32_t>(wcur.ReadVInt());
+                        d.freq = 1;
+                    }
+                    d.doc_id = last_doc;
+                    docs.push_back(std::move(d));
+                }
+            } else [[unlikely]] {
+                SPIMI_THROW_CORRUPT("PostingDecoder .frq windowed: unknown inner_mode");
+            }
+        }
+        return docs;
     }
     if (mode == FreqProxEncoder::kCodeModeDefault) {
         const int32_t recorded = cur.ReadVInt();

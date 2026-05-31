@@ -198,6 +198,38 @@ std::vector<uint8_t> DecompressZstdFrqBlock(ByteStream& cur) {
     return raw;
 }
 
+// Resolves one V4 window payload tuple (win_mode byte, VInt(uncomp), optional
+// VInt(comp), bytes) to its inflated inner bytes. Shared shape with the .prx
+// reader. All reads are bounds-checked against the untrusted buffer.
+std::vector<uint8_t> ReadWindowPayload(ByteStream& cur) {
+    const uint8_t win_mode = cur.ReadByte();
+    if (win_mode == 0 /*raw*/) {
+        const auto uncomp = static_cast<uint32_t>(cur.ReadVInt());
+        std::vector<uint8_t> raw;
+        cur.ReadInto(&raw, uncomp);
+        return raw;
+    }
+    if (win_mode == 1 /*zstd*/) {
+        const auto uncomp = static_cast<uint32_t>(cur.ReadVInt());
+        const auto comp = static_cast<uint32_t>(cur.ReadVInt());
+        std::vector<uint8_t> packed;
+        cur.ReadInto(&packed, comp);
+        std::vector<uint8_t> raw(uncomp);
+        BlockCompressionCodec* codec = nullptr;
+        if (!get_block_compression_codec(CompressionTypePB::ZSTD, &codec).ok() || codec == nullptr)
+                [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .frq window: ZSTD codec unavailable");
+        }
+        Slice in(reinterpret_cast<const char*>(packed.data()), comp);
+        Slice slice_out(reinterpret_cast<char*>(raw.data()), uncomp);
+        if (!codec->decompress(in, &slice_out).ok() || slice_out.size != uncomp) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .frq window: ZSTD decompress failed");
+        }
+        return raw;
+    }
+    SPIMI_THROW_CORRUPT("SPIMI .frq window: unknown win_mode");
+}
+
 } // namespace
 
 std::vector<SpimiTermDocsReader::DocFreq> SpimiTermDocsReader::ReadTerm(const uint8_t* frq_data,
@@ -224,6 +256,73 @@ std::vector<SpimiTermDocsReader::DocFreq> SpimiTermDocsReader::ReadTerm(const ui
         // inner block (which begins with its own kDefault/kPfor mode byte).
         const std::vector<uint8_t> raw = DecompressZstdFrqBlock(cur);
         return ReadTerm(raw.data(), raw.size(), doc_freq, has_prox);
+    }
+    if (mode == FreqProxEncoder::kCodeModeSpimiWindowed) {
+        // V4 windowed block: inner_mode, W, num_windows, per-window skip table,
+        // then per-window payloads. Decode windows in order, threading last_doc
+        // across them, to materialize the whole term.
+        const uint8_t inner_mode = cur.ReadByte();
+        (void)cur.ReadVInt(); // W (not needed for whole-term sequential decode)
+        const int32_t num_windows = cur.ReadVInt();
+        if (num_windows <= 0 || num_windows > doc_freq) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .frq windowed: num_windows out of range");
+        }
+        std::vector<int32_t> win_doc_count(static_cast<size_t>(num_windows));
+        int64_t total = 0;
+        for (int32_t w = 0; w < num_windows; ++w) {
+            win_doc_count[static_cast<size_t>(w)] = cur.ReadVInt();
+            (void)cur.ReadVInt(); // win_byte_offset (range-GET only; unused here)
+            (void)cur.ReadVInt(); // win_min_docid
+            (void)cur.ReadVInt(); // win_max_docid_delta
+            const int32_t c = win_doc_count[static_cast<size_t>(w)];
+            if (c <= 0 || c > doc_freq) [[unlikely]] {
+                SPIMI_THROW_CORRUPT("SPIMI .frq windowed: win_doc_count out of range");
+            }
+            total += c;
+        }
+        if (total != doc_freq) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .frq windowed: window doc counts disagree with .tis");
+        }
+        std::vector<DocFreq> out;
+        constexpr size_t kSafeReserveCap = 1U << 24;
+        out.reserve(std::min(static_cast<size_t>(doc_freq), kSafeReserveCap));
+        int32_t last_doc = 0;
+        for (int32_t w = 0; w < num_windows; ++w) {
+            const std::vector<uint8_t> inner = ReadWindowPayload(cur);
+            const int32_t wc = win_doc_count[static_cast<size_t>(w)];
+            ByteStream wcur(inner.data(), inner.size());
+            if (inner_mode == FreqProxEncoder::kCodeModeSpimiPfor) {
+                // PART-WISE: all wc doc-deltas first (one PFOR run), then all wc
+                // freqs (one PFOR run). doc-deltas are continuous across units,
+                // so a window covering multiple 256-doc units decodes as one run.
+                const auto dd = DecodePforRun(wcur, wc);
+                std::vector<uint32_t> fq;
+                if (has_prox) {
+                    fq = DecodePforRun(wcur, wc);
+                }
+                for (int32_t i = 0; i < wc; ++i) {
+                    last_doc += static_cast<int32_t>(dd[static_cast<size_t>(i)]);
+                    const int32_t f =
+                            has_prox ? static_cast<int32_t>(fq[static_cast<size_t>(i)]) : 1;
+                    out.emplace_back(last_doc, f);
+                }
+            } else if (inner_mode == FreqProxEncoder::kCodeModeDefault) {
+                for (int32_t i = 0; i < wc; ++i) {
+                    if (has_prox) {
+                        const auto code = static_cast<uint32_t>(wcur.ReadVInt());
+                        last_doc += static_cast<int32_t>(code >> 1U);
+                        const int32_t freq = ((code & 1U) != 0) ? 1 : wcur.ReadVInt();
+                        out.emplace_back(last_doc, freq);
+                    } else {
+                        last_doc += static_cast<int32_t>(wcur.ReadVInt());
+                        out.emplace_back(last_doc, 1);
+                    }
+                }
+            } else [[unlikely]] {
+                SPIMI_THROW_CORRUPT("SPIMI .frq windowed: unknown inner_mode");
+            }
+        }
+        return out;
     }
     std::vector<DocFreq> out;
     // Cap pre-reserve against the same DoS-bounding upper limit as

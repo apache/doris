@@ -38,6 +38,7 @@ namespace doris::segment_v2::inverted_index::spimi {
 // sync.
 inline constexpr uint8_t kProxRaw = FreqProxEncoder::kProxRaw;
 inline constexpr uint8_t kProxZstd = FreqProxEncoder::kProxZstd;
+inline constexpr uint8_t kProxWindowed = FreqProxEncoder::kProxWindowed;
 
 namespace {
 
@@ -64,6 +65,46 @@ int32_t ReadVInt(const uint8_t* data, size_t len, size_t* pos) {
         }
     }
     return static_cast<int32_t>(v);
+}
+
+// Inflates one V4 window payload tuple (win_mode, VInt(uncomp), optional
+// VInt(comp), bytes) at *pos and appends its inner bytes to `out`. All reads
+// bounds-checked against the untrusted buffer.
+void AppendWindowPayload(const uint8_t* data, size_t len, size_t* pos, std::vector<uint8_t>* out) {
+    if (*pos >= len) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .prx window: truncated payload header");
+    }
+    const uint8_t win_mode = data[(*pos)++];
+    const auto uncomp = static_cast<uint32_t>(ReadVInt(data, len, pos));
+    if (win_mode == 0 /*raw*/) {
+        if (*pos + uncomp > len || *pos + uncomp < *pos) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .prx window: raw payload exceeds block");
+        }
+        out->insert(out->end(), data + *pos, data + *pos + uncomp);
+        *pos += uncomp;
+        return;
+    }
+    if (win_mode == 1 /*zstd*/) {
+        const auto comp = static_cast<uint32_t>(ReadVInt(data, len, pos));
+        if (*pos + comp > len || *pos + comp < *pos) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .prx window: compressed payload exceeds block");
+        }
+        const size_t base = out->size();
+        out->resize(base + uncomp);
+        BlockCompressionCodec* codec = nullptr;
+        if (!get_block_compression_codec(CompressionTypePB::ZSTD, &codec).ok() || codec == nullptr)
+                [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .prx window: ZSTD codec unavailable");
+        }
+        Slice in(reinterpret_cast<const char*>(data + *pos), comp);
+        Slice slice_out(reinterpret_cast<char*>(out->data() + base), uncomp);
+        if (!codec->decompress(in, &slice_out).ok() || slice_out.size != uncomp) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .prx window: ZSTD decompress failed");
+        }
+        *pos += comp;
+        return;
+    }
+    SPIMI_THROW_CORRUPT("SPIMI .prx window: unknown win_mode");
 }
 
 } // namespace
@@ -109,6 +150,21 @@ std::vector<std::vector<int32_t>> SpimiProxReader::ReadPositions(
     } else if (mode == kProxRaw) {
         data = prx_data + 1;
         len = prx_length - 1;
+    } else if (mode == kProxWindowed) {
+        // V4 windowed .prx: byte mode, VInt(W), VInt(num_windows), then
+        // per-window payloads. The concatenation of inflated per-window
+        // PART_POS bytes is the term's contiguous VInt position stream.
+        size_t hpos = 1;
+        (void)ReadVInt(prx_data, prx_length, &hpos); // W
+        const int32_t num_windows = ReadVInt(prx_data, prx_length, &hpos);
+        if (num_windows <= 0) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .prx windowed: num_windows out of range");
+        }
+        for (int32_t w = 0; w < num_windows; ++w) {
+            AppendWindowPayload(prx_data, prx_length, &hpos, &decompressed);
+        }
+        data = decompressed.data();
+        len = decompressed.size();
     } else [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .prx: unknown prox block mode");
     }

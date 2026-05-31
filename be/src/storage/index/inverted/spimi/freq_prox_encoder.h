@@ -74,6 +74,12 @@ public:
     // CLucene reader can't accidentally misinterpret a SPIMI block.
     static constexpr uint8_t kCodeModeDefault = 0x00;
     static constexpr uint8_t kCodeModeSpimiPfor = 0x05;
+    // V4 windowed `.frq` outer mode. A V4 term's whole .frq block starts with
+    // this byte, followed by the windowed framing (inner_mode, W, num_windows,
+    // a per-window skip table, then per-window payloads). Distinct from every
+    // existing marker so the reader can dispatch on the byte alone. See
+    // window_frame_encoder.h for the exact layout.
+    static constexpr uint8_t kCodeModeSpimiWindowed = 0x06;
     // Outer envelope marker: when a term's whole .frq block is ZSTD-compressed,
     // the block starts with this byte (distinct from the inner mode bytes
     // above), followed by VInt(uncompressed_len), VInt(compressed_len), payload.
@@ -86,11 +92,23 @@ public:
     // writer's constants keeps reader and writer from drifting out of sync.
     static constexpr uint8_t kProxRaw = 0;  // raw VInt position-deltas follow
     static constexpr uint8_t kProxZstd = 1; // VInt(uncomp) VInt(comp) ZSTD-payload
+    // V4 windowed `.prx` outer mode. A V4 term's whole .prx block starts with
+    // this byte, followed by W, num_windows, then per-window payloads (each a
+    // raw or ZSTD blob of that window's VInt position-deltas). Windows align
+    // 1:1 with the .frq windows (same W, same per-window doc counts). See
+    // window_frame_encoder.h.
+    static constexpr uint8_t kProxWindowed = 0x02;
 
     FreqProxEncoder(ByteOutput* frq_out, ByteOutput* prx_out,
                     int32_t skip_interval = kDefaultSkipInterval,
                     int32_t max_skip_levels = kDefaultMaxSkipLevels,
-                    bool omit_term_freq_and_positions = false);
+                    bool omit_term_freq_and_positions = false,
+                    // When true, terms are emitted in the V4 windowed `.frq` /
+                    // `.prx` format (kCodeModeSpimiWindowed / kProxWindowed)
+                    // via WindowFrameEncoder. When false, the legacy
+                    // V0..V3 streaming PFOR/VInt path is used (byte-identical
+                    // to before this flag existed).
+                    bool use_windowed = false);
 
     ~FreqProxEncoder();
 
@@ -132,7 +150,8 @@ private:
     MemoryByteOutput _frq_term_buf;
     ByteOutput* _prx_out;
     int32_t _skip_interval;
-    bool _omit_tfap; // when true: doc-id-only .frq, no .prx writes at all
+    bool _omit_tfap;       // when true: doc-id-only .frq, no .prx writes at all
+    bool _use_windowed;    // when true: emit V4 windowed .frq/.prx via WindowFrameEncoder
     SkipListWriter _skip_list_writer;
     // Single ZSTD compression context reused for every term's .frq/.prx block.
     // Created in the ctor, freed in the dtor; ZSTD_compressCCtx reuses its
@@ -189,6 +208,16 @@ private:
     static constexpr size_t kProxCompressMin = 48;
     void FlushProxBlock(); // writes the staged term prox block to _prx_out
     void FlushFrqBlock();  // writes the staged term .frq block (raw/ZSTD) to _frq_real
+
+    // V4 windowed-mode whole-term buffers. In windowed mode the encoder cannot
+    // stream sub-blocks (windowing needs the whole term known up front), so
+    // StartDoc / AddPosition buffer everything here and FinishTerm hands it to
+    // WindowFrameEncoder. Unused (and empty) in the legacy path.
+    std::vector<uint32_t> _win_doc_deltas;       // every doc's delta-from-prev
+    std::vector<uint32_t> _win_freqs;            // every doc's freq (when has_prox)
+    std::vector<uint8_t> _win_pos_vint;          // whole-term VInt position deltas
+    std::vector<uint32_t> _win_pos_counts;       // per-doc position count (== freq)
+    void FinishTermWindowed(TermInfo* info);     // emits via WindowFrameEncoder
 };
 
 } // namespace doris::segment_v2::inverted_index::spimi

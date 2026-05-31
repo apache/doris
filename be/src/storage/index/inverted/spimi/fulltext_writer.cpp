@@ -172,10 +172,15 @@ int64_t SpimiFulltextWriter::EmitSegment(SpimiPostingBuffer& buffer, const Spimi
     // any sink without a norm stream take the direct-emit path.
     const bool need_norms = !omit_norms && sink.nrm != nullptr;
     buffer.Sort(/*allow_direct_emit=*/!need_norms);
+    // V4 (and later) emit the windowed `.frq`/`.prx` posting format; V0..V3
+    // keep the legacy streaming PFOR/VInt path. The persisted per-field
+    // index_version in `.fnm` is the durable read-side gate.
+    const bool use_windowed = index_version >= FieldInfosWriter::kIndexVersionV4;
     SegmentWriter segment_writer(sink.tis, sink.tii, sink.frq, sink.prx,
                                  TermDictWriter::kDefaultIndexInterval,
                                  TermDictWriter::kDefaultSkipInterval,
-                                 TermDictWriter::kMaxSkipLevels, omit_term_freq_and_positions);
+                                 TermDictWriter::kMaxSkipLevels, omit_term_freq_and_positions,
+                                 use_windowed);
     const int64_t term_count = segment_writer.Emit(buffer, /*field_number=*/0);
     segment_writer.Close();
 

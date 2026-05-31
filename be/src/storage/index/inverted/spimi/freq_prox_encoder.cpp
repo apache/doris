@@ -23,6 +23,7 @@
 
 #include "common/logging.h"
 #include "storage/index/inverted/spimi/pfor_encoder.h"
+#include "storage/index/inverted/spimi/window_frame_encoder.h"
 #include "util/faststring.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
@@ -73,12 +74,14 @@ inline void AppendVInt(std::vector<uint8_t>& buf, uint32_t v) {
 } // namespace
 
 FreqProxEncoder::FreqProxEncoder(ByteOutput* frq_out, ByteOutput* prx_out, int32_t skip_interval,
-                                 int32_t max_skip_levels, bool omit_term_freq_and_positions)
+                                 int32_t max_skip_levels, bool omit_term_freq_and_positions,
+                                 bool use_windowed)
         : _frq_out(nullptr),
           _frq_real(frq_out),
           _prx_out(prx_out),
           _skip_interval(skip_interval),
           _omit_tfap(omit_term_freq_and_positions),
+          _use_windowed(use_windowed),
           _skip_list_writer(skip_interval, max_skip_levels) {
     DCHECK(_frq_real != nullptr);
     // All per-term .frq writes go to the staging buffer; FinishTerm flushes it
@@ -116,6 +119,21 @@ void FreqProxEncoder::StartTerm(int32_t expected_doc_freq) {
     _prox_raw.clear(); // stage this term's position-deltas
     _doc_freq = 0;
     _last_doc = 0;
+
+    if (_use_windowed) {
+        // V4 windowed mode: buffer the whole term; FinishTerm frames it into
+        // windows via WindowFrameEncoder. No codec header / streaming PFOR here.
+        _win_doc_deltas.clear();
+        _win_freqs.clear();
+        _win_pos_vint.clear();
+        _win_pos_counts.clear();
+        _win_doc_deltas.reserve(static_cast<size_t>(expected_doc_freq));
+        if (!_omit_tfap) {
+            _win_freqs.reserve(static_cast<size_t>(expected_doc_freq));
+            _win_pos_counts.reserve(static_cast<size_t>(expected_doc_freq));
+        }
+        return;
+    }
 
     // Phase 35 — choose the block encoding based on docFreq. When df is
     // below the skip-interval, the kDefault per-doc VInt encoding is
@@ -186,7 +204,15 @@ void FreqProxEncoder::StartDoc(int32_t doc_id, int32_t freq) {
     }
 
     const auto doc_delta = static_cast<uint32_t>(doc_id - _last_doc);
-    if (_use_pfor) {
+    if (_use_windowed) {
+        // V4 windowed mode: buffer the doc-delta (and freq); positions are
+        // staged in AddPosition. The whole-term framing happens at FinishTerm.
+        _win_doc_deltas.push_back(doc_delta);
+        if (!_omit_tfap) {
+            _win_freqs.push_back(static_cast<uint32_t>(freq));
+            _win_pos_counts.push_back(static_cast<uint32_t>(freq));
+        }
+    } else if (_use_pfor) {
         // Phase 35 PFOR mode — buffer the (doc_delta, freq) pair. The
         // PFOR sub-blocks are emitted in `FinishTerm` once the full
         // term is seen, because `SpimiPforEncoder` chooses the per-
@@ -252,9 +278,15 @@ void FreqProxEncoder::AddPosition(int32_t position) {
         return;
     }
     DCHECK_GT(_positions_remaining, 0);
-    // Stage the VInt position-delta for the whole term; FlushProxBlock() writes
-    // (and optionally ZSTD-compresses) the term's prox block at FinishTerm.
-    AppendVInt(_prox_raw, static_cast<uint32_t>(position - _last_position_in_doc));
+    // Stage the VInt position-delta for the whole term. In windowed mode it
+    // goes into the windowed position buffer (sliced per doc by FinishTerm); in
+    // the legacy path FlushProxBlock writes/compresses _prox_raw at FinishTerm.
+    const auto delta = static_cast<uint32_t>(position - _last_position_in_doc);
+    if (_use_windowed) {
+        AppendVInt(_win_pos_vint, delta);
+    } else {
+        AppendVInt(_prox_raw, delta);
+    }
     _last_position_in_doc = position;
     --_positions_remaining;
 }
@@ -274,6 +306,13 @@ TermInfo FreqProxEncoder::FinishTerm() {
     DCHECK(!_doc_open);
     DCHECK_EQ(_doc_freq, _expected_doc_freq)
             << "Expected doc frequency did not match the actual count";
+
+    if (_use_windowed) {
+        TermInfo info;
+        FinishTermWindowed(&info);
+        _term_open = false;
+        return info;
+    }
 
     if (_use_pfor) {
         // Flush the buffered doc-deltas (and freqs, when has_prox) as
@@ -327,6 +366,20 @@ TermInfo FreqProxEncoder::FinishTerm() {
 
     _term_open = false;
     return info;
+}
+
+void FreqProxEncoder::FinishTermWindowed(TermInfo* info) {
+    const bool has_prox = !_omit_tfap;
+    // _term_freq_start / _term_prox_start were captured at StartTerm. The
+    // windowed encoder writes the whole .frq / .prx block straight to the real
+    // outputs (no staging buffer / no skip-list tail — the per-window skip table
+    // replaces it, so skip_offset is 0 for V4 terms).
+    WindowFrameEncoder::Encode(_win_doc_deltas, _win_freqs, _win_pos_vint, _win_pos_counts,
+                               has_prox, _cctx, _frq_real, has_prox ? _prx_out : nullptr);
+    info->doc_freq = _doc_freq;
+    info->freq_pointer = _term_freq_start;
+    info->prox_pointer = _term_prox_start;
+    info->skip_offset = 0;
 }
 
 void FreqProxEncoder::FlushFrqBlock() {

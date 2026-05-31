@@ -76,6 +76,12 @@ public:
     static constexpr int32_t kIndexVersionV0 = 0;
     static constexpr int32_t kIndexVersionV1 = 1;
     static constexpr int32_t kIndexVersionV3 = 3;
+    // V4 = pure SPIMI windowed `.frq`/`.prx` posting format. Segments written at
+    // V4 emit the new outer mode bytes (kCodeModeSpimiWindowed / kProxWindowed);
+    // the persisted per-field index_version is the durable format gate so a
+    // V0..V3 reader never tries to parse a windowed block. See
+    // window_frame_encoder.h for the byte layout.
+    static constexpr int32_t kIndexVersionV4 = 4;
 
     explicit FieldInfosWriter(ByteOutput* out);
 
