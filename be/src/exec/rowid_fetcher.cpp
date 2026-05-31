@@ -474,12 +474,18 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                 return Status::InternalError("Tablet {} does not have row store for all columns",
                                              tablet->tablet_id());
             }
-            RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_loc.ordinal_id()));
-            std::string* value = response->add_binary_row_data();
+            auto values = ColumnString::create();
+            std::vector<uint32_t> row_ids {cast_set<uint32_t>(row_loc.ordinal_id())};
             RETURN_IF_ERROR(scope_timer_run(
-                    [&]() { return tablet->lookup_row_data({}, loc, rowset, stats, *value); },
+                    [&]() {
+                        return tablet->lookup_row_data({}, segment->id(), row_ids, rowset, stats,
+                                                       *values);
+                    },
                     &lookup_row_data_ms));
-            row_size = value->size();
+            DCHECK_EQ(values->size(), 1);
+            StringRef value = values->get_data_at(0);
+            response->add_binary_row_data()->assign(value.data, value.size);
+            row_size = value.size;
             continue;
         }
 
@@ -680,8 +686,7 @@ Status RowIdStorageReader::read_batch_doris_format_row(
 
     std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
     std::unordered_map<SegKey, SegItem, HashOfSegKey> seg_map;
-    std::string row_store_buffer;
-    RowStoreReadStruct row_store_read_struct(row_store_buffer);
+    RowStoreReadStruct row_store_read_struct;
     if (request_block_desc.fetch_row_store()) {
         for (int i = 0; i < request_block_desc.slots_size(); ++i) {
             row_store_read_struct.serdes.emplace_back(slots[i].get_data_type_ptr()->get_serde());
@@ -1125,24 +1130,17 @@ Status RowIdStorageReader::read_doris_format_row(
             return Status::InternalError("Tablet {} does not have row store for all columns",
                                          tablet->tablet_id());
         }
-        auto result_columns_guard = result_block.mutate_columns_scoped();
-        MutableColumns& result_columns = result_columns_guard.mutable_columns();
-        for (auto row_id : row_ids) {
-            RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_id));
-            row_store_read_struct.row_store_buffer.clear();
-            RETURN_IF_ERROR(scope_timer_run(
-                    [&]() {
-                        return tablet->lookup_row_data({}, loc, rowset, stats,
-                                                       row_store_read_struct.row_store_buffer);
-                    },
-                    lookup_row_data_ms));
+        auto row_store_rows = ColumnString::create();
+        RETURN_IF_ERROR(scope_timer_run(
+                [&]() {
+                    return tablet->lookup_row_data({}, segment_id, row_ids, rowset, stats,
+                                                   *row_store_rows);
+                },
+                lookup_row_data_ms));
 
-            RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
-                    row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
-                    row_store_read_struct.row_store_buffer.size(),
-                    row_store_read_struct.col_uid_to_idx, result_columns,
-                    row_store_read_struct.default_values, {}));
-        }
+        RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+                row_store_read_struct.serdes, *row_store_rows, row_store_read_struct.col_uid_to_idx,
+                result_block, row_store_read_struct.default_values, {}));
     } else {
         for (int x = 0; x < slots.size(); ++x) {
             auto column_guard = result_block.mutate_column_scoped(x);

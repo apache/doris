@@ -35,6 +35,7 @@
 #include "common/cast_set.h"
 #include "common/consts.h"
 #include "common/status.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type_serde/data_type_serde.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
@@ -499,103 +500,103 @@ Status PointQueryExecutor::_lookup_row_key() {
 Status PointQueryExecutor::_lookup_row_data() {
     // 3. get values
     SCOPED_TIMER(&_profile_metrics.lookup_data_ns);
-    {
-        auto result_columns_guard = _result_block->mutate_columns_scoped();
-        MutableColumns& result_columns = result_columns_guard.mutable_columns();
-        for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
-            if (_row_read_ctxs[i]._cached_row_data.valid()) {
-                RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
-                        _reusable->get_data_type_serdes(),
-                        _row_read_ctxs[i]._cached_row_data.data().data,
-                        _row_read_ctxs[i]._cached_row_data.data().size,
-                        _reusable->get_col_uid_to_idx(), result_columns,
-                        _reusable->get_col_default_values(), _reusable->include_col_uids()));
-                continue;
-            }
-            if (!_row_read_ctxs[i]._row_location.has_value()) {
-                continue;
-            }
-            std::string value;
-            // fill block by row store
-            if (_reusable->rs_column_uid() != -1) {
-                bool use_row_cache = !config::disable_storage_row_cache;
-                RETURN_IF_ERROR(_tablet->lookup_row_data(
-                        _row_read_ctxs[i]._primary_key, _row_read_ctxs[i]._row_location.value(),
-                        *(_row_read_ctxs[i]._rowset_ptr), _profile_metrics.read_stats, value,
-                        use_row_cache));
-                // serialize value to block, currently only jsonb row format
-                RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
-                        _reusable->get_data_type_serdes(), value.data(), value.size(),
-                        _reusable->get_col_uid_to_idx(), result_columns,
-                        _reusable->get_col_default_values(), _reusable->include_col_uids()));
-            }
-            if (!_reusable->missing_col_uids().empty()) {
-                if (!_reusable->runtime_state()->enable_short_circuit_query_access_column_store()) {
-                    std::string missing_columns;
-                    for (int cid : _reusable->missing_col_uids()) {
-                        missing_columns +=
-                                _tablet->tablet_schema()->column_by_uid(cid).name() + ",";
-                    }
-                    return Status::InternalError(
-                            "Not support column store, set store_row_column=true or "
-                            "row_store_columns in table properties, missing columns: " +
-                            missing_columns + " should be added to row store");
-                }
-                // fill missing columns by column store
-                RowLocation row_loc = _row_read_ctxs[i]._row_location.value();
-                BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(
-                        _tablet->get_rowset(row_loc.rowset_id));
-                SegmentCacheHandle segment_cache;
-                {
-                    SCOPED_TIMER(&_profile_metrics.load_segment_data_stage_ns);
-                    RETURN_IF_ERROR(
-                            SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
-                }
-                // find segment
-                auto it = std::find_if(segment_cache.get_segments().cbegin(),
-                                       segment_cache.get_segments().cend(),
-                                       [&](const segment_v2::SegmentSharedPtr& seg) {
-                                           return seg->id() == row_loc.segment_id;
-                                       });
-                const auto& segment = *it;
-                for (int cid : _reusable->missing_col_uids()) {
-                    int pos = _reusable->get_col_uid_to_idx().at(cid);
-                    std::vector<segment_v2::rowid_t> row_ids {
-                            static_cast<segment_v2::rowid_t>(row_loc.row_id)};
-                    auto& column = result_columns[pos];
-                    std::unique_ptr<ColumnIterator> iter;
-                    SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
-                    StorageReadOptions storage_read_options;
-                    storage_read_options.stats = &_read_stats;
-                    storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
-                    auto st = segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
-                                                              row_ids, column, storage_read_options,
-                                                              iter);
-                    if (st.ok() && _tablet->tablet_schema()
-                                           ->column_by_uid(slot->col_unique_id())
-                                           .has_char_type()) {
-                        column->shrink_padding_chars();
-                    }
-                    RETURN_IF_ERROR(st);
-                }
-            }
+    for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
+        if (_row_read_ctxs[i]._cached_row_data.valid()) {
+            RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+                    _reusable->get_data_type_serdes(),
+                    _row_read_ctxs[i]._cached_row_data.data().data,
+                    _row_read_ctxs[i]._cached_row_data.data().size, _reusable->get_col_uid_to_idx(),
+                    *_result_block, _reusable->get_col_default_values(),
+                    _reusable->include_col_uids()));
+            continue;
         }
-        if (result_columns.size() > _reusable->include_col_uids().size()) {
-            // Padding rows for some columns that no need to output to mysql client
-            // eg. SELECT k1,v1,v2 FROM TABLE WHERE k1 = 1, k1 is not in output slots, tuple as bellow
-            // TupleDescriptor{id=1, tbl=table_with_column_group}
-            // SlotDescriptor{id=8, col=v1, colUniqueId=1 ...}
-            // SlotDescriptor{id=9, col=v2, colUniqueId=2 ...}
-            // thus missing in include_col_uids and missing_col_uids
-            for (auto& column : result_columns) {
-                int padding_rows = _row_hits - cast_set<int>(column->size());
-                if (padding_rows > 0) {
-                    column->insert_many_defaults(padding_rows);
+        if (!_row_read_ctxs[i]._row_location.has_value()) {
+            continue;
+        }
+        // fill block by row store
+        if (_reusable->rs_column_uid() != -1) {
+            bool use_row_cache = !config::disable_storage_row_cache;
+            auto values = ColumnString::create();
+            std::vector<uint32_t> row_ids {_row_read_ctxs[i]._row_location->row_id};
+            RETURN_IF_ERROR(_tablet->lookup_row_data(
+                    _row_read_ctxs[i]._primary_key, _row_read_ctxs[i]._row_location->segment_id,
+                    row_ids, *(_row_read_ctxs[i]._rowset_ptr), _profile_metrics.read_stats, *values,
+                    use_row_cache));
+            DCHECK_EQ(values->size(), 1);
+            StringRef value = values->get_data_at(0);
+            // serilize value to block, currently only jsonb row formt
+            RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+                    _reusable->get_data_type_serdes(), value.data, value.size,
+                    _reusable->get_col_uid_to_idx(), *_result_block,
+                    _reusable->get_col_default_values(), _reusable->include_col_uids()));
+        }
+        if (!_reusable->missing_col_uids().empty()) {
+            if (!_reusable->runtime_state()->enable_short_circuit_query_access_column_store()) {
+                std::string missing_columns;
+                for (int cid : _reusable->missing_col_uids()) {
+                    missing_columns += _tablet->tablet_schema()->column_by_uid(cid).name() + ",";
                 }
+                return Status::InternalError(
+                        "Not support column store, set store_row_column=true or "
+                        "row_store_columns in table properties, missing columns: " +
+                        missing_columns + " should be added to row store");
+            }
+            // fill missing columns by column store
+            RowLocation row_loc = _row_read_ctxs[i]._row_location.value();
+            BetaRowsetSharedPtr rowset =
+                    std::static_pointer_cast<BetaRowset>(_tablet->get_rowset(row_loc.rowset_id));
+            SegmentCacheHandle segment_cache;
+            {
+                SCOPED_TIMER(&_profile_metrics.load_segment_data_stage_ns);
+                RETURN_IF_ERROR(
+                        SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
+            }
+            // find segment
+            auto it = std::find_if(segment_cache.get_segments().cbegin(),
+                                   segment_cache.get_segments().cend(),
+                                   [&](const segment_v2::SegmentSharedPtr& seg) {
+                                       return seg->id() == row_loc.segment_id;
+                                   });
+            const auto& segment = *it;
+            for (int cid : _reusable->missing_col_uids()) {
+                int pos = _reusable->get_col_uid_to_idx().at(cid);
+                std::vector<segment_v2::rowid_t> row_ids {
+                        static_cast<segment_v2::rowid_t>(row_loc.row_id)};
+                auto column_guard = _result_block->mutate_column_scoped(pos);
+                MutableColumnPtr& column = column_guard.mutable_column();
+                std::unique_ptr<ColumnIterator> iter;
+                SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
+                StorageReadOptions storage_read_options;
+                storage_read_options.stats = &_read_stats;
+                storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+                auto st = segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot, row_ids,
+                                                          column, storage_read_options, iter);
+                if (st.ok() && _tablet->tablet_schema()
+                                       ->column_by_uid(slot->col_unique_id())
+                                       .has_char_type()) {
+                    column->shrink_padding_chars();
+                }
+                RETURN_IF_ERROR(st);
             }
         }
     }
-    // filter rows by delete sign
+    if (_result_block->columns() > _reusable->include_col_uids().size()) {
+        // Padding rows for some columns that no need to output to mysql client
+        // eg. SELECT k1,v1,v2 FROM TABLE WHERE k1 = 1, k1 is not in output slots, tuple as bellow
+        // TupleDescriptor{id=1, tbl=table_with_column_group}
+        // SlotDescriptor{id=8, col=v1, colUniqueId=1 ...}
+        // SlotDescriptor{id=9, col=v2, colUniqueId=2 ...}
+        // thus missing in include_col_uids and missing_col_uids
+        auto result_columns_guard = _result_block->mutate_columns_scoped();
+        MutableColumns& result_columns = result_columns_guard.mutable_columns();
+        for (auto& column : result_columns) {
+            int padding_rows = _row_hits - cast_set<int>(column->size());
+            if (padding_rows > 0) {
+                column->insert_many_defaults(padding_rows);
+            }
+        }
+    }
+    // filter rows by delete sign, must run outside of padding branch
     if (_row_hits > 0 && _reusable->delete_sign_idx() != -1) {
         size_t filtered = 0;
         size_t total = 0;
