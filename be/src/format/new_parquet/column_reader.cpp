@@ -197,17 +197,20 @@ Status validate_nested_scalar_alignment(const std::string& column_name,
                                         const NestedScalarBatch& driver_batch,
                                         const NestedScalarBatch& candidate_batch,
                                         std::string_view candidate_name, std::string_view action) {
-    if (candidate_batch.records_read != driver_batch.records_read ||
-        candidate_batch.levels_written != driver_batch.levels_written) {
+    NestedShapeCursor driver_cursor(driver_batch);
+    NestedShapeCursor candidate_cursor(candidate_batch);
+    if (candidate_cursor.records_read() != driver_cursor.records_read() ||
+        candidate_cursor.levels_written() != driver_cursor.levels_written()) {
         return Status::Corruption(
                 "Parquet MAP key/value levels are not aligned for column {}{}: driver rows={}, "
                 "driver levels={}, {} rows={}, {} levels={}",
-                column_name, action, driver_batch.records_read, driver_batch.levels_written,
-                candidate_name, candidate_batch.records_read, candidate_name,
-                candidate_batch.levels_written);
+                column_name, action, driver_cursor.records_read(), driver_cursor.levels_written(),
+                candidate_name, candidate_cursor.records_read(), candidate_name,
+                candidate_cursor.levels_written());
     }
-    for (int64_t level_idx = 0; level_idx < driver_batch.levels_written; ++level_idx) {
-        if (candidate_batch.rep_levels[level_idx] != driver_batch.rep_levels[level_idx]) {
+    for (int64_t level_idx = 0; level_idx < driver_cursor.levels_written(); ++level_idx) {
+        if (candidate_cursor.repetition_level(level_idx) !=
+            driver_cursor.repetition_level(level_idx)) {
             return Status::Corruption(
                     "Parquet MAP key/value repetition levels are not aligned for column {}{}",
                     column_name, action);
@@ -224,17 +227,19 @@ Status validate_nested_struct_alignment(const std::string& column_name,
         return Status::Corruption("Parquet MAP value STRUCT has no child batch for column {}{}",
                                   column_name, action);
     }
-    if (candidate_batch.records_read != driver_batch.records_read ||
-        candidate_batch.levels_written != driver_batch.levels_written) {
+    NestedShapeCursor driver_cursor(driver_batch);
+    NestedShapeCursor candidate_cursor(candidate_batch);
+    if (candidate_cursor.records_read() != driver_cursor.records_read() ||
+        candidate_cursor.levels_written() != driver_cursor.levels_written()) {
         return Status::Corruption(
                 "Parquet MAP key/value levels are not aligned for column {}{}: key rows={}, key "
                 "levels={}, value rows={}, value levels={}",
-                column_name, action, driver_batch.records_read, driver_batch.levels_written,
-                candidate_batch.records_read, candidate_batch.levels_written);
+                column_name, action, driver_cursor.records_read(), driver_cursor.levels_written(),
+                candidate_cursor.records_read(), candidate_cursor.levels_written());
     }
-    const auto& value_rep_levels = candidate_batch.child_batches[0].rep_levels;
-    for (int64_t level_idx = 0; level_idx < driver_batch.levels_written; ++level_idx) {
-        if (value_rep_levels[level_idx] != driver_batch.rep_levels[level_idx]) {
+    for (int64_t level_idx = 0; level_idx < driver_cursor.levels_written(); ++level_idx) {
+        if (candidate_cursor.repetition_level(level_idx) !=
+            driver_cursor.repetition_level(level_idx)) {
             return Status::Corruption(
                     "Parquet MAP key/value repetition levels are not aligned for column {}{}",
                     column_name, action);
@@ -519,12 +524,9 @@ Status assemble_repeated_levels(ScalarColumnReader& driver_reader, int16_t repea
         return read_nested_scalar_batch(driver_reader, batch_rows, value_slot_definition_level,
                                         batch);
     };
-    auto rep_level_at = [](const NestedScalarBatch& batch, int64_t level_idx) {
-        return batch.rep_levels[level_idx];
-    };
     return doris::parquet::assemble_repeated_levels<NestedScalarBatch>(
             driver_reader.name(), repeated_level, rows, overflow, read_batch,
-            move_nested_scalar_tail, rep_level_at, sink, rows_read);
+            move_nested_scalar_tail, sink, rows_read);
 }
 
 template <typename Sink>
@@ -536,12 +538,9 @@ Status assemble_repeated_struct_levels(StructColumnReader& driver_reader, int16_
         return read_nested_struct_batch(driver_reader, batch_rows, value_slot_definition_level,
                                         batch);
     };
-    auto rep_level_at = [](const NestedStructBatch& batch, int64_t level_idx) {
-        return batch.child_batches[0].rep_levels[level_idx];
-    };
     return doris::parquet::assemble_repeated_levels<NestedStructBatch>(
             driver_reader.name(), repeated_level, rows, overflow, read_batch,
-            move_nested_struct_tail, rep_level_at, sink, rows_read);
+            move_nested_struct_tail, sink, rows_read);
 }
 
 } // namespace

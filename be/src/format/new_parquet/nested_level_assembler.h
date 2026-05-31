@@ -66,6 +66,61 @@ struct NestedStructOverflow {
     void clear() { batch = NestedStructBatch(); }
 };
 
+inline int64_t nested_shape_records_read(const NestedScalarBatch& batch) {
+    return batch.records_read;
+}
+
+inline int64_t nested_shape_records_read(const NestedStructBatch& batch) {
+    return batch.records_read;
+}
+
+inline int64_t nested_shape_levels_written(const NestedScalarBatch& batch) {
+    return batch.levels_written;
+}
+
+inline int64_t nested_shape_levels_written(const NestedStructBatch& batch) {
+    return batch.levels_written;
+}
+
+inline int16_t nested_shape_definition_level(const NestedScalarBatch& batch, int64_t level_idx) {
+    return batch.def_levels[level_idx];
+}
+
+inline int16_t nested_shape_definition_level(const NestedStructBatch& batch, int64_t level_idx) {
+    DORIS_CHECK(!batch.child_batches.empty());
+    return batch.child_batches[0].def_levels[level_idx];
+}
+
+inline int16_t nested_shape_repetition_level(const NestedScalarBatch& batch, int64_t level_idx) {
+    return batch.rep_levels[level_idx];
+}
+
+inline int16_t nested_shape_repetition_level(const NestedStructBatch& batch, int64_t level_idx) {
+    DORIS_CHECK(!batch.child_batches.empty());
+    return batch.child_batches[0].rep_levels[level_idx];
+}
+
+template <typename Batch>
+class NestedShapeCursor {
+public:
+    explicit NestedShapeCursor(const Batch& batch) : _batch(batch) {}
+
+    int64_t records_read() const { return nested_shape_records_read(_batch); }
+    int64_t levels_written() const { return nested_shape_levels_written(_batch); }
+    int16_t definition_level(int64_t level_idx) const {
+        return nested_shape_definition_level(_batch, level_idx);
+    }
+    int16_t repetition_level(int64_t level_idx) const {
+        return nested_shape_repetition_level(_batch, level_idx);
+    }
+    bool starts_parent(int64_t level_idx, int16_t repeated_level) const {
+        return repetition_level(level_idx) < repeated_level;
+    }
+
+private:
+    const Batch& _batch;
+};
+
 inline void move_nested_scalar_tail(const NestedScalarBatch& src, int64_t start_level,
                                     NestedScalarOverflow* overflow) {
     DORIS_CHECK(overflow != nullptr);
@@ -116,11 +171,10 @@ inline void move_nested_struct_tail(const NestedStructBatch& src, int64_t start_
 }
 
 template <typename Batch, typename Overflow, typename ReadBatchFn, typename MoveTailFn,
-          typename RepLevelFn, typename Sink>
+          typename Sink>
 Status assemble_repeated_levels(const std::string& column_name, int16_t repeated_level,
                                 int64_t rows, Overflow* overflow, ReadBatchFn&& read_batch,
-                                MoveTailFn&& move_tail, RepLevelFn&& rep_level_at, Sink& sink,
-                                int64_t* rows_read) {
+                                MoveTailFn&& move_tail, Sink& sink, int64_t* rows_read) {
     if (overflow == nullptr || rows_read == nullptr) {
         return Status::InvalidArgument("Invalid repeated level assembler arguments for column {}",
                                        column_name);
@@ -143,9 +197,10 @@ Status assemble_repeated_levels(const std::string& column_name, int16_t repeated
         }
         RETURN_IF_ERROR(sink.start_batch(*batch));
 
+        NestedShapeCursor<Batch> cursor(*batch);
         int64_t level_idx = 0;
-        while (level_idx < batch->levels_written) {
-            const bool starts_parent = rep_level_at(*batch, level_idx) < repeated_level;
+        while (level_idx < cursor.levels_written()) {
+            const bool starts_parent = cursor.starts_parent(level_idx, repeated_level);
             if (starts_parent && *rows_read >= rows) {
                 move_tail(*batch, level_idx, overflow);
                 return Status::OK();
