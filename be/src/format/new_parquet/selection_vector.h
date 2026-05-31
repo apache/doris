@@ -25,6 +25,11 @@
 
 namespace doris::parquet {
 
+struct RowRange {
+    int64_t start = 0;
+    int64_t length = 0;
+};
+
 // 类似 DuckDB SelectionVector 的轻量行号视图。
 // 它只表达一个 batch 内被选中的 row offset，不持有 table/global schema 语义。
 // 未绑定 data 时表示 identity selection：get_index(i) == i。
@@ -112,5 +117,28 @@ private:
     Index* _data = nullptr;
     size_t _size = 0;
 };
+
+inline std::vector<RowRange> selection_to_ranges(const SelectionVector& selection,
+                                                 uint16_t selected_rows) {
+    std::vector<RowRange> ranges;
+    if (selected_rows == 0) {
+        return ranges;
+    }
+
+    int64_t range_start = selection.get_index(0);
+    int64_t previous = selection.get_index(0);
+    for (uint16_t selection_idx = 1; selection_idx < selected_rows; ++selection_idx) {
+        const int64_t current = selection.get_index(selection_idx);
+        if (current == previous + 1) {
+            previous = current;
+            continue;
+        }
+        ranges.push_back(RowRange {range_start, previous - range_start + 1});
+        range_start = current;
+        previous = current;
+    }
+    ranges.push_back(RowRange {range_start, previous - range_start + 1});
+    return ranges;
+}
 
 } // namespace doris::parquet

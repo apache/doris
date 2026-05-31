@@ -240,35 +240,6 @@ private:
     NestedStructOverflow _struct_value_overflow;
 };
 
-struct RowRange {
-    int64_t start = 0;
-    int64_t length = 0;
-};
-
-std::vector<RowRange> selection_to_ranges(const SelectionVector& selection,
-                                          uint16_t selected_rows) {
-    std::vector<RowRange> ranges;
-    if (selected_rows == 0) {
-        return ranges;
-    }
-
-    int64_t range_start = selection.get_index(0);
-    int64_t previous = selection.get_index(0);
-    for (uint16_t selection_idx = 1; selection_idx < selected_rows; ++selection_idx) {
-        const int64_t current = selection.get_index(selection_idx);
-        DCHECK_GT(current, previous);
-        if (current == previous + 1) {
-            previous = current;
-            continue;
-        }
-        ranges.push_back(RowRange {range_start, previous - range_start + 1});
-        range_start = current;
-        previous = current;
-    }
-    ranges.push_back(RowRange {range_start, previous - range_start + 1});
-    return ranges;
-}
-
 Status read_nested_scalar_batch(
         ScalarColumnReader& column_reader, int64_t batch_rows, int16_t value_slot_definition_level,
         NestedScalarBatch* batch,
