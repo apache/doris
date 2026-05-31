@@ -53,11 +53,12 @@ int32_t CompareTermsByField(int32_t prev_field, const std::wstring& prev_term, i
 } // namespace
 
 TermDictWriter::TermDictWriter(ByteOutput* tis_out, ByteOutput* tii_out, int32_t index_interval,
-                               int32_t skip_interval)
+                               int32_t skip_interval, bool inline_enabled)
         : _tis_out(tis_out),
           _tii_out(tii_out),
           _index_interval(index_interval),
-          _skip_interval(skip_interval) {
+          _skip_interval(skip_interval),
+          _inline_enabled(inline_enabled) {
     DCHECK(_tis_out != nullptr);
     DCHECK(_tii_out != nullptr);
     DCHECK_EQ(_tis_out->FilePointer(), 0);
@@ -70,7 +71,7 @@ TermDictWriter::TermDictWriter(ByteOutput* tis_out, ByteOutput* tii_out, int32_t
 }
 
 void TermDictWriter::WriteHeader(ByteOutput* out) const {
-    out->WriteInt(kFormat);
+    out->WriteInt(_inline_enabled ? kFormatInline : kFormat);
     out->WriteLong(-1);
     out->WriteInt(_index_interval);
     out->WriteInt(_skip_interval);
@@ -97,7 +98,9 @@ void TermDictWriter::Add(int32_t field_number, std::string_view term_utf8, const
     // At the very first Add() the "previous" entry is the empty sentinel
     // (field=-1, term="", info={0,0,0,0}); CLucene records it so the .tii's
     // first entry's pointer marks the start of .tis content. We keep the
-    // same convention.
+    // same convention. The .tii sparse-index entry is NEVER inlined (it only
+    // anchors binary search), so the previous entry's stored info — even an
+    // inline one — is written pointer-form into .tii.
     if (_tis_size % _index_interval == 0) {
         WriteEntry(Stream::Tii, _last_tis_field, _last_tis_term, _last_tis_info);
     }
@@ -105,19 +108,74 @@ void TermDictWriter::Add(int32_t field_number, std::string_view term_utf8, const
     WriteEntry(Stream::Tis, field_number, term_wide, info);
 }
 
+void TermDictWriter::AddInline(int32_t field_number, std::string_view term_utf8,
+                               const TermInfo& info, const uint8_t* frq_bytes, uint32_t frq_len,
+                               const uint8_t* prx_bytes, uint32_t prx_len) {
+    DCHECK(!_closed) << "TermDictWriter::AddInline called after Close()";
+    DCHECK(_inline_enabled) << "AddInline on a non-inline writer";
+    // Inline terms contribute no pointer delta: the running last-pointer state
+    // must stay unchanged so the next external term's delta is correct. We do
+    // NOT compare info.freq_pointer/prox_pointer against _last_tis_info here.
+    DCHECK_LE(frq_len, kInlineHardCapBytes) << "inline .frq exceeds hard cap";
+    DCHECK_LE(prx_len, kInlineHardCapBytes) << "inline .prx exceeds hard cap";
+
+    const std::wstring term_wide = Utf8ToWide(term_utf8);
+
+    if (_last_tis_field != -1) {
+        const int32_t cmp =
+                CompareTermsByField(_last_tis_field, _last_tis_term, field_number, term_wide);
+        DCHECK_LT(cmp, 0) << "Terms must be added in strictly ascending order";
+    }
+
+    if (_tis_size % _index_interval == 0) {
+        WriteEntry(Stream::Tii, _last_tis_field, _last_tis_term, _last_tis_info);
+    }
+
+    InlinePayload payload;
+    payload.frq = frq_bytes;
+    payload.frq_len = frq_len;
+    payload.prx = prx_bytes;
+    payload.prx_len = prx_len;
+    WriteEntry(Stream::Tis, field_number, term_wide, info, &payload);
+}
+
 void TermDictWriter::WriteEntry(Stream stream, int32_t field_number, const std::wstring& term_wide,
-                                const TermInfo& info) {
+                                const TermInfo& info, const InlinePayload* inline_payload) {
     ByteOutput* out = (stream == Stream::Tis) ? _tis_out : _tii_out;
     const std::wstring& last_term = (stream == Stream::Tis) ? _last_tis_term : _last_tii_term;
     const TermInfo& last_info = (stream == Stream::Tis) ? _last_tis_info : _last_tii_info;
+    // The .tii sparse index never inlines (it only anchors binary search), so
+    // any inline_payload is for a .tis entry only.
+    DCHECK(inline_payload == nullptr || stream == Stream::Tis);
+    const bool inlined = (inline_payload != nullptr);
 
     WriteTerm(out, term_wide, last_term, field_number);
 
-    out->WriteVInt(info.doc_freq);
-    out->WriteVLong(info.freq_pointer - last_info.freq_pointer);
-    out->WriteVLong(info.prox_pointer - last_info.prox_pointer);
-    if (info.doc_freq >= _skip_interval) {
-        out->WriteVInt(info.skip_offset);
+    // In inline format the doc_freq slot carries the inlined bit in its LSB.
+    // In legacy (-4) format the doc_freq is written verbatim and `inlined`
+    // is always false (no AddInline path), so this is back-compatible.
+    if (_inline_enabled) {
+        out->WriteVInt((info.doc_freq << 1) | (inlined ? 1 : 0));
+    } else {
+        out->WriteVInt(info.doc_freq);
+    }
+
+    if (inlined) {
+        // Omit pointer deltas and skip_offset; emit the posting bytes verbatim.
+        out->WriteVInt(static_cast<int32_t>(inline_payload->frq_len));
+        if (inline_payload->frq_len > 0) {
+            out->WriteBytes(inline_payload->frq, inline_payload->frq_len);
+        }
+        out->WriteVInt(static_cast<int32_t>(inline_payload->prx_len));
+        if (inline_payload->prx_len > 0) {
+            out->WriteBytes(inline_payload->prx, inline_payload->prx_len);
+        }
+    } else {
+        out->WriteVLong(info.freq_pointer - last_info.freq_pointer);
+        out->WriteVLong(info.prox_pointer - last_info.prox_pointer);
+        if (info.doc_freq >= _skip_interval) {
+            out->WriteVInt(info.skip_offset);
+        }
     }
 
     if (stream == Stream::Tii) {
@@ -134,7 +192,16 @@ void TermDictWriter::WriteEntry(Stream stream, int32_t field_number, const std::
     } else {
         _last_tis_term = term_wide;
         _last_tis_field = field_number;
-        _last_tis_info = info;
+        if (inlined) {
+            // Inline terms wrote NO freq/prox pointer delta, so the running
+            // last-pointer state must stay anchored at the previous external
+            // term's pointers — the next external term's delta is computed
+            // against THAT. (Preserve last_info's pointers; the rest of
+            // _last_tis_info is unused for delta computation.)
+            // _last_tis_info is intentionally left unchanged here.
+        } else {
+            _last_tis_info = info;
+        }
         ++_tis_size;
     }
 }

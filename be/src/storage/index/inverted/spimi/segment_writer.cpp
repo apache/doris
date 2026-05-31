@@ -24,10 +24,55 @@ namespace doris::segment_v2::inverted_index::spimi {
 SegmentWriter::SegmentWriter(ByteOutput* tis_out, ByteOutput* tii_out, ByteOutput* frq_out,
                              ByteOutput* prx_out, int32_t index_interval, int32_t skip_interval,
                              int32_t max_skip_levels, bool omit_term_freq_and_positions,
-                             bool use_windowed)
-        : _dict(tis_out, tii_out, index_interval, skip_interval),
+                             bool use_windowed, bool inline_small_terms, uint32_t inline_threshold)
+        : _frq_out(frq_out),
+          _prx_out(prx_out),
+          _inline_small_terms(inline_small_terms),
+          _inline_threshold(inline_threshold),
+          _dict(tis_out, tii_out, index_interval, skip_interval, inline_small_terms),
           _encoder(frq_out, prx_out, skip_interval, max_skip_levels, omit_term_freq_and_positions,
-                   use_windowed) {}
+                   use_windowed, /*inline_capable=*/inline_small_terms) {}
+
+void SegmentWriter::FinishAndAddTerm(int32_t field_number, std::string_view term_text) {
+    if (!_inline_small_terms) {
+        // Non-inline path: the encoder wrote the block straight to the real
+        // .frq/.prx outputs; just record the external .tis entry.
+        const TermInfo info = _encoder.FinishTerm();
+        _dict.Add(field_number, term_text, info);
+        return;
+    }
+
+    // Inline path: the encoder STAGED the term block. Decide inline-vs-flush.
+    const FreqProxEncoder::FinishedTerm ft = _encoder.FinishTermStaged();
+    const size_t frq_n = ft.frq != nullptr ? ft.frq->size() : 0;
+    const size_t prx_n = ft.prx != nullptr ? ft.prx->size() : 0;
+    const size_t total = frq_n + prx_n;
+    const bool can_inline = total <= static_cast<size_t>(_inline_threshold) &&
+                            frq_n <= TermDictWriter::kInlineHardCapBytes &&
+                            prx_n <= TermDictWriter::kInlineHardCapBytes;
+
+    if (can_inline) {
+        // Store the block bytes IN the .tis entry; the real .frq/.prx outputs
+        // are NOT advanced for this term (its external bytes simply never
+        // exist), and the dict writer leaves the running pointer chain
+        // unchanged so the next external term's delta stays consistent.
+        _dict.AddInline(field_number, term_text, ft.info, frq_n > 0 ? ft.frq->data() : nullptr,
+                        static_cast<uint32_t>(frq_n), prx_n > 0 ? ft.prx->data() : nullptr,
+                        static_cast<uint32_t>(prx_n));
+    } else {
+        // Flush the block externally. ft.info.freq_pointer / prox_pointer were
+        // captured from the real outputs' FilePointer at StartTerm, so writing
+        // the staged bytes here lands them exactly at those offsets and the
+        // NEXT term's StartTerm captures the advanced FilePointer.
+        if (frq_n > 0) {
+            _frq_out->WriteBytes(ft.frq->data(), frq_n);
+        }
+        if (prx_n > 0) {
+            _prx_out->WriteBytes(ft.prx->data(), prx_n);
+        }
+        _dict.Add(field_number, term_text, ft.info);
+    }
+}
 
 int64_t SegmentWriter::Emit(const SpimiPostingBuffer& buffer, int32_t field_number) {
     DCHECK(!_closed) << "SegmentWriter::Emit called after Close()";
@@ -81,9 +126,8 @@ int64_t SegmentWriter::EmitFromRecords(const SpimiPostingBuffer& buffer, int32_t
             doc_start = doc_end;
         }
 
-        const TermInfo info = _encoder.FinishTerm();
         const std::string_view term_text = buffer.TermAt(text_ref);
-        _dict.Add(field_number, term_text, info);
+        FinishAndAddTerm(field_number, term_text);
 
         ++_term_count;
         ++emitted;
@@ -143,9 +187,8 @@ int64_t SegmentWriter::EmitFromCompactDirect(const SpimiPostingBuffer& buffer,
             emitted_occ += freq;
         }
 
-        const TermInfo info = _encoder.FinishTerm();
         const std::string_view term_text = buffer.TermAt(term.text_ref);
-        _dict.Add(field_number, term_text, info);
+        FinishAndAddTerm(field_number, term_text);
 
         ++_term_count;
         ++emitted;

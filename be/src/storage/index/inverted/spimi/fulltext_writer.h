@@ -126,12 +126,18 @@ public:
     // moment EmitSegment returns. The caller can pass these to
     // `ValidateClosedSegmentByteCounts` after close() to confirm the
     // on-disk segment matches what SPIMI intended to write.
+    // `inline_small_terms` (V4 only): inline small terms' full posting bytes
+    // into the .tis (zero extra read GET). The final / single-flush segment
+    // enables it; transient spill segments leave it false (their multi-input
+    // merge re-decodes from external pointers, and they are short-lived temp
+    // files where inlining loses little).
     static int64_t EmitSegment(SpimiPostingBuffer& buffer, const SpimiSegmentSink& sink,
                                const std::string& segment_name, const std::string& field_name,
                                int32_t doc_count,
                                int32_t index_version = FieldInfosWriter::kIndexVersionV0,
                                bool omit_term_freq_and_positions = false, bool omit_norms = false,
-                               EmittedSegmentByteCounts* out_byte_counts = nullptr);
+                               EmittedSegmentByteCounts* out_byte_counts = nullptr,
+                               bool inline_small_terms = false);
 
     // Records one token occurrence. `doc_id` must be non-decreasing across
     // calls; `position` must be non-decreasing within the same doc_id.

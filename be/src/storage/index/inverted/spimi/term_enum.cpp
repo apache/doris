@@ -154,6 +154,12 @@ public:
         return out;
     }
     size_t pos() const { return _pos; }
+    void Skip(size_t n) {
+        if (_pos > _len || n > _len - _pos) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: skip past end of buffer");
+        }
+        _pos += n;
+    }
 
 private:
     const uint8_t* _data;
@@ -173,9 +179,10 @@ TermEnum::TermEnum(const std::vector<uint8_t>& tis_bytes) : _tis_bytes(tis_bytes
 
     // Header.
     const int32_t format = cur.ReadInt32BE();
-    if (format != TermDictWriter::kFormat) [[unlikely]] {
+    if (format != TermDictWriter::kFormat && format != TermDictWriter::kFormatInline) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: FORMAT mismatch");
     }
+    _inline_format = (format == TermDictWriter::kFormatInline);
     [[maybe_unused]] const int64_t legacy = cur.ReadInt64BE(); // always -1
     _index_interval = cur.ReadInt32BE();
     _skip_interval = cur.ReadInt32BE();
@@ -223,20 +230,58 @@ bool TermEnum::Next() {
     }
 
     const int32_t field_number = cur.ReadVInt();
-    const int32_t doc_freq = cur.ReadVInt();
+
+    int32_t doc_freq = 0;
+    bool inlined = false;
+    if (_inline_format) {
+        const int32_t raw = cur.ReadVInt();
+        if (raw < 0) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: negative inline doc_freq word");
+        }
+        doc_freq = raw >> 1;
+        inlined = (raw & 1) != 0;
+    } else {
+        doc_freq = cur.ReadVInt();
+    }
     if (doc_freq < 0) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: negative doc_freq");
     }
 
-    const int64_t freq_pointer_delta = cur.ReadVLong();
-    const int64_t prox_pointer_delta = cur.ReadVLong();
-
-    _last_freq_pointer += freq_pointer_delta;
-    _last_prox_pointer += prox_pointer_delta;
-
+    // Reset inline span state each entry.
+    _current.info.inlined = false;
+    _current.info.inline_frq = nullptr;
+    _current.info.inline_frq_len = 0;
+    _current.info.inline_prx = nullptr;
+    _current.info.inline_prx_len = 0;
     int32_t skip_offset = 0;
-    if (doc_freq >= _skip_interval) {
-        skip_offset = cur.ReadVInt();
+
+    if (inlined) {
+        // Inline entry: freq/prox pointer deltas OMITTED; the running
+        // accumulators stay unchanged (anchored at the previous external term).
+        const int32_t frq_len = cur.ReadVInt();
+        if (frq_len < 0) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: negative inline frq_len");
+        }
+        const size_t frq_off = cur.pos();
+        cur.Skip(static_cast<size_t>(frq_len));
+        const int32_t prx_len = cur.ReadVInt();
+        if (prx_len < 0) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: negative inline prx_len");
+        }
+        const size_t prx_off = cur.pos();
+        cur.Skip(static_cast<size_t>(prx_len));
+
+        _current.info.inlined = true;
+        _current.info.inline_frq = (frq_len > 0) ? _tis_bytes.data() + frq_off : nullptr;
+        _current.info.inline_frq_len = static_cast<uint32_t>(frq_len);
+        _current.info.inline_prx = (prx_len > 0) ? _tis_bytes.data() + prx_off : nullptr;
+        _current.info.inline_prx_len = static_cast<uint32_t>(prx_len);
+    } else {
+        _last_freq_pointer += cur.ReadVLong();
+        _last_prox_pointer += cur.ReadVLong();
+        if (doc_freq >= _skip_interval) {
+            skip_offset = cur.ReadVInt();
+        }
     }
 
     _pos = cur.pos();

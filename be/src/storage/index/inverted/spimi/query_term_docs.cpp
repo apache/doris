@@ -136,6 +136,25 @@ void SpimiQueryTermDocs::LoadDocsForTerm(int32_t field_number, const TermInfo& i
     _current_term_info = info;
     _doc_freq = info.doc_freq;
 
+    // --- Inline small term: the term's full .frq block bytes live in the .tis
+    //     entry (resident / hotcache). Decode through the lazy reader's
+    //     resident Open overload (its own internal MemPostingStore over the
+    //     inline span), issuing ZERO read_at on the external `.frq` store. For
+    //     a non-windowed inline block the resident Open returns false and we
+    //     fall back to eager ReadTerm on the SAME inline bytes. ---
+    if (info.inlined) {
+        const uint8_t* fdata = info.inline_frq;
+        const size_t flen = info.inline_frq_len;
+        if (flen > 0 && may_use_lazy_windowed() &&
+            _lazy_reader.Open(fdata, flen, info.doc_freq, has_prox)) {
+            _lazy = true;
+            return;
+        }
+        // Eager fallback over the inline bytes (legacy / ZSTD-wrapped block).
+        _docs = SpimiTermDocsReader::ReadTerm(fdata, flen, info.doc_freq, has_prox);
+        return;
+    }
+
     const int64_t frq_total = _frq_store->length();
     // Hard-bound `freq_pointer` BEFORE any positioned read.
     if (info.freq_pointer < 0 || info.freq_pointer > frq_total) [[unlikely]] {

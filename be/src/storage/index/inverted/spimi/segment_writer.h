@@ -50,6 +50,12 @@ namespace doris::segment_v2::inverted_index::spimi {
 // and the comparator orders distinct `text_ref` blocks by term bytes.
 class SegmentWriter {
 public:
+    // Default byte budget for inlining a term's full posting (.frq + .prx)
+    // bytes into its .tis entry. Small terms dominate a real (Zipf) vocabulary
+    // so a byte budget captures most of the GET-count win while bounding .tis
+    // bloat; measured on the ACTUAL encoded block sizes, not df.
+    static constexpr uint32_t kInlineMaxBytes = 256;
+
     SegmentWriter(ByteOutput* tis_out, ByteOutput* tii_out, ByteOutput* frq_out,
                   ByteOutput* prx_out,
                   int32_t index_interval = TermDictWriter::kDefaultIndexInterval,
@@ -57,7 +63,12 @@ public:
                   int32_t max_skip_levels = TermDictWriter::kMaxSkipLevels,
                   bool omit_term_freq_and_positions = false,
                   // V4 windowed `.frq`/`.prx` framing (see WindowFrameEncoder).
-                  bool use_windowed = false);
+                  bool use_windowed = false,
+                  // When true, a term whose full posting (.frq + .prx) block is
+                  // <= inline_threshold bytes is stored INLINE in the .tis entry
+                  // (zero extra GET on read); larger terms keep external
+                  // pointers + range-GET. The .tis switches to kFormatInline.
+                  bool inline_small_terms = false, uint32_t inline_threshold = kInlineMaxBytes);
 
     SegmentWriter(const SegmentWriter&) = delete;
     SegmentWriter& operator=(const SegmentWriter&) = delete;
@@ -83,6 +94,17 @@ private:
     // used when `buffer.CompactDirectEmitReady()`. Avoids the `_records`
     // materialization but produces byte-identical output to EmitFromRecords.
     int64_t EmitFromCompactDirect(const SpimiPostingBuffer& buffer, int32_t field_number);
+
+    // Closes the currently-open term: in inline mode, decides inline-vs-flush
+    // on the staged block bytes and writes the .tis entry accordingly; in
+    // non-inline mode the encoder already wrote the block to the real outputs,
+    // so this just adds the external .tis entry. Shared by both emit paths.
+    void FinishAndAddTerm(int32_t field_number, std::string_view term_text);
+
+    ByteOutput* _frq_out; // real .frq output (advanced here when a term is external)
+    ByteOutput* _prx_out; // real .prx output (advanced here when a term is external)
+    bool _inline_small_terms;
+    uint32_t _inline_threshold;
 
     TermDictWriter _dict;
     FreqProxEncoder _encoder;

@@ -69,8 +69,13 @@ void SpimiFulltextWriter::NoteDocId(uint32_t doc_id) {
 int64_t SpimiFulltextWriter::Finish() {
     DCHECK(!_finished);
     _finished = true;
+    // Direct single-flush path: this IS the final segment (no spill/merge), so
+    // inline small terms (V4 only; EmitSegment gates on use_windowed). The
+    // spill path passes inline_small_terms=false for its transient segments.
     _term_count =
-            EmitSegment(_buffer, _sink, _segment_name, _field_name, _doc_count, _index_version);
+            EmitSegment(_buffer, _sink, _segment_name, _field_name, _doc_count, _index_version,
+                        /*omit_term_freq_and_positions=*/false, /*omit_norms=*/false,
+                        /*out_byte_counts=*/nullptr, /*inline_small_terms=*/true);
     return _term_count;
 }
 
@@ -155,8 +160,8 @@ int64_t SpimiFulltextWriter::EmitSegment(SpimiPostingBuffer& buffer, const Spimi
                                          const std::string& segment_name,
                                          const std::string& field_name, int32_t doc_count,
                                          int32_t index_version, bool omit_term_freq_and_positions,
-                                         bool omit_norms,
-                                         EmittedSegmentByteCounts* out_byte_counts) {
+                                         bool omit_norms, EmittedSegmentByteCounts* out_byte_counts,
+                                         bool inline_small_terms) {
     DCHECK(sink.tis != nullptr);
     DCHECK(sink.tii != nullptr);
     DCHECK(sink.frq != nullptr);
@@ -176,11 +181,13 @@ int64_t SpimiFulltextWriter::EmitSegment(SpimiPostingBuffer& buffer, const Spimi
     // keep the legacy streaming PFOR/VInt path. The persisted per-field
     // index_version in `.fnm` is the durable read-side gate.
     const bool use_windowed = index_version >= FieldInfosWriter::kIndexVersionV4;
-    SegmentWriter segment_writer(sink.tis, sink.tii, sink.frq, sink.prx,
-                                 TermDictWriter::kDefaultIndexInterval,
-                                 TermDictWriter::kDefaultSkipInterval,
-                                 TermDictWriter::kMaxSkipLevels, omit_term_freq_and_positions,
-                                 use_windowed);
+    // Inlining is a V4-only feature; only honour the caller's request when this
+    // segment is actually windowed (the read path gates inline decode on -5).
+    const bool inline_terms = use_windowed && inline_small_terms;
+    SegmentWriter segment_writer(
+            sink.tis, sink.tii, sink.frq, sink.prx, TermDictWriter::kDefaultIndexInterval,
+            TermDictWriter::kDefaultSkipInterval, TermDictWriter::kMaxSkipLevels,
+            omit_term_freq_and_positions, use_windowed, inline_terms);
     const int64_t term_count = segment_writer.Emit(buffer, /*field_number=*/0);
     segment_writer.Close();
 

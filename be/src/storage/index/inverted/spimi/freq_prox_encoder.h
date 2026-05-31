@@ -108,7 +108,29 @@ public:
                     // via WindowFrameEncoder. When false, the legacy
                     // V0..V3 streaming PFOR/VInt path is used (byte-identical
                     // to before this flag existed).
-                    bool use_windowed = false);
+                    bool use_windowed = false,
+                    // When true, FinishTerm() does NOT write the term block to
+                    // the real `.frq` / `.prx` outputs; instead it stages the
+                    // block bytes so the caller (SegmentWriter) can inline a
+                    // small term into the .tis or flush it externally itself.
+                    // `_term_freq_start` / `_term_prox_start` are still sourced
+                    // from the real outputs' FilePointer at StartTerm, which the
+                    // caller must advance (by flushing external blocks) before
+                    // the next StartTerm. Byte-identical to the non-staged path
+                    // for the bytes produced. Requires the SAME frq/prx outputs.
+                    bool inline_capable = false);
+
+    // Staged term result (inline_capable mode). `info` is the term's TermInfo
+    // with freq_pointer / prox_pointer set to the real outputs' FilePointer at
+    // StartTerm (the offset the block WOULD land at if flushed externally).
+    // `frq` / `prx` are the EXACT block bytes the encoder would have written to
+    // the real `.frq` / `.prx`. References are valid until the next StartTerm.
+    // `prx` is empty for omit_tfap fields.
+    struct FinishedTerm {
+        TermInfo info;
+        const std::vector<uint8_t>* frq = nullptr;
+        const std::vector<uint8_t>* prx = nullptr;
+    };
 
     ~FreqProxEncoder();
 
@@ -141,6 +163,12 @@ public:
     // deltas).
     TermInfo FinishTerm();
 
+    // inline_capable variant: stages the term's block bytes instead of writing
+    // them to the real outputs. The returned references are valid until the
+    // next StartTerm(). The encoder must have been constructed with
+    // inline_capable=true.
+    FinishedTerm FinishTermStaged();
+
 private:
     // `_frq_out` points at `_frq_term_buf` (a per-term staging buffer); the real
     // output is `_frq_real`. FinishTerm flushes the term's buffered .frq —
@@ -150,8 +178,19 @@ private:
     MemoryByteOutput _frq_term_buf;
     ByteOutput* _prx_out;
     int32_t _skip_interval;
-    bool _omit_tfap;       // when true: doc-id-only .frq, no .prx writes at all
-    bool _use_windowed;    // when true: emit V4 windowed .frq/.prx via WindowFrameEncoder
+    bool _omit_tfap;      // when true: doc-id-only .frq, no .prx writes at all
+    bool _use_windowed;   // when true: emit V4 windowed .frq/.prx via WindowFrameEncoder
+    bool _inline_capable; // when true: FinishTerm stages block bytes (caller flushes)
+
+    // Staging buffers for inline_capable mode. In that mode the term's whole
+    // .frq / .prx block is written here (instead of to the real outputs) so the
+    // caller can inline a small term or flush a large one externally. The
+    // block bytes are byte-identical to the non-staged path. `_frq_sink` /
+    // `_prx_sink` point at these in inline mode, else at the real outputs.
+    MemoryByteOutput _stage_frq;
+    MemoryByteOutput _stage_prx;
+    ByteOutput* _frq_sink = nullptr; // where the flushed .frq block lands
+    ByteOutput* _prx_sink = nullptr; // where the flushed .prx block lands
     SkipListWriter _skip_list_writer;
     // Single ZSTD compression context reused for every term's .frq/.prx block.
     // Created in the ctor, freed in the dtor; ZSTD_compressCCtx reuses its
@@ -213,11 +252,11 @@ private:
     // stream sub-blocks (windowing needs the whole term known up front), so
     // StartDoc / AddPosition buffer everything here and FinishTerm hands it to
     // WindowFrameEncoder. Unused (and empty) in the legacy path.
-    std::vector<uint32_t> _win_doc_deltas;       // every doc's delta-from-prev
-    std::vector<uint32_t> _win_freqs;            // every doc's freq (when has_prox)
-    std::vector<uint8_t> _win_pos_vint;          // whole-term VInt position deltas
-    std::vector<uint32_t> _win_pos_counts;       // per-doc position count (== freq)
-    void FinishTermWindowed(TermInfo* info);     // emits via WindowFrameEncoder
+    std::vector<uint32_t> _win_doc_deltas;   // every doc's delta-from-prev
+    std::vector<uint32_t> _win_freqs;        // every doc's freq (when has_prox)
+    std::vector<uint8_t> _win_pos_vint;      // whole-term VInt position deltas
+    std::vector<uint32_t> _win_pos_counts;   // per-doc position count (== freq)
+    void FinishTermWindowed(TermInfo* info); // emits via WindowFrameEncoder
 };
 
 } // namespace doris::segment_v2::inverted_index::spimi

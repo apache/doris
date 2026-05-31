@@ -80,11 +80,11 @@ private:
         int64_t tis_pointer; // absolute byte offset into .tis
     };
 
-    // Header parsing extracts indexInterval / skipInterval and
-    // returns the offset past the header (where the first entry
-    // begins). Asserts FORMAT == kFormat.
+    // Header parsing extracts indexInterval / skipInterval and the FORMAT
+    // (-4 legacy or -5 inline), and returns the offset past the header (where
+    // the first entry begins). Accepts only kFormat / kFormatInline.
     static size_t DecodeHeader(const std::vector<uint8_t>& bytes, int32_t* index_interval,
-                               int32_t* skip_interval);
+                               int32_t* skip_interval, int32_t* format);
 
     // Binary search `_tii_entries` for the largest entry e with
     // (e.field, e.term) <= (target_field, target_term_wide). Returns
@@ -96,6 +96,10 @@ private:
     const std::vector<uint8_t>& _tis_bytes;
     int32_t _index_interval = 0;
     int32_t _skip_interval = 0;
+    // True when the .tis was written in kFormatInline (-5): the doc_freq slot
+    // is widened by the inlined bit and small terms may carry inline posting
+    // spans. False for legacy -4 segments.
+    bool _inline_format = false;
     int64_t _tis_size = 0;
     size_t _tis_data_start = 0; // byte offset past .tis header
     std::vector<TiiEntry> _tii_entries;

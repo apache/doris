@@ -80,6 +80,8 @@ private:
     size_t _data_end = 0; // byte offset of the footer (== size - 8)
     int32_t _index_interval = 0;
     int32_t _skip_interval = 0;
+    // True when the .tis was written in kFormatInline (-5).
+    bool _inline_format = false;
     int64_t _total_entries = 0; // from footer
     int64_t _consumed = 0;      // entries decoded so far
     bool _done = false;

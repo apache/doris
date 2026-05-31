@@ -54,6 +54,7 @@ void SpimiQueryTermPositions::LoadPositionsForCurrentTerm() {
     _positions.clear();
     _prx_lazy_active = false;
     _pos_index = -1;
+    _inline_prx_store.reset();
 
     const int32_t field_number = current_field_number();
     if (field_number < 0) {
@@ -70,16 +71,36 @@ void SpimiQueryTermPositions::LoadPositionsForCurrentTerm() {
     if (ti == nullptr || ti->doc_freq <= 0) {
         return;
     }
-    if (_prx_store == nullptr) [[unlikely]] {
-        // has_prox field but no `.prx` source — corrupt manifest / wiring.
-        _CLTHROWA(CL_ERR_IO, "SPIMI: has_prox term but no .prx store");
-    }
 
-    // Same untrusted-byte bounds check as for freq_pointer in the TermDocs
-    // base. `ti->prox_pointer` is a VLong sum from `.tis`; unchecked pointer
-    // arithmetic on a corrupt segment is UB.
-    if (ti->prox_pointer < 0 || ti->prox_pointer > _prx_store->length()) [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .tis prox_pointer out of .prx bounds");
+    // --- Inline term: the term's `.prx` bytes are resident in the .tis entry.
+    //     Wrap them in a transient MemPostingStore (offset 0) and decode
+    //     through the SAME lazy/eager paths, issuing ZERO read_at on the
+    //     external `_prx_store`. ---
+    PostingStore* prx_src = nullptr;
+    int64_t prx_base = 0;
+    if (ti->inlined) {
+        // has_prox field MUST carry inline prx bytes (omit_tfap fields never
+        // reach here because fi.has_prox is false). A has_prox inline term with
+        // zero prx bytes is a desynced segment.
+        if (ti->inline_prx == nullptr || ti->inline_prx_len == 0) [[unlikely]] {
+            _CLTHROWA(CL_ERR_IO, "SPIMI: has_prox inline term with empty .prx span");
+        }
+        _inline_prx_store = std::make_unique<MemPostingStore>(ti->inline_prx, ti->inline_prx_len);
+        prx_src = _inline_prx_store.get();
+        prx_base = 0; // inline block starts at offset 0 of its MemPostingStore
+    } else {
+        if (_prx_store == nullptr) [[unlikely]] {
+            // has_prox field but no `.prx` source — corrupt manifest / wiring.
+            _CLTHROWA(CL_ERR_IO, "SPIMI: has_prox term but no .prx store");
+        }
+        // Same untrusted-byte bounds check as for freq_pointer in the TermDocs
+        // base. `ti->prox_pointer` is a VLong sum from `.tis`; unchecked pointer
+        // arithmetic on a corrupt segment is UB.
+        if (ti->prox_pointer < 0 || ti->prox_pointer > _prx_store->length()) [[unlikely]] {
+            _CLTHROWA(CL_ERR_IO, "SPIMI .tis prox_pointer out of .prx bounds");
+        }
+        prx_src = _prx_store.get();
+        prx_base = ti->prox_pointer;
     }
 
     // --- Fast path: windowed `.frq` (base on lazy path) + windowed `.prx`.
@@ -88,7 +109,7 @@ void SpimiQueryTermPositions::LoadPositionsForCurrentTerm() {
     //     one covering window at a time. ---
     if (lazy_active()) {
         try {
-            if (_prx_lazy.Open(_prx_store.get(), ti->prox_pointer, lazy_reader())) {
+            if (_prx_lazy.Open(prx_src, prx_base, lazy_reader())) {
                 _prx_lazy_active = true;
                 return;
             }
@@ -117,13 +138,13 @@ void SpimiQueryTermPositions::LoadPositionsForCurrentTerm() {
         freqs_per_doc.push_back(f);
     }
 
-    const auto fp = static_cast<size_t>(ti->prox_pointer);
-    const auto file_len = static_cast<size_t>(_prx_store->length());
+    const auto fp = static_cast<size_t>(prx_base);
+    const auto file_len = static_cast<size_t>(prx_src->length());
     const size_t slice_len = file_len - fp;
     std::vector<uint8_t> prx_slice(slice_len);
     try {
         if (slice_len > 0) {
-            _prx_store->read_at(static_cast<int64_t>(fp), prx_slice.data(), slice_len);
+            prx_src->read_at(static_cast<int64_t>(fp), prx_slice.data(), slice_len);
         }
         _positions =
                 SpimiProxReader::ReadPositions(prx_slice.data(), prx_slice.size(), freqs_per_doc);

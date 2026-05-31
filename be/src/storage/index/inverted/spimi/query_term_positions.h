@@ -146,6 +146,13 @@ private:
     SpimiWindowedTermPositions _prx_lazy;
     bool _prx_lazy_active = false;
 
+    // For an INLINE term, the term's `.prx` bytes live in the resident `.tis`
+    // entry (referenced by `current_term_info()->inline_prx`). We wrap them in
+    // a transient MemPostingStore (offset 0 == prox_pointer) so the lazy /
+    // eager `.prx` decoders read them WITHOUT touching the external `_prx_store`
+    // (zero extra GET). Re-created per term; null for non-inline terms.
+    std::unique_ptr<MemPostingStore> _inline_prx_store;
+
     // Eager fallback: [doc_index][pos_index] for legacy / non-windowed `.prx`.
     // Empty when `_prx_lazy_active`.
     std::vector<std::vector<int32_t>> _positions;

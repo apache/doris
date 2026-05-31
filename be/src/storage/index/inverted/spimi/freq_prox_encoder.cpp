@@ -75,18 +75,25 @@ inline void AppendVInt(std::vector<uint8_t>& buf, uint32_t v) {
 
 FreqProxEncoder::FreqProxEncoder(ByteOutput* frq_out, ByteOutput* prx_out, int32_t skip_interval,
                                  int32_t max_skip_levels, bool omit_term_freq_and_positions,
-                                 bool use_windowed)
+                                 bool use_windowed, bool inline_capable)
         : _frq_out(nullptr),
           _frq_real(frq_out),
           _prx_out(prx_out),
           _skip_interval(skip_interval),
           _omit_tfap(omit_term_freq_and_positions),
           _use_windowed(use_windowed),
+          _inline_capable(inline_capable),
           _skip_list_writer(skip_interval, max_skip_levels) {
     DCHECK(_frq_real != nullptr);
     // All per-term .frq writes go to the staging buffer; FinishTerm flushes it
-    // (raw or ZSTD) to the real output.
+    // (raw or ZSTD) to the block sink.
     _frq_out = &_frq_term_buf;
+    // In inline_capable mode the flushed term block lands in the per-term
+    // staging buffers (so the caller can inline or flush it). Otherwise it
+    // lands directly in the real outputs (unchanged behaviour). `_frq_real` /
+    // `_prx_out` are still used to source FilePointer at StartTerm.
+    _frq_sink = inline_capable ? static_cast<ByteOutput*>(&_stage_frq) : _frq_real;
+    _prx_sink = inline_capable ? static_cast<ByteOutput*>(&_stage_prx) : _prx_out;
     // _prx_out may be nullptr ONLY when omit_tfap is true. In that mode the
     // encoder never touches the prox stream so callers can pass nullptr to
     // make the intent explicit (or pass a real stream and rely on the
@@ -109,7 +116,12 @@ void FreqProxEncoder::StartTerm(int32_t expected_doc_freq) {
     DCHECK_GT(expected_doc_freq, 0) << "Lucene format requires df > 0 per term";
     _term_open = true;
     _expected_doc_freq = expected_doc_freq;
-    _frq_term_buf.Clear();                       // stage this term's .frq
+    _frq_term_buf.Clear(); // stage this term's .frq
+    if (_inline_capable) {
+        // Fresh per-term block sinks; the caller consumes them at FinishTermStaged.
+        _stage_frq.Clear();
+        _stage_prx.Clear();
+    }
     _term_freq_start = _frq_real->FilePointer(); // where the (flushed) block lands
     // In omit_tfap mode the prox pointer is always 0 (CLucene's contract:
     // every term's proxPointer is 0 because the prox stream is empty for
@@ -368,6 +380,20 @@ TermInfo FreqProxEncoder::FinishTerm() {
     return info;
 }
 
+FreqProxEncoder::FinishedTerm FreqProxEncoder::FinishTermStaged() {
+    DCHECK(_inline_capable) << "FinishTermStaged on a non-inline-capable encoder";
+    // FinishTerm flushes the term block into _stage_frq / _stage_prx (the
+    // sinks) instead of the real outputs (inline_capable mode). The returned
+    // info's freq_pointer / prox_pointer are the real-output offsets the block
+    // would land at if flushed externally — exactly what the dict writer needs
+    // for an EXTERNAL term, and harmless for an inline term (ignored there).
+    FinishedTerm out;
+    out.info = FinishTerm();
+    out.frq = &_stage_frq.bytes();
+    out.prx = _omit_tfap ? nullptr : &_stage_prx.bytes();
+    return out;
+}
+
 void FreqProxEncoder::FinishTermWindowed(TermInfo* info) {
     const bool has_prox = !_omit_tfap;
     // _term_freq_start / _term_prox_start were captured at StartTerm. The
@@ -375,7 +401,7 @@ void FreqProxEncoder::FinishTermWindowed(TermInfo* info) {
     // outputs (no staging buffer / no skip-list tail — the per-window skip table
     // replaces it, so skip_offset is 0 for V4 terms).
     WindowFrameEncoder::Encode(_win_doc_deltas, _win_freqs, _win_pos_vint, _win_pos_counts,
-                               has_prox, _cctx, _frq_real, has_prox ? _prx_out : nullptr);
+                               has_prox, _cctx, _frq_sink, has_prox ? _prx_sink : nullptr);
     info->doc_freq = _doc_freq;
     info->freq_pointer = _term_freq_start;
     info->prox_pointer = _term_prox_start;
@@ -390,16 +416,16 @@ void FreqProxEncoder::FlushFrqBlock() {
         // A single term's .frq stays far below 2 GB (arena byte cap), so the
         // VInt length casts below never lose bits.
         DCHECK_LE(n, static_cast<size_t>(INT32_MAX));
-        _frq_real->WriteByte(kCodeModeZstd);
-        _frq_real->WriteVInt(static_cast<int32_t>(n));
-        _frq_real->WriteVInt(static_cast<int32_t>(comp.size()));
-        _frq_real->WriteBytes(comp.data(), comp.size());
+        _frq_sink->WriteByte(kCodeModeZstd);
+        _frq_sink->WriteVInt(static_cast<int32_t>(n));
+        _frq_sink->WriteVInt(static_cast<int32_t>(comp.size()));
+        _frq_sink->WriteBytes(comp.data(), comp.size());
         return;
     }
     // Raw fallback: emit the term .frq verbatim (its first byte is the inner
     // kCodeModeDefault/kCodeModeSpimiPfor mode, never kCodeModeZstd).
     if (n > 0) {
-        _frq_real->WriteBytes(buf.data(), n);
+        _frq_sink->WriteBytes(buf.data(), n);
     }
 }
 
@@ -413,17 +439,17 @@ void FreqProxEncoder::FlushProxBlock() {
     // VInt length headers (~≤10 B) — TryCompressBlock enforces that margin.
     if (n >= kProxCompressMin && TryCompressBlock(_cctx, _prox_raw.data(), n, &comp)) {
         DCHECK_LE(n, static_cast<size_t>(INT32_MAX)); // single-term .prx << 2 GB
-        _prx_out->WriteByte(kProxZstd);
-        _prx_out->WriteVInt(static_cast<int32_t>(n));
-        _prx_out->WriteVInt(static_cast<int32_t>(comp.size()));
-        _prx_out->WriteBytes(comp.data(), comp.size());
+        _prx_sink->WriteByte(kProxZstd);
+        _prx_sink->WriteVInt(static_cast<int32_t>(n));
+        _prx_sink->WriteVInt(static_cast<int32_t>(comp.size()));
+        _prx_sink->WriteBytes(comp.data(), comp.size());
         return;
     }
     // Raw fallback: mode byte then the VInt position-deltas. The reader knows
     // the position count from the per-doc freqs, so no length prefix is needed.
-    _prx_out->WriteByte(kProxRaw);
+    _prx_sink->WriteByte(kProxRaw);
     if (n > 0) {
-        _prx_out->WriteBytes(_prox_raw.data(), n);
+        _prx_sink->WriteBytes(_prox_raw.data(), n);
     }
 }
 

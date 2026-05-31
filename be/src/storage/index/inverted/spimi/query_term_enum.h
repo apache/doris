@@ -102,6 +102,9 @@ private:
     size_t _pos;
     size_t _data_start = 0; // byte offset past .tis header
     bool _exhausted = false;
+    // True when the .tis was written in kFormatInline (-5): the doc_freq slot
+    // carries the inlined bit and small terms carry inline .frq/.prx spans.
+    bool _inline_format = false;
 
     int32_t _current_field = -1;
     std::wstring _current_term_text;

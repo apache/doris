@@ -147,6 +147,14 @@ public:
         return out;
     }
     size_t pos() const { return _pos; }
+    // Advances the cursor by `n` bytes. Hard-fails on overrun (the caller
+    // bounds-checks `n` first, but this is defence-in-depth).
+    void Skip(size_t n) {
+        if (n > _len - std::min(_pos, _len)) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .tis/.tii skip past end of buffer");
+        }
+        _pos += n;
+    }
 
 private:
     const uint8_t* _data;
@@ -163,7 +171,15 @@ struct EntryState {
     TermInfo info {}; // accumulates absolute freq_pointer / prox_pointer
 };
 
-void DecodeEntry(ByteCursor& cur, int32_t skip_interval, EntryState& state) {
+// Decodes one entry. When `inline_format` is true the doc_freq slot carries
+// the inlined bit in its LSB; an inlined entry omits the pointer deltas /
+// skip_offset and instead carries VInt(frq_len) frq_bytes VInt(prx_len)
+// prx_bytes. `buf_base` is the start of the underlying buffer so inline spans
+// can be recorded as borrowed pointers into it (valid for the buffer's
+// lifetime). For .tii entries (which never inline) `inline_format` may still
+// be true (the -5 widened-doc_freq encoding) but the inlined bit is always 0.
+void DecodeEntry(ByteCursor& cur, int32_t skip_interval, bool inline_format,
+                 const uint8_t* buf_base, size_t buf_len, EntryState& state) {
     const int32_t prefix = cur.ReadVInt();
     const int32_t suffix = cur.ReadVInt();
     // Validate VInt-decoded lengths against attacker-controllable
@@ -180,12 +196,62 @@ void DecodeEntry(ByteCursor& cur, int32_t skip_interval, EntryState& state) {
         state.term_wide.append(cur.ReadSChars(suffix));
     }
     state.field_number = cur.ReadVInt();
-    state.info.doc_freq = cur.ReadVInt();
-    state.info.freq_pointer += cur.ReadVLong();
-    state.info.prox_pointer += cur.ReadVLong();
+
+    // Reset inline span state every entry (the running EntryState is reused
+    // across the .tii walk and the .tis forward scan).
+    state.info.inlined = false;
+    state.info.inline_frq = nullptr;
+    state.info.inline_frq_len = 0;
+    state.info.inline_prx = nullptr;
+    state.info.inline_prx_len = 0;
+
+    bool inlined = false;
+    if (inline_format) {
+        const int32_t raw = cur.ReadVInt();
+        // raw was written as (doc_freq << 1) | inlined_bit; doc_freq is
+        // non-negative so raw is too. Guard against a crafted negative.
+        if (raw < 0) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .tis: negative inline doc_freq word");
+        }
+        state.info.doc_freq = raw >> 1;
+        inlined = (raw & 1) != 0;
+    } else {
+        state.info.doc_freq = cur.ReadVInt();
+    }
     if (state.info.doc_freq < 0) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .tis: negative doc_freq");
     }
+
+    if (inlined) {
+        // Inline entry: the freq/prox pointer deltas are OMITTED, so the
+        // running freq_pointer/prox_pointer accumulators MUST stay unchanged
+        // (the writer kept them anchored at the previous external term).
+        const int32_t frq_len = cur.ReadVInt();
+        if (frq_len < 0 || static_cast<size_t>(frq_len) > buf_len - std::min(cur.pos(), buf_len))
+                [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .tis: inline frq_len out of bounds");
+        }
+        const size_t frq_off = cur.pos();
+        cur.Skip(static_cast<size_t>(frq_len));
+        const int32_t prx_len = cur.ReadVInt();
+        if (prx_len < 0 || static_cast<size_t>(prx_len) > buf_len - std::min(cur.pos(), buf_len))
+                [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .tis: inline prx_len out of bounds");
+        }
+        const size_t prx_off = cur.pos();
+        cur.Skip(static_cast<size_t>(prx_len));
+
+        state.info.inlined = true;
+        state.info.inline_frq = (frq_len > 0) ? buf_base + frq_off : nullptr;
+        state.info.inline_frq_len = static_cast<uint32_t>(frq_len);
+        state.info.inline_prx = (prx_len > 0) ? buf_base + prx_off : nullptr;
+        state.info.inline_prx_len = static_cast<uint32_t>(prx_len);
+        state.info.skip_offset = 0;
+        return;
+    }
+
+    state.info.freq_pointer += cur.ReadVLong();
+    state.info.prox_pointer += cur.ReadVLong();
     if (state.info.doc_freq >= skip_interval) {
         state.info.skip_offset = cur.ReadVInt();
     } else {
@@ -210,16 +276,17 @@ int CompareEntry(int32_t a_field, const std::wstring& a_term, int32_t b_field,
 } // namespace
 
 size_t TermDictReader::DecodeHeader(const std::vector<uint8_t>& bytes, int32_t* index_interval,
-                                    int32_t* skip_interval) {
+                                    int32_t* skip_interval, int32_t* format) {
     // Header must fit; untrusted-byte hard-fail.
     if (bytes.size() < 24U) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .tis/.tii header too short");
     }
     ByteCursor cur(bytes.data(), bytes.size());
-    const int32_t format = cur.ReadInt32BE();
-    if (format != TermDictWriter::kFormat) [[unlikely]] {
+    const int32_t fmt = cur.ReadInt32BE();
+    if (fmt != TermDictWriter::kFormat && fmt != TermDictWriter::kFormatInline) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .tis/.tii FORMAT mismatch");
     }
+    *format = fmt;
     [[maybe_unused]] const int64_t legacy_size = cur.ReadInt64BE(); // always -1
     *index_interval = cur.ReadInt32BE();
     *skip_interval = cur.ReadInt32BE();
@@ -232,11 +299,18 @@ TermDictReader::TermDictReader(const std::vector<uint8_t>& tis_bytes,
         : _tis_bytes(tis_bytes) {
     int32_t tii_index_interval = 0;
     int32_t tii_skip_interval = 0;
-    const size_t tii_data_start = DecodeHeader(tii_bytes, &tii_index_interval, &tii_skip_interval);
-    _tis_data_start = DecodeHeader(_tis_bytes, &_index_interval, &_skip_interval);
+    int32_t tii_format = 0;
+    int32_t tis_format = 0;
+    const size_t tii_data_start =
+            DecodeHeader(tii_bytes, &tii_index_interval, &tii_skip_interval, &tii_format);
+    _tis_data_start = DecodeHeader(_tis_bytes, &_index_interval, &_skip_interval, &tis_format);
     if (tii_index_interval != _index_interval || tii_skip_interval != _skip_interval) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .tii / .tis index/skip interval mismatch");
     }
+    if (tii_format != tis_format) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .tii / .tis FORMAT mismatch");
+    }
+    _inline_format = (tis_format == TermDictWriter::kFormatInline);
 
     // `LookupTerm` computes `_tis_bytes.size() - 8U` to find the .tis
     // footer offset. Without bounding `_tis_bytes.size()` against the
@@ -275,7 +349,10 @@ TermDictReader::TermDictReader(const std::vector<uint8_t>& tis_bytes,
     const size_t tii_end = tii_bytes.size() - 16U;
     ByteCursor cur(tii_bytes.data(), tii_bytes.size(), tii_data_start);
     while (cur.pos() < tii_end) {
-        DecodeEntry(cur, _skip_interval, state);
+        // .tii entries are never inlined (the sparse index always anchors with
+        // pointer-form info), so even on a -5 segment the inlined bit is 0; we
+        // still pass _inline_format so the widened doc_freq slot is decoded.
+        DecodeEntry(cur, _skip_interval, _inline_format, tii_bytes.data(), tii_bytes.size(), state);
         running_tis_pointer += cur.ReadVLong();
         TiiEntry e;
         e.field_number = state.field_number;
@@ -354,13 +431,13 @@ std::optional<TermInfo> TermDictReader::LookupTerm(int32_t field_number,
     state.term_wide = anchor.term_wide;
     state.info = anchor.info;
 
-    ByteCursor cur(_tis_bytes.data(), _tis_bytes.size() - 8U,
-                   static_cast<size_t>(anchor.tis_pointer));
+    const size_t tis_data_len = _tis_bytes.size() - 8U;
+    ByteCursor cur(_tis_bytes.data(), tis_data_len, static_cast<size_t>(anchor.tis_pointer));
     for (int32_t i = 0; i < _index_interval; ++i) {
-        if (cur.pos() >= _tis_bytes.size() - 8U) {
+        if (cur.pos() >= tis_data_len) {
             return std::nullopt;
         }
-        DecodeEntry(cur, _skip_interval, state);
+        DecodeEntry(cur, _skip_interval, _inline_format, _tis_bytes.data(), tis_data_len, state);
         const int cmp =
                 CompareEntry(state.field_number, state.term_wide, field_number, target_term);
         if (cmp == 0) {

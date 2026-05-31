@@ -27,6 +27,7 @@
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
 #include "storage/index/inverted/spimi/posting_decoder.h"
 #include "storage/index/inverted/spimi/segment_infos_writer.h"
+#include "storage/index/inverted/spimi/segment_writer.h"
 #include "storage/index/inverted/spimi/term_dict_writer.h"
 #include "storage/index/inverted/spimi/term_enum.h"
 
@@ -188,11 +189,19 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
         }
     }
 
+    // V4 windowed segments inline small terms' full posting bytes into the
+    // .tis (zero extra GET on read). Gate on the same version the final output
+    // is tagged with; legacy (<V4) merges keep the external-pointer format.
+    const bool use_windowed = index_version >= FieldInfosWriter::kIndexVersionV4;
+    const bool inline_small_terms = use_windowed;
+    const uint32_t inline_threshold = SegmentWriter::kInlineMaxBytes;
+
     // Open the output writers.
     TermDictWriter dict(sink.tis, sink.tii, TermDictWriter::kDefaultIndexInterval,
-                        TermDictWriter::kDefaultSkipInterval);
+                        TermDictWriter::kDefaultSkipInterval, inline_small_terms);
     FreqProxEncoder encoder(sink.frq, sink.prx, TermDictWriter::kDefaultSkipInterval,
-                            TermDictWriter::kMaxSkipLevels, omit_term_freq_and_positions);
+                            TermDictWriter::kMaxSkipLevels, omit_term_freq_and_positions,
+                            use_windowed, /*inline_capable=*/inline_small_terms);
 
     int64_t term_count = 0;
 
@@ -213,23 +222,41 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
             const auto& input = inputs[idx];
             const auto& entry = enums[idx]->Current();
 
-            // Compute the .frq byte range for this term.
-            // Use the next entry's freq_pointer or frq_bytes.size().
-            const int64_t frq_start = entry.info.freq_pointer;
-            // We don't easily know the end without peeking ahead.
-            // Use the full remaining buffer — PostingDecoder stops
-            // after doc_freq docs anyway.
-            const size_t frq_len =
-                    static_cast<size_t>(input.frq_bytes.size()) - static_cast<size_t>(frq_start);
+            const uint8_t* frq_ptr = nullptr;
+            size_t frq_len = 0;
+            const uint8_t* prx_ptr = nullptr;
+            size_t prx_len = 0;
+            if (entry.info.inlined) {
+                // Inline input term: the posting bytes live in the .tis entry
+                // (TermEnum recorded spans into the input's .tis buffer).
+                // Decode them directly — no .frq/.prx offset arithmetic. This
+                // path is exercised only if a spill segment is written inlined;
+                // spills are currently non-inlined, so this is defensive.
+                frq_ptr = entry.info.inline_frq;
+                frq_len = entry.info.inline_frq_len;
+                prx_ptr = entry.info.inline_prx;
+                prx_len = entry.info.inline_prx_len;
+            } else {
+                // Compute the .frq byte range for this term.
+                // Use the next entry's freq_pointer or frq_bytes.size().
+                const int64_t frq_start = entry.info.freq_pointer;
+                // We don't easily know the end without peeking ahead.
+                // Use the full remaining buffer — PostingDecoder stops
+                // after doc_freq docs anyway.
+                frq_ptr = input.frq_bytes.data() + frq_start;
+                frq_len = static_cast<size_t>(input.frq_bytes.size()) -
+                          static_cast<size_t>(frq_start);
 
-            // Compute the .prx byte range.
-            const int64_t prx_start = entry.info.prox_pointer;
-            const int64_t prx_end = static_cast<int64_t>(input.prx_bytes.size());
-            auto [prx_ptr, prx_len] = PrxRange(input.prx_bytes, prx_start, prx_end);
+                // Compute the .prx byte range.
+                const int64_t prx_start = entry.info.prox_pointer;
+                const int64_t prx_end = static_cast<int64_t>(input.prx_bytes.size());
+                auto range = PrxRange(input.prx_bytes, prx_start, prx_end);
+                prx_ptr = range.first;
+                prx_len = range.second;
+            }
 
-            auto docs = PostingDecoder::Decode(input.frq_bytes.data() + frq_start, frq_len, prx_ptr,
-                                               prx_len, entry.info.doc_freq,
-                                               !omit_term_freq_and_positions);
+            auto docs = PostingDecoder::Decode(frq_ptr, frq_len, prx_ptr, prx_len,
+                                               entry.info.doc_freq, !omit_term_freq_and_positions);
 
             // Apply doc_id offset and append.
             for (auto& d : docs) {
@@ -284,8 +311,33 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
             }
             encoder.FinishDoc();
         }
-        const TermInfo info = encoder.FinishTerm();
-        dict.Add(cur_field, cur_term, info);
+        if (inline_small_terms) {
+            // Stage the merged term's block; inline it if small, else flush
+            // externally — mirroring SegmentWriter::FinishAndAddTerm.
+            const FreqProxEncoder::FinishedTerm ft = encoder.FinishTermStaged();
+            const size_t frq_n = ft.frq != nullptr ? ft.frq->size() : 0;
+            const size_t prx_n = ft.prx != nullptr ? ft.prx->size() : 0;
+            const size_t total = frq_n + prx_n;
+            const bool can_inline = total <= static_cast<size_t>(inline_threshold) &&
+                                    frq_n <= TermDictWriter::kInlineHardCapBytes &&
+                                    prx_n <= TermDictWriter::kInlineHardCapBytes;
+            if (can_inline) {
+                dict.AddInline(cur_field, cur_term, ft.info, frq_n > 0 ? ft.frq->data() : nullptr,
+                               static_cast<uint32_t>(frq_n), prx_n > 0 ? ft.prx->data() : nullptr,
+                               static_cast<uint32_t>(prx_n));
+            } else {
+                if (frq_n > 0) {
+                    sink.frq->WriteBytes(ft.frq->data(), frq_n);
+                }
+                if (prx_n > 0) {
+                    sink.prx->WriteBytes(ft.prx->data(), prx_n);
+                }
+                dict.Add(cur_field, cur_term, ft.info);
+            }
+        } else {
+            const TermInfo info = encoder.FinishTerm();
+            dict.Add(cur_field, cur_term, info);
+        }
         ++term_count;
     }
 

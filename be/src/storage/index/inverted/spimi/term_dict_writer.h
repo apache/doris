@@ -37,6 +37,21 @@ struct TermInfo {
     int64_t freq_pointer = 0;
     int64_t prox_pointer = 0;
     int32_t skip_offset = 0;
+
+    // --- Inline-small-terms (kFormatInline = -5 segments only) ---
+    // When `inlined` is true, the term's FULL .frq / .prx posting block bytes
+    // were stored directly in the .tis entry instead of as external pointers.
+    // The reader decodes the postings from these spans through a transient
+    // resident MemPostingStore, issuing ZERO extra .frq/.prx GET. The spans
+    // borrow into the reader's resident `.tis` buffer (valid for the reader's
+    // lifetime; never persisted past it). For an external term these stay at
+    // their defaults (inlined=false, pointers null/zero) and freq_pointer /
+    // prox_pointer carry the external offsets exactly as before.
+    bool inlined = false;
+    const uint8_t* inline_frq = nullptr;
+    uint32_t inline_frq_len = 0;
+    const uint8_t* inline_prx = nullptr;
+    uint32_t inline_prx_len = 0;
 };
 
 // Reimplements CLucene's `STermInfosWriter<char>` against Doris-owned outputs.
@@ -76,6 +91,17 @@ struct TermInfo {
 class TermDictWriter {
 public:
     static constexpr int32_t kFormat = -4;
+    // Inline-small-terms format. A writer constructed with inline_enabled emits
+    // this FORMAT in the .tis/.tii header so the reader dispatches the
+    // widened-doc_freq + inline-span decode. Structurally back-compatible:
+    // a -5 entry with inlined_bit==0 decodes to the same TermInfo a -4 entry
+    // would, only the doc_freq slot is shifted left by one.
+    static constexpr int32_t kFormatInline = -5;
+    // Absolute hard guard on an inlined block length (independent of the
+    // configurable byte budget). Rejects an inline if frq_len or prx_len would
+    // exceed this even under a misconfigured threshold, keeping VInt(len)
+    // fields and reader bounds sane.
+    static constexpr uint32_t kInlineHardCapBytes = 64U * 1024U;
     static constexpr int32_t kDefaultIndexInterval = 128;
     // CLucene's TermInfosWriter sets skipInterval to PFOR_BLOCK_SIZE = 512
     // unconditionally in the .tii / .tis header, so we match that default
@@ -90,7 +116,10 @@ public:
     // and for flushing/closing the underlying files after Close() returns.
     TermDictWriter(ByteOutput* tis_out, ByteOutput* tii_out,
                    int32_t index_interval = kDefaultIndexInterval,
-                   int32_t skip_interval = kDefaultSkipInterval);
+                   int32_t skip_interval = kDefaultSkipInterval,
+                   // When true, the writer emits kFormatInline (-5) and accepts
+                   // the Add() overload that inlines a term's .frq/.prx bytes.
+                   bool inline_enabled = false);
 
     TermDictWriter(const TermDictWriter&) = delete;
     TermDictWriter& operator=(const TermDictWriter&) = delete;
@@ -99,6 +128,17 @@ public:
     // (field_number, term_utf8) — the writer asserts ordering against the
     // previous term and the previous freq/prox pointer monotonicity.
     void Add(int32_t field_number, std::string_view term_utf8, const TermInfo& info);
+
+    // Inline overload: appends a term whose FULL .frq/.prx posting block bytes
+    // are stored directly in the .tis entry (no external pointer). `frq_bytes`
+    // and `prx_bytes` are the EXACT term blocks the FreqProxEncoder would have
+    // written to the .frq/.prx files; `prx_bytes` is empty for omit_tfap
+    // fields. Only valid on an inline_enabled writer. Inline terms contribute
+    // NO freq/prox pointer delta — the running last-pointer state is left
+    // unchanged so subsequent external terms' deltas stay consistent.
+    void AddInline(int32_t field_number, std::string_view term_utf8, const TermInfo& info,
+                   const uint8_t* frq_bytes, uint32_t frq_len, const uint8_t* prx_bytes,
+                   uint32_t prx_len);
 
     // Writes the footers for .tii and .tis. After Close() the underlying
     // outputs may be flushed or rewound for inspection; no further Add() is
@@ -113,11 +153,23 @@ private:
 
     void WriteHeader(ByteOutput* out) const;
 
+    // Optional inline payload for a .tis entry. When present, WriteEntry emits
+    // the term's posting bytes in place of the freq/prox pointer deltas (and
+    // leaves the running pointer state unchanged). Always absent for .tii
+    // entries (the sparse index never inlines).
+    struct InlinePayload {
+        const uint8_t* frq = nullptr;
+        uint32_t frq_len = 0;
+        const uint8_t* prx = nullptr;
+        uint32_t prx_len = 0;
+    };
+
     // Writes a single entry to `out`. Updates `_last_<stream>_*` state in
     // place. For .tis entries, also adds an index entry to .tii when the
-    // running .tis size is a multiple of indexInterval.
+    // running .tis size is a multiple of indexInterval. `inline_payload` is
+    // non-null only for inlined .tis entries (writer must be inline_enabled).
     void WriteEntry(Stream stream, int32_t field_number, const std::wstring& term_wide,
-                    const TermInfo& info);
+                    const TermInfo& info, const InlinePayload* inline_payload = nullptr);
 
     // Writes the front-coded term portion (prefix_vint, suffix_vint,
     // suffix_schars, field_vint).
@@ -128,6 +180,7 @@ private:
     ByteOutput* _tii_out;
     int32_t _index_interval;
     int32_t _skip_interval;
+    bool _inline_enabled;
 
     int64_t _tis_size = 0;
     int64_t _tii_size = 0;
