@@ -335,6 +335,26 @@ def convert_arrow_value_to_python(value, arrow_type):
     return value
 
 
+def needs_nested_python_normalization(arrow_type):
+    """
+    Return True when Arrow default Python conversion can leak nested MAP values as
+    list-of-tuples and therefore needs recursive normalization.
+    """
+    if pa.types.is_map(arrow_type):
+        return True
+
+    if pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
+        return needs_nested_python_normalization(arrow_type.value_type)
+
+    if pa.types.is_struct(arrow_type):
+        return any(
+            needs_nested_python_normalization(arrow_type[i].type)
+            for i in range(len(arrow_type))
+        )
+
+    return False
+
+
 def convert_python_to_arrow_value(value, output_type=None):
     """
     Convert Python value back to Arrow-compatible value.
@@ -594,12 +614,18 @@ class AdaptivePythonUDF:
         Convert a pa.Array to an instance of the specified VectorType.
         """
         if vec_type == VectorType.LIST:
+            values = arrow_array.to_pylist()
+            if not needs_nested_python_normalization(arrow_array.type):
+                return values
             return [
                 convert_arrow_value_to_python(value, arrow_array.type)
-                for value in arrow_array.to_pylist()
+                for value in values
             ]
         elif vec_type == VectorType.PANDAS_SERIES:
-            return arrow_array.to_pandas().apply(
+            series = arrow_array.to_pandas()
+            if not needs_nested_python_normalization(arrow_array.type):
+                return series
+            return series.apply(
                 lambda value: convert_arrow_value_to_python(value, arrow_array.type)
             )
         else:
