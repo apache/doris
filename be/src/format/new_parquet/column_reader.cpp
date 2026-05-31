@@ -45,48 +45,12 @@
 #include "format/new_parquet/arrow_leaf_reader_adapter.h"
 #include "format/new_parquet/nested_level_assembler.h"
 #include "format/new_parquet/parquet_column_schema.h"
+#include "format/new_parquet/scalar_column_reader.h"
 #include "format/new_parquet/shape_only_column_reader.h"
 #include "format/reader/file_reader.h"
 
 namespace doris::parquet {
 namespace {
-
-class ScalarColumnReader final : public ParquetColumnReader {
-public:
-    ScalarColumnReader(int parquet_leaf_column_id, const ::parquet::ColumnDescriptor* descriptor,
-                       ParquetTypeDescriptor type_descriptor, DataTypePtr type, std::string name,
-                       std::shared_ptr<::parquet::internal::RecordReader> record_reader)
-            : _file_column_id(parquet_leaf_column_id),
-              _parquet_leaf_column_id(parquet_leaf_column_id),
-              _descriptor(descriptor),
-              _type_descriptor(std::move(type_descriptor)),
-              _type(std::move(type)),
-              _name(std::move(name)),
-              _record_reader(std::move(record_reader)) {}
-
-    int file_column_id() const override { return _file_column_id; }
-    int parquet_leaf_column_id() const override { return _parquet_leaf_column_id; }
-    const DataTypePtr& type() const override { return _type; }
-    const std::string& name() const override { return _name; }
-
-    Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
-    Status skip(int64_t rows) override;
-
-    const ::parquet::ColumnDescriptor* descriptor() const { return _descriptor; }
-    ArrowLeafReaderContext leaf_context() const {
-        return ArrowLeafReaderContext {_descriptor, &_type_descriptor, &_type, &_name,
-                                       _record_reader};
-    }
-
-private:
-    int _file_column_id = -1;
-    int _parquet_leaf_column_id = -1;
-    const ::parquet::ColumnDescriptor* _descriptor = nullptr;
-    ParquetTypeDescriptor _type_descriptor;
-    DataTypePtr _type;
-    std::string _name;
-    std::shared_ptr<::parquet::internal::RecordReader> _record_reader;
-};
 
 class StructColumnReader final : public ParquetColumnReader {
 public:
@@ -581,62 +545,6 @@ Status assemble_repeated_struct_levels(StructColumnReader& driver_reader, int16_
 }
 
 } // namespace
-
-Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
-    if (column.get() == nullptr || rows_read == nullptr) {
-        return Status::InvalidArgument("Invalid parquet column read result pointer for column {}",
-                                       _name);
-    }
-    if (_record_reader == nullptr) {
-        return Status::InternalError("Parquet record reader is not initialized for column {}",
-                                     _name);
-    }
-    ::parquet::internal::RecordReader* record_reader = nullptr;
-    const auto context = leaf_context();
-    RETURN_IF_ERROR(read_leaf_records(context, rows, &record_reader, rows_read));
-    if (record_reader->values_written() != *rows_read) {
-        return Status::Corruption(
-                "Invalid parquet record read result for column {}: values={}, records={}", _name,
-                record_reader->values_written(), *rows_read);
-    }
-
-    NullMap null_map;
-    RETURN_IF_ERROR(build_leaf_null_map(context, *record_reader, *rows_read, &null_map));
-
-    RETURN_IF_ERROR(append_leaf_values(context, *record_reader, *rows_read, &null_map, column));
-    return Status::OK();
-}
-
-Status ScalarColumnReader::skip(int64_t rows) {
-    if (rows <= 0) {
-        return Status::OK();
-    }
-
-    if (_record_reader == nullptr) {
-        return Status::InternalError("Parquet record reader is not initialized for column {}",
-                                     _name);
-    }
-    int64_t skipped_rows = 0;
-    try {
-        _record_reader->Reset();
-        while (skipped_rows < rows) {
-            const int64_t skipped = _record_reader->SkipRecords(rows - skipped_rows);
-            if (skipped <= 0) {
-                return Status::Corruption(
-                        "Failed to skip parquet records for column {}: skipped {} of {} rows",
-                        _name, skipped_rows, rows);
-            }
-            skipped_rows += skipped;
-        }
-    } catch (const ::parquet::ParquetException& e) {
-        return Status::Corruption("Failed to skip parquet records for column {}: {}", _name,
-                                  e.what());
-    } catch (const std::exception& e) {
-        return Status::InternalError("Failed to skip parquet records for column {}: {}", _name,
-                                     e.what());
-    }
-    return Status::OK();
-}
 
 Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
     if (column.get() == nullptr || rows_read == nullptr) {
