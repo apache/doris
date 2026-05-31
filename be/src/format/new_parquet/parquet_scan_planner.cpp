@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "core/assert_cast.h"
+#include "format/new_parquet/parquet_page_index.h"
 #include "format/new_parquet/parquet_statistics.h"
 
 namespace doris::parquet {
@@ -110,7 +111,12 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
         row_group_plan.row_group_id = row_group_idx;
         row_group_plan.first_file_row = row_group_first_rows[row_group_idx];
         row_group_plan.row_group_rows = row_group_rows;
-        row_group_plan.selected_ranges.push_back(RowRange {0, row_group_rows});
+        RETURN_IF_ERROR(select_row_group_ranges_by_page_index(file_reader, file_schema, request,
+                                                              row_group_idx, row_group_rows,
+                                                              &row_group_plan.selected_ranges));
+        if (row_group_plan.selected_ranges.empty()) {
+            continue;
+        }
         plan->row_groups.push_back(std::move(row_group_plan));
     }
     return Status::OK();

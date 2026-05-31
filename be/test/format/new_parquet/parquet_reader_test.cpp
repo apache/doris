@@ -22,9 +22,11 @@
 #include <gtest/gtest.h>
 #include <parquet/api/reader.h>
 #include <parquet/arrow/writer.h>
+#include <parquet/page_index.h>
 
 #include <filesystem>
 #include <memory>
+#include <numeric>
 #include <string>
 #include <utility>
 #include <vector>
@@ -41,6 +43,8 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/new_parquet/column_reader.h"
+#include "format/new_parquet/parquet_column_schema.h"
+#include "format/new_parquet/parquet_scan_planner.h"
 #include "format/reader/column_mapper.h"
 #include "format/reader/expr/delete_predicate.h"
 #include "format/reader/expr/slot_ref.h"
@@ -287,6 +291,29 @@ void write_dictionary_edge_parquet_file(const std::string& file_path) {
     builder.disable_statistics();
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 2,
                                                       builder.build()));
+}
+
+void write_page_index_filter_parquet_file(const std::string& file_path) {
+    std::vector<int32_t> ids(128);
+    std::iota(ids.begin(), ids.end(), 0);
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false),
+    });
+    auto table = arrow::Table::Make(schema, {build_int32_array(ids)});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    builder.disable_dictionary();
+    builder.enable_write_page_index();
+    builder.data_pagesize(10);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      ids.size(), builder.build()));
 }
 
 Block build_file_block(const std::vector<reader::SchemaField>& schema) {
@@ -933,6 +960,44 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
 
     EXPECT_EQ(ids, std::vector<int32_t>({3}));
     EXPECT_EQ(values, std::vector<std::string>({"lm"}));
+}
+
+TEST_F(NewParquetReaderTest, PlannerNarrowsRowRangesByPageIndex) {
+    write_page_index_filter_parquet_file(_file_path);
+    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 1);
+    auto page_index_reader = parquet_file_reader->GetPageIndexReader();
+    ASSERT_NE(page_index_reader, nullptr);
+    auto row_group_index_reader = page_index_reader->RowGroup(0);
+    ASSERT_NE(row_group_index_reader, nullptr);
+    auto offset_index = row_group_index_reader->GetOffsetIndex(0);
+    ASSERT_NE(offset_index, nullptr);
+    ASSERT_GT(offset_index->page_locations().size(), 1);
+
+    std::vector<std::unique_ptr<parquet::ParquetColumnSchema>> file_schema;
+    auto schema_descriptor = parquet_file_reader->metadata()->schema();
+    ASSERT_NE(schema_descriptor, nullptr);
+    ASSERT_TRUE(parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
+    ASSERT_EQ(file_schema.size(), 1);
+
+    reader::FileScanRequest request;
+    reader::FileColumnPredicateFilter column_filter;
+    column_filter.file_column_id = 0;
+    auto id_type = std::make_shared<DataTypeInt32>();
+    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
+            0, "id", id_type, Field::create_field<TYPE_INT>(63), false));
+    request.column_predicate_filters.push_back(std::move(column_filter));
+
+    parquet::RowGroupScanPlan plan;
+    parquet::ParquetScanRange scan_range;
+    ASSERT_TRUE(parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
+                                                 parquet_file_reader.get(), file_schema, request,
+                                                 scan_range, &plan)
+                        .ok());
+    ASSERT_EQ(plan.row_groups.size(), 1);
+    ASSERT_FALSE(plan.row_groups[0].selected_ranges.empty());
+    EXPECT_GT(plan.row_groups[0].selected_ranges.front().start, 0);
+    EXPECT_LT(plan.row_groups[0].selected_ranges.front().length, 128);
 }
 
 TEST_F(NewParquetReaderTest, InPredicateFiltersRowGroupsByDictionary) {
