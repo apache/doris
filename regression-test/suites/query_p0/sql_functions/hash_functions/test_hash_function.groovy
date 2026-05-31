@@ -155,12 +155,12 @@ suite("test_hash_function", "arrow_flight_sql") {
 
     test {
         sql "SELECT MURMUR_HASH3_128();"
-        exception "hash3_128"
+        exception "0 arity"
     }
 
     test {
         sql "SELECT MURMUR_HASH3_U128();"
-        exception "hash3_u128"
+        exception "0 arity"
     }
 
     qt_sql "SELECT xxhash_32(null);"
