@@ -292,6 +292,21 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
     RETURN_IF_ERROR(plan_parquet_row_groups(
             *_state->file_context.metadata, _state->file_context.file_reader.get(),
             _state->file_schema, *_request, scan_range, &row_group_plan));
+    if (_profile != nullptr) {
+        const auto& pruning_stats = row_group_plan.pruning_stats;
+        COUNTER_UPDATE(_parquet_profile.filtered_row_groups,
+                       pruning_stats.total_row_groups - pruning_stats.selected_row_groups);
+        COUNTER_UPDATE(_parquet_profile.filtered_row_groups_by_min_max,
+                       pruning_stats.filtered_row_groups_by_statistics);
+        COUNTER_UPDATE(_parquet_profile.filtered_row_groups_by_dictionary,
+                       pruning_stats.filtered_row_groups_by_dictionary);
+        COUNTER_UPDATE(_parquet_profile.to_read_row_groups, pruning_stats.selected_row_groups);
+        COUNTER_UPDATE(_parquet_profile.total_row_groups, pruning_stats.total_row_groups);
+        COUNTER_UPDATE(_parquet_profile.selected_row_ranges, pruning_stats.selected_row_ranges);
+        COUNTER_UPDATE(_parquet_profile.filtered_group_rows, pruning_stats.filtered_group_rows);
+        COUNTER_UPDATE(_parquet_profile.filtered_page_rows, pruning_stats.filtered_page_rows);
+        COUNTER_UPDATE(_parquet_profile.page_index_read_calls, pruning_stats.page_index_read_calls);
+    }
     _state->scheduler.set_plan(std::move(row_group_plan));
     _eof = _state->scheduler.empty();
     return Status::OK();
@@ -401,12 +416,16 @@ void ParquetReader::_init_profile() {
                 _profile, "RowGroupsFiltered", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_row_groups_by_min_max = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "RowGroupsFilteredByMinMax", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.filtered_row_groups_by_dictionary = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "RowGroupsFilteredByDictionary", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_row_groups_by_bloom_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "RowGroupsFilteredByBloomFilter", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.to_read_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "RowGroupsReadNum", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.total_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "RowGroupsTotalNum", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.selected_row_ranges = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "SelectedRowRanges", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_group_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "FilteredRowsByGroup", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_page_rows = ADD_CHILD_COUNTER_WITH_LEVEL(

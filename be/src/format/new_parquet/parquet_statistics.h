@@ -22,6 +22,7 @@
 
 #include "common/status.h"
 #include "core/field.h"
+#include "format/new_parquet/parquet_pruning.h"
 #include "format/reader/file_reader.h"
 
 namespace parquet {
@@ -66,6 +67,11 @@ struct ParquetStatisticsUtils {
     static bool CheckStatistics(const reader::FileColumnPredicateFilter& column_filter,
                                 const ParquetColumnStatistics& statistics);
 
+    static ParquetRowGroupPruneReason RowGroupPruneReason(
+            const ::parquet::RowGroupMetaData& row_group, ::parquet::ParquetFileReader* file_reader,
+            int row_group_idx, const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
+            const reader::FileColumnPredicateFilter& column_filter);
+
     static bool RowGroupExcludes(const ::parquet::RowGroupMetaData& row_group,
                                  ::parquet::ParquetFileReader* file_reader, int row_group_idx,
                                  const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
@@ -74,7 +80,8 @@ struct ParquetStatisticsUtils {
     static Status SelectRowGroups(
             const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
             const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-            const reader::FileScanRequest& request, std::vector<int>* selected_row_groups);
+            const reader::FileScanRequest& request, std::vector<int>* selected_row_groups,
+            ParquetPruningStats* pruning_stats);
 
     static bool BloomFilterSupported(const ParquetColumnSchema& column_schema);
 };
@@ -86,6 +93,7 @@ struct ParquetStatisticsUtils {
 Status select_row_groups_by_statistics(
         const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const reader::FileScanRequest& request, std::vector<int>* selected_row_groups);
+        const reader::FileScanRequest& request, std::vector<int>* selected_row_groups,
+        ParquetPruningStats* pruning_stats);
 
 } // namespace doris::parquet

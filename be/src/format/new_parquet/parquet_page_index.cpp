@@ -30,6 +30,7 @@
 #include "common/config.h"
 #include "core/field.h"
 #include "format/new_parquet/parquet_column_schema.h"
+#include "format/new_parquet/parquet_pruning.h"
 #include "format/new_parquet/parquet_statistics.h"
 
 namespace doris::parquet {
@@ -168,6 +169,14 @@ std::vector<RowRange> intersect_ranges(const std::vector<RowRange>& left,
     return result;
 }
 
+int64_t count_range_rows(const std::vector<RowRange>& ranges) {
+    int64_t rows = 0;
+    for (const auto& range : ranges) {
+        rows += range.length;
+    }
+    return rows;
+}
+
 void append_page_range(const ::parquet::OffsetIndex& offset_index, size_t page_idx,
                        int64_t row_group_rows, std::vector<RowRange>* ranges) {
     const auto& page_locations = offset_index.page_locations();
@@ -243,7 +252,7 @@ Status select_row_group_ranges_by_page_index(
         ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const reader::FileScanRequest& request, int row_group_idx, int64_t row_group_rows,
-        std::vector<RowRange>* selected_ranges) {
+        std::vector<RowRange>* selected_ranges, ParquetPruningStats* pruning_stats) {
     DORIS_CHECK(selected_ranges != nullptr);
     selected_ranges->clear();
     if (row_group_rows <= 0) {
@@ -258,6 +267,9 @@ Status select_row_group_ranges_by_page_index(
     std::shared_ptr<::parquet::PageIndexReader> page_index_reader;
     std::shared_ptr<::parquet::RowGroupPageIndexReader> row_group_index_reader;
     try {
+        if (pruning_stats != nullptr) {
+            ++pruning_stats->page_index_read_calls;
+        }
         page_index_reader = file_reader->GetPageIndexReader();
         if (page_index_reader == nullptr) {
             return Status::OK();
@@ -280,8 +292,17 @@ Status select_row_group_ranges_by_page_index(
         }
         *selected_ranges = intersect_ranges(*selected_ranges, filter_ranges);
         if (selected_ranges->empty()) {
+            if (pruning_stats != nullptr) {
+                pruning_stats->filtered_page_rows += row_group_rows;
+                ++pruning_stats->filtered_row_groups_by_page_index;
+            }
             return Status::OK();
         }
+    }
+    if (pruning_stats != nullptr) {
+        const int64_t selected_rows = count_range_rows(*selected_ranges);
+        DORIS_CHECK(selected_rows <= row_group_rows);
+        pruning_stats->filtered_page_rows += row_group_rows - selected_rows;
     }
     return Status::OK();
 }

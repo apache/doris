@@ -75,10 +75,12 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
                                const ParquetScanRange& scan_range, RowGroupScanPlan* plan) {
     DORIS_CHECK(plan != nullptr);
     plan->row_groups.clear();
+    plan->pruning_stats = ParquetPruningStats {};
 
     std::vector<int> statistics_selected_row_groups;
     RETURN_IF_ERROR(select_row_groups_by_statistics(metadata, file_reader, file_schema, request,
-                                                    &statistics_selected_row_groups));
+                                                    &statistics_selected_row_groups,
+                                                    &plan->pruning_stats));
 
     std::vector<int64_t> row_group_first_rows(metadata.num_row_groups());
     int64_t next_row_group_first_row = 0;
@@ -111,14 +113,16 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
         row_group_plan.row_group_id = row_group_idx;
         row_group_plan.first_file_row = row_group_first_rows[row_group_idx];
         row_group_plan.row_group_rows = row_group_rows;
-        RETURN_IF_ERROR(select_row_group_ranges_by_page_index(file_reader, file_schema, request,
-                                                              row_group_idx, row_group_rows,
-                                                              &row_group_plan.selected_ranges));
+        RETURN_IF_ERROR(select_row_group_ranges_by_page_index(
+                file_reader, file_schema, request, row_group_idx, row_group_rows,
+                &row_group_plan.selected_ranges, &plan->pruning_stats));
         if (row_group_plan.selected_ranges.empty()) {
             continue;
         }
+        plan->pruning_stats.selected_row_ranges += row_group_plan.selected_ranges.size();
         plan->row_groups.push_back(std::move(row_group_plan));
     }
+    plan->pruning_stats.selected_row_groups = plan->row_groups.size();
     return Status::OK();
 }
 

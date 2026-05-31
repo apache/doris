@@ -311,6 +311,7 @@ void write_page_index_filter_parquet_file(const std::string& file_path) {
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     builder.disable_dictionary();
     builder.enable_write_page_index();
+    builder.write_batch_size(8);
     builder.data_pagesize(10);
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
                                                       ids.size(), builder.build()));
@@ -923,6 +924,32 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
                     !value_chunk->statistics()->HasMinMax());
     }
 
+    std::vector<std::unique_ptr<parquet::ParquetColumnSchema>> file_schema;
+    auto schema_descriptor = parquet_file_reader->metadata()->schema();
+    ASSERT_NE(schema_descriptor, nullptr);
+    ASSERT_TRUE(parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
+    ASSERT_EQ(file_schema.size(), 2);
+
+    reader::FileScanRequest plan_request;
+    reader::FileColumnPredicateFilter plan_column_filter;
+    plan_column_filter.file_column_id = 1;
+    auto value_type = std::make_shared<DataTypeString>();
+    plan_column_filter.predicates.push_back(create_comparison_predicate<PredicateType::EQ>(
+            1, "value", value_type, Field::create_field<TYPE_STRING>("lm"), false));
+    plan_request.column_predicate_filters.push_back(std::move(plan_column_filter));
+
+    parquet::RowGroupScanPlan plan;
+    parquet::ParquetScanRange scan_range;
+    ASSERT_TRUE(parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
+                                                 parquet_file_reader.get(), file_schema,
+                                                 plan_request, scan_range, &plan)
+                        .ok());
+    EXPECT_EQ(plan.pruning_stats.total_row_groups, 6);
+    EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
+    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_dictionary, 5);
+    EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 5);
+    EXPECT_EQ(plan.pruning_stats.selected_row_ranges, 1);
+
     auto reader = create_reader();
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
@@ -998,6 +1025,11 @@ TEST_F(NewParquetReaderTest, PlannerNarrowsRowRangesByPageIndex) {
     ASSERT_FALSE(plan.row_groups[0].selected_ranges.empty());
     EXPECT_GT(plan.row_groups[0].selected_ranges.front().start, 0);
     EXPECT_LT(plan.row_groups[0].selected_ranges.front().length, 128);
+    EXPECT_EQ(plan.pruning_stats.total_row_groups, 1);
+    EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
+    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_page_index, 0);
+    EXPECT_GT(plan.pruning_stats.filtered_page_rows, 0);
+    EXPECT_EQ(plan.pruning_stats.selected_row_ranges, plan.row_groups[0].selected_ranges.size());
 }
 
 TEST_F(NewParquetReaderTest, InPredicateFiltersRowGroupsByDictionary) {

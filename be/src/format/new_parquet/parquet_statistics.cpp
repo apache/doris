@@ -361,55 +361,67 @@ bool ParquetStatisticsUtils::CheckStatistics(const reader::FileColumnPredicateFi
     return false;
 }
 
-bool ParquetStatisticsUtils::RowGroupExcludes(
+ParquetRowGroupPruneReason ParquetStatisticsUtils::RowGroupPruneReason(
         const ::parquet::RowGroupMetaData& row_group, ::parquet::ParquetFileReader* file_reader,
         int row_group_idx, const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
         const reader::FileColumnPredicateFilter& column_filter) {
     if (column_filter.predicates.empty()) {
-        return false;
+        return ParquetRowGroupPruneReason::NONE;
     }
     DCHECK_LT(column_filter.file_column_id, schema.size());
     const auto& column_schema = *schema[column_filter.file_column_id];
     if (column_schema.kind != ParquetColumnSchemaKind::PRIMITIVE ||
         column_schema.leaf_column_id < 0) {
-        return false;
+        return ParquetRowGroupPruneReason::NONE;
     }
     DCHECK_LT(column_schema.leaf_column_id, row_group.num_columns());
     auto column_chunk = row_group.ColumnChunk(column_schema.leaf_column_id);
     if (column_chunk == nullptr) {
-        return false;
+        return ParquetRowGroupPruneReason::NONE;
     }
     if (CheckStatistics(column_filter,
                         TransformColumnStatistics(column_schema, column_chunk->statistics()))) {
-        return true;
+        return ParquetRowGroupPruneReason::STATISTICS;
     }
     if (!supports_dictionary_pruning(column_schema, *column_chunk, column_filter) ||
         !is_dictionary_encoded_chunk(*column_chunk)) {
-        return false;
+        return ParquetRowGroupPruneReason::NONE;
     }
     OwnedDictionaryWords dict_words;
     if (!read_dictionary_words(file_reader, row_group_idx, column_schema.leaf_column_id,
                                column_schema, &dict_words)) {
-        return false;
+        return ParquetRowGroupPruneReason::NONE;
     }
     for (const auto& column_predicate : column_filter.predicates) {
         if (!column_predicate->evaluate_and(dict_words.refs.data(), dict_words.refs.size())) {
-            return true;
+            return ParquetRowGroupPruneReason::DICTIONARY;
         }
     }
-    return false;
+    return ParquetRowGroupPruneReason::NONE;
+}
+
+bool ParquetStatisticsUtils::RowGroupExcludes(
+        const ::parquet::RowGroupMetaData& row_group, ::parquet::ParquetFileReader* file_reader,
+        int row_group_idx, const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
+        const reader::FileColumnPredicateFilter& column_filter) {
+    return RowGroupPruneReason(row_group, file_reader, row_group_idx, schema, column_filter) !=
+           ParquetRowGroupPruneReason::NONE;
 }
 
 Status ParquetStatisticsUtils::SelectRowGroups(
         const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const reader::FileScanRequest& request, std::vector<int>* selected_row_groups) {
+        const reader::FileScanRequest& request, std::vector<int>* selected_row_groups,
+        ParquetPruningStats* pruning_stats) {
     if (selected_row_groups == nullptr) {
         return Status::InvalidArgument("selected_row_groups is null");
     }
     selected_row_groups->clear();
 
     const int num_row_groups = metadata.num_row_groups();
+    if (pruning_stats != nullptr) {
+        pruning_stats->total_row_groups = num_row_groups;
+    }
     selected_row_groups->reserve(num_row_groups);
     for (int row_group_idx = 0; row_group_idx < num_row_groups; ++row_group_idx) {
         auto row_group = metadata.RowGroup(row_group_idx);
@@ -419,11 +431,22 @@ Status ParquetStatisticsUtils::SelectRowGroups(
         }
         bool drop = false;
         for (const auto& column_filter : request.column_predicate_filters) {
-            if (RowGroupExcludes(*row_group, file_reader, row_group_idx, file_schema,
-                                 column_filter)) {
-                drop = true;
+            const auto prune_reason = RowGroupPruneReason(*row_group, file_reader, row_group_idx,
+                                                          file_schema, column_filter);
+            if (prune_reason == ParquetRowGroupPruneReason::NONE) {
+                continue;
+            }
+            drop = true;
+            if (pruning_stats != nullptr) {
+                pruning_stats->filtered_group_rows += row_group->num_rows();
+                if (prune_reason == ParquetRowGroupPruneReason::STATISTICS) {
+                    ++pruning_stats->filtered_row_groups_by_statistics;
+                } else if (prune_reason == ParquetRowGroupPruneReason::DICTIONARY) {
+                    ++pruning_stats->filtered_row_groups_by_dictionary;
+                }
                 break;
             }
+            break;
         }
         if (drop) {
             continue;
@@ -450,9 +473,10 @@ bool ParquetStatisticsUtils::BloomFilterSupported(const ParquetColumnSchema& col
 Status select_row_groups_by_statistics(
         const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const reader::FileScanRequest& request, std::vector<int>* selected_row_groups) {
+        const reader::FileScanRequest& request, std::vector<int>* selected_row_groups,
+        ParquetPruningStats* pruning_stats) {
     return ParquetStatisticsUtils::SelectRowGroups(metadata, file_reader, file_schema, request,
-                                                   selected_row_groups);
+                                                   selected_row_groups, pruning_stats);
 }
 
 } // namespace doris::parquet

@@ -17,26 +17,26 @@
 
 #pragma once
 
-#include <memory>
-#include <vector>
-
-#include "common/status.h"
-#include "format/new_parquet/selection_vector.h"
-#include "format/reader/file_reader.h"
-
-namespace parquet {
-class ParquetFileReader;
-} // namespace parquet
+#include <cstdint>
 
 namespace doris::parquet {
 
-struct ParquetColumnSchema;
-struct ParquetPruningStats;
+enum class ParquetRowGroupPruneReason {
+    NONE,
+    STATISTICS,
+    DICTIONARY,
+};
 
-Status select_row_group_ranges_by_page_index(
-        ::parquet::ParquetFileReader* file_reader,
-        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const reader::FileScanRequest& request, int row_group_idx, int64_t row_group_rows,
-        std::vector<RowRange>* selected_ranges, ParquetPruningStats* pruning_stats);
+struct ParquetPruningStats {
+    int64_t total_row_groups = 0;
+    int64_t selected_row_groups = 0;
+    int64_t filtered_row_groups_by_statistics = 0;
+    int64_t filtered_row_groups_by_dictionary = 0;
+    int64_t filtered_row_groups_by_page_index = 0;
+    int64_t filtered_group_rows = 0;
+    int64_t filtered_page_rows = 0;
+    int64_t selected_row_ranges = 0;
+    int64_t page_index_read_calls = 0;
+};
 
 } // namespace doris::parquet

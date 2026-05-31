@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "format/new_parquet/parquet_pruning.h"
 #include "format/new_parquet/selection_vector.h"
 #include "format/reader/file_reader.h"
 
@@ -48,6 +49,7 @@ struct RowGroupReadPlan {
 
 struct RowGroupScanPlan {
     std::vector<RowGroupReadPlan> row_groups;
+    ParquetPruningStats pruning_stats;
 };
 
 Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
