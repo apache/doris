@@ -374,7 +374,10 @@ public class NodeAction extends RestBaseController {
             Pair<String, Integer> hostPort = hostPorts.get(i);
             String address = NetUtils.getHostPortInAccessibleFormat(hostPort.first, hostPort.second);
             configRequestDoneSignal.addMark(address, -1);
-            String url = "http://" + address + questPath;
+            // FE nodes use HTTPS when enabled; BE nodes always use plain HTTP
+            // (BEs do not participate in the FE internal HTTPS scheme)
+            String scheme = (Config.enable_https && "FE".equals(nodeType)) ? "https://" : "http://";
+            String url = scheme + address + questPath;
             httpExecutor.submit(
                     new HttpConfigInfoTask(url, hostPort, authorization, nodeType, confNames, configRequestDoneSignal,
                             configInfoTotal.get(i)));

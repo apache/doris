@@ -17,37 +17,48 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.Config;
+
+import org.junit.After;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
-import javax.net.ssl.SSLContext;
+import java.lang.reflect.Field;
 
 public class InternalHttpsUtilsTest {
 
-    /**
-     * Verifies that getSslContext() returns the same SSLContext instance on every call —
-     * i.e. the double-checked locking cache works correctly and buildSslContext() is not
-     * invoked on subsequent calls.
-     *
-     * SSLContext.getInstance("TLS").init(null, null, null) is valid without a truststore,
-     * so the test does not require a truststore file on disk.
-     */
+    private String originalCertPath;
+
+    @Before
+    public void setUp() throws Exception {
+        originalCertPath = Config.mysql_ssl_default_ca_certificate;
+        // Reset the cached SSLContext before each test so tests are independent.
+        resetCachedSslContext();
+    }
+
+    @After
+    public void tearDown() throws Exception {
+        Config.mysql_ssl_default_ca_certificate = originalCertPath;
+        resetCachedSslContext();
+    }
+
+    private void resetCachedSslContext() throws Exception {
+        Field field = InternalHttpsUtils.class.getDeclaredField("cachedSslContext");
+        field.setAccessible(true);
+        field.set(null, null);
+    }
+
     @Test
-    public void testGetSslContextReturnsCachedInstance() throws Exception {
-        SSLContext previous = InternalHttpsUtils.cachedSslContext;
-
-        SSLContext injected = SSLContext.getInstance("TLS");
-        injected.init(null, null, null);
-        InternalHttpsUtils.cachedSslContext = injected;
-
+    public void testGetSslContextThrowsWhenCertMissing() {
+        Config.mysql_ssl_default_ca_certificate = "/non/existent/path/ca.p12";
         try {
-            SSLContext first = InternalHttpsUtils.getSslContext();
-            SSLContext second = InternalHttpsUtils.getSslContext();
-
-            Assert.assertSame("getSslContext() must return the injected cached instance", injected, first);
-            Assert.assertSame("getSslContext() must return the same instance on every call", first, second);
-        } finally {
-            InternalHttpsUtils.cachedSslContext = previous;
+            InternalHttpsUtils.getSslContext();
+            Assert.fail("Expected RuntimeException when cert file does not exist");
+        } catch (RuntimeException e) {
+            // Error message must mention the cert path so operators know what to fix.
+            Assert.assertTrue("Error message should contain cert path",
+                    e.getMessage() != null && e.getMessage().contains("/non/existent/path/ca.p12"));
         }
     }
 }

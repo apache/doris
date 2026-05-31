@@ -96,7 +96,7 @@ public class HeartbeatMgr extends MasterDaemon {
         TMasterInfo tMasterInfo = new TMasterInfo(
                 new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port), clusterId, epoch);
         tMasterInfo.setToken(token);
-        tMasterInfo.setHttpPort(Config.http_port);
+        tMasterInfo.setHttpPort(Config.enable_https ? Config.https_port : Config.http_port);
         long flags = heartbeatFlags.getHeartbeatFlags();
         tMasterInfo.setHeartbeatFlags(flags);
         if (Config.isCloudMode()) {

@@ -1592,7 +1592,8 @@ public class Env {
             }
 
             LOG.info("get fe node type {}, name {} from {}:{}:{}", role, nodeName,
-                    helperNode.getHost(), helperNode.getHost(), Config.http_port);
+                    helperNode.getHost(), helperNode.getPort(),
+                    Config.enable_https ? Config.https_port : Config.http_port);
             rightHelperNode = helperNode;
             break;
         }
@@ -1821,7 +1822,7 @@ public class Env {
 
             toMasterProgress = "log master info";
             this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getHost(),
-                    Config.http_port,
+                    Config.enable_https ? Config.https_port : Config.http_port,
                     Config.rpc_port);
             editLog.logMasterInfo(masterInfo);
             LOG.info("logMasterInfo:{}", masterInfo);

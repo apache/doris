@@ -106,9 +106,11 @@ public class MinidumpUtils {
     public static void saveMinidumpString(JSONObject minidump, String querId) {
         String dumpPath = MinidumpUtils.DUMP_PATH + File.separator + "_" + querId;
         String feAddress = FrontendsProcNode.getCurrentFrontendVersion(Env.getCurrentEnv()).getHost();
-        int feHttpPort = Config.http_port;
+        int feHttpPort = Config.enable_https ? Config.https_port : Config.http_port;
+        String scheme = Config.enable_https ? "https" : "http";
         MinidumpUtils.DUMP_FILE_FULL_PATH = dumpPath + ".json";
-        MinidumpUtils.HTTP_GET_STRING = "http://" + feAddress + ":" + feHttpPort + "/api/minidump?query_id=" + querId;
+        MinidumpUtils.HTTP_GET_STRING = scheme + "://" + feAddress + ":" + feHttpPort
+                + "/api/minidump?query_id=" + querId;
         String jsonMinidump = minidump.toString(4);
         try (FileWriter file = new FileWriter(MinidumpUtils.DUMP_FILE_FULL_PATH)) {
             file.write(jsonMinidump);

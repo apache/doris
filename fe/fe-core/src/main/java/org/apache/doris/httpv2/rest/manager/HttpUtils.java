@@ -69,7 +69,9 @@ public class HttpUtils {
 
     static boolean isCurrentFe(String ip, int port) {
         HostInfo hostInfo = Env.getCurrentEnv().getSelfNode();
-        return hostInfo.isSame(new HostInfo(ip, port));
+        // Compare against the actual HTTP/HTTPS port, not the edit_log_port held by selfNode.
+        int selfPort = Config.enable_https ? Config.https_port : Config.http_port;
+        return hostInfo.getHost().equals(ip) && selfPort == port;
     }
 
     public static String concatUrl(Pair<String, Integer> ipPort, String path, Map<String, String> arguments) {
