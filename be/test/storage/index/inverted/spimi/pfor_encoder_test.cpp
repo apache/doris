@@ -17,6 +17,7 @@
 
 #include "storage/index/inverted/spimi/pfor_encoder.h"
 
+#include <arrow/util/bit_stream_utils.h>
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -36,6 +37,53 @@ void ExpectRoundTrip(const std::vector<uint32_t>& values) {
     const size_t n = SpimiPforDecoder::DecodeBlockFromBytes(bytes, &back);
     ASSERT_EQ(n, values.size());
     ASSERT_EQ(back, values);
+}
+
+// Reference decoder: a hand-written scalar per-value GetValue loop over
+// the SAME encoded bytes the production batched decoder consumes. This
+// is the pre-optimization decode path. Mirrors the VInt + width-byte
+// parse in DecodeBlockFromBytes, then pulls one value at a time. Used
+// as the differential oracle proving the batched GetBatch decode is
+// byte-identical to the scalar loop for every width 1..32.
+std::vector<uint32_t> ReferenceScalarDecode(const std::vector<uint8_t>& in) {
+    std::vector<uint32_t> out;
+    if (in.empty()) {
+        return out;
+    }
+    size_t pos = 0;
+    // Parse VInt(count) exactly as ByteCursor::ReadVInt does.
+    uint32_t count = 0;
+    uint32_t shift = 0;
+    while (true) {
+        const uint8_t b = in[pos++];
+        count |= static_cast<uint32_t>(b & 0x7FU) << shift;
+        if ((b & 0x80U) == 0) {
+            break;
+        }
+        shift += 7;
+    }
+    const uint8_t width = in[pos++] & 0x3FU;
+    out.resize(count);
+    arrow::bit_util::BitReader br(in.data() + pos, static_cast<int>(in.size() - pos));
+    for (uint32_t i = 0; i < count; ++i) {
+        uint32_t v = 0;
+        const bool ok = br.GetValue(static_cast<int>(width), &v);
+        EXPECT_TRUE(ok) << "reference scalar decode underflow at i=" << i;
+        out[i] = v;
+    }
+    return out;
+}
+
+// Differential proof: the production (batched GetBatch) decode must
+// equal the reference scalar GetValue loop over the identical bytes.
+void ExpectDecodeMatchesScalarReference(const std::vector<uint32_t>& values) {
+    const auto bytes = SpimiPforEncoder::EncodeBlockToBytes(values);
+    std::vector<uint32_t> batched;
+    const size_t n = SpimiPforDecoder::DecodeBlockFromBytes(bytes, &batched);
+    ASSERT_EQ(n, values.size());
+    const auto reference = ReferenceScalarDecode(bytes);
+    ASSERT_EQ(batched, reference) << "batched decode diverged from scalar GetValue loop";
+    ASSERT_EQ(batched, values);
 }
 
 } // namespace
@@ -149,6 +197,30 @@ TEST(SpimiPforEncoderTest, DocDeltaBlockProducesSmallPayload) {
     EXPECT_LE(bytes.size(), 60U) << "small-delta block should compress well";
     EXPECT_GE(bytes.size(), 50U);
     ExpectRoundTrip(values);
+}
+
+// Sweep every bit width 1..32 against a representative set of block
+// counts (including the unpack32 boundaries 32/64/128, off-by-one
+// tails, and tiny blocks). Each block of random width-masked values
+// must (a) round-trip and (b) decode identically to the scalar
+// GetValue reference loop. This is the byte-identity differential
+// proof for the batched-GetBatch optimization across all widths.
+TEST(SpimiPforEncoderTest, BatchedDecodeMatchesScalarAcrossWidthsAndCounts) {
+    const size_t counts[] = {1, 2, 7, 8, 31, 32, 33, 63, 64, 127, 128};
+    std::mt19937 rng(0xD15EA5EU);
+    for (int width = 1; width <= 32; ++width) {
+        const uint32_t mask = (width == 32) ? 0xFFFFFFFFU : ((1U << width) - 1U);
+        for (size_t count : counts) {
+            std::vector<uint32_t> values(count);
+            // Force the block's max value to exactly `width` bits so the
+            // encoder selects this width, then fill the rest randomly.
+            values[0] = mask;
+            for (size_t i = 1; i < count; ++i) {
+                values[i] = rng() & mask;
+            }
+            ExpectDecodeMatchesScalarReference(values);
+        }
+    }
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

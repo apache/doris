@@ -161,13 +161,23 @@ size_t SpimiPforDecoder::DecodeBlockFromBytes(const std::vector<uint8_t>& in,
 
     out->resize(count);
     arrow::bit_util::BitReader br(cur.tail(), static_cast<int>(cur.remaining()));
-    for (size_t i = 0; i < count; ++i) {
-        uint32_t v = 0;
-        const bool ok = br.GetValue(width, &v);
-        if (!ok) [[unlikely]] {
-            SPIMI_THROW_CORRUPT("SPIMI .frq PFOR sub-block: BitReader underflow");
-        }
-        (*out)[i] = v;
+    // Batched unpack: GetValue(num_bits, v) is defined as
+    // GetBatch(num_bits, v, 1), so the per-value loop never reached
+    // Arrow's vectorized internal::unpack32 (AVX2/AVX512/NEON,
+    // runtime-dispatched) fast path. Pulling all `count` values in one
+    // GetBatch call decodes the identical LSB-first little-endian
+    // stream the encoder wrote (same primitive, same buffer, same
+    // start offset, same width) and engages the SIMD kernel for the
+    // 32-aligned interior; the <32-value tail falls back to the same
+    // scalar GetValue_ path. Decode output is byte-identical to the
+    // old loop by construction.
+    const int got = br.GetBatch<uint32_t>(static_cast<int>(width), out->data(),
+                                          static_cast<int>(count));
+    if (got != static_cast<int>(count)) [[unlikely]] {
+        // GetBatch caps batch_size by remaining_bits on truncated /
+        // crafted input and returns the short count, preserving the
+        // old per-value underflow hard-fail semantics.
+        SPIMI_THROW_CORRUPT("SPIMI .frq PFOR sub-block: BitReader underflow");
     }
     return count;
 }
