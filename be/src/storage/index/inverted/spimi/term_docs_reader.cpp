@@ -109,7 +109,9 @@ std::vector<uint32_t> DecodePforRun(ByteStream& cur, int32_t count) {
         if (n <= 0 || n > count - collected) [[unlikely]] {
             SPIMI_THROW_CORRUPT("SPIMI .frq PFOR sub-block count out of range");
         }
-        const uint8_t width = cur.ReadByte() & 0x3FU;
+        const uint8_t raw_width = cur.ReadByte();
+        const bool patched = (raw_width & 0x80U) != 0U; // patched-PFOR signal bit
+        const uint8_t width = raw_width & 0x3FU;
         // Validate width BEFORE the reserve so a crafted width=63 +
         // n=16M can't allocate ~126 MB before rejection. Encoder
         // emits width ∈ [1, 32]; decoder accepts the same range.
@@ -135,8 +137,30 @@ std::vector<uint32_t> DecodePforRun(ByteStream& cur, int32_t count) {
             }
             block.push_back(static_cast<uint8_t>(vn));
         }
-        block.push_back(width);
+        // Preserve the UNMASKED width byte so DecodeBlockFromBytes sees
+        // the patch flag and parses the trailer.
+        block.push_back(raw_width);
         cur.ReadInto(&block, bit_bytes);
+        if (patched) {
+            // Append the patch trailer so the reconstituted sub-block is
+            // complete and the next loop iteration starts at the real next
+            // sub-block header (not mid-trailer). Trailer = byte k, byte
+            // except_width, k position bytes, ceil(k*except_width/8) bytes.
+            const uint8_t k = cur.ReadByte();
+            const uint8_t except_width = cur.ReadByte();
+            if (k == 0 || k > n) [[unlikely]] {
+                SPIMI_THROW_CORRUPT("SPIMI .frq PFOR patch: num_exceptions out of range");
+            }
+            if (except_width == 0 || static_cast<uint32_t>(width) + except_width > 32U)
+                    [[unlikely]] {
+                SPIMI_THROW_CORRUPT("SPIMI .frq PFOR patch: except_width out of range");
+            }
+            block.push_back(k);
+            block.push_back(except_width);
+            cur.ReadInto(&block, static_cast<size_t>(k)); // position bytes
+            const size_t high_bytes = (static_cast<size_t>(k) * except_width + 7U) / 8U;
+            cur.ReadInto(&block, high_bytes);
+        }
         std::vector<uint32_t> sub;
         SpimiPforDecoder::DecodeBlockFromBytes(block, &sub);
         if (sub.size() != static_cast<size_t>(n)) [[unlikely]] {

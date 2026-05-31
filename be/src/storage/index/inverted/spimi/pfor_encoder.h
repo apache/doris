@@ -62,24 +62,49 @@ class ByteOutput;
 // adversarial input the worst case is 1 value of full 32-bit width
 // in a block of small values — we pay 32×N bits instead of e.g.
 // 4×N + 1×(32-4); the FastPFor / Lucene patched variant wins on
-// these inputs by ~10-15%. Adding patches is a follow-up: the format
-// has a 7th bit reserved in the bit_width byte (`0x80`) which a
-// future patched encoder can flip to indicate the extra patch list
-// trailing the block.
+// these inputs by ~10-15%.
+//
+// PATCHED variant (opt-in, freq region only). The 0x80 bit in the
+// width byte — previously reserved — now signals a trailing patch
+// list (FastPFor / Lucene90 "split high bits into a patch list"
+// shape, simplified to byte-indexed positions because a block is
+// ≤128 values). Patched block layout:
+//
+//   VInt    n                  // unchanged
+//   byte    base_width | 0x80   // low 6 bits = base width (read masks &0x3F)
+//   bytes   bitpacked           // N × base_width bits — the LOW base_width
+//                               //   bits of every value, ceil-byte aligned
+//   --- patch trailer (only present when 0x80 set) ---
+//   byte    num_exceptions      // k, 1..N (k==0 is never emitted)
+//   byte    except_width        // bits for the HIGH part, 1..(32-base_width)
+//   bytes   except_positions    // k bytes: each exception's index 0..N-1
+//   bytes   except_highbits     // k × except_width bits, ceil-byte aligned
+//
+//   value[pos] = low_base_width_bits | (except_high << base_width)
+//
+// The patched form is emitted ONLY when it is strictly smaller than the
+// plain form; otherwise the encoder leaves 0x80 clear and emits the
+// exact legacy bytes (byte-identical). The patch path is opt-in per
+// call (`allow_patch`); doc-delta callers never enable it so doc-delta
+// blocks stay branch-free and byte-identical to the legacy format.
 class SpimiPforEncoder {
 public:
     static constexpr size_t kBlockSize = 128;
 
     // Encodes `values[0..count)` into `out`. `count` must be
     // ≤ kBlockSize. `values` may be modified (the encoder may use it
-    // as scratch). Returns bytes written (after the VInt + width
-    // byte + bitpacked payload).
-    static size_t EncodeBlock(uint32_t* values, size_t count, ByteOutput* out);
+    // as scratch). When `allow_patch` is true AND a patched encoding is
+    // strictly smaller, emits the patched form (0x80 set); otherwise
+    // emits the legacy plain block (byte-identical to `allow_patch ==
+    // false`). Returns bytes written.
+    static size_t EncodeBlock(uint32_t* values, size_t count, ByteOutput* out,
+                              bool allow_patch = false);
 
     // Test seam: encodes into a vector (bypasses ByteOutput). The
     // resulting bytes are exactly what `EncodeBlock` writes (modulo
     // the ByteOutput wrapping).
-    static std::vector<uint8_t> EncodeBlockToBytes(const std::vector<uint32_t>& values);
+    static std::vector<uint8_t> EncodeBlockToBytes(const std::vector<uint32_t>& values,
+                                                   bool allow_patch = false);
 };
 
 // Decoder counterpart. The decoder lives in the same translation unit

@@ -245,12 +245,25 @@ std::vector<std::pair<int32_t, int32_t>> DecodeFrqDocs(ByteReader& fr, int32_t d
             // ourselves and let Arrow's BitReader read the rest.
             const size_t mark = fr.pos();
             const int32_t n = fr.ReadVInt();
-            const uint8_t width = fr.Byte() & 0x3FU;
+            const uint8_t raw_width = fr.Byte();
+            const bool patched = (raw_width & 0x80U) != 0U;
+            const uint8_t width = raw_width & 0x3FU;
             const size_t bit_bytes = (static_cast<size_t>(n) * width + 7U) / 8U;
-            // Slice [mark, fr.pos() + bit_bytes) is one sub-block.
+            // Total on-wire span of this sub-block: VInt(n) + width byte +
+            // bitpacked payload, plus the patch trailer when 0x80 is set.
+            size_t span = (fr.pos() - mark) + bit_bytes;
+            if (patched) {
+                // Trailer = byte k, byte except_width, k position bytes,
+                // ceil(k*except_width/8) high-bit bytes.
+                const uint8_t k = fr.byte_at(mark + (fr.pos() - mark) + bit_bytes);
+                const uint8_t except_width = fr.byte_at(mark + (fr.pos() - mark) + bit_bytes + 1);
+                const size_t high_bytes = (static_cast<size_t>(k) * except_width + 7U) / 8U;
+                span += 2U + static_cast<size_t>(k) + high_bytes;
+            }
+            // Slice [mark, mark + span) is one complete sub-block.
             std::vector<uint8_t> slice;
-            slice.reserve(fr.pos() - mark + bit_bytes);
-            for (size_t i = mark; i < fr.pos() + bit_bytes; ++i) {
+            slice.reserve(span);
+            for (size_t i = mark; i < mark + span; ++i) {
                 slice.push_back(fr.byte_at(i));
             }
             std::vector<uint32_t> sub;
@@ -259,9 +272,9 @@ std::vector<std::pair<int32_t, int32_t>> DecodeFrqDocs(ByteReader& fr, int32_t d
                 values.push_back(v);
             }
             collected += static_cast<int32_t>(sub.size());
-            // Advance cursor past the bitpacked payload (the VInt + byte
-            // already consumed by fr above).
-            for (size_t i = 0; i < bit_bytes; ++i) {
+            // Advance cursor past everything after the already-consumed
+            // VInt(n) + width byte.
+            for (size_t i = (fr.pos() - mark); i < span; ++i) {
                 (void)fr.Byte();
             }
         }
@@ -563,6 +576,45 @@ TEST(SegmentRoundtripTest, ForGraduationPast512DocsRoundTrips) {
         EXPECT_EQ(reconstructed[0].docs[d].doc_id, d) << "doc id at " << d;
         EXPECT_EQ(reconstructed[0].docs[d].positions, (std::vector<int32_t> {d % 7}))
                 << "positions at doc " << d;
+    }
+}
+
+// High-DF term (df > skip_interval ⇒ PFOR freq region) whose per-doc freqs
+// contain a few large outliers among many freq==1 docs. This drives the
+// patched-PFOR (OPT_PFOR_PATCH_FREQS) freq encoding and verifies full .frq
+// encode→decode fidelity through the test-local PFOR reconstitution path
+// (which now understands the patch trailer, mirroring the two production
+// reconstitution loops in term_docs_reader.cpp / posting_decoder.cpp).
+TEST(SegmentRoundtripTest, PatchedFreqHighDfRoundTrips) {
+    MemoryByteOutput tis, tii, frq, prx;
+    SegmentWriter w(&tis, &tii, &frq, &prx);
+    SpimiPostingBuffer buffer;
+    constexpr int kDocs = 600; // past the 512 skip_interval boundary
+    std::vector<int32_t> expected_freq(kDocs, 1);
+    for (int32_t d = 0; d < kDocs; ++d) {
+        // Most docs have freq 1; a sparse set of docs gets a large freq so a
+        // freq sub-block packs at a narrow base width plus a small patch list.
+        int32_t freq = 1;
+        if (d == 5 || d == 130 || d == 300 || d == 450) {
+            freq = 700 + d; // large outlier freq
+        }
+        expected_freq[d] = freq;
+        for (int32_t p = 0; p < freq; ++p) {
+            buffer.Append("hot", /*doc=*/d, /*pos=*/p);
+        }
+    }
+    buffer.Sort();
+    w.Emit(buffer, /*field=*/0);
+    w.Close();
+
+    const auto reconstructed = ReconstructSegment(tis.bytes(), frq.bytes(), prx.bytes(),
+                                                  TermDictWriter::kDefaultSkipInterval);
+    ASSERT_EQ(reconstructed.size(), 1U);
+    ASSERT_EQ(reconstructed[0].docs.size(), static_cast<size_t>(kDocs));
+    for (int32_t d = 0; d < kDocs; ++d) {
+        EXPECT_EQ(reconstructed[0].docs[d].doc_id, d) << "doc id at " << d;
+        EXPECT_EQ(static_cast<int32_t>(reconstructed[0].docs[d].positions.size()), expected_freq[d])
+                << "freq (position count) at doc " << d;
     }
 }
 

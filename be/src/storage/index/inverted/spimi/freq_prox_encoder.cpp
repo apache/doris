@@ -207,8 +207,11 @@ void FreqProxEncoder::StartDoc(int32_t doc_id, int32_t freq) {
             if (_pfor_freqs.size() == SpimiPforEncoder::kBlockSize) {
                 // Pack a full freq sub-block into the temp buffer (bytes
                 // identical to emitting it directly into the freq region).
+                // Freq blocks opt into patched PFOR: a few high-freq
+                // outliers no longer force the whole block to a wide
+                // bit-width (0x80 stays clear when no outlier wins).
                 SpimiPforEncoder::EncodeBlock(_pfor_freqs.data(), _pfor_freqs.size(),
-                                              &_pfor_freq_blocks);
+                                              &_pfor_freq_blocks, /*allow_patch=*/true);
                 _pfor_freqs.clear();
             }
         }
@@ -293,7 +296,7 @@ TermInfo FreqProxEncoder::FinishTerm() {
             // packed freq region (same bytes as emitting each sub-block here).
             if (!_pfor_freqs.empty()) {
                 SpimiPforEncoder::EncodeBlock(_pfor_freqs.data(), _pfor_freqs.size(),
-                                              &_pfor_freq_blocks);
+                                              &_pfor_freq_blocks, /*allow_patch=*/true);
             }
             const auto& fr = _pfor_freq_blocks.bytes();
             if (!fr.empty()) {

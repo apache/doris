@@ -24,6 +24,7 @@
 #include <random>
 #include <vector>
 
+#include "common/exception.h"
 #include "storage/index/inverted/spimi/byte_output.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
@@ -221,6 +222,350 @@ TEST(SpimiPforEncoderTest, BatchedDecodeMatchesScalarAcrossWidthsAndCounts) {
             ExpectDecodeMatchesScalarReference(values);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Patched-PFOR (OPT_PFOR_PATCH_FREQS) tests.
+// ---------------------------------------------------------------------------
+
+// A freq block with a few large outliers among many small values: the
+// patch path must (a) be chosen (0x80 set), (b) be strictly smaller than
+// the unpatched form, and (c) decode bit-for-bit.
+TEST(SpimiPforEncoderTest, PatchedBlockShrinksAndRoundTrips) {
+    std::vector<uint32_t> values(SpimiPforEncoder::kBlockSize, 1U);
+    // A handful of high outliers force the unpatched width to ~16 bits while
+    // 95% of values fit in 1 bit.
+    values[3] = 50000U;
+    values[40] = 60000U;
+    values[99] = 45000U;
+
+    const auto plain = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/false);
+    const auto patched = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/true);
+
+    // Patch flag set on the width byte (byte index 1, after the 1-byte VInt(128)
+    // continuation... VInt(128) is 2 bytes, so width byte is index 2).
+    ASSERT_GE(patched.size(), 3U);
+    EXPECT_NE(patched[2] & 0x80U, 0U) << "patched block must set the 0x80 flag";
+    EXPECT_EQ(plain[2] & 0x80U, 0U) << "plain block must leave 0x80 clear";
+    EXPECT_LT(patched.size(), plain.size()) << "patched encoding must be strictly smaller";
+
+    // Decode fidelity through the production decoder.
+    std::vector<uint32_t> back;
+    const size_t n = SpimiPforDecoder::DecodeBlockFromBytes(patched, &back);
+    ASSERT_EQ(n, values.size());
+    EXPECT_EQ(back, values);
+}
+
+// No-outlier block: allow_patch=true must produce byte-identical output to
+// allow_patch=false (the 0x80 flag stays clear). Golden-byte stability.
+TEST(SpimiPforEncoderTest, PatchAllowedButNoOutlierIsByteIdentical) {
+    std::vector<uint32_t> values(SpimiPforEncoder::kBlockSize);
+    for (size_t i = 0; i < values.size(); ++i) {
+        values[i] = static_cast<uint32_t>(i % 16); // uniform small values, no outlier
+    }
+    const auto plain = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/false);
+    const auto maybe = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/true);
+    EXPECT_EQ(plain, maybe) << "no-outlier patched encode must be byte-identical to plain";
+    EXPECT_EQ(maybe[2] & 0x80U, 0U) << "0x80 must stay clear with no outlier";
+}
+
+// An OLD-format (0x80 clear) block decodes identically under the patch-aware
+// decoder: backward-compat proof that the new decoder reads legacy bytes.
+TEST(SpimiPforEncoderTest, LegacyBlockDecodesUnderPatchAwareDecoder) {
+    std::mt19937 rng(0xFA11BACU);
+    for (int trial = 0; trial < 50; ++trial) {
+        const size_t n = 1 + (rng() % SpimiPforEncoder::kBlockSize);
+        std::vector<uint32_t> values(n);
+        for (auto& v : values) {
+            v = rng() % 1000U;
+        }
+        const auto legacy = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/false);
+        std::vector<uint32_t> back;
+        const size_t got = SpimiPforDecoder::DecodeBlockFromBytes(legacy, &back);
+        ASSERT_EQ(got, values.size());
+        EXPECT_EQ(back, values);
+    }
+}
+
+// Differential: for the same input, patch-enabled and patch-disabled decode
+// to identical values, and patched_size <= plain_size for every block.
+TEST(SpimiPforEncoderTest, PatchedAndPlainDecodeIdenticallyAcrossWorkloads) {
+    std::mt19937 rng(0x5EED1234U);
+    for (int trial = 0; trial < 200; ++trial) {
+        const size_t n = 1 + (rng() % SpimiPforEncoder::kBlockSize);
+        std::vector<uint32_t> values(n);
+        // Mostly small values; sprinkle occasional outliers to exercise the
+        // patch path on a fraction of trials.
+        for (auto& v : values) {
+            v = (rng() % 16U == 0U) ? (1000U + rng() % 100000U) : (rng() % 8U);
+        }
+        const auto plain = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/false);
+        const auto patched = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/true);
+        EXPECT_LE(patched.size(), plain.size())
+                << "patched must never be larger (trial " << trial << ")";
+        std::vector<uint32_t> dp;
+        std::vector<uint32_t> dpp;
+        ASSERT_EQ(SpimiPforDecoder::DecodeBlockFromBytes(plain, &dp), n);
+        ASSERT_EQ(SpimiPforDecoder::DecodeBlockFromBytes(patched, &dpp), n);
+        EXPECT_EQ(dp, values);
+        EXPECT_EQ(dpp, values);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tester-added coverage: explicit no-trigger/trigger byte oracles, structural
+// workloads (all-same / all-max / ascending), hand-constructed OLD-format
+// backward-compat decode, fixed-seed adversarial fuzz, and patch-trailer
+// untrusted-byte hard-fails. These supplement the implementer's tests above.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Hand-builds a raw OLD-format (pre-patch, 0x80-clear) PFOR block from a
+// width and an explicit list of payload bytes. This bypasses the encoder
+// entirely so the test asserts the decoder reads bytes that could have come
+// from a segment written before OPT_PFOR_PATCH_FREQS existed.
+std::vector<uint8_t> BuildLegacyBlock(uint32_t count, uint8_t width,
+                                      const std::vector<uint8_t>& payload) {
+    std::vector<uint8_t> bytes;
+    // VInt(count) — same little-endian 7-bit continuation the encoder writes.
+    uint32_t v = count;
+    while (true) {
+        uint8_t b = static_cast<uint8_t>(v & 0x7FU);
+        v >>= 7;
+        if (v != 0U) {
+            b |= 0x80U;
+            bytes.push_back(b);
+        } else {
+            bytes.push_back(b);
+            break;
+        }
+    }
+    bytes.push_back(width); // 0x80 deliberately clear: legacy width byte
+    bytes.insert(bytes.end(), payload.begin(), payload.end());
+    return bytes;
+}
+
+} // namespace
+
+// (a) No-trigger oracle: a block with NO outliers must emit the OLD bytes.
+// We compare patch-enabled output byte-for-byte against a hand-built legacy
+// block (independent of the encoder's own plain path) AND decode identically.
+TEST(SpimiPforEncoderTest, NoOutlierEmitsLegacyBytesExactly) {
+    // 8 values all in [0,255] ⇒ width=8, payload = the values themselves.
+    std::vector<uint32_t> values {3, 7, 200, 11, 250, 0, 1, 128};
+    const std::vector<uint8_t> payload {3, 7, 200, 11, 250, 0, 1, 128};
+    const auto legacy = BuildLegacyBlock(8, /*width=*/8, payload);
+
+    const auto patched = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/true);
+    EXPECT_EQ(patched, legacy)
+            << "no-outlier patch-enabled encode must equal hand-built legacy bytes";
+    EXPECT_EQ(patched[1] & 0x80U, 0U) << "0x80 must be clear (width byte at index 1 here)";
+
+    std::vector<uint32_t> back;
+    ASSERT_EQ(SpimiPforDecoder::DecodeBlockFromBytes(patched, &back), values.size());
+    EXPECT_EQ(back, values);
+}
+
+// (d) Backward-compat: decode a hand-constructed OLD-format block (never
+// produced by this encoder run) under the patch-aware decoder. width=4,
+// 4 values {1,2,3,4}: nibble-packed LSB-first ⇒ bytes 0x21, 0x43.
+TEST(SpimiPforEncoderTest, HandBuiltLegacyBlockDecodes) {
+    const std::vector<uint8_t> payload {0x21, 0x43};
+    const auto legacy = BuildLegacyBlock(/*count=*/4, /*width=*/4, payload);
+    std::vector<uint32_t> back;
+    ASSERT_EQ(SpimiPforDecoder::DecodeBlockFromBytes(legacy, &back), 4U);
+    const std::vector<uint32_t> expected {1, 2, 3, 4};
+    EXPECT_EQ(back, expected) << "patch-aware decoder must read legacy nibble-packed bytes";
+}
+
+// (c) all-same: every value identical. Both modes round-trip; no patch.
+TEST(SpimiPforEncoderTest, AllSameValueRoundTrips) {
+    std::vector<uint32_t> values(SpimiPforEncoder::kBlockSize, 0x1234U);
+    ExpectRoundTrip(values);
+    const auto plain = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/false);
+    const auto patched = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/true);
+    EXPECT_EQ(plain, patched) << "uniform block has no outlier ⇒ byte-identical";
+    std::vector<uint32_t> back;
+    ASSERT_EQ(SpimiPforDecoder::DecodeBlockFromBytes(patched, &back), values.size());
+    EXPECT_EQ(back, values);
+}
+
+// (c) all-max: every value 0xFFFFFFFF ⇒ width=32. No narrower base exists,
+// so the patch path can never win; output stays plain and round-trips.
+TEST(SpimiPforEncoderTest, AllMaxValueRoundTripsAndStaysPlain) {
+    std::vector<uint32_t> values(SpimiPforEncoder::kBlockSize, 0xFFFFFFFFU);
+    const auto plain = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/false);
+    const auto patched = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/true);
+    EXPECT_EQ(plain, patched) << "all-max ⇒ no narrower base ⇒ plain, byte-identical";
+    EXPECT_EQ(patched[2] & 0x80U, 0U) << "0x80 clear (width byte index 2 for VInt(128))";
+    std::vector<uint32_t> back;
+    ASSERT_EQ(SpimiPforDecoder::DecodeBlockFromBytes(patched, &back), values.size());
+    EXPECT_EQ(back, values);
+}
+
+// (c) ascending: strictly increasing values, both modes round-trip and the
+// batched decode matches the scalar reference oracle.
+TEST(SpimiPforEncoderTest, AscendingValuesRoundTrip) {
+    std::vector<uint32_t> values(SpimiPforEncoder::kBlockSize);
+    for (size_t i = 0; i < values.size(); ++i) {
+        values[i] = static_cast<uint32_t>(i) * 7U + 1U;
+    }
+    ExpectRoundTrip(values);
+    ExpectDecodeMatchesScalarReference(values);
+    // allow_patch may or may not trigger; in either case it must round-trip.
+    const auto patched = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/true);
+    std::vector<uint32_t> back;
+    ASSERT_EQ(SpimiPforDecoder::DecodeBlockFromBytes(patched, &back), values.size());
+    EXPECT_EQ(back, values);
+}
+
+// (b) Trigger case at the high-magnitude extreme: outliers at 32 bits among
+// 1-bit values. The patch path must round-trip exactly (exception high bits
+// reconstructed) — the adversarial maximum for the OR-back-in step.
+TEST(SpimiPforEncoderTest, PatchedWith32BitOutliersRoundTrips) {
+    std::vector<uint32_t> values(SpimiPforEncoder::kBlockSize, 1U);
+    values[10] = 0xFFFFFFFFU;
+    values[77] = 0x80000000U;
+    values[120] = 0xCAFEBABEU;
+    const auto patched = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/true);
+    std::vector<uint32_t> back;
+    ASSERT_EQ(SpimiPforDecoder::DecodeBlockFromBytes(patched, &back), values.size());
+    EXPECT_EQ(back, values) << "32-bit outliers must reconstruct through the patch trailer";
+}
+
+// (c) Fixed-seed adversarial fuzz: many distributions (all-same, sparse
+// outliers, dense outliers, bimodal, full random) all decode identically
+// under both modes, patched is never larger, and the batched decode matches
+// the scalar reference. Deterministic via a fixed seed.
+TEST(SpimiPforEncoderTest, FuzzPatchedAndPlainAgreeFixedSeed) {
+    std::mt19937 rng(0xABCDEF01U);
+    for (int trial = 0; trial < 500; ++trial) {
+        const size_t n = 1 + (rng() % SpimiPforEncoder::kBlockSize);
+        std::vector<uint32_t> values(n);
+        const int shape = trial % 5;
+        for (size_t i = 0; i < n; ++i) {
+            switch (shape) {
+            case 0: // all-same
+                values[i] = 42U;
+                break;
+            case 1: // sparse large outliers
+                values[i] = (rng() % 20U == 0U) ? (1U << (rng() % 31)) : (rng() % 4U);
+                break;
+            case 2: // dense outliers (half are large)
+                values[i] = (rng() % 2U == 0U) ? (rng() % 1000000U) : (rng() % 4U);
+                break;
+            case 3: // bimodal tight clusters
+                values[i] = (rng() % 2U == 0U) ? (rng() % 8U) : (60000U + rng() % 8U);
+                break;
+            default: // full-range random
+                values[i] = rng();
+                break;
+            }
+        }
+        const auto plain = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/false);
+        const auto patched = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/true);
+        EXPECT_LE(patched.size(), plain.size()) << "patched never larger (trial " << trial << ")";
+
+        std::vector<uint32_t> dp;
+        std::vector<uint32_t> dpp;
+        ASSERT_EQ(SpimiPforDecoder::DecodeBlockFromBytes(plain, &dp), n) << "trial " << trial;
+        ASSERT_EQ(SpimiPforDecoder::DecodeBlockFromBytes(patched, &dpp), n) << "trial " << trial;
+        EXPECT_EQ(dp, values) << "plain decode mismatch (trial " << trial << ")";
+        EXPECT_EQ(dpp, values) << "patched decode mismatch (trial " << trial << ")";
+
+        // Whenever the plain block is purely bitpacked (0x80 clear), the
+        // batched decode must match the scalar reference loop bit-for-bit.
+        const auto reference = ReferenceScalarDecode(plain);
+        EXPECT_EQ(dp, reference) << "batched vs scalar divergence (trial " << trial << ")";
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Patch-trailer untrusted-byte hard-fails. Each test crafts a structurally
+// valid patched block, then corrupts exactly one trailer field and asserts
+// the decoder throws (SPIMI_THROW_CORRUPT → doris::Exception) rather than
+// reading out of bounds or producing garbage.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Produces a real patched block (0x80 set) for use as a corruption seed.
+std::vector<uint8_t> MakePatchedSeed() {
+    std::vector<uint32_t> values(SpimiPforEncoder::kBlockSize, 1U);
+    values[3] = 50000U;
+    values[40] = 60000U;
+    values[99] = 45000U;
+    auto bytes = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/true);
+    EXPECT_NE(bytes[2] & 0x80U, 0U) << "seed must actually be patched";
+    return bytes;
+}
+
+// Locates the trailer offset = first byte after VInt(count) + width byte +
+// ceil(count*base_width/8) bitpacked payload. count is 128 here (VInt = 2
+// bytes), base_width is the low 6 bits of byte[2].
+size_t TrailerOffset(const std::vector<uint8_t>& patched) {
+    const size_t count = 128; // MakePatchedSeed uses a full block
+    const uint8_t base_width = patched[2] & 0x3FU;
+    const size_t payload = (count * base_width + 7U) / 8U;
+    return 2U /*VInt(128)*/ + 1U /*width*/ + payload;
+}
+
+} // namespace
+
+TEST(SpimiPforEncoderTest, PatchTrailerNumExceptionsZeroHardFails) {
+    auto bytes = MakePatchedSeed();
+    const size_t off = TrailerOffset(bytes);
+    ASSERT_LT(off, bytes.size());
+    bytes[off] = 0x00U; // num_exceptions = 0 is illegal
+    std::vector<uint32_t> out;
+    EXPECT_THROW(SpimiPforDecoder::DecodeBlockFromBytes(bytes, &out), doris::Exception);
+}
+
+TEST(SpimiPforEncoderTest, PatchTrailerNumExceptionsTooLargeHardFails) {
+    auto bytes = MakePatchedSeed();
+    const size_t off = TrailerOffset(bytes);
+    ASSERT_LT(off, bytes.size());
+    bytes[off] = 0xFFU; // 255 > count(128) ⇒ out of range
+    std::vector<uint32_t> out;
+    EXPECT_THROW(SpimiPforDecoder::DecodeBlockFromBytes(bytes, &out), doris::Exception);
+}
+
+TEST(SpimiPforEncoderTest, PatchTrailerExceptWidthZeroHardFails) {
+    auto bytes = MakePatchedSeed();
+    const size_t off = TrailerOffset(bytes);
+    ASSERT_LT(off + 1U, bytes.size());
+    bytes[off + 1U] = 0x00U; // except_width = 0 is illegal
+    std::vector<uint32_t> out;
+    EXPECT_THROW(SpimiPforDecoder::DecodeBlockFromBytes(bytes, &out), doris::Exception);
+}
+
+TEST(SpimiPforEncoderTest, PatchTrailerExceptWidthOverflowsHardFails) {
+    auto bytes = MakePatchedSeed();
+    const size_t off = TrailerOffset(bytes);
+    ASSERT_LT(off + 1U, bytes.size());
+    // base_width + except_width must be ≤ 32; force a value that overflows.
+    bytes[off + 1U] = 33U;
+    std::vector<uint32_t> out;
+    EXPECT_THROW(SpimiPforDecoder::DecodeBlockFromBytes(bytes, &out), doris::Exception);
+}
+
+TEST(SpimiPforEncoderTest, PatchTrailerExceptionPositionOutOfRangeHardFails) {
+    auto bytes = MakePatchedSeed();
+    const size_t off = TrailerOffset(bytes);
+    // First position byte sits at off+2 (after num_exc, except_width).
+    ASSERT_LT(off + 2U, bytes.size());
+    bytes[off + 2U] = 200U; // position ≥ count(128) ⇒ out of range
+    std::vector<uint32_t> out;
+    EXPECT_THROW(SpimiPforDecoder::DecodeBlockFromBytes(bytes, &out), doris::Exception);
+}
+
+TEST(SpimiPforEncoderTest, PatchTrailerTruncatedHighBitsHardFails) {
+    auto bytes = MakePatchedSeed();
+    // Drop the final high-bit payload byte ⇒ ReadBitpacked underflow.
+    bytes.pop_back();
+    std::vector<uint32_t> out;
+    EXPECT_THROW(SpimiPforDecoder::DecodeBlockFromBytes(bytes, &out), doris::Exception);
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi
