@@ -157,15 +157,20 @@ scan range
 
 ```text
 struct RowRange {
-    int64_t first_row;
-    int64_t row_count;
+    int64_t start;
+    int64_t length;
 };
 
-struct RowGroupScanPlan {
+struct RowGroupReadPlan {
     int row_group_id;
     int64_t first_file_row;
     int64_t row_group_rows;
     std::vector<RowRange> selected_ranges;
+};
+
+struct RowGroupScanPlan {
+    std::vector<RowGroupReadPlan> row_groups;
+    ParquetPruningStats pruning_stats;
 };
 ```
 
@@ -173,13 +178,15 @@ struct RowGroupScanPlan {
 
 - `parquet_scan_planner.*`
 - `parquet_statistics.*` 已承载 row group statistics pruning 和 string-like dictionary row group pruning。
-- 当前 `RowGroupScanPlan` 仍输出 selected row group id 和 row group first-row 数组，尚未升级成 per-row-group row ranges。
+- `parquet_page_index.*` 已把 Arrow `PageIndexReader` / `ColumnIndex` / `OffsetIndex` 转成 row group-local row ranges。
+- `parquet_pruning.h` 已承载 planner 输出的 pruning reason/stats，包括 statistics、dictionary、page index、filtered rows 和 selected ranges。
+- 当前 `RowGroupScanPlan` 已升级为 per-row-group row range plan；没有 page index 或无法安全裁剪时输出完整 row group range。
 
 后续方向：
 
-- 将 statistics、dictionary、page index、bloom filter 都收敛到 planner。
+- 将 bloom filter 也收敛到 planner，形态与 statistics/dictionary/page index 一致。
 - planner 不读取 column values，只读取 metadata 和必要的 dictionary/bloom/page index 辅助结构。
-- page index 第一阶段只生成 row ranges，不要求自研 page decoder。
+- page index 第一阶段已复用 `RecordReader + select(skip + read)`；只有证明确实需要更细粒度 IO 控制时再考虑 `GetColumnPageReader()` 自研 page decoder。
 
 ## 4. BatchScanScheduler 层
 
@@ -208,7 +215,18 @@ ParquetScanState
 当前实现位置：
 
 - `parquet_scan_scheduler.*`
+
+当前状态：
+
+- scheduler 已消费 `RowGroupReadPlan::selected_ranges`。
+- range 间 gap 通过所有当前 column reader 的 `skip()` 推进。
+- row position reader 使用 `first_file_row` 保持 file-local position。
 - `ParquetReader::get_block` 只委托 scheduler 读取下一批。
+
+后续方向：
+
+- 增加 scheduler 级 selected rows、skipped rows、range cursor、lazy read filtered rows 统计。
+- 后续如果切到 page-level decoder，scheduler 仍只消费 row ranges，不直接处理 page。
 
 边界：
 
@@ -444,7 +462,7 @@ ArrowLeafReaderAdapter
 关于 page-level pruning：
 
 - 复用 Arrow 不妨碍读取 page index。
-- 当前缺口是 Doris 还没有把 page index 转成 row ranges 并接入 scan scheduler。
+- Doris new parquet reader 已把 page index 转成 row ranges 并接入 scan scheduler。
 - 如果 row-range `select(skip + read)` 已经足够减少 decode，可以继续保留 `RecordReader`。
 - 如果 `SkipRecords()` 仍会产生过多 IO/decode，再在 adapter 层引入更细粒度 page reader。
 
@@ -480,14 +498,15 @@ ArrowLeafReaderAdapter
 
 当前状态：
 
-- `parquet_reader.cpp` 已有部分 profile counter。
-- page index/bloom/page cache 相关 counter 还没有完整实现闭环，也还没有随 planner/scheduler/adapter 分层迁移。
+- `parquet_reader.cpp` 已有 profile counter 初始化。
+- planner 已通过 `ParquetPruningStats` 输出 row group、dictionary、page index、filtered rows、selected ranges、page index read calls 等统计，并由 `ParquetReader` 写入 profile。
+- bloom filter、scheduler skip/select、column reader overflow、Arrow decode/page cache 的统计还没有完整迁移到各自分层。
 
 后续方向：
 
-- planner 层输出 pruning reason 和 skipped rows/pages。
 - column reader 层输出 read/skip/select/overflow 统计。
 - adapter 层输出 Arrow read/decode 统计。
+- bloom filter 接入后复用 planner stats，不让 `ParquetReader` 直接判断裁剪原因。
 
 ## 当前代码到目标分层的映射
 
@@ -495,48 +514,47 @@ ArrowLeafReaderAdapter
 | --- | --- | --- |
 | FileContext | `parquet_file_context.*` | 已独立拆分 |
 | Metadata / Schema | `parquet_column_schema.*`, `parquet_type.*` | 基本成型 |
-| RowGroupScanPlanner | `parquet_scan_planner.*`, `parquet_statistics.*` | row group 级已成型，row ranges/page index/bloom 待补 |
-| BatchScanScheduler | `parquet_scan_scheduler.*` | 已独立拆分，仍按 row group 连续 batch 扫描 |
+| RowGroupScanPlanner | `parquet_scan_planner.*`, `parquet_statistics.*`, `parquet_page_index.*`, `parquet_pruning.h` | statistics/dictionary/page index row range pruning 已接入，bloom 待补 |
+| BatchScanScheduler | `parquet_scan_scheduler.*` | 已独立拆分，已按 selected row ranges 扫描 |
 | Predicate / Selection | `selection_vector.h`, `parquet_batch_filter.*` | 已独立拆分 |
 | ColumnReaderFactory | `column_reader.*` | 已实现，仍负责 complex reader 构造 |
 | ColumnReader Tree | `scalar_column_reader.*`, `shape_only_column_reader.*`, `column_reader.*` | scalar/shape 已拆，struct/list/map 仍集中 |
-| Nested Assembler | `nested_level_assembler.h`, `column_reader.cpp` | repeated assembler 已抽出，shape cursor 待统一 |
+| Nested Assembler | `nested_level_assembler.h`, `column_reader.cpp` | repeated assembler 和 shape cursor 已抽出，complex sink 仍在 `column_reader.cpp` |
 | Leaf Decode Adapter | `arrow_leaf_reader_adapter.*`, `scalar_column_reader.*` | 已独立拆分 |
 | Column Materialization | `arrow_leaf_reader_adapter.*`, `scalar_column_reader.*`, `column_reader.cpp`, `DataTypeSerDe` | 已接入 SerDe，complex sink 待统一 |
-| Profile | `parquet_reader.cpp` | 部分 counter |
+| Profile | `parquet_reader.cpp`, `parquet_pruning.h` | planner pruning counter 已接入，scheduler/adapter/overflow 统计待补 |
 
 ## 推荐重构顺序
 
-### Step 1：稳定当前拆分边界
+### Step 1：拆分 complex column reader 文件
 
-- 在 Fedora 上跑 BE 编译和 `ParquetColumnReaderTest.*` / `ParquetReaderTest.*`，先确认当前 planner/scheduler/filter/scalar 拆分没有行为回退。
-- 针对新文件补充必要的 include/链接问题，避免后续功能开发叠加在未验证的拆分上。
-- 暂不继续大规模移动 `StructColumnReader`、`ListColumnReader`、`MapColumnReader`，除非有测试覆盖保护。
+- 将 `StructColumnReader`、`ListColumnReader`、`MapColumnReader` 从 `column_reader.cpp` 移到独立文件。
+- 只做文件级拆分和 include 收敛，不改变当前支持矩阵。
+- 拆分后继续通过 `nested_level_assembler.h` 访问 shape cursor，避免每个 reader 复制 def/rep 判断。
 
-### Step 2：升级 RowGroupScanPlan 为 row range plan
+### Step 2：统一 complex materialization sink
 
-- 将当前 `selected_row_groups + row_group_first_rows` 升级为 per-row-group plan：
-  `row_group_id`、`first_file_row`、`row_group_rows`、`selected_ranges`。
-- scheduler 从 row group 连续 batch 扫描改为消费 selected ranges；没有 page-level pruning 时每个 row group 生成一个完整 range。
-- 保持 conservative pruning 语义：无法证明可跳过的 page/range 必须保留。
+- 把 list/map offsets、parent null map、nested child append 的重复逻辑收敛为 sink/helper。
+- 目标是让 `column_reader.cpp` 只保留 factory，complex reader 文件只保留类型语义和 sink 组合。
+- 保持当前 schema change 预留接口，不在这一步实现 schema evolution。
 
-### Step 3：接入 page index 的第一阶段 row-range pruning
+### Step 3：接入 bloom filter planner helper
 
-- 在 `parquet_page_index.*` 中把 Arrow `PageIndexReader` / `ColumnIndex` / `OffsetIndex` 转成 row group-local ranges。
-- planner 合并 statistics、dictionary 和 page index 的保留范围，只输出 row ranges，不直接读取 values。
-- 第一阶段继续复用 `RecordReader + select(skip + read)`，只有证明确实需要更细粒度 IO 控制时再考虑 `GetColumnPageReader()`。
+- 新增 `parquet_bloom_filter.*`，负责读取和判断 bloom filter。
+- planner 只消费 keep/drop 结论，并把 reason 写入 `ParquetPruningStats`。
+- bloom 判断必须和 statistics/dictionary/page index 一样安全：无法证明不匹配时保留。
 
-### Step 4：统一 nested shape cursor
+### Step 4：补 scheduler / column reader / adapter profile
 
-- 将 scalar/struct/list/map 的 batch 与 overflow 结构收敛成统一 shape cursor。
-- list/map scalar child、struct child、nested list/map child 都走同一套 parent-shape 推进和 alignment check。
-- 完成后再把 `StructColumnReader`、`ListColumnReader`、`MapColumnReader` 拆成独立文件，避免拆分后复制分支。
+- scheduler 统计 selected ranges、skip rows、lazy read filtered rows、empty selection。
+- column reader 统计 read/skip/select、nested overflow 次数。
+- Arrow adapter 统计 Arrow read/decode/null map/materialization 时间。
 
-### Step 5：补齐 bloom/dictionary/page-level 扩展点
+### Step 5：评估 page-level decoder 必要性
 
-- `parquet_bloom_filter.*` 负责读取和判断 bloom filter，planner 只消费 keep/drop 结论。
-- dictionary pruning 继续使用安全判定，后续如需 dictionary id filter，应落在 planner/adapter 边界，不进入 `ParquetReader`。
-- profile 迁移到 planner/scheduler/adapter 各自的观测点，统计 row groups、ranges、pages、selected rows、skip/read/overflow。
+- 先用 profile 判断 `RecordReader + row range select` 的收益和开销。
+- 只有当 page index 已证明可跳过大量 page、但 Arrow `RecordReader` 无法避免对应 IO/解码时，再考虑 `GetColumnPageReader()`。
+- 如需实现，放在 adapter/page decoder 层，不回流到 `ParquetReader` 主流程。
 
 ## 功能归位规则
 
