@@ -160,6 +160,47 @@ private:
     NestedStructOverflow _struct_element_overflow;
 };
 
+class ShapeOnlyColumnReader final : public ParquetColumnReader {
+public:
+    explicit ShapeOnlyColumnReader(std::unique_ptr<ParquetColumnReader> source)
+            : _source(std::move(source)) {
+        DORIS_CHECK(_source != nullptr);
+    }
+
+    int file_column_id() const override { return _source->file_column_id(); }
+    int parquet_leaf_column_id() const override { return _source->parquet_leaf_column_id(); }
+    const DataTypePtr& type() const override { return _source->type(); }
+    const std::string& name() const override { return _source->name(); }
+
+    Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override {
+        if (rows_read == nullptr) {
+            return Status::InvalidArgument("Parquet shape-only read result pointer is null");
+        }
+        if (column.get() != nullptr) {
+            return Status::InvalidArgument(
+                    "Parquet shape-only reader should not materialize column {}", name());
+        }
+        RETURN_IF_ERROR(skip(rows));
+        *rows_read = rows;
+        return Status::OK();
+    }
+
+    Status skip(int64_t rows) override { return _source->skip(rows); }
+
+    Status select(const SelectionVector& sel, uint16_t selected_rows, int64_t batch_rows,
+                  MutableColumnPtr& column) override {
+        if (column.get() != nullptr) {
+            return Status::InvalidArgument(
+                    "Parquet shape-only reader should not materialize column {}", name());
+        }
+        RETURN_IF_ERROR(sel.verify(selected_rows, batch_rows));
+        return skip(batch_rows);
+    }
+
+private:
+    std::unique_ptr<ParquetColumnReader> _source;
+};
+
 class RowPositionColumnReader final : public ParquetColumnReader {
 public:
     explicit RowPositionColumnReader(int64_t row_group_first_row)
@@ -2131,6 +2172,9 @@ Status ParquetColumnReaderFactory::create_struct_column_reader(
             projected_child_types.push_back(child_reader->type());
             projected_child_names.push_back(child_reader->name());
         } else {
+            if (child_schema->kind != ParquetColumnSchemaKind::PRIMITIVE) {
+                child_reader = std::make_unique<ShapeOnlyColumnReader>(std::move(child_reader));
+            }
             child_output_indices.push_back(-1);
         }
         child_readers.push_back(std::move(child_reader));
