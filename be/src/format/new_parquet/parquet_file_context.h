@@ -33,7 +33,7 @@ struct ParquetFileContext {
     std::shared_ptr<::parquet::FileMetaData> metadata;
     const ::parquet::SchemaDescriptor* schema = nullptr;
 
-    Status open(io::FileReaderSPtr file_reader, io::IOContext* io_ctx);
+    Status open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx);
     Status close();
 };
 

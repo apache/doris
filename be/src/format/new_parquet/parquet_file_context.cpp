@@ -124,8 +124,8 @@ Status arrow_status_to_doris_status(const arrow::Status& status) {
     return Status::InternalError(status.ToString());
 }
 
-Status ParquetFileContext::open(io::FileReaderSPtr file_reader, io::IOContext* io_ctx) {
-    arrow_file = std::make_shared<DorisRandomAccessFile>(std::move(file_reader), io_ctx);
+Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx) {
+    arrow_file = std::make_shared<DorisRandomAccessFile>(std::move(input_file_reader), io_ctx);
     try {
         this->file_reader = ::parquet::ParquetFileReader::Open(
                 arrow_file, ::parquet::default_reader_properties());
