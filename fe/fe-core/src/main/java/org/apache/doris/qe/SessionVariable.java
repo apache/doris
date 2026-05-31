@@ -269,6 +269,9 @@ public class SessionVariable implements Serializable, Writable {
 
     // max ms to wait transaction publish finish when exec insert stmt.
     public static final String INSERT_VISIBLE_TIMEOUT_MS = "insert_visible_timeout_ms";
+    public static final String INSERT_VISIBLE_TIMEOUT_RETURN_MODE = "insert_visible_timeout_return_mode";
+    public static final String INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED = "committed";
+    public static final String INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR = "error";
 
     public static final String DELETE_WITHOUT_PARTITION = "delete_without_partition";
 
@@ -1071,6 +1074,15 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
+
+    // Control whether publish timeout keeps the committed response or returns an explicit error.
+    @VarAttrDef.VarAttr(name = INSERT_VISIBLE_TIMEOUT_RETURN_MODE, needForward = true,
+            checker = "checkInsertVisibleTimeoutReturnMode", setter = "setInsertVisibleTimeoutReturnMode",
+            description = {"控制普通内表 INSERT 在 publish timeout 时返回给客户端的状态。",
+                    "Controls the status returned to the client when a normal internal-table INSERT times out "
+                            + "while waiting for publish visibility."},
+            options = {INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED, INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR})
+    public String insertVisibleTimeoutReturnMode = INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED;
 
     // max memory used on every backend. Default value to 100G.
     @VarAttrDef.VarAttr(name = EXEC_MEM_LIMIT, needForward = true)
@@ -4910,6 +4922,19 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public String getInsertVisibleTimeoutReturnMode() {
+        return insertVisibleTimeoutReturnMode;
+    }
+
+    public boolean isInsertVisibleTimeoutReturnError() {
+        return INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR.equals(insertVisibleTimeoutReturnMode);
+    }
+
+    public void setInsertVisibleTimeoutReturnMode(String insertVisibleTimeoutReturnMode) {
+        this.insertVisibleTimeoutReturnMode =
+                normalizeInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode);
+    }
+
     public boolean getIsSingleSetVar() {
         return isSingleSetVar;
     }
@@ -5296,6 +5321,23 @@ public class SessionVariable implements Serializable, Writable {
             LOG.warn("Check query_timeout failed", exception);
             throw exception;
         }
+    }
+
+    public void checkInsertVisibleTimeoutReturnMode(String mode) {
+        if (StringUtils.isEmpty(mode)) {
+            LOG.warn("insertVisibleTimeoutReturnMode value is empty");
+            throw new UnsupportedOperationException("insertVisibleTimeoutReturnMode value is empty");
+        }
+        if (!INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED.equalsIgnoreCase(mode)
+                && !INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR.equalsIgnoreCase(mode)) {
+            LOG.warn("insertVisibleTimeoutReturnMode value is invalid, the invalid value is {}", mode);
+            throw new UnsupportedOperationException(
+                    "insertVisibleTimeoutReturnMode value is invalid, the invalid value is " + mode);
+        }
+    }
+
+    public String normalizeInsertVisibleTimeoutReturnMode(String mode) {
+        return mode == null ? null : mode.toLowerCase(Locale.ROOT);
     }
 
     public void checkMaxExecutionTimeMSValid(String newValue) {
@@ -5743,6 +5785,9 @@ public class SessionVariable implements Serializable, Writable {
                         throw new IOException("invalid type: " + field.getType().getSimpleName());
                 }
             }
+            // Normalize forwarded string enums because JSON restore bypasses dedicated setters.
+            insertVisibleTimeoutReturnMode =
+                    normalizeInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode);
         } catch (Exception e) {
             throw new IOException("failed to read session variable: " + e.getMessage());
         }
@@ -5797,6 +5842,9 @@ public class SessionVariable implements Serializable, Writable {
                 }
 
             }
+            // Normalize forwarded string enums because map restore bypasses dedicated setters.
+            insertVisibleTimeoutReturnMode =
+                    normalizeInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode);
         } catch (Exception ex) {
             throw new IOException("invalid session variable, " + ex.getMessage());
         }
@@ -5848,6 +5896,9 @@ public class SessionVariable implements Serializable, Writable {
                 // set config field
                 VariableMgr.setValue(this, val, f, varAttr.name());
             }
+            // Normalize forwarded string enums because forwarded assignments bypass dedicated setters.
+            insertVisibleTimeoutReturnMode =
+                    normalizeInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode);
         } catch (Throwable e) {
             LOG.error("failed to set forward variables", e);
         }
