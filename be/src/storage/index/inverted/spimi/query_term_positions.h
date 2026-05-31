@@ -26,8 +26,11 @@
 // clang-format on
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
+#include "storage/index/inverted/spimi/posting_store.h"
+#include "storage/index/inverted/spimi/prox_window_reader.h"
 #include "storage/index/inverted/spimi/query_term_docs.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
@@ -61,18 +64,26 @@ namespace doris::segment_v2::inverted_index::spimi {
 class SpimiQueryTermPositions final : public SpimiQueryTermDocs,
                                       public lucene::index::TermPositions {
 public:
-    // Resident-bytes constructor (unit tests; `.frq` wrapped in a MemPostingStore).
+    // Resident-bytes constructor (unit tests; `.frq` AND `.prx` each wrapped in
+    // a MemPostingStore so the lazy windowed paths are exercised identically to
+    // the real positioned-read path). `prx_data` is borrowed and must outlive
+    // this object. A null `prx_data` (with `prx_length == 0`) is allowed for
+    // omit_tfap-only fields.
     SpimiQueryTermPositions(const TermDictReader* term_dict, const uint8_t* frq_data,
                             size_t frq_length, const uint8_t* prx_data, size_t prx_length,
                             const std::vector<FieldInfoEntry>* field_infos,
                             const std::vector<std::wstring>* field_names_wide);
 
-    // Positioned-read constructor: takes ownership of a `.frq` PostingStore
-    // (cloned per query thread by the reader). `.prx` stays resident (lazy
-    // `.prx` deferred). Used by `SpimiQueryIndexReader::termPositions`.
+    // Positioned-read constructor: takes ownership of a `.frq` PostingStore AND
+    // a `.prx` PostingStore (each cloned per query thread by the reader). The
+    // lazy windowed `.prx` reader range-reads only the covering window(s). A
+    // null `prx_store` is allowed for segments whose only fields are omit_tfap
+    // (empty `.prx`); in that case positions are never requested. Used by
+    // `SpimiQueryIndexReader::termPositions`.
     SpimiQueryTermPositions(const TermDictReader* term_dict,
-                            std::unique_ptr<PostingStore> frq_store, const uint8_t* prx_data,
-                            size_t prx_length, const std::vector<FieldInfoEntry>* field_infos,
+                            std::unique_ptr<PostingStore> frq_store,
+                            std::unique_ptr<PostingStore> prx_store,
+                            const std::vector<FieldInfoEntry>* field_infos,
                             const std::vector<std::wstring>* field_names_wide);
 
     ~SpimiQueryTermPositions() override;
@@ -106,26 +117,37 @@ public:
     int32_t read(int32_t* docs, int32_t* freqs, int32_t* norms, int32_t length) override;
 
 protected:
-    // Force the EAGER whole-term `_docs` materialization in the base.
-    // This subclass needs `freq_at(i)` over every doc to build the
-    // per-doc freq budget for `SpimiProxReader`, and indexes
-    // `_positions[doc_index]` by the base's `_index` cursor — both
-    // require the eager path. Window-addressed laziness for positions
-    // is a deferred follow-up.
-    bool may_use_lazy_windowed() const override { return false; }
+    // Allow the window-addressed LAZY `.frq` path. The doc cursor + per-window
+    // freqs from the base's `SpimiWindowedTermDocs` feed the lazy `.prx`
+    // reader, which decodes ONLY the window covering each touched doc. When the
+    // `.frq` block is NOT windowed (legacy/ZSTD), the base falls back to the
+    // eager `_docs` vector and so does the `.prx` side (`_prx_lazy_active=false`).
+    bool may_use_lazy_windowed() const override { return true; }
 
 private:
-    // Re-decodes positions for the currently seeked term out of
-    // `_prx_data` using `SpimiProxReader::ReadPositions`. Called
-    // from `seek()` after the parent has populated the docs vector.
+    // Prepares per-term position state after the base seek. If the base used
+    // the lazy `.frq` path AND the `.prx` block at `prox_pointer` is
+    // kProxWindowed, opens the lazy `.prx` reader (no inflation) and sets
+    // `_prx_lazy_active`. Otherwise builds the eager `_positions` vector via
+    // `SpimiProxReader::ReadPositions` (byte-identical fallback for legacy /
+    // raw / ZSTD non-windowed `.prx`).
     void LoadPositionsForCurrentTerm();
 
-    const uint8_t* _prx_data;
-    size_t _prx_length;
+    // The current doc's positions, lazily resolved through the windowed `.prx`
+    // reader (only used when `_prx_lazy_active`).
+    const std::vector<int32_t>& LazyPositionsForCurrentDoc();
 
-    // [doc_index][pos_index] — positions for each doc in the term's
-    // postings list, in the order the docs appear in
-    // `SpimiQueryTermDocs::_docs`.
+    // `.prx` byte source. Owned: a per-thread clone (real path) or a
+    // MemPostingStore wrapping resident bytes (tests). Null only for
+    // omit_tfap-only segments where positions are never requested.
+    std::unique_ptr<PostingStore> _prx_store;
+
+    // Window-addressed lazy `.prx` reader; active for windowed `.prx` blocks.
+    SpimiWindowedTermPositions _prx_lazy;
+    bool _prx_lazy_active = false;
+
+    // Eager fallback: [doc_index][pos_index] for legacy / non-windowed `.prx`.
+    // Empty when `_prx_lazy_active`.
     std::vector<std::vector<int32_t>> _positions;
 
     // Index of the next position to consume within the current doc.

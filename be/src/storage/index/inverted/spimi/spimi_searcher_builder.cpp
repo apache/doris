@@ -85,21 +85,20 @@ Status SpimiSearcherBuilder::build(lucene::store::Directory* directory,
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "SpimiSearcherBuilder: directory is null");
     }
-    std::vector<uint8_t> tis, tii, prx, fnm, segs;
+    std::vector<uint8_t> tis, tii, fnm, segs;
     // V4 = pure SPIMI. The V4 writer (P37c-3) emits segment files
     // under the canonical `_0.*` names — there is no CLucene
     // primary competing for them. SegmentInfos lives at the
     // standard `segments_1` (no `spimi_` prefix).
     //
     // The SMALL dictionary/manifest/field-info files (.tis/.tii/.fnm/
-    // segments_1) and `.prx` (lazy `.prx` deferred) stay FULLY RESIDENT
-    // (the hotcache the reader random-accesses constantly). Only `.frq`
-    // is kept as an OPEN IndexInput (below) so a selective query
-    // range-reads only the covering windows instead of slurping the
-    // whole term.
+    // segments_1) stay FULLY RESIDENT (the hotcache the reader
+    // random-accesses constantly). Both `.frq` AND `.prx` are kept as OPEN
+    // IndexInputs (below) so a selective phrase/proximity query range-reads
+    // only the `.frq`/`.prx` window(s) covering the docs it touches instead
+    // of slurping the whole term.
     RETURN_IF_ERROR(ReadAllBytes(directory, "_0.tis", &tis));
     RETURN_IF_ERROR(ReadAllBytes(directory, "_0.tii", &tii));
-    RETURN_IF_ERROR(ReadAllBytes(directory, "_0.prx", &prx));
     RETURN_IF_ERROR(ReadAllBytes(directory, "_0.fnm", &fnm));
     RETURN_IF_ERROR(ReadAllBytes(directory, "segments_1", &segs));
 
@@ -145,11 +144,30 @@ Status SpimiSearcherBuilder::build(lucene::store::Directory* directory,
     // ANY error before/inside reader construction (exception-safe transfer).
     inverted_index::spimi::OwnedFrqInput frq_input(frq_input_raw);
 
+    // Open `.prx` as a template IndexInput (clone source for per-thread
+    // positioned position reads). `openInput` rejects a zero-length file
+    // (CL_ERR_EmptyIndexSegment): a segment whose only fields are omit_tfap has
+    // an empty (or absent) `.prx` and never serves positions — pass a null
+    // `.prx` input in that case (NOT an error). A non-empty `.prx` that fails
+    // to open IS an error.
+    inverted_index::spimi::OwnedPrxInput prx_input;
+    if (directory->fileExists("_0.prx")) {
+        lucene::store::IndexInput* prx_input_raw = nullptr;
+        CLuceneError prx_err;
+        if (directory->openInput("_0.prx", prx_input_raw, prx_err)) {
+            prx_input.reset(prx_input_raw);
+        } else if (prx_err.number() != CL_ERR_EmptyIndexSegment) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "SPIMI openInput('_0.prx') failed: {}", prx_err.what());
+        }
+        // CL_ERR_EmptyIndexSegment → leave prx_input null (omit_tfap-only).
+    }
+
     std::unique_ptr<lucene::index::IndexReader> spimi_reader;
     try {
         spimi_reader = std::make_unique<inverted_index::spimi::SpimiQueryIndexReader>(
-                std::move(tis), std::move(tii), std::move(frq_input), directory, std::move(prx),
-                std::move(fnm), max_doc);
+                std::move(tis), std::move(tii), std::move(frq_input), std::move(prx_input),
+                directory, std::move(fnm), max_doc);
     } catch (const ::doris::Exception& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
                 "SpimiQueryIndexReader build error: {}", e.what());

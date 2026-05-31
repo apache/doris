@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/logging.h" // DCHECK
 #include "storage/index/inverted/spimi/posting_store.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
@@ -121,6 +122,40 @@ public:
     // distinct DecodeWindow() inflations performed so far.
     int32_t windows_total() const { return static_cast<int32_t>(_windows.size()); }
     int32_t windows_decoded() const { return _windows_decoded; }
+
+    // --- Per-window doc partition accessors (used by the lazy `.prx`
+    //     reader `SpimiWindowedTermPositions`, which aligns `.prx` window w
+    //     1:1 with `.frq` window w). These read ONLY the skip table resolved
+    //     at Open — no payload inflation. `w` must be in [0, windows_total()).
+    int32_t window_doc_count(int32_t w) const {
+        DCHECK(w >= 0 && static_cast<size_t>(w) < _windows.size());
+        return _windows[static_cast<size_t>(w)].doc_count;
+    }
+    int32_t window_doc_index_start(int32_t w) const {
+        DCHECK(w >= 0 && static_cast<size_t>(w) < _windows.size());
+        return _windows[static_cast<size_t>(w)].doc_index_start;
+    }
+
+    // Index of the window covering global doc index `p` (upper_bound on
+    // doc_index_start, then step back one). Precondition 0 <= p < doc_freq.
+    // Pure metadata lookup — does NOT decode the window.
+    int32_t WindowIndexForDoc(int32_t p) const;
+
+    // Decodes (if not already cached) the window covering global doc index
+    // `p` and returns its per-doc (doc_id, freq) vector. The i-th element is
+    // the i-th doc of that window (i in [0, window_doc_count(w))). The `.prx`
+    // reader pulls the per-doc freqs from `second`. Precondition
+    // 0 <= p < doc_freq. After return, current_window_index() == the covering
+    // window and current_window_docs() is this same vector.
+    const std::vector<std::pair<int32_t, int32_t>>& WindowDocsForDoc(int32_t p);
+
+    // The window currently held in the single-window decode cache (-1 none),
+    // and its decoded (doc_id, freq) vector. Valid after any successful
+    // next()/skipTo()/WindowDocsForDoc().
+    int32_t current_window_index() const { return _cur_win; }
+    const std::vector<std::pair<int32_t, int32_t>>& current_window_docs() const {
+        return _cur_docs;
+    }
 
 private:
     // One skip-table entry, fully resolved at Open (no payload inflation).

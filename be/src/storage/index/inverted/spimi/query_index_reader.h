@@ -52,7 +52,7 @@
 namespace lucene::store {
 class IndexInput;
 class Directory;
-}
+} // namespace lucene::store
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -63,6 +63,8 @@ struct CLuceneIndexInputDeleter {
     void operator()(lucene::store::IndexInput* p) const;
 };
 using OwnedFrqInput = std::unique_ptr<lucene::store::IndexInput, CLuceneIndexInputDeleter>;
+// Same self-deleting owner, used for the `.prx` template IndexInput.
+using OwnedPrxInput = std::unique_ptr<lucene::store::IndexInput, CLuceneIndexInputDeleter>;
 
 // `lucene::index::IndexReader` subclass exposing a SPIMI segment to
 // the CLucene query engine. Composes the four previously-built
@@ -113,9 +115,15 @@ public:
     // and releases it AFTER the input at destruction — mirroring CLucene's
     // `IndexReader::open(dir, closeDir=true)`. May be nullptr in unit tests
     // that build the input from a stack-owned RAMDirectory they keep alive.
+    // `.prx` is ALSO supplied as an OPEN template `IndexInput` (clone source):
+    // `termPositions()` clones it per query thread so phrase/proximity queries
+    // range-read ONLY the `.prx` window(s) covering the docs they touch. May be
+    // null for a segment whose only fields are omit_tfap (empty `.prx`); in that
+    // case `termPositions()` hands a null `.prx` store and positions are never
+    // requested. The reader takes ownership and `_CLDELETE`s it at destruction.
     SpimiQueryIndexReader(std::vector<uint8_t> tis_bytes, std::vector<uint8_t> tii_bytes,
-                          OwnedFrqInput frq_input, lucene::store::Directory* directory,
-                          std::vector<uint8_t> prx_bytes, std::vector<uint8_t> fnm_bytes,
+                          OwnedFrqInput frq_input, OwnedPrxInput prx_input,
+                          lucene::store::Directory* directory, std::vector<uint8_t> fnm_bytes,
                           int32_t max_doc);
 
     ~SpimiQueryIndexReader() override;
@@ -234,15 +242,14 @@ private:
     // Bytes — owned by this reader for its lifetime (the resident hotcache).
     std::vector<uint8_t> _tis_bytes;
     std::vector<uint8_t> _tii_bytes;
-    std::vector<uint8_t> _prx_bytes;
     std::vector<uint8_t> _fnm_bytes;
     int32_t _max_doc;
 
-    // Extra ref on the Directory backing `_frq_input`. Declared BEFORE
-    // `_frq_input` so member destruction order (reverse) releases the input
-    // FIRST, then the directory ref — the input must not outlive its backing
-    // stream. Released via `_CLDECDELETE` in the destructor. nullptr when the
-    // input is backed by a caller-owned directory (unit tests).
+    // Extra ref on the Directory backing `_frq_input` / `_prx_input`. Declared
+    // BEFORE the inputs so member destruction order (reverse) releases the
+    // inputs FIRST, then the directory ref — an input must not outlive its
+    // backing stream. Released via `_CLDECDELETE` in the destructor. nullptr
+    // when the inputs are backed by a caller-owned directory (unit tests).
     lucene::store::Directory* _dir = nullptr;
 
     // Open template `.frq` IndexInput — the CLONE SOURCE for per-thread
@@ -251,6 +258,11 @@ private:
     // self-deleting unique_ptr so ownership transfer from the builder is
     // exception-safe.
     OwnedFrqInput _frq_input;
+
+    // Open template `.prx` IndexInput — the CLONE SOURCE for per-thread
+    // positioned position reads. `termPositions()` clones it per call. null for
+    // omit_tfap-only segments (empty `.prx`). Released BEFORE `_dir`.
+    OwnedPrxInput _prx_input;
 
     // Parsed structures.
     std::vector<FieldInfoEntry> _field_infos_entries;

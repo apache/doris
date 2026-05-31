@@ -89,8 +89,7 @@ public:
     // thread from the reader's template `.frq` IndexInput). The lazy windowed
     // path then range-reads ONLY the header+skip-table prefix and each covering
     // window's bytes — a selective query transfers a fraction of the term.
-    SpimiQueryTermDocs(const TermDictReader* term_dict,
-                       std::unique_ptr<PostingStore> frq_store,
+    SpimiQueryTermDocs(const TermDictReader* term_dict, std::unique_ptr<PostingStore> frq_store,
                        const std::vector<FieldInfoEntry>* field_infos,
                        const std::vector<std::wstring>* field_names_wide);
 
@@ -150,7 +149,10 @@ protected:
     const std::vector<FieldInfoEntry>* field_infos() const { return _field_infos; }
     const std::vector<std::wstring>* field_names_wide() const { return _field_names_wide; }
     int32_t current_field_number() const { return _current_field_number; }
-    int32_t current_doc_index() const { return _index; }
+    // Global doc index of the current cursor position. Routes to the lazy
+    // `.frq` reader when active (where `_index` is unused), else the eager
+    // cursor. The position-aware subclass uses this to index per-doc positions.
+    int32_t current_doc_index() const { return _lazy ? _lazy_reader.doc_index() : _index; }
     int32_t current_freq() const {
         // DORIS_CHECK rather than silent 0-fallback: a "current_freq"
         // call past-end (or before first next()) is a programmer
@@ -176,6 +178,16 @@ protected:
     const TermInfo* current_term_info() const {
         return _current_term_info ? &(*_current_term_info) : nullptr;
     }
+
+    // Whether the base resolved the seeked term onto the window-addressed
+    // LAZY `.frq` path (vs the eager `_docs` vector). The position-aware
+    // subclass routes positions to the lazy `.prx` reader only when this is
+    // true (it needs the lazy `.frq` reader's per-window doc partition + freqs).
+    bool lazy_active() const { return _lazy; }
+    // The base's lazy `.frq` reader. Valid (Open()'d for the current term)
+    // only when lazy_active(). Mutable so the subclass can decode-on-demand
+    // the covering window's freqs for `.prx` slicing.
+    SpimiWindowedTermDocs& lazy_reader() { return _lazy_reader; }
 
 private:
     // Maps a `Term*`'s field() (wide-char interned string) to the

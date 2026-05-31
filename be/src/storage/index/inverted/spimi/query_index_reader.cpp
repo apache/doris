@@ -47,20 +47,20 @@ void CLuceneIndexInputDeleter::operator()(lucene::store::IndexInput* p) const {
 
 SpimiQueryIndexReader::SpimiQueryIndexReader(std::vector<uint8_t> tis_bytes,
                                              std::vector<uint8_t> tii_bytes,
-                                             OwnedFrqInput frq_input,
+                                             OwnedFrqInput frq_input, OwnedPrxInput prx_input,
                                              lucene::store::Directory* directory,
-                                             std::vector<uint8_t> prx_bytes,
                                              std::vector<uint8_t> fnm_bytes, int32_t max_doc)
         : _tis_bytes(std::move(tis_bytes)),
           _tii_bytes(std::move(tii_bytes)),
-          _prx_bytes(std::move(prx_bytes)),
           _fnm_bytes(std::move(fnm_bytes)),
           _max_doc(max_doc),
-          // Hold an extra ref on the directory so the open `_frq_input` (and
-          // its per-thread clones) cannot outlive their backing stream. Mirrors
-          // CLucene `IndexReader::open(dir, closeDir=true)`'s `_CL_POINTER`.
+          // Hold an extra ref on the directory so the open `_frq_input` /
+          // `_prx_input` (and their per-thread clones) cannot outlive their
+          // backing stream. Mirrors CLucene `IndexReader::open(dir,
+          // closeDir=true)`'s `_CL_POINTER`.
           _dir(directory != nullptr ? _CL_POINTER(directory) : nullptr),
-          _frq_input(std::move(frq_input)) {
+          _frq_input(std::move(frq_input)),
+          _prx_input(std::move(prx_input)) {
     DCHECK_GE(_max_doc, 0);
     DCHECK(_frq_input != nullptr);
     _field_infos_entries = FieldInfosReader::Read(_fnm_bytes);
@@ -73,13 +73,15 @@ SpimiQueryIndexReader::SpimiQueryIndexReader(std::vector<uint8_t> tis_bytes,
 }
 
 SpimiQueryIndexReader::~SpimiQueryIndexReader() {
-    // Release the `.frq` input FIRST (closes the cursor on the backing stream),
-    // THEN drop our extra ref on the directory. Doing it in this order in the
-    // body — rather than relying on member destruction order alone — makes the
-    // input-before-directory dependency explicit and robust to future member
-    // reordering. Any per-thread clones were already deleted with their
-    // TermDocs (the reader outlives all its TermDocs per the CLucene contract).
+    // Release the `.frq` / `.prx` inputs FIRST (closes the cursor on the
+    // backing stream), THEN drop our extra ref on the directory. Doing it in
+    // this order in the body — rather than relying on member destruction order
+    // alone — makes the input-before-directory dependency explicit and robust
+    // to future member reordering. Any per-thread clones were already deleted
+    // with their TermDocs (the reader outlives all its TermDocs per the
+    // CLucene contract).
     _frq_input.reset();
+    _prx_input.reset();
     if (_dir != nullptr) {
         _CLDECDELETE(_dir);
         _dir = nullptr;
@@ -140,12 +142,20 @@ lucene::index::TermDocs* SpimiQueryIndexReader::termDocs(bool /*load_stats*/,
 
 lucene::index::TermPositions* SpimiQueryIndexReader::termPositions(bool /*load_stats*/,
                                                                    const void* /*io_ctx*/) {
-    // Positions force the EAGER `.frq` path (lazy `.prx` deferred); the eager
-    // path one-shot-reads the term block through this cloned PostingStore. `.prx`
-    // stays fully resident. Each call gets its own clone (per-thread cursor).
-    auto store = std::make_unique<IndexInputPostingStore>(_frq_input->clone());
-    return new SpimiQueryTermPositions(_term_dict.get(), std::move(store), _prx_bytes.data(),
-                                       _prx_bytes.size(), &_field_infos_entries, &_field_names_wide);
+    // Clone BOTH the `.frq` and `.prx` template inputs so this TermPositions has
+    // its OWN cursors (independent across query threads; the shared file
+    // handles' `read_at` is mutex-guarded). The lazy `.frq` reader yields
+    // candidate docs window-by-window; the lazy `.prx` reader range-reads only
+    // the window(s) covering those docs' positions. `.prx` may be absent
+    // (omit_tfap-only segment): pass a null `.prx` store — positions are never
+    // requested for such fields.
+    auto frq_store = std::make_unique<IndexInputPostingStore>(_frq_input->clone());
+    std::unique_ptr<PostingStore> prx_store;
+    if (_prx_input != nullptr) {
+        prx_store = std::make_unique<IndexInputPostingStore>(_prx_input->clone());
+    }
+    return new SpimiQueryTermPositions(_term_dict.get(), std::move(frq_store), std::move(prx_store),
+                                       &_field_infos_entries, &_field_names_wide);
 }
 
 int32_t SpimiQueryIndexReader::docFreq(const lucene::index::Term* t) {

@@ -74,26 +74,32 @@ struct IndexReaderFixture {
         _max_doc = max_doc;
     }
 
-    std::unique_ptr<SpimiQueryIndexReader> Make() {
-        // The reader now takes `.frq` as an OPEN template IndexInput (not
-        // slurped). Stage the frq bytes into a RAMDirectory (held by the
-        // fixture so it outlives the reader) and openInput. `openInput` rejects
-        // a zero-length file, but every test term here has postings.
-        auto* out = _ram.createOutput("_0.frq");
-        if (!frq.bytes().empty()) {
-            out->writeBytes(frq.bytes().data(), static_cast<int32_t>(frq.bytes().size()));
+    // Stages `bytes` into the fixture's RAMDirectory under `name` and opens it
+    // as a template IndexInput. The RAMDirectory is held by the fixture so it
+    // outlives the reader. `openInput` rejects a zero-length file.
+    lucene::store::IndexInput* StageAndOpen(const char* name, const std::vector<uint8_t>& bytes) {
+        auto* out = _ram.createOutput(name);
+        if (!bytes.empty()) {
+            out->writeBytes(bytes.data(), static_cast<int32_t>(bytes.size()));
         }
         out->close();
         _CLDELETE(out);
-        lucene::store::IndexInput* frq_in = nullptr;
+        lucene::store::IndexInput* in = nullptr;
         CLuceneError err;
-        EXPECT_TRUE(_ram.openInput("_0.frq", frq_in, err));
-        OwnedFrqInput frq_owned(frq_in);
+        EXPECT_TRUE(_ram.openInput(name, in, err));
+        return in;
+    }
+
+    std::unique_ptr<SpimiQueryIndexReader> Make() {
+        // The reader now takes `.frq` AND `.prx` as OPEN template IndexInputs
+        // (not slurped). Every test term here has postings + positions.
+        OwnedFrqInput frq_owned(StageAndOpen("_0.frq", frq.bytes()));
+        OwnedPrxInput prx_owned(StageAndOpen("_0.prx", prx.bytes()));
         // Pass nullptr for the directory: the fixture owns `_ram` on the stack
         // and keeps it alive past the reader, so no extra ref is needed.
-        return std::make_unique<SpimiQueryIndexReader>(tis.bytes(), tii.bytes(),
-                                                       std::move(frq_owned), /*directory=*/nullptr,
-                                                       prx.bytes(), fnm.bytes(), _max_doc);
+        return std::make_unique<SpimiQueryIndexReader>(
+                tis.bytes(), tii.bytes(), std::move(frq_owned), std::move(prx_owned),
+                /*directory=*/nullptr, fnm.bytes(), _max_doc);
     }
 
     lucene::store::RAMDirectory _ram;

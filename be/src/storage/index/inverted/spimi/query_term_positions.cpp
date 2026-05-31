@@ -17,6 +17,8 @@
 
 #include "storage/index/inverted/spimi/query_term_positions.h"
 
+#include <vector>
+
 #include "common/exception.h"
 #include "common/logging.h"
 #include "storage/index/inverted/spimi/prox_reader.h"
@@ -28,27 +30,29 @@ SpimiQueryTermPositions::SpimiQueryTermPositions(const TermDictReader* term_dict
                                                  const uint8_t* prx_data, size_t prx_length,
                                                  const std::vector<FieldInfoEntry>* field_infos,
                                                  const std::vector<std::wstring>* field_names_wide)
-        : SpimiQueryTermDocs(term_dict, frq_data, frq_length, field_infos, field_names_wide),
-          _prx_data(prx_data),
-          _prx_length(prx_length) {
-    DCHECK(_prx_data != nullptr || _prx_length == 0);
+        : SpimiQueryTermDocs(term_dict, frq_data, frq_length, field_infos, field_names_wide) {
+    DCHECK(prx_data != nullptr || prx_length == 0);
+    // Wrap resident `.prx` bytes in a MemPostingStore so the lazy windowed
+    // path is exercised identically to the real positioned-read path. A null /
+    // empty `.prx` (omit_tfap-only) leaves `_prx_store` null.
+    if (prx_data != nullptr && prx_length > 0) {
+        _prx_store = std::make_unique<MemPostingStore>(prx_data, prx_length);
+    }
 }
 
 SpimiQueryTermPositions::SpimiQueryTermPositions(const TermDictReader* term_dict,
                                                  std::unique_ptr<PostingStore> frq_store,
-                                                 const uint8_t* prx_data, size_t prx_length,
+                                                 std::unique_ptr<PostingStore> prx_store,
                                                  const std::vector<FieldInfoEntry>* field_infos,
                                                  const std::vector<std::wstring>* field_names_wide)
         : SpimiQueryTermDocs(term_dict, std::move(frq_store), field_infos, field_names_wide),
-          _prx_data(prx_data),
-          _prx_length(prx_length) {
-    DCHECK(_prx_data != nullptr || _prx_length == 0);
-}
+          _prx_store(std::move(prx_store)) {}
 
 SpimiQueryTermPositions::~SpimiQueryTermPositions() = default;
 
 void SpimiQueryTermPositions::LoadPositionsForCurrentTerm() {
     _positions.clear();
+    _prx_lazy_active = false;
     _pos_index = -1;
 
     const int32_t field_number = current_field_number();
@@ -66,13 +70,45 @@ void SpimiQueryTermPositions::LoadPositionsForCurrentTerm() {
     if (ti == nullptr || ti->doc_freq <= 0) {
         return;
     }
+    if (_prx_store == nullptr) [[unlikely]] {
+        // has_prox field but no `.prx` source — corrupt manifest / wiring.
+        _CLTHROWA(CL_ERR_IO, "SPIMI: has_prox term but no .prx store");
+    }
 
-    // Build the per-doc freq budget for `SpimiProxReader::ReadPositions`.
-    // Each doc's freq tells the reader how many VInts to consume
-    // before resetting the position delta accumulator.
+    // Same untrusted-byte bounds check as for freq_pointer in the TermDocs
+    // base. `ti->prox_pointer` is a VLong sum from `.tis`; unchecked pointer
+    // arithmetic on a corrupt segment is UB.
+    if (ti->prox_pointer < 0 || ti->prox_pointer > _prx_store->length()) [[unlikely]] {
+        _CLTHROWA(CL_ERR_IO, "SPIMI .tis prox_pointer out of .prx bounds");
+    }
+
+    // --- Fast path: windowed `.frq` (base on lazy path) + windowed `.prx`.
+    //     Open the lazy `.prx` reader (header + per-window self-framing only,
+    //     no inflation). Positions for each touched doc are decoded on demand,
+    //     one covering window at a time. ---
+    if (lazy_active()) {
+        try {
+            if (_prx_lazy.Open(_prx_store.get(), ti->prox_pointer, lazy_reader())) {
+                _prx_lazy_active = true;
+                return;
+            }
+        } catch (const ::doris::Exception& e) {
+            _CLTHROWA(CL_ERR_IO, e.what());
+        }
+        // Open returned false: `.prx` is not windowed even though `.frq` is.
+        // The encoder writes both windowed-or-neither, so this cannot happen
+        // for a well-formed segment — surface it rather than silently produce
+        // wrong positions.
+        _CLTHROWA(CL_ERR_IO, "SPIMI: windowed .frq but non-windowed .prx (desynced segment)");
+    }
+
+    // --- Eager fallback: legacy / raw / ZSTD non-windowed `.prx`. The base is
+    //     on the eager path here (`.frq` non-windowed), so the whole `_docs`
+    //     vector is materialized and `freq_at(i)` is valid for every doc. Read
+    //     the term's `.prx` slice resident (from prox_pointer to the file end —
+    //     ReadPositions consumes only the bytes the freqs require) and decode
+    //     it whole, byte-identically to the original eager path. ---
     std::vector<int32_t> freqs_per_doc;
-    // Cap pre-reserve against the same DoS-bounding limit used in
-    // `term_docs_reader.cpp` to defeat corrupt-doc_freq attacks.
     constexpr size_t kSafeReserveCap = 1U << 24;
     freqs_per_doc.reserve(std::min(static_cast<size_t>(ti->doc_freq), kSafeReserveCap));
     for (int32_t i = 0; i < ti->doc_freq; ++i) {
@@ -81,21 +117,26 @@ void SpimiQueryTermPositions::LoadPositionsForCurrentTerm() {
         freqs_per_doc.push_back(f);
     }
 
-    // Same untrusted-byte bounds check as for freq_pointer in the
-    // TermDocs base. `ti->prox_pointer` is a VLong sum from `.tis`;
-    // unchecked pointer arithmetic on a corrupt segment is UB.
-    if (ti->prox_pointer < 0 || static_cast<uint64_t>(ti->prox_pointer) > _prx_length)
-            [[unlikely]] {
-        _CLTHROWA(CL_ERR_IO, "SPIMI .tis prox_pointer out of .prx bounds");
-    }
     const auto fp = static_cast<size_t>(ti->prox_pointer);
-    // Translate pure-SPIMI exceptions to CLuceneError at the
-    // CLucene boundary: ReadPositions throws `doris::Exception`
-    // (INVERTED_INDEX_FILE_CORRUPTED) on malformed `.prx` bytes;
-    // the CLucene query engine only catches CLuceneError.
+    const auto file_len = static_cast<size_t>(_prx_store->length());
+    const size_t slice_len = file_len - fp;
+    std::vector<uint8_t> prx_slice(slice_len);
     try {
+        if (slice_len > 0) {
+            _prx_store->read_at(static_cast<int64_t>(fp), prx_slice.data(), slice_len);
+        }
         _positions =
-                SpimiProxReader::ReadPositions(_prx_data + fp, _prx_length - fp, freqs_per_doc);
+                SpimiProxReader::ReadPositions(prx_slice.data(), prx_slice.size(), freqs_per_doc);
+    } catch (const ::doris::Exception& e) {
+        _CLTHROWA(CL_ERR_IO, e.what());
+    }
+}
+
+const std::vector<int32_t>& SpimiQueryTermPositions::LazyPositionsForCurrentDoc() {
+    const int32_t doc_index = current_doc_index();
+    DCHECK_GE(doc_index, 0) << "nextPosition() before first next()";
+    try {
+        return _prx_lazy.PositionsForDoc(doc_index, lazy_reader());
     } catch (const ::doris::Exception& e) {
         _CLTHROWA(CL_ERR_IO, e.what());
     }
@@ -160,10 +201,12 @@ int32_t SpimiQueryTermPositions::nextPosition() {
                   "(no positions written); phrase queries require support_phrase=true");
     }
 
-    const int32_t doc_index = current_doc_index();
-    DCHECK_GE(doc_index, 0) << "nextPosition() before first next()";
-    DCHECK_LT(static_cast<size_t>(doc_index), _positions.size());
-    const auto& doc_positions = _positions[static_cast<size_t>(doc_index)];
+    // Lazy windowed `.prx`: resolve the current doc's positions through the
+    // window-addressed reader (decodes only the covering window). Eager
+    // fallback: index the pre-decoded `_positions[doc_index]` vector.
+    const std::vector<int32_t>& doc_positions =
+            _prx_lazy_active ? LazyPositionsForCurrentDoc()
+                             : _positions[static_cast<size_t>(current_doc_index())];
     DCHECK_GE(_pos_index, 0);
     DCHECK_LT(_pos_index, static_cast<int32_t>(doc_positions.size()))
             << "nextPosition() called more than freq() times for current doc";

@@ -329,6 +329,25 @@ void SpimiWindowedTermDocs::DecodeWindow(int32_t w) {
     ++_windows_decoded;
 }
 
+int32_t SpimiWindowedTermDocs::WindowIndexForDoc(int32_t p) const {
+    // Same partition lookup as EnsureWindowForPos, but pure (no decode). The
+    // skip-table invariants (contiguous, ascending, partition [0,doc_freq))
+    // guarantee exactly one covering window for 0 <= p < _doc_freq.
+    if (p < 0 || p >= _doc_freq) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .frq windowed: WindowIndexForDoc out of range");
+    }
+    const auto it = std::upper_bound(
+            _windows.begin(), _windows.end(), p,
+            [](int32_t pos, const WinEntry& e) { return pos < e.doc_index_start; });
+    return static_cast<int32_t>((it - _windows.begin()) - 1);
+}
+
+const std::vector<std::pair<int32_t, int32_t>>& SpimiWindowedTermDocs::WindowDocsForDoc(int32_t p) {
+    const int32_t w = WindowIndexForDoc(p);
+    DecodeWindow(w); // no-op if already cached
+    return _cur_docs;
+}
+
 void SpimiWindowedTermDocs::EnsureWindowForPos() {
     // Find the window whose [doc_index_start, +doc_count) contains _pos.
     // upper_bound on doc_index_start, then step back one — O(log num_windows).
