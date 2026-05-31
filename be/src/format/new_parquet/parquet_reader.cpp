@@ -43,7 +43,7 @@
 #include "format/new_parquet/column_reader.h"
 #include "format/new_parquet/parquet_column_schema.h"
 #include "format/new_parquet/parquet_file_context.h"
-#include "format/new_parquet/parquet_statistics.h"
+#include "format/new_parquet/parquet_scan_planner.h"
 #include "format/new_parquet/selection_vector.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/schema.h"
@@ -613,48 +613,6 @@ Status ParquetReader::_read_current_row_group_batch(int64_t batch_rows, Block* f
     return Status::OK();
 }
 
-int64_t ParquetReader::_column_start_offset(
-        const ::parquet::ColumnChunkMetaData& column_metadata) const {
-    return column_metadata.has_dictionary_page()
-                   ? cast_set<int64_t>(column_metadata.dictionary_page_offset())
-                   : cast_set<int64_t>(column_metadata.data_page_offset());
-}
-
-bool ParquetReader::_is_row_group_outside_range(int row_group_idx) const {
-    DORIS_CHECK(_file_description != nullptr);
-    // This parquet file is not split
-    if (_file_description->range_size < 0) {
-        return false;
-    }
-    const int64_t range_start_offset = _file_description->range_start_offset;
-    const int64_t range_end_offset = range_start_offset + _file_description->range_size;
-    DORIS_CHECK(range_start_offset >= 0);
-    DORIS_CHECK(range_end_offset >= range_start_offset);
-    // read whole parquet file if the range covers the whole file, which is a common case when parquet files are not splittable.
-    if (range_start_offset == 0 &&
-        (_file_description->file_size < 0 || range_end_offset >= _file_description->file_size)) {
-        return false;
-    }
-
-    auto row_group_metadata = _state->file_context.metadata->RowGroup(row_group_idx);
-    DORIS_CHECK(row_group_metadata != nullptr);
-    DORIS_CHECK(row_group_metadata->num_columns() > 0);
-    const auto first_column = row_group_metadata->ColumnChunk(0);
-    const auto last_column = row_group_metadata->ColumnChunk(row_group_metadata->num_columns() - 1);
-    DORIS_CHECK(first_column != nullptr);
-    DORIS_CHECK(last_column != nullptr);
-    const int64_t row_group_start_offset = _column_start_offset(*first_column);
-    const int64_t row_group_end_offset =
-            _column_start_offset(*last_column) + last_column->total_compressed_size();
-    // A scan range is a byte split, while Parquet is read by row group. If a row group crosses
-    // split boundaries, using overlap would let adjacent ranges read the same row group. Keep the
-    // same ownership rule as the legacy vparquet reader: the range containing the row group's
-    // midpoint owns the whole row group.
-    const int64_t row_group_mid_offset =
-            row_group_start_offset + (row_group_end_offset - row_group_start_offset) / 2;
-    return row_group_mid_offset < range_start_offset || row_group_mid_offset >= range_end_offset;
-}
-
 ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                              std::unique_ptr<io::FileDescription>& file_description,
                              std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile)
@@ -785,26 +743,16 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
         reader::SchemaField projected_field;
         RETURN_IF_ERROR(_get_projected_schema_field(file_column_id, &projection, &projected_field));
     }
-    RETURN_IF_ERROR(select_row_groups_by_statistics(
+    RowGroupScanPlan row_group_plan;
+    ParquetScanRange scan_range;
+    scan_range.start_offset = _file_description->range_start_offset;
+    scan_range.size = _file_description->range_size;
+    scan_range.file_size = _file_description->file_size;
+    RETURN_IF_ERROR(plan_parquet_row_groups(
             *_state->file_context.metadata, _state->file_context.file_reader.get(),
-            _state->file_schema, *_request, &_state->selected_row_groups));
-    std::vector<int> range_selected_row_groups;
-    range_selected_row_groups.reserve(_state->selected_row_groups.size());
-    for (const auto row_group_idx : _state->selected_row_groups) {
-        if (!_is_row_group_outside_range(row_group_idx)) {
-            range_selected_row_groups.push_back(row_group_idx);
-        }
-    }
-    _state->selected_row_groups = std::move(range_selected_row_groups);
-    _state->row_group_first_rows.resize(_state->file_context.metadata->num_row_groups());
-    int64_t next_row_group_first_row = 0;
-    for (int row_group_idx = 0; row_group_idx < _state->file_context.metadata->num_row_groups();
-         ++row_group_idx) {
-        _state->row_group_first_rows[row_group_idx] = next_row_group_first_row;
-        auto row_group_metadata = _state->file_context.metadata->RowGroup(row_group_idx);
-        DORIS_CHECK(row_group_metadata != nullptr);
-        next_row_group_first_row += row_group_metadata->num_rows();
-    }
+            _state->file_schema, *_request, scan_range, &row_group_plan));
+    _state->selected_row_groups = std::move(row_group_plan.selected_row_groups);
+    _state->row_group_first_rows = std::move(row_group_plan.row_group_first_rows);
     RETURN_IF_ERROR(_reset_reader_position());
     _eof = _state->selected_row_groups.empty();
     return Status::OK();
