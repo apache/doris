@@ -45,6 +45,7 @@
 #include "format/new_parquet/arrow_leaf_reader_adapter.h"
 #include "format/new_parquet/nested_level_assembler.h"
 #include "format/new_parquet/parquet_column_schema.h"
+#include "format/new_parquet/shape_only_column_reader.h"
 #include "format/reader/file_reader.h"
 
 namespace doris::parquet {
@@ -158,93 +159,6 @@ private:
     std::unique_ptr<ParquetColumnReader> _element_reader;
     NestedScalarOverflow _element_overflow;
     NestedStructOverflow _struct_element_overflow;
-};
-
-class ShapeOnlyColumnReader final : public ParquetColumnReader {
-public:
-    explicit ShapeOnlyColumnReader(std::unique_ptr<ParquetColumnReader> source)
-            : _source(std::move(source)) {
-        DORIS_CHECK(_source != nullptr);
-    }
-
-    int file_column_id() const override { return _source->file_column_id(); }
-    int parquet_leaf_column_id() const override { return _source->parquet_leaf_column_id(); }
-    const DataTypePtr& type() const override { return _source->type(); }
-    const std::string& name() const override { return _source->name(); }
-
-    Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override {
-        if (rows_read == nullptr) {
-            return Status::InvalidArgument("Parquet shape-only read result pointer is null");
-        }
-        if (column.get() != nullptr) {
-            return Status::InvalidArgument(
-                    "Parquet shape-only reader should not materialize column {}", name());
-        }
-        RETURN_IF_ERROR(skip(rows));
-        *rows_read = rows;
-        return Status::OK();
-    }
-
-    Status skip(int64_t rows) override { return _source->skip(rows); }
-
-    Status select(const SelectionVector& sel, uint16_t selected_rows, int64_t batch_rows,
-                  MutableColumnPtr& column) override {
-        if (column.get() != nullptr) {
-            return Status::InvalidArgument(
-                    "Parquet shape-only reader should not materialize column {}", name());
-        }
-        RETURN_IF_ERROR(sel.verify(selected_rows, batch_rows));
-        return skip(batch_rows);
-    }
-
-private:
-    std::unique_ptr<ParquetColumnReader> _source;
-};
-
-class RowPositionColumnReader final : public ParquetColumnReader {
-public:
-    explicit RowPositionColumnReader(int64_t row_group_first_row)
-            : _row_group_first_row(row_group_first_row) {}
-
-    int file_column_id() const override {
-        return ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
-    }
-    int parquet_leaf_column_id() const override { return -1; }
-    const DataTypePtr& type() const override { return _type; }
-    const std::string& name() const override { return _name; }
-
-    Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override {
-        if (column.get() == nullptr || rows_read == nullptr) {
-            return Status::InvalidArgument("Invalid parquet row position read result pointer");
-        }
-        if (rows < 0) {
-            return Status::InvalidArgument("Invalid parquet row position read rows {}", rows);
-        }
-        auto* vector_column = assert_cast<ColumnInt64*>(column.get());
-        auto& data = vector_column->get_data();
-        const auto old_size = data.size();
-        data.resize(old_size + rows);
-        for (int64_t row = 0; row < rows; ++row) {
-            data[old_size + row] = _row_group_first_row + _next_row_position + row;
-        }
-        _next_row_position += rows;
-        *rows_read = rows;
-        return Status::OK();
-    }
-
-    Status skip(int64_t rows) override {
-        if (rows <= 0) {
-            return Status::OK();
-        }
-        _next_row_position += rows;
-        return Status::OK();
-    }
-
-private:
-    int64_t _row_group_first_row = 0;
-    int64_t _next_row_position = 0;
-    DataTypePtr _type = std::make_shared<DataTypeInt64>();
-    std::string _name = ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME;
 };
 
 class MapColumnReader final : public ParquetColumnReader {
