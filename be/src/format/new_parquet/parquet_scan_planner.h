@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "format/new_parquet/selection_vector.h"
 #include "format/reader/file_reader.h"
 
 namespace parquet {
@@ -38,9 +39,15 @@ struct ParquetScanRange {
     int64_t file_size = -1;
 };
 
+struct RowGroupReadPlan {
+    int row_group_id = -1;
+    int64_t first_file_row = 0;
+    int64_t row_group_rows = 0;
+    std::vector<RowRange> selected_ranges;
+};
+
 struct RowGroupScanPlan {
-    std::vector<int> selected_row_groups;
-    std::vector<int64_t> row_group_first_rows;
+    std::vector<RowGroupReadPlan> row_groups;
 };
 
 Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,

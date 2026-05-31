@@ -39,13 +39,12 @@ constexpr int64_t DEFAULT_PARQUET_READ_BATCH_SIZE = 4096;
 } // namespace
 
 void ParquetScanScheduler::set_plan(RowGroupScanPlan plan) {
-    _selected_row_groups = std::move(plan.selected_row_groups);
-    _row_group_first_rows = std::move(plan.row_group_first_rows);
+    _row_group_plans = std::move(plan.row_groups);
     reset();
 }
 
 void ParquetScanScheduler::reset() {
-    _next_row_group_idx = 0;
+    _next_row_group_plan_idx = 0;
     reset_current_row_group();
 }
 
@@ -56,6 +55,9 @@ void ParquetScanScheduler::reset_current_row_group() {
     _current_row_group_rows = 0;
     _current_row_group_rows_read = 0;
     _current_row_group_first_row = 0;
+    _current_selected_ranges.clear();
+    _current_range_idx = 0;
+    _current_range_rows_read = 0;
 }
 
 Status ParquetScanScheduler::open_next_row_group(
@@ -63,8 +65,9 @@ Status ParquetScanScheduler::open_next_row_group(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const reader::FileScanRequest& request, bool* has_row_group) {
     *has_row_group = false;
-    while (_next_row_group_idx < _selected_row_groups.size()) {
-        const int row_group_idx = _selected_row_groups[_next_row_group_idx++];
+    while (_next_row_group_plan_idx < _row_group_plans.size()) {
+        const RowGroupReadPlan& row_group_plan = _row_group_plans[_next_row_group_plan_idx++];
+        const int row_group_idx = row_group_plan.row_group_id;
         try {
             _current_row_group = file_context.file_reader->RowGroup(row_group_idx);
         } catch (const ::parquet::ParquetException& e) {
@@ -76,19 +79,16 @@ Status ParquetScanScheduler::open_next_row_group(
         }
 
         auto row_group_metadata = file_context.metadata->RowGroup(row_group_idx);
-        _current_row_group_rows =
-                row_group_metadata == nullptr ? 0 : row_group_metadata->num_rows();
-        if (_current_row_group_rows < 0) {
-            return Status::Corruption("Invalid negative row count in parquet row group {}",
-                                      row_group_idx);
-        } else if (_current_row_group_rows == 0) {
-            reset_current_row_group();
-            continue;
-        }
-        DORIS_CHECK(row_group_idx >= 0 &&
-                    row_group_idx < static_cast<int>(_row_group_first_rows.size()));
-        _current_row_group_first_row = _row_group_first_rows[row_group_idx];
+        DORIS_CHECK(row_group_metadata != nullptr);
+        _current_row_group_rows = row_group_metadata->num_rows();
+        DORIS_CHECK(_current_row_group_rows == row_group_plan.row_group_rows);
+        DORIS_CHECK(_current_row_group_rows > 0);
+        DORIS_CHECK(!row_group_plan.selected_ranges.empty());
+        _current_row_group_first_row = row_group_plan.first_file_row;
         _current_row_group_rows_read = 0;
+        _current_selected_ranges = row_group_plan.selected_ranges;
+        _current_range_idx = 0;
+        _current_range_rows_read = 0;
         _current_predicate_columns.clear();
         _current_non_predicate_columns.clear();
 
@@ -131,6 +131,21 @@ Status ParquetScanScheduler::open_next_row_group(
         *has_row_group = true;
         break;
     }
+    return Status::OK();
+}
+
+Status ParquetScanScheduler::skip_current_row_group_rows(int64_t rows) {
+    DORIS_CHECK(rows >= 0);
+    if (rows == 0) {
+        return Status::OK();
+    }
+    for (auto& column_reader : _current_predicate_columns) {
+        RETURN_IF_ERROR(column_reader->skip(rows));
+    }
+    for (auto& column_reader : _current_non_predicate_columns) {
+        RETURN_IF_ERROR(column_reader->skip(rows));
+    }
+    _current_row_group_rows_read += rows;
     return Status::OK();
 }
 
@@ -235,9 +250,25 @@ Status ParquetScanScheduler::read_next_batch(
             }
         }
 
-        const int64_t remaining_rows = _current_row_group_rows - _current_row_group_rows_read;
-        if (remaining_rows <= 0) {
+        if (_current_range_idx >= _current_selected_ranges.size()) {
             reset_current_row_group();
+            continue;
+        }
+
+        const RowRange& current_range = _current_selected_ranges[_current_range_idx];
+        DORIS_CHECK(current_range.start >= 0);
+        DORIS_CHECK(current_range.length > 0);
+        DORIS_CHECK(current_range.start + current_range.length <= _current_row_group_rows);
+
+        if (_current_row_group_rows_read < current_range.start) {
+            RETURN_IF_ERROR(skip_current_row_group_rows(current_range.start -
+                                                        _current_row_group_rows_read));
+        }
+        DORIS_CHECK(_current_row_group_rows_read == current_range.start + _current_range_rows_read);
+        const int64_t remaining_rows = current_range.length - _current_range_rows_read;
+        if (remaining_rows <= 0) {
+            ++_current_range_idx;
+            _current_range_rows_read = 0;
             continue;
         }
 
@@ -246,8 +277,10 @@ Status ParquetScanScheduler::read_next_batch(
         const int64_t physical_rows_read = batch_rows;
         RETURN_IF_ERROR(read_current_row_group_batch(batch_rows, request, file_block, rows));
         _current_row_group_rows_read += physical_rows_read;
-        if (_current_row_group_rows_read >= _current_row_group_rows) {
-            reset_current_row_group();
+        _current_range_rows_read += physical_rows_read;
+        if (_current_range_rows_read >= current_range.length) {
+            ++_current_range_idx;
+            _current_range_rows_read = 0;
         }
         if (*rows == 0) {
             continue;

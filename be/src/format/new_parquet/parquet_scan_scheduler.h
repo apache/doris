@@ -47,7 +47,7 @@ class ParquetScanScheduler {
 public:
     void set_plan(RowGroupScanPlan plan);
     void reset();
-    bool empty() const { return _selected_row_groups.empty(); }
+    bool empty() const { return _row_group_plans.empty(); }
 
     Status read_next_batch(ParquetFileContext& file_context,
                            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -61,6 +61,8 @@ private:
                                const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
                                const reader::FileScanRequest& request, bool* has_row_group);
 
+    Status skip_current_row_group_rows(int64_t rows);
+
     Status read_filter_columns(int64_t batch_rows, const reader::FileScanRequest& request,
                                Block* file_block, SelectionVector* selection,
                                uint16_t* selected_rows);
@@ -68,15 +70,17 @@ private:
     Status read_current_row_group_batch(int64_t batch_rows, const reader::FileScanRequest& request,
                                         Block* file_block, size_t* rows);
 
-    std::vector<int> _selected_row_groups;
-    std::vector<int64_t> _row_group_first_rows;
-    size_t _next_row_group_idx = 0;
+    std::vector<RowGroupReadPlan> _row_group_plans;
+    size_t _next_row_group_plan_idx = 0;
     std::shared_ptr<::parquet::RowGroupReader> _current_row_group;
     std::vector<std::unique_ptr<ParquetColumnReader>> _current_predicate_columns;
     std::vector<std::unique_ptr<ParquetColumnReader>> _current_non_predicate_columns;
     int64_t _current_row_group_rows = 0;
     int64_t _current_row_group_rows_read = 0;
     int64_t _current_row_group_first_row = 0;
+    std::vector<RowRange> _current_selected_ranges;
+    size_t _current_range_idx = 0;
+    int64_t _current_range_rows_read = 0;
 };
 
 } // namespace doris::parquet

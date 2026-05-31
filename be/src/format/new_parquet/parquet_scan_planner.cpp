@@ -19,6 +19,7 @@
 
 #include <parquet/api/reader.h>
 
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -72,27 +73,45 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
                                const reader::FileScanRequest& request,
                                const ParquetScanRange& scan_range, RowGroupScanPlan* plan) {
     DORIS_CHECK(plan != nullptr);
-    plan->selected_row_groups.clear();
-    plan->row_group_first_rows.clear();
+    plan->row_groups.clear();
 
     std::vector<int> statistics_selected_row_groups;
     RETURN_IF_ERROR(select_row_groups_by_statistics(metadata, file_reader, file_schema, request,
                                                     &statistics_selected_row_groups));
 
-    plan->selected_row_groups.reserve(statistics_selected_row_groups.size());
-    for (const auto row_group_idx : statistics_selected_row_groups) {
-        if (!is_row_group_outside_range(metadata, scan_range, row_group_idx)) {
-            plan->selected_row_groups.push_back(row_group_idx);
-        }
-    }
-
-    plan->row_group_first_rows.resize(metadata.num_row_groups());
+    std::vector<int64_t> row_group_first_rows(metadata.num_row_groups());
     int64_t next_row_group_first_row = 0;
     for (int row_group_idx = 0; row_group_idx < metadata.num_row_groups(); ++row_group_idx) {
-        plan->row_group_first_rows[row_group_idx] = next_row_group_first_row;
+        row_group_first_rows[row_group_idx] = next_row_group_first_row;
         auto row_group_metadata = metadata.RowGroup(row_group_idx);
         DORIS_CHECK(row_group_metadata != nullptr);
-        next_row_group_first_row += row_group_metadata->num_rows();
+        const int64_t row_group_rows = row_group_metadata->num_rows();
+        if (row_group_rows < 0) {
+            return Status::Corruption("Invalid negative row count in parquet row group {}",
+                                      row_group_idx);
+        }
+        next_row_group_first_row += row_group_rows;
+    }
+
+    plan->row_groups.reserve(statistics_selected_row_groups.size());
+    for (const auto row_group_idx : statistics_selected_row_groups) {
+        if (is_row_group_outside_range(metadata, scan_range, row_group_idx)) {
+            continue;
+        }
+
+        auto row_group_metadata = metadata.RowGroup(row_group_idx);
+        DORIS_CHECK(row_group_metadata != nullptr);
+        const int64_t row_group_rows = row_group_metadata->num_rows();
+        if (row_group_rows == 0) {
+            continue;
+        }
+
+        RowGroupReadPlan row_group_plan;
+        row_group_plan.row_group_id = row_group_idx;
+        row_group_plan.first_file_row = row_group_first_rows[row_group_idx];
+        row_group_plan.row_group_rows = row_group_rows;
+        row_group_plan.selected_ranges.push_back(RowRange {0, row_group_rows});
+        plan->row_groups.push_back(std::move(row_group_plan));
     }
     return Status::OK();
 }
