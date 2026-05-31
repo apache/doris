@@ -96,6 +96,15 @@ public:
     int32_t read(int32_t* docs, int32_t* freqs, int32_t length) override;
     int32_t read(int32_t* docs, int32_t* freqs, int32_t* norms, int32_t length) override;
 
+protected:
+    // Force the EAGER whole-term `_docs` materialization in the base.
+    // This subclass needs `freq_at(i)` over every doc to build the
+    // per-doc freq budget for `SpimiProxReader`, and indexes
+    // `_positions[doc_index]` by the base's `_index` cursor — both
+    // require the eager path. Window-addressed laziness for positions
+    // is a deferred follow-up.
+    bool may_use_lazy_windowed() const override { return false; }
+
 private:
     // Re-decodes positions for the currently seeked term out of
     // `_prx_data` using `SpimiProxReader::ReadPositions`. Called

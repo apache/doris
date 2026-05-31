@@ -24,6 +24,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "storage/index/inverted/spimi/byte_output.h"
+#include "storage/index/inverted/spimi/freq_prox_encoder.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -50,6 +51,7 @@ void SpimiQueryTermDocs::Reset() {
     _docs.clear();
     _doc_freq = 0;
     _index = -1;
+    _lazy = false;
 }
 
 int32_t SpimiQueryTermDocs::FindFieldNumberByName(const wchar_t* field) const {
@@ -107,22 +109,42 @@ void SpimiQueryTermDocs::SeekByFieldAndText(int32_t field_number, const wchar_t*
         if (!info.has_value()) {
             return;
         }
-        _current_field_number = field_number;
-        _current_term_info = info;
-        _doc_freq = info->doc_freq;
-
         const auto& fi = (*_field_infos)[static_cast<size_t>(field_number)];
-        // Hard-bound `freq_pointer` BEFORE the pointer arithmetic.
-        if (info->freq_pointer < 0 || static_cast<uint64_t>(info->freq_pointer) > _frq_length)
-                [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI .tis freq_pointer out of .frq bounds");
-        }
-        const auto fp = static_cast<size_t>(info->freq_pointer);
-        _docs = SpimiTermDocsReader::ReadTerm(_frq_data + fp, _frq_length - fp, info->doc_freq,
-                                              fi.has_prox);
+        LoadDocsForTerm(field_number, *info, fi.has_prox);
     } catch (const ::doris::Exception& e) {
         _CLTHROWA(CL_ERR_IO, e.what());
     }
+}
+
+void SpimiQueryTermDocs::LoadDocsForTerm(int32_t field_number, const TermInfo& info,
+                                         bool has_prox) {
+    _current_field_number = field_number;
+    _current_term_info = info;
+    _doc_freq = info.doc_freq;
+
+    // Hard-bound `freq_pointer` BEFORE the pointer arithmetic.
+    if (info.freq_pointer < 0 || static_cast<uint64_t>(info.freq_pointer) > _frq_length)
+            [[unlikely]] {
+        _CLTHROWA(CL_ERR_IO, "SPIMI .tis freq_pointer out of .frq bounds");
+    }
+    const auto fp = static_cast<size_t>(info.freq_pointer);
+    const uint8_t* frq = _frq_data + fp;
+    const size_t frq_len = _frq_length - fp;
+
+    // Prefer the LAZY window-addressed reader for V4 windowed blocks when this
+    // TermDocs is doc/freq-only (the position-aware subclass forces eager). The
+    // reader's Open returns false for any non-windowed / ZSTD-wrapped block, so
+    // we transparently fall back to eager whole-term materialization. Both paths
+    // decode the SAME window bytes with the SAME primitives, so a doc()/freq()
+    // observed lazily is byte-identical to the eager `_docs[p]`.
+    if (may_use_lazy_windowed() && frq_len > 0U &&
+        frq[0] == FreqProxEncoder::kCodeModeSpimiWindowed) {
+        if (_lazy_reader.Open(frq, frq_len, info.doc_freq, has_prox)) {
+            _lazy = true;
+            return;
+        }
+    }
+    _docs = SpimiTermDocsReader::ReadTerm(frq, frq_len, info.doc_freq, has_prox);
 }
 
 void SpimiQueryTermDocs::seek(lucene::index::Term* term) {
@@ -155,20 +177,9 @@ void SpimiQueryTermDocs::seek(lucene::index::TermEnum* term_enum) {
         if (info.doc_freq <= 0) {
             return;
         }
-        _current_field_number = field_number;
-        _current_term_info = info;
-        _doc_freq = info.doc_freq;
-
         const auto& fi = (*_field_infos)[static_cast<size_t>(field_number)];
-        // Same untrusted-byte bounds check as in SeekByFieldAndText.
-        if (info.freq_pointer < 0 || static_cast<uint64_t>(info.freq_pointer) > _frq_length)
-                [[unlikely]] {
-            _CLTHROWA(CL_ERR_IO, "SPIMI .tis freq_pointer out of .frq bounds");
-        }
-        const auto fp = static_cast<size_t>(info.freq_pointer);
         try {
-            _docs = SpimiTermDocsReader::ReadTerm(_frq_data + fp, _frq_length - fp, info.doc_freq,
-                                                  fi.has_prox);
+            LoadDocsForTerm(field_number, info, fi.has_prox);
         } catch (const ::doris::Exception& e) {
             _CLTHROWA(CL_ERR_IO, e.what());
         }
@@ -194,6 +205,11 @@ int32_t SpimiQueryTermDocs::doc() const {
     // P41 conflated the two — returning INT_MAX for both broke the
     // `_others` advancement in 3+ token phrase queries, surfaced
     // by the cloud regression test.
+    if (_lazy) {
+        // The lazy reader mirrors the exact same terminal-state semantics
+        // (-1 pre-start, INT32_MAX exhausted) so doc() is byte-identical.
+        return _lazy_reader.doc();
+    }
     if (_index < 0) {
         return -1;
     }
@@ -204,12 +220,18 @@ int32_t SpimiQueryTermDocs::doc() const {
 }
 
 int32_t SpimiQueryTermDocs::freq() const {
+    if (_lazy) {
+        return _lazy_reader.freq();
+    }
     DCHECK_GE(_index, 0) << "freq() called before next()";
     DCHECK_LT(_index, _doc_freq);
     return _docs[static_cast<size_t>(_index)].second;
 }
 
 bool SpimiQueryTermDocs::next() {
+    if (_lazy) {
+        return _lazy_reader.next();
+    }
     if (_index + 1 >= _doc_freq) {
         // Park `_index` one-past-end so the next `doc()` call returns
         // the INT_MAX sentinel rather than the previous valid doc id.
@@ -250,13 +272,17 @@ bool SpimiQueryTermDocs::readRange(DocRange* doc_range) {
     // implementation streams the term's docs/freqs in chunks via
     // the DocRange "many" protocol, matching how
     // `SegmentTermDocs::readRange` wires it for the CLucene path.
-    if (_index + 1 >= _doc_freq) {
+    // The current cursor index lives in the lazy reader when `_lazy`, else in
+    // `_index`. `next()` (used below) already routes correctly, so we only need
+    // the exhaustion pre-check to consult the right cursor.
+    const int32_t cur_index = _lazy ? _lazy_reader.doc_index() : _index;
+    if (cur_index + 1 >= _doc_freq) {
         return false;
     }
     constexpr size_t kChunkSize = 512;
     _range_docs.clear();
     _range_freqs.clear();
-    _range_docs.reserve(std::min(kChunkSize, static_cast<size_t>(_doc_freq - (_index + 1))));
+    _range_docs.reserve(std::min(kChunkSize, static_cast<size_t>(_doc_freq - (cur_index + 1))));
     _range_freqs.reserve(_range_docs.capacity());
     while (_range_docs.size() < kChunkSize && next()) {
         _range_docs.push_back(static_cast<uint32_t>(doc()));
@@ -284,6 +310,9 @@ bool SpimiQueryTermDocs::readRange(DocRange* doc_range) {
 }
 
 bool SpimiQueryTermDocs::skipTo(int32_t target) {
+    if (_lazy) {
+        return _lazy_reader.skipTo(target);
+    }
     while (_index + 1 < _doc_freq) {
         ++_index;
         if (_docs[static_cast<size_t>(_index)].first >= target) {

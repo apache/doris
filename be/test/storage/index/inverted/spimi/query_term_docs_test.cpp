@@ -78,6 +78,23 @@ struct TermDocsFixture {
                                                     &field_names_wide);
     }
 
+    // Same as Write(), but emits the V4 WINDOWED `.frq`/`.prx` format so the
+    // SpimiQueryTermDocs path exercises the LAZY window-addressed reader.
+    void WriteWindowed(const std::vector<std::tuple<std::string, uint32_t, uint32_t>>& posts) {
+        SpimiPostingBuffer buffer;
+        for (const auto& [term, doc, pos] : posts) {
+            buffer.Append(term, doc, pos);
+        }
+        buffer.Sort();
+        SegmentWriter w(&tis, &tii, &frq, &prx, TermDictWriter::kDefaultIndexInterval,
+                        skip_interval, TermDictWriter::kMaxSkipLevels,
+                        /*omit_term_freq_and_positions=*/!field_infos[0].has_prox,
+                        /*use_windowed=*/true);
+        w.Emit(buffer, /*field_number=*/0);
+        w.Close();
+        dict = std::make_unique<TermDictReader>(tis.bytes(), tii.bytes());
+    }
+
     std::unique_ptr<SpimiQueryTermEnum> MakeEnum() {
         return std::make_unique<SpimiQueryTermEnum>(tis.bytes().data(), tis.bytes().size(),
                                                     skip_interval, field_names_wide);
@@ -233,6 +250,96 @@ TEST(SpimiQueryTermDocsTest, ResetsStateBetweenSeeks) {
     EXPECT_EQ(td->doc(), 5); // not 3 or 0 from previous seek
     _CLDECDELETE(alpha);
     _CLDECDELETE(beta);
+}
+
+// End-to-end: a V4 WINDOWED segment queried through SpimiQueryTermDocs must
+// route through the LAZY window reader and return byte-identical results to the
+// legacy eager path. This is the wiring regression for the lazy path; the
+// per-window decode correctness itself is covered exhaustively by
+// window_term_reader_test.cpp.
+TEST(SpimiQueryTermDocsTest, WindowedSegmentSeekIterateAndSkip) {
+    TermDocsFixture fx;
+    // A large term ("x", on many docs) so it encodes as a multi-window V4 block;
+    // plus a small term ("y") to exercise a single-window windowed block.
+    std::vector<std::tuple<std::string, uint32_t, uint32_t>> posts;
+    std::vector<uint32_t> x_docs;
+    uint32_t doc = 1;
+    for (int i = 0; i < 3000; ++i) {
+        posts.emplace_back("x", doc, 0);
+        // a second position on every 3rd doc → varied freq.
+        if (i % 3 == 0) {
+            posts.emplace_back("x", doc, 1);
+        }
+        x_docs.push_back(doc);
+        doc += 1 + (i % 7); // irregular gaps → fine windowing
+    }
+    posts.emplace_back("y", 2, 0);
+    posts.emplace_back("y", 100, 0);
+    fx.WriteWindowed(posts);
+
+    // The windowed block must really have been emitted (else this test is vacuous).
+    ASSERT_EQ(fx.frq.bytes()[0], FreqProxEncoder::kCodeModeSpimiWindowed);
+
+    auto td = fx.MakeTermDocs();
+    auto* term = _CLNEW lucene::index::Term(L"body", L"x");
+
+    // Full scan matches the known doc ids.
+    td->seek(term);
+    EXPECT_EQ(td->docFreq(), static_cast<int32_t>(x_docs.size()));
+    EXPECT_EQ(td->doc(), -1); // pre-start
+    size_t i = 0;
+    while (td->next()) {
+        ASSERT_LT(i, x_docs.size());
+        EXPECT_EQ(td->doc(), static_cast<int32_t>(x_docs[i]));
+        EXPECT_GE(td->freq(), 1);
+        ++i;
+    }
+    EXPECT_EQ(i, x_docs.size());
+    EXPECT_FALSE(td->next());
+
+    // skipTo lands on the first doc >= target.
+    td->seek(term);
+    const int32_t target = static_cast<int32_t>(x_docs[x_docs.size() - 10]);
+    ASSERT_TRUE(td->skipTo(target));
+    EXPECT_EQ(td->doc(), target);
+    // continue to end.
+    size_t j = x_docs.size() - 10;
+    while (td->next()) {
+        ++j;
+        ASSERT_LT(j, x_docs.size());
+        EXPECT_EQ(td->doc(), static_cast<int32_t>(x_docs[j]));
+    }
+    EXPECT_EQ(j, x_docs.size() - 1);
+
+    // skipTo past end exhausts.
+    td->seek(term);
+    EXPECT_FALSE(td->skipTo(static_cast<int32_t>(x_docs.back()) + 1));
+
+    // readRange chunk path over the windowed term.
+    td->seek(term);
+    DocRange dr;
+    size_t collected = 0;
+    while (td->readRange(&dr)) {
+        if (dr.type_ == DocRangeType::kMany) {
+            collected += dr.doc_many_size_;
+        } else {
+            collected += dr.doc_range.second - dr.doc_range.first;
+        }
+    }
+    EXPECT_EQ(collected, x_docs.size());
+
+    // Small windowed term.
+    auto* y = _CLNEW lucene::index::Term(L"body", L"y");
+    td->seek(y);
+    EXPECT_EQ(td->docFreq(), 2);
+    ASSERT_TRUE(td->next());
+    EXPECT_EQ(td->doc(), 2);
+    ASSERT_TRUE(td->next());
+    EXPECT_EQ(td->doc(), 100);
+    EXPECT_FALSE(td->next());
+
+    _CLDECDELETE(term);
+    _CLDECDELETE(y);
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

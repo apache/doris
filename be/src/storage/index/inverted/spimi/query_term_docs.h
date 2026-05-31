@@ -38,6 +38,7 @@
 #include "storage/index/inverted/spimi/query_term_enum.h"
 #include "storage/index/inverted/spimi/term_dict_reader.h"
 #include "storage/index/inverted/spimi/term_docs_reader.h"
+#include "storage/index/inverted/spimi/window_term_reader.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -117,6 +118,16 @@ protected:
     // setup before adding its own positions setup.
     void SeekByFieldAndText(int32_t field_number, const wchar_t* text);
 
+    // Whether this TermDocs may use the window-addressed LAZY decoder
+    // for V4 windowed `.frq` blocks. The doc/freq-only base returns
+    // true (selective queries decode only the covering window(s)). The
+    // position-aware subclass `SpimiQueryTermPositions` overrides this
+    // to FALSE: it needs the whole eager `_docs` vector to build the
+    // per-doc freq budget for `SpimiProxReader` and to index
+    // `_positions[doc_index]` by `_index`, so it stays on the eager
+    // path (phrase correctness untouched this increment).
+    virtual bool may_use_lazy_windowed() const { return true; }
+
     // Accessors for the position-aware subclass.
     const TermDictReader* term_dict() const { return _term_dict; }
     const std::vector<FieldInfoEntry>* field_infos() const { return _field_infos; }
@@ -166,6 +177,14 @@ private:
     std::vector<uint32_t> _range_docs;
     std::vector<uint32_t> _range_freqs;
 
+    // Shared per-seek setup for the doc-side posting list. Given the
+    // resolved `(field_number, TermInfo, has_prox)`, either opens the
+    // lazy windowed reader (`_lazy == true`) or materializes the whole
+    // term into `_docs` (eager). Called from both `seek` overloads so
+    // the byte-level path is identical. Throws CLuceneError on corrupt
+    // bytes (translated from `doris::Exception` at the boundary).
+    void LoadDocsForTerm(int32_t field_number, const TermInfo& info, bool has_prox);
+
     const TermDictReader* _term_dict;
     const uint8_t* _frq_data;
     size_t _frq_length;
@@ -176,7 +195,16 @@ private:
     std::optional<TermInfo> _current_term_info;
     std::vector<SpimiTermDocsReader::DocFreq> _docs;
     int32_t _doc_freq = 0;
-    int32_t _index = -1; // -1 before first next()
+    int32_t _index = -1; // -1 before first next() (EAGER path cursor)
+
+    // Lazy window-addressed decoder, active when `_lazy` is true (V4
+    // windowed block AND `may_use_lazy_windowed()`). When active, the
+    // doc()/freq()/next()/skipTo()/readRange() iteration routes through
+    // `_lazy_reader` instead of the `_docs`/`_index` vector; `_docs`
+    // stays empty. The lazy reader owns its own cursor; `_index` is
+    // unused on this path.
+    SpimiWindowedTermDocs _lazy_reader;
+    bool _lazy = false;
 };
 
 } // namespace doris::segment_v2::inverted_index::spimi
