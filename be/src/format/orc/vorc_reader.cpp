@@ -1512,10 +1512,10 @@ Status OrcReader::_init_orc_row_reader() {
 
     } catch (std::exception& e) {
         std::string _err_msg = e.what();
-        // ignore stop exception
-        if (!(_io_ctx && _io_ctx->should_stop && _err_msg == "stop")) {
-            return Status::InternalError("Failed to create orc row reader. reason = {}", _err_msg);
+        if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
+            return Status::EndOfFile("stop");
         }
+        return Status::InternalError("Failed to create orc row reader. reason = {}", _err_msg);
     }
 
     return Status::OK();
