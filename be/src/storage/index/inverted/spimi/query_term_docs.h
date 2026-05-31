@@ -28,6 +28,7 @@
 // clang-format on
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -35,6 +36,7 @@
 #include "common/exception.h" // Exception used by DORIS_CHECK
 #include "common/status.h"    // DORIS_CHECK macro
 #include "storage/index/inverted/spimi/field_infos_writer.h"
+#include "storage/index/inverted/spimi/posting_store.h"
 #include "storage/index/inverted/spimi/query_term_enum.h"
 #include "storage/index/inverted/spimi/term_dict_reader.h"
 #include "storage/index/inverted/spimi/term_docs_reader.h"
@@ -71,9 +73,24 @@ namespace doris::segment_v2::inverted_index::spimi {
 // terms.
 class SpimiQueryTermDocs : public virtual lucene::index::TermDocs {
 public:
-    // All inputs are borrowed; the caller (`SpimiQueryIndexReader`)
-    // owns the underlying buffers and outlives this TermDocs.
+    // Resident-bytes constructor: `frq_data`/`frq_length` are borrowed (the
+    // caller owns them and outlives this TermDocs). The `.frq` is wrapped in
+    // an internally-owned `MemPostingStore`, so the lazy windowed reader pulls
+    // its bytes through the same positioned-read seam as the real path. Used
+    // by unit tests and by `SpimiQueryTermPositions` (which keeps `.frq`
+    // resident this increment). `_term_dict`, `field_infos`, `field_names_wide`
+    // are borrowed.
     SpimiQueryTermDocs(const TermDictReader* term_dict, const uint8_t* frq_data, size_t frq_length,
+                       const std::vector<FieldInfoEntry>* field_infos,
+                       const std::vector<std::wstring>* field_names_wide);
+
+    // Positioned-read constructor: takes ownership of a `PostingStore` over the
+    // whole `.frq` file (e.g. an `IndexInputPostingStore` cloned per query
+    // thread from the reader's template `.frq` IndexInput). The lazy windowed
+    // path then range-reads ONLY the header+skip-table prefix and each covering
+    // window's bytes — a selective query transfers a fraction of the term.
+    SpimiQueryTermDocs(const TermDictReader* term_dict,
+                       std::unique_ptr<PostingStore> frq_store,
                        const std::vector<FieldInfoEntry>* field_infos,
                        const std::vector<std::wstring>* field_names_wide);
 
@@ -186,8 +203,11 @@ private:
     void LoadDocsForTerm(int32_t field_number, const TermInfo& info, bool has_prox);
 
     const TermDictReader* _term_dict;
-    const uint8_t* _frq_data;
-    size_t _frq_length;
+    // Positioned-read byte source for `.frq`, owned by this TermDocs. The lazy
+    // windowed reader borrows it; the eager fallback one-shot-reads the term
+    // block through it. Built from resident bytes (MemPostingStore) or a cloned
+    // IndexInput (IndexInputPostingStore), depending on which ctor was used.
+    std::unique_ptr<PostingStore> _frq_store;
     const std::vector<FieldInfoEntry>* _field_infos;
     const std::vector<std::wstring>* _field_names_wide;
 

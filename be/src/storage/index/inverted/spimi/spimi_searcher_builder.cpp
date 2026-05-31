@@ -85,14 +85,20 @@ Status SpimiSearcherBuilder::build(lucene::store::Directory* directory,
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "SpimiSearcherBuilder: directory is null");
     }
-    std::vector<uint8_t> tis, tii, frq, prx, fnm, segs;
+    std::vector<uint8_t> tis, tii, prx, fnm, segs;
     // V4 = pure SPIMI. The V4 writer (P37c-3) emits segment files
     // under the canonical `_0.*` names — there is no CLucene
     // primary competing for them. SegmentInfos lives at the
     // standard `segments_1` (no `spimi_` prefix).
+    //
+    // The SMALL dictionary/manifest/field-info files (.tis/.tii/.fnm/
+    // segments_1) and `.prx` (lazy `.prx` deferred) stay FULLY RESIDENT
+    // (the hotcache the reader random-accesses constantly). Only `.frq`
+    // is kept as an OPEN IndexInput (below) so a selective query
+    // range-reads only the covering windows instead of slurping the
+    // whole term.
     RETURN_IF_ERROR(ReadAllBytes(directory, "_0.tis", &tis));
     RETURN_IF_ERROR(ReadAllBytes(directory, "_0.tii", &tii));
-    RETURN_IF_ERROR(ReadAllBytes(directory, "_0.frq", &frq));
     RETURN_IF_ERROR(ReadAllBytes(directory, "_0.prx", &prx));
     RETURN_IF_ERROR(ReadAllBytes(directory, "_0.fnm", &fnm));
     RETURN_IF_ERROR(ReadAllBytes(directory, "segments_1", &segs));
@@ -119,11 +125,31 @@ Status SpimiSearcherBuilder::build(lucene::store::Directory* directory,
     }
     const int32_t max_doc = manifest.segments[0].doc_count;
 
+    // Open `.frq` as a template IndexInput (clone source for per-thread
+    // positioned reads) — done LAST so no error path sits between the open and
+    // handing ownership to the reader (avoids leaking the open input).
+    // `openInput` rejects a zero-length file (CL_ERR_EmptyIndexSegment); a
+    // segment with zero postings has no `.frq` body and is not queryable —
+    // surface a clear corruption error.
+    if (!directory->fileExists("_0.frq")) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
+                "SPIMI segment missing required file '_0.frq'");
+    }
+    lucene::store::IndexInput* frq_input_raw = nullptr;
+    CLuceneError frq_err;
+    if (!directory->openInput("_0.frq", frq_input_raw, frq_err)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "SPIMI openInput('_0.frq') failed: {}", frq_err.what());
+    }
+    // Wrap in the self-deleting owner immediately so the input is released on
+    // ANY error before/inside reader construction (exception-safe transfer).
+    inverted_index::spimi::OwnedFrqInput frq_input(frq_input_raw);
+
     std::unique_ptr<lucene::index::IndexReader> spimi_reader;
     try {
         spimi_reader = std::make_unique<inverted_index::spimi::SpimiQueryIndexReader>(
-                std::move(tis), std::move(tii), std::move(frq), std::move(prx), std::move(fnm),
-                max_doc);
+                std::move(tis), std::move(tii), std::move(frq_input), directory, std::move(prx),
+                std::move(fnm), max_doc);
     } catch (const ::doris::Exception& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
                 "SpimiQueryIndexReader build error: {}", e.what());

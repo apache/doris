@@ -49,7 +49,20 @@
 #include "storage/index/inverted/spimi/field_infos_writer.h"
 #include "storage/index/inverted/spimi/term_dict_reader.h"
 
+namespace lucene::store {
+class IndexInput;
+class Directory;
+}
+
 namespace doris::segment_v2::inverted_index::spimi {
+
+// Deleter for an owned CLucene `.frq` `IndexInput` (closes then `_CLDELETE`s).
+// At namespace scope so `SpimiSearcherBuilder` can spell the owning unique_ptr
+// it hands to the reader (exception-safe ownership transfer).
+struct CLuceneIndexInputDeleter {
+    void operator()(lucene::store::IndexInput* p) const;
+};
+using OwnedFrqInput = std::unique_ptr<lucene::store::IndexInput, CLuceneIndexInputDeleter>;
 
 // `lucene::index::IndexReader` subclass exposing a SPIMI segment to
 // the CLucene query engine. Composes the four previously-built
@@ -86,9 +99,24 @@ namespace doris::segment_v2::inverted_index::spimi {
 // was the exact failure mode P40 caught for `getTermInfosRAMUsed`).
 class SpimiQueryIndexReader final : public lucene::index::IndexReader {
 public:
+    // `.frq` is supplied as an OPEN template `IndexInput` (NOT slurped): the
+    // reader owns it as a clone source. Per query thread, `termDocs()` clones
+    // it into an `IndexInputPostingStore`, so a selective query range-reads
+    // ONLY the covering windows via Doris `read_at` + FILE_BLOCK_CACHE. The
+    // small dictionary/manifest/field-info files (.tis/.tii/.fnm) and `.prx`
+    // (lazy `.prx` deferred) stay fully resident (the hotcache). The reader
+    // takes ownership of `frq_input` and `_CLDELETE`s it at destruction.
+    //
+    // `directory` is the (refcounted) Directory the `frq_input` was opened
+    // from. The open input and its clones reference the directory's backing
+    // stream, so the reader holds an EXTRA ref on the directory (`_CL_POINTER`)
+    // and releases it AFTER the input at destruction — mirroring CLucene's
+    // `IndexReader::open(dir, closeDir=true)`. May be nullptr in unit tests
+    // that build the input from a stack-owned RAMDirectory they keep alive.
     SpimiQueryIndexReader(std::vector<uint8_t> tis_bytes, std::vector<uint8_t> tii_bytes,
-                          std::vector<uint8_t> frq_bytes, std::vector<uint8_t> prx_bytes,
-                          std::vector<uint8_t> fnm_bytes, int32_t max_doc);
+                          OwnedFrqInput frq_input, lucene::store::Directory* directory,
+                          std::vector<uint8_t> prx_bytes, std::vector<uint8_t> fnm_bytes,
+                          int32_t max_doc);
 
     ~SpimiQueryIndexReader() override;
 
@@ -203,13 +231,26 @@ private:
     // return the same buffer (CLucene callers may hold the pointer).
     uint8_t* GetOrAllocateNormsForField(const wchar_t* field);
 
-    // Bytes — owned by this reader for its lifetime.
+    // Bytes — owned by this reader for its lifetime (the resident hotcache).
     std::vector<uint8_t> _tis_bytes;
     std::vector<uint8_t> _tii_bytes;
-    std::vector<uint8_t> _frq_bytes;
     std::vector<uint8_t> _prx_bytes;
     std::vector<uint8_t> _fnm_bytes;
     int32_t _max_doc;
+
+    // Extra ref on the Directory backing `_frq_input`. Declared BEFORE
+    // `_frq_input` so member destruction order (reverse) releases the input
+    // FIRST, then the directory ref — the input must not outlive its backing
+    // stream. Released via `_CLDECDELETE` in the destructor. nullptr when the
+    // input is backed by a caller-owned directory (unit tests).
+    lucene::store::Directory* _dir = nullptr;
+
+    // Open template `.frq` IndexInput — the CLONE SOURCE for per-thread
+    // positioned reads. Never iterated directly (no shared cursor races);
+    // `termDocs()`/`termPositions()` clone it per call. Owned via the
+    // self-deleting unique_ptr so ownership transfer from the builder is
+    // exception-safe.
+    OwnedFrqInput _frq_input;
 
     // Parsed structures.
     std::vector<FieldInfoEntry> _field_infos_entries;

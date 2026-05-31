@@ -19,8 +19,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <utility>
 #include <vector>
+
+#include "storage/index/inverted/spimi/posting_store.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -54,10 +57,13 @@ namespace doris::segment_v2::inverted_index::spimi {
 // primitives (shared `frq_window_decode_internal.h`) and thread the SAME
 // running last_doc — the only difference is WHEN each window is decoded.
 //
-// IO: bytes stay resident (the caller already holds the whole `.frq` in
-// memory). The win this increment is DECODE WORK avoided, exposed via
-// `windows_total()` / `windows_decoded()`. The format carries per-window
-// byte extents, so a follow-up can range-GET a single window's bytes.
+// IO: bytes are pulled through a `PostingStore` (positioned reads). At
+// `Open` only the header + skip-table prefix is fetched; each
+// `DecodeWindow` fetches exactly that window's self-framed byte range.
+// On the real path the `PostingStore` is backed by a CLucene `IndexInput`
+// (Doris `read_at` + FILE_BLOCK_CACHE = S3 range-GET), so a selective
+// `skipTo` transfers ~one window not the whole term. The decode-work
+// telemetry (`windows_total()` / `windows_decoded()`) is unchanged.
 //
 // Positions (`.prx`) are NOT handled here; phrase queries keep the eager
 // path. This reader is doc/freq-only.
@@ -68,14 +74,25 @@ public:
     SpimiWindowedTermDocs(const SpimiWindowedTermDocs&) = delete;
     SpimiWindowedTermDocs& operator=(const SpimiWindowedTermDocs&) = delete;
 
-    // Parses the windowed `.frq` header + skip table at `frq_data` (which
-    // must point at the term's `freq_pointer`). Returns true on success.
-    // Returns FALSE (without throwing) when the outer mode byte is NOT
-    // kCodeModeSpimiWindowed, so the caller can fall back to the eager
-    // `ReadTerm` path for legacy / ZSTD-wrapped blocks. Throws
-    // `doris::Exception` (INVERTED_INDEX_FILE_CORRUPTED) on a structurally
-    // invalid windowed block (untrusted-byte hard-fail). `frq_data` is
-    // borrowed and must outlive this reader.
+    // Positioned-read entry point: parses the windowed `.frq` header + skip
+    // table by pulling a bounded prefix from `store` starting at absolute
+    // `term_base` (the term's `freq_pointer`). `store` is BORROWED and must
+    // outlive this reader (the caller — `SpimiQueryTermDocs` — owns it).
+    // Only the header+skip-table prefix is fetched here; each window's
+    // payload is fetched lazily at `DecodeWindow`. Returns / throws exactly
+    // like the resident overload below.
+    bool Open(PostingStore* store, int64_t term_base, int32_t doc_freq, bool has_prox);
+
+    // Resident-buffer convenience overload: wraps `[frq_data, frq_length)` in
+    // an internally-owned `MemPostingStore` (whose logical offset 0 == the
+    // term's `freq_pointer`) and delegates to the positioned-read `Open`.
+    // Used by unit tests and any caller that already holds the term block
+    // resident. Returns true on success; FALSE (without throwing) when the
+    // outer mode byte is NOT kCodeModeSpimiWindowed, so the caller can fall
+    // back to the eager `ReadTerm` path for legacy / ZSTD-wrapped blocks.
+    // Throws `doris::Exception` (INVERTED_INDEX_FILE_CORRUPTED) on a
+    // structurally invalid windowed block. `frq_data` is borrowed and must
+    // outlive this reader.
     bool Open(const uint8_t* frq_data, size_t frq_length, int32_t doc_freq, bool has_prox);
 
     // CLucene TermDocs iteration semantics, mirroring SpimiQueryTermDocs:
@@ -109,7 +126,8 @@ private:
     // One skip-table entry, fully resolved at Open (no payload inflation).
     struct WinEntry {
         int32_t doc_count = 0;       // docs in this window
-        size_t payload_pos = 0;      // ABSOLUTE byte offset of this window's payload tuple
+        int64_t payload_pos = 0;     // ABSOLUTE PostingStore offset of this window's payload tuple
+        int64_t payload_len = 0;     // exact byte length of this window's payload tuple
         int32_t min_docid = 0;       // first absolute docid in the window
         int32_t max_docid = 0;       // last absolute docid in the window (== min+delta)
         int32_t doc_index_start = 0; // prefix sum of doc_count: first global index of window
@@ -117,16 +135,27 @@ private:
     };
 
     // Inflates + PFOR/VInt-decodes window `w` into `_cur_docs`, threading
-    // `prev_last_doc[w]`. The ONLY place a window's payload is touched.
+    // `prev_last_doc[w]`. The ONLY place a window's payload is fetched+touched.
     void DecodeWindow(int32_t w);
+
+    // Self-frames a window payload tuple at absolute `payload_pos` by reading
+    // only its header, returning the EXACT tuple byte length (clamped to
+    // `max_len`). Used for the LAST window, whose end is the file end (an
+    // over-estimate) — self-framing avoids fetching the rest of the file.
+    int64_t WindowFrameLen(int64_t payload_pos, int64_t max_len) const;
 
     // Ensures the window covering global doc-index `_pos` is the cached
     // one; decodes it if not. Precondition: 0 <= _pos < _doc_freq.
     void EnsureWindowForPos();
 
-    // Borrowed source buffer (the whole term .frq, starting at freq_pointer).
-    const uint8_t* _frq_data = nullptr;
-    size_t _frq_length = 0;
+    // Positioned-read byte source. `_store` is borrowed (owned by the
+    // caller) for the positioned-read Open; for the resident overload it is
+    // the internally-owned `_owned_store` below. `_term_base` is the absolute
+    // PostingStore offset of the term's `freq_pointer` (0 for the resident
+    // overload, which wraps exactly the term block).
+    PostingStore* _store = nullptr;
+    int64_t _term_base = 0;
+    std::unique_ptr<MemPostingStore> _owned_store; // backs the resident Open overload
 
     int32_t _doc_freq = 0;
     bool _has_prox = false;

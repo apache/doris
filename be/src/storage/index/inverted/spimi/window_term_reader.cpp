@@ -32,7 +32,19 @@ using frq_internal::ByteStream;
 using frq_internal::DecodePforRun;
 using frq_internal::ReadWindowPayload;
 
-bool SpimiWindowedTermDocs::Open(const uint8_t* frq_data, size_t frq_length, int32_t doc_freq,
+namespace {
+// Header + skip-table prefix probe. The header is
+//   [outer mode][inner mode][VInt W][VInt num_windows]
+// followed by `num_windows` entries of 4 VInts each. We do NOT know
+// `num_windows` until we read it, so we fetch a bounded prefix, parse the
+// header, and — if the probe is too short to hold the whole table — re-read
+// sized to the exact worst case. A VInt is at most 5 bytes.
+constexpr size_t kPrefixProbe = 4096;
+constexpr size_t kMaxVIntBytes = 5;
+constexpr size_t kMaxSkipEntryBytes = 4 * kMaxVIntBytes; // 4 VInts per entry
+} // namespace
+
+bool SpimiWindowedTermDocs::Open(PostingStore* store, int64_t term_base, int32_t doc_freq,
                                  bool has_prox) {
     // Reset all state so Open is re-callable (a fresh seek of a new term).
     _windows.clear();
@@ -40,16 +52,29 @@ bool SpimiWindowedTermDocs::Open(const uint8_t* frq_data, size_t frq_length, int
     _cur_win = -1;
     _pos = -1;
     _windows_decoded = 0;
-    _frq_data = frq_data;
-    _frq_length = frq_length;
+    _store = store;
+    _term_base = term_base;
     _doc_freq = doc_freq;
     _has_prox = has_prox;
 
-    if (doc_freq <= 0 || frq_length == 0U) [[unlikely]] {
-        SPIMI_THROW_CORRUPT("SPIMI .frq windowed Open: bad doc_freq / buffer length");
+    if (store == nullptr || term_base < 0 || term_base > store->length()) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .frq windowed Open: bad store / term_base");
+    }
+    const int64_t avail = store->length() - term_base; // bytes from term_base to file end
+    if (doc_freq <= 0 || avail == 0) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .frq windowed Open: bad doc_freq / available length");
     }
 
-    ByteStream cur(frq_data, frq_length);
+    // --- (1) Fetch a bounded header+skip-table prefix at term_base. ---
+    auto fetch_prefix = [&](size_t want) -> std::vector<uint8_t> {
+        const size_t n = std::min<int64_t>(static_cast<int64_t>(want), avail);
+        std::vector<uint8_t> buf(n);
+        store->read_at(term_base, buf.data(), n);
+        return buf;
+    };
+    std::vector<uint8_t> prefix = fetch_prefix(kPrefixProbe);
+
+    ByteStream cur(prefix.data(), prefix.size());
     const uint8_t mode = cur.ReadByte();
     // Only the bare windowed outer mode is handled lazily. A whole-term ZSTD
     // envelope (kCodeModeZstd) or any legacy mode has no per-window skip table
@@ -72,10 +97,33 @@ bool SpimiWindowedTermDocs::Open(const uint8_t* frq_data, size_t frq_length, int
         SPIMI_THROW_CORRUPT("SPIMI .frq windowed: num_windows out of range");
     }
 
+    // If the probe might not cover the whole skip table, re-read sized to the
+    // exact worst case (header bytes consumed so far + num_windows * 20). All
+    // parses below are bounded by `prefix.size()` via ByteStream, so a short
+    // probe never OOB-reads — it just triggers this exact-size re-read.
+    {
+        const size_t header_consumed = cur.pos();
+        const size_t worst_case = header_consumed +
+                                  static_cast<size_t>(num_windows) * kMaxSkipEntryBytes;
+        if (worst_case > prefix.size() && static_cast<int64_t>(prefix.size()) < avail) {
+            prefix = fetch_prefix(worst_case);
+            cur = ByteStream(prefix.data(), prefix.size());
+            // Re-skip the header so the cursor sits at the skip table again.
+            (void)cur.ReadByte();                              // outer mode
+            (void)cur.ReadByte();                              // inner mode
+            (void)cur.ReadVInt();                              // W
+            const int32_t nw2 = cur.ReadVInt();                // num_windows (must match)
+            if (nw2 != num_windows) [[unlikely]] {
+                SPIMI_THROW_CORRUPT("SPIMI .frq windowed: num_windows changed on re-read");
+            }
+        }
+    }
+
     _windows.resize(static_cast<size_t>(num_windows));
     int64_t total = 0;
     int32_t prev_doc_index = 0;
     int32_t prev_max_docid = 0; // last window's max docid (== running last_doc into next window)
+    std::vector<int64_t> rel_offsets(static_cast<size_t>(num_windows));
     for (int32_t w = 0; w < num_windows; ++w) {
         WinEntry& e = _windows[static_cast<size_t>(w)];
         e.doc_count = cur.ReadVInt();
@@ -111,12 +159,16 @@ bool SpimiWindowedTermDocs::Open(const uint8_t* frq_data, size_t frq_length, int
             if (e.min_docid <= prev_max_docid) [[unlikely]] {
                 SPIMI_THROW_CORRUPT("SPIMI .frq windowed: windows not strictly ascending");
             }
+            // byte_offset must be strictly ascending too, so the per-window
+            // length (offset[w] - offset[w-1]) is positive and bounds the span.
+            if (byte_offset <= rel_offsets[static_cast<size_t>(w - 1)]) [[unlikely]] {
+                SPIMI_THROW_CORRUPT("SPIMI .frq windowed: win_byte_offset not ascending");
+            }
         }
 
         e.doc_index_start = prev_doc_index;
         e.prev_last_doc = prev_max_docid;
-        // payload_pos resolved below once payload_base is known.
-        e.payload_pos = static_cast<size_t>(byte_offset); // temporarily holds the RELATIVE offset
+        rel_offsets[static_cast<size_t>(w)] = byte_offset;
 
         prev_doc_index += e.doc_count;
         prev_max_docid = e.max_docid;
@@ -127,24 +179,80 @@ bool SpimiWindowedTermDocs::Open(const uint8_t* frq_data, size_t frq_length, int
     }
 
     // The byte right after the whole skip table is the first payload tuple; all
-    // recorded win_byte_offset values are relative to it. Resolve each window's
-    // ABSOLUTE payload position and bounds-check it against the buffer so a
-    // crafted offset cannot drive an OOB read at DecodeWindow time.
-    const size_t payload_base = cur.pos();
-    for (int32_t w = 0; w < num_windows; ++w) {
-        WinEntry& e = _windows[static_cast<size_t>(w)];
-        const size_t rel = e.payload_pos;
-        if (rel > _frq_length - payload_base) [[unlikely]] {
-            // rel + payload_base > _frq_length (computed without overflow).
-            SPIMI_THROW_CORRUPT("SPIMI .frq windowed: win_byte_offset past end of buffer");
-        }
-        e.payload_pos = payload_base + rel;
+    // recorded win_byte_offset values are relative to it. The payload base is
+    // (term_base + bytes consumed by header+skip-table). Resolve each window's
+    // ABSOLUTE PostingStore offset and exact payload length, bounds-checking
+    // against the file end so a crafted offset/length cannot drive an OOB read
+    // at DecodeWindow time. Window w's length is offset[w+1]-offset[w] for
+    // w<last (the byte_offset delta exactly frames the tuple); the LAST window
+    // runs to the file end (term blocks are written contiguously to .frq with
+    // the next term's freq_pointer == this term's end, and for the final term
+    // the file end). All recorded byte offsets are relative to payload_base.
+    const int64_t payload_base = term_base + static_cast<int64_t>(cur.pos());
+    const int64_t file_len = store->length();
+    if (payload_base > file_len) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .frq windowed: payload base past end of file");
     }
+    const int64_t payload_span = file_len - payload_base; // upper bound on the whole table
     // win_byte_offset[0] must be 0 (first payload tuple sits exactly at base).
-    if (_windows.front().payload_pos != payload_base) [[unlikely]] {
+    if (rel_offsets.front() != 0) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .frq windowed: first win_byte_offset must be 0");
     }
+    for (int32_t w = 0; w < num_windows; ++w) {
+        WinEntry& e = _windows[static_cast<size_t>(w)];
+        const int64_t rel = rel_offsets[static_cast<size_t>(w)];
+        if (rel > payload_span) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .frq windowed: win_byte_offset past end of file");
+        }
+        e.payload_pos = payload_base + rel;
+        const int64_t next_rel =
+                (w + 1 < num_windows) ? rel_offsets[static_cast<size_t>(w + 1)] : payload_span;
+        e.payload_len = next_rel - rel;
+        if (e.payload_len <= 0 || e.payload_pos + e.payload_len > file_len) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .frq windowed: window payload length out of bounds");
+        }
+    }
     return true;
+}
+
+bool SpimiWindowedTermDocs::Open(const uint8_t* frq_data, size_t frq_length, int32_t doc_freq,
+                                 bool has_prox) {
+    // Wrap the resident term block (whose offset 0 is the term's freq_pointer)
+    // in an internally-owned MemPostingStore and delegate. The owned store
+    // outlives this reader (member); the borrowed `frq_data` must outlive it
+    // too (the MemPostingStore borrows it, not copies).
+    _owned_store = std::make_unique<MemPostingStore>(frq_data, frq_length);
+    return Open(_owned_store.get(), /*term_base=*/0, doc_freq, has_prox);
+}
+
+int64_t SpimiWindowedTermDocs::WindowFrameLen(int64_t payload_pos, int64_t max_len) const {
+    // Self-frame a window payload tuple by reading only its header:
+    //   [win_mode byte][VInt uncomp]            (raw, win_mode==0)
+    //   [win_mode byte][VInt uncomp][VInt comp] (zstd, win_mode==1)
+    // The exact tuple length = header bytes + (raw ? uncomp : comp). We read a
+    // small bounded probe (header is at most 1 + 2*5 = 11 bytes), parse it, and
+    // return the exact length, clamped to `max_len` (the upper bound from the
+    // file end). A header probe never over-reads: ByteStream bounds every read.
+    constexpr size_t kHeaderProbe = 1 + 2 * kMaxVIntBytes; // win_mode + 2 VInts
+    const size_t probe_n = static_cast<size_t>(std::min<int64_t>(kHeaderProbe, max_len));
+    std::vector<uint8_t> hdr(probe_n);
+    _store->read_at(payload_pos, hdr.data(), hdr.size());
+    ByteStream cur(hdr.data(), hdr.size());
+    const uint8_t win_mode = cur.ReadByte();
+    int64_t body = 0;
+    if (win_mode == 0 /*raw*/) {
+        body = static_cast<uint32_t>(cur.ReadVInt());
+    } else if (win_mode == 1 /*zstd*/) {
+        (void)cur.ReadVInt(); // uncomp
+        body = static_cast<uint32_t>(cur.ReadVInt()); // comp
+    } else {
+        SPIMI_THROW_CORRUPT("SPIMI .frq windowed: unknown win_mode in self-frame");
+    }
+    const int64_t exact = static_cast<int64_t>(cur.pos()) + body;
+    if (exact <= 0 || exact > max_len) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .frq windowed: self-framed window length out of bounds");
+    }
+    return exact;
 }
 
 void SpimiWindowedTermDocs::DecodeWindow(int32_t w) {
@@ -155,8 +263,25 @@ void SpimiWindowedTermDocs::DecodeWindow(int32_t w) {
         SPIMI_THROW_CORRUPT("SPIMI .frq windowed: window index out of range");
     }
     const WinEntry& e = _windows[static_cast<size_t>(w)];
-    ByteStream cur(_frq_data, _frq_length);
-    cur.SeekTo(e.payload_pos); // bounds-checked
+    // Positioned-read EXACTLY this window's framed byte range into a local
+    // buffer, then run the SAME ReadWindowPayload/DecodePforRun primitives over
+    // it as the eager path (byte-identical decode).
+    //
+    // For an INNER window the length is the exact byte_offset delta. For the
+    // LAST window we do NOT know the next term's freq_pointer, so `payload_len`
+    // runs to the file end — which over-covers (potentially by a lot) when this
+    // is not the final term. To avoid fetching the rest of the file on the real
+    // IO path, self-frame the last window: read a small header probe, decode
+    // [win_mode][VInt uncomp]([VInt comp]) to compute the EXACT tuple length,
+    // then fetch exactly that.
+    const bool is_last = (static_cast<size_t>(w) + 1 == _windows.size());
+    int64_t fetch_len = e.payload_len;
+    if (is_last) {
+        fetch_len = WindowFrameLen(e.payload_pos, e.payload_len);
+    }
+    std::vector<uint8_t> win_bytes(static_cast<size_t>(fetch_len));
+    _store->read_at(e.payload_pos, win_bytes.data(), win_bytes.size());
+    ByteStream cur(win_bytes.data(), win_bytes.size());
     const std::vector<uint8_t> inner = ReadWindowPayload(cur);
 
     _cur_docs.clear();

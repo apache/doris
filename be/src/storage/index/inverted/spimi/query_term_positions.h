@@ -61,9 +61,18 @@ namespace doris::segment_v2::inverted_index::spimi {
 class SpimiQueryTermPositions final : public SpimiQueryTermDocs,
                                       public lucene::index::TermPositions {
 public:
+    // Resident-bytes constructor (unit tests; `.frq` wrapped in a MemPostingStore).
     SpimiQueryTermPositions(const TermDictReader* term_dict, const uint8_t* frq_data,
                             size_t frq_length, const uint8_t* prx_data, size_t prx_length,
                             const std::vector<FieldInfoEntry>* field_infos,
+                            const std::vector<std::wstring>* field_names_wide);
+
+    // Positioned-read constructor: takes ownership of a `.frq` PostingStore
+    // (cloned per query thread by the reader). `.prx` stays resident (lazy
+    // `.prx` deferred). Used by `SpimiQueryIndexReader::termPositions`.
+    SpimiQueryTermPositions(const TermDictReader* term_dict,
+                            std::unique_ptr<PostingStore> frq_store, const uint8_t* prx_data,
+                            size_t prx_length, const std::vector<FieldInfoEntry>* field_infos,
                             const std::vector<std::wstring>* field_names_wide);
 
     ~SpimiQueryTermPositions() override;

@@ -33,11 +33,25 @@ SpimiQueryTermDocs::SpimiQueryTermDocs(const TermDictReader* term_dict, const ui
                                        const std::vector<FieldInfoEntry>* field_infos,
                                        const std::vector<std::wstring>* field_names_wide)
         : _term_dict(term_dict),
-          _frq_data(frq_data),
-          _frq_length(frq_length),
+          _frq_store(std::make_unique<MemPostingStore>(frq_data, frq_length)),
           _field_infos(field_infos),
           _field_names_wide(field_names_wide) {
     DCHECK(_term_dict != nullptr);
+    DCHECK(_field_infos != nullptr);
+    DCHECK(_field_names_wide != nullptr);
+    DCHECK_EQ(_field_infos->size(), _field_names_wide->size());
+}
+
+SpimiQueryTermDocs::SpimiQueryTermDocs(const TermDictReader* term_dict,
+                                       std::unique_ptr<PostingStore> frq_store,
+                                       const std::vector<FieldInfoEntry>* field_infos,
+                                       const std::vector<std::wstring>* field_names_wide)
+        : _term_dict(term_dict),
+          _frq_store(std::move(frq_store)),
+          _field_infos(field_infos),
+          _field_names_wide(field_names_wide) {
+    DCHECK(_term_dict != nullptr);
+    DCHECK(_frq_store != nullptr);
     DCHECK(_field_infos != nullptr);
     DCHECK(_field_names_wide != nullptr);
     DCHECK_EQ(_field_infos->size(), _field_names_wide->size());
@@ -122,29 +136,41 @@ void SpimiQueryTermDocs::LoadDocsForTerm(int32_t field_number, const TermInfo& i
     _current_term_info = info;
     _doc_freq = info.doc_freq;
 
-    // Hard-bound `freq_pointer` BEFORE the pointer arithmetic.
-    if (info.freq_pointer < 0 || static_cast<uint64_t>(info.freq_pointer) > _frq_length)
-            [[unlikely]] {
+    const int64_t frq_total = _frq_store->length();
+    // Hard-bound `freq_pointer` BEFORE any positioned read.
+    if (info.freq_pointer < 0 || info.freq_pointer > frq_total) [[unlikely]] {
         _CLTHROWA(CL_ERR_IO, "SPIMI .tis freq_pointer out of .frq bounds");
     }
-    const auto fp = static_cast<size_t>(info.freq_pointer);
-    const uint8_t* frq = _frq_data + fp;
-    const size_t frq_len = _frq_length - fp;
+    const int64_t fp = info.freq_pointer;
+    const int64_t frq_len = frq_total - fp; // upper bound on the term block span
 
     // Prefer the LAZY window-addressed reader for V4 windowed blocks when this
     // TermDocs is doc/freq-only (the position-aware subclass forces eager). The
-    // reader's Open returns false for any non-windowed / ZSTD-wrapped block, so
-    // we transparently fall back to eager whole-term materialization. Both paths
-    // decode the SAME window bytes with the SAME primitives, so a doc()/freq()
-    // observed lazily is byte-identical to the eager `_docs[p]`.
-    if (may_use_lazy_windowed() && frq_len > 0U &&
-        frq[0] == FreqProxEncoder::kCodeModeSpimiWindowed) {
-        if (_lazy_reader.Open(frq, frq_len, info.doc_freq, has_prox)) {
+    // reader's Open fetches only the header+skip-table prefix via positioned
+    // reads, then each covering window's bytes on demand. Open returns false
+    // for any non-windowed / ZSTD-wrapped block, so we transparently fall back
+    // to eager whole-term materialization. Both paths decode the SAME window
+    // bytes with the SAME primitives, so a doc()/freq() observed lazily is
+    // byte-identical to the eager `_docs[p]`.
+    if (may_use_lazy_windowed() && frq_len > 0) {
+        if (_lazy_reader.Open(_frq_store.get(), fp, info.doc_freq, has_prox)) {
             _lazy = true;
             return;
         }
     }
-    _docs = SpimiTermDocsReader::ReadTerm(frq, frq_len, info.doc_freq, has_prox);
+    // EAGER fallback: one-shot positioned-read the term block (fp..end) into a
+    // local buffer, then run the whole-term `ReadTerm`. Only reached for
+    // legacy/ZSTD-wrapped non-windowed `.frq` blocks, which the V4 windowed
+    // writer never emits — so this over-read (to file end) is not on the V4
+    // hot path. `ReadTerm` consumes exactly `doc_freq` records and ignores any
+    // trailing bytes from subsequent terms.
+    std::vector<uint8_t> block(static_cast<size_t>(frq_len));
+    try {
+        _frq_store->read_at(fp, block.data(), block.size());
+    } catch (const ::doris::Exception& e) {
+        _CLTHROWA(CL_ERR_IO, e.what());
+    }
+    _docs = SpimiTermDocsReader::ReadTerm(block.data(), block.size(), info.doc_freq, has_prox);
 }
 
 void SpimiQueryTermDocs::seek(lucene::index::Term* term) {

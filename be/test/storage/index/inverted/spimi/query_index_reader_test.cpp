@@ -19,6 +19,19 @@
 
 #include <gtest/gtest.h>
 
+// clang-format off
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
+#include <CLucene/store/IndexInput.h>
+#include <CLucene/store/IndexOutput.h>
+#include <CLucene/store/RAMDirectory.h>
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
+// clang-format on
+
 #include <memory>
 #include <vector>
 
@@ -62,10 +75,28 @@ struct IndexReaderFixture {
     }
 
     std::unique_ptr<SpimiQueryIndexReader> Make() {
-        return std::make_unique<SpimiQueryIndexReader>(tis.bytes(), tii.bytes(), frq.bytes(),
+        // The reader now takes `.frq` as an OPEN template IndexInput (not
+        // slurped). Stage the frq bytes into a RAMDirectory (held by the
+        // fixture so it outlives the reader) and openInput. `openInput` rejects
+        // a zero-length file, but every test term here has postings.
+        auto* out = _ram.createOutput("_0.frq");
+        if (!frq.bytes().empty()) {
+            out->writeBytes(frq.bytes().data(), static_cast<int32_t>(frq.bytes().size()));
+        }
+        out->close();
+        _CLDELETE(out);
+        lucene::store::IndexInput* frq_in = nullptr;
+        CLuceneError err;
+        EXPECT_TRUE(_ram.openInput("_0.frq", frq_in, err));
+        OwnedFrqInput frq_owned(frq_in);
+        // Pass nullptr for the directory: the fixture owns `_ram` on the stack
+        // and keeps it alive past the reader, so no extra ref is needed.
+        return std::make_unique<SpimiQueryIndexReader>(tis.bytes(), tii.bytes(),
+                                                       std::move(frq_owned), /*directory=*/nullptr,
                                                        prx.bytes(), fnm.bytes(), _max_doc);
     }
 
+    lucene::store::RAMDirectory _ram;
     int32_t _max_doc = 0;
 };
 

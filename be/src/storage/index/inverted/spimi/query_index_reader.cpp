@@ -17,8 +17,20 @@
 
 #include "storage/index/inverted/spimi/query_index_reader.h"
 
+// clang-format off
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
+#include <CLucene/store/IndexInput.h>
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
+// clang-format on
+
 #include "common/logging.h"
 #include "storage/index/inverted/spimi/byte_output.h"
+#include "storage/index/inverted/spimi/posting_store.h"
 #include "storage/index/inverted/spimi/query_term_docs.h"
 #include "storage/index/inverted/spimi/query_term_enum.h"
 #include "storage/index/inverted/spimi/query_term_positions.h"
@@ -26,18 +38,31 @@
 
 namespace doris::segment_v2::inverted_index::spimi {
 
+void CLuceneIndexInputDeleter::operator()(lucene::store::IndexInput* p) const {
+    if (p != nullptr) {
+        p->close();
+        _CLDELETE(p);
+    }
+}
+
 SpimiQueryIndexReader::SpimiQueryIndexReader(std::vector<uint8_t> tis_bytes,
                                              std::vector<uint8_t> tii_bytes,
-                                             std::vector<uint8_t> frq_bytes,
+                                             OwnedFrqInput frq_input,
+                                             lucene::store::Directory* directory,
                                              std::vector<uint8_t> prx_bytes,
                                              std::vector<uint8_t> fnm_bytes, int32_t max_doc)
         : _tis_bytes(std::move(tis_bytes)),
           _tii_bytes(std::move(tii_bytes)),
-          _frq_bytes(std::move(frq_bytes)),
           _prx_bytes(std::move(prx_bytes)),
           _fnm_bytes(std::move(fnm_bytes)),
-          _max_doc(max_doc) {
+          _max_doc(max_doc),
+          // Hold an extra ref on the directory so the open `_frq_input` (and
+          // its per-thread clones) cannot outlive their backing stream. Mirrors
+          // CLucene `IndexReader::open(dir, closeDir=true)`'s `_CL_POINTER`.
+          _dir(directory != nullptr ? _CL_POINTER(directory) : nullptr),
+          _frq_input(std::move(frq_input)) {
     DCHECK_GE(_max_doc, 0);
+    DCHECK(_frq_input != nullptr);
     _field_infos_entries = FieldInfosReader::Read(_fnm_bytes);
     _field_names_wide.reserve(_field_infos_entries.size());
     for (const auto& fi : _field_infos_entries) {
@@ -47,7 +72,19 @@ SpimiQueryIndexReader::SpimiQueryIndexReader(std::vector<uint8_t> tis_bytes,
     BuildCLuceneFieldInfos();
 }
 
-SpimiQueryIndexReader::~SpimiQueryIndexReader() = default;
+SpimiQueryIndexReader::~SpimiQueryIndexReader() {
+    // Release the `.frq` input FIRST (closes the cursor on the backing stream),
+    // THEN drop our extra ref on the directory. Doing it in this order in the
+    // body — rather than relying on member destruction order alone — makes the
+    // input-before-directory dependency explicit and robust to future member
+    // reordering. Any per-thread clones were already deleted with their
+    // TermDocs (the reader outlives all its TermDocs per the CLucene contract).
+    _frq_input.reset();
+    if (_dir != nullptr) {
+        _CLDECDELETE(_dir);
+        _dir = nullptr;
+    }
+}
 
 void SpimiQueryIndexReader::BuildCLuceneFieldInfos() {
     // Take ownership of the FieldInfos* BEFORE the populating loop
@@ -93,15 +130,22 @@ lucene::index::TermEnum* SpimiQueryIndexReader::terms(const lucene::index::Term*
 
 lucene::index::TermDocs* SpimiQueryIndexReader::termDocs(bool /*load_stats*/,
                                                          const void* /*io_ctx*/) {
-    return new SpimiQueryTermDocs(_term_dict.get(), _frq_bytes.data(), _frq_bytes.size(),
-                                  &_field_infos_entries, &_field_names_wide);
+    // Clone the template `.frq` input so this TermDocs has its OWN cursor
+    // (independent across query threads; the shared file handle's `read_at` is
+    // mutex-guarded). The clone shares the refcounted handle (one fd) — cheap.
+    auto store = std::make_unique<IndexInputPostingStore>(_frq_input->clone());
+    return new SpimiQueryTermDocs(_term_dict.get(), std::move(store), &_field_infos_entries,
+                                  &_field_names_wide);
 }
 
 lucene::index::TermPositions* SpimiQueryIndexReader::termPositions(bool /*load_stats*/,
                                                                    const void* /*io_ctx*/) {
-    return new SpimiQueryTermPositions(_term_dict.get(), _frq_bytes.data(), _frq_bytes.size(),
-                                       _prx_bytes.data(), _prx_bytes.size(), &_field_infos_entries,
-                                       &_field_names_wide);
+    // Positions force the EAGER `.frq` path (lazy `.prx` deferred); the eager
+    // path one-shot-reads the term block through this cloned PostingStore. `.prx`
+    // stays fully resident. Each call gets its own clone (per-thread cursor).
+    auto store = std::make_unique<IndexInputPostingStore>(_frq_input->clone());
+    return new SpimiQueryTermPositions(_term_dict.get(), std::move(store), _prx_bytes.data(),
+                                       _prx_bytes.size(), &_field_infos_entries, &_field_names_wide);
 }
 
 int32_t SpimiQueryIndexReader::docFreq(const lucene::index::Term* t) {

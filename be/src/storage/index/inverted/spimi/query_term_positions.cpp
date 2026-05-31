@@ -34,6 +34,17 @@ SpimiQueryTermPositions::SpimiQueryTermPositions(const TermDictReader* term_dict
     DCHECK(_prx_data != nullptr || _prx_length == 0);
 }
 
+SpimiQueryTermPositions::SpimiQueryTermPositions(const TermDictReader* term_dict,
+                                                 std::unique_ptr<PostingStore> frq_store,
+                                                 const uint8_t* prx_data, size_t prx_length,
+                                                 const std::vector<FieldInfoEntry>* field_infos,
+                                                 const std::vector<std::wstring>* field_names_wide)
+        : SpimiQueryTermDocs(term_dict, std::move(frq_store), field_infos, field_names_wide),
+          _prx_data(prx_data),
+          _prx_length(prx_length) {
+    DCHECK(_prx_data != nullptr || _prx_length == 0);
+}
+
 SpimiQueryTermPositions::~SpimiQueryTermPositions() = default;
 
 void SpimiQueryTermPositions::LoadPositionsForCurrentTerm() {
