@@ -185,7 +185,7 @@ public class StmtExecutor {
 
     private static final Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
     private ConnectContext context;
-    private final StatementContext statementContext;
+    private StatementContext statementContext;
     private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
@@ -549,6 +549,16 @@ public class StmtExecutor {
      */
     public StatementBase getParsedStmt() {
         return parsedStmt;
+    }
+
+    /**
+     * Replace the executor statement context and synchronize it to the owning ConnectContext.
+     */
+    public void setStatementContext(StatementContext statementContext) {
+        this.statementContext = statementContext;
+        this.statementContext.setConnectContext(context);
+        this.statementContext.setOriginStatement(originStmt);
+        this.context.setStatementContext(statementContext);
     }
 
     public boolean isHandleQueryInFe() {
