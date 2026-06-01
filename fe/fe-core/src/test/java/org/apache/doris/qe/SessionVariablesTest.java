@@ -47,8 +47,7 @@ public class SessionVariablesTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         createDatabase("test_d");
         useDatabase("test_d");
-        createTable("create table test_t1 \n" + "(k1 int, k2 int) distributed by hash(k1) buckets 1\n"
-                + "properties(\"replication_num\" = \"1\");");
+        // Skip creating an OLAP table because these cases only validate session-variable behavior and parsing.
 
         sessionVariable = new SessionVariable();
         Field[] fields = SessionVariable.class.getDeclaredFields();

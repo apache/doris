@@ -21,12 +21,13 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.job.manager.StreamingTaskManager;
 import org.apache.doris.load.EtlJobType;
@@ -38,6 +39,7 @@ import org.apache.doris.qe.InsertResult;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
@@ -167,9 +169,12 @@ class OlapInsertExecutorTest {
     // Prepare the mocked coordinator so the executor can run its completion logic without real execution.
     private Coordinator createCoordinator() throws Exception {
         Coordinator coordinator = Mockito.mock(Coordinator.class);
+        // Return non-null query options because master registers the coordinator in QeProcessor.
+        TQueryOptions queryOptions = new TQueryOptions();
         Mockito.when(coordinator.join(Mockito.anyInt())).thenReturn(true);
         Mockito.when(coordinator.isDone()).thenReturn(true);
         Mockito.when(coordinator.getExecStatus()).thenReturn(new Status(TStatusCode.OK, ""));
+        Mockito.when(coordinator.getQueryOptions()).thenReturn(queryOptions);
         Mockito.when(coordinator.getCommitInfos()).thenReturn(Lists.newArrayList());
         Mockito.when(coordinator.getTrackingUrl()).thenReturn(null);
         Mockito.when(coordinator.getFirstErrorMsg()).thenReturn(null);
@@ -213,7 +218,8 @@ class OlapInsertExecutorTest {
         Mockito.when(database.getFullName()).thenReturn("test_db");
         Mockito.when(database.getId()).thenReturn(1L);
 
-        Table table = Mockito.mock(Table.class);
+        // Mock OlapTable because the master-side executor now casts the target table to OlapTable.
+        OlapTable table = Mockito.mock(OlapTable.class);
         Mockito.when(table.getDatabase()).thenReturn(database);
         Mockito.when(table.getName()).thenReturn("test_tbl");
         Mockito.when(table.getId()).thenReturn(2L);
@@ -226,11 +232,13 @@ class OlapInsertExecutorTest {
     private void prepareFactoryMocks(MockedStatic<EnvFactory> envFactoryMock, MockedStatic<Env> envMock,
             Coordinator coordinator, GlobalTransactionMgrIface txnMgr, TransactionState txnState, Env currentEnv) {
         EnvFactory envFactory = Mockito.mock(EnvFactory.class);
+        HiveTransactionMgr hiveTransactionMgr = Mockito.mock(HiveTransactionMgr.class);
         envFactoryMock.when(EnvFactory::getInstance).thenReturn(envFactory);
         Mockito.when(envFactory.createCoordinator(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyLong()))
                 .thenReturn(coordinator);
 
         envMock.when(Env::getCurrentGlobalTransactionMgr).thenReturn(txnMgr);
+        envMock.when(Env::getCurrentHiveTransactionMgr).thenReturn(hiveTransactionMgr);
         envMock.when(Env::getCurrentEnv).thenReturn(currentEnv);
         Mockito.when(txnMgr.getTransactionState(Mockito.anyLong(), Mockito.anyLong())).thenReturn(txnState);
     }
