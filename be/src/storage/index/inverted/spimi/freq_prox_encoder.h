@@ -178,8 +178,19 @@ private:
     MemoryByteOutput _frq_term_buf;
     ByteOutput* _prx_out;
     int32_t _skip_interval;
-    bool _omit_tfap;      // when true: doc-id-only .frq, no .prx writes at all
-    bool _use_windowed;   // when true: emit V4 windowed .frq/.prx via WindowFrameEncoder
+    bool _omit_tfap; // when true: doc-id-only .frq, no .prx writes at all
+    // Segment CAPABILITY (from the ctor `use_windowed` arg): this segment MAY
+    // emit V4 windowed terms. The actual per-term decision is `_term_windowed`,
+    // computed in StartTerm from this capability AND the term's doc frequency,
+    // so only high-df terms (df >= skip_interval) are windowed; the df=1 long
+    // tail stays on the legacy compact VInt/PFOR path (which inlines into .tis).
+    bool _windowed_capable;
+    // Per-term decision (set at the top of StartTerm). When true, this term is
+    // emitted in the V4 windowed .frq/.prx format via WindowFrameEncoder; when
+    // false, the legacy V0..V3 streaming PFOR/VInt path is used. A single
+    // segment can therefore mix windowed (high-df) and legacy (low-df) terms;
+    // the reader auto-detects per term from the outer mode byte.
+    bool _term_windowed = false;
     bool _inline_capable; // when true: FinishTerm stages block bytes (caller flushes)
 
     // Staging buffers for inline_capable mode. In that mode the term's whole

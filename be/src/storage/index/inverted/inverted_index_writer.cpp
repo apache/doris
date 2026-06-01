@@ -290,7 +290,7 @@ Status InvertedIndexColumnWriter<field_type>::init_fulltext_index() {
     if (_is_v4) {
         const std::string field_name_utf8(_field_name.begin(), _field_name.end());
         _spimi_writer = std::make_unique<segment_v2::inverted_index::spimi::SpimiIndexWriter>(
-                field_name_utf8);
+                field_name_utf8, /*is_v4=*/true);
         _spimi_tee = std::make_unique<segment_v2::inverted_index::spimi::TeeTokenStream>();
         LOG_FIRST_N(INFO, 1) << "V4 storage format: pure SPIMI write path (no CLucene)";
     }

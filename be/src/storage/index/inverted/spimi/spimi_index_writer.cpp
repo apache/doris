@@ -53,10 +53,10 @@ SpimiIndexWriter::OutputStreams SpimiIndexWriter::CreateOutputStreams(DorisFSDir
     return s;
 }
 
-SpimiIndexWriter::SpimiIndexWriter(std::string field_name)
+SpimiIndexWriter::SpimiIndexWriter(std::string field_name, bool is_v4)
         : _field_name(std::move(field_name)),
           _buffer(std::make_unique<SpimiPostingBuffer>()),
-          _spill_manager(std::make_unique<SpillManager>(_field_name)) {}
+          _spill_manager(std::make_unique<SpillManager>(_field_name, is_v4)) {}
 
 void SpimiIndexWriter::AppendToken(std::string_view term, uint32_t doc_id, uint32_t position) {
     DCHECK(_buffer != nullptr);
@@ -113,9 +113,15 @@ EmittedSegmentByteCounts SpimiIndexWriter::EmitDirect(const OutputStreams& strea
     sink.segments_gen = &seg_gen_bo;
 
     const bool omit_norms = config.is_v4;
+    // V4 segments are written windowed+inline-capable (the durable read-side
+    // gate is index_version >= kIndexVersionV4, derived in fulltext_writer).
+    // This is SAFE now that windowing is adaptive per term: only df >=
+    // skip_interval terms are windowed; the df=1 long tail stays legacy.
+    const int32_t index_version =
+            config.is_v4 ? FieldInfosWriter::kIndexVersionV4 : FieldInfosWriter::kIndexVersionV0;
     EmittedSegmentByteCounts byte_counts;
     SpimiFulltextWriter::EmitSegment(*_buffer, sink, /*segment_name=*/"_0", config.field_name_utf8,
-                                     config.doc_count, FieldInfosWriter::kIndexVersionV0,
+                                     config.doc_count, index_version,
                                      config.omit_term_freq_and_positions, omit_norms, &byte_counts);
     return byte_counts;
 }
@@ -159,9 +165,16 @@ void SpimiIndexWriter::EmitMerged(const OutputStreams& streams, const SpimiFinis
     }
 
     const bool omit_norms = config.is_v4;
+    // V4 merged segments advertise kIndexVersionV4 in .fnm so the read side
+    // and the merge re-encode path turn on windowed+inline. Spill segments are
+    // written with the SAME V4 gate (see SpillManager), so the single-input
+    // byte-copy fast path stays format-consistent. Adaptive per-term windowing
+    // keeps the df=1 tail legacy, so this is safe.
+    const int32_t index_version =
+            config.is_v4 ? FieldInfosWriter::kIndexVersionV4 : FieldInfosWriter::kIndexVersionV0;
     SegmentMerger::Merge(inputs, sink, /*segment_name=*/"_0", config.field_name_utf8,
-                         config.doc_count, FieldInfosWriter::kIndexVersionV0,
-                         config.omit_term_freq_and_positions, omit_norms);
+                         config.doc_count, index_version, config.omit_term_freq_and_positions,
+                         omit_norms);
 }
 
 void SpimiIndexWriter::Finish(DorisFSDirectory* dir, const SpimiFinishConfig& config) {

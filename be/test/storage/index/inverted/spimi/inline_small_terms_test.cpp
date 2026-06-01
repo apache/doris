@@ -404,6 +404,58 @@ TEST(InlineSmallTermsTest, TermInfoRoundTripInlineSpans) {
     EXPECT_GE(big->freq_pointer, 0);
 }
 
+// Mixed adaptive-windowing invariant: a single V4 windowed-capable segment that
+// contains BOTH a low-df term (df < skip_interval -> emitted legacy) AND a
+// high-df term (df >= skip_interval -> emitted windowed) must query identically
+// to a reference segment built without windowing capability. This locks the
+// per-term adaptive gate end-to-end through the real read path.
+TEST(InlineSmallTermsTest, MixedWindowedAndLegacyTermsRoundTrip) {
+    const int32_t kSkip = TermDictWriter::kDefaultSkipInterval; // 512
+    std::vector<Post> posts;
+    // Low-df term: df=3 (< kSkip) -> stays legacy under the adaptive gate.
+    for (int d = 0; d < 3; ++d) {
+        const uint32_t doc = static_cast<uint32_t>(1 + d);
+        posts.emplace_back("small_term", doc, 0);
+        posts.emplace_back("small_term", doc, 7);
+    }
+    // High-df term: df well above kSkip -> windowed. Distinct doc range so the
+    // two terms' posting lists never interleave.
+    const int big_df = kSkip * 3; // 1536 docs, comfortably above the gate
+    for (int d = 0; d < big_df; ++d) {
+        const uint32_t doc = static_cast<uint32_t>(1000 + d);
+        for (int pp = 0; pp < 2; ++pp) {
+            posts.emplace_back("large_term", doc, static_cast<uint32_t>((d * 5 + pp) % 311));
+        }
+    }
+
+    // Windowed-capable segment (adaptive: small_term legacy, large_term windowed)
+    // with inlining on, vs a reference whose terms are all external. Both use the
+    // same windowed-capable writer; the gate decides per term inside.
+    Segment windowed;
+    windowed.Write(posts, /*inline_small=*/true, /*threshold=*/256);
+    Segment reference;
+    reference.Write(posts, /*inline_small=*/false, /*threshold=*/0);
+
+    // The small term inlines (legacy compact block <= 256 B); the large windowed
+    // term keeps external pointers. This proves both formats coexist in one .tis.
+    auto small_ti = windowed.dict->LookupTerm(0, "small_term");
+    ASSERT_TRUE(small_ti.has_value());
+    EXPECT_TRUE(small_ti->inlined) << "df<skip_interval legacy term should inline";
+    auto large_ti = windowed.dict->LookupTerm(0, "large_term");
+    ASSERT_TRUE(large_ti.has_value());
+    EXPECT_FALSE(large_ti->inlined) << "df>=skip_interval windowed term stays external";
+
+    for (const std::string& term : {std::string("small_term"), std::string("large_term")}) {
+        const auto a = windowed.Query(term);
+        const auto b = reference.Query(term);
+        ASSERT_EQ(a.size(), b.size()) << term;
+        for (size_t i = 0; i < a.size(); ++i) {
+            EXPECT_TRUE(a[i] == b[i]) << "mixed-format mismatch for term " << term << " at doc-index "
+                                      << i;
+        }
+    }
+}
+
 // (3) omit_tfap inline term: prx_len == 0, no positions, decodes correctly.
 TEST(InlineSmallTermsTest, OmitTfapInlineTerm) {
     // First doc id >= 1 (windowed format requirement).

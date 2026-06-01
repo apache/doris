@@ -266,4 +266,55 @@ TEST(FreqProxEncoderTest, SkipOffsetMatchesFrqByteLayout) {
     EXPECT_LE(static_cast<size_t>(info.skip_offset), frq.bytes().size());
 }
 
+// Adaptive per-term windowing gate: with the segment windowed-CAPABLE
+// (use_windowed=true), a small-df term (df < skip_interval) must fall through
+// to the legacy compact VInt path (outer byte kCodeModeDefault 0x00), while a
+// large-df term (df >= skip_interval) must be emitted in the windowed format
+// (outer byte kCodeModeSpimiWindowed 0x06). This locks the gate that keeps the
+// df=1 long tail legacy (byte-identical to pre-windowing) and only windows the
+// high-df terms where the per-window skip metadata amortizes.
+TEST(FreqProxEncoderTest, AdaptiveGateSmallDfStaysLegacy) {
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
+    // skip_interval=4 keeps the test cheap; the gate is df >= skip_interval.
+    FreqProxEncoder e(&frq, &prx, /*skip_interval=*/4, /*max_skip_levels=*/2,
+                      /*omit_term_freq_and_positions=*/false, /*use_windowed=*/true);
+    e.StartTerm(/*expected_doc_freq=*/1); // df < skip_interval ⇒ legacy
+    e.StartDoc(5, /*freq=*/1);
+    e.AddPosition(3);
+    e.FinishDoc();
+    (void)e.FinishTerm();
+
+    ByteReader fr(frq.bytes());
+    EXPECT_EQ(fr.Byte(), FreqProxEncoder::kCodeModeDefault)
+            << "df=1 must stay on the legacy compact VInt path under a "
+               "windowed-capable encoder";
+    ByteReader pr(prx.bytes());
+    EXPECT_EQ(pr.Byte(), FreqProxEncoder::kProxRaw) << "legacy term ⇒ raw prox header";
+}
+
+TEST(FreqProxEncoderTest, AdaptiveGateLargeDfIsWindowed) {
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
+    constexpr int32_t kSkip = 4;
+    FreqProxEncoder e(&frq, &prx, /*skip_interval=*/kSkip, /*max_skip_levels=*/2,
+                      /*omit_term_freq_and_positions=*/false, /*use_windowed=*/true);
+    e.StartTerm(/*expected_doc_freq=*/kSkip); // df >= skip_interval ⇒ windowed
+    for (int i = 0; i < kSkip; ++i) {
+        e.StartDoc(i + 1, /*freq=*/1);
+        e.AddPosition(0);
+        e.FinishDoc();
+    }
+    const TermInfo info = e.FinishTerm();
+
+    ByteReader fr(frq.bytes());
+    EXPECT_EQ(fr.Byte(), FreqProxEncoder::kCodeModeSpimiWindowed)
+            << "df >= skip_interval under a windowed-capable encoder must emit "
+               "the windowed outer mode byte";
+    EXPECT_EQ(info.skip_offset, 0) << "windowed terms carry per-window skip metadata, "
+                                      "so the trailing skip-list offset is 0";
+    ByteReader pr(prx.bytes());
+    EXPECT_EQ(pr.Byte(), FreqProxEncoder::kProxWindowed) << "windowed term ⇒ windowed prox header";
+}
+
 } // namespace doris::segment_v2::inverted_index::spimi

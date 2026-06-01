@@ -44,7 +44,10 @@ void EncodeWindowed(const Term& t, bool has_prox, std::vector<uint8_t>* frq,
                     std::vector<uint8_t>* prx) {
     MemoryByteOutput frq_out;
     MemoryByteOutput prx_out;
-    FreqProxEncoder enc(&frq_out, &prx_out, /*skip_interval=*/512, /*max_skip_levels=*/10,
+    // skip_interval=1 forces the per-term windowing gate to admit every df so
+    // this isolation helper exercises the windowed encoder across df < unit /
+    // single-window cases; the production gate (512) is unchanged.
+    FreqProxEncoder enc(&frq_out, &prx_out, /*skip_interval=*/1, /*max_skip_levels=*/10,
                         /*omit_term_freq_and_positions=*/!has_prox, /*use_windowed=*/true);
     enc.StartTerm(static_cast<int32_t>(t.docs.size()));
     for (size_t i = 0; i < t.docs.size(); ++i) {

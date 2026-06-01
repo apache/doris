@@ -55,7 +55,12 @@ struct SpillSegment {
 // SegmentMerger for the final k-way merge.
 class SpillManager {
 public:
-    explicit SpillManager(std::string field_name);
+    // `is_v4` makes spill segments use kIndexVersionV4 (windowed+inline-capable)
+    // in lockstep with the final segment's .fnm. This MUST match the final
+    // EmitDirect/EmitMerged index_version so SegmentMerger::MergeSingleInput's
+    // byte-copy of a spill's .frq/.prx stays format-consistent with the .fnm it
+    // rewrites. Adaptive per-term windowing keeps the df=1 tail legacy either way.
+    explicit SpillManager(std::string field_name, bool is_v4 = false);
 
     SpillManager(const SpillManager&) = delete;
     SpillManager& operator=(const SpillManager&) = delete;
@@ -82,6 +87,7 @@ public:
 
 private:
     std::string _field_name;
+    bool _is_v4 = false;
     std::vector<SpillSegment> _spills;
     int32_t _spill_counter = 0;
 };

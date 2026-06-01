@@ -70,7 +70,11 @@ class SpimiIndexWriter {
     FRIEND_TEST(SpimiIndexWriterTest, GetFileNamesShadow);
 
 public:
-    explicit SpimiIndexWriter(std::string field_name);
+    // `is_v4` is fixed at construction (the storage format is known then) and
+    // threaded into SpillManager so spill segments are written with the SAME
+    // index_version the final segment advertises. Required for the
+    // single-input byte-copy merge fast path to stay format-consistent.
+    explicit SpimiIndexWriter(std::string field_name, bool is_v4 = false);
 
     SpimiIndexWriter(const SpimiIndexWriter&) = delete;
     SpimiIndexWriter& operator=(const SpimiIndexWriter&) = delete;

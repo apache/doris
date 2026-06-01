@@ -147,14 +147,14 @@ bool SpimiWindowedTermDocs::Open(PostingStore* store, int64_t term_base, int32_t
         //   (b) prev_max_docid is the exact running last_doc into window w,
         // which is what lets each window decode standalone.
         if (w == 0) {
-            if (e.min_docid <= 0) [[unlikely]] {
-                // First absolute doc id is >= 1 (doc 0 with delta 0 is impossible
-                // because the first doc-delta == first_docid and docs are >= 1 in
-                // practice; but be defensive — min_docid must be the real first doc).
-                // A min_docid of 0 would mean a zero first doc-delta, impossible for
-                // a non-empty term whose first delta is its absolute first doc id.
-                SPIMI_THROW_CORRUPT("SPIMI .frq windowed: first window min_docid out of range");
-            }
+            // First window: min_docid is the term's absolute first doc id. doc 0
+            // is legal (real segments are 0-based) — decode seeds prev_last_doc=0
+            // and reconstructs last_doc = 0 + first_delta = min_docid, which is
+            // correct for min_docid==0. Only a negative value is corrupt (already
+            // rejected above by `e.min_docid < 0`), so no extra guard is needed
+            // here. (Previously this rejected min_docid==0 on the mistaken premise
+            // that docs are always >= 1, which broke V4 windowed terms whose first
+            // doc is 0.)
         } else {
             if (e.min_docid <= prev_max_docid) [[unlikely]] {
                 SPIMI_THROW_CORRUPT("SPIMI .frq windowed: windows not strictly ascending");

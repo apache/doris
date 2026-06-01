@@ -81,7 +81,7 @@ FreqProxEncoder::FreqProxEncoder(ByteOutput* frq_out, ByteOutput* prx_out, int32
           _prx_out(prx_out),
           _skip_interval(skip_interval),
           _omit_tfap(omit_term_freq_and_positions),
-          _use_windowed(use_windowed),
+          _windowed_capable(use_windowed),
           _inline_capable(inline_capable),
           _skip_list_writer(skip_interval, max_skip_levels) {
     DCHECK(_frq_real != nullptr);
@@ -132,7 +132,15 @@ void FreqProxEncoder::StartTerm(int32_t expected_doc_freq) {
     _doc_freq = 0;
     _last_doc = 0;
 
-    if (_use_windowed) {
+    // Per-term windowing decision. Window a term only when the segment is
+    // windowed-capable AND the term is large enough that the per-window skip
+    // metadata amortizes — using the SAME df >= skip_interval gate that already
+    // turns on PFOR / skip-list emission below. The df=1 long tail (which
+    // dominates a real fulltext vocabulary) stays false -> legacy compact VInt
+    // block -> byte-identical to pre-windowing output and inlined into .tis.
+    _term_windowed = _windowed_capable && (expected_doc_freq >= _skip_interval);
+
+    if (_term_windowed) {
         // V4 windowed mode: buffer the whole term; FinishTerm frames it into
         // windows via WindowFrameEncoder. No codec header / streaming PFOR here.
         _win_doc_deltas.clear();
@@ -216,7 +224,7 @@ void FreqProxEncoder::StartDoc(int32_t doc_id, int32_t freq) {
     }
 
     const auto doc_delta = static_cast<uint32_t>(doc_id - _last_doc);
-    if (_use_windowed) {
+    if (_term_windowed) {
         // V4 windowed mode: buffer the doc-delta (and freq); positions are
         // staged in AddPosition. The whole-term framing happens at FinishTerm.
         _win_doc_deltas.push_back(doc_delta);
@@ -294,7 +302,7 @@ void FreqProxEncoder::AddPosition(int32_t position) {
     // goes into the windowed position buffer (sliced per doc by FinishTerm); in
     // the legacy path FlushProxBlock writes/compresses _prox_raw at FinishTerm.
     const auto delta = static_cast<uint32_t>(position - _last_position_in_doc);
-    if (_use_windowed) {
+    if (_term_windowed) {
         AppendVInt(_win_pos_vint, delta);
     } else {
         AppendVInt(_prox_raw, delta);
@@ -319,7 +327,7 @@ TermInfo FreqProxEncoder::FinishTerm() {
     DCHECK_EQ(_doc_freq, _expected_doc_freq)
             << "Expected doc frequency did not match the actual count";
 
-    if (_use_windowed) {
+    if (_term_windowed) {
         TermInfo info;
         FinishTermWindowed(&info);
         _term_open = false;

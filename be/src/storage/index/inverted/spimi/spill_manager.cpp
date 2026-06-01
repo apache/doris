@@ -26,7 +26,8 @@
 
 namespace doris::segment_v2::inverted_index::spimi {
 
-SpillManager::SpillManager(std::string field_name) : _field_name(std::move(field_name)) {}
+SpillManager::SpillManager(std::string field_name, bool is_v4)
+        : _field_name(std::move(field_name)), _is_v4(is_v4) {}
 
 int64_t SpillManager::FlushBuffer(SpimiPostingBuffer& buffer, int32_t doc_count) {
     // Skip empty buffers — no point emitting a zero-term segment.
@@ -66,11 +67,17 @@ int64_t SpillManager::FlushBuffer(SpimiPostingBuffer& buffer, int32_t doc_count)
     };
 
     // EmitSegment sorts the buffer and writes the full segment.
-    // V4 spill segments always use omit_norms=true (scoring not
-    // supported in V4) and index_version V1 (matching the finish()
-    // path in inverted_index_writer.cpp).
+    // V4 spill segments always use omit_norms=true (scoring not supported in
+    // V4). Index version moves in LOCKSTEP with the final segment: V4 spills are
+    // written kIndexVersionV4 (windowed-capable + inline) so that
+    // SegmentMerger::MergeSingleInput can byte-copy the spill's .frq/.prx under a
+    // final .fnm that advertises V4. Adaptive per-term windowing keeps small-df
+    // terms legacy, so a V4 spill is byte-for-byte what a V4 final segment emits.
+    // Non-V4 (legacy shadow/debug) spills keep V1 as before.
+    const int32_t index_version =
+            _is_v4 ? FieldInfosWriter::kIndexVersionV4 : FieldInfosWriter::kIndexVersionV1;
     seg.term_count = SpimiFulltextWriter::EmitSegment(buffer, sink, seg.segment_name, _field_name,
-                                                      doc_count, FieldInfosWriter::kIndexVersionV1,
+                                                      doc_count, index_version,
                                                       /*omit_term_freq_and_positions=*/false,
                                                       /*omit_norms=*/true);
 
