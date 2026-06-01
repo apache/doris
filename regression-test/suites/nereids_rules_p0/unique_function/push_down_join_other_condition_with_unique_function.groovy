@@ -23,9 +23,8 @@ suite('push_down_join_other_condition_with_unique_function') {
     sql "SET detail_shape_nodes='PhysicalProject'"
     sql 'SET disable_nereids_rules=PRUNE_EMPTY_PARTITION'
 
-    // A `rand() > 0.5` predicate has empty input slots, so the legacy
-    // `child.getOutputSet().containsAll(emptySet)` check would arbitrarily push the
-    // predicate into one join side. Block such empty-slot unique predicates.
+    // A slot-free volatile ON predicate must stay in the join; otherwise it
+    // would be arbitrarily pushed into one side.
     qt_join_other_unique_1 '''
         explain shape plan
         select * from t1 join t2 on t1.id = t2.id and rand() > 0.5
@@ -44,9 +43,9 @@ suite('push_down_join_other_condition_with_unique_function') {
         select * from t1 left join t2 on t1.id = t2.id and uuid() is not null
     '''
 
-    // When the unique-function conjunct has side-specific input slots, push-down is
-    // allowed: output cardinality expectation is preserved and pre-join evaluation
-    // is what users typically want.
+    // Side-specific volatile ON predicates are still pushed down for performance,
+    // matching PostgreSQL's treatment of single-relation INNER JOIN ON quals as
+    // base restrictions.
     qt_join_other_unique_4 '''
         explain shape plan
         select * from t1 join t2 on t1.id = t2.id and t1.id + rand() > 0.5

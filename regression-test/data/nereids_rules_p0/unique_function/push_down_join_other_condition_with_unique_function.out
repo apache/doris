@@ -25,4 +25,3 @@ PhysicalResultSink
 ----PhysicalOlapScan[t2]
 ----filter(((cast(id as DOUBLE) + random()) > 0.5))
 ------PhysicalOlapScan[t1]
-

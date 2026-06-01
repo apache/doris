@@ -254,9 +254,7 @@ class PushDownJoinOtherConditionTest implements MemoPatternMatchSupported {
 
     @Test
     void doNotPushUniqueFunctionConjunct() {
-        // `rand() > 0.5` has empty input slots, so `allCoveredBy(..., child.getOutputSet())`
-        // would otherwise wrongly return true. Pushing this predicate to one child converts
-        // a per-join-pair evaluation into a per-input-row evaluation, changing semantics.
+        // Slot-free volatile predicates must not be arbitrarily pushed to one child.
         Expression deterministic = new GreaterThan(rStudentSlots.get(1), Literal.of(18));
         Expression uniqueFn = new GreaterThan(new Random(), Literal.of(0.5));
         List<Expression> condition = ImmutableList.of(deterministic, uniqueFn);
