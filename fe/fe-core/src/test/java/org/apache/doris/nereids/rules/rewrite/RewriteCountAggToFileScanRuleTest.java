@@ -93,6 +93,9 @@ class RewriteCountAggToFileScanRuleTest extends TestWithFeService {
                 mockTable.isHoodieCowTable();
                 result = false;
                 minTimes = 0;
+                mockTable.isParquetOrOrcFormat();
+                result = true;
+                minTimes = 0;
             }
         };
     }
@@ -420,5 +423,34 @@ class RewriteCountAggToFileScanRuleTest extends TestWithFeService {
             Assertions.assertTrue(((Alias) secondOutput).child(0) instanceof Sum0,
                     "Second output should be Alias(Sum0(...))");
         }
+    }
+
+    /**
+     * Test that Text format Hive table should NOT be rewritten to COUNT_FROM_METADATA.
+     * Text/CSV/JSON format tables should fall back to regular COUNT pushdown.
+     */
+    @Test
+    void testTextFormatHiveTableNotRewritten(@Injectable HMSExternalTable mockTable) throws Exception {
+        setupConstructorMocks(mockTable);
+
+        // Override isParquetOrOrcFormat to return false for Text format
+        new Expectations() {
+            {
+                mockTable.isParquetOrOrcFormat();
+                result = false;
+                minTimes = 0;
+            }
+        };
+
+        LogicalFileScan fileScan = createFileScan(mockTable);
+
+        Count countStar = new Count();
+        Alias countAlias = new Alias(countStar, "count(*)");
+        LogicalAggregate<LogicalFileScan> agg = new LogicalAggregate<>(
+                ImmutableList.of(), ImmutableList.of(countAlias), fileScan);
+
+        // canRewrite should return false because Text format does not support COUNT_FROM_METADATA
+        Assertions.assertFalse(invokeCanRewrite(agg),
+                "canRewrite should return false for Text format Hive table");
     }
 }

@@ -313,6 +313,24 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     /**
+     * Check if this HMS table uses Parquet or ORC as the underlying file format.
+     * Only Parquet and ORC files support COUNT_FROM_METADATA (reading row count from file footer).
+     * Other formats like Text/CSV/JSON fall back to regular COUNT pushdown.
+     */
+    public boolean isParquetOrOrcFormat() {
+        makeSureInitialized();
+        if (remoteTable.getSd() == null) {
+            return false;
+        }
+        String inputFileFormat = remoteTable.getSd().getInputFormat();
+        if (inputFileFormat == null) {
+            return false;
+        }
+        return "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat".equals(inputFileFormat)
+                || "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat".equals(inputFileFormat);
+    }
+
+    /**
      * Some data lakes (such as Hudi) will synchronize their partition information to HMS,
      * then we can quickly obtain the partition information of the table from HMS.
      */

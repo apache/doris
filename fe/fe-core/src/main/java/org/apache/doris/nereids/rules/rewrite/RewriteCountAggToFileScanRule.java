@@ -187,11 +187,13 @@ public class RewriteCountAggToFileScanRule implements RewriteRuleFactory {
 
     /**
      * Check if the table uses native Parquet/ORC reader so COUNT_FROM_METADATA works.
-     * Only HMS-based tables that read files through native readers are supported:
-     * - Hive tables (including Full-Acid, they use native ORC reader)
+     * Only HMS-based tables that read files through native Parquet/ORC readers are supported:
+     * - Hive tables with Parquet/ORC format (including Full-Acid, they use native ORC reader)
      * - Hudi COW tables (MOR tables use JNI reader)
      * HMS Iceberg tables are excluded because they have their own snapshot count path.
      * Non-HMS tables (Paimon, etc.) are excluded because they have their own count paths.
+     * Text/CSV/JSON etc. Hive tables are excluded because they use non-native readers
+     * and fall back to regular COUNT pushdown (not COUNT_FROM_METADATA).
      */
     private boolean isNativeReaderTable(LogicalFileScan fileScan) {
         ExternalTable table = fileScan.getTable();
@@ -207,8 +209,10 @@ public class RewriteCountAggToFileScanRule implements RewriteRuleFactory {
         if (hmsTable.isHoodieCowTable()) {
             return true;
         }
-        // Hive tables (including Full-Acid) use native Parquet/ORC reader
-        return hmsTable.getDlaType() == HMSExternalTable.DLAType.HIVE;
+        // Hive tables with Parquet/ORC format use native reader (including Full-Acid)
+        // Text/CSV/JSON etc. fall back to regular COUNT pushdown
+        return hmsTable.getDlaType() == HMSExternalTable.DLAType.HIVE
+                && hmsTable.isParquetOrOrcFormat();
     }
 
     /**

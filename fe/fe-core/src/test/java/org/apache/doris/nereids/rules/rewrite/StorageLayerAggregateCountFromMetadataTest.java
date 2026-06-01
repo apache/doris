@@ -89,6 +89,9 @@ class StorageLayerAggregateCountFromMetadataTest extends TestWithFeService
                 mockTable.isHoodieCowTable();
                 result = false;
                 minTimes = 0;
+                mockTable.isParquetOrOrcFormat();
+                result = true;
+                minTimes = 0;
             }
         };
     }

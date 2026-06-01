@@ -866,9 +866,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         if (hmsTable.isHoodieCowTable()) {
             return true;
         }
-        // Hive tables (including Full-Acid) use native Parquet/ORC reader
-        // -> handled by RewriteCountAggToFileScanRule
-        return hmsTable.getDlaType() == HMSExternalTable.DLAType.HIVE;
+        // Hive tables with native Parquet/ORC reader -> handled by RewriteCountAggToFileScanRule
+        // Text/CSV/JSON etc. use non-native readers and fall back to COUNT pushdown
+        return hmsTable.getDlaType() == HMSExternalTable.DLAType.HIVE
+                && hmsTable.isParquetOrOrcFormat();
     }
 
     private boolean enablePushDownStringMinMax() {
