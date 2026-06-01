@@ -1241,8 +1241,6 @@ TEST(BlockTest, others) {
     auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
     block.insert(ColumnHelper::create_column_with_name<DataTypeString>({"abc", "efg", "hij"}));
 
-    block.shrink_char_type_column_suffix_zero({1, 2});
-
     SipHash hash;
     block.update_hash(hash);
 

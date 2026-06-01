@@ -71,11 +71,6 @@ public:
     // Returns a deep copy of this RowCursor with the same schema and field values.
     RowCursor clone() const;
 
-    // Pad all CHAR-type fields in-place to their declared column length using '\0'.
-    // RowCursor holds CHAR values in compute format (unpadded). Call this before
-    // comparing against storage-format data (e.g. _seek_block) where CHAR is padded.
-    void pad_char_fields();
-
     // Output row cursor content in string format
     std::string to_string() const;
 

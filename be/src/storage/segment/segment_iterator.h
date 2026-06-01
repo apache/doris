@@ -203,11 +203,7 @@ private:
     bool _is_literal_node(const TExprNodeType::type& node_type);
 
     Status _vec_init_lazy_materialization();
-    // TODO: Fix Me
-    // CHAR type in storage layer padding the 0 in length. But query engine need ignore the padding 0.
-    // so segment iterator need to shrink char column before output it. only use in vec query engine.
-    void _vec_init_char_column_id(Block* block);
-    bool _has_char_type(const TabletColumn& column_desc);
+    void _vec_init_char_column_id();
 
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }
@@ -427,8 +423,6 @@ private:
 
     io::FileReaderSPtr _file_reader;
 
-    // char_type or array<char> type columns cid
-    std::vector<size_t> _char_type_idx;
     std::vector<bool> _is_char_type;
 
     // used for compaction, record selectd rowids of current batch

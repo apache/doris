@@ -570,8 +570,10 @@ TEST_F(BloomFilterFuncTest, FindFixedLenOlapEngine) {
 
     bloom_filter_func2.insert_fixed_len(string_column->clone(), 0);
 
-    StringRef strings[] = {StringRef("aa"), StringRef("bb"), StringRef("cc"),
-                           StringRef("dd\0\0", 4), StringRef("ef\0\0", 4)};
+    // CHAR padding is stripped at the page decoder now, so the runtime BF
+    // probe sees natural-length StringRefs; no trailing '\0' bytes here.
+    StringRef strings[] = {StringRef("aa"), StringRef("bb"), StringRef("cc"), StringRef("dd"),
+                           StringRef("ef")};
 
     PODArray<uint16_t> offsets2(5);
     std::iota(offsets2.begin(), offsets2.end(), 0);

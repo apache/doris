@@ -2042,7 +2042,10 @@ Status FileColumnIterator::_read_dict_data() {
     RETURN_IF_ERROR(_reader->read_page(_opts, _reader->get_dict_page_pointer(), &_dict_page_handle,
                                        &dict_data, &dict_footer, _compress_codec));
     const EncodingInfo* encoding_info;
-    RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
+    // The dict pool stores strings of the outer column's type. Using the
+    // outer type (CHAR vs VARCHAR/STRING) lets the EncodingInfo pick a
+    // CHAR-strip pre-decoder so the cached dict page is already unpadded.
+    RETURN_IF_ERROR(EncodingInfo::get(_reader->get_meta_type(),
                                       dict_footer.dict_page_footer().encoding(), &encoding_info));
     RETURN_IF_ERROR(encoding_info->create_page_decoder(dict_data, {}, _dict_decoder));
     RETURN_IF_ERROR(_dict_decoder->init());
