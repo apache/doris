@@ -214,8 +214,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         PreparedStatementContext preparedStatementContext = ctx.getPreparedStementContext(String.valueOf(stmtId));
         if (preparedStatementContext == null) {
             LOG.warn("No such statement in context, stmtId:{}", stmtId);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
-                    "msg: Not supported such prepared statement");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_STMT_HANDLER,
+                    String.format("Unknown prepared statement handler (%s) given to mysqld_stmt_execute", stmtId));
             return;
         }
         handleExecute(preparedStatementContext.command, stmtId, preparedStatementContext, packetBuf, null);
