@@ -26,6 +26,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.job.manager.StreamingTaskManager;
 import org.apache.doris.load.EtlJobType;
@@ -193,8 +194,12 @@ class OlapInsertExecutorTest {
     // Provide the job-manager chain needed by master-side setTxnCallbackId().
     private Env createCurrentEnv(LoadManager loadManager) {
         Env currentEnv = Mockito.mock(Env.class);
+        // Mock the internal catalog because ConnectContext.setEnv() resolves the default catalog on master.
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
         JobManager<?, ?> jobManager = Mockito.mock(JobManager.class);
         StreamingTaskManager streamingTaskManager = Mockito.mock(StreamingTaskManager.class);
+        Mockito.when(currentEnv.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(internalCatalog.getName()).thenReturn("internal");
         Mockito.when(currentEnv.getLoadManager()).thenReturn(loadManager);
         Mockito.when(currentEnv.getJobManager()).thenReturn(jobManager);
         Mockito.when(jobManager.getStreamingTaskManager()).thenReturn(streamingTaskManager);
