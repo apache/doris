@@ -19,6 +19,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <iostream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -45,6 +46,36 @@ static ColumnString::MutablePtr _make_json_column(const std::vector<std::string_
         col->insert_data(s.data(), s.size());
     }
     return col;
+}
+
+static TabletSchema _make_variant_schema(bool enable_doc_mode = false,
+                                         bool enable_nested_group = false) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    auto* c = schema_pb.add_column();
+    c->set_unique_id(1);
+    c->set_name("v");
+    c->set_type("VARIANT");
+    c->set_is_key(false);
+    c->set_is_nullable(false);
+    c->set_variant_enable_doc_mode(enable_doc_mode);
+    c->set_variant_enable_nested_group(enable_nested_group);
+
+    TabletSchema tablet_schema;
+    tablet_schema.init_from_pb(schema_pb);
+    return tablet_schema;
+}
+
+static Block _make_scalar_variant_block(const std::vector<std::string>& jsons) {
+    auto variant = ColumnVariant::create(0, false);
+    for (const auto& json : jsons) {
+        doris::VariantUtil::insert_root_scalar_field(
+                *variant, Field::create_field<TYPE_STRING>(String(json)));
+    }
+
+    Block block;
+    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0, false), "v"});
+    return block;
 }
 
 class ScopedDuplicateJsonPathCheck {
@@ -434,29 +465,10 @@ TEST(VariantUtilTest, ParseDuplicateJsonPathsCheckDisabledByDefault) {
     EXPECT_THROW(parse_json_to_variant(*variant, *json_col, cfg), Exception);
 }
 
-TEST(VariantUtilTest, ParseVariantColumns_ScalarJsonStringToSubcolumns) {
-    TabletSchemaPB schema_pb;
-    schema_pb.set_keys_type(KeysType::DUP_KEYS);
-    auto* c = schema_pb.add_column();
-    c->set_unique_id(1);
-    c->set_name("v");
-    c->set_type("VARIANT");
-    c->set_is_key(false);
-    c->set_is_nullable(false);
-    // doc mode disabled
-    c->set_variant_enable_doc_mode(false);
-
-    TabletSchema tablet_schema;
-    tablet_schema.init_from_pb(schema_pb);
-
-    auto variant = ColumnVariant::create(0, false);
-    doris::VariantUtil::insert_root_scalar_field(
-            *variant, Field::create_field<TYPE_STRING>(String(R"({"a":1})")));
-    doris::VariantUtil::insert_root_scalar_field(
-            *variant, Field::create_field<TYPE_STRING>(String(R"({"a":2})")));
-
-    Block block;
-    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0, false), "v"});
+TEST(VariantUtilTest, ParseVariantColumns_StorageNonDocScalarJsonToDocValueKv) {
+    TabletSchema tablet_schema = _make_variant_schema(false);
+    std::vector<std::string> jsons {R"({"a":1})", R"({"a":2})"};
+    Block block = _make_scalar_variant_block(jsons);
 
     const std::vector<uint32_t> column_pos {0};
     Status st = parse_and_materialize_variant_columns(block, tablet_schema, column_pos);
@@ -466,14 +478,94 @@ TEST(VariantUtilTest, ParseVariantColumns_ScalarJsonStringToSubcolumns) {
     const auto& out = assert_cast<const ColumnVariant&>(col0);
 
     const auto* sub_a = out.get_subcolumn(PathInData("a"));
-    ASSERT_TRUE(sub_a != nullptr);
+    ASSERT_TRUE(sub_a == nullptr);
+
+    const auto& doc_offsets = out.serialized_doc_value_column_offsets();
+    ASSERT_EQ(doc_offsets.size(), jsons.size());
+    EXPECT_EQ(doc_offsets.back(), jsons.size());
+
+    auto docs_subcolumns = materialize_docs_to_subcolumns_map(out);
+    ASSERT_TRUE(docs_subcolumns.contains("a"));
+    auto& materialized_a = docs_subcolumns.at("a");
+    materialized_a.finalize();
+
     FieldWithDataType f;
-    sub_a->get(0, f);
+    materialized_a.get(0, f);
     EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
     EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 1);
-    sub_a->get(1, f);
+    materialized_a.get(1, f);
     EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
     EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 2);
+}
+
+TEST(VariantUtilTest, SparseStorageParseUsesDocValueKvInsteadOfManySubcolumns) {
+    constexpr int kRows = 1000;
+    std::vector<std::string> jsons;
+    jsons.reserve(kRows);
+    for (int i = 0; i < kRows; ++i) {
+        jsons.push_back("{\"k" + std::to_string(i) + "\":\"" + std::to_string(i) + "\"}");
+    }
+
+    ParseConfig old_parse_cfg;
+    old_parse_cfg.deprecated_enable_flatten_nested = false;
+    old_parse_cfg.parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+
+    Block old_block = _make_scalar_variant_block(jsons);
+    Status old_st = parse_and_materialize_variant_columns(old_block, std::vector<uint32_t> {0},
+                                                          {old_parse_cfg});
+    ASSERT_TRUE(old_st.ok()) << old_st.to_string();
+    const auto& old_variant =
+            assert_cast<const ColumnVariant&>(*old_block.get_by_position(0).column);
+
+    TabletSchema tablet_schema = _make_variant_schema(false);
+    Block new_block = _make_scalar_variant_block(jsons);
+    Status new_st = parse_and_materialize_variant_columns(new_block, tablet_schema, {0});
+    ASSERT_TRUE(new_st.ok()) << new_st.to_string();
+    const auto& new_variant =
+            assert_cast<const ColumnVariant&>(*new_block.get_by_position(0).column);
+
+    const size_t old_subcolumns = old_variant.get_subcolumns().size();
+    const size_t new_subcolumns = new_variant.get_subcolumns().size();
+    const size_t old_bytes = old_variant.allocated_bytes();
+    const size_t new_bytes = new_variant.allocated_bytes();
+
+    std::cout << "sparse variant parse memory old_subcolumns=" << old_subcolumns
+              << " new_subcolumns=" << new_subcolumns << " old_bytes=" << old_bytes
+              << " new_bytes=" << new_bytes << std::endl;
+
+    EXPECT_GE(old_subcolumns, static_cast<size_t>(kRows));
+    EXPECT_LE(new_subcolumns, static_cast<size_t>(1));
+    EXPECT_LT(new_bytes, old_bytes);
+
+    const auto& doc_offsets = new_variant.serialized_doc_value_column_offsets();
+    ASSERT_EQ(doc_offsets.size(), kRows);
+    EXPECT_EQ(doc_offsets.back(), kRows);
+}
+
+TEST(VariantUtilTest, ParseVariantColumns_StorageNonDocDocValueKvSkipsInvalidRoot) {
+    TabletSchema tablet_schema = _make_variant_schema(false);
+    Block invalid_root_block = _make_scalar_variant_block({R"([])"});
+
+    Status st = parse_and_materialize_variant_columns(invalid_root_block, tablet_schema, {0});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto& invalid_root_variant =
+            assert_cast<const ColumnVariant&>(*invalid_root_block.get_by_position(0).column);
+    EXPECT_TRUE(invalid_root_variant.is_null_root());
+    ASSERT_EQ(invalid_root_variant.serialized_doc_value_column_offsets().size(), 1);
+    EXPECT_EQ(invalid_root_variant.serialized_doc_value_column_offsets().back(), 0);
+
+    Block scalar_root_block = _make_scalar_variant_block({R"(100)"});
+    st = parse_and_materialize_variant_columns(scalar_root_block, tablet_schema, {0});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto& scalar_root_variant =
+            assert_cast<const ColumnVariant&>(*scalar_root_block.get_by_position(0).column);
+    ASSERT_TRUE(scalar_root_variant.is_scalar_variant());
+    DataTypeSerDe::FormatOptions options;
+    std::string value;
+    scalar_root_variant.serialize_one_row_to_string(0, &value, options);
+    EXPECT_EQ(value, "100");
 }
 
 TEST(VariantUtilTest, ParseNullableScalarVariantDetachesNestedAlias) {
