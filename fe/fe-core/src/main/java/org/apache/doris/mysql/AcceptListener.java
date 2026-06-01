@@ -135,7 +135,10 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             ConnectProcessor processor = new MysqlConnectProcessor(context);
             context.startAcceptQuery(processor);
         } catch (AfterConnectedException e) {
-            MetricRepo.USER_COUNTER_CONNECTION_ERR.getOrAdd(context.getQualifiedUser()).increase(1L);
+            String qualifiedUser = context.getQualifiedUser();
+            if (qualifiedUser != null) {
+                MetricRepo.USER_COUNTER_CONNECTION_ERR.getOrAdd(qualifiedUser).increase(1L);
+            }
             // do not need to print log for this kind of exception.
             // just clean up the context;
             context.cleanup();
