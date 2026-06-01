@@ -172,11 +172,12 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         List<SlotReference> materializeInput = moveRowIdsToTail(result.getOutput(), rowIdSet);
 
         if (materializeInput == null) {
-            List<Slot> correctInput = new ArrayList<>(materializedSlots);
-            for (SlotReference rowId : relationToRowId.values()) {
-                correctInput.add(rowId);
-            }
-            result = new PhysicalLazyMaterialize(result, correctInput,
+            // Row IDs are already at the tail in the correct order.
+            // Use result.getOutput() directly — do NOT reconstruct from
+            // materializedSlots + relationToRowId.values() because the
+            // latter iterates in hash order, which can differ from the
+            // actual child tuple layout for multi-relation lazy mat.
+            result = new PhysicalLazyMaterialize(result, result.getOutput(),
                     materializedSlots, relationToLazySlotMap, relationToRowId, materializeMap,
                     null, ((AbstractPlan) result).getStats());
             hasMaterialized = true;

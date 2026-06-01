@@ -20,20 +20,19 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Add;
-import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -458,10 +457,12 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
     }
 
     @Test
-    void testSetOperatorDoesNotBlockPullUp() {
-        // topn -> union -> [project(x, y) -> scan1, project(x, y) -> scan2]
-        // Set operator itself does not block expression pull-up.
-        // Expressions in children are collected as long as they are not blocked.
+    void testSetOperationIsBoundary() {
+        // topn -> union all -> [project(a+1 as x, a+1 as y) -> scan1,
+        //                       project(a+1 as x, a+1 as y) -> scan2]
+        // Set operations are a boundary: expressions below them are NOT
+        // collected for the current TopN because UNION ALL children may
+        // compute the same output column differently.
         Slot a = scan1.getOutput().get(1);
         Slot b = scan1.getOutput().get(0);
         Alias x = new Alias(new Add(a, new IntegerLiteral((byte) 1)), "x");
@@ -489,20 +490,220 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyCustom(new PullUpProjectExprUnderTopN())
-                // Union does not block: project should be inserted above topn
+                // Set operation is a boundary: no pull-up, plan unchanged
+                .matchesFromRoot(
+                        logicalTopN(
+                                logicalUnion(
+                                        logicalProject(
+                                                logicalOlapScan()
+                                        ),
+                                        logicalProject(
+                                                logicalOlapScan()
+                                        )
+                                )
+                        )
+                );
+    }
+
+    @Test
+    void testUnionAllBoundaryWithDifferentChildExpressions() {
+        // Reproduce the exact scenario from the review:
+        //   SELECT x, id FROM (
+        //     SELECT a + 1 AS x, id FROM t1
+        //     UNION ALL
+        //     SELECT a + 2 AS x, id FROM t2
+        //   ) u ORDER BY id LIMIT 10
+        //
+        // UNION ALL children compute x differently (a+1 vs a+2).
+        // A single pull-up Project above TopN cannot represent both
+        // branch-specific expressions, so the union must be a boundary.
+        Slot id1 = scan1.getOutput().get(0);
+        Slot a1 = scan1.getOutput().get(1);
+        Slot id2 = scan2.getOutput().get(0);
+        Slot a2 = scan2.getOutput().get(1);
+
+        Alias x1 = new Alias(new Add(a1, new IntegerLiteral((byte) 1)), "x");
+        Alias x2 = new Alias(new Add(a2, new IntegerLiteral((byte) 2)), "x");
+        Alias y1 = new Alias(new Add(id1, new IntegerLiteral((byte) 1)), "y");
+        Alias y2 = new Alias(new Add(id2, new IntegerLiteral((byte) 1)), "y");
+
+        LogicalProject<LogicalPlan> project1 = new LogicalProject<>(ImmutableList.of(x1, y1), scan1);
+        LogicalProject<LogicalPlan> project2 = new LogicalProject<>(ImmutableList.of(x2, y2), scan2);
+
+        // Union outputs use x1, y1 as the representative output schema
+        List<NamedExpression> outputs = ImmutableList.of(x1, y1);
+        List<List<SlotReference>> regularChildrenOutputs = ImmutableList.of(
+                ImmutableList.of((SlotReference) x1.toSlot(), (SlotReference) y1.toSlot()),
+                ImmutableList.of((SlotReference) x2.toSlot(), (SlotReference) y2.toSlot())
+        );
+        LogicalUnion union = new LogicalUnion(
+                Qualifier.ALL, outputs, regularChildrenOutputs,
+                ImmutableList.of(), false,
+                ImmutableList.of(project1, project2));
+
+        LogicalPlan plan = new LogicalTopN<>(
+                ImmutableList.of(new OrderKey(id1, false, false)),
+                10, 0, union);
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                // Union is a boundary even though x, y are not order keys:
+                // plan should be unchanged — no project above topn
+                .matchesFromRoot(
+                        logicalTopN(
+                                logicalUnion(
+                                        logicalProject(logicalOlapScan()),
+                                        logicalProject(logicalOlapScan())
+                                )
+                        )
+                );
+    }
+
+    @Test
+    void testNestedTopNInsideUnionAllIsHandledIndependently() {
+        // topn(outer, order by id limit 10) -> union all
+        //   -> topn(inner, order by id limit 3) -> project(a+1 as z, id) -> scan1
+        //   -> project(a+2 as x, id) -> scan2
+        //
+        // The outer TopN stops at the union boundary — it does NOT pull up
+        // expressions from inside union children.
+        // The inner TopN independently pulls up z above itself.
+        Slot id1 = scan1.getOutput().get(0);
+        Slot a1 = scan1.getOutput().get(1);
+        Slot id2 = scan2.getOutput().get(0);
+        Slot a2 = scan2.getOutput().get(1);
+
+        // Below inner TopN: project(a1+1 as z, id1)
+        Alias z = new Alias(new Add(a1, new IntegerLiteral((byte) 1)), "z");
+        LogicalProject<LogicalOlapScan> projectBelow
+                = new LogicalProject<>(ImmutableList.of(z, id1), scan1);
+
+        // Inner TopN: order by id1 limit 3
+        LogicalTopN<LogicalProject<LogicalOlapScan>> innerTopN = new LogicalTopN<>(
+                ImmutableList.of(new OrderKey(id1, false, false)),
+                3, 0, projectBelow);
+
+        // child1: project(a2+2 as x, id2)
+        Alias x = new Alias(new Add(a2, new IntegerLiteral((byte) 2)), "x");
+        LogicalProject<LogicalOlapScan> project2
+                = new LogicalProject<>(ImmutableList.of(x, id2), scan2);
+
+        // Union outputs: use z and id1 as representative output schema
+        List<NamedExpression> outputs = ImmutableList.of(z, id1);
+        List<List<SlotReference>> regularChildrenOutputs = ImmutableList.of(
+                ImmutableList.of((SlotReference) z.toSlot(), (SlotReference) id1),
+                ImmutableList.of((SlotReference) x.toSlot(), (SlotReference) id2)
+        );
+        LogicalUnion union = new LogicalUnion(
+                Qualifier.ALL, outputs, regularChildrenOutputs,
+                ImmutableList.of(), false,
+                ImmutableList.of(innerTopN, project2));
+
+        // Outer TopN: order by id1 limit 10
+        LogicalTopN<LogicalUnion> outerTopN = new LogicalTopN<>(
+                ImmutableList.of(new OrderKey(id1, false, false)),
+                10, 0, union);
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), outerTopN)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                // Outer TopN: no pull-up (union is boundary)
+                .matchesFromRoot(
+                        logicalTopN(
+                                logicalUnion(
+                                        logicalTopN(logicalProject(logicalOlapScan())),
+                                        logicalProject(logicalOlapScan())
+                                )
+                        )
+                )
+                // Inner TopN: independently pulls up z above itself
+                .matches(
+                        logicalProject(
+                                logicalTopN(
+                                        logicalProject(logicalOlapScan())
+                                )
+                        )
+                );
+    }
+
+    @Test
+    void testDeduplicatePullUpEffect() {
+        // Verifies that deduplicatePullUps() correctly removes y from the
+        // inner TopN's PullUpInfo, so y appears ONLY in the outer TopN's
+        // upper project.
+        //
+        // Plan: topn1(order by id, limit 10) -> filter(x>1)
+        //         -> topn2(order by id, limit 3) -> project(id, x, y) -> scan
+        //
+        // Without dedup: y would be pulled up to BOTH topn1 and topn2.
+        // With dedup:    y is only above topn1, x is only above topn2.
+        Slot id = scan1.getOutput().get(0);
+        Slot a = scan1.getOutput().get(1);
+        Slot b = scan1.getOutput().get(0); // b == id, so y = id + 1
+
+        Alias x = new Alias(new Add(a, new IntegerLiteral((byte) 1)), "x");
+        Alias y = new Alias(new Add(b, new IntegerLiteral((byte) 1)), "y");
+        GreaterThan filter = new GreaterThan(x.toSlot(), new IntegerLiteral((byte) 1));
+
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .projectExprs(ImmutableList.of(id, x, y))
+                .topN(10, 0, ImmutableList.of(0))
+                .filter(filter)
+                .topN(3, 0, ImmutableList.of(0))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                // Root shape: project -> topn1 -> filter -> project -> topn2 -> project -> scan
                 .matchesFromRoot(
                         logicalProject(
                                 logicalTopN(
-                                        logicalUnion(
+                                        logicalFilter(
                                                 logicalProject(
-                                                        logicalOlapScan()
-                                                ),
-                                                logicalProject(
-                                                        logicalOlapScan()
+                                                        logicalTopN(
+                                                                logicalProject(
+                                                                        logicalOlapScan()
+                                                                )
+                                                        )
                                                 )
                                         )
                                 )
                         )
+                )
+                // Inner project (above topn2): must contain "x"
+                .matches(
+                        logicalProject(
+                                logicalTopN(
+                                        logicalProject(logicalOlapScan())
+                                )
+                        ).when(proj -> proj.getProjects().stream()
+                                .anyMatch(e -> "x".equals(e.getName())))
+                )
+                // Inner project (above topn2): must NOT contain "y"
+                // (this is the core dedup verification)
+                .nonMatch(
+                        logicalProject(
+                                logicalTopN(
+                                        logicalProject(logicalOlapScan())
+                                )
+                        ).when(proj -> proj.getProjects().stream()
+                                .anyMatch(e -> "y".equals(e.getName())))
+                )
+                // Outer project (above topn1): must contain "y"
+                .matches(
+                        logicalProject(
+                                logicalTopN(
+                                        logicalFilter(
+                                                logicalProject(
+                                                        logicalTopN(
+                                                                logicalProject(
+                                                                        logicalOlapScan()
+                                                                )
+                                                        )
+                                                )
+                                        )
+                                )
+                        ).when(proj -> proj.getProjects().stream()
+                                .anyMatch(e -> "y".equals(e.getName())))
                 );
     }
 }
