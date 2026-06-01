@@ -1516,12 +1516,4 @@ void VerticalSegmentWriter::_set_max_key(const Slice& key) {
     _max_key.append(key.get_data(), key.get_size());
 }
 
-inline bool VerticalSegmentWriter::_is_mow() {
-    return _tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write;
-}
-
-inline bool VerticalSegmentWriter::_is_mow_with_cluster_key() {
-    return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
-}
-
 } // namespace doris::segment_v2
