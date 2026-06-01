@@ -73,6 +73,7 @@ public:
 
 private:
     size_t _effective_chunk_rows(size_t dim, Int64 min_train_rows) const;
+    bool _train_rows_exceed_chunk_bytes(size_t dim, Int64 min_train_rows) const;
     Status _flush_chunk(Int64 chunk_rows);
 
 #ifdef BE_TEST
@@ -90,5 +91,6 @@ private:
     const TabletIndex* _index_meta;
     std::shared_ptr<DorisFSDirectory> _dir;
     bool _need_save_index = false;
+    bool _skip_build = false;
 };
 } // namespace doris::segment_v2

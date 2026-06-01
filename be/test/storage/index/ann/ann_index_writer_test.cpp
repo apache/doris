@@ -67,6 +67,9 @@ public:
     size_t effective_chunk_rows(size_t dim, Int64 min_train_rows) const {
         return _effective_chunk_rows(dim, min_train_rows);
     }
+    bool train_rows_exceed_chunk_bytes(size_t dim, Int64 min_train_rows) const {
+        return _train_rows_exceed_chunk_bytes(dim, min_train_rows);
+    }
 };
 
 class AnnIndexWriterTest : public ::testing::Test {
@@ -557,7 +560,7 @@ TEST_F(AnnIndexWriterTest, TestBuildChunkBytesCapsRows) {
     EXPECT_TRUE(status.ok());
 }
 
-TEST_F(AnnIndexWriterTest, TestBuildChunkBytesKeepsMinTrainRows) {
+TEST_F(AnnIndexWriterTest, TestBuildChunkBytesRejectsOversizedMinTrainRows) {
     const int64_t old_chunk_bytes = config::ann_index_build_chunk_bytes;
     config::ann_index_build_chunk_bytes = 32;
     doris::Defer restore_config {[&] { config::ann_index_build_chunk_bytes = old_chunk_bytes; }};
@@ -565,10 +568,52 @@ TEST_F(AnnIndexWriterTest, TestBuildChunkBytesKeepsMinTrainRows) {
     auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
                                                              _tablet_index.get());
 
-    // dim=4 and 32 bytes allow 2 rows by byte cap. Training-required indexes must still
-    // buffer enough rows to satisfy the minimum FAISS training requirement.
+    // dim=4 and 32 bytes allow 2 rows by byte cap. Training-required indexes that need
+    // more rows than the byte cap can hold must skip ANN build instead of growing the chunk.
     EXPECT_EQ(writer->effective_chunk_rows(4, 0), 2);
-    EXPECT_EQ(writer->effective_chunk_rows(4, 5), 5);
+    EXPECT_EQ(writer->effective_chunk_rows(4, 2), 2);
+    EXPECT_TRUE(writer->train_rows_exceed_chunk_bytes(4, 5));
+}
+
+TEST_F(AnnIndexWriterTest, TestSkipBuildWhenMinTrainRowsExceedsChunkBytes) {
+    const int64_t old_chunk_bytes = config::ann_index_build_chunk_bytes;
+    config::ann_index_build_chunk_bytes = 32;
+    doris::Defer restore_config {[&] { config::ann_index_build_chunk_bytes = old_chunk_bytes; }};
+
+    auto mock_index = std::make_shared<MockVectorIndex>();
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             _tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    writer->set_vector_index(mock_index);
+
+    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(5));
+    EXPECT_CALL(*mock_index, train(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, add(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, save(testing::_)).Times(0);
+
+    const size_t dim = 4;
+    const size_t num_rows = 6;
+    std::vector<float> vectors(num_rows * dim);
+    for (size_t i = 0; i < vectors.size(); ++i) {
+        vectors[i] = static_cast<float>(i);
+    }
+    std::vector<size_t> offsets;
+    for (size_t row = 0; row <= num_rows; ++row) {
+        offsets.push_back(row * dim);
+    }
+
+    Status status =
+            writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                     reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
+    EXPECT_TRUE(status.ok());
+
+    status = writer->finish();
+    EXPECT_TRUE(status.ok());
 }
 
 TEST_F(AnnIndexWriterTest, TestCreateFromIndexColumnWriter) {

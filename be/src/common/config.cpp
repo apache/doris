@@ -1765,7 +1765,7 @@ DEFINE_Validator(ann_index_build_chunk_size,
                  [](const int64_t config) -> bool { return config > 0; });
 
 // Target byte bound for ANN/vector index build add batch and memory buffer before flush.
-// The effective chunk keeps at least one row and any index-required minimum training rows.
+// If index-required minimum training rows cannot fit in this bound, skip ANN build for the segment.
 // 128MB By default.
 DEFINE_mInt64(ann_index_build_chunk_bytes, "134217728");
 DEFINE_Validator(ann_index_build_chunk_bytes,

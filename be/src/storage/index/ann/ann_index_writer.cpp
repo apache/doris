@@ -103,6 +103,18 @@ size_t AnnIndexColumnWriter::_effective_chunk_rows(size_t dim, Int64 min_train_r
     return cast_set<size_t>(bounded_rows);
 }
 
+bool AnnIndexColumnWriter::_train_rows_exceed_chunk_bytes(size_t dim, Int64 min_train_rows) const {
+    DCHECK(dim > 0);
+    DCHECK(min_train_rows >= 0);
+    if (min_train_rows == 0) {
+        return false;
+    }
+    static constexpr Int64 FLOAT_BYTES = static_cast<Int64>(sizeof(float));
+    DORIS_CHECK(dim <= static_cast<size_t>(std::numeric_limits<Int64>::max() / FLOAT_BYTES));
+    const Int64 vector_bytes = cast_set<Int64>(dim) * FLOAT_BYTES;
+    return min_train_rows > AnnIndexColumnWriter::chunk_bytes() / vector_bytes;
+}
+
 Status AnnIndexColumnWriter::_flush_chunk(Int64 chunk_rows) {
     DCHECK(chunk_rows > 0);
     RETURN_IF_ERROR(_vector_index->train(chunk_rows, _float_array.data()));
@@ -133,6 +145,25 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
     const float* p = reinterpret_cast<const float*>(value_ptr);
 
     const Int64 min_train_rows = _vector_index->get_min_train_rows();
+    if (_skip_build) {
+        return Status::OK();
+    }
+    if (_train_rows_exceed_chunk_bytes(dim, min_train_rows)) {
+        static constexpr Int64 FLOAT_BYTES = static_cast<Int64>(sizeof(float));
+        const Int64 vector_bytes = cast_set<Int64>(dim) * FLOAT_BYTES;
+        const Int64 required_bytes =
+                min_train_rows > std::numeric_limits<Int64>::max() / vector_bytes
+                        ? std::numeric_limits<Int64>::max()
+                        : min_train_rows * vector_bytes;
+        LOG(WARNING) << "Skip ANN index build because minimum training rows exceed build chunk "
+                        "byte limit, dim="
+                     << dim << ", min_train_rows=" << min_train_rows
+                     << ", required_bytes=" << required_bytes
+                     << ", ann_index_build_chunk_bytes=" << AnnIndexColumnWriter::chunk_bytes();
+        _skip_build = true;
+        _float_array.clear();
+        return Status::OK();
+    }
     const size_t effective_chunk_rows = _effective_chunk_rows(dim, min_train_rows);
     const size_t full_elements = effective_chunk_rows * dim;
     size_t remaining_elements = num_rows * dim;
@@ -166,6 +197,12 @@ int64_t AnnIndexColumnWriter::size() const {
 }
 
 Status AnnIndexColumnWriter::finish() {
+    if (_skip_build) {
+        LOG(WARNING) << "Skipping ANN index building for this segment.";
+        _float_array.clear();
+        return _index_file_writer->delete_index(_index_meta);
+    }
+
     const Int64 min_train_rows = _vector_index->get_min_train_rows();
 
     // Check if we have enough rows to train the index
