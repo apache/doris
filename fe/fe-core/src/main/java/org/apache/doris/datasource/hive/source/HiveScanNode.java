@@ -33,7 +33,6 @@ import org.apache.doris.common.util.IAMUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
-import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
@@ -352,25 +351,13 @@ public class HiveScanNode extends FileQueryScanNode {
             return;
         }
 
-        /**
-         * If the push down aggregation operator is COUNT,
-         * we don't need to split the file because for parquet/orc format, only metadata is read.
-         * If we split the file, we will read metadata of a file multiple times, which is not efficient.
-         *
-         * - Hive Full Acid Transactional Table may need merge on read, so do not apply this optimization.
-         * - If the file format is not parquet/orc, eg, text, we need to split the file to increase the parallelism.
-         */
+        // For COUNT_FROM_METADATA on non-transactional tables (parquet/orc), each file should
+        // be a single split. Splitting would cause each sub-split's reader to read the entire
+        // file's metadata and return duplicate counts, leading to incorrect results.
         boolean needSplit = true;
-        if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT
+        if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT_FROM_METADATA
                 && !(hmsTable.isHiveTransactionalTable() && hmsTable.isFullAcidTable())) {
-            int totalFileNum = 0;
-            for (FileCacheValue fileCacheValue : fileCaches) {
-                if (fileCacheValue.getFiles() != null) {
-                    totalFileNum += fileCacheValue.getFiles().size();
-                }
-            }
-            int parallelNum = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName());
-            needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
+            needSplit = false;
         }
 
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {

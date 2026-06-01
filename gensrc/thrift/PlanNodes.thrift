@@ -832,7 +832,8 @@ enum TPushAggOp {
 	MINMAX = 1,
 	COUNT = 2,
 	MIX = 3,
-	COUNT_ON_INDEX = 4
+	COUNT_ON_INDEX = 4,
+	COUNT_FROM_METADATA = 5
 }
 
 struct TScoreRangeInfo {

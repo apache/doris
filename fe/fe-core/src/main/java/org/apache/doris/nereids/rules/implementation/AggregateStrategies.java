@@ -31,6 +31,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
+import org.apache.doris.nereids.rules.rewrite.RewriteCountAggToFileScanRule;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -43,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -257,6 +259,31 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         LogicalProject<LogicalFileScan> project = agg.child();
                         LogicalFileScan fileScan = project.child();
                         return storageLayerAggregate(agg, project, fileScan, ctx.cascadesContext);
+                    })
+            ),
+            // After RewriteCountAggToFileScanRule rewrites count(*) to sum0(__count_from_metadata__),
+            // this rule wraps the PhysicalFileScan in PhysicalStorageLayerAggregate with COUNT_FROM_METADATA.
+            // This allows pushAggOp to flow through the plan tree via PhysicalStorageLayerAggregate,
+            // consistent with Iceberg/Paimon path, eliminating the need for column name inference
+            // in PhysicalPlanTranslator.
+            RuleType.STORAGE_LAYER_AGGREGATE_COUNT_FROM_METADATA_FOR_FILE_SCAN.build(
+                logicalAggregate(
+                    logicalProject(
+                        logicalFileScan()
+                    )
+                ).when(agg -> isCountFromMetadataAggregate(agg))
+                    .thenApply(ctx -> {
+                        LogicalAggregate<LogicalProject<LogicalFileScan>> agg = ctx.root;
+                        LogicalProject<LogicalFileScan> project = agg.child();
+                        LogicalFileScan fileScan = project.child();
+                        PhysicalFileScan physicalScan = (PhysicalFileScan) new LogicalFileScanToPhysicalFileScan()
+                                .build()
+                                .transform(fileScan, ctx.cascadesContext)
+                                .get(0);
+                        return agg.withChildren(ImmutableList.of(
+                                project.withChildren(ImmutableList.of(
+                                        new PhysicalStorageLayerAggregate(
+                                                physicalScan, PushDownAggOp.COUNT_FROM_METADATA)))));
                     })
             )
         );
@@ -741,11 +768,23 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 ));
             }
 
-        } else if (logicalScan instanceof LogicalFileScan && canPushDownCountForHudiScan(logicalScan)) {
-            Rule rule = (logicalScan instanceof LogicalHudiScan) ? new LogicalHudiScanToPhysicalHudiScan().build()
-                    : new LogicalFileScanToPhysicalFileScan().build();
-            PhysicalFileScan physicalScan = (PhysicalFileScan) rule.transform(logicalScan, cascadesContext)
+        } else {
+            // FileScan with native Parquet/ORC readers (Hive, Hudi COW) is handled
+            // by RewriteCountAggToFileScanRule which rewrites count(*) to sum0(__count_from_metadata__)
+            // at the logical plan level using COUNT_FROM_METADATA (no empty row filling).
+            // For table-format tables that handle COUNT themselves (Iceberg via TableFormatReader,
+            // Paimon via PaimonJniReader, Hudi MOR via JNI reader), fall back to the original
+            // COUNT pushdown via PhysicalStorageLayerAggregate.
+            if (isNativeReaderHmsTable(logicalScan)) {
+                // Hive, Hudi COW -> handled by RewriteCountAggToFileScanRule
+                return canNotPush;
+            }
+            // Iceberg, Paimon, Hudi MOR -> use their own COUNT handling in BE
+            PhysicalFileScan physicalScan = (PhysicalFileScan) new LogicalFileScanToPhysicalFileScan()
+                    .build()
+                    .transform(logicalScan, cascadesContext)
                     .get(0);
+
             if (project != null) {
                 return aggregate.withChildren(ImmutableList.of(
                     project.withChildren(
@@ -756,9 +795,6 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     new PhysicalStorageLayerAggregate(physicalScan, mergeOp)
                 ));
             }
-
-        } else {
-            return canNotPush;
         }
     }
 
@@ -775,6 +811,64 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         }
         HMSExternalTable hmsTable = (HMSExternalTable) hudiScan.getTable();
         return hmsTable.isHoodieCowTable();
+    }
+
+    /**
+     * Check if the aggregate has been rewritten by RewriteCountAggToFileScanRule,
+     * i.e., all aggregate functions are sum0(SlotReference(__count_from_metadata__)).
+     * This indicates the plan should use COUNT_FROM_METADATA mode in BE.
+     */
+    private boolean isCountFromMetadataAggregate(LogicalAggregate<? extends Plan> agg) {
+        Set<AggregateFunction> funcs = agg.getAggregateFunctions();
+        if (funcs.isEmpty()) {
+            return false;
+        }
+        for (AggregateFunction func : funcs) {
+            if (!(func instanceof Sum0)) {
+                return false;
+            }
+            if (func.arity() != 1) {
+                return false;
+            }
+            Expression arg = func.child(0);
+            if (!(arg instanceof SlotReference)) {
+                return false;
+            }
+            if (!RewriteCountAggToFileScanRule.COUNT_FROM_METADATA_COL.equals(((SlotReference) arg).getName())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Check if the logical scan is an HMS table that uses native Parquet/ORC reader,
+     * so its count optimization is handled by RewriteCountAggToFileScanRule
+     * (sum0(__count_from_metadata__)) instead of the old COUNT pushdown (filling N empty rows).
+     * Returns true for: Hive non-Full-Acid tables, Hudi COW tables.
+     * Returns false for: Iceberg HMS tables, Hudi MOR tables,
+     * and non-HMS tables (Paimon, etc.).
+     */
+    private boolean isNativeReaderHmsTable(LogicalRelation logicalScan) {
+        if (!(logicalScan instanceof LogicalFileScan)) {
+            return false;
+        }
+        LogicalFileScan fileScan = (LogicalFileScan) logicalScan;
+        if (!(fileScan.getTable() instanceof HMSExternalTable)) {
+            return false;
+        }
+        HMSExternalTable hmsTable = (HMSExternalTable) fileScan.getTable();
+        // HMS Iceberg tables use their own snapshot count path
+        if (hmsTable.getDlaType() == HMSExternalTable.DLAType.ICEBERG) {
+            return false;
+        }
+        // Hudi COW tables use native Parquet reader -> handled by RewriteCountAggToFileScanRule
+        if (hmsTable.isHoodieCowTable()) {
+            return true;
+        }
+        // Hive tables (including Full-Acid) use native Parquet/ORC reader
+        // -> handled by RewriteCountAggToFileScanRule
+        return hmsTable.getDlaType() == HMSExternalTable.DLAType.HIVE;
     }
 
     private boolean enablePushDownStringMinMax() {

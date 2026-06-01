@@ -787,7 +787,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             ExternalTable table, TupleDescriptor tupleDescriptor) {
         scanNode.setNereidsId(fileScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(fileScan.getId(), scanNode.getId());
-        scanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(fileScan.getRelationId()));
+        TPushAggOp pushAggOp = context.getRelationPushAggOp(fileScan.getRelationId());
+        scanNode.setPushDownAggNoGrouping(pushAggOp);
 
         TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
@@ -1315,15 +1316,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             case MIX:
                 pushAggOp = TPushAggOp.MIX;
                 break;
+            case COUNT_FROM_METADATA:
+                pushAggOp = TPushAggOp.COUNT_FROM_METADATA;
+                break;
             default:
                 throw new AnalysisException("Unsupported storage layer aggregate: "
                         + storageLayerAggregate.getAggOp());
-        }
-
-        if (storageLayerAggregate.getRelation() instanceof PhysicalFileScan
-                && pushAggOp.equals(TPushAggOp.COUNT)
-                && !ConnectContext.get().getSessionVariable().isEnableCountPushDownForExternalTable()) {
-            pushAggOp = TPushAggOp.NONE;
         }
 
         context.setRelationPushAggOp(

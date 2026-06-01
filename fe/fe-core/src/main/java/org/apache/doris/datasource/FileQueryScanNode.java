@@ -35,6 +35,7 @@ import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.rules.rewrite.RewriteCountAggToFileScanRule;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.BDPAuthContext;
@@ -56,6 +57,7 @@ import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -165,7 +167,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
         for (SlotDescriptor slot : desc.getSlots()) {
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
-            slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
+            // __count_from_metadata__ is a virtual column filled by BE reader in COUNT_FROM_METADATA mode,
+            // not read from file, so it should be marked as non-file slot (same as partition columns).
+            boolean isFileSlot = !partitionKeys.contains(slot.getColumn().getName())
+                    && !(getPushDownAggNoGroupingOp() == TPushAggOp.COUNT_FROM_METADATA
+                    && RewriteCountAggToFileScanRule.COUNT_FROM_METADATA_COL.equals(slot.getColumn().getName()));
+            slotInfo.setIsFileSlot(isFileSlot);
             params.addToRequiredSlots(slotInfo);
         }
         setDefaultValueExprs(getTargetTable(), destSlotDescByName, null, params, false);
@@ -182,7 +189,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
         for (SlotDescriptor slot : desc.getSlots()) {
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
-            slotInfo.setIsFileSlot(!getPathPartitionKeys().contains(slot.getColumn().getName()));
+            // __count_from_metadata__ is a virtual column filled by BE reader,
+            // not read from file, so it should be marked as non-file slot.
+            boolean isFileSlot = !getPathPartitionKeys().contains(slot.getColumn().getName())
+                    && !(getPushDownAggNoGroupingOp() == TPushAggOp.COUNT_FROM_METADATA
+                    && RewriteCountAggToFileScanRule.COUNT_FROM_METADATA_COL.equals(slot.getColumn().getName()));
+            slotInfo.setIsFileSlot(isFileSlot);
             params.addToRequiredSlots(slotInfo);
         }
         // Update required slots and column_idxs in scanRangeLocations.

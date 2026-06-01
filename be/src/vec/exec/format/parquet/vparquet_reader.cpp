@@ -592,6 +592,65 @@ Status ParquetReader::set_fill_columns(
     return Status::OK();
 }
 
+Status ParquetReader::_fill_partition_columns_for_count(
+        Block* block, size_t rows,
+        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                partition_columns) {
+    DataTypeSerDe::FormatOptions format_options;
+    for (const auto& kv : partition_columns) {
+        auto col_ptr =
+                block->get_by_position((*_col_name_to_block_idx)[kv.first]).column->assume_mutable();
+        const auto& [value, slot_desc] = kv.second;
+        auto serde = slot_desc->get_data_type_ptr()->get_serde();
+        Slice slice(value.data(), value.size());
+        uint64_t num_deserialized = 0;
+        RETURN_IF_ERROR(serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
+                                                                   &num_deserialized, format_options));
+        if (num_deserialized != rows) {
+            return Status::InternalError(
+                    "Failed to fill partition column: {}={} . Expected rows: {}, actual: {}",
+                    slot_desc->col_name(), value, rows, num_deserialized);
+        }
+    }
+    return Status::OK();
+}
+
+Status ParquetReader::_fill_missing_columns_for_count(
+        Block* block, size_t rows,
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
+    for (const auto& kv : missing_columns) {
+        if (!_col_name_to_block_idx->contains(kv.first)) {
+            return Status::InternalError("Missing column: {} not found in block {}", kv.first,
+                                         block->dump_structure());
+        }
+        if (kv.second == nullptr) {
+            // No default value, fill with null
+            auto mutable_column =
+                    block->get_by_position((*_col_name_to_block_idx)[kv.first]).column->assume_mutable();
+            auto* nullable_column =
+                    assert_cast<vectorized::ColumnNullable*>(mutable_column.get());
+            nullable_column->insert_many_defaults(rows);
+        } else {
+            // Fill with default value expression
+            const auto& ctx = kv.second;
+            ColumnPtr result_column_ptr;
+            RETURN_IF_ERROR(ctx->execute(block, result_column_ptr));
+            if (result_column_ptr->use_count() == 1) {
+                auto mutable_column = result_column_ptr->assume_mutable();
+                mutable_column->resize(rows);
+                result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
+                auto origin_column_type =
+                        block->get_by_position((*_col_name_to_block_idx)[kv.first]).type;
+                bool is_nullable = origin_column_type->is_nullable();
+                block->replace_by_position(
+                        (*_col_name_to_block_idx)[kv.first],
+                        is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
+            }
+        }
+    }
+    return Status::OK();
+}
+
 // init file reader and file metadata for parsing schema
 Status ParquetReader::init_schema_reader() {
     RETURN_IF_ERROR(_open_file());
@@ -629,7 +688,7 @@ Status ParquetReader::get_columns(std::unordered_map<std::string, DataTypePtr>* 
 Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_current_group_reader == nullptr || _row_group_eof) {
         Status st = _next_row_group_reader();
-        if (!st.ok() && !st.is<ErrorCode::END_OF_FILE>()) {
+        if (!st.ok() && !(st.is<ErrorCode::END_OF_FILE>())) {
             return st;
         }
         if (_current_group_reader == nullptr || _row_group_eof || st.is<ErrorCode::END_OF_FILE>()) {
@@ -640,22 +699,45 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
             return Status::OK();
         }
     }
-    if (_push_down_agg_type == TPushAggOp::type::COUNT) {
-        auto rows = std::min(_current_group_reader->get_remaining_rows(), (int64_t)_batch_size);
-
-        _current_group_reader->set_remaining_rows(_current_group_reader->get_remaining_rows() -
-                                                  rows);
-        auto mutate_columns = block->mutate_columns();
-        for (auto& col : mutate_columns) {
-            col->resize(rows);
-        }
-        block->set_columns(std::move(mutate_columns));
-
-        *read_rows = rows;
-        if (_current_group_reader->get_remaining_rows() == 0) {
+    if (_push_down_agg_type == TPushAggOp::type::COUNT_FROM_METADATA) {
+        // Read row count directly from file metadata without decoding actual data.
+        // Accumulate all row group row counts and return a single row with the total count.
+        int64_t total_rows = 0;
+        while (true) {
+            Status st = _next_row_group_reader();
+            if (!st.ok() && !st.is<ErrorCode::END_OF_FILE>()) {
+                return st;
+            }
+            if (_current_group_reader == nullptr || _row_group_eof || st.is<ErrorCode::END_OF_FILE>()) {
+                _current_group_reader.reset(nullptr);
+                _row_group_eof = true;
+                break;
+            }
+            total_rows += _current_group_reader->get_remaining_rows();
             _current_group_reader.reset(nullptr);
         }
-
+        // Fill all columns ourselves with 1 row each. Keep _fill_all_columns = true
+        // so that FileScanner's _fill_columns_from_path/_fill_missing_columns won't
+        // double-fill (they use append semantics which would cause row count mismatch).
+        // Start with 0 rows and use append semantics for partition/missing columns
+        // to be consistent with how _fill_partition_columns/_fill_missing_columns work.
+        auto mutate_columns = block->mutate_columns();
+        for (size_t i = 0; i < mutate_columns.size(); i++) {
+            mutate_columns[i]->resize(0);
+        }
+        // Fill __count_from_metadata__ column with 1 row
+        int count_col_idx = block->get_position_by_name("__count_from_metadata__");
+        DCHECK(count_col_idx >= 0);
+        assert_cast<ColumnInt64&>(*mutate_columns[count_col_idx]).get_data().push_back(total_rows);
+        block->set_columns(std::move(mutate_columns));
+        // Fill partition columns from file path (append 1 row each)
+        RETURN_IF_ERROR(
+                _fill_partition_columns_for_count(block, 1, _lazy_read_ctx.partition_columns));
+        // Fill missing columns with null/default (append 1 row each)
+        RETURN_IF_ERROR(
+                _fill_missing_columns_for_count(block, 1, _lazy_read_ctx.missing_columns));
+        *read_rows = 1;
+        *eof = true;
         return Status::OK();
     }
 

@@ -262,6 +262,16 @@ private:
             const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
     void _collect_profile();
 
+    // Fill partition columns for COUNT_FROM_METADATA path using append semantics.
+    Status _fill_partition_columns_for_count(
+            Block* block, size_t rows,
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_columns);
+    // Fill missing columns for COUNT_FROM_METADATA path using append semantics.
+    Status _fill_missing_columns_for_count(
+            Block* block, size_t rows,
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
+
     Status _set_read_one_line_impl() override { return Status::OK(); }
 
     bool _exists_in_file(const std::string& expr_name) const;

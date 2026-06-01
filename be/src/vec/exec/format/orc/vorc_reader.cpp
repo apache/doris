@@ -2255,19 +2255,30 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
         *read_rows = 0;
         return Status::OK();
     }
-    if (_push_down_agg_type == TPushAggOp::type::COUNT) {
-        auto rows = std::min(get_remaining_rows(), (int64_t)_batch_size);
-
-        set_remaining_rows(get_remaining_rows() - rows);
+    if (_push_down_agg_type == TPushAggOp::type::COUNT_FROM_METADATA) {
+        // Read row count directly from file metadata without decoding actual data.
+        int64_t total_rows = get_remaining_rows();
+        // Fill all columns ourselves with 1 row each. Keep _fill_all_columns = true
+        // so that FileScanner's _fill_columns_from_path/_fill_missing_columns won't
+        // double-fill (they use append semantics which would cause row count mismatch).
+        // Start with 0 rows and use append semantics for partition/missing columns
+        // to be consistent with how _fill_partition_columns/_fill_missing_columns work.
         auto mutate_columns = block->mutate_columns();
-        for (auto& col : mutate_columns) {
-            col->resize(rows);
+        for (size_t i = 0; i < mutate_columns.size(); i++) {
+            mutate_columns[i]->resize(0);
         }
+        // Fill __count_from_metadata__ column with 1 row
+        int count_col_idx = block->get_position_by_name("__count_from_metadata__");
+        DCHECK(count_col_idx >= 0);
+        assert_cast<ColumnInt64&>(*mutate_columns[count_col_idx]).get_data().push_back(total_rows);
         block->set_columns(std::move(mutate_columns));
-        *read_rows = rows;
-        if (get_remaining_rows() == 0) {
-            *eof = true;
-        }
+        // Fill partition columns from file path (append 1 row each)
+        RETURN_IF_ERROR(_fill_partition_columns(block, 1, _lazy_read_ctx.partition_columns));
+        // Fill missing columns with null/default (append 1 row each)
+        RETURN_IF_ERROR(_fill_missing_columns(block, 1, _lazy_read_ctx.missing_columns));
+        set_remaining_rows(0);
+        *read_rows = 1;
+        *eof = true;
         return Status::OK();
     }
 

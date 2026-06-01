@@ -732,8 +732,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
-    public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
-
     public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
 
     public static final String MAX_MSG_SIZE_OF_RESULT_RECEIVER = "max_msg_size_of_result_receiver";
@@ -2767,11 +2765,6 @@ public class SessionVariable implements Serializable, Writable {
             description = {"强制使用 jni 方式读取外表", "Force the use of jni mode to read external table"})
     private boolean forceJniScanner = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
-            fuzzy = true,
-            description = {"对外表启用 count(*) 下推优化", "enable count(*) pushdown optimization for external table"})
-    private boolean enableCountPushDownForExternalTable = true;
-
     @VariableMgr.VarAttr(name = MINIMUM_OPERATOR_MEMORY_REQUIRED_KB, needForward = true,
             description = {"一个算子运行需要的最小的内存大小",
                     "The minimum memory required to be used by an operator, if not meet, the operator will not run"})
@@ -3542,7 +3535,6 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         // common
-        this.enableCountPushDownForExternalTable = random.nextBoolean();
         this.runtimeFilterPruneForExternal = random.nextBoolean();
     }
 
@@ -5922,10 +5914,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setForceJniScanner(boolean force) {
         forceJniScanner = force;
-    }
-
-    public boolean isEnableCountPushDownForExternalTable() {
-        return enableCountPushDownForExternalTable;
     }
 
     public boolean isForceToLocalShuffle() {

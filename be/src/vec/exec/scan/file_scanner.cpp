@@ -478,26 +478,22 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
             if ((!_cur_reader->count_read_rows()) && _io_ctx) {
                 _io_ctx->file_reader_stats->read_rows += read_rows;
             }
-            // If the push_down_agg_type is COUNT, no need to do the rest,
-            // because we only save a number in block.
-            if (_get_push_down_agg_type() != TPushAggOp::type::COUNT) {
-                // Convert the src block columns type to string in-place.
-                RETURN_IF_ERROR(_cast_to_input_block(block));
-                // FileReader can fill partition and missing columns itself
-                if (!_cur_reader->fill_all_columns()) {
-                    // Fill rows in src block with partition columns from path. (e.g. Hive partition columns)
-                    RETURN_IF_ERROR(_fill_columns_from_path(read_rows));
-                    // Fill columns not exist in file with null or default value
-                    RETURN_IF_ERROR(_fill_missing_columns(read_rows));
-                }
-                // Apply _pre_conjunct_ctxs to filter src block.
-                RETURN_IF_ERROR(_pre_filter_src_block());
-                // Convert src block to output block (dest block), string to dest data type and apply filters.
-                RETURN_IF_ERROR(_convert_to_output_block(block));
-                // Truncate char columns or varchar columns if size is smaller than file columns
-                // or not found in the file column schema.
-                RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
+            // Convert the src block columns type to string in-place.
+            RETURN_IF_ERROR(_cast_to_input_block(block));
+            // FileReader can fill partition and missing columns itself
+            if (!_cur_reader->fill_all_columns()) {
+                // Fill rows in src block with partition columns from path. (e.g. Hive partition columns)
+                RETURN_IF_ERROR(_fill_columns_from_path(read_rows));
+                // Fill columns not exist in file with null or default value
+                RETURN_IF_ERROR(_fill_missing_columns(read_rows));
             }
+            // Apply _pre_conjunct_ctxs to filter src block.
+            RETURN_IF_ERROR(_pre_filter_src_block());
+            // Convert src block to output block (dest block), string to dest data type and apply filters.
+            RETURN_IF_ERROR(_convert_to_output_block(block));
+            // Truncate char columns or varchar columns if size is smaller than file columns
+            // or not found in the file column schema.
+            RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
         }
         break;
     } while (true);

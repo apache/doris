@@ -230,7 +230,7 @@ public abstract class FileScanNode extends ExternalScanNode {
 
         // pushdown agg
         output.append(prefix).append(String.format("pushdown agg=%s", pushDownAggNoGroupingOp));
-        if (pushDownAggNoGroupingOp.equals(TPushAggOp.COUNT)) {
+        if (pushDownAggNoGroupingOp.equals(TPushAggOp.COUNT_FROM_METADATA)) {
             output.append(" (").append(getPushDownCount()).append(")");
         }
         output.append("\n");

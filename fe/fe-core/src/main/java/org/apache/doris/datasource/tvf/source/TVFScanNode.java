@@ -29,7 +29,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplit.FileSplitCreator;
-import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -141,12 +140,11 @@ public class TVFScanNode extends FileQueryScanNode {
 
         List<TBrokerFileStatus> fileStatuses = tableValuedFunction.getFileStatuses();
 
-        // Push down count optimization.
+        // For COUNT_FROM_METADATA, each file should be a single split.
+        // Splitting would cause duplicate metadata reads and incorrect counts.
         boolean needSplit = true;
-        if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT) {
-            int parallelNum = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName());
-            int totalFileNum = fileStatuses.size();
-            needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
+        if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT_FROM_METADATA) {
+            needSplit = false;
         }
 
         long targetFileSplitSize = determineTargetFileSplitSize(fileStatuses);

@@ -39,13 +39,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class FileSplitter {
     private static final Logger LOG = LogManager.getLogger(FileSplitter.class);
 
-    // If the number of files is larger than parallel instances * num of backends,
-    // we don't need to split the file.
-    // Otherwise, split the file to avoid local shuffle.
-    public static boolean needSplitForCountPushdown(int parallelism, int numBackends, long totalFileNum) {
-        return totalFileNum < parallelism * numBackends;
-    }
-
     private long maxInitialSplitSize;
 
     private long maxSplitSize;
