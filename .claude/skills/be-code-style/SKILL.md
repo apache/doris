@@ -1,6 +1,6 @@
 ---
 name: be-code-style
-description: Fix BE (C++) code formatting issues using clang-format. Must use this when your changes involve BE code before submitting the commit.
+description: Fix BE (C++) code formatting issues using clang-format
 compatibility: opencode
 ---
 
