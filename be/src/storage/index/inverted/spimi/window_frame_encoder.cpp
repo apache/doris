@@ -75,17 +75,15 @@ inline size_t VIntLen(uint32_t v) {
 // `out`, returning the byte length written. Concatenating the runs of two
 // adjacent units yields one valid longer PFOR run (each sub-block self-describes
 // its count), which is what makes part-wise window composition decode correctly.
-size_t EncodePforPart(const std::vector<uint32_t>& vals, size_t off, size_t count,
-                      bool allow_patch, std::vector<uint8_t>& out) {
+size_t EncodePforPart(const std::vector<uint32_t>& vals, size_t off, size_t count, bool allow_patch,
+                      std::vector<uint8_t>& out) {
     const size_t start = out.size();
     // Wrap `out` in a tiny ByteOutput so we can reuse SpimiPforEncoder.
     struct VecOut final : public ByteOutput {
         std::vector<uint8_t>* v;
         explicit VecOut(std::vector<uint8_t>* vv) : v(vv) {}
         void WriteByte(uint8_t b) override { v->push_back(b); }
-        void WriteBytes(const uint8_t* b, size_t len) override {
-            v->insert(v->end(), b, b + len);
-        }
+        void WriteBytes(const uint8_t* b, size_t len) override { v->insert(v->end(), b, b + len); }
         int64_t FilePointer() const override { return static_cast<int64_t>(v->size()); }
     } vo(&out);
     std::vector<uint32_t> scratch;
@@ -125,27 +123,36 @@ size_t EncodeVIntPart(const std::vector<uint32_t>& doc_deltas, const std::vector
     return out.size() - start;
 }
 
-// One composed window ready to emit: its doc count, docid range, and the
-// inflated part-wise inner bytes.
+// One composed window: doc count, docid range, the inflated part-wise FRQ inner
+// bytes, and (lazily) its emit-ready payload tuple so the window is ZSTD-
+// compressed EXACTLY ONCE. `frq_inner` is freed the moment the payload is cached
+// (MeasureAndCacheFrq) — the compressed `frq_payload` is what survives into the
+// candidate search and the final emit, so a high-df term never holds several raw
+// whole-term copies at once.
 struct Window {
     int32_t doc_count = 0;
     int32_t min_docid = 0;
     int32_t max_docid = 0;
-    std::vector<uint8_t> frq_inner; // PART_DD ++ PART_FQ (PFOR) or VInt blob
-    std::vector<uint8_t> pos_inner; // PART_POS (only when has_prox)
+    std::vector<uint8_t> frq_inner;   // PART_DD ++ PART_FQ (PFOR) or VInt blob
+    std::vector<uint8_t> frq_payload; // cached emit tuple (win_mode + lens + bytes)
+    bool cached = false;
 };
 
-// Composes windows by stepping `k` (>=1) units at a time over `units`. The last
-// window takes min(k, remaining) units. Inner bytes are composed PART-WISE.
-std::vector<Window> ComposeWindows(const std::vector<Unit>& units, int32_t k,
-                                   const std::vector<uint8_t>& frq_parts,
-                                   const std::vector<uint8_t>& pos_parts, bool has_prox,
-                                   bool inner_pfor,
-                                   // For the VInt inner mode the parts are NOT
-                                   // pre-encoded into frq_parts; we re-encode
-                                   // per window from these.
-                                   const std::vector<uint32_t>& doc_deltas,
-                                   const std::vector<uint32_t>& freqs) {
+// Composes FRQ windows by stepping `k` (>=1) units at a time over `units`. The
+// last window takes min(k, remaining) units. Inner bytes are composed PART-WISE.
+// Positions are deliberately NOT composed here: the adaptive search only needs
+// FRQ sizes, and positions for the CHOSEN framing are sliced straight from
+// `pos_parts` at emit time (EmitPrxForChosen). This keeps baseline + every
+// candidate from each materializing a whole-term position copy (the dominant
+// peak-memory cost on high-frequency corpora like wiki).
+std::vector<Window> ComposeFrqWindows(const std::vector<Unit>& units, int32_t k,
+                                      const std::vector<uint8_t>& frq_parts, bool has_prox,
+                                      bool inner_pfor,
+                                      // For the VInt inner mode the parts are NOT
+                                      // pre-encoded into frq_parts; we re-encode
+                                      // per window from these.
+                                      const std::vector<uint32_t>& doc_deltas,
+                                      const std::vector<uint32_t>& freqs) {
     DCHECK_GE(k, 1) << "units_per_window must be clamped to >= 1 (prior HANG bug)";
     std::vector<Window> windows;
     const auto num_units = static_cast<int32_t>(units.size());
@@ -168,15 +175,18 @@ std::vector<Window> ComposeWindows(const std::vector<Unit>& units, int32_t k,
             // PART-WISE: all units' PART_DD, THEN all units' PART_FQ.
             for (int32_t j = 0; j < take; ++j) {
                 const Unit& u = units[static_cast<size_t>(i + j)];
-                w.frq_inner.insert(w.frq_inner.end(), frq_parts.begin() + static_cast<std::ptrdiff_t>(u.dd_off),
-                                   frq_parts.begin() + static_cast<std::ptrdiff_t>(u.dd_off + u.dd_len));
+                w.frq_inner.insert(
+                        w.frq_inner.end(),
+                        frq_parts.begin() + static_cast<std::ptrdiff_t>(u.dd_off),
+                        frq_parts.begin() + static_cast<std::ptrdiff_t>(u.dd_off + u.dd_len));
             }
             if (has_prox) {
                 for (int32_t j = 0; j < take; ++j) {
                     const Unit& u = units[static_cast<size_t>(i + j)];
-                    w.frq_inner.insert(w.frq_inner.end(),
-                                       frq_parts.begin() + static_cast<std::ptrdiff_t>(u.fq_off),
-                                       frq_parts.begin() + static_cast<std::ptrdiff_t>(u.fq_off + u.fq_len));
+                    w.frq_inner.insert(
+                            w.frq_inner.end(),
+                            frq_parts.begin() + static_cast<std::ptrdiff_t>(u.fq_off),
+                            frq_parts.begin() + static_cast<std::ptrdiff_t>(u.fq_off + u.fq_len));
                 }
             }
         } else {
@@ -184,18 +194,8 @@ std::vector<Window> ComposeWindows(const std::vector<Unit>& units, int32_t k,
             // window's first doc-delta is already relative to the previous
             // window's last doc (doc_deltas thread through the term), so no
             // re-basing is needed.
-            (void)EncodeVIntPart(doc_deltas, freqs, has_prox,
-                                 static_cast<size_t>(unit_doc_base), static_cast<size_t>(win_docs),
-                                 w.frq_inner);
-        }
-
-        if (has_prox) {
-            for (int32_t j = 0; j < take; ++j) {
-                const Unit& u = units[static_cast<size_t>(i + j)];
-                w.pos_inner.insert(w.pos_inner.end(),
-                                   pos_parts.begin() + static_cast<std::ptrdiff_t>(u.pos_off),
-                                   pos_parts.begin() + static_cast<std::ptrdiff_t>(u.pos_off + u.pos_len));
-            }
+            (void)EncodeVIntPart(doc_deltas, freqs, has_prox, static_cast<size_t>(unit_doc_base),
+                                 static_cast<size_t>(win_docs), w.frq_inner);
         }
 
         windows.push_back(std::move(w));
@@ -205,59 +205,20 @@ std::vector<Window> ComposeWindows(const std::vector<Unit>& units, int32_t k,
     return windows;
 }
 
-// Computes the exact emitted `.frq` size for a given window list (skip table +
-// per-window envelopes + min(raw, zstd) payload). Mirrors EmitFrq's byte
-// accounting so the adaptive search picks based on the real on-disk size.
-size_t FrqEmittedSize(const std::vector<Window>& windows, ZSTD_CCtx* cctx) {
-    // Header: mode byte + inner_mode byte + VInt(W) + VInt(num_windows).
-    // (W / num_windows VInt lengths are tiny and equal-ish across candidates;
-    //  include them for fidelity.)
-    size_t total = 2 + VIntLen(static_cast<uint32_t>(kCandidateW.back())) +
-                   VIntLen(static_cast<uint32_t>(windows.size()));
-    // Skip table.
-    size_t payload_offset = 0; // running offset of each window's payload tuple
-    // First pass: payload sizes (so byte offsets in the skip table are exact).
-    std::vector<size_t> payload_sizes(windows.size());
-    for (size_t w = 0; w < windows.size(); ++w) {
-        const auto& win = windows[w];
-        const size_t raw = win.frq_inner.size();
-        size_t best = 1 /*win_mode*/ + VIntLen(static_cast<uint32_t>(raw)) + raw;
-        if (cctx != nullptr && raw > 0) {
-            faststring comp;
-            const size_t bound = ZSTD_compressBound(raw);
-            comp.resize(bound);
-            const size_t csize =
-                    ZSTD_compressCCtx(cctx, comp.data(), bound, win.frq_inner.data(), raw, 1);
-            if (!ZSTD_isError(csize)) {
-                const size_t zsz = 1 + VIntLen(static_cast<uint32_t>(raw)) +
-                                   VIntLen(static_cast<uint32_t>(csize)) + csize;
-                best = std::min(best, zsz);
-            }
-        }
-        payload_sizes[w] = best;
-    }
-    for (size_t w = 0; w < windows.size(); ++w) {
-        const auto& win = windows[w];
-        total += VIntLen(static_cast<uint32_t>(win.doc_count));
-        total += VIntLen(static_cast<uint32_t>(payload_offset));
-        total += VIntLen(static_cast<uint32_t>(win.min_docid));
-        total += VIntLen(static_cast<uint32_t>(win.max_docid - win.min_docid));
-        payload_offset += payload_sizes[w];
-    }
-    total += payload_offset;
-    return total;
-}
-
-// Emits one window's payload tuple (win_mode + lengths + bytes). Returns bytes
-// written. `inner` is the inflated part-wise inner stream.
-size_t EmitWindowPayload(const std::vector<uint8_t>& inner, ZSTD_CCtx* cctx, ByteOutput* out) {
+// Emits one window's payload tuple (win_mode + lengths + bytes) to `out`,
+// returning bytes written. `inner` is the inflated part-wise inner stream.
+// `comp_scratch` is a caller-owned faststring reused across windows so each
+// window's ZSTD output buffer is not freshly allocated. The emitted bytes are
+// min(raw, zstd) — byte-for-byte identical to the previous EmitWindowPayload.
+size_t EmitWindowPayload(const std::vector<uint8_t>& inner, ZSTD_CCtx* cctx,
+                         faststring& comp_scratch, ByteOutput* out) {
     const int64_t start = out->FilePointer();
     const size_t raw = inner.size();
     if (cctx != nullptr && raw > 0) {
-        faststring comp;
         const size_t bound = ZSTD_compressBound(raw);
-        comp.resize(bound);
-        const size_t csize = ZSTD_compressCCtx(cctx, comp.data(), bound, inner.data(), raw, 1);
+        comp_scratch.resize(bound);
+        const size_t csize =
+                ZSTD_compressCCtx(cctx, comp_scratch.data(), bound, inner.data(), raw, 1);
         if (!ZSTD_isError(csize)) {
             const size_t zsz = 1 + VIntLen(static_cast<uint32_t>(raw)) +
                                VIntLen(static_cast<uint32_t>(csize)) + csize;
@@ -266,7 +227,7 @@ size_t EmitWindowPayload(const std::vector<uint8_t>& inner, ZSTD_CCtx* cctx, Byt
                 out->WriteByte(WindowFrameEncoder::kWinZstd);
                 out->WriteVInt(static_cast<int32_t>(raw));
                 out->WriteVInt(static_cast<int32_t>(csize));
-                out->WriteBytes(comp.data(), csize);
+                out->WriteBytes(comp_scratch.data(), csize);
                 return static_cast<size_t>(out->FilePointer() - start);
             }
         }
@@ -279,41 +240,92 @@ size_t EmitWindowPayload(const std::vector<uint8_t>& inner, ZSTD_CCtx* cctx, Byt
     return static_cast<size_t>(out->FilePointer() - start);
 }
 
-void EmitFrq(const std::vector<Window>& windows, uint8_t inner_mode, int32_t W, ZSTD_CCtx* cctx,
-             ByteOutput* out) {
+// Compresses each not-yet-cached window's frq_inner EXACTLY ONCE, stashing the
+// emit-ready payload tuple in `frq_payload` and freeing the raw `frq_inner`, then
+// returns the exact emitted `.frq` size (header + skip table + Σ payloads) so the
+// adaptive search can compare candidates on real on-disk bytes. Because the
+// cached payload is the very bytes EmitFrqCached will write, the search's
+// compression is reused at emit time — no discard-then-recompress, no second
+// scratch-sizing pass. The size accounting matches the previous FrqEmittedSize
+// exactly (EmitWindowPayload's chosen tuple length == FrqEmittedSize's min(raw,
+// zstd) best), so the chosen W — and thus every emitted byte — is unchanged.
+size_t MeasureAndCacheFrq(std::vector<Window>& windows, ZSTD_CCtx* cctx, faststring& comp_scratch) {
+    size_t total = 2 + VIntLen(static_cast<uint32_t>(kCandidateW.back())) +
+                   VIntLen(static_cast<uint32_t>(windows.size()));
+    for (auto& w : windows) {
+        if (!w.cached) {
+            MemoryByteOutput payload;
+            (void)EmitWindowPayload(w.frq_inner, cctx, comp_scratch, &payload);
+            w.frq_payload = std::move(payload.mutable_bytes());
+            w.frq_inner.clear();
+            w.frq_inner.shrink_to_fit();
+            w.cached = true;
+        }
+    }
+    size_t payload_offset = 0;
+    for (const auto& w : windows) {
+        total += VIntLen(static_cast<uint32_t>(w.doc_count));
+        total += VIntLen(static_cast<uint32_t>(payload_offset));
+        total += VIntLen(static_cast<uint32_t>(w.min_docid));
+        total += VIntLen(static_cast<uint32_t>(w.max_docid - w.min_docid));
+        payload_offset += w.frq_payload.size();
+    }
+    total += payload_offset;
+    return total;
+}
+
+// Writes the windowed `.frq` block from windows whose payloads were already
+// compressed-and-cached by MeasureAndCacheFrq. The skip table's win_byte_offset
+// values come from the cached payload lengths (no trial-emit / re-compress), and
+// the payloads are written verbatim — byte-for-byte identical to the previous
+// EmitFrq, which trial-compressed for sizing then re-compressed for emit.
+void EmitFrqCached(const std::vector<Window>& windows, uint8_t inner_mode, int32_t W,
+                   ByteOutput* out) {
     out->WriteByte(FreqProxEncoder::kCodeModeSpimiWindowed);
     out->WriteByte(inner_mode);
     out->WriteVInt(W);
     out->WriteVInt(static_cast<int32_t>(windows.size()));
-
-    // Pre-size each payload tuple so the skip table's win_byte_offset values are
-    // exact. We compute payload sizes by trial-emitting into a scratch buffer,
-    // then re-emit the same way below (deterministic — same cctx / input).
-    std::vector<size_t> payload_sizes(windows.size());
-    for (size_t w = 0; w < windows.size(); ++w) {
-        MemoryByteOutput scratch;
-        payload_sizes[w] = EmitWindowPayload(windows[w].frq_inner, cctx, &scratch);
-    }
     size_t payload_offset = 0;
-    for (size_t w = 0; w < windows.size(); ++w) {
-        const auto& win = windows[w];
+    for (const auto& win : windows) {
+        DCHECK(win.cached) << "EmitFrqCached requires MeasureAndCacheFrq to have run";
         out->WriteVInt(win.doc_count);
         out->WriteVInt(static_cast<int32_t>(payload_offset));
         out->WriteVInt(win.min_docid);
         out->WriteVInt(win.max_docid - win.min_docid);
-        payload_offset += payload_sizes[w];
+        payload_offset += win.frq_payload.size();
     }
     for (const auto& win : windows) {
-        EmitWindowPayload(win.frq_inner, cctx, out);
+        out->WriteBytes(win.frq_payload.data(), win.frq_payload.size());
     }
 }
 
-void EmitPrx(const std::vector<Window>& windows, int32_t W, ZSTD_CCtx* cctx, ByteOutput* out) {
+// Writes the windowed `.prx` block for the CHOSEN framing only, slicing each
+// window's PART_POS straight from `pos_parts` (k units per window, same grouping
+// as the frq windows) and compressing it ONCE. Positions are never composed for
+// the rejected candidates — the search only ever needed frq sizes. Byte-for-byte
+// identical to the previous EmitPrx (same per-window position slices, same
+// min(raw, zstd) per-window envelope, no skip table).
+void EmitPrxForChosen(const std::vector<Unit>& units, int32_t k,
+                      const std::vector<uint8_t>& pos_parts, int32_t W, ZSTD_CCtx* cctx,
+                      faststring& comp_scratch, ByteOutput* out) {
+    DCHECK_GE(k, 1);
+    const auto num_units = static_cast<int32_t>(units.size());
+    const int32_t num_windows = (num_units + k - 1) / k;
     out->WriteByte(FreqProxEncoder::kProxWindowed);
     out->WriteVInt(W);
-    out->WriteVInt(static_cast<int32_t>(windows.size()));
-    for (const auto& win : windows) {
-        EmitWindowPayload(win.pos_inner, cctx, out);
+    out->WriteVInt(num_windows);
+    std::vector<uint8_t> pos_inner;
+    for (int32_t i = 0; i < num_units;) {
+        const int32_t take = std::min(k, num_units - i);
+        pos_inner.clear();
+        for (int32_t j = 0; j < take; ++j) {
+            const Unit& u = units[static_cast<size_t>(i + j)];
+            pos_inner.insert(
+                    pos_inner.end(), pos_parts.begin() + static_cast<std::ptrdiff_t>(u.pos_off),
+                    pos_parts.begin() + static_cast<std::ptrdiff_t>(u.pos_off + u.pos_len));
+        }
+        (void)EmitWindowPayload(pos_inner, cctx, comp_scratch, out);
+        i += take;
     }
 }
 
@@ -410,20 +422,32 @@ void WindowFrameEncoder::Encode(const std::vector<uint32_t>& doc_deltas,
     const auto num_units = static_cast<int32_t>(units.size());
     DCHECK_GE(num_units, 1);
 
-    // --- Adaptive W selection ---
+    // --- Adaptive W selection (measured; compress-each-window-ONCE + cache) ---
+    // Each composed candidate's windows are ZSTD-compressed exactly once, in
+    // MeasureAndCacheFrq, which both returns the candidate's true on-disk .frq
+    // size AND stashes the emit-ready payloads. The chosen framing is then
+    // emitted from that cache (EmitFrqCached) — no discard-then-recompress, no
+    // EmitFrq scratch-sizing second pass. Positions are sliced only for the
+    // chosen framing at emit time, so baseline + every candidate no longer each
+    // materialize a whole-term position copy. The W decision is bit-for-bit the
+    // same as before (same size accounting, same +10%-of-baseline budget), so
+    // the emitted bytes are unchanged.
+    faststring comp_scratch; // reused across all per-window compressions
     int32_t chosen_W = kCandidateW.front();
+    int32_t chosen_k = 1;
     std::vector<Window> chosen_windows;
     if (df < kUnitDocs || num_units == 1) {
         // Single unit ⇒ single window. k clamped to 1.
         chosen_W = kCandidateW.front();
-        chosen_windows = ComposeWindows(units, /*k=*/1, frq_parts, pos_parts, has_prox, inner_pfor,
-                                        doc_deltas, freqs);
+        chosen_k = 1;
+        chosen_windows = ComposeFrqWindows(units, /*k=*/1, frq_parts, has_prox, inner_pfor,
+                                           doc_deltas, freqs);
+        (void)MeasureAndCacheFrq(chosen_windows, cctx, comp_scratch);
     } else {
         // Baseline: whole-term framing (one window covering all units).
-        const std::vector<Window> baseline = ComposeWindows(
-                units, /*k=*/num_units, frq_parts, pos_parts, has_prox, inner_pfor, doc_deltas,
-                freqs);
-        const size_t baseline_size = FrqEmittedSize(baseline, cctx);
+        std::vector<Window> baseline = ComposeFrqWindows(units, /*k=*/num_units, frq_parts,
+                                                         has_prox, inner_pfor, doc_deltas, freqs);
+        const size_t baseline_size = MeasureAndCacheFrq(baseline, cctx, comp_scratch);
         const auto budget = static_cast<size_t>(static_cast<double>(baseline_size) * kSizeBudget);
 
         bool picked = false;
@@ -435,12 +459,13 @@ void WindowFrameEncoder::Encode(const std::vector<uint32_t>& doc_deltas,
             if (k > num_units) {
                 continue; // a candidate coarser than the whole term — skip
             }
-            std::vector<Window> cand = ComposeWindows(units, k, frq_parts, pos_parts, has_prox,
-                                                      inner_pfor, doc_deltas, freqs);
-            const size_t sz = FrqEmittedSize(cand, cctx);
+            std::vector<Window> cand =
+                    ComposeFrqWindows(units, k, frq_parts, has_prox, inner_pfor, doc_deltas, freqs);
+            const size_t sz = MeasureAndCacheFrq(cand, cctx, comp_scratch);
             if (sz <= budget) {
                 // Accept the SMALLEST-W candidate within budget (finer locality).
                 chosen_W = W;
+                chosen_k = k;
                 chosen_windows = std::move(cand);
                 picked = true;
                 break;
@@ -449,7 +474,8 @@ void WindowFrameEncoder::Encode(const std::vector<uint32_t>& doc_deltas,
         if (!picked) {
             // No finest-W candidate within +10% — fall back to whole-term framing.
             chosen_W = num_units * kUnitDocs;
-            chosen_windows = baseline;
+            chosen_k = num_units;
+            chosen_windows = std::move(baseline);
         }
     }
 
@@ -464,9 +490,9 @@ void WindowFrameEncoder::Encode(const std::vector<uint32_t>& doc_deltas,
     }
 #endif
 
-    EmitFrq(chosen_windows, inner_mode, chosen_W, cctx, frq_out);
+    EmitFrqCached(chosen_windows, inner_mode, chosen_W, frq_out);
     if (has_prox) {
-        EmitPrx(chosen_windows, chosen_W, cctx, prx_out);
+        EmitPrxForChosen(units, chosen_k, pos_parts, chosen_W, cctx, comp_scratch, prx_out);
     }
 }
 

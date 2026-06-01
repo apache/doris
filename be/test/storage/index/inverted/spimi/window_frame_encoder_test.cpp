@@ -33,9 +33,9 @@ namespace {
 
 // A synthetic term: absolute doc ids, per-doc freqs, and per-doc positions.
 struct Term {
-    std::vector<int32_t> docs;                    // ascending absolute doc ids
-    std::vector<int32_t> freqs;                   // freq per doc (== positions.size())
-    std::vector<std::vector<int32_t>> positions;  // ascending positions per doc
+    std::vector<int32_t> docs;                   // ascending absolute doc ids
+    std::vector<int32_t> freqs;                  // freq per doc (== positions.size())
+    std::vector<std::vector<int32_t>> positions; // ascending positions per doc
 };
 
 // Drives FreqProxEncoder in V4 windowed mode over `t`, returns the .frq / .prx
@@ -85,9 +85,9 @@ void ExpectRoundtrip(const Term& t, bool has_prox) {
     }
 
     // --- PostingDecoder path (full decode incl. positions) ---
-    const auto docs = PostingDecoder::Decode(frq.data(), frq.size(),
-                                             has_prox ? prx.data() : nullptr,
-                                             has_prox ? prx.size() : 0, df, has_prox);
+    const auto docs =
+            PostingDecoder::Decode(frq.data(), frq.size(), has_prox ? prx.data() : nullptr,
+                                   has_prox ? prx.size() : 0, df, has_prox);
     ASSERT_EQ(docs.size(), static_cast<size_t>(df));
     for (int32_t i = 0; i < df; ++i) {
         EXPECT_EQ(docs[i].doc_id, t.docs[i]);
@@ -106,7 +106,8 @@ void ExpectRoundtrip(const Term& t, bool has_prox) {
         ASSERT_FALSE(prx.empty());
         ASSERT_EQ(prx[0], FreqProxEncoder::kProxWindowed);
         std::vector<int32_t> freqs_per_doc(t.freqs.begin(), t.freqs.end());
-        const auto positions = SpimiProxReader::ReadPositions(prx.data(), prx.size(), freqs_per_doc);
+        const auto positions =
+                SpimiProxReader::ReadPositions(prx.data(), prx.size(), freqs_per_doc);
         ASSERT_EQ(positions.size(), static_cast<size_t>(df));
         for (int32_t i = 0; i < df; ++i) {
             ASSERT_EQ(positions[i].size(), t.positions[i].size());
@@ -219,8 +220,7 @@ void ExpectSkipTableSound(const std::vector<uint8_t>& frq, const std::vector<int
         const int32_t last = docs[doc_cursor + cnt - 1];
         EXPECT_EQ(entries[w].min_docid, static_cast<uint32_t>(first))
                 << "window " << w << " min_docid does not match its first doc";
-        EXPECT_EQ(entries[w].min_docid + entries[w].max_docid_delta,
-                  static_cast<uint32_t>(last))
+        EXPECT_EQ(entries[w].min_docid + entries[w].max_docid_delta, static_cast<uint32_t>(last))
                 << "window " << w << " max docid bound does not match its last doc";
         // Every doc in this window must fall within the recorded [min,max] bound.
         for (uint32_t i = 0; i < cnt; ++i) {
@@ -451,6 +451,92 @@ TEST(WindowFrameEncoderTest, Df1NoHang) {
 TEST(WindowFrameEncoderTest, SmallDfNoHang) {
     for (int32_t df : {1, 2, 10, 100, 200, 254}) {
         ExpectRoundtripAndSkip(MakeTerm(df, /*stride=*/2, /*freq=*/1), /*has_prox=*/true);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Byte-identity characterization. Locks the EXACT emitted .frq/.prx bytes for a
+// fixed matrix of terms via a 64-bit FNV-1a digest, so a refactor of the
+// windowed encoder's internals (e.g. compress-once-cache, single-pass emit)
+// that is supposed to be format-preserving is PROVEN not to shift a single byte
+// — same chosen W, same skip table, same per-window ZSTD payloads. If any digest
+// changes the on-disk format (hence .idx size and reader compatibility) moved;
+// the test fails loudly and prints the new digests.
+namespace {
+
+uint64_t Fnv1a(const std::vector<uint8_t>& data) {
+    uint64_t h = 1469598103934665603ULL; // FNV offset basis
+    for (const uint8_t b : data) {
+        h ^= b;
+        h *= 1099511628211ULL; // FNV prime
+    }
+    return h;
+}
+
+// Combines the .frq and .prx digests into one stable value.
+uint64_t DigestWindowed(const Term& t, bool has_prox) {
+    std::vector<uint8_t> frq;
+    std::vector<uint8_t> prx;
+    EncodeWindowed(t, has_prox, &frq, &prx);
+    return Fnv1a(frq) * 1099511628211ULL + Fnv1a(prx);
+}
+
+// The variable-freq term used by VariableFreqsAndPositions (patched-PFOR freqs).
+Term MakeVariableFreqTerm() {
+    Term t;
+    int32_t doc = 1;
+    for (int32_t i = 0; i < 700; ++i) {
+        t.docs.push_back(doc);
+        const int32_t freq = (i % 17 == 0) ? 40 : ((i % 3 == 0) ? 1 : 2);
+        t.freqs.push_back(freq);
+        std::vector<int32_t> pos;
+        int32_t p = 0;
+        for (int32_t k = 0; k < freq; ++k) {
+            pos.push_back(p);
+            p += 1 + (k % 4);
+        }
+        t.positions.push_back(std::move(pos));
+        doc += 1 + (i % 5);
+    }
+    return t;
+}
+
+Term MakeUniformTerm(int32_t df, bool with_pos) {
+    Term t;
+    for (int32_t i = 0; i < df; ++i) {
+        t.docs.push_back(i + 1);
+        t.freqs.push_back(1);
+        t.positions.push_back(with_pos ? std::vector<int32_t> {0} : std::vector<int32_t> {});
+    }
+    return t;
+}
+
+} // namespace
+
+TEST(WindowFrameEncoderTest, ByteIdentityGolden) {
+    struct Case {
+        const char* name;
+        uint64_t digest;
+        Term term;
+        bool has_prox;
+    };
+    std::vector<Case> cases = {
+            {"prox_df600_s2_f2", 11757591580788661769ULL, MakeTerm(600, 2, 2), true},
+            {"prox_df2050_s1_f1", 6680075812068543558ULL, MakeTerm(2050, 1, 1), true},
+            {"prox_df20000_s1_f2", 3893958715936707005ULL, MakeTerm(20000, 1, 2), true},
+            {"noprox_df2049_s1_f1", 1720537505972114867ULL, MakeTerm(2049, 1, 1), false},
+            {"prox_varfreq700", 4779850024287799460ULL, MakeVariableFreqTerm(), true},
+            {"prox_uniform5000", 3243951643167239521ULL, MakeUniformTerm(5000, true), true},
+            {"noprox_uniform5000", 1153719381930045208ULL, MakeUniformTerm(5000, false), false},
+    };
+    for (const auto& c : cases) {
+        const uint64_t got = DigestWindowed(c.term, c.has_prox);
+        // Always print so the golden can be (re)captured from the test log.
+        std::cout << "[GOLDEN] " << c.name << " = " << got << "ULL" << std::endl;
+        EXPECT_EQ(got, c.digest)
+                << "byte-identity broken for " << c.name
+                << " — emitted .frq/.prx bytes changed (format/size/W moved). "
+                   "If this change is INTENTIONAL, update the golden to the printed value.";
     }
 }
 
