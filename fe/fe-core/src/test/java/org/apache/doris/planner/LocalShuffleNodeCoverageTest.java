@@ -229,10 +229,27 @@ public class LocalShuffleNodeCoverageTest {
         hashJoin.setDistributionMode(DistributionMode.PARTITIONED);
         Pair<PlanNode, LocalExchangeType> hashOutput = hashJoin.enforceAndDeriveLocalExchange(
                 ctx, null, LocalExchangeTypeRequire.requireHash());
-        // enforceRequire resolves RequireHash to LOCAL_EXECUTION_HASH_SHUFFLE (FE-planned always uses LOCAL)
-        Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, hashOutput.second);
-        assertChildLocalExchangeType(hashJoin, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
-        assertChildLocalExchangeType(hashJoin, 1, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+        // PARTITIONED join requires GLOBAL hash to match cross-fragment exchange (DORIS-26101)
+        Assertions.assertEquals(LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE, hashOutput.second);
+        assertChildLocalExchangeType(hashJoin, 0, LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE);
+        assertChildLocalExchangeType(hashJoin, 1, LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE);
+
+        // DORIS-26101: PARTITIONED join with probe child already providing GLOBAL hash
+        // (e.g. upstream ExchangeNode) should satisfy requireGlobalExecutionHash without
+        // inserting a new exchange.
+        TrackingPlanNode probeGlobal = new TrackingPlanNode(nextPlanNodeId(),
+                LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE);
+        TrackingPlanNode buildGlobal = new TrackingPlanNode(nextPlanNodeId(),
+                LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE);
+        HashJoinNode partitionedSatisfied = new HashJoinNode(nextPlanNodeId(), probeGlobal, buildGlobal,
+                JoinOperator.INNER_JOIN, eqConjuncts, Collections.emptyList(), null, null, false);
+        partitionedSatisfied.setDistributionMode(DistributionMode.PARTITIONED);
+        Pair<PlanNode, LocalExchangeType> satisfiedOutput = partitionedSatisfied.enforceAndDeriveLocalExchange(
+                ctx, null, LocalExchangeTypeRequire.requireHash());
+        Assertions.assertEquals(LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE, satisfiedOutput.second);
+        Assertions.assertSame(probeGlobal, partitionedSatisfied.getChild(0),
+                "no exchange should be inserted when child already provides GLOBAL hash");
+        Assertions.assertSame(buildGlobal, partitionedSatisfied.getChild(1));
 
         TrackingPlanNode probe3 = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
         TrackingPlanNode build3 = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
