@@ -92,9 +92,7 @@ TEST_F(HeapSorterTest, test_topn_sorter1) {
         EXPECT_EQ(sorter->_queue_row_num, 6);
 
         auto value = sorter->get_top_value();
-        Field real;
-        block.get_by_position(0).column->get(0, real);
-        EXPECT_EQ(value, real);
+        EXPECT_EQ(value, Field::create_field<TYPE_BIGINT>(Int64(6)));
     }
 
     EXPECT_TRUE(sorter->prepare_for_read(false));

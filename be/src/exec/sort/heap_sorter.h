@@ -27,8 +27,7 @@ class HeapSorter final : public Sorter {
 public:
     HeapSorter(const VExprContextSPtrs& ordering_expr_ctxs, RuntimeState* state, int64_t limit,
                int64_t offset, ObjectPool* pool, std::vector<bool>& is_asc_order,
-               std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
-               bool have_runtime_predicate = true);
+               std::vector<bool>& nulls_first, const RowDescriptor& row_desc);
 
     ~HeapSorter() override = default;
 
@@ -56,7 +55,6 @@ private:
     MergeSorterQueue _queue;
     std::unique_ptr<MergeSorterState> _state;
     IColumn::Permutation _reverse_buffer;
-    bool _have_runtime_predicate = true;
     RuntimeProfile::Counter* _topn_filter_timer = nullptr;
     RuntimeProfile::Counter* _topn_filter_rows_counter = nullptr;
 };

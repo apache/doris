@@ -51,10 +51,9 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     }
     switch (p._algorithm) {
     case TSortAlgorithm::HEAP_SORT: {
-        _shared_state->sorter = HeapSorter::create_shared(
-                _ordering_expr_ctxs, state, p._limit, p._offset, p._pool, p._is_asc_order,
-                p._nulls_first, p._child->row_desc(),
-                state->get_query_ctx()->has_runtime_predicate(p._node_id));
+        _shared_state->sorter =
+                HeapSorter::create_shared(_ordering_expr_ctxs, state, p._limit, p._offset, p._pool,
+                                          p._is_asc_order, p._nulls_first, p._child->row_desc());
         break;
     }
     case TSortAlgorithm::TOPN_SORT: {
