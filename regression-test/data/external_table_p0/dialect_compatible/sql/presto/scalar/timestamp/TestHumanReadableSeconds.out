@@ -9,5 +9,17 @@
 0
 
 -- !TestHumanReadableSeconds_4 --
+6 days, 4 hours, 42 minutes, 13 seconds, 951 milliseconds
+
+-- !TestHumanReadableSeconds_5 --
+6 days, 4 hours, 42 minutes, 13 seconds, 251 milliseconds
+
+-- !TestHumanReadableSeconds_6 --
 0
+
+-- !TestHumanReadableSeconds_7 --
+6 days, 4 hours, 42 minutes, 13 seconds, 951 milliseconds
+
+-- !TestHumanReadableSeconds_8 --
+6 days, 4 hours, 42 minutes, 13 seconds, 251 milliseconds
 

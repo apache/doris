@@ -21,9 +21,11 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 
 import org.junit.jupiter.api.Assertions;
@@ -165,5 +167,15 @@ class DateTimeExtractAndTransformTest {
         DecimalV3Literal dec = new DecimalV3Literal(big);
         Assertions.assertThrows(AnalysisException.class,
                 () -> DateTimeExtractAndTransform.fromUnixTime(dec));
+    }
+
+    @Test
+    void testHumanReadableSecondsWithMilliseconds() {
+        Assertions.assertEquals(new VarcharLiteral("7 minutes, 55 seconds, 330 milliseconds"),
+                DateTimeExtractAndTransform.humanReadableSeconds(new DoubleLiteral(475.33)));
+        Assertions.assertEquals(new VarcharLiteral("900 milliseconds"),
+                DateTimeExtractAndTransform.humanReadableSeconds(new DoubleLiteral(0.9)));
+        Assertions.assertEquals(new VarcharLiteral("-500 milliseconds"),
+                DateTimeExtractAndTransform.humanReadableSeconds(new DoubleLiteral(-0.5)));
     }
 }
