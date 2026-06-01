@@ -318,6 +318,9 @@ public:
 
     // for be UTs
     std::map<std::string, double> get_stats_unsafe();
+    [[nodiscard]] size_t need_update_lru_blocks_size_unsafe() const {
+        return _need_update_lru_blocks.size();
+    }
 
     using AccessRecord =
             std::unordered_map<AccessKeyAndOffset, LRUQueue::Iterator, KeyAndOffsetHash>;
