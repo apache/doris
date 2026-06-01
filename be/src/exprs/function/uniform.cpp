@@ -147,6 +147,8 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionUniform<Impl>>(); }
     String get_name() const override { return name; }
 
+    bool use_default_implementation_for_constants() const override { return false; }
+
     size_t get_number_of_arguments() const override {
         return get_variadic_argument_types_impl().size();
     }
