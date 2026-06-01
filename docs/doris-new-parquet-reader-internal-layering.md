@@ -277,12 +277,18 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 - `NestedShapeCursor`
 - `NestedValueStream`
 - `NestedScalarSlotStream`
+- `NestedScalarValueAppender`
+- `NestedStructValueAppender`
 - `assemble_repeated_levels(...)`
 - `read_nested_scalar_batch(...)`
 - `read_nested_struct_batch(...)`
 - `RepeatedParentSinkState`
 - `RepeatedChildSinkState`
-- list/map/struct reader 内部 sink
+- `RepeatedListValueSink`
+- `RepeatedNestedListValueSink`
+- `RepeatedMapValueSink`
+- `RepeatedMapListValueSink`
+- `RepeatedAlignedValueSkipSink`
 
 职责：
 
@@ -291,17 +297,23 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 - 折叠 repeated levels，生成 parent rows。
 - 区分 null parent、empty parent、non-empty parent。
 - 写入 array/map offsets 和 nullable parent null map。
-- 写入 nullable scalar child/value。
+- 写入 nullable scalar child/value 和 scalar-child struct value。
 - 对 map key/value 和 struct 多 child 做 level alignment check。
 - 维护 read-ahead overflow。
 
-当前不足：
+当前状态：
 
-- scalar 和 struct batch 已适配到统一 shape view；MAP scalar/struct value 已通过 `NestedValueStream` 统一 read、alignment 和 overflow tail。
+- scalar 和 struct batch 已适配到统一 shape view。
+- MAP scalar/struct value 已通过 `NestedValueStream` 统一 read、alignment 和 overflow tail。
 - MAP LIST value 的 key stream 已通过 `NestedScalarSlotStream` 统一按 value driver 消费 key slot。
-- LIST 侧 scalar/struct/nested list sink 仍有按 child 类型展开的分支。
-- nested list/map 的 shape-only 和 value stream 组合还不够通用。
-- struct value append 仍有较多 reader-local 逻辑。
+- LIST scalar element、LIST struct element、nested LIST scalar element 已通过统一 repeated sink 写入。
+- MAP scalar value、MAP struct value、MAP LIST scalar element value 已通过统一 repeated sink 写入。
+
+剩余不足：
+
+- reader factory 仍需要按 child reader 类型选择合适的 value stream/appender。
+- nested MAP value、struct 内更深层 complex child 的组合覆盖还不完整。
+- struct value append 中非 scalar child 的推进仍依赖 `StructColumnReader` 当前接口。
 
 后续目标：
 
@@ -402,7 +414,7 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 | Row position column | 已实现 | Column reader | 使用 row group `first_file_row` |
 | Top-level projection | 已实现 | Scheduler / Factory | 按 file-local column id 创建 reader |
 | Struct projection | 已实现 | Factory / Struct reader | 支持 child projection 和 nullable child |
-| List/Map nested projection | 部分实现 | Factory / Nested assembler | 已支持部分 complex child，shape/value stream 仍需统一 |
+| List/Map nested projection | 部分实现 | Factory / Nested assembler | 已支持部分 complex child，shape/value stream 和 repeated sink 已统一，组合覆盖仍需补齐 |
 | Row group statistics pruning | 已实现 | Pruning | min/max/null count 转 Doris statistics 后判断 |
 | Dictionary row group pruning | 已实现 | Pruning | 当前覆盖 string-like dictionary predicate |
 | Page index pruning | 已实现 | Pruning / Scheduler | Arrow page index 转 row group-local row ranges |
@@ -414,10 +426,10 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 | STRUCT complex child | 部分实现 | Struct reader / Nested assembler | 支持部分 list/map child，仍需收敛分支 |
 | LIST scalar element | 已实现 | List reader / Nested assembler | 支持 null/empty/nullable scalar/overflow |
 | LIST struct element | 部分实现 | List reader / Nested assembler | 已有 struct batch/overflow，接口仍未统一 |
-| Nested LIST | 部分实现 | List reader / Nested assembler | 支持部分组合，shape stream 抽象待完成 |
+| Nested LIST | 部分实现 | List reader / Nested assembler | 支持 scalar nested list，复用统一 repeated sink |
 | MAP scalar value | 已实现 | Map reader / Nested assembler | key required，value 支持 nullable scalar |
-| MAP struct/list value | 部分实现 | Map reader / Nested assembler | scalar/struct value stream 和 LIST value key slot stream 已收敛，sink 仍需继续通用化 |
-| MAP nested map value | 未完成 | Map reader / Nested assembler | 后续依赖统一 shape/value stream |
+| MAP struct/list value | 部分实现 | Map reader / Nested assembler | scalar/struct value stream、LIST value key slot stream 和 repeated sink 已收敛，组合覆盖仍需补齐 |
+| MAP nested map value | 未完成 | Map reader / Nested assembler | 后续在统一 shape/value stream 上补 value appender |
 | Required/nullability corruption check | 部分实现 | Column reader / Nested assembler | list/map scalar 路径较完整，complex child 需继续统一 |
 | Schema change / schema evolution | 未实现 | 上层映射 + Factory | 当前只保留 file-local 边界 |
 | Page-level decoder | 未实现 | Adapter | 当前不替代 Arrow `RecordReader` |
@@ -425,29 +437,6 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 | BE unit tests | 部分实现 | Tests | column reader complex/path tests 已有，覆盖矩阵仍需补 |
 
 ## 后续实现计划
-
-### P0：统一 Nested Shape / Value Stream
-
-目标：
-
-- 把 scalar、struct、list/map child 的 batch/overflow 抽象成统一 shape stream 和 value stream。
-- 让 list/map 主循环不再按 scalar/struct/list value 大量分叉。
-- 保持当前 `read/skip/select` row-level API 不变。
-
-建议步骤：
-
-1. 已定义统一 shape stream view：records read、levels written、def/rep level、starts parent。
-2. 已将 `NestedScalarBatch`、`NestedStructBatch` 适配到统一 view，并为 MAP 增加 `NestedValueStream` / `NestedScalarSlotStream`。
-3. 继续定义统一 value appender：append defined value、append null value、append shape-only slot。
-4. 收敛 `ListColumnReader` 的 scalar/struct/nested list sink。
-5. 继续收敛 `MapColumnReader` 的 value sink，减少 reader-local entry append 分支。
-6. 补 list/map/struct nested projection 和 overflow 的单测。
-
-验收标准：
-
-- 新增 complex child 类型时不需要复制 repeated level 主循环。
-- `skip()` 和 `select()` 继续复用同一 assembler。
-- null parent、empty parent、nullable child、overflow 行为不回退。
 
 ### P1：补 Bloom Filter Pruning
 
@@ -491,7 +480,7 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 
 目标：
 
-- 在 P0 的统一 assembler 之上补齐 nested projection 和 nested complex combinations。
+- 在统一 assembler 之上补齐 nested projection 和 nested complex combinations。
 
 建议覆盖：
 
@@ -563,9 +552,9 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 
 主要差距仍在 nested 层：
 
-- 现在已经有 repeated assembler 和 overflow state，但还不是完整的 shape/value stream 抽象。
-- list/map 对 complex child 的支持已经开始落地，但 reader-local sink 分支仍偏多。
+- 现在已经有 repeated assembler、overflow state、shape/value stream 和统一 sink，但 complex child 组合还没有全部覆盖。
+- list/map 对已支持路径复用统一 sink；新增 nested MAP、struct deep complex child 仍需要补 value appender/shape-only reader 组合。
 - schema change 还停留在边界预留阶段。
 - bloom filter pruning 和 observability 还没补完整。
 
-后续优先级应先收敛 nested assembler，再补 pruning 能力和 profile。否则继续堆复杂类型 case 会让 list/map reader 重新变厚，偏离本文档的目标分层。
+后续优先级应先补 Bloom Filter pruning，再补 observability 和剩余 complex child 组合。新增复杂类型 case 必须继续落在 nested assembler 的 value stream/appender/sink 结构上，避免 list/map reader 重新变厚。

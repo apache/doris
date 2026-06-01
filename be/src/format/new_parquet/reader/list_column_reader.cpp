@@ -48,45 +48,13 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
         const int16_t element_max_definition_level =
                 element_reader->descriptor()->max_definition_level();
 
-        struct ScalarListSink {
-            ListColumnReader* self = nullptr;
-            ScalarColumnReader* element_reader = nullptr;
-            MutableColumnPtr* nested_column = nullptr;
-            RepeatedParentSinkState parent_state;
-            int16_t element_max_definition_level = 0;
-
-            Status start_batch(const NestedScalarBatch&) { return Status::OK(); }
-
-            Status start_parent(const NestedScalarBatch& batch, int64_t level_idx) {
-                const int16_t def_level = batch.def_levels[level_idx];
-                if (def_level < self->_nullable_definition_level) {
-                    return parent_state.append_null_parent(self->_name, "LIST", self->_type);
-                }
-                parent_state.append_present_parent();
-                if (def_level == self->_nullable_definition_level) {
-                    return Status::OK();
-                }
-                return append_element(batch, level_idx);
-            }
-
-            Status append_repeated(const NestedScalarBatch& batch, int64_t level_idx) {
-                return append_element(batch, level_idx);
-            }
-
-            Status append_element(const NestedScalarBatch& batch, int64_t level_idx) {
-                RETURN_IF_ERROR(parent_state.require_parent(self->_name));
-                RETURN_IF_ERROR(append_nullable_scalar_child(
-                        self->_name, "LIST", "element", *element_reader, batch, level_idx,
-                        element_max_definition_level, *nested_column));
-                return parent_state.add_entry(self->_name);
-            }
-        };
-
-        ScalarListSink sink {this,
-                             element_reader,
-                             &nested_column,
-                             {&entry_counts, &parent_nulls},
-                             element_max_definition_level};
+        RepeatedListValueSink<NestedScalarBatch, NestedScalarValueAppender> sink {
+                &_name,
+                &_type,
+                _nullable_definition_level,
+                &nested_column,
+                {&entry_counts, &parent_nulls},
+                {element_reader, "LIST", "element", element_max_definition_level}};
         RETURN_IF_ERROR(assemble_repeated_levels(*element_reader, _repeated_repetition_level,
                                                  element_slot_definition_level, rows,
                                                  &_element_overflow, sink, rows_read));
@@ -98,44 +66,13 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
     }
 
     if (auto* struct_element_reader = dynamic_cast<StructColumnReader*>(_element_reader.get())) {
-        struct StructListSink {
-            ListColumnReader* self = nullptr;
-            StructColumnReader* element_reader = nullptr;
-            MutableColumnPtr* nested_column = nullptr;
-            RepeatedParentSinkState parent_state;
-
-            Status start_batch(const NestedStructBatch&) { return Status::OK(); }
-
-            Status start_parent(const NestedStructBatch& batch, int64_t level_idx) {
-                const int16_t def_level = batch.child_batches[0].def_levels[level_idx];
-                if (def_level < self->_nullable_definition_level) {
-                    RETURN_IF_ERROR(
-                            parent_state.append_null_parent(self->_name, "LIST", self->_type));
-                    RETURN_IF_ERROR(element_reader->skip_non_scalar_children(1));
-                    return Status::OK();
-                }
-                parent_state.append_present_parent();
-                if (def_level == self->_nullable_definition_level) {
-                    RETURN_IF_ERROR(element_reader->skip_non_scalar_children(1));
-                    return Status::OK();
-                }
-                return append_element(batch, level_idx);
-            }
-
-            Status append_repeated(const NestedStructBatch& batch, int64_t level_idx) {
-                return append_element(batch, level_idx);
-            }
-
-            Status append_element(const NestedStructBatch& batch, int64_t level_idx) {
-                RETURN_IF_ERROR(parent_state.require_parent(self->_name));
-                RETURN_IF_ERROR(append_struct_batch_value(*element_reader, batch, level_idx,
-                                                          *nested_column));
-                return parent_state.add_entry(self->_name);
-            }
-        };
-
-        StructListSink sink {
-                this, struct_element_reader, &nested_column, {&entry_counts, &parent_nulls}};
+        RepeatedListValueSink<NestedStructBatch, NestedStructValueAppender> sink {
+                &_name,
+                &_type,
+                _nullable_definition_level,
+                &nested_column,
+                {&entry_counts, &parent_nulls},
+                {struct_element_reader}};
         RETURN_IF_ERROR(assemble_repeated_struct_levels(
                 *struct_element_reader, _repeated_repetition_level, element_slot_definition_level,
                 rows, &_struct_element_overflow, sink, rows_read));
@@ -174,72 +111,18 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
     const int16_t nested_element_max_definition_level =
             scalar_nested_element_reader->descriptor()->max_definition_level();
 
-    struct NestedListSink {
-        ListColumnReader* self = nullptr;
-        ListColumnReader* element_reader = nullptr;
-        ScalarColumnReader* scalar_element_reader = nullptr;
-        MutableColumnPtr* inner_nested_column = nullptr;
-        RepeatedParentSinkState parent_state;
-        RepeatedChildSinkState inner_state;
-        int16_t nested_element_max_definition_level = 0;
-
-        Status start_batch(const NestedScalarBatch&) { return Status::OK(); }
-
-        Status start_parent(const NestedScalarBatch& batch, int64_t level_idx) {
-            const int16_t def_level = batch.def_levels[level_idx];
-            if (def_level < self->_nullable_definition_level) {
-                return parent_state.append_null_parent(self->_name, "LIST", self->_type);
-            }
-            parent_state.append_present_parent();
-            if (def_level == self->_nullable_definition_level) {
-                return Status::OK();
-            }
-            return append_inner_list(batch, level_idx);
-        }
-
-        Status append_repeated(const NestedScalarBatch& batch, int64_t level_idx) {
-            if (batch.rep_levels[level_idx] < element_reader->_repeated_repetition_level) {
-                return append_inner_list(batch, level_idx);
-            }
-            return append_scalar_element(batch, level_idx);
-        }
-
-        Status append_inner_list(const NestedScalarBatch& batch, int64_t level_idx) {
-            const int16_t def_level = batch.def_levels[level_idx];
-            if (def_level < element_reader->_nullable_definition_level) {
-                if (!element_reader->_type->is_nullable()) {
-                    return Status::Corruption(
-                            "Parquet LIST column {} contains null for non-nullable nested list",
-                            self->_name);
-                }
-                RETURN_IF_ERROR(parent_state.add_entry(self->_name));
-                return inner_state.append_null_child(self->_name, "LIST", "nested list",
-                                                     element_reader->_type);
-            }
-            RETURN_IF_ERROR(parent_state.add_entry(self->_name));
-            inner_state.append_present_child();
-            if (def_level == element_reader->_nullable_definition_level) {
-                return Status::OK();
-            }
-            return append_scalar_element(batch, level_idx);
-        }
-
-        Status append_scalar_element(const NestedScalarBatch& batch, int64_t level_idx) {
-            RETURN_IF_ERROR(inner_state.require_child(self->_name, "nested LIST"));
-            RETURN_IF_ERROR(append_nullable_scalar_child(
-                    self->_name, "LIST", "nested element", *scalar_element_reader, batch, level_idx,
-                    nested_element_max_definition_level, *inner_nested_column));
-            return inner_state.add_entry(self->_name, "nested LIST");
-        }
-    };
-
-    NestedListSink sink {this,
-                         list_element_reader,
-                         scalar_nested_element_reader,
-                         &inner_nested_column,
-                         {&entry_counts, &parent_nulls},
-                         {&inner_entry_counts, &inner_parent_nulls},
-                         nested_element_max_definition_level};
+    RepeatedNestedListValueSink<NestedScalarValueAppender> sink {
+            &_name,
+            &_type,
+            &list_element_reader->_type,
+            _nullable_definition_level,
+            list_element_reader->_nullable_definition_level,
+            list_element_reader->_repeated_repetition_level,
+            &inner_nested_column,
+            {&entry_counts, &parent_nulls},
+            {&inner_entry_counts, &inner_parent_nulls},
+            {scalar_nested_element_reader, "LIST", "nested element",
+             nested_element_max_definition_level}};
     RETURN_IF_ERROR(assemble_repeated_levels(
             *scalar_nested_element_reader, _repeated_repetition_level,
             inner_element_slot_definition_level, rows, &_element_overflow, sink, rows_read));
@@ -257,25 +140,15 @@ Status ListColumnReader::skip(int64_t rows) {
     if (rows <= 0) {
         return Status::OK();
     }
-    struct SkipSink {
-        Status start_batch(const NestedScalarBatch&) { return Status::OK(); }
-        Status start_parent(const NestedScalarBatch&, int64_t) { return Status::OK(); }
-        Status append_repeated(const NestedScalarBatch&, int64_t) { return Status::OK(); }
-    };
     int64_t rows_read = 0;
     if (auto* element_reader = dynamic_cast<ScalarColumnReader*>(_element_reader.get())) {
-        SkipSink sink;
+        RepeatedShapeSkipSink<NestedScalarBatch> sink;
         RETURN_IF_ERROR(assemble_repeated_levels(*element_reader, _repeated_repetition_level,
                                                  _nullable_definition_level + 1, rows,
                                                  &_element_overflow, sink, &rows_read));
     } else if (auto* struct_element_reader =
                        dynamic_cast<StructColumnReader*>(_element_reader.get())) {
-        struct StructSkipSink {
-            Status start_batch(const NestedStructBatch&) { return Status::OK(); }
-            Status start_parent(const NestedStructBatch&, int64_t) { return Status::OK(); }
-            Status append_repeated(const NestedStructBatch&, int64_t) { return Status::OK(); }
-        };
-        StructSkipSink sink;
+        RepeatedShapeSkipSink<NestedStructBatch> sink;
         RETURN_IF_ERROR(assemble_repeated_struct_levels(
                 *struct_element_reader, _repeated_repetition_level, _nullable_definition_level + 1,
                 rows, &_struct_element_overflow, sink, &rows_read));
@@ -288,7 +161,7 @@ Status ListColumnReader::skip(int64_t rows) {
                     "column {}",
                     _name);
         }
-        SkipSink sink;
+        RepeatedShapeSkipSink<NestedScalarBatch> sink;
         RETURN_IF_ERROR(
                 assemble_repeated_levels(*scalar_nested_element_reader, _repeated_repetition_level,
                                          list_element_reader->_nullable_definition_level + 1, rows,

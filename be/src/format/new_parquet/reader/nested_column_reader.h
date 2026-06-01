@@ -365,6 +365,146 @@ Status append_nullable_scalar_child(const std::string& column_name, std::string_
                                     const NestedScalarBatch& batch, int64_t level_idx,
                                     int16_t max_definition_level, MutableColumnPtr& column);
 
+struct NestedScalarValueAppender {
+    ScalarColumnReader* reader = nullptr;
+    std::string_view parent_kind;
+    std::string_view child_kind;
+    int16_t max_definition_level = 0;
+
+    Status append(const std::string& column_name, const NestedScalarBatch& batch, int64_t level_idx,
+                  MutableColumnPtr& column) const {
+        DORIS_CHECK(reader != nullptr);
+        return append_nullable_scalar_child(column_name, parent_kind, child_kind, *reader, batch,
+                                            level_idx, max_definition_level, column);
+    }
+
+    Status skip_shape_only_slot() const { return Status::OK(); }
+};
+
+struct NestedStructValueAppender {
+    StructColumnReader* reader = nullptr;
+
+    Status append(const std::string&, const NestedStructBatch& batch, int64_t level_idx,
+                  MutableColumnPtr& column) const {
+        DORIS_CHECK(reader != nullptr);
+        return append_struct_batch_value(*reader, batch, level_idx, column);
+    }
+
+    Status skip_shape_only_slot() const {
+        DORIS_CHECK(reader != nullptr);
+        return reader->skip_non_scalar_children(1);
+    }
+};
+
+template <typename Batch>
+struct RepeatedShapeSkipSink {
+    Status start_batch(const Batch&) { return Status::OK(); }
+    Status start_parent(const Batch&, int64_t) { return Status::OK(); }
+    Status append_repeated(const Batch&, int64_t) { return Status::OK(); }
+};
+
+template <typename Batch, typename ValueAppender>
+struct RepeatedListValueSink {
+    const std::string* column_name = nullptr;
+    const DataTypePtr* list_type = nullptr;
+    int16_t list_nullable_definition_level = 0;
+    MutableColumnPtr* element_column = nullptr;
+    RepeatedParentSinkState parent_state;
+    ValueAppender value_appender;
+
+    Status start_batch(const Batch&) { return Status::OK(); }
+
+    Status start_parent(const Batch& batch, int64_t level_idx) {
+        DORIS_CHECK(column_name != nullptr);
+        DORIS_CHECK(list_type != nullptr);
+        const int16_t def_level = nested_shape_definition_level(batch, level_idx);
+        if (def_level < list_nullable_definition_level) {
+            RETURN_IF_ERROR(parent_state.append_null_parent(*column_name, "LIST", *list_type));
+            return value_appender.skip_shape_only_slot();
+        }
+        parent_state.append_present_parent();
+        if (def_level == list_nullable_definition_level) {
+            return value_appender.skip_shape_only_slot();
+        }
+        return append_element(batch, level_idx);
+    }
+
+    Status append_repeated(const Batch& batch, int64_t level_idx) {
+        return append_element(batch, level_idx);
+    }
+
+    Status append_element(const Batch& batch, int64_t level_idx) {
+        DORIS_CHECK(column_name != nullptr);
+        DORIS_CHECK(element_column != nullptr);
+        RETURN_IF_ERROR(parent_state.require_parent(*column_name));
+        RETURN_IF_ERROR(value_appender.append(*column_name, batch, level_idx, *element_column));
+        return parent_state.add_entry(*column_name);
+    }
+};
+
+template <typename ValueAppender>
+struct RepeatedNestedListValueSink {
+    const std::string* column_name = nullptr;
+    const DataTypePtr* outer_list_type = nullptr;
+    const DataTypePtr* inner_list_type = nullptr;
+    int16_t outer_nullable_definition_level = 0;
+    int16_t inner_nullable_definition_level = 0;
+    int16_t inner_repeated_repetition_level = 0;
+    MutableColumnPtr* inner_element_column = nullptr;
+    RepeatedParentSinkState outer_state;
+    RepeatedChildSinkState inner_state;
+    ValueAppender value_appender;
+
+    Status start_batch(const NestedScalarBatch&) { return Status::OK(); }
+
+    Status start_parent(const NestedScalarBatch& batch, int64_t level_idx) {
+        DORIS_CHECK(column_name != nullptr);
+        DORIS_CHECK(outer_list_type != nullptr);
+        const int16_t def_level = batch.def_levels[level_idx];
+        if (def_level < outer_nullable_definition_level) {
+            return outer_state.append_null_parent(*column_name, "LIST", *outer_list_type);
+        }
+        outer_state.append_present_parent();
+        if (def_level == outer_nullable_definition_level) {
+            return Status::OK();
+        }
+        return append_inner_list(batch, level_idx);
+    }
+
+    Status append_repeated(const NestedScalarBatch& batch, int64_t level_idx) {
+        if (batch.rep_levels[level_idx] < inner_repeated_repetition_level) {
+            return append_inner_list(batch, level_idx);
+        }
+        return append_element(batch, level_idx);
+    }
+
+    Status append_inner_list(const NestedScalarBatch& batch, int64_t level_idx) {
+        DORIS_CHECK(column_name != nullptr);
+        DORIS_CHECK(inner_list_type != nullptr);
+        const int16_t def_level = batch.def_levels[level_idx];
+        if (def_level < inner_nullable_definition_level) {
+            RETURN_IF_ERROR(outer_state.add_entry(*column_name));
+            return inner_state.append_null_child(*column_name, "LIST", "nested list",
+                                                 *inner_list_type);
+        }
+        RETURN_IF_ERROR(outer_state.add_entry(*column_name));
+        inner_state.append_present_child();
+        if (def_level == inner_nullable_definition_level) {
+            return Status::OK();
+        }
+        return append_element(batch, level_idx);
+    }
+
+    Status append_element(const NestedScalarBatch& batch, int64_t level_idx) {
+        DORIS_CHECK(column_name != nullptr);
+        DORIS_CHECK(inner_element_column != nullptr);
+        RETURN_IF_ERROR(inner_state.require_child(*column_name, "nested LIST"));
+        RETURN_IF_ERROR(
+                value_appender.append(*column_name, batch, level_idx, *inner_element_column));
+        return inner_state.add_entry(*column_name, "nested LIST");
+    }
+};
+
 template <typename Batch, typename Overflow, typename Reader>
 struct NestedValueStream {
     NestedValueStream() = default;
@@ -462,6 +602,161 @@ struct NestedScalarSlotStream {
     }
 
     void move_tail_to_overflow() { move_nested_scalar_tail(batch, level_idx, overflow); }
+};
+
+template <typename ValueBatch, typename ValueOverflow, typename ValueReader, typename ValueAppender>
+struct RepeatedMapValueSink {
+    const std::string* column_name = nullptr;
+    const DataTypePtr* map_type = nullptr;
+    int16_t map_nullable_definition_level = 0;
+    ScalarColumnReader* key_reader = nullptr;
+    MutableColumnPtr* key_column = nullptr;
+    MutableColumnPtr* value_column = nullptr;
+    RepeatedParentSinkState parent_state;
+    int16_t key_max_definition_level = 0;
+    NestedValueStream<ValueBatch, ValueOverflow, ValueReader> value_stream;
+    ValueAppender value_appender;
+
+    Status start_batch(const NestedScalarBatch& key_batch) {
+        DORIS_CHECK(column_name != nullptr);
+        return value_stream.read_aligned_to_driver(*column_name, key_batch, "");
+    }
+
+    Status start_parent(const NestedScalarBatch& key_batch, int64_t level_idx) {
+        DORIS_CHECK(column_name != nullptr);
+        DORIS_CHECK(map_type != nullptr);
+        const int16_t def_level = key_batch.def_levels[level_idx];
+        if (def_level < map_nullable_definition_level) {
+            RETURN_IF_ERROR(parent_state.append_null_parent(*column_name, "MAP", *map_type));
+            return value_appender.skip_shape_only_slot();
+        }
+        parent_state.append_present_parent();
+        if (def_level == map_nullable_definition_level) {
+            return value_appender.skip_shape_only_slot();
+        }
+        return append_entry(key_batch, level_idx);
+    }
+
+    Status append_repeated(const NestedScalarBatch& key_batch, int64_t level_idx) {
+        return append_entry(key_batch, level_idx);
+    }
+
+    Status append_entry(const NestedScalarBatch& key_batch, int64_t level_idx) {
+        DORIS_CHECK(column_name != nullptr);
+        DORIS_CHECK(key_reader != nullptr);
+        DORIS_CHECK(key_column != nullptr);
+        DORIS_CHECK(value_column != nullptr);
+        RETURN_IF_ERROR(parent_state.require_parent(*column_name));
+        if (key_batch.def_levels[level_idx] != key_max_definition_level) {
+            return Status::Corruption("Parquet MAP column {} contains null map key", *column_name);
+        }
+        RETURN_IF_ERROR(append_scalar_batch_value(*key_reader, key_batch, level_idx, *key_column));
+        RETURN_IF_ERROR(
+                value_appender.append(*column_name, value_stream.batch, level_idx, *value_column));
+        return parent_state.add_entry(*column_name);
+    }
+};
+
+template <typename ValueAppender>
+struct RepeatedMapListValueSink {
+    const std::string* column_name = nullptr;
+    const DataTypePtr* map_type = nullptr;
+    const DataTypePtr* list_type = nullptr;
+    int16_t map_nullable_definition_level = 0;
+    int16_t list_nullable_definition_level = 0;
+    int16_t list_repeated_repetition_level = 0;
+    ScalarColumnReader* key_reader = nullptr;
+    MutableColumnPtr* key_column = nullptr;
+    MutableColumnPtr* list_element_column = nullptr;
+    RepeatedParentSinkState map_state;
+    RepeatedChildSinkState list_state;
+    int16_t key_max_definition_level = 0;
+    NestedScalarSlotStream key_stream;
+    ValueAppender value_appender;
+
+    Status start_batch(const NestedScalarBatch& value_batch) {
+        DORIS_CHECK(column_name != nullptr);
+        return key_stream.read_records(*column_name, value_batch.records_read, "");
+    }
+
+    Status start_parent(const NestedScalarBatch& value_batch, int64_t level_idx) {
+        DORIS_CHECK(column_name != nullptr);
+        DORIS_CHECK(map_type != nullptr);
+        const int16_t def_level = value_batch.def_levels[level_idx];
+        if (def_level < map_nullable_definition_level) {
+            RETURN_IF_ERROR(consume_key_slot(value_batch, level_idx, false));
+            return map_state.append_null_parent(*column_name, "MAP", *map_type);
+        }
+        map_state.append_present_parent();
+        if (def_level == map_nullable_definition_level) {
+            RETURN_IF_ERROR(consume_key_slot(value_batch, level_idx, false));
+            return Status::OK();
+        }
+        return append_entry(value_batch, level_idx);
+    }
+
+    Status append_repeated(const NestedScalarBatch& value_batch, int64_t level_idx) {
+        if (value_batch.rep_levels[level_idx] < list_repeated_repetition_level) {
+            return append_entry(value_batch, level_idx);
+        }
+        return append_list_element(value_batch, level_idx);
+    }
+
+    Status append_entry(const NestedScalarBatch& value_batch, int64_t level_idx) {
+        DORIS_CHECK(column_name != nullptr);
+        DORIS_CHECK(key_reader != nullptr);
+        DORIS_CHECK(key_column != nullptr);
+        DORIS_CHECK(list_type != nullptr);
+        RETURN_IF_ERROR(consume_key_slot(value_batch, level_idx, true));
+        RETURN_IF_ERROR(append_scalar_batch_value(*key_reader, key_stream.batch,
+                                                  key_stream.level_idx - 1, *key_column));
+        RETURN_IF_ERROR(map_state.add_entry(*column_name));
+        const int16_t def_level = value_batch.def_levels[level_idx];
+        if (def_level < list_nullable_definition_level) {
+            return list_state.append_null_child(*column_name, "MAP", "LIST value", *list_type);
+        }
+        list_state.append_present_child();
+        if (def_level == list_nullable_definition_level) {
+            return Status::OK();
+        }
+        return append_list_element(value_batch, level_idx);
+    }
+
+    Status consume_key_slot(const NestedScalarBatch& value_batch, int64_t value_level_idx,
+                            bool require_defined_key) {
+        DORIS_CHECK(column_name != nullptr);
+        RETURN_IF_ERROR(
+                key_stream.consume_aligned_slot(*column_name, value_batch, value_level_idx, ""));
+        if (require_defined_key) {
+            RETURN_IF_ERROR(key_stream.require_last_slot_defined(
+                    *column_name, key_max_definition_level, "map key"));
+        }
+        return Status::OK();
+    }
+
+    Status append_list_element(const NestedScalarBatch& value_batch, int64_t level_idx) {
+        DORIS_CHECK(column_name != nullptr);
+        DORIS_CHECK(list_element_column != nullptr);
+        RETURN_IF_ERROR(list_state.require_child(*column_name, "MAP LIST value"));
+        RETURN_IF_ERROR(
+                value_appender.append(*column_name, value_batch, level_idx, *list_element_column));
+        return list_state.add_entry(*column_name, "MAP LIST value");
+    }
+};
+
+template <typename ValueBatch, typename ValueOverflow, typename ValueReader>
+struct RepeatedAlignedValueSkipSink {
+    const std::string* column_name = nullptr;
+    NestedValueStream<ValueBatch, ValueOverflow, ValueReader> value_stream;
+
+    Status start_batch(const NestedScalarBatch& key_batch) {
+        DORIS_CHECK(column_name != nullptr);
+        return value_stream.read_aligned_to_driver(*column_name, key_batch, " while skipping");
+    }
+
+    Status start_parent(const NestedScalarBatch&, int64_t) { return Status::OK(); }
+
+    Status append_repeated(const NestedScalarBatch&, int64_t) { return Status::OK(); }
 };
 
 template <typename Sink>
