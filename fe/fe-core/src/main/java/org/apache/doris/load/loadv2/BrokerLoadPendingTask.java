@@ -27,6 +27,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
 import com.google.common.collect.Lists;
@@ -45,8 +46,9 @@ public class BrokerLoadPendingTask extends LoadTask {
 
     public BrokerLoadPendingTask(BrokerLoadJob loadTaskCallback,
                                  Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups,
-                                 BrokerDesc brokerDesc, Priority priority) {
-        super(loadTaskCallback, TaskType.PENDING, priority);
+                                 BrokerDesc brokerDesc, Priority priority,
+                                 BDPAuthContext bdpAuthContext) {
+        super(loadTaskCallback, TaskType.PENDING, priority, bdpAuthContext);
         this.retryTime = 3;
         this.attachment = new BrokerPendingTaskAttachment(signature);
         this.aggKeyToBrokerFileGroups = aggKeyToBrokerFileGroups;

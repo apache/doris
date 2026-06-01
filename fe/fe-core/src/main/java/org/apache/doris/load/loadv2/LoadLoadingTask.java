@@ -35,6 +35,7 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -99,8 +100,9 @@ public class LoadLoadingTask extends LoadTask {
             long txnId, LoadTaskCallback callback, String timezone,
             long timeoutS, int loadParallelism, int sendBatchParallelism,
             boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
-            Priority priority, boolean enableMemTableOnSinkNode, int batchSize) {
-        super(callback, TaskType.LOADING, priority);
+            Priority priority, boolean enableMemTableOnSinkNode, int batchSize,
+            BDPAuthContext bdpAuthContext) {
+        super(callback, TaskType.LOADING, priority, bdpAuthContext);
         this.userInfo = userInfo;
         this.db = db;
         this.table = table;

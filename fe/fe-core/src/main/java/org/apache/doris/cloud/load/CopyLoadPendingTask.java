@@ -69,7 +69,8 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
 
     public CopyLoadPendingTask(CopyJob loadTaskCallback,
             Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups, BrokerDesc brokerDesc) {
-        super(loadTaskCallback, aggKeyToBrokerFileGroups, brokerDesc, Priority.NORMAL);
+        super(loadTaskCallback, aggKeyToBrokerFileGroups, brokerDesc, Priority.NORMAL,
+                ((CopyJob) loadTaskCallback).getCapturedBdpAuthContext());
         retryTime = 0;
     }
 

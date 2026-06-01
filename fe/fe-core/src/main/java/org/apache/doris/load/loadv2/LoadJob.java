@@ -49,6 +49,7 @@ import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -155,6 +156,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
     protected List<TPipelineWorkloadGroup> tWorkloadGroups = null;
 
+    // capture BDPAuthContext at job creation time (user request thread)
+    // for cross-thread propagation to LoadTask execution
+    protected transient BDPAuthContext capturedBdpAuthContext;
+
     public LoadJob(EtlJobType jobType) {
         this.jobType = jobType;
         initDefaultJobProperties();
@@ -165,6 +170,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         this.id = Env.getCurrentEnv().getNextId();
         this.dbId = dbId;
         this.label = label;
+        this.capturedBdpAuthContext = BDPAuthContext.get();
     }
 
     public LoadJob(EtlJobType jobType, long dbId, String label, long jobId) {
@@ -192,6 +198,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
     public long getId() {
         return id;
+    }
+
+    public BDPAuthContext getCapturedBdpAuthContext() {
+        return capturedBdpAuthContext;
     }
 
     public Database getDb() throws MetaNotFoundException {

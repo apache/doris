@@ -54,7 +54,8 @@ public class MasterTaskExecutor {
     }
 
     public MasterTaskExecutor(String name, int threadNum, int queueSize, boolean needRegisterMetric) {
-        executor = ThreadPoolManager.newDaemonFixedThreadPool(threadNum, queueSize, name + "-pool", needRegisterMetric);
+        executor = ThreadPoolManager.newDaemonFixedThreadPool(threadNum, queueSize, name + "-pool",
+                needRegisterMetric);
         runningTasks = Maps.newHashMap();
         scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(1, name + "-scheduler-thread-pool",
                 needRegisterMetric);

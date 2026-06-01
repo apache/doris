@@ -161,7 +161,7 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
                 transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                getPriority(), isEnableMemtableOnSinkNode, batchSize, cloudClusterId);
+                getPriority(), isEnableMemtableOnSinkNode, batchSize, capturedBdpAuthContext, cloudClusterId);
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
 

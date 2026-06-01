@@ -145,7 +145,8 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     protected LoadTask createPendingTask() {
-        return new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), brokerDesc, getPriority());
+        return new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), brokerDesc, getPriority(),
+                capturedBdpAuthContext);
     }
 
     /**
@@ -264,7 +265,8 @@ public class BrokerLoadJob extends BulkLoadJob {
                 transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                getPriority(), isEnableMemtableOnSinkNode, batchSize);
+                getPriority(), isEnableMemtableOnSinkNode, batchSize,
+                capturedBdpAuthContext);
 
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());

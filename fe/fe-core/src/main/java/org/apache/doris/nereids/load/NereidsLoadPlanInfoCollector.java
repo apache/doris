@@ -72,6 +72,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -181,6 +182,23 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             }
 
             params.setProperties(properties);
+
+            // propagate BDP auth context to BE for HDFS access
+            BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+            if (bdpAuthContext != null) {
+                if (bdpAuthContext.getHadoopUserName() != null) {
+                    properties.put("HADOOP_USER_NAME", bdpAuthContext.getHadoopUserName());
+                }
+                if (bdpAuthContext.getErp() != null) {
+                    properties.put("BEE_USER", bdpAuthContext.getErp());
+                }
+                if (bdpAuthContext.getSource() != null) {
+                    properties.put("BEE_SOURCE", bdpAuthContext.getSource());
+                }
+                if (bdpAuthContext.getUserToken() != null) {
+                    properties.put("HADOOP_USER_TOKEN", bdpAuthContext.getUserToken());
+                }
+            }
 
             for (Map.Entry<SlotId, Expr> entry : destSlotIdToExprMap.entrySet()) {
                 params.putToExprOfDestSlot(entry.getKey().asInt(), entry.getValue().treeToThrift());

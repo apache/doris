@@ -24,6 +24,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.task.MasterTask;
 
 import org.apache.logging.log4j.LogManager;
@@ -73,12 +74,16 @@ public abstract class LoadTask extends MasterTask {
     private volatile boolean done = false;
     protected long startTimeMs = 0;
     protected final Priority priority;
+    // capture BDPAuthContext at task creation time for cross-thread propagation
+    private final BDPAuthContext capturedBdpAuthContext;
 
-    public LoadTask(LoadTaskCallback callback, TaskType taskType, Priority priority) {
+    public LoadTask(LoadTaskCallback callback, TaskType taskType, Priority priority,
+                    BDPAuthContext bdpAuthContext) {
         this.taskType = taskType;
         this.signature = Env.getCurrentEnv().getNextId();
         this.callback = callback;
         this.priority = priority;
+        this.capturedBdpAuthContext = bdpAuthContext;
     }
 
     @Override
@@ -96,6 +101,10 @@ public abstract class LoadTask extends MasterTask {
                     }
                 }
             }
+            // restore BDPAuthContext before executing task
+            if (capturedBdpAuthContext != null) {
+                capturedBdpAuthContext.setThreadLocalInfo();
+            }
             // execute pending task
             executeTask();
             // callback on pending task finished
@@ -110,6 +119,8 @@ public abstract class LoadTask extends MasterTask {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
                     .add("error_msg", "Unexpected failed to execute load task").build(), t);
         } finally {
+            // clear BDPAuthContext to avoid leaking to other tasks in the same thread
+            BDPAuthContext.clear();
             if (!isFinished) {
                 // callback on pending task failed
                 callback.onTaskFailed(signature, failMsg);
