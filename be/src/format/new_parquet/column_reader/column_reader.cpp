@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/new_parquet/column_reader.h"
+#include "format/new_parquet/column_reader/column_reader.h"
 
 #include <parquet/api/reader.h>
 #include <parquet/api/schema.h>
@@ -34,10 +34,12 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
-#include "format/new_parquet/complex_column_reader.h"
+#include "format/new_parquet/column_reader/list_column_reader.h"
+#include "format/new_parquet/column_reader/map_column_reader.h"
+#include "format/new_parquet/column_reader/scalar_column_reader.h"
+#include "format/new_parquet/column_reader/shape_only_column_reader.h"
+#include "format/new_parquet/column_reader/struct_column_reader.h"
 #include "format/new_parquet/parquet_column_schema.h"
-#include "format/new_parquet/scalar_column_reader.h"
-#include "format/new_parquet/shape_only_column_reader.h"
 #include "format/reader/file_reader.h"
 
 namespace doris::parquet {

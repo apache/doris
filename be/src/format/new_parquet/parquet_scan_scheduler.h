@@ -22,7 +22,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "format/new_parquet/column_reader.h"
+#include "format/new_parquet/column_reader/column_reader.h"
 #include "format/new_parquet/parquet_scan_planner.h"
 #include "format/new_parquet/selection_vector.h"
 

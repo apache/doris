@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/new_parquet/scalar_column_reader.h"
+#include "format/new_parquet/column_reader/scalar_column_reader.h"
 
 #include <parquet/api/reader.h>
 

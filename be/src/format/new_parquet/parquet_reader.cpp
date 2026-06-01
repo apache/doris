@@ -29,17 +29,19 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
-#include "format/new_parquet/column_reader.h"
+#include "format/new_parquet/column_reader/column_reader.h"
 #include "format/new_parquet/parquet_column_schema.h"
 #include "format/new_parquet/parquet_file_context.h"
 #include "format/new_parquet/parquet_scan_planner.h"
 #include "format/new_parquet/parquet_scan_scheduler.h"
+#include "format/new_parquet/parquet_statistics.h"
 
 namespace doris::parquet {
 
 struct ParquetReaderScanState {
     ParquetFileContext file_context;
     std::vector<std::unique_ptr<ParquetColumnSchema>> file_schema;
+    RowGroupScanPlan scan_plan;
     ParquetScanScheduler scheduler;
 };
 
@@ -307,6 +309,7 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
         COUNTER_UPDATE(_parquet_profile.filtered_page_rows, pruning_stats.filtered_page_rows);
         COUNTER_UPDATE(_parquet_profile.page_index_read_calls, pruning_stats.page_index_read_calls);
     }
+    _state->scan_plan = row_group_plan;
     _state->scheduler.set_plan(std::move(row_group_plan));
     _eof = _state->scheduler.empty();
     return Status::OK();
@@ -332,7 +335,8 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
 Status ParquetReader::get_aggregate_result(const reader::FileAggregateRequest& request,
                                            reader::FileAggregateResult* result) {
     DORIS_CHECK(result != nullptr);
-    if (_state == nullptr || _state->metadata == nullptr || _state->schema == nullptr) {
+    if (_state == nullptr || _state->file_context.metadata == nullptr ||
+        _state->file_context.schema == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
     }
     result->count = 0;
@@ -344,8 +348,9 @@ Status ParquetReader::get_aggregate_result(const reader::FileAggregateRequest& r
     }
 
     // Aggregate row count in all selected row groups. For MIN/MAX aggregate, this is used to determine whether there is no row group selected.
-    for (const auto row_group_idx : _state->selected_row_groups) {
-        auto row_group_metadata = _state->metadata->RowGroup(row_group_idx);
+    for (const auto& row_group_plan : _state->scan_plan.row_groups) {
+        auto row_group_metadata =
+                _state->file_context.metadata->RowGroup(row_group_plan.row_group_id);
         DORIS_CHECK(row_group_metadata != nullptr);
         result->count += row_group_metadata->num_rows();
     }
@@ -372,8 +377,9 @@ Status ParquetReader::get_aggregate_result(const reader::FileAggregateRequest& r
         }
 
         auto& aggregate_column = result->columns[request_column_idx];
-        for (const auto row_group_idx : _state->selected_row_groups) {
-            auto row_group_metadata = _state->metadata->RowGroup(row_group_idx);
+        for (const auto& row_group_plan : _state->scan_plan.row_groups) {
+            auto row_group_metadata =
+                    _state->file_context.metadata->RowGroup(row_group_plan.row_group_id);
             DORIS_CHECK(row_group_metadata != nullptr);
             auto column_chunk = row_group_metadata->ColumnChunk(column_schema->leaf_column_id);
             DORIS_CHECK(column_chunk != nullptr);

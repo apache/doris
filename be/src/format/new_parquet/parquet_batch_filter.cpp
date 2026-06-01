@@ -202,33 +202,33 @@ Status execute_column_predicate_filters(const reader::FileScanRequest& request, 
 Status execute_filter_conjuncts(const reader::FileScanRequest& request, int64_t batch_rows,
                                 Block* file_block, SelectionVector* selection,
                                 uint16_t* selected_rows) {
-    for (const auto& expression_filter : request.expression_filters) {
-        if (expression_filter.conjunct == nullptr) {
-            if (expression_filter.delete_conjunct == nullptr) {
-                continue;
-            }
-        } else {
-            if (*selected_rows == 0) {
-                break;
-            }
-            IColumn::Filter filter(static_cast<size_t>(batch_rows), 1);
-            bool can_filter_all = false;
-            RETURN_IF_ERROR(expression_filter.conjunct->execute_filter(
-                    file_block, filter.data(), static_cast<size_t>(batch_rows), false,
-                    &can_filter_all));
-            *selected_rows = can_filter_all
-                                     ? 0
-                                     : apply_filter_to_selection(filter, selection, *selected_rows);
-        }
+    for (const auto& conjunct : request.conjuncts) {
         if (*selected_rows == 0) {
             break;
         }
-        if (expression_filter.delete_conjunct == nullptr) {
-            continue;
+        DORIS_CHECK(conjunct != nullptr);
+        IColumn::Filter filter(static_cast<size_t>(batch_rows), 1);
+        bool can_filter_all = false;
+        RETURN_IF_ERROR(conjunct->execute_filter(file_block, filter.data(),
+                                                 static_cast<size_t>(batch_rows), false,
+                                                 &can_filter_all));
+        *selected_rows =
+                can_filter_all ? 0 : apply_filter_to_selection(filter, selection, *selected_rows);
+    }
+    return Status::OK();
+}
+
+Status execute_delete_conjuncts(const reader::FileScanRequest& request, int64_t batch_rows,
+                                Block* file_block, SelectionVector* selection,
+                                uint16_t* selected_rows) {
+    for (const auto& delete_conjunct : request.delete_conjuncts) {
+        if (*selected_rows == 0) {
+            break;
         }
+        DORIS_CHECK(delete_conjunct != nullptr);
         int result_column_id = -1;
-        RETURN_IF_ERROR(expression_filter.delete_conjunct->root()->execute(
-                expression_filter.delete_conjunct.get(), file_block, &result_column_id));
+        RETURN_IF_ERROR(delete_conjunct->root()->execute(delete_conjunct.get(), file_block,
+                                                         &result_column_id));
         DORIS_CHECK(result_column_id >= 0 &&
                     result_column_id < static_cast<int>(file_block->columns()));
         const auto& delete_filter = assert_cast<const ColumnUInt8&>(
@@ -294,7 +294,12 @@ Status execute_batch_filters(const reader::FileScanRequest& request, int64_t bat
     if (*selected_rows == 0) {
         return Status::OK();
     }
-    return execute_filter_conjuncts(request, batch_rows, file_block, selection, selected_rows);
+    RETURN_IF_ERROR(
+            execute_filter_conjuncts(request, batch_rows, file_block, selection, selected_rows));
+    if (*selected_rows == 0) {
+        return Status::OK();
+    }
+    return execute_delete_conjuncts(request, batch_rows, file_block, selection, selected_rows);
 }
 
 } // namespace doris::parquet

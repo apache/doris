@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/new_parquet/complex_column_reader_helpers.h"
+#include "format/new_parquet/column_reader/complex_column_reader_helpers.h"
 
 #include <cstdint>
 #include <string_view>
@@ -24,7 +24,7 @@
 
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
-#include "format/new_parquet/arrow_leaf_reader_adapter.h"
+#include "format/new_parquet/column_reader/arrow_leaf_reader_adapter.h"
 
 namespace doris::parquet {
 

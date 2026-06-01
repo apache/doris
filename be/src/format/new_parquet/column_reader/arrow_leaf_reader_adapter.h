@@ -25,7 +25,7 @@
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
-#include "format/new_parquet/nested_level_assembler.h"
+#include "format/new_parquet/column_reader/nested_level_assembler.h"
 #include "format/new_parquet/parquet_type.h"
 
 namespace parquet {

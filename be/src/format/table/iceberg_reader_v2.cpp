@@ -32,7 +32,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
-#include "format/new_parquet/column_reader.h"
+#include "format/new_parquet/column_reader/column_reader.h"
 #include "format/new_parquet/parquet_reader.h"
 #include "format/reader/expr/cast.h"
 #include "format/reader/expr/equality_delete_predicate.h"

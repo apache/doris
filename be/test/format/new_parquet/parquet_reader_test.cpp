@@ -42,7 +42,7 @@
 #include "core/field.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
-#include "format/new_parquet/column_reader.h"
+#include "format/new_parquet/column_reader/column_reader.h"
 #include "format/new_parquet/parquet_column_schema.h"
 #include "format/new_parquet/parquet_scan_planner.h"
 #include "format/reader/column_mapper.h"
@@ -805,9 +805,7 @@ TEST_F(NewParquetReaderTest, ReaderExpressionMapRewritesPredicateColumnBeforeFil
     request->predicate_columns = {0};
     request->non_predicate_columns = {1};
     request->reader_expression_map.emplace_back(0, create_int32_add_expression(0, 10));
-    reader::FileExpressionFilter expression_filter;
-    expression_filter.conjunct = create_int32_greater_than_conjunct(0, 12);
-    request->expression_filters.push_back(std::move(expression_filter));
+    request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 12));
     ASSERT_TRUE(reader->open(request).ok());
 
     size_t rows = 0;
@@ -842,9 +840,7 @@ TEST_F(NewParquetReaderTest, ReaderExpressionMapRewritesNonPredicateColumnAfterS
     request->predicate_columns = {0};
     request->non_predicate_columns = {1};
     request->reader_expression_map.emplace_back(1, create_int32_add_expression(1, 10));
-    reader::FileExpressionFilter expression_filter;
-    expression_filter.conjunct = create_int32_greater_than_conjunct(0, 2);
-    request->expression_filters.push_back(std::move(expression_filter));
+    request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
     ASSERT_TRUE(reader->open(request).ok());
 
     size_t rows = 0;

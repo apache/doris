@@ -29,9 +29,9 @@
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
-#include "format/new_parquet/complex_column_reader.h"
-#include "format/new_parquet/nested_level_assembler.h"
-#include "format/new_parquet/scalar_column_reader.h"
+#include "format/new_parquet/column_reader/nested_level_assembler.h"
+#include "format/new_parquet/column_reader/scalar_column_reader.h"
+#include "format/new_parquet/column_reader/struct_column_reader.h"
 
 namespace doris::parquet {
 

@@ -63,21 +63,22 @@ be/src/format/new_parquet/
     parquet_page_index.*
     parquet_bloom_filter.*
     selection_vector.*
-    column_reader.*
-    scalar_column_reader.*
-    struct_column_reader.*
-    list_column_reader.*
-    map_column_reader.*
-    shape_only_column_reader.*
-    nested_level_assembler.*
-    arrow_leaf_reader_adapter.*
+    column_reader/
+      column_reader.*
+      scalar_column_reader.*
+      struct_column_reader.*
+      list_column_reader.*
+      map_column_reader.*
+      shape_only_column_reader.*
+      nested_level_assembler.*
+      arrow_leaf_reader_adapter.*
 ```
 
 当前代码还没有完全拆到这些文件。该列表描述目标边界，后续可以按功能演进逐步拆分。
 
 ## 当前实现快照
 
-当前分支已经完成 reader 主流程的第一轮分层，`ParquetReader` 已基本退回 file-local orchestration：文件上下文、schema 构造、row group/page range planning、batch scheduling、batch filter、scalar leaf decode、shape-only reader 都已经拆出独立模块。`column_reader.cpp` 当前只保留 base `ParquetColumnReader` 行为和 factory，`STRUCT` / `LIST` / `MAP` reader 已拆到独立实现文件。最大遗留点转为 complex reader 内部的 nested child 组合分支和更彻底的 sink 抽象。
+当前分支已经完成 reader 主流程的第一轮分层，`ParquetReader` 已基本退回 file-local orchestration：文件上下文、schema 构造、row group/page range planning、batch scheduling、batch filter、scalar leaf decode、shape-only reader 都已经拆出独立模块。`column_reader/column_reader.cpp` 当前只保留 base `ParquetColumnReader` 行为和 factory，`STRUCT` / `LIST` / `MAP` reader 已拆到独立实现和独立头文件。最大遗留点转为 complex reader 内部的 nested child 组合分支和更彻底的 sink 抽象。
 
 当前已实现：
 
@@ -88,8 +89,8 @@ be/src/format/new_parquet/
 - page index pruning 已接入 Arrow `PageIndexReader`，并输出 row group-local row ranges。
 - scheduler 已消费 `selected_ranges`，range gap 通过所有 column reader 的 row-level `skip()` 推进。
 - batch filter 已通过 `SelectionVector` 驱动 lazy materialization。
-- scalar reader、shape-only reader、row-position reader 和 Arrow leaf adapter 已从 `column_reader.cpp` 拆出。
-- `StructColumnReader`、`ListColumnReader`、`MapColumnReader` 已从 `column_reader.cpp` 拆出到独立文件，并通过 `complex_column_reader.h` 保持 factory 构造边界。
+- scalar reader、shape-only reader、row-position reader 和 Arrow leaf adapter 已从 `column_reader.cpp` 拆出到 `column_reader/` 子目录。
+- `StructColumnReader`、`ListColumnReader`、`MapColumnReader` 已拆出到独立 `.h/.cpp`，factory 直接 include 具体 reader header，不再保留 `complex_column_reader.h` 聚合头。
 - list/map 的 parent null map 与 entry count 写入已抽出 `RepeatedParentSinkState`，repeated child null map、entry count 和 nullable scalar child 写入已抽出 `RepeatedChildSinkState` / `append_nullable_scalar_child`。
 - nested level 侧已有 repeated assembler、scalar/struct batch overflow、`NestedShapeCursor`，支持跨 `read/skip/select` 维护 cursor。
 - complex type 当前支持 `STRUCT` nullable parent/child/projection，`LIST` null/empty/nullable scalar element，`MAP` null/empty/nullable scalar value，以及部分 `LIST<STRUCT>`、嵌套 `LIST`、`MAP` value 为 `STRUCT` / `LIST` 的组合。
@@ -98,7 +99,6 @@ be/src/format/new_parquet/
 当前未完成或仍需重构：
 
 - bloom filter pruning 只有 profile counter 和类型支持判断入口，尚未形成独立 `parquet_bloom_filter.*` helper 并接入 planner。
-- complex reader 的 class 声明当前集中在 `complex_column_reader.h`，后续如需进一步降低耦合，可再按 reader 类型拆成独立 private header。
 - list/map/struct 的 Doris column 写入 sink 已完成 parent state 和 repeated scalar child state 抽取，但 map key/value alignment、struct value append 和更通用的 shape/value stream 组合仍在各 reader 内部，复杂 child 组合仍依赖 `dynamic_cast` 和多处分支。
 - nested batch/overflow 仍区分 scalar、struct 和部分 complex child 路径，还没有形成统一 shape stream + value stream 抽象。
 - scheduler、column reader、adapter 的 skip/select/overflow/decode profile 还不完整。
@@ -115,9 +115,9 @@ be/src/format/new_parquet/
 | Page index row range pruning | 已实现 | 输出 row group-local selected ranges，scheduler 已消费 |
 | Bloom filter pruning | 待实现 | 需要新增 planner helper，不应放回 `ParquetReader` |
 | Batch predicate / lazy read | 已实现 | 通过 `SelectionVector` 和 selected ranges 推进 |
-| Scalar leaf reader | 已拆分 | `scalar_column_reader.*` + `arrow_leaf_reader_adapter.*` |
-| Shape-only / row-position reader | 已拆分 | `shape_only_column_reader.*` |
-| STRUCT reader | 已实现，已拆分 | 支持 nullable parent/child/projection，实现在 `struct_column_reader.cpp` |
+| Scalar leaf reader | 已拆分 | `column_reader/scalar_column_reader.*` + `column_reader/arrow_leaf_reader_adapter.*` |
+| Shape-only / row-position reader | 已拆分 | `column_reader/shape_only_column_reader.*` |
+| STRUCT reader | 已实现，已拆分 | 支持 nullable parent/child/projection，实现在 `column_reader/struct_column_reader.*` |
 | LIST reader | 已实现，已拆分，sink 第二阶段统一 | 支持 null/empty/nullable scalar element、overflow、skip/select，部分 nested child |
 | MAP reader | 已实现，已拆分，sink 第二阶段统一 | 支持 null/empty/nullable scalar value、overflow、skip/select，部分 complex value |
 | Complex child projection | 部分实现 | struct child projection 已有，list/map nested child 仍需继续收敛 |
@@ -333,11 +333,13 @@ RowPositionColumnReader
 
 当前实现位置：
 
-- `column_reader.h`
-- `column_reader.cpp`
-- `scalar_column_reader.*`
-- `shape_only_column_reader.*`
-- `complex_column_reader.h`
+- `column_reader/column_reader.h`
+- `column_reader/column_reader.cpp`
+- `column_reader/scalar_column_reader.*`
+- `column_reader/shape_only_column_reader.*`
+- `column_reader/struct_column_reader.*`
+- `column_reader/list_column_reader.*`
+- `column_reader/map_column_reader.*`
 
 后续方向：
 
@@ -384,11 +386,11 @@ MapColumnReader
 
 当前实现状态：
 
-- scalar flat read/skip/select 已拆入 `scalar_column_reader.*`。
-- shape-only / row-position reader 已拆入 `shape_only_column_reader.*`。
+- scalar flat read/skip/select 已拆入 `column_reader/scalar_column_reader.*`。
+- shape-only / row-position reader 已拆入 `column_reader/shape_only_column_reader.*`。
 - struct 支持 nullable parent、nullable child、child projection，以及复杂 child 的部分组合。
 - list/map 支持 null/empty parent、nullable scalar child/value、overflow、skip/select，并已扩展部分 complex child。
-- `StructColumnReader`、`ListColumnReader`、`MapColumnReader` 已拆入独立 `.cpp`，factory 仍在 `column_reader.cpp`。
+- `StructColumnReader`、`ListColumnReader`、`MapColumnReader` 已拆入独立 `.h/.cpp`，factory 仍在 `column_reader/column_reader.cpp`。
 
 ## 8. Nested Shape / Level Assembler 层
 
@@ -445,9 +447,9 @@ NestedSink
 - `NestedStructOverflow`
 - `assemble_repeated_levels`
 - `assemble_repeated_struct_levels`
-- `nested_level_assembler.h`
-- `complex_column_reader_helpers.*`
-- `struct_column_reader.cpp`、`list_column_reader.cpp`、`map_column_reader.cpp` 中仍保留不同 child 组合分支。
+- `column_reader/nested_level_assembler.h`
+- `column_reader/complex_column_reader_helpers.*`
+- `column_reader/struct_column_reader.cpp`、`column_reader/list_column_reader.cpp`、`column_reader/map_column_reader.cpp` 中仍保留不同 child 组合分支。
 
 后续方向：
 
@@ -476,8 +478,8 @@ ArrowLeafReaderAdapter
 
 当前实现位置：
 
-- `arrow_leaf_reader_adapter.*`
-- `scalar_column_reader.*`
+- `column_reader/arrow_leaf_reader_adapter.*`
+- `column_reader/scalar_column_reader.*`
 - `read_nested_scalar_batch`
 - `read_nested_struct_batch`
 
@@ -529,7 +531,7 @@ ArrowLeafReaderAdapter
 
 - `DecodedColumnView`
 - `DataTypeSerDe` 相关调用。
-- scalar value 写入在 `scalar_column_reader.*` / `arrow_leaf_reader_adapter.*`。
+- scalar value 写入在 `column_reader/scalar_column_reader.*` / `column_reader/arrow_leaf_reader_adapter.*`。
 - complex outer parent null map / entry count 已由 `RepeatedParentSinkState` 统一。
 - nested child append、inner offsets/null map 仍在 list/map/struct reader sink 内。
 
@@ -569,11 +571,11 @@ ArrowLeafReaderAdapter
 | RowGroupScanPlanner | `parquet_scan_planner.*`, `parquet_statistics.*`, `parquet_page_index.*`, `parquet_pruning.h` | statistics/dictionary/page index row range pruning 已接入，bloom 待补 |
 | BatchScanScheduler | `parquet_scan_scheduler.*` | 已独立拆分，已按 selected row ranges 扫描 |
 | Predicate / Selection | `selection_vector.h`, `parquet_batch_filter.*` | 已独立拆分 |
-| ColumnReaderFactory | `column_reader.*`, `complex_column_reader.h` | 已实现，只负责 reader tree 构造 |
-| ColumnReader Tree | `scalar_column_reader.*`, `shape_only_column_reader.*`, `struct_column_reader.cpp`, `list_column_reader.cpp`, `map_column_reader.cpp` | scalar/shape/complex reader 均已拆分 |
-| Nested Assembler | `nested_level_assembler.h`, `complex_column_reader_helpers.*`, complex reader files | repeated assembler 和 shape cursor 已抽出，outer parent 和 repeated scalar child sink 已部分统一 |
-| Leaf Decode Adapter | `arrow_leaf_reader_adapter.*`, `scalar_column_reader.*` | 已独立拆分 |
-| Column Materialization | `arrow_leaf_reader_adapter.*`, `scalar_column_reader.*`, `complex_column_reader_helpers.*`, complex reader files, `DataTypeSerDe` | 已接入 SerDe，complex outer parent 和 repeated scalar child state 已统一，更通用 child sink 待继续收敛 |
+| ColumnReaderFactory | `column_reader/column_reader.*` | 已实现，只负责 reader tree 构造 |
+| ColumnReader Tree | `column_reader/scalar_column_reader.*`, `column_reader/shape_only_column_reader.*`, `column_reader/struct_column_reader.*`, `column_reader/list_column_reader.*`, `column_reader/map_column_reader.*` | scalar/shape/complex reader 均已拆分 |
+| Nested Assembler | `column_reader/nested_level_assembler.h`, `column_reader/complex_column_reader_helpers.*`, complex reader files | repeated assembler 和 shape cursor 已抽出，outer parent 和 repeated scalar child sink 已部分统一 |
+| Leaf Decode Adapter | `column_reader/arrow_leaf_reader_adapter.*`, `column_reader/scalar_column_reader.*` | 已独立拆分 |
+| Column Materialization | `column_reader/arrow_leaf_reader_adapter.*`, `column_reader/scalar_column_reader.*`, `column_reader/complex_column_reader_helpers.*`, complex reader files, `DataTypeSerDe` | 已接入 SerDe，complex outer parent 和 repeated scalar child state 已统一，更通用 child sink 待继续收敛 |
 | Profile | `parquet_reader.cpp`, `parquet_pruning.h` | planner pruning counter 已接入，scheduler/adapter/overflow 统计待补 |
 
 ## 推荐重构顺序
