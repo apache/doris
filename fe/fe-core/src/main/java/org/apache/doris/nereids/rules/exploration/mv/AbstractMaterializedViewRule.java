@@ -616,6 +616,37 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 // if contains any slot to rewrite, which means could not be rewritten by target,
                 // expressionShuttledToRewrite is slot#0 > '2024-01-01' but mv plan output is date_trunc(slot#0, 'day')
                 // which would try to rewrite
+                Expression queryOriginalExpr = sourceExpressionsToWrite.get(exprIndex);
+
+                // Check if this is a synthetic date_trunc equality predicate
+                if (queryExprToInfoMap.containsKey(queryOriginalExpr)
+                        && queryExprToInfoMap.get(queryOriginalExpr).isSyntheticDateTruncEquality) {
+                    // Synthetic predicate: date_trunc(slot, 'unit') = literal
+                    // The expression is already in date_trunc form, so we need to use the
+                    // viewExprParamToDateTruncMap to properly rewrite it to MV output slots
+                    if (!viewExprParamToDateTruncMap.isEmpty()
+                            && expressionShuttledToRewrite instanceof ComparisonPredicate
+                            && !expressionShuttledToRewrite.children().isEmpty()) {
+                        Expression queryShuttledExprParam = expressionShuttledToRewrite.child(0);
+                        if (queryShuttledExprParam instanceof DateTrunc) {
+                            // The left side is date_trunc(slot, unit), extract the slot parameter
+                            Expression dateTruncParam = queryShuttledExprParam.child(0).getDataType().isDateLikeType()
+                                    ? queryShuttledExprParam.child(0) : queryShuttledExprParam.child(1);
+                            if (viewExprParamToDateTruncMap.containsKey(dateTruncParam)) {
+                                // Replace the date_trunc parameter with the MV's date_trunc expression
+                                replacedExpression = ExpressionUtils.replace(expressionShuttledToRewrite,
+                                        targetToTargetReplacementMappingQueryBased,
+                                        viewExprParamToDateTruncMap);
+                                if (!replacedExpression.anyMatch(slotsToRewrite::contains)) {
+                                    rewrittenExpressions.add(replacedExpression);
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    return ImmutableList.of();
+                }
+
                 if (viewExprParamToDateTruncMap.isEmpty()
                         || expressionShuttledToRewrite.children().isEmpty()
                         || !(expressionShuttledToRewrite instanceof ComparisonPredicate)) {
@@ -624,7 +655,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     return ImmutableList.of();
                 }
                 Expression queryShuttledExprParam = expressionShuttledToRewrite.child(0);
-                Expression queryOriginalExpr = sourceExpressionsToWrite.get(exprIndex);
                 if (!queryExprToInfoMap.containsKey(queryOriginalExpr)
                         || !viewExprParamToDateTruncMap.containsKey(queryShuttledExprParam)) {
                     // query expr contains expression info or mv out contains date_trunc expression,
