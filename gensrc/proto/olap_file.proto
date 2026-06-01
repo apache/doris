@@ -618,6 +618,7 @@ enum StorageMediumPB {
 enum BinaryPlainEncodingTypePB {
     BINARY_PLAIN_ENCODING_V1 = 1;
     BINARY_PLAIN_ENCODING_V2 = 2;
+    BINARY_PLAIN_ENCODING_V3 = 3;
 }
 
 message S3StorageParamPB {

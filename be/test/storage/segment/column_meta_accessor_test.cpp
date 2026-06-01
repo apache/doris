@@ -749,7 +749,7 @@ TEST(ColumnMetaAccessorTest, RowStoreColumnDoesNotUseDictEncoding) {
                     .ok());
     EXPECT_EQ(kRowStoreUid, row_store_meta.unique_id());
     EXPECT_EQ(static_cast<int>(FieldType::OLAP_FIELD_TYPE_STRING), row_store_meta.type());
-    EXPECT_EQ(PLAIN_ENCODING_V2, row_store_meta.encoding());
+    EXPECT_EQ(PLAIN_ENCODING_V3, row_store_meta.encoding());
     EXPECT_NE(DICT_ENCODING, row_store_meta.encoding());
 }
 
