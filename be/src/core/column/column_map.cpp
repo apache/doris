@@ -52,6 +52,18 @@ const ColumnMap::COffsets& check_map_offsets_column(const IColumn& offsets_colum
     return *offsets_concrete;
 }
 
+ColumnMap::COffsets::Ptr check_map_offsets_column_ptr(const ColumnPtr& offsets_column) {
+    return ColumnMap::COffsets::cast_to_column_ptr(&check_map_offsets_column(*offsets_column));
+}
+
+ColumnMap::COffsets::MutablePtr assert_mutable_map_offsets(MutableColumnPtr&& offsets_column) {
+    check_map_offsets_column(*offsets_column);
+    auto mutable_offsets = ColumnMap::COffsets::cast_to_column_mutptr(
+            assert_cast<ColumnMap::COffsets*, TypeCheckOnRelease::DISABLE>(offsets_column.get()));
+    offsets_column = nullptr;
+    return mutable_offsets;
+}
+
 void validate_map_columns(const IColumn& keys, const IColumn& values, const IColumn& offsets) {
     const auto& offsets_concrete = check_map_offsets_column(offsets);
 
@@ -86,21 +98,21 @@ std::string ColumnMap::get_name() const {
 ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, MutableColumnPtr&& offsets)
         : keys_column(std::move(keys)),
           values_column(std::move(values)),
-          offsets_column(std::move(offsets)) {
+          offsets_column(assert_mutable_map_offsets(std::move(offsets))) {
     check_const_only_in_top_level();
     validate_map_columns(*static_cast<const IColumn::Ptr&>(keys_column),
                          *static_cast<const IColumn::Ptr&>(values_column),
-                         *static_cast<const IColumn::Ptr&>(offsets_column));
+                         *static_cast<const COffsets::Ptr&>(offsets_column));
 }
 
 ColumnMap::ColumnMap(SharedTag, ColumnPtr keys, ColumnPtr values, ColumnPtr offsets) {
     static_cast<IColumn::Ptr&>(keys_column) = std::move(keys);
     static_cast<IColumn::Ptr&>(values_column) = std::move(values);
-    static_cast<IColumn::Ptr&>(offsets_column) = std::move(offsets);
+    static_cast<COffsets::Ptr&>(offsets_column) = check_map_offsets_column_ptr(offsets);
     check_const_only_in_top_level();
     validate_map_columns(*static_cast<const IColumn::Ptr&>(keys_column),
                          *static_cast<const IColumn::Ptr&>(values_column),
-                         *static_cast<const IColumn::Ptr&>(offsets_column));
+                         *static_cast<const COffsets::Ptr&>(offsets_column));
 }
 
 // todo. here to resize every row map
@@ -547,10 +559,10 @@ void ColumnMap::insert_range_from_ignore_overflow(const IColumn& src, size_t sta
 
 ColumnPtr ColumnMap::filter(const Filter& filt, ssize_t result_size_hint) const {
     auto k_arr = ColumnArray::create(static_cast<const IColumn::Ptr&>(keys_column),
-                                     static_cast<const IColumn::Ptr&>(offsets_column))
+                                     static_cast<const IColumn::Ptr&>(get_offsets_ptr()))
                          ->filter(filt, result_size_hint);
     auto v_arr = ColumnArray::create(static_cast<const IColumn::Ptr&>(values_column),
-                                     static_cast<const IColumn::Ptr&>(offsets_column))
+                                     static_cast<const IColumn::Ptr&>(get_offsets_ptr()))
                          ->filter(filt, result_size_hint);
     return ColumnMap::create(assert_cast<const ColumnArray&>(*k_arr).get_data_ptr(),
                              assert_cast<const ColumnArray&>(*v_arr).get_data_ptr(),
@@ -560,7 +572,7 @@ ColumnPtr ColumnMap::filter(const Filter& filt, ssize_t result_size_hint) const 
 size_t ColumnMap::filter(const Filter& filter) {
     // Move subcolumns out of this ColumnMap to get exclusive ownership, then write back.
     auto keys_mut = IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(keys_column)));
-    auto offsets_mut = IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(offsets_column)));
+    auto offsets_mut = IColumn::mutate(std::move(get_offsets_ptr()));
     auto values_mut = IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(values_column)));
     // Clone offsets for values (both keys and values share the same offsets structure)
     MutableColumnPtr copied_off = offsets_mut->clone_empty();
@@ -571,19 +583,19 @@ size_t ColumnMap::filter(const Filter& filter) {
     v_arr->filter(filter);
     // Put filtered subcolumns back
     static_cast<IColumn::Ptr&>(keys_column) = k_arr->get_data_ptr();
-    static_cast<IColumn::Ptr&>(offsets_column) = k_arr->get_offsets_ptr();
+    offsets_column = k_arr->get_offsets_ptr();
     static_cast<IColumn::Ptr&>(values_column) = v_arr->get_data_ptr();
-    // Use const access to avoid assert_mutable_ref() on the just-written-back offsets_column
-    // (k_arr still holds a ref, so use_count > 1 until k_arr goes out of scope)
-    return static_cast<const IColumn::Ptr&>(offsets_column)->size();
+    // Read through a const view because k_arr still shares the just-written-back offsets
+    // until it goes out of scope, so mutable WrappedPtr access would hit assert_mutable_ref().
+    return static_cast<const COffsets::Ptr&>(offsets_column)->size();
 }
 
 MutableColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const {
     auto k_arr = ColumnArray::create(static_cast<const IColumn::Ptr&>(keys_column),
-                                     static_cast<const IColumn::Ptr&>(offsets_column))
+                                     static_cast<const IColumn::Ptr&>(get_offsets_ptr()))
                          ->permute(perm, limit);
     auto v_arr = ColumnArray::create(static_cast<const IColumn::Ptr&>(values_column),
-                                     static_cast<const IColumn::Ptr&>(offsets_column))
+                                     static_cast<const IColumn::Ptr&>(get_offsets_ptr()))
                          ->permute(perm, limit);
 
     return ColumnMap::create(assert_cast<const ColumnArray&>(*k_arr).get_data_ptr(),
@@ -593,9 +605,9 @@ MutableColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const
 
 Status ColumnMap::deduplicate_keys(bool recursive) {
     const IColumn& ck = *static_cast<const IColumn::Ptr&>(keys_column);
-    const IColumn& co = *static_cast<const IColumn::Ptr&>(offsets_column);
+    const auto& offsets = static_cast<const ColumnMap*>(this)->get_offsets();
     const auto inner_rows = ck.size();
-    const auto rows = co.size();
+    const auto rows = offsets.size();
 
     if (recursive) {
         const auto& values_ptr = static_cast<const IColumn::Ptr&>(values_column);
@@ -651,8 +663,6 @@ Status ColumnMap::deduplicate_keys(bool recursive) {
     auto& new_offsets_data = new_offsets->get_data();
 
     IColumn::Filter filter(inner_rows, 1);
-    const auto& offsets = static_cast<const ColumnMap*>(this)->get_offsets();
-
     Offset64 offset = 0;
     bool has_duplicated_key = false;
 

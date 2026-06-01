@@ -997,7 +997,13 @@ Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool*
     auto& column_map = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(
             dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
     auto column_offsets_ptr = IColumn::mutate(std::move(column_map.get_offsets_ptr()));
-    Defer defer_offsets {[&] { column_map.get_offsets_ptr() = std::move(column_offsets_ptr); }};
+    Defer defer_offsets {[&] {
+        auto typed_column_offsets_ptr = ColumnMap::COffsets::cast_to_column_mutptr(
+                assert_cast<ColumnMap::COffsets*, TypeCheckOnRelease::DISABLE>(
+                        column_offsets_ptr.get()));
+        column_offsets_ptr = nullptr;
+        column_map.get_offsets_ptr() = std::move(typed_column_offsets_ptr);
+    }};
     bool offsets_has_null = false;
     ssize_t start = column_offsets_ptr->size();
     RETURN_IF_ERROR(_offsets_iterator->next_batch(n, column_offsets_ptr, &offsets_has_null));
@@ -1084,7 +1090,12 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     auto& column_map = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(
             dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
     auto offsets_ptr = IColumn::mutate(std::move(column_map.get_offsets_ptr()));
-    Defer defer_offsets {[&] { column_map.get_offsets_ptr() = std::move(offsets_ptr); }};
+    Defer defer_offsets {[&] {
+        auto typed_offsets_ptr = ColumnMap::COffsets::cast_to_column_mutptr(
+                assert_cast<ColumnMap::COffsets*, TypeCheckOnRelease::DISABLE>(offsets_ptr.get()));
+        offsets_ptr = nullptr;
+        column_map.get_offsets_ptr() = std::move(typed_offsets_ptr);
+    }};
     auto& offsets = static_cast<ColumnArray::ColumnOffsets&>(*offsets_ptr);
     size_t base = offsets.get_data().empty() ? 0 : offsets.get_data().back();
 
@@ -1781,8 +1792,14 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, boo
             dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
 
     bool offsets_has_null = false;
-    auto column_offsets_ptr = IColumn::mutate(std::move(column_array.get_offsets_ptr()));
-    Defer defer_offsets {[&] { column_array.get_offsets_ptr() = std::move(column_offsets_ptr); }};
+    auto column_offsets_ptr = std::move(*column_array.get_offsets_ptr()).mutate();
+    Defer defer_offsets {[&] {
+        auto typed_column_offsets_ptr = ColumnArray::ColumnOffsets::cast_to_column_mutptr(
+                assert_cast<ColumnArray::ColumnOffsets*, TypeCheckOnRelease::DISABLE>(
+                        column_offsets_ptr.get()));
+        column_offsets_ptr = nullptr;
+        column_array.get_offsets_ptr() = std::move(typed_column_offsets_ptr);
+    }};
     ssize_t start = column_offsets_ptr->size();
     RETURN_IF_ERROR(_offset_iterator->next_batch(n, column_offsets_ptr, &offsets_has_null));
     if (*n == 0) {
