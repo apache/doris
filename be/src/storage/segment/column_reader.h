@@ -23,7 +23,8 @@
 
 #include <cstddef> // for size_t
 #include <cstdint> // for uint32_t
-#include <memory>  // for unique_ptr
+#include <map>
+#include <memory> // for unique_ptr
 #include <string>
 #include <utility>
 #include <vector>
@@ -424,18 +425,81 @@ public:
     bool read_offset_only() const { return _read_mode == ReadMode::OFFSET_ONLY; }
     bool read_null_map_only() const { return _read_mode == ReadMode::NULL_MAP_ONLY; }
 
+    enum class ReadPhase : int { FULL, PREDICATE, DEFERRED };
+
+    virtual void activate_read_phase(ReadPhase mode) {
+        _read_phase = mode;
+        if (mode == ReadPhase::PREDICATE) {
+            _nested_read_plan.has_deferred_defaults = false;
+        }
+    }
+
+    virtual bool need_to_read() const {
+        switch (_read_phase) {
+        case ReadPhase::FULL:
+            return _reading_flag != ReadingFlag::SKIP_READING;
+        case ReadPhase::PREDICATE:
+            return _reading_flag == ReadingFlag::READING_FOR_PREDICATE;
+        case ReadPhase::DEFERRED:
+            return _reading_flag == ReadingFlag::NEED_TO_READ;
+        default:
+            return false;
+        }
+    }
+
+    // Whether need to read meta columns, such as null map column, offset column.
+    bool need_to_read_meta_columns() const {
+        if (_reading_flag == ReadingFlag::SKIP_READING) {
+            return false;
+        }
+        switch (_read_phase) {
+        case ReadPhase::FULL:
+        case ReadPhase::PREDICATE:
+            return true;
+        case ReadPhase::DEFERRED:
+            return _reading_flag != ReadingFlag::READING_FOR_PREDICATE;
+        }
+        return false;
+    }
+
+    virtual void finish_deferred_read(MutableColumnPtr& dst) { _drop_deferred_defaults(dst); }
+
+    virtual void set_reading_flag_recursively(ReadingFlag flag) { set_reading_flag(flag); }
+
+    // Whether this iterator or any nested iterator has data that must be materialized
+    // in deferred phase. Predicate-only and meta-only branches are read before filtering and
+    // must not be re-read in the lazy phase.
+    virtual bool has_deferred_read_target() const {
+        return _reading_flag == ReadingFlag::NEED_TO_READ;
+    }
+
+    bool is_pruned() const { return _nested_read_plan.pruned; }
+
 protected:
+    void _append_deferred_defaults(MutableColumnPtr& dst, size_t count);
+
+    void _drop_deferred_defaults(MutableColumnPtr& dst);
+
     // Checks sub access paths for OFFSET or NULL meta-only modes and
     // updates _read_mode accordingly. Use the accessor helpers
     // read_offset_only() / read_null_map_only() to query the current mode.
     void _check_and_set_meta_read_mode(const TColumnAccessPaths& sub_all_access_paths);
 
     Result<TColumnAccessPaths> _get_sub_access_paths(const TColumnAccessPaths& access_paths);
+    Result<TColumnAccessPaths> _normalize_access_paths(const TColumnAccessPaths& access_paths,
+                                                       const bool is_predicate);
     ColumnIteratorOptions _opts;
 
     ReadingFlag _reading_flag {ReadingFlag::NORMAL_READING};
     ReadMode _read_mode = ReadMode::DEFAULT;
+    ReadPhase _read_phase {ReadPhase::FULL};
     std::string _column_name;
+
+    struct NestedReadPlan {
+        bool pruned {false};
+        bool has_deferred_defaults {false};
+    };
+    NestedReadPlan _nested_read_plan;
 };
 
 // This iterator is used to read column data from file
@@ -633,6 +697,29 @@ public:
 
     void remove_pruned_sub_iterators() override;
 
+    void activate_read_phase(ReadPhase mode) override;
+
+    bool need_to_read() const override {
+        switch (_read_phase) {
+        case ReadPhase::FULL:
+            return _reading_flag != ReadingFlag::SKIP_READING;
+        case ReadPhase::PREDICATE:
+            return _reading_flag == ReadingFlag::READING_FOR_PREDICATE;
+        case ReadPhase::DEFERRED:
+            // In deferred phase, read this map only when at least one key/value branch still
+            // has non-predicate data to materialize.
+            return has_deferred_read_target();
+        default:
+            return false;
+        }
+    }
+
+    void finish_deferred_read(MutableColumnPtr& dst) override;
+
+    void set_reading_flag_recursively(ReadingFlag flag) override;
+
+    bool has_deferred_read_target() const override;
+
 private:
     std::shared_ptr<ColumnReader> _map_reader = nullptr;
     ColumnIteratorUPtr _null_iterator;
@@ -682,6 +769,27 @@ public:
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
 
+    void activate_read_phase(ReadPhase mode) override;
+
+    bool need_to_read() const override {
+        switch (_read_phase) {
+        case ReadPhase::FULL:
+            return _reading_flag != ReadingFlag::SKIP_READING;
+        case ReadPhase::PREDICATE:
+            return _reading_flag == ReadingFlag::READING_FOR_PREDICATE;
+        case ReadPhase::DEFERRED:
+            // In deferred phase, read this struct only when at least one nested branch still
+            // has non-predicate data to materialize.
+            return has_deferred_read_target();
+        default:
+            return false;
+        }
+    }
+
+    void finish_deferred_read(MutableColumnPtr& dst) override;
+    void set_reading_flag_recursively(ReadingFlag flag) override;
+    bool has_deferred_read_target() const override;
+
 private:
     std::shared_ptr<ColumnReader> _struct_reader = nullptr;
     ColumnIteratorUPtr _null_iterator;
@@ -728,6 +836,29 @@ public:
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
+
+    void activate_read_phase(ReadPhase mode) override;
+
+    bool need_to_read() const override {
+        switch (_read_phase) {
+        case ReadPhase::FULL:
+            return _reading_flag != ReadingFlag::SKIP_READING;
+        case ReadPhase::PREDICATE:
+            return _reading_flag == ReadingFlag::READING_FOR_PREDICATE;
+        case ReadPhase::DEFERRED:
+            // In deferred phase, read this array only when its item branch still has
+            // non-predicate data to materialize.
+            return has_deferred_read_target();
+        default:
+            return false;
+        }
+    }
+
+    void finish_deferred_read(MutableColumnPtr& dst) override;
+
+    void set_reading_flag_recursively(ReadingFlag flag) override;
+
+    bool has_deferred_read_target() const override;
 
 private:
     std::shared_ptr<ColumnReader> _array_reader = nullptr;

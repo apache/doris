@@ -117,6 +117,19 @@ using namespace ErrorCode;
 namespace segment_v2 {
 namespace {
 
+class ScopedColumnReadPhase {
+public:
+    ScopedColumnReadPhase(ColumnIterator* iterator, ColumnIterator::ReadPhase phase)
+            : _iterator(iterator) {
+        _iterator->activate_read_phase(phase);
+    }
+
+    ~ScopedColumnReadPhase() { _iterator->activate_read_phase(ColumnIterator::ReadPhase::FULL); }
+
+private:
+    ColumnIterator* _iterator;
+};
+
 Status tablet_column_id_by_slot(const TabletSchemaSPtr& tablet_schema, const SlotDescriptor* slot,
                                 ColumnId* cid) {
     int32_t field_index = -1;
@@ -530,6 +543,10 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _score_runtime = _opts.score_runtime;
     _ann_topn_runtime = _opts.ann_topn_runtime;
 
+    _enable_prune_nested_column = _opts.io_ctx.reader_type == ReaderType::READER_QUERY &&
+                                  _opts.runtime_state &&
+                                  _opts.runtime_state->enable_prune_nested_column();
+
     if (opts.output_columns != nullptr) {
         _output_columns = *(opts.output_columns);
     }
@@ -773,8 +790,14 @@ void SegmentIterator::_init_segment_prefetchers() {
                                                        ? PrefetcherInitMethod::FROM_ROWIDS
                                                        : PrefetcherInitMethod::ALL_DATA_BLOCKS;
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>> prefetchers;
-            for (const auto& column_iter : _column_iterators) {
+            for (size_t idx = 0; idx < _column_iterators.size(); ++idx) {
+                auto cid = cast_set<ColumnId>(idx);
+                auto* column_iter = _column_iterators[cid].get();
                 if (column_iter != nullptr) {
+                    ScopedColumnReadPhase phase_scope(column_iter,
+                                                      _deferred_nested_columns.contains(cid)
+                                                              ? ColumnIterator::ReadPhase::PREDICATE
+                                                              : ColumnIterator::ReadPhase::FULL);
                     column_iter->collect_prefetchers(prefetchers, init_method);
                 }
             }
@@ -2084,6 +2107,25 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                 if (_is_common_expr_column[cid] || _is_pred_column[cid]) {
                     auto loc = _schema_block_id_map[cid];
                     _columns_to_filter.push_back(loc);
+
+                    const auto field_type = _schema->column(cid)->type();
+                    if (_is_common_expr_column[cid] && _enable_prune_nested_column &&
+                        (field_type == FieldType::OLAP_FIELD_TYPE_STRUCT ||
+                         field_type == FieldType::OLAP_FIELD_TYPE_ARRAY ||
+                         field_type == FieldType::OLAP_FIELD_TYPE_MAP)) {
+                        DCHECK(_column_iterators[cid]);
+                        if (_column_iterators[cid]->is_pruned() &&
+                            _column_iterators[cid]->reading_flag() ==
+                                    ColumnIterator::ReadingFlag::READING_FOR_PREDICATE &&
+                            _column_iterators[cid]->has_deferred_read_target()) {
+                            // Only split lazy recovery for pruned complex common expr columns
+                            // whose predicate access path is explicit. When a remaining conjunct
+                            // references the whole complex column without predicate sub-paths,
+                            // the predicate phase must read the pruned column normally because the
+                            // expression may need nested values, not only parent metadata.
+                            _deferred_nested_columns.emplace(cid);
+                        }
+                    }
                 }
             }
 
@@ -2415,16 +2457,22 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
             })
         }
 
+        auto* column_iter = _column_iterators[cid].get();
+        ScopedColumnReadPhase phase_scope(column_iter,
+                                          _deferred_nested_columns.contains(cid)
+                                                  ? ColumnIterator::ReadPhase::PREDICATE
+                                                  : ColumnIterator::ReadPhase::FULL);
+
         if (is_continuous) {
             size_t rows_read = nrows_read;
             _opts.stats->predicate_column_read_seek_num += 1;
             if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
                 SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_seek_ns);
-                RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(_block_rowids[0]));
+                RETURN_IF_ERROR(column_iter->seek_to_ordinal(_block_rowids[0]));
             } else {
-                RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(_block_rowids[0]));
+                RETURN_IF_ERROR(column_iter->seek_to_ordinal(_block_rowids[0]));
             }
-            RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, column));
+            RETURN_IF_ERROR(column_iter->next_batch(&rows_read, column));
             if (rows_read != nrows_read) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>("nrows({}) != rows_read({})",
                                                                 nrows_read, rows_read);
@@ -2444,20 +2492,18 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
                     _opts.stats->predicate_column_read_seek_num += 1;
                     if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
                         SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_seek_ns);
-                        RETURN_IF_ERROR(
-                                _column_iterators[cid]->seek_to_ordinal(_block_rowids[processed]));
+                        RETURN_IF_ERROR(column_iter->seek_to_ordinal(_block_rowids[processed]));
                     } else {
-                        RETURN_IF_ERROR(
-                                _column_iterators[cid]->seek_to_ordinal(_block_rowids[processed]));
+                        RETURN_IF_ERROR(column_iter->seek_to_ordinal(_block_rowids[processed]));
                     }
-                    RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, column));
+                    RETURN_IF_ERROR(column_iter->next_batch(&rows_read, column));
                     if (rows_read != current_batch_size) {
                         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                                 "batch nrows({}) != rows_read({})", current_batch_size, rows_read);
                     }
                 } else {
-                    RETURN_IF_ERROR(_column_iterators[cid]->read_by_rowids(
-                            &_block_rowids[processed], current_batch_size, column));
+                    RETURN_IF_ERROR(column_iter->read_by_rowids(&_block_rowids[processed],
+                                                                current_batch_size, column));
                 }
                 processed += current_batch_size;
             }
@@ -2757,7 +2803,8 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
                                                 std::vector<rowid_t>& rowid_vector,
                                                 uint16_t* sel_rowid_idx, size_t select_size,
                                                 MutableColumns* mutable_columns,
-                                                bool init_condition_cache) {
+                                                bool init_condition_cache,
+                                                bool read_for_predicate) {
     SCOPED_RAW_TIMER(&_opts.stats->lazy_read_ns);
     std::vector<rowid_t> rowids(select_size);
 
@@ -2801,8 +2848,15 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
                     "SegmentIterator meet invalid column, return columns size {}, cid {}",
                     _current_return_columns.size(), cid);
         }
-        RETURN_IF_ERROR(_column_iterators[cid]->read_by_rowids(rowids.data(), select_size,
-                                                               _current_return_columns[cid]));
+
+        auto* column_iter = _column_iterators[cid].get();
+        ScopedColumnReadPhase phase_scope(
+                column_iter, read_for_predicate && _deferred_nested_columns.contains(cid)
+                                     ? ColumnIterator::ReadPhase::PREDICATE
+                                     : ColumnIterator::ReadPhase::FULL);
+
+        RETURN_IF_ERROR(column_iter->read_by_rowids(rowids.data(), select_size,
+                                                    _current_return_columns[cid]));
     }
 
     return Status::OK();
@@ -3022,7 +3076,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                         SCOPED_RAW_TIMER(&_opts.stats->non_predicate_read_ns);
                         RETURN_IF_ERROR(_read_columns_by_rowids(
                                 _common_expr_column_ids, _block_rowids, _sel_rowid_idx.data(),
-                                _selected_size, &_current_return_columns));
+                                _selected_size, &_current_return_columns, false, true));
                         _replace_version_col_if_needed(_common_expr_column_ids, _selected_size);
                         _update_lsn_col_if_needed(_common_expr_column_ids, _selected_size);
                         _update_tso_col_if_needed(_common_expr_column_ids, _selected_size);
@@ -3057,7 +3111,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                 RETURN_IF_ERROR(_read_columns_by_rowids(
                         _non_predicate_columns, _block_rowids, _sel_rowid_idx.data(),
                         _selected_size, &_current_return_columns,
-                        _opts.condition_cache_digest && !_find_condition_cache));
+                        _opts.condition_cache_digest && !_find_condition_cache, false));
                 _replace_version_col_if_needed(_non_predicate_columns, _selected_size);
                 _update_lsn_col_if_needed(_non_predicate_columns, _selected_size);
                 _update_tso_col_if_needed(_non_predicate_columns, _selected_size);
@@ -3069,6 +3123,27 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                         condition_cache[rowid / SegmentIterator::CONDITION_CACHE_OFFSET] = true;
                     }
                 }
+            }
+        }
+
+        if (!_deferred_nested_columns.empty()) {
+            SCOPED_RAW_TIMER(&_opts.stats->deferred_nested_read_ns);
+            DorisVector<rowid_t> rowids(_selected_size);
+            for (size_t i = 0; i < _selected_size; ++i) {
+                rowids[i] = _block_rowids[_sel_rowid_idx[i]];
+            }
+
+            for (auto cid : _deferred_nested_columns) {
+                auto loc = _schema_block_id_map[cid];
+                auto column = IColumn::mutate(std::move(block->get_by_position(loc).column));
+                auto* column_iter = _column_iterators[cid].get();
+                ScopedColumnReadPhase phase_scope(column_iter, ColumnIterator::ReadPhase::DEFERRED);
+                if (_selected_size > 0) {
+                    RETURN_IF_ERROR(
+                            column_iter->read_by_rowids(rowids.data(), _selected_size, column));
+                }
+                column_iter->finish_deferred_read(column);
+                block->get_by_position(loc).column = std::move(column);
             }
         }
     }
