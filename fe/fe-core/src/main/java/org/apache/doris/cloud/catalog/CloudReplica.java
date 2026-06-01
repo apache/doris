@@ -41,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -115,8 +116,17 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     }
 
     public long getColocatedBeId(String clusterId) throws ComputeGroupException {
+        List<Backend> clusterBackends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getBackendsByClusterId(clusterId);
+        return getColocatedBeId(clusterId, clusterBackends);
+    }
+
+    // Same as getColocatedBeId(clusterId) but reuses an already fetched backend list of
+    // the compute group. Lets callers that resolve many replicas across the same compute
+    // groups (e.g. the colocate proc display) fetch each group's backends only once.
+    public long getColocatedBeId(String clusterId, List<Backend> clusterBackends) throws ComputeGroupException {
         CloudSystemInfoService infoService = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
-        List<Backend> bes = infoService.getBackendsByClusterId(clusterId).stream()
+        List<Backend> bes = clusterBackends.stream()
                 .filter(be -> be.isQueryAvailable()).collect(Collectors.toList());
         String clusterName = infoService.getClusterNameByClusterId(clusterId);
         if (bes.isEmpty()) {
@@ -241,6 +251,39 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         }
 
         return -1L;
+    }
+
+    @Override
+    public Map<String, Long> getClusterToBackendForProcDisplay(
+            Map<String, List<Backend>> computeGroupBackendCache) {
+        if (!isColocated()) {
+            Map<String, Long> result = new HashMap<>();
+            for (Map.Entry<String, List<Long>> entry : primaryClusterToBackends.entrySet()) {
+                List<Long> backendIds = entry.getValue();
+                if (backendIds != null && !backendIds.isEmpty()) {
+                    result.put(entry.getKey(), backendIds.get(0));
+                }
+            }
+            return result;
+        }
+        Map<String, Long> result = new HashMap<>();
+        CloudSystemInfoService infoService = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+        for (String clusterId : infoService.getCloudClusterIds()) {
+            try {
+                List<Backend> clusterBackends =
+                        computeGroupBackendCache.computeIfAbsent(clusterId, infoService::getBackendsByClusterId);
+                long backendId = getColocatedBeId(clusterId, clusterBackends);
+                if (backendId != -1L) {
+                    result.put(clusterId, backendId);
+                }
+            } catch (ComputeGroupException e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("skip compute group {} for colocate proc display, replica {}",
+                            clusterId, getId(), e);
+                }
+            }
+        }
+        return result;
     }
 
     private long getBackendIdImpl(String clusterId) throws ComputeGroupException {

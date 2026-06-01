@@ -437,6 +437,19 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
+    public Long getDbIdByTblIdNullable(GroupId groupId, long tableId) {
+        readLock();
+        try {
+            GroupId tableGroupId = table2Group.get(tableId);
+            if (tableGroupId == null || !tableGroupId.equals(groupId)) {
+                return null;
+            }
+            return tableGroupId.tblId2DbId.get(tableId);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public Set<GroupId> getAllGroupIds() {
         readLock();
         try {
@@ -711,7 +724,11 @@ public class ColocateTableIndex implements Writable {
                 info.add(Joiner.on(", ").join(group2Tables.get(groupId)));
                 ColocateGroupSchema groupSchema = group2Schema.get(groupId);
                 info.add(String.valueOf(groupSchema.getBucketsNum()));
-                info.add(String.valueOf(groupSchema.getReplicaAlloc().toCreateStmt()));
+                if (Config.isCloudMode()) {
+                    info.add("null");
+                } else {
+                    info.add(String.valueOf(groupSchema.getReplicaAlloc().toCreateStmt()));
+                }
                 List<String> cols = groupSchema.getDistributionColTypes().stream().map(
                         e -> e.toSql()).collect(Collectors.toList());
                 info.add(Joiner.on(", ").join(cols));
