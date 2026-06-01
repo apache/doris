@@ -622,12 +622,17 @@ class AdaptivePythonUDF:
                 for value in values
             ]
         elif vec_type == VectorType.PANDAS_SERIES:
-            series = arrow_array.to_pandas()
-            if not needs_nested_python_normalization(arrow_array.type):
-                return series
-            return series.apply(
-                lambda value: convert_arrow_value_to_python(value, arrow_array.type)
-            )
+            if needs_nested_python_normalization(arrow_array.type):
+                # Some pyarrow builds cannot materialize nested map-containing arrays
+                # through to_pandas() (for example list<map<...>>). Normalize through
+                # Python objects first, then build an object Series explicitly.
+                values = arrow_array.to_pylist()
+                converted = [
+                    convert_arrow_value_to_python(value, arrow_array.type)
+                    for value in values
+                ]
+                return pd.Series(converted, dtype=object)
+            return arrow_array.to_pandas()
         else:
             raise ValueError(f"Unsupported vector type: {vec_type}")
 
