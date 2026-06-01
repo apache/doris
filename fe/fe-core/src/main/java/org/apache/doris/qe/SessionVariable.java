@@ -273,6 +273,27 @@ public class SessionVariable implements Serializable, Writable {
     public static final String INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED = "committed";
     public static final String INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR = "error";
 
+    // Keep the mode set strongly typed while preserving the existing lowercase SQL values.
+    public enum InsertVisibleTimeoutReturnMode {
+        COMMITTED(INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED),
+        ERROR(INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR);
+
+        private final String option;
+
+        InsertVisibleTimeoutReturnMode(String option) {
+            this.option = option;
+        }
+
+        public String getOption() {
+            return option;
+        }
+
+        @Override
+        public String toString() {
+            return option;
+        }
+    }
+
     public static final String DELETE_WITHOUT_PARTITION = "delete_without_partition";
 
     public static final String ENABLE_VARIANT_ACCESS_IN_ORIGINAL_PLANNER = "enable_variant_access_in_original_planner";
@@ -1082,7 +1103,7 @@ public class SessionVariable implements Serializable, Writable {
                     "Controls the status returned to the client when a normal internal-table INSERT times out "
                             + "while waiting for publish visibility."},
             options = {INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED, INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR})
-    public String insertVisibleTimeoutReturnMode = INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED;
+    public InsertVisibleTimeoutReturnMode insertVisibleTimeoutReturnMode = InsertVisibleTimeoutReturnMode.COMMITTED;
 
     // max memory used on every backend. Default value to 100G.
     @VarAttrDef.VarAttr(name = EXEC_MEM_LIMIT, needForward = true)
@@ -4923,16 +4944,15 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public String getInsertVisibleTimeoutReturnMode() {
-        return insertVisibleTimeoutReturnMode;
+        return insertVisibleTimeoutReturnMode.getOption();
     }
 
     public boolean isInsertVisibleTimeoutReturnError() {
-        return INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR.equals(insertVisibleTimeoutReturnMode);
+        return insertVisibleTimeoutReturnMode == InsertVisibleTimeoutReturnMode.ERROR;
     }
 
     public void setInsertVisibleTimeoutReturnMode(String insertVisibleTimeoutReturnMode) {
-        this.insertVisibleTimeoutReturnMode =
-                normalizeInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode);
+        this.insertVisibleTimeoutReturnMode = parseInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode);
     }
 
     public boolean getIsSingleSetVar() {
@@ -5324,20 +5344,24 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void checkInsertVisibleTimeoutReturnMode(String mode) {
+        // Reuse the parser so validation stays consistent with assignment and restore paths.
+        parseInsertVisibleTimeoutReturnMode(mode);
+    }
+
+    // Parse the SQL string once and keep the stored value as an enum.
+    private InsertVisibleTimeoutReturnMode parseInsertVisibleTimeoutReturnMode(String mode) {
         if (StringUtils.isEmpty(mode)) {
             LOG.warn("insertVisibleTimeoutReturnMode value is empty");
             throw new UnsupportedOperationException("insertVisibleTimeoutReturnMode value is empty");
         }
-        if (!INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED.equalsIgnoreCase(mode)
-                && !INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR.equalsIgnoreCase(mode)) {
-            LOG.warn("insertVisibleTimeoutReturnMode value is invalid, the invalid value is {}", mode);
-            throw new UnsupportedOperationException(
-                    "insertVisibleTimeoutReturnMode value is invalid, the invalid value is " + mode);
+        for (InsertVisibleTimeoutReturnMode value : InsertVisibleTimeoutReturnMode.values()) {
+            if (value.getOption().equalsIgnoreCase(mode)) {
+                return value;
+            }
         }
-    }
-
-    public String normalizeInsertVisibleTimeoutReturnMode(String mode) {
-        return mode == null ? null : mode.toLowerCase(Locale.ROOT);
+        LOG.warn("insertVisibleTimeoutReturnMode value is invalid, the invalid value is {}", mode);
+        throw new UnsupportedOperationException(
+                "insertVisibleTimeoutReturnMode value is invalid, the invalid value is " + mode);
     }
 
     public void checkMaxExecutionTimeMSValid(String newValue) {
@@ -5726,6 +5750,11 @@ public class SessionVariable implements Serializable, Writable {
                         root.put(attr.name(), (String) field.get(this));
                         break;
                     default:
+                        if (field.getType().isEnum()) {
+                            // Persist enum variables with the same lowercase tokens accepted by SQL.
+                            root.put(attr.name(), String.valueOf(field.get(this)));
+                            break;
+                        }
                         // Unsupported type variable.
                         throw new IOException("invalid type: " + field.getType().getSimpleName());
                 }
@@ -5781,13 +5810,15 @@ public class SessionVariable implements Serializable, Writable {
                         field.set(this, root.get(attr.name()));
                         break;
                     default:
+                        if (field.getType().isEnum()) {
+                            // Route enum restore through VariableMgr so all enum parsing stays in one place.
+                            VariableMgr.setValue(this, String.valueOf(root.get(attr.name())), field, attr.name());
+                            break;
+                        }
                         // Unsupported type variable.
                         throw new IOException("invalid type: " + field.getType().getSimpleName());
                 }
             }
-            // Normalize forwarded string enums because JSON restore bypasses dedicated setters.
-            insertVisibleTimeoutReturnMode =
-                    normalizeInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode);
         } catch (Exception e) {
             throw new IOException("failed to read session variable: " + e.getMessage());
         }
@@ -5837,14 +5868,16 @@ public class SessionVariable implements Serializable, Writable {
                         field.set(this, sessionVarMap.get(attr.name()));
                         break;
                     default:
+                        if (field.getType().isEnum()) {
+                            // Route enum restore through VariableMgr so all enum parsing stays in one place.
+                            VariableMgr.setValue(this, sessionVarMap.get(attr.name()), field, attr.name());
+                            break;
+                        }
                         // Unsupported type variable.
                         throw new IOException("invalid type: " + field.getType().getSimpleName());
                 }
 
             }
-            // Normalize forwarded string enums because map restore bypasses dedicated setters.
-            insertVisibleTimeoutReturnMode =
-                    normalizeInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode);
         } catch (Exception ex) {
             throw new IOException("invalid session variable, " + ex.getMessage());
         }
@@ -5896,9 +5929,6 @@ public class SessionVariable implements Serializable, Writable {
                 // set config field
                 VariableMgr.setValue(this, val, f, varAttr.name());
             }
-            // Normalize forwarded string enums because forwarded assignments bypass dedicated setters.
-            insertVisibleTimeoutReturnMode =
-                    normalizeInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode);
         } catch (Throwable e) {
             LOG.error("failed to set forward variables", e);
         }

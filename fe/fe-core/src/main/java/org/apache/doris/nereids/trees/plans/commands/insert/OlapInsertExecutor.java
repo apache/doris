@@ -381,7 +381,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             // Log the committed timeout branch explicitly so operators can distinguish it from real failures.
             LOG.warn("insert [{}] with txn id {} committed but return error because {}={}",
                     labelName, txnId, SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE,
-                    SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR);
+                    SessionVariable.InsertVisibleTimeoutReturnMode.ERROR);
             // Convert the final client response to ERR after all committed-side bookkeeping has finished.
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, INSERT_VISIBLE_TIMEOUT_ERROR_MSG);
         }
