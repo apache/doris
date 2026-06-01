@@ -228,9 +228,11 @@ public abstract class SetOperationNode extends PlanNode {
                 requireChild = LocalExchangeTypeRequire.requireBucketHash();
                 outputType = LocalExchangeType.BUCKET_HASH_SHUFFLE;
             } else {
-                requireChild = parentRequire.autoRequireHash();
-                outputType = AddLocalExchange.resolveExchangeType(
-                        requireChild, translatorContext, this, firstChild);
+                // PARTITIONED intersect/except: all children enter via global hash
+                // exchange. Require GLOBAL so any inserted exchange matches the
+                // cross-fragment instance mapping (same fix as HashJoinNode DORIS-26101).
+                requireChild = LocalExchangeTypeRequire.requireGlobalExecutionHash();
+                outputType = LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE;
             }
         }
 
