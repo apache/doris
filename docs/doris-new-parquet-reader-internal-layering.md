@@ -75,6 +75,53 @@ be/src/format/new_parquet/
 
 当前代码还没有完全拆到这些文件。该列表描述目标边界，后续可以按功能演进逐步拆分。
 
+## 当前实现快照
+
+当前分支已经完成 reader 主流程的第一轮分层，`ParquetReader` 已基本退回 file-local orchestration：文件上下文、schema 构造、row group/page range planning、batch scheduling、batch filter、scalar leaf decode、shape-only reader 都已经拆出独立模块。`column_reader.cpp` 仍是最大遗留点，它同时包含 complex reader factory、`STRUCT` / `LIST` / `MAP` reader、complex materialization sink，以及若干 child 组合分支。
+
+当前已实现：
+
+- `ParquetFileContext` 持有 Arrow file reader、footer metadata 和 schema descriptor。
+- `ParquetColumnSchema` / `ParquetTypeDescriptor` 描述 file-local schema，不承担 table schema evolution。
+- `RowGroupScanPlan` 已从 row group id 列表升级为 per-row-group `RowGroupReadPlan`，包含 `first_file_row`、row group rows 和 row group-local `selected_ranges`。
+- row group pruning 已支持 min/max statistics 和 string-like dictionary page。
+- page index pruning 已接入 Arrow `PageIndexReader`，并输出 row group-local row ranges。
+- scheduler 已消费 `selected_ranges`，range gap 通过所有 column reader 的 row-level `skip()` 推进。
+- batch filter 已通过 `SelectionVector` 驱动 lazy materialization。
+- scalar reader、shape-only reader、row-position reader 和 Arrow leaf adapter 已从 `column_reader.cpp` 拆出。
+- nested level 侧已有 repeated assembler、scalar/struct batch overflow、`NestedShapeCursor`，支持跨 `read/skip/select` 维护 cursor。
+- complex type 当前支持 `STRUCT` nullable parent/child/projection，`LIST` null/empty/nullable scalar element，`MAP` null/empty/nullable scalar value，以及部分 `LIST<STRUCT>`、嵌套 `LIST`、`MAP` value 为 `STRUCT` / `LIST` 的组合。
+- planner pruning stats 已接入 profile，包括 row group、dictionary、page index、filtered rows、selected ranges 和 page index read calls。
+
+当前未完成或仍需重构：
+
+- bloom filter pruning 只有 profile counter 和类型支持判断入口，尚未形成独立 `parquet_bloom_filter.*` helper 并接入 planner。
+- complex reader 还未拆成 `struct_column_reader.*`、`list_column_reader.*`、`map_column_reader.*`。
+- list/map/struct 的 Doris column 写入 sink 尚未统一，复杂 child 组合仍依赖 `dynamic_cast` 和多处分支。
+- nested batch/overflow 仍区分 scalar、struct 和部分 complex child 路径，还没有形成统一 shape stream + value stream 抽象。
+- scheduler、column reader、adapter 的 skip/select/overflow/decode profile 还不完整。
+- schema change / schema evolution 仍不在当前实现范围内；现有 file-local schema、row-range plan 和 reader tree 边界为后续接入保留空间。
+- page-level decoder 尚未实现；当前 page index pruning 仍通过 `RecordReader + skip/read/select` 消费 row ranges。
+
+当前功能矩阵：
+
+| 功能 | 当前状态 | 说明 |
+| --- | --- | --- |
+| File-local schema | 已实现 | 只描述 Parquet 文件内部 schema，不处理 table schema evolution |
+| Row group statistics pruning | 已实现 | 安全裁剪，无法证明不匹配时保留 |
+| Dictionary row group pruning | 已实现 | 当前覆盖 string-like dictionary predicate 场景 |
+| Page index row range pruning | 已实现 | 输出 row group-local selected ranges，scheduler 已消费 |
+| Bloom filter pruning | 待实现 | 需要新增 planner helper，不应放回 `ParquetReader` |
+| Batch predicate / lazy read | 已实现 | 通过 `SelectionVector` 和 selected ranges 推进 |
+| Scalar leaf reader | 已拆分 | `scalar_column_reader.*` + `arrow_leaf_reader_adapter.*` |
+| Shape-only / row-position reader | 已拆分 | `shape_only_column_reader.*` |
+| STRUCT reader | 已实现，待拆分 | 支持 nullable parent/child/projection，仍在 `column_reader.cpp` |
+| LIST reader | 已实现，待统一 sink | 支持 null/empty/nullable scalar element、overflow、skip/select，部分 nested child |
+| MAP reader | 已实现，待统一 sink | 支持 null/empty/nullable scalar value、overflow、skip/select，部分 complex value |
+| Complex child projection | 部分实现 | struct child projection 已有，list/map nested child 仍需继续收敛 |
+| Schema change | 未实现 | 当前边界应保持 file-local，后续由上层映射接入 |
+| Page-level decode control | 未实现 | 暂不替代 Arrow `RecordReader` |
+
 ## 1. FileContext 层
 
 职责：
