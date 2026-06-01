@@ -220,7 +220,7 @@ TEST_F(FilterMapTest, test_filter_all_nullptr_nested_filter_map) {
     nested_filter_map_data.assign(nested_size, 0);
     auto fixed_nested_filter_map = std::make_unique<FilterMap>();
     ASSERT_TRUE(fixed_nested_filter_map
-                        ->init(nested_filter_map_data.data(),nested_filter_map_data.size(), true)
+                        ->init(nested_filter_map_data.data(), nested_filter_map_data.size(), true)
                         .ok());
 
     EXPECT_TRUE(fixed_nested_filter_map->has_filter());
