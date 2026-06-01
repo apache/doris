@@ -19,6 +19,7 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 
+#include <algorithm>
 #include <optional>
 #include <unordered_set>
 #include <utility>
@@ -72,88 +73,88 @@ Status ParsedPartitionBoundaries::parse(
 
         bool parsed_ok = false;
 
-#define BUILD_BOUNDARY_CVR(NAME)                                                               \
-    case TYPE_##NAME: {                                                                        \
-        using CppType = typename PrimitiveTypeTraits<TYPE_##NAME>::CppType;                    \
-        bool is_list = tb.__isset.list_values && !tb.list_values.empty();                      \
-        bool is_range = tb.__isset.range_start || tb.__isset.range_end;                        \
-        DORIS_CHECK(is_list || is_range);                                                      \
-        ColumnValueRange<TYPE_##NAME> cvr(slot->col_name(), is_nullable, precision, scale);    \
-        /* Returns nullopt if `node` is a NULL literal; the caller then sets contain_null  */  \
-        /* on the CVR instead of trying to extract a typed value (which would dereference  */  \
-        /* a null data pointer for the non-string branch).                                 */  \
-        auto parse_texpr_node = [&](const TExprNode& node) -> std::optional<CppType> {         \
-            if (node.node_type == TExprNodeType::NULL_LITERAL) {                               \
-                return std::nullopt;                                                           \
-            }                                                                                  \
-            /* `Field` value is copied into the CVR by `add_fixed_value` /             */      \
-            /* `add_range` (both take CppType by const-ref / by value), so the         */      \
-            /* temporary `Field`'s lifetime ending at this expression's full-statement */      \
-            /* boundary is safe -- including for `String` payloads.                    */      \
-            Field field = slot_type->get_field(node);                                          \
-            return std::make_optional<CppType>(field.get<TYPE_##NAME>());                      \
-        };                                                                                     \
-        if (is_list) {                                                                         \
-            auto empty_cvr = ColumnValueRange<TYPE_##NAME>::create_empty_column_value_range(   \
-                    is_nullable, precision, scale);                                            \
-            bool list_has_null = false;                                                        \
-            bool list_has_value = false;                                                       \
-            for (const auto& node : tb.list_values) {                                          \
-                auto parsed = parse_texpr_node(node);                                          \
-                if (!parsed) {                                                                 \
-                    list_has_null = true;                                                      \
-                    continue;                                                                  \
-                }                                                                              \
-                static_cast<void>(empty_cvr.add_fixed_value(*parsed));                         \
-                list_has_value = true;                                                         \
-            }                                                                                  \
-            if (list_has_value) {                                                              \
-                cvr.intersection(empty_cvr);                                                   \
-            }                                                                                  \
-            if (list_has_null && is_nullable) {                                                \
-                /* Track NULL membership on ParsedBoundary; calling          */                \
-                /* cvr.set_contain_null(true) here would invoke              */                \
-                /* set_empty_value_range() and discard the concrete fixed    */                \
-                /* values we just inserted, turning {NULL, v} into a         */                \
-                /* NULL-only boundary.                                       */                \
-                boundary.contains_null = true;                                                 \
-                if (!list_has_value) {                                                         \
-                    boundary.only_null = true;                                                 \
-                }                                                                              \
-            }                                                                                  \
-        } else {                                                                               \
-            bool range_has_null = false;                                                       \
-            if (is_nullable && !tb.__isset.range_start) {                                      \
-                range_has_null = true;                                                         \
-            }                                                                                  \
-            if (tb.__isset.range_start) {                                                      \
-                auto parsed = parse_texpr_node(tb.range_start);                                \
-                if (parsed) {                                                                  \
-                    static_cast<void>(cvr.add_range(FILTER_LARGER_OR_EQUAL, *parsed));         \
-                } else if (is_nullable) {                                                      \
-                    range_has_null = true;                                                     \
-                }                                                                              \
-            }                                                                                  \
-            if (tb.__isset.range_end) {                                                        \
-                auto parsed = parse_texpr_node(tb.range_end);                                  \
-                if (parsed) {                                                                  \
-                    /* Multi-column RANGE projection emits a CLOSED upper bound (see       */  \
-                    /* TPartitionBoundary.range_end_inclusive comment); single-column RANGE */ \
-                    /* keeps the natural OPEN upper bound matching Doris semantics.         */ \
-                    SQLFilterOp upper_op =                                                     \
-                            (tb.__isset.range_end_inclusive && tb.range_end_inclusive)         \
-                                    ? FILTER_LESS_OR_EQUAL                                     \
-                                    : FILTER_LESS;                                             \
-                    static_cast<void>(cvr.add_range(upper_op, *parsed));                       \
-                }                                                                              \
-            }                                                                                  \
-            if (range_has_null) {                                                              \
-                boundary.contains_null = true;                                                 \
-            }                                                                                  \
-        }                                                                                      \
-        boundary.boundary_cvr = std::move(cvr);                                                \
-        parsed_ok = true;                                                                      \
-        break;                                                                                 \
+#define BUILD_BOUNDARY_CVR(NAME)                                                                  \
+    case TYPE_##NAME: {                                                                           \
+        using CppType = typename PrimitiveTypeTraits<TYPE_##NAME>::CppType;                       \
+        bool is_list = tb.__isset.list_values && !tb.list_values.empty();                         \
+        bool is_range = tb.__isset.range_start || tb.__isset.range_end;                           \
+        DORIS_CHECK(is_list || is_range);                                                         \
+        ColumnValueRange<TYPE_##NAME> cvr(slot->col_name(), is_nullable, precision, scale);       \
+        /* Returns nullopt if `node` is a NULL literal; the caller then sets contain_null  */     \
+        /* on the CVR instead of trying to extract a typed value (which would dereference  */     \
+        /* a null data pointer for the non-string branch).                                 */     \
+        auto parse_texpr_node = [&](const TExprNode& node) -> std::optional<CppType> {            \
+            if (node.node_type == TExprNodeType::NULL_LITERAL) {                                  \
+                return std::nullopt;                                                              \
+            }                                                                                     \
+            /* `Field` value is copied into the CVR by `add_fixed_value` /             */         \
+            /* `add_range` (both take CppType by const-ref / by value), so the         */         \
+            /* temporary `Field`'s lifetime ending at this expression's full-statement */         \
+            /* boundary is safe -- including for `String` payloads.                    */         \
+            Field field = slot_type->get_field(node);                                             \
+            return std::make_optional<CppType>(field.get<TYPE_##NAME>());                         \
+        };                                                                                        \
+        if (is_list) {                                                                            \
+            auto empty_cvr = ColumnValueRange<TYPE_##NAME>::create_empty_column_value_range(      \
+                    is_nullable, precision, scale);                                               \
+            bool list_has_null = false;                                                           \
+            bool list_has_value = false;                                                          \
+            for (const auto& node : tb.list_values) {                                             \
+                auto parsed = parse_texpr_node(node);                                             \
+                if (!parsed) {                                                                    \
+                    list_has_null = true;                                                         \
+                    continue;                                                                     \
+                }                                                                                 \
+                static_cast<void>(empty_cvr.add_fixed_value(*parsed));                            \
+                list_has_value = true;                                                            \
+            }                                                                                     \
+            if (list_has_value) {                                                                 \
+                cvr.intersection(empty_cvr);                                                      \
+            }                                                                                     \
+            if (list_has_null) {                                                                  \
+                DORIS_CHECK(is_nullable);                                                         \
+                /* Track NULL membership on ParsedBoundary; calling          */                   \
+                /* cvr.set_contain_null(true) here would invoke              */                   \
+                /* set_empty_value_range() and discard the concrete fixed    */                   \
+                /* values we just inserted, turning {NULL, v} into a         */                   \
+                /* NULL-only boundary.                                       */                   \
+                boundary.contains_null = true;                                                    \
+                if (!list_has_value) {                                                            \
+                    boundary.only_null = true;                                                    \
+                }                                                                                 \
+            }                                                                                     \
+        } else {                                                                                  \
+            bool range_has_null = false;                                                          \
+            if (is_nullable && !tb.__isset.range_start) {                                         \
+                range_has_null = true;                                                            \
+            }                                                                                     \
+            if (tb.__isset.range_start) {                                                         \
+                auto parsed = parse_texpr_node(tb.range_start);                                   \
+                if (parsed) {                                                                     \
+                    static_cast<void>(cvr.add_range(FILTER_LARGER_OR_EQUAL, *parsed));            \
+                } else {                                                                          \
+                    DORIS_CHECK(is_nullable);                                                     \
+                    range_has_null = true;                                                        \
+                }                                                                                 \
+            }                                                                                     \
+            if (tb.__isset.range_end) {                                                           \
+                auto parsed = parse_texpr_node(tb.range_end);                                     \
+                DORIS_CHECK(parsed.has_value());                                                  \
+                /* Multi-column RANGE projection emits a CLOSED upper bound (see       */         \
+                /* TPartitionBoundary.range_end_inclusive comment); single-column RANGE */        \
+                /* keeps the natural OPEN upper bound matching Doris semantics.         */        \
+                SQLFilterOp upper_op = (tb.__isset.range_end_inclusive && tb.range_end_inclusive) \
+                                               ? FILTER_LESS_OR_EQUAL                             \
+                                               : FILTER_LESS;                                     \
+                static_cast<void>(cvr.add_range(upper_op, *parsed));                              \
+            }                                                                                     \
+            if (range_has_null) {                                                                 \
+                boundary.contains_null = true;                                                    \
+            }                                                                                     \
+        }                                                                                         \
+        boundary.boundary_cvr = std::move(cvr);                                                   \
+        parsed_ok = true;                                                                         \
+        break;                                                                                    \
     }
 
         switch (ptype) {
@@ -204,9 +205,7 @@ Status ParsedPartitionBoundaries::parse(
 // NOLINTEND(readability-function-cognitive-complexity,readability-function-size)
 
 static bool find_unique_slot_ref_impl(const VExpr* expr, const VSlotRef** found) {
-    if (!expr) {
-        return true;
-    }
+    DORIS_CHECK(expr != nullptr);
     if (expr->is_slot_ref()) {
         const auto* slot = assert_cast<const VSlotRef*>(expr);
         if (*found == nullptr) {
@@ -219,12 +218,9 @@ static bool find_unique_slot_ref_impl(const VExpr* expr, const VSlotRef** found)
         DORIS_CHECK((*found)->column_id() == slot->column_id());
         return true;
     }
-    for (const auto& child : expr->children()) {
-        if (!find_unique_slot_ref_impl(child.get(), found)) {
-            return false;
-        }
-    }
-    return true;
+    return std::ranges::all_of(expr->children(), [&](const auto& child) {
+        return find_unique_slot_ref_impl(child.get(), found);
+    });
 }
 
 static const VSlotRef* find_unique_slot_ref(const VExpr* expr) {
@@ -601,7 +597,7 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
 }
 // NOLINTEND(readability-function-cognitive-complexity,readability-function-size)
 
-static SQLFilterOp convert_opcode_to_filter_op(TExprOpcode::type op) {
+static std::optional<SQLFilterOp> convert_opcode_to_filter_op(TExprOpcode::type op) {
     switch (op) {
     case TExprOpcode::LE:
         return FILTER_LESS_OR_EQUAL;
@@ -612,7 +608,7 @@ static SQLFilterOp convert_opcode_to_filter_op(TExprOpcode::type op) {
     case TExprOpcode::GT:
         return FILTER_LARGER;
     default:
-        return FILTER_IN; // sentinel: caller should skip
+        return std::nullopt;
     }
 }
 
@@ -667,10 +663,6 @@ void RuntimeFilterPartitionPruner::_try_prune_by_single_rf(
                                     const auto* str_val = reinterpret_cast<const StringRef*>(value);
                                     static_cast<void>(typed_rf_cvr.add_fixed_value(
                                             CppType(str_val->data, str_val->size)));
-                                } else if constexpr (std::is_same_v<CppType, StringRef>) {
-                                    const auto* str_val = reinterpret_cast<const StringRef*>(value);
-                                    static_cast<void>(typed_rf_cvr.add_fixed_value(
-                                            CppType(str_val->data, str_val->size)));
                                 } else {
                                     static_cast<void>(typed_rf_cvr.add_fixed_value(
                                             *reinterpret_cast<const CppType*>(value)));
@@ -693,21 +685,17 @@ void RuntimeFilterPartitionPruner::_try_prune_by_single_rf(
                             // CppType is std::string, so construct one from
                             // the bytes rather than dereferencing as String.
                             val = CppType(data.data, data.size);
-                        } else if constexpr (std::is_same_v<CppType, StringRef>) {
-                            val = CppType(data.data, data.size);
                         } else {
                             val = *reinterpret_cast<const CppType*>(data.data);
                         }
 
-                        SQLFilterOp op = convert_opcode_to_filter_op(impl->op());
-                        if (op == FILTER_IN) {
-                            return; // unrecognized opcode, skip
-                        }
+                        auto op = convert_opcode_to_filter_op(impl->op());
+                        DORIS_CHECK(op.has_value());
 
                         CvrType typed_rf_cvr(boundary_cvr.column_name(),
                                              boundaries.front().is_nullable,
                                              boundary_cvr.precision(), boundary_cvr.scale());
-                        static_cast<void>(typed_rf_cvr.add_range(op, val));
+                        static_cast<void>(typed_rf_cvr.add_range(*op, val));
                         rf_cvr.emplace(std::move(typed_rf_cvr));
                     }
                 },
@@ -815,6 +803,8 @@ Status RuntimeFilterPartitionPruner::prune_by_runtime_filters(
         VExprSPtr target_subtree = impl->children()[0];
 
         auto partition_mono_it = filter_id_to_partition_monotonicity.find(filter_id);
+        // For LIST partition targets, this metadata is also the per-partition eligibility map;
+        // BE projects every finite LIST value, so the direction itself is neutral there.
         bool has_partition_mono = partition_mono_it != filter_id_to_partition_monotonicity.end() &&
                                   !partition_mono_it->second.empty();
         if (!has_partition_mono) {

@@ -372,6 +372,32 @@ TEST_F(RuntimeFilterPartitionPrunerTest, InvalidPartitionBoundaryRejected) {
     EXPECT_DEATH({ static_cast<void>(parsed.parse({boundary}, slots)); }, "Check failed");
 }
 
+TEST_F(RuntimeFilterPartitionPrunerTest, NullBoundaryOnNonNullableSlotRejected) {
+    int32_t one = 1;
+    EXPECT_DEATH(
+            {
+                static_cast<void>(parse_boundaries(
+                        TYPE_INT, {list_boundary<TYPE_INT>(1, {null_node(TYPE_INT)})}, false));
+            },
+            "Check failed");
+
+    TPartitionBoundary null_start;
+    null_start.__set_partition_id(2);
+    null_start.__set_slot_id(SLOT_ID);
+    null_start.__set_range_start(null_node(TYPE_INT));
+    null_start.__set_range_end(literal_node<TYPE_INT>(one));
+    EXPECT_DEATH({ static_cast<void>(parse_boundaries(TYPE_INT, {null_start}, false)); },
+                 "Check failed");
+
+    TPartitionBoundary null_end;
+    null_end.__set_partition_id(3);
+    null_end.__set_slot_id(SLOT_ID);
+    null_end.__set_range_start(literal_node<TYPE_INT>(one));
+    null_end.__set_range_end(null_node(TYPE_INT));
+    EXPECT_DEATH({ static_cast<void>(parse_boundaries(TYPE_INT, {null_end}, false)); },
+                 "Check failed");
+}
+
 TEST_F(RuntimeFilterPartitionPrunerTest, InvalidPartitionMonotonicityRejected) {
     int32_t one = 1;
     std::vector<TPartitionBoundary> boundaries {
