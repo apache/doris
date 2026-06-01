@@ -434,6 +434,46 @@ public class AuthenticationPluginManagerTest {
     }
 
     /**
+     * Test-only OIDC factory loaded through ServiceLoader for built-in plugin discovery assertions.
+     */
+    public static class OidcTestPluginFactory implements AuthenticationPluginFactory {
+        @Override
+        public String name() {
+            return "oidc";
+        }
+
+        @Override
+        public AuthenticationPlugin create() {
+            return new OidcTestPlugin();
+        }
+    }
+
+    /**
+     * Test-only OIDC plugin loaded through {@link OidcTestPluginFactory}.
+     */
+    public static class OidcTestPlugin implements AuthenticationPlugin {
+        @Override
+        public String name() {
+            return "oidc";
+        }
+
+        @Override
+        public boolean supports(AuthenticationRequest request) {
+            return true;
+        }
+
+        @Override
+        public AuthenticationResult authenticate(AuthenticationRequest request, AuthenticationIntegration integration) {
+            return AuthenticationResult.success(
+                    BasicPrincipal.builder()
+                            .name(request.getUsername())
+                            .authenticator(name())
+                            .build()
+            );
+        }
+    }
+
+    /**
      * Directory-discovered plugin factory used by UT-HANDLER-PM-016.
      */
     public static class DirectoryPluginFactory implements AuthenticationPluginFactory {
