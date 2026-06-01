@@ -23,13 +23,16 @@
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
+#include "core/data_type/convert_field_to_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "format/reader/expr/cast.h"
+#include "format/reader/expr/literal.h"
 #include "format/reader/expr/slot_ref.h"
 #include "format/reader/file_reader.h"
 #include "format/reader/table_reader.h"
@@ -43,6 +46,28 @@ struct FileSlotRewriteInfo {
     std::string file_column_name;
 };
 
+// A split-local literal produced by slot-literal predicate localization.
+//
+// TableColumnMapper currently rewrites VExpr trees in-place because VExpr has no generic deep
+// clone API. The same table-level conjunct can therefore be localized repeatedly for different
+// splits. This wrapper keeps the original table literal so the next split can restore table
+// semantics before trying its own file-type literal rewrite.
+class SplitLocalFileLiteral final : public TableLiteral {
+public:
+    SplitLocalFileLiteral(const DataTypePtr& file_type, const Field& file_field,
+                          DataTypePtr original_type, Field original_field)
+            : TableLiteral(file_type, file_field),
+              _original_type(std::move(original_type)),
+              _original_field(std::move(original_field)) {}
+
+    const DataTypePtr& original_type() const { return _original_type; }
+    const Field& original_field() const { return _original_field; }
+
+private:
+    DataTypePtr _original_type;
+    Field _original_field;
+};
+
 static VExprSPtr create_file_slot_ref(const VSlotRef& slot_ref,
                                       const FileSlotRewriteInfo& rewrite_info) {
     return TableSlotRef::create_shared(slot_ref.slot_id(),
@@ -50,11 +75,165 @@ static VExprSPtr create_file_slot_ref(const VSlotRef& slot_ref,
                                        rewrite_info.file_type, rewrite_info.file_column_name);
 }
 
+static bool is_cast_expr(const VExprSPtr& expr) {
+    return dynamic_cast<const Cast*>(expr.get()) != nullptr;
+}
+
+static bool is_binary_comparison_predicate(const VExprSPtr& expr) {
+    if (expr == nullptr || expr->get_num_children() != 2 ||
+        (expr->node_type() != TExprNodeType::BINARY_PRED &&
+         expr->node_type() != TExprNodeType::NULL_AWARE_BINARY_PRED)) {
+        return false;
+    }
+    switch (expr->op()) {
+    case TExprOpcode::EQ:
+    case TExprOpcode::EQ_FOR_NULL:
+    case TExprOpcode::NE:
+    case TExprOpcode::GE:
+    case TExprOpcode::GT:
+    case TExprOpcode::LE:
+    case TExprOpcode::LT:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static const FileSlotRewriteInfo* find_slot_rewrite_info(
+        const VExprSPtr& expr,
+        const std::map<int32_t, FileSlotRewriteInfo>& table_column_to_file_slot,
+        const VSlotRef** slot_ref) {
+    if (expr == nullptr) {
+        return nullptr;
+    }
+    VExprSPtr slot_expr = expr;
+    const bool input_is_cast = is_cast_expr(expr) && expr->get_num_children() == 1;
+    if (is_cast_expr(expr) && expr->get_num_children() == 1) {
+        slot_expr = expr->children()[0];
+    }
+    if (!slot_expr->is_slot_ref()) {
+        return nullptr;
+    }
+    const auto* candidate_slot_ref = assert_cast<const VSlotRef*>(slot_expr.get());
+    const auto rewrite_it = table_column_to_file_slot.find(candidate_slot_ref->slot_id());
+    if (rewrite_it == table_column_to_file_slot.end()) {
+        return nullptr;
+    }
+    if (input_is_cast && !expr->data_type()->equals(*rewrite_it->second.table_type)) {
+        return nullptr;
+    }
+    if (slot_ref != nullptr) {
+        *slot_ref = candidate_slot_ref;
+    }
+    return &rewrite_it->second;
+}
+
+static VExprSPtr unwrap_literal_for_file_cast(const VExprSPtr& expr,
+                                              const DataTypePtr& table_type) {
+    if (expr == nullptr) {
+        return nullptr;
+    }
+    if (expr->is_literal()) {
+        return expr;
+    }
+    if (is_cast_expr(expr) && expr->get_num_children() == 1 && expr->children()[0]->is_literal() &&
+        expr->children()[0]->data_type()->equals(*table_type)) {
+        return expr->children()[0];
+    }
+    return nullptr;
+}
+
+static Field literal_field(const VExprSPtr& literal_expr) {
+    DORIS_CHECK(literal_expr != nullptr);
+    DORIS_CHECK(literal_expr->is_literal());
+    const auto* literal = dynamic_cast<const VLiteral*>(literal_expr.get());
+    DORIS_CHECK(literal != nullptr);
+    Field field;
+    literal->get_column_ptr()->get(0, field);
+    return field;
+}
+
+static VExprSPtr original_table_literal(const VExprSPtr& literal_expr) {
+    DORIS_CHECK(literal_expr != nullptr);
+    DORIS_CHECK(literal_expr->is_literal());
+    const auto* rewritten_literal = dynamic_cast<const SplitLocalFileLiteral*>(literal_expr.get());
+    if (rewritten_literal == nullptr) {
+        return literal_expr;
+    }
+    return TableLiteral::create_shared(rewritten_literal->original_type(),
+                                       rewritten_literal->original_field());
+}
+
+static VExprSPtr rewrite_literal_to_file_type(const VExprSPtr& literal_expr,
+                                              const FileSlotRewriteInfo& rewrite_info) {
+    DORIS_CHECK(literal_expr != nullptr);
+    DORIS_CHECK(literal_expr->is_literal());
+    const auto original_literal = original_table_literal(literal_expr);
+    const Field original_field = literal_field(original_literal);
+    if (rewrite_info.file_type->equals(*original_literal->data_type())) {
+        return original_literal;
+    }
+    Field file_field;
+    try {
+        convert_field_to_type(original_field, *rewrite_info.file_type, &file_field,
+                              rewrite_info.table_type.get());
+    } catch (const Exception&) {
+        return nullptr;
+    }
+    if (file_field.is_null()) {
+        return nullptr;
+    }
+    return std::make_shared<SplitLocalFileLiteral>(rewrite_info.file_type, file_field,
+                                                   original_literal->data_type(), original_field);
+}
+
+static bool rewrite_binary_slot_literal_predicate(
+        const VExprSPtr& expr,
+        const std::map<int32_t, FileSlotRewriteInfo>& table_column_to_file_slot) {
+    if (!is_binary_comparison_predicate(expr)) {
+        return false;
+    }
+    auto children = expr->children();
+    const VSlotRef* slot_ref = nullptr;
+    const FileSlotRewriteInfo* rewrite_info =
+            find_slot_rewrite_info(children[0], table_column_to_file_slot, &slot_ref);
+    int slot_child_idx = 0;
+    int literal_child_idx = 1;
+    if (rewrite_info == nullptr) {
+        rewrite_info = find_slot_rewrite_info(children[1], table_column_to_file_slot, &slot_ref);
+        slot_child_idx = 1;
+        literal_child_idx = 0;
+    }
+    if (rewrite_info == nullptr || slot_ref == nullptr) {
+        return false;
+    }
+    auto literal_expr =
+            unwrap_literal_for_file_cast(children[literal_child_idx], rewrite_info->table_type);
+    if (literal_expr == nullptr) {
+        return false;
+    }
+
+    auto rewritten_literal = rewrite_literal_to_file_type(literal_expr, *rewrite_info);
+    if (rewritten_literal == nullptr) {
+        children[literal_child_idx] = original_table_literal(literal_expr);
+        expr->set_children(std::move(children));
+        return false;
+    }
+
+    children[slot_child_idx] = create_file_slot_ref(*slot_ref, *rewrite_info);
+    children[literal_child_idx] = std::move(rewritten_literal);
+    expr->set_children(std::move(children));
+    return true;
+}
+
 static VExprSPtr rewrite_table_expr_to_file_expr(
         const VExprSPtr& expr,
         const std::map<int32_t, FileSlotRewriteInfo>& table_column_to_file_slot) {
     if (expr == nullptr) {
         return nullptr;
+    }
+    if (rewrite_binary_slot_literal_predicate(expr, table_column_to_file_slot)) {
+        return expr;
     }
     if (expr->is_slot_ref()) {
         const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
@@ -76,7 +255,7 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
     // for the same table-level conjunct. Keep that rewrite idempotent: rewrite the cast child
     // from table slot to the current split's file slot, and drop the cast when the current split
     // no longer needs it.
-    if (dynamic_cast<const Cast*>(expr.get()) != nullptr && expr->get_num_children() == 1) {
+    if (is_cast_expr(expr) && expr->get_num_children() == 1) {
         const auto& child = expr->children()[0];
         if (child->is_slot_ref()) {
             const auto* slot_ref = assert_cast<const VSlotRef*>(child.get());
