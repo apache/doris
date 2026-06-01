@@ -29,21 +29,34 @@ namespace doris::segment_v2::inverted_index::spimi {
 
 // One spill segment flushed from the posting buffer.
 //
-// To keep RAM bounded under the 256 MiB budget, each spill's eight encoded
-// Lucene 2.x streams (.tis/.tii/.frq/.prx/.fnm + .nrm/segments_N/segments.gen)
-// are written to a single node-local TEMP FILE and the in-memory vectors are
-// freed. `spill_path` is the absolute path of that file; each stream's bytes
-// live at [offset, offset+length) within it. The encoded bytes are byte-for-byte
-// what an in-memory spill would have held, so the final .idx stays byte-identical.
+// To keep RAM bounded under the 256 MiB budget, each spill's encoded Lucene 2.x
+// streams (.tis/.tii/.frq/.prx/.fnm + segments_N/segments.gen) are STREAMED
+// directly to PER-STREAM node-local temp files as the encoder emits them — no
+// stream is ever fully buffered in RAM. The streams are interleaved during
+// EmitSegment (the encoder writes a little .tis, then .frq, then .prx, ...), so
+// they cannot share one sequentially-written file; each stream gets its own
+// file `<spill_path>.<ext>` (ext in {tis,tii,frq,prx,fnm,segments_n,
+// segments_gen}). `spill_path` is the absolute path stem; `<spill_path>.tis`
+// etc. are the actual files.
+//
+// The encoded bytes are byte-for-byte what an in-memory (MemoryByteOutput)
+// spill would have held — FileByteOutput::FilePointer() returns the running
+// total bytes written (flushed + staged), identical to MemoryByteOutput's
+// _bytes.size(), so every cross-stream offset the encoder records is unchanged.
+// Hence the final .idx stays byte-identical; only the storage path differs.
 struct SpillSegment {
     std::string segment_name; // "_spill_0", "_spill_1", ...
     int32_t doc_count = 0;    // max doc_id + 1 in this spill
     int64_t term_count = 0;   // distinct terms emitted
 
-    // Absolute path of the node-local tmp file holding the 8 concatenated streams.
+    // Absolute path stem of this spill's per-stream tmp files. The actual files
+    // are `<spill_path>.tis`, `<spill_path>.frq`, etc.
     std::string spill_path;
 
-    // Byte range of one stream within `spill_path`.
+    // Per-stream length. `length` is the full byte length of the stream's tmp
+    // file (== FileByteOutput::FilePointer() at Flush time). `offset` is always
+    // 0 now that each stream has its own file; it is retained so existing tests
+    // that reference `.length` keep compiling.
     struct Range {
         int64_t offset = 0;
         int64_t length = 0;
@@ -56,13 +69,19 @@ struct SpillSegment {
     Range fnm;
     Range segments_n;
     Range segments_gen;
+
+    // Path of one stream's tmp file: `<spill_path>.<ext>`.
+    std::string StreamPath(const char* ext) const { return spill_path + "." + ext; }
 };
 
 // Manages the spill-to-disk lifecycle of the SPIMI posting buffer. When the
 // buffer's `ShouldFlush()` fires (memory budget exceeded), the integration
-// layer calls `FlushBuffer()`, which sorts the buffer, emits a complete Lucene
-// segment into transient in-memory byte vectors, streams those encoded bytes
-// out to a node-local tmp file, frees the vectors, and resets the buffer.
+// layer calls `FlushBuffer()`, which sorts the buffer and emits a complete
+// Lucene segment, STREAMING each encoded stream directly to its own node-local
+// tmp file via FileByteOutput (no stream is ever fully buffered in RAM), then
+// resets the buffer. Only a small per-stream staging buffer is resident during
+// the flush, so the ~150-200 MB output-buffer transient of the old
+// MemoryByteOutput approach is gone.
 //
 // At finish() time the integration layer streams each spill back from its tmp
 // file (LoadSpill) and hands the resulting SegmentMerger::Input(s) to the
@@ -90,10 +109,11 @@ public:
     SpillManager(const SpillManager&) = delete;
     SpillManager& operator=(const SpillManager&) = delete;
 
-    // Sorts `buffer`, emits its contents as a complete Lucene segment into
-    // transient in-memory byte vectors, writes the eight encoded streams to a
-    // node-local tmp file (freeing the vectors), and calls `buffer.Reset()`.
-    // `doc_count` is the number of documents the segment covers.
+    // Sorts `buffer`, emits its contents as a complete Lucene segment, STREAMING
+    // each encoded stream directly to its own node-local tmp file
+    // (`<spill_path>.tis`, `.frq`, ...) via FileByteOutput, and calls
+    // `buffer.Reset()`. `doc_count` is the number of documents the segment
+    // covers.
     //
     // Returns the number of distinct terms emitted. Throws doris::Exception on
     // IO failure (create_file/append/close) so it flows through
@@ -101,9 +121,9 @@ public:
     // After this call, `buffer` is empty and ready for new Appends.
     int64_t FlushBuffer(SpimiPostingBuffer& buffer, int32_t doc_count);
 
-    // Streams spill `i`'s .tis/.tii/.frq/.prx back from its tmp file into `out`
-    // (the only streams the merge consumes). Resident cost is exactly one
-    // spill's four streams. Returns an error Status on IO failure.
+    // Streams spill `i`'s .tis/.tii/.frq/.prx back from their per-stream tmp
+    // files into `out` (the only streams the merge consumes). Resident cost is
+    // exactly one spill's four streams. Returns an error Status on IO failure.
     Status LoadSpill(size_t i, SegmentMerger::Input& out) const;
 
     size_t SpillCount() const { return _spills.size(); }

@@ -147,8 +147,8 @@ TEST(SpillManagerTest, SpillSegmentsHaveCompleteManifest) {
     mgr.FlushBuffer(buf, 1);
 
     const auto& s = mgr.Spills()[0];
-    // segments_N and segments.gen must be populated (now byte ranges in the
-    // tmp file rather than resident vectors).
+    // segments_N and segments.gen must be populated (now per-stream tmp-file
+    // lengths rather than resident vectors).
     EXPECT_GT(s.segments_n.length, 0);
     EXPECT_GT(s.segments_gen.length, 0);
     // .fnm must be populated (field info).
