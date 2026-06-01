@@ -1757,10 +1757,25 @@ DEFINE_String(ann_index_ivf_list_cache_limit, "70%");
 // Stale sweep time for ANN index IVF list cache in seconds. 3600s is 1 hour.
 DEFINE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec, "3600");
 
-// Chunk size for ANN/vector index building per training/adding batch
+// Target row count upper bound for ANN/vector index build add batch and training sample.
+// The effective build chunk also respects ann_index_build_chunk_bytes.
 // 1M By default.
 DEFINE_mInt64(ann_index_build_chunk_size, "1000000");
 DEFINE_Validator(ann_index_build_chunk_size,
+                 [](const int64_t config) -> bool { return config > 0; });
+
+// Target byte bound for ANN/vector index build add batch and memory buffer before flush.
+// If index-required minimum training rows cannot fit in this bound, skip ANN build for the segment.
+// 128MB By default.
+DEFINE_mInt64(ann_index_build_chunk_bytes, "134217728");
+DEFINE_Validator(ann_index_build_chunk_bytes,
+                 [](const int64_t config) -> bool { return config > 0; });
+
+// Maximum row count for ANN/vector index training sample.
+// The effective sample keeps at least the index-required minimum training rows.
+// 1M By default.
+DEFINE_mInt64(ann_index_build_max_train_rows, "1000000");
+DEFINE_Validator(ann_index_build_max_train_rows,
                  [](const int64_t config) -> bool { return config > 0; });
 
 DEFINE_mBool(enable_wal_tde, "false");
