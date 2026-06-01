@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -307,6 +308,13 @@ public class BrokerLoadJob extends BulkLoadJob {
                 }
                 boolean isEnableMemtableOnSinkNode =
                         table.getTableProperty().getUseSchemaLightChange() && this.enableMemTableOnSinkNode;
+                boolean hasInvertedIndexV1 = table.hasIndexOfType(IndexDef.IndexType.INVERTED)
+                        && table.getInvertedIndexFileStorageFormat()
+                        == org.apache.doris.thrift.TInvertedIndexFileStorageFormat.V1;
+                if (isPartialUpdate() || hasInvertedIndexV1 || Config.isCloudMode()) {
+                    isEnableMemtableOnSinkNode = false;
+                }
+
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = createTask(db, table, brokerFileGroups,
                         isEnableMemtableOnSinkNode, batchSize, aggKey, attachment);
