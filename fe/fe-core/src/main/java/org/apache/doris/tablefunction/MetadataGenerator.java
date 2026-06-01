@@ -23,6 +23,7 @@ import org.apache.doris.authentication.RoleMappingMeta;
 import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.DataSizeDisplayUtil;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
@@ -1853,11 +1854,14 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setStringVal("")); // NODEGROUP (not available)
                     trow.addToColumnValue(new TCell().setStringVal("")); // TABLESPACE_NAME (not available)
 
-                    Pair<Double, String> sizePair = DebugUtil.getByteUint(partition.getDataSize(false));
+                    Pair<Long, Long> displayDataSize = DataSizeDisplayUtil.getDisplayDataSize(partition);
+                    long localDataSize = displayDataSize.first;
+                    long remoteDataSize = displayDataSize.second;
+                    Pair<Double, String> sizePair = DebugUtil.getByteUint(localDataSize);
                     String readableDateSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
                             + sizePair.second;
                     trow.addToColumnValue(new TCell().setStringVal(readableDateSize));  // LOCAL_DATA_SIZE
-                    sizePair = DebugUtil.getByteUint(partition.getRemoteDataSize());
+                    sizePair = DebugUtil.getByteUint(remoteDataSize);
                     readableDateSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
                             + sizePair.second;
                     trow.addToColumnValue(new TCell().setStringVal(readableDateSize)); // REMOTE_DATA_SIZE
