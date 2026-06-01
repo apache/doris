@@ -24,6 +24,8 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessor;
 import org.apache.doris.nereids.processor.post.Validator;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -61,7 +63,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
     private boolean hasMaterialized = false;
 
     @Override
-    public Plan visitPhysicalTopN(PhysicalTopN topN, CascadesContext ctx) {
+    public Plan visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
         try {
             Plan result = computeTopN(topN, ctx);
             if (SessionVariable.isFeDebug()) {
@@ -75,7 +77,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         }
     }
 
-    private Plan computeTopN(PhysicalTopN topN, CascadesContext ctx) {
+    private Plan computeTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
         if (hasMaterialized) {
             return topN;
         }
@@ -106,12 +108,15 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         };
     }
 
-    private Plan doComputeTopN(PhysicalTopN topN, CascadesContext ctx, List<Slot> effectiveOutput) {
+    private Plan doComputeTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx, List<Slot> effectiveOutput) {
         Map<Slot, MaterializeSource> materializeMap = new HashMap<>();
         List<Slot> materializedSlots = new ArrayList<>();
+        Set<Slot> requiredMaterializedSlots = new HashSet<>();
+        collectProjectExprInputSlots(topN.child(), requiredMaterializedSlots);
 
         for (Slot slot : effectiveOutput) {
-            Optional<MaterializeSource> source = computeMaterializeSource(topN, (SlotReference) slot);
+            Optional<MaterializeSource> source = computeMaterializeSource(topN, (SlotReference) slot,
+                    requiredMaterializedSlots);
             if (source.isPresent()) {
                 SlotReference baseSlot = source.get().baseSlot;
                 if (source.get().baseSlot.hasSubColPath()
@@ -120,6 +125,18 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                 }
                 materializeMap.put(slot, source.get());
             } else {
+                materializedSlots.add(slot);
+            }
+        }
+        List<Slot> requiredOutputSlots = new ArrayList<>();
+        for (Map.Entry<Slot, MaterializeSource> entry : materializeMap.entrySet()) {
+            if (requiredMaterializedSlots.contains(entry.getKey())
+                    || requiredMaterializedSlots.contains(entry.getValue().baseSlot)) {
+                requiredOutputSlots.add(entry.getKey());
+            }
+        }
+        for (Slot slot : requiredOutputSlots) {
+            if (materializeMap.remove(slot) != null) {
                 materializedSlots.add(slot);
             }
         }
@@ -173,12 +190,16 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
 
         if (materializeInput == null) {
             // Row IDs are already at the tail in the correct order.
-            // Use result.getOutput() directly — do NOT reconstruct from
-            // materializedSlots + relationToRowId.values() because the
-            // latter iterates in hash order, which can differ from the
-            // actual child tuple layout for multi-relation lazy mat.
+            // Keep materialized slots in the same order as the child tuple layout.
+            List<Slot> reOrderedMaterializedSlots = new ArrayList<>();
+            for (Slot slot : result.getOutput()) {
+                if (rowIdSet.contains(slot)) {
+                    break;
+                }
+                reOrderedMaterializedSlots.add(slot);
+            }
             result = new PhysicalLazyMaterialize(result, result.getOutput(),
-                    materializedSlots, relationToLazySlotMap, relationToRowId, materializeMap,
+                    reOrderedMaterializedSlots, relationToLazySlotMap, relationToRowId, materializeMap,
                     null, ((AbstractPlan) result).getStats());
             hasMaterialized = true;
         } else {
@@ -196,6 +217,35 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             hasMaterialized = true;
         }
         return result;
+    }
+
+    private void collectProjectExprInputSlots(Plan plan, Set<Slot> requiredMaterializedSlots) {
+        if (plan instanceof PhysicalProject) {
+            PhysicalProject<?> project = (PhysicalProject<?>) plan;
+            for (NamedExpression projectExpr : project.getProjects()) {
+                if (projectExpr instanceof SlotReference) {
+                    continue;
+                }
+                if (projectExpr instanceof Alias && ((Alias) projectExpr).child() instanceof SlotReference) {
+                    SlotReference childSlot = (SlotReference) ((Alias) projectExpr).child();
+                    if (!childSlot.getOriginalColumn().isPresent()) {
+                        requiredMaterializedSlots.addAll(project.getInputSlots());
+                    }
+                    continue;
+                }
+                requiredMaterializedSlots.addAll(projectExpr.getInputSlots());
+            }
+        } else if (plan instanceof PhysicalCatalogRelation) {
+            for (Slot slot : plan.getOutput()) {
+                if (slot instanceof SlotReference && !((SlotReference) slot).getOriginalColumn().isPresent()) {
+                    requiredMaterializedSlots.addAll(plan.getOutputSet());
+                    break;
+                }
+            }
+        }
+        for (Plan child : plan.children()) {
+            collectProjectExprInputSlots(child, requiredMaterializedSlots);
+        }
     }
 
     private List<SlotReference> moveRowIdsToTail(List<Slot> slots, Set<SlotReference> rowIds) {
@@ -227,9 +277,11 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         return new ArrayList<>(materializeMap.keySet());
     }
 
-    private Optional<MaterializeSource> computeMaterializeSource(PhysicalTopN topN, SlotReference slot) {
+    private Optional<MaterializeSource> computeMaterializeSource(PhysicalTopN<? extends Plan> topN, SlotReference slot,
+            Set<Slot> requiredMaterializedSlots) {
         MaterializeProbeVisitor probe = new MaterializeProbeVisitor();
-        MaterializeProbeVisitor.ProbeContext context = new MaterializeProbeVisitor.ProbeContext(slot);
+        MaterializeProbeVisitor.ProbeContext context = new MaterializeProbeVisitor.ProbeContext(slot,
+                requiredMaterializedSlots);
         return probe.visit(topN, context);
     }
 }

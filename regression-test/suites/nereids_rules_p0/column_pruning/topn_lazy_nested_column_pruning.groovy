@@ -339,4 +339,27 @@ suite("topn_lazy_nested_column_pruning") {
         order by id
         limit 3
     """
+
+    // =============================================
+    // Test 18: Project expression kept below TopN still needs its input slot
+    // =============================================
+    sql """ set enable_topn_expr_pullup = false; """
+    explain {
+        sql """
+            select *, substring(struct_element(struct_col, 'city'), 1) as city
+            from ncp_tbl
+            order by id
+            limit 3
+        """
+        contains("VMaterializeNode")
+        contains("final projections: id[#0], struct_col[#2], substring(struct_element(struct_col[#2]")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__ncp_tbl]")
+    }
+    qt_project_under_topn_consumed_slot """
+        select *, substring(struct_element(struct_col, 'city'), 1) as city
+        from ncp_tbl
+        order by id
+        limit 3
+    """
+    sql """ set enable_topn_expr_pullup = true; """
 }

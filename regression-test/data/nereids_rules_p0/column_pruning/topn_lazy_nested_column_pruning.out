@@ -23,3 +23,17 @@
 -- !array_using_index_result --
 1	1
 
+-- !struct_col_order_result --
+\N	1
+
+-- !variant_col_order_result --
+张三	1	aaa
+李四	2	bbb
+王五	3	ccc
+
+-- !map_col_order_result --
+1	1
+
+-- !project_under_topn_consumed_slot --
+1	hello	{"city":null, "zip":10001}	[1, 2, 3]	{"a":1, "b":2}	1	\N
+
