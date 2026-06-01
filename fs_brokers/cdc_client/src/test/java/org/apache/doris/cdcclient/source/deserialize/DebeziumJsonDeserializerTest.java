@@ -20,6 +20,7 @@ package org.apache.doris.cdcclient.source.deserialize;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
+import java.time.ZoneId;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -69,6 +70,48 @@ class DebeziumJsonDeserializerTest {
                             "convertTimestamp", String.class, Object.class);
             m.setAccessible(true);
             return m.invoke(deserializer, typeName, dbzObj);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    // ─── convertZoneTime ──────────────────────────────────────────────────────
+    // timetz arrives as a UTC-normalized ISO string; the method renders it to
+    // serverTimeZone (mirrors timestamptz) and emits an offset-less wall clock.
+
+    @Test
+    void zoneTime_utc_keepsUtcWallClock() {
+        deserializer.setServerTimeZone(ZoneId.of("UTC"));
+        assertEquals("12:00:00.123456", invokeConvertZoneTime("12:00:00.123456Z"));
+    }
+
+    @Test
+    void zoneTime_plus08_shiftsForward() {
+        deserializer.setServerTimeZone(ZoneId.of("+08:00"));
+        // 12:00 UTC rendered at +08 -> 20:00
+        assertEquals("20:00:00.123456", invokeConvertZoneTime("12:00:00.123456Z"));
+    }
+
+    @Test
+    void zoneTime_minus05_wrapsAcrossMidnight() {
+        deserializer.setServerTimeZone(ZoneId.of("-05:00"));
+        // 01:00 UTC rendered at -05 -> 20:00 (time-of-day wraps; date dropped)
+        assertEquals("20:00:00.123456", invokeConvertZoneTime("01:00:00.123456Z"));
+    }
+
+    @Test
+    void zoneTime_wholeSecond_omitsFraction() {
+        deserializer.setServerTimeZone(ZoneId.of("UTC"));
+        // LocalTime.toString drops seconds when both second and nano are zero
+        assertEquals("00:00", invokeConvertZoneTime("00:00:00Z"));
+    }
+
+    private Object invokeConvertZoneTime(Object dbzObj) {
+        try {
+            Method m =
+                    DebeziumJsonDeserializer.class.getDeclaredMethod("convertZoneTime", Object.class);
+            m.setAccessible(true);
+            return m.invoke(deserializer, dbzObj);
         } catch (ReflectiveOperationException e) {
             throw new RuntimeException(e);
         }

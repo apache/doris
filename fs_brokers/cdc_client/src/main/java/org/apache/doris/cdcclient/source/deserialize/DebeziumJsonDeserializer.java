@@ -37,7 +37,9 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -69,6 +71,7 @@ import io.debezium.time.NanoTime;
 import io.debezium.time.NanoTimestamp;
 import io.debezium.time.Time;
 import io.debezium.time.Timestamp;
+import io.debezium.time.ZonedTime;
 import io.debezium.time.ZonedTimestamp;
 import lombok.Getter;
 import lombok.Setter;
@@ -255,6 +258,8 @@ public class DebeziumJsonDeserializer
                     return convertTimestamp(name, dbzObj);
                 case ZonedTimestamp.SCHEMA_NAME:
                     return convertZoneTimestamp(dbzObj);
+                case ZonedTime.SCHEMA_NAME:
+                    return convertZoneTime(dbzObj);
                 case Decimal.LOGICAL_NAME:
                     return convertDecimal(dbzObj, fieldSchema);
                 case Bits.LOGICAL_NAME:
@@ -314,6 +319,18 @@ public class DebeziumJsonDeserializer
                     .toString();
         }
         LOG.warn("Unable to convert to zone timestamp, default {}", dbzObj);
+        return dbzObj.toString();
+    }
+
+    private Object convertZoneTime(Object dbzObj) {
+        // timetz arrives as a UTC-normalized ISO string; render it via serverTimeZone, mirroring
+        // timestamptz.
+        if (dbzObj instanceof String) {
+            OffsetTime utcTime = OffsetTime.parse((String) dbzObj);
+            ZoneOffset offset = serverTimeZone.getRules().getOffset(Instant.EPOCH);
+            return utcTime.withOffsetSameInstant(offset).toLocalTime().toString();
+        }
+        LOG.warn("Unable to convert to zone time, default {}", dbzObj);
         return dbzObj.toString();
     }
 
