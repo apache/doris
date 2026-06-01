@@ -370,10 +370,10 @@ public class ConnectContext {
         lastDBOfCatalog.clear();
     }
 
-    public void resetConnection() {
-        closeTxn();
+    public void resetConnection() throws UserException {
+        closeTxnForConnectionReset();
         if (!dbToTempTableNamesMap.isEmpty()) {
-            deleteTempTable();
+            cleanupTemporaryTables(true);
         }
         dbToTempTableNamesMap.clear();
         resetSessionVariable();
@@ -382,8 +382,7 @@ public class ConnectContext {
         preparedStatementContextMap.clear();
         preparedStmtId = Integer.MIN_VALUE;
         runningQuery = null;
-        changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
-        clearLastDBOfCatalog();
+        insertResult = null;
         command = MysqlCommand.COM_SLEEP;
         returnRows = 0;
     }
@@ -523,6 +522,18 @@ public class ConnectContext {
             } catch (Exception e) {
                 LOG.error("db: {}, txnId: {}, rollback error.", currentDb,
                         txnEntry.getTransactionId(), e);
+            }
+            txnEntry = null;
+        }
+    }
+
+    private void closeTxnForConnectionReset() throws DdlException {
+        if (isTxnModel()) {
+            try {
+                txnEntry.abortTransaction();
+            } catch (Exception e) {
+                throw new DdlException(String.format("rollback transaction failed, db: %s, txnId: %s",
+                        currentDb, txnEntry.getTransactionId()), e);
             }
             txnEntry = null;
         }
@@ -949,6 +960,14 @@ public class ConnectContext {
     }
 
     protected void deleteTempTable() {
+        try {
+            cleanupTemporaryTables(false);
+        } catch (DdlException e) {
+            LOG.error("drop temporary table error", e);
+        }
+    }
+
+    private void cleanupTemporaryTables(boolean reportFailure) throws DdlException {
         // only delete temporary table in its creating session, not proxy session in master fe
         if (isProxy) {
             return;
@@ -957,13 +976,20 @@ public class ConnectContext {
         // if current fe is master, delete temporary table directly
         if (Env.getCurrentEnv().isMaster()) {
             for (String dbName : dbToTempTableNamesMap.keySet()) {
-                Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbName).get();
                 for (String tableName : dbToTempTableNamesMap.get(dbName)) {
                     LOG.info("try to drop temporary table: {}.{}", dbName, tableName);
                     try {
+                        Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbName).get();
                         Env.getCurrentEnv().getInternalCatalog()
                             .dropTableWithoutCheck(db, db.getTable(tableName).get(), false, true);
-                    } catch (DdlException e) {
+                    } catch (Exception e) {
+                        if (reportFailure) {
+                            if (e instanceof DdlException) {
+                                throw (DdlException) e;
+                            }
+                            throw new DdlException(String.format(
+                                    "drop temporary table error: db: %s, table: %s", dbName, tableName), e);
+                        }
                         LOG.error("drop temporary table error: {}.{}", dbName, tableName, e);
                     }
                 }
@@ -983,6 +1009,11 @@ public class ConnectContext {
                     try {
                         masterOpExecutor.execute();
                     } catch (Exception e) {
+                        if (reportFailure) {
+                            throw new DdlException(String.format(
+                                    "master FE drop temporary table error: db: %s, table: %s",
+                                    dbName, tableName), e);
+                        }
                         LOG.error("master FE drop temporary table error: db: {}, table: {}", dbName, tableName, e);
                     }
                 }

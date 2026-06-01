@@ -32,12 +32,15 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Lists;
 import org.junit.Assert;
@@ -98,11 +101,13 @@ public class ConnectContextTest {
         ctx.setRunningQuery("select 1");
         ctx.setCommand(MysqlCommand.COM_QUERY);
         ctx.updateReturnRows(10);
+        ctx.setOrUpdateInsertResult(1, "label", "test_db", "test_table", TransactionStatus.VISIBLE, 1, 0);
 
         Assert.assertEquals(0, ctx.getSessionVariable().getSqlSelectLimit());
         Assert.assertEquals(1, ctx.getSessionVariable().getQueryTimeoutS());
         Assert.assertEquals(2, ctx.getSessionVariable().getInsertTimeoutS());
         Assert.assertFalse(ctx.getUserVars().isEmpty());
+        Assert.assertNotNull(ctx.getInsertResult());
 
         ctx.resetConnection();
 
@@ -110,13 +115,45 @@ public class ConnectContextTest {
         Assert.assertEquals(123, ctx.getSessionVariable().getQueryTimeoutS());
         Assert.assertEquals(456, ctx.getSessionVariable().getInsertTimeoutS());
         Assert.assertTrue(ctx.getUserVars().isEmpty());
-        Assert.assertEquals(InternalCatalog.INTERNAL_CATALOG_NAME, ctx.getDefaultCatalog());
-        Assert.assertEquals("", ctx.getDatabase());
-        Assert.assertNull(ctx.getLastDBOfCatalog("external_catalog"));
+        Assert.assertEquals("external_catalog", ctx.getDefaultCatalog());
+        Assert.assertEquals("test_db", ctx.getDatabase());
+        Assert.assertEquals("test_db", ctx.getLastDBOfCatalog("external_catalog"));
         Assert.assertNull(ctx.getPreparedQuery("1"));
         Assert.assertNull(ctx.getRunningQuery());
+        Assert.assertNull(ctx.getInsertResult());
         Assert.assertEquals(MysqlCommand.COM_SLEEP, ctx.getCommand());
         Assert.assertEquals(0, ctx.getReturnRows());
+    }
+
+    @Test
+    public void testHandleResetConnectionReturnsAutocommitServerStatus() {
+        ConnectContext ctx = new ConnectContext();
+        ConnectProcessor processor = new ConnectProcessor(ctx) {
+        };
+
+        ctx.getState().reset();
+        processor.handleResetConnection();
+
+        Assert.assertEquals(MysqlServerStatusFlag.SERVER_STATUS_AUTOCOMMIT, ctx.getState().serverStatus);
+    }
+
+    @Test
+    public void testHandleResetConnectionReturnsErrorOnResetFailure() {
+        ConnectContext ctx = new ConnectContext() {
+            @Override
+            public void resetConnection() throws DdlException {
+                throw new DdlException("reset connection failed");
+            }
+        };
+        ConnectProcessor processor = new ConnectProcessor(ctx) {
+        };
+
+        ctx.getState().reset();
+        processor.handleResetConnection();
+
+        Assert.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+        Assert.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, ctx.getState().getErrorCode());
+        Assert.assertTrue(ctx.getState().getErrorMessage().contains("reset connection failed"));
     }
 
     @Test
