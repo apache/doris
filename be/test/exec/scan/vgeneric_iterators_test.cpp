@@ -44,19 +44,26 @@ public:
 
 static Schema create_schema() {
     std::vector<TabletColumnPtr> col_schemas;
-    col_schemas.emplace_back(
-            std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
-                                           FieldType::OLAP_FIELD_TYPE_SMALLINT, true));
+    auto c1 = std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                                             FieldType::OLAP_FIELD_TYPE_SMALLINT, true);
+    c1->set_is_key(true);
+    col_schemas.emplace_back(c1);
     // c2: int
-    col_schemas.emplace_back(
-            std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
-                                           FieldType::OLAP_FIELD_TYPE_INT, true));
+    auto c2 = std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                                             FieldType::OLAP_FIELD_TYPE_INT, true);
+    c2->set_is_key(true);
+    col_schemas.emplace_back(c2);
     // c3: big int
     col_schemas.emplace_back(
             std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
                                            FieldType::OLAP_FIELD_TYPE_BIGINT, true));
 
-    Schema schema(col_schemas, 2);
+    std::vector<ColumnId> column_ids(col_schemas.size());
+    for (uint32_t cid = 0; cid < column_ids.size(); ++cid) {
+        column_ids[cid] = cid;
+    }
+
+    Schema schema(col_schemas, column_ids);
     return schema;
 }
 

@@ -302,6 +302,9 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         throw new RuntimeException();
     }
 
+    // `inferred` means this predicate was derived by optimizer rules and did not exist in
+    // the original SQL. If an equivalent predicate already exists in the original SQL,
+    // it is not inferred even when the optimizer can derive the same predicate again.
     public Expression withInferred(boolean inferred) {
         throw new RuntimeException("current expression has not impl the withInferred method");
     }

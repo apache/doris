@@ -22,12 +22,14 @@
 
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "exec/exchange/local_exchange_source_operator.h"
 #include "exec/operator/aggregation_sink_operator.h"
 #include "exec/operator/aggregation_source_operator.h"
 #include "exec/operator/assert_num_rows_operator.h"
 #include "exec/operator/mock_operator.h"
 #include "exec/operator/operator_helper.h"
 #include "exec/pipeline/dependency.h"
+#include "exec/pipeline/pipeline.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
 #include "testutil/mock/mock_slot_ref.h"
@@ -81,7 +83,13 @@ struct MockAggsinkOperator : public AggSinkOperatorX {
 
     Status _init_probe_expr_ctx(RuntimeState* state) override { return Status::OK(); }
 
-    Status _init_aggregate_evaluators(RuntimeState* state) override { return Status::OK(); }
+    Status _init_aggregate_evaluators(RuntimeState* state) override {
+        _is_merge = false;
+        for (auto* evaluator : _aggregate_evaluators) {
+            _is_merge |= evaluator->is_merge();
+        }
+        return Status::OK();
+    }
 
     Status _check_agg_fn_output() override { return Status::OK(); }
 };
@@ -92,6 +100,23 @@ struct MockAggSourceOperator : public AggSourceOperatorX {
     std::unique_ptr<RowDescriptor> mock_row_descriptor;
 };
 
+class MockDistributionOperator final : public OperatorX<MockLocalState> {
+public:
+    MockDistributionOperator(ExchangeType exchange_type) : _exchange_type(exchange_type) {}
+
+    Status get_block(RuntimeState* /*state*/, Block* /*block*/, bool* eos) override {
+        *eos = true;
+        return Status::OK();
+    }
+
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
+        return {_exchange_type};
+    }
+
+private:
+    ExchangeType _exchange_type;
+};
+
 std::shared_ptr<AggSinkOperatorX> create_agg_sink_op(OperatorContext& ctx, bool is_merge,
                                                      bool without_key) {
     auto op = std::make_shared<MockAggsinkOperator>();
@@ -100,6 +125,44 @@ std::shared_ptr<AggSinkOperatorX> create_agg_sink_op(OperatorContext& ctx, bool 
     op->_pool = &ctx.pool;
     EXPECT_TRUE(op->prepare(&ctx.state).ok());
     return op;
+}
+
+TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_child_exchange) {
+    OperatorContext ctx;
+    auto sink_op = std::make_shared<MockAggsinkOperator>();
+    sink_op->_partition_exprs.emplace_back();
+    sink_op->_needs_finalize = false;
+    OperatorPtr child =
+            std::make_shared<MockDistributionOperator>(ExchangeType::ADAPTIVE_PASSTHROUGH);
+    sink_op->_child = child;
+
+    const auto distribution = sink_op->required_data_distribution(&ctx.state);
+    EXPECT_EQ(ExchangeType::HASH_SHUFFLE, distribution.distribution_type);
+}
+
+TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_local_exchange) {
+    OperatorContext ctx;
+    auto sink_op = std::make_shared<MockAggsinkOperator>();
+    sink_op->_needs_finalize = false;
+    OperatorPtr child = std::make_shared<LocalExchangeSourceOperatorX>();
+    EXPECT_TRUE(child->init(ExchangeType::ADAPTIVE_PASSTHROUGH).ok());
+    sink_op->_child = child;
+
+    TExpr distinct_agg_expr;
+    distinct_agg_expr.nodes.emplace_back();
+    distinct_agg_expr.nodes[0].fn.name.function_name = "multi_distinct_count";
+    TPlanNode tnode;
+    tnode.agg_node.aggregate_functions.push_back(distinct_agg_expr);
+    tnode.__set_distribute_expr_lists({{TExpr {}}});
+    sink_op->update_operator(tnode, false, false);
+
+    const auto distribution = sink_op->required_data_distribution(&ctx.state);
+    EXPECT_EQ(ExchangeType::HASH_SHUFFLE, distribution.distribution_type);
+
+    Pipeline pipeline(0, 4, 4);
+    EXPECT_TRUE(pipeline.add_operator(child, 0).ok());
+    pipeline.set_data_distribution(DataDistribution(ExchangeType::HASH_SHUFFLE));
+    EXPECT_TRUE(pipeline.need_to_local_exchange(distribution, 1));
 }
 
 std::shared_ptr<AggSourceOperatorX> create_agg_source_op(OperatorContext& ctx, bool without_key,

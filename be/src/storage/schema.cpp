@@ -53,7 +53,6 @@ Schema& Schema::operator=(const Schema& other) {
 
 void Schema::_copy_from(const Schema& other) {
     _col_ids = other._col_ids;
-    _unique_ids = other._unique_ids;
     _num_key_columns = other._num_key_columns;
     _delete_sign_idx = other._delete_sign_idx;
     _has_sequence_col = other._has_sequence_col;
@@ -61,7 +60,6 @@ void Schema::_copy_from(const Schema& other) {
     _version_col_idx = other._version_col_idx;
     _lsn_col_idx = other._lsn_col_idx;
     _tso_col_idx = other._tso_col_idx;
-    _mem_size = other._mem_size;
 
     _cols.resize(other._cols.size());
     for (auto cid : _col_ids) {

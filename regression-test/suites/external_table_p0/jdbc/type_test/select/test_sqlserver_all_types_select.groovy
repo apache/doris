@@ -21,6 +21,7 @@ suite("test_sqlserver_all_types_select", "p0,external") {
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar"
+    String driver_url13 = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mssql-jdbc-13.4.0.jre8.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String sqlserver_port = context.config.otherConfigs.get("sqlserver_2022_port");
 
@@ -43,5 +44,18 @@ suite("test_sqlserver_all_types_select", "p0,external") {
         qt_select_all_types_multi_block """select count(*) from dbo.extreme_test_multi_block;"""
 
         sql """drop catalog if exists sqlserver_all_type_test """
+
+        sql """drop catalog if exists sqlserver_13_test """
+        sql """create catalog if not exists sqlserver_13_test properties(
+                    "type"="jdbc",
+                    "user"="sa",
+                    "password"="Doris123456",
+                    "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};encrypt=false;databaseName=doris_test;",
+                    "driver_url" = "${driver_url13}",
+                    "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+        );"""
+        sql """switch sqlserver_13_test"""
+        qt_order_show_db """show databases"""
+        sql """drop catalog if exists sqlserver_13_test """
     }
 }

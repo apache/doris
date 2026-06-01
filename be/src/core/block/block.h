@@ -413,9 +413,6 @@ public:
         return res;
     }
 
-    // for String type or Array<String> type
-    void shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx);
-
     void clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
                                    bool need_keep_first);
 

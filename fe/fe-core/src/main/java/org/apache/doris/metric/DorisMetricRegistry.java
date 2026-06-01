@@ -27,11 +27,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 public class DorisMetricRegistry {
     ConcurrentHashMap<String, MetricList> metrics = new ConcurrentHashMap<>();
     ConcurrentHashMap<String, MetricList> systemMetrics = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, HistogramMetricGroup> histogramMetricGroups = new ConcurrentHashMap<>();
 
     public DorisMetricRegistry() {
 
@@ -56,6 +58,18 @@ public class DorisMetricRegistry {
         }
     }
 
+    public void addHistogramMetrics(String name, AutoMappedMetric<HistogramMetric> histogramMetrics) {
+        addHistogramMetrics(name, histogramMetrics, () -> true);
+    }
+
+    public void addHistogramMetrics(String name, AutoMappedMetric<HistogramMetric> histogramMetrics,
+            Supplier<Boolean> enabled) {
+        // Same reason as comment in addMetrics()
+        if (!Env.isCheckpointThread()) {
+            histogramMetricGroups.put(name, new HistogramMetricGroup(histogramMetrics, enabled));
+        }
+    }
+
     public void accept(MetricVisitor visitor) {
         final List<MetricList> metricsList = Lists.newArrayList();
         metrics.forEach((name, list) -> metricsList.add(list));
@@ -69,6 +83,18 @@ public class DorisMetricRegistry {
         for (MetricList list : sysMetricsList) {
             for (Metric metric : list.getMetrics()) {
                 visitor.visit(MetricVisitor.SYS_PREFIX, metric);
+            }
+        }
+    }
+
+    public void acceptHistograms(MetricVisitor visitor) {
+        for (HistogramMetricGroup group : histogramMetricGroups.values()) {
+            if (!group.enabled.get()) {
+                continue;
+            }
+            for (HistogramMetric metric : group.histogramMetrics.getMetrics().values()) {
+                visitor.visitHistogram(MetricVisitor.FE_PREFIX,
+                        metric.getName(), metric.getHistogram(), metric.getLabels());
             }
         }
     }
@@ -130,6 +156,16 @@ public class DorisMetricRegistry {
 
         private synchronized void removeByLabelId(String labelId) {
             metrics.remove(labelId);
+        }
+    }
+
+    private static class HistogramMetricGroup {
+        private final AutoMappedMetric<HistogramMetric> histogramMetrics;
+        private final Supplier<Boolean> enabled;
+
+        private HistogramMetricGroup(AutoMappedMetric<HistogramMetric> histogramMetrics, Supplier<Boolean> enabled) {
+            this.histogramMetrics = histogramMetrics;
+            this.enabled = enabled;
         }
     }
 }

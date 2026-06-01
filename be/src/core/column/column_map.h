@@ -43,6 +43,7 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exec/common/sip_hash.h"
+#include "util/defer_op.h"
 
 class SipHash;
 
@@ -74,9 +75,14 @@ public:
     std::string get_name() const override;
 
     void for_each_subcolumn(ColumnCallback callback) override {
+        IColumn::WrappedPtr offsets(std::move(static_cast<COffsets::Ptr&>(offsets_column)));
+        Defer defer([&] {
+            static_cast<COffsets::Ptr&>(offsets_column) =
+                    cast_to_column<COffsets>(static_cast<const IColumn::Ptr&>(offsets));
+        });
         callback(keys_column);
         callback(values_column);
-        callback(offsets_column);
+        callback(offsets);
     }
 
     void sanity_check() const override {
@@ -115,7 +121,6 @@ public:
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
-    void shrink_padding_chars() override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
@@ -132,18 +137,17 @@ public:
                                "Method replace_column_data is not supported for " + get_name());
     }
 
-    ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() {
-        return assert_cast<COffsets&, TypeCheckOnRelease::DISABLE>(*offsets_column).get_data();
-    }
+    ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() { return offsets_column->get_data(); }
     const ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() const {
-        return assert_cast<const COffsets&, TypeCheckOnRelease::DISABLE>(*offsets_column)
-                .get_data();
+        return offsets_column->get_data();
     }
-    IColumn& get_offsets_column() { return *offsets_column; }
-    const IColumn& get_offsets_column() const { return *offsets_column; }
+    COffsets& get_offsets_column() { return *offsets_column; }
+    const COffsets& get_offsets_column() const { return *offsets_column; }
 
-    const ColumnPtr& get_offsets_ptr() const { return offsets_column; }
-    ColumnPtr& get_offsets_ptr() { return offsets_column; }
+    const COffsets::Ptr& get_offsets_ptr() const {
+        return static_cast<const COffsets::Ptr&>(offsets_column);
+    }
+    COffsets::Ptr& get_offsets_ptr() { return static_cast<COffsets::Ptr&>(offsets_column); }
 
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
 
@@ -180,9 +184,13 @@ public:
     IColumn& get_keys() { return *keys_column; }
 
     const ColumnPtr get_keys_array_ptr() const {
-        return ColumnArray::create(keys_column, offsets_column);
+        return ColumnArray::create(keys_column,
+                                   static_cast<const IColumn::Ptr&>(get_offsets_ptr()));
     }
-    ColumnPtr get_keys_array_ptr() { return ColumnArray::create(keys_column, offsets_column); }
+    ColumnPtr get_keys_array_ptr() {
+        return ColumnArray::create(keys_column,
+                                   static_cast<const IColumn::Ptr&>(get_offsets_ptr()));
+    }
 
     const ColumnPtr& get_values_ptr() const { return values_column; }
     ColumnPtr& get_values_ptr() { return values_column; }
@@ -191,9 +199,13 @@ public:
     IColumn& get_values() { return *values_column; }
 
     const ColumnPtr get_values_array_ptr() const {
-        return ColumnArray::create(values_column, offsets_column);
+        return ColumnArray::create(values_column,
+                                   static_cast<const IColumn::Ptr&>(get_offsets_ptr()));
     }
-    ColumnPtr get_values_array_ptr() { return ColumnArray::create(values_column, offsets_column); }
+    ColumnPtr get_values_array_ptr() {
+        return ColumnArray::create(values_column,
+                                   static_cast<const IColumn::Ptr&>(get_offsets_ptr()));
+    }
 
     size_t ALWAYS_INLINE size_at(ssize_t i) const {
         return get_offsets()[i] - get_offsets()[i - 1];
@@ -240,9 +252,9 @@ public:
 private:
     friend class COWHelper<IColumn, ColumnMap>;
 
-    WrappedPtr keys_column;    // nullable
-    WrappedPtr values_column;  // nullable
-    WrappedPtr offsets_column; // offset
+    IColumn::WrappedPtr keys_column;     // nullable
+    IColumn::WrappedPtr values_column;   // nullable
+    COffsets::WrappedPtr offsets_column; // offset
 
     ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, MutableColumnPtr&& offsets);
     ColumnMap(SharedTag, ColumnPtr keys, ColumnPtr values, ColumnPtr offsets);

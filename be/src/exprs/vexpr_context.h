@@ -389,7 +389,7 @@ public:
             const std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>&
                     common_expr_to_slotref_map,
             roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-            bool enable_result_cache);
+            bool enable_result_cache, bool* ann_range_search_executed);
 
     uint64_t get_digest(uint64_t seed) const;
 

@@ -379,8 +379,23 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
     } else {
         // TODO add precision and frac
-        nested = _create_primitive_data_type(static_cast<FieldType>(pcolumn.type()),
-                                             pcolumn.precision(), pcolumn.frac(), -1);
+        auto meta_precision = pcolumn.precision();
+        auto meta_scale = pcolumn.frac();
+        if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_DECIMAL)) {
+            // Segments written by Doris < 2.1.0 (before #26572) do not persist
+            // precision/frac in ColumnMetaPB, so they default to 0 when read back.
+            // Pass UINT32_MAX to DataTypeDecimalV2 to signal that the original
+            // precision/scale are unknown; otherwise check_type_precision(0) throws
+            // "meet invalid precision: real_precision=0".
+            UInt32 orig_precision =
+                    meta_precision > 0 ? static_cast<UInt32>(meta_precision) : UINT32_MAX;
+            UInt32 orig_scale = meta_precision > 0 ? static_cast<UInt32>(meta_scale) : UINT32_MAX;
+            nested = _create_primitive_data_type(static_cast<FieldType>(pcolumn.type()),
+                                                 orig_precision, orig_scale, -1);
+        } else {
+            nested = _create_primitive_data_type(static_cast<FieldType>(pcolumn.type()),
+                                                 meta_precision, meta_scale, -1);
+        }
     }
 
     if (pcolumn.is_nullable() && nested) {

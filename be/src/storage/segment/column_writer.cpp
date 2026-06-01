@@ -130,18 +130,19 @@ inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
     null_options.meta->set_is_nullable(false);
     null_options.meta->set_length(
             cast_set<int32_t>(field_type_size(FieldType::OLAP_FIELD_TYPE_TINYINT)));
-    null_options.meta->set_encoding(DEFAULT_ENCODING);
     null_options.meta->set_compression(opts.meta->compression());
 
     null_options.need_zone_map = false;
     null_options.need_bloom_filter = false;
-    null_options.encoding_preference = opts.encoding_preference;
+    null_options.storage_format = opts.storage_format;
 
     auto null_column_ptr = std::make_shared<TabletColumn>(
             FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, null_type, false,
             null_options.meta->unique_id(), null_options.meta->length());
     null_column_ptr->set_name("nullable");
     null_column_ptr->set_index_length(-1); // no short key index
+    null_options.meta->set_encoding(
+            EncodingInfo::resolve_default_encoding(opts.storage_format, *null_column_ptr));
     return new ScalarColumnWriter(null_options, std::move(null_column_ptr), file_writer);
 }
 
@@ -165,7 +166,7 @@ Status ColumnWriter::create_struct_writer(const ColumnWriterOptions& opts,
         column_options.meta = opts.meta->mutable_children_columns(i);
         column_options.need_zone_map = false;
         column_options.need_bloom_filter = sub_column.is_bf_column();
-        column_options.encoding_preference = opts.encoding_preference;
+        column_options.storage_format = opts.storage_format;
         std::unique_ptr<ColumnWriter> sub_column_writer;
         RETURN_IF_ERROR(
                 ColumnWriter::create(column_options, &sub_column, file_writer, &sub_column_writer));
@@ -192,7 +193,7 @@ Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
     item_options.meta = opts.meta->mutable_children_columns(0);
     item_options.need_zone_map = false;
     item_options.need_bloom_filter = item_column.is_bf_column();
-    item_options.encoding_preference = opts.encoding_preference;
+    item_options.storage_format = opts.storage_format;
     std::unique_ptr<ColumnWriter> item_writer;
     RETURN_IF_ERROR(ColumnWriter::create(item_options, &item_column, file_writer, &item_writer));
 
@@ -207,12 +208,11 @@ Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
     length_options.meta->set_is_nullable(false);
     length_options.meta->set_length(
             cast_set<int32_t>(field_type_size(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT)));
-    length_options.meta->set_encoding(DEFAULT_ENCODING);
     length_options.meta->set_compression(opts.meta->compression());
 
     length_options.need_zone_map = false;
     length_options.need_bloom_filter = false;
-    length_options.encoding_preference = opts.encoding_preference;
+    length_options.storage_format = opts.storage_format;
 
     auto length_column_ptr = std::make_shared<TabletColumn>(
             FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, length_type,
@@ -220,6 +220,8 @@ Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
             length_options.meta->length());
     length_column_ptr->set_name("length");
     length_column_ptr->set_index_length(-1); // no short key index
+    length_options.meta->set_encoding(
+            EncodingInfo::resolve_default_encoding(opts.storage_format, *length_column_ptr));
     auto* length_writer =
             new OffsetColumnWriter(length_options, std::move(length_column_ptr), file_writer);
 
@@ -251,7 +253,7 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
         item_options.meta = opts.meta->mutable_children_columns(i);
         item_options.need_zone_map = false;
         item_options.need_bloom_filter = item_column.is_bf_column();
-        item_options.encoding_preference = opts.encoding_preference;
+        item_options.storage_format = opts.storage_format;
         std::unique_ptr<ColumnWriter> item_writer;
         RETURN_IF_ERROR(
                 ColumnWriter::create(item_options, &item_column, file_writer, &item_writer));
@@ -270,12 +272,11 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
     length_options.meta->set_is_nullable(false);
     length_options.meta->set_length(
             cast_set<int32_t>(field_type_size(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT)));
-    length_options.meta->set_encoding(DEFAULT_ENCODING);
     length_options.meta->set_compression(opts.meta->compression());
 
     length_options.need_zone_map = false;
     length_options.need_bloom_filter = false;
-    length_options.encoding_preference = opts.encoding_preference;
+    length_options.storage_format = opts.storage_format;
 
     auto length_column_ptr = std::make_shared<TabletColumn>(
             FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, length_type,
@@ -283,6 +284,8 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
             length_options.meta->length());
     length_column_ptr->set_name("length");
     length_column_ptr->set_index_length(-1); // no short key index
+    length_options.meta->set_encoding(
+            EncodingInfo::resolve_default_encoding(opts.storage_format, *length_column_ptr));
     auto* length_writer =
             new OffsetColumnWriter(length_options, std::move(length_column_ptr), file_writer);
 
@@ -487,22 +490,28 @@ Status ScalarColumnWriter::init() {
 
     PageBuilder* page_builder = nullptr;
 
-    RETURN_IF_ERROR(EncodingInfo::get(get_column()->type(), _opts.meta->encoding(),
-                                      _opts.encoding_preference, &_encoding_info));
-    _opts.meta->set_encoding(_encoding_info->encoding());
+    // Caller must set a concrete (non-DEFAULT) encoding on the meta before init.
+    if (_opts.meta->encoding() == DEFAULT_ENCODING) {
+        return Status::InternalError(
+                "ColumnMetaPB encoding is DEFAULT_ENCODING for column_id={}, type={}; caller must "
+                "resolve to a concrete encoding before ScalarColumnWriter::init",
+                _opts.meta->column_id(), get_column()->type());
+    }
+    RETURN_IF_ERROR(
+            EncodingInfo::get(get_column()->type(), _opts.meta->encoding(), &_encoding_info));
     // create page builder
     PageBuilderOptions opts;
     opts.data_page_size = _opts.data_page_size;
     opts.dict_page_size = _opts.dict_page_size;
-    opts.encoding_preference = _opts.encoding_preference;
+    opts.dict_binary_plain_encoding =
+            (_opts.storage_format == TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3)
+                    ? BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
+                    : BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
     RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &page_builder));
     if (page_builder == nullptr) {
         return Status::NotSupported("Failed to create page builder for type {} and encoding {}",
                                     get_column()->type(), _opts.meta->encoding());
     }
-    // should store more concrete encoding type instead of DEFAULT_ENCODING
-    // because the default encoding of a data type can be changed in the future
-    DCHECK_NE(_opts.meta->encoding(), DEFAULT_ENCODING);
     VLOG_DEBUG << fmt::format(
             "[verbose] scalar column writer init, column_id={}, type={}, encoding={}, "
             "is_nullable={}",

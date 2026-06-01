@@ -288,7 +288,7 @@ private:
 };
 
 void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
-                       CompressionTypePB compression_type);
+                       const ColumnWriterOptions& opts);
 
 } // namespace segment_v2
 } // namespace doris

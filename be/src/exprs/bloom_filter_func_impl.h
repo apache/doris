@@ -54,23 +54,12 @@ struct fixed_len_to_uint32_v2 {
     }
 };
 
-template <typename fixed_len_to_uint32_method, typename T, bool need_trim = false>
+template <typename fixed_len_to_uint32_method, typename T>
 uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* data,
                          const uint8_t* nullmap, uint16_t* offsets, int number,
                          const bool is_parse_column) {
     auto get_element = [](const char* input_data, int idx) {
-        if constexpr (std::is_same_v<T, StringRef> && need_trim) {
-            const auto value = ((const StringRef*)(input_data))[idx];
-            int64_t size = value.size;
-            const char* data = value.data;
-            // CHAR type may pad the tail with \0, need to trim
-            while (size > 0 && data[size - 1] == '\0') {
-                size--;
-            }
-            return StringRef(value.data, size);
-        } else {
-            return ((const T*)(input_data))[idx];
-        }
+        return ((const T*)(input_data))[idx];
     };
 
     uint16_t new_size = 0;
