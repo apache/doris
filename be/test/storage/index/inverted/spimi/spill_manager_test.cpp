@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "storage/index/inverted/spimi/posting_buffer.h"
+#include "storage/index/inverted/spimi/segment_merger.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -51,9 +52,12 @@ TEST(SpillManagerTest, SingleFlushCreatesOneSpill) {
     EXPECT_EQ(spill.segment_name, "_spill_0");
     EXPECT_EQ(spill.doc_count, 10);
     EXPECT_EQ(spill.term_count, 2);
-    EXPECT_FALSE(spill.tis_bytes.empty());
-    EXPECT_FALSE(spill.frq_bytes.empty());
-    EXPECT_FALSE(spill.prx_bytes.empty());
+    // Spilled bytes now live in a tmp file; load them back to assert content.
+    SegmentMerger::Input in;
+    ASSERT_TRUE(mgr.LoadSpill(0, in).ok());
+    EXPECT_FALSE(in.tis_bytes.empty());
+    EXPECT_FALSE(in.frq_bytes.empty());
+    EXPECT_FALSE(in.prx_bytes.empty());
 }
 
 TEST(SpillManagerTest, MultipleFlushesIncrementCount) {
@@ -96,7 +100,10 @@ TEST(SpillManagerTest, CleanupSpillFilesClearsAll) {
     EXPECT_EQ(mgr.TotalSpillBytes(), 0U);
 }
 
-TEST(SpillManagerTest, TotalSpillBytesAccountsForAllStreams) {
+TEST(SpillManagerTest, TotalSpillBytesIsMetadataOnly) {
+    // Spilled streams now live on disk, so TotalSpillBytes() reflects only the
+    // small per-spill metadata resident in RAM (NOT the encoded stream bytes).
+    // This keeps SpimiIndexWriter::MemoryUsage honest against the 256 MiB budget.
     SpillManager mgr("f");
     SpimiPostingBuffer buf;
     buf.Append("test", 0, 0);
@@ -106,10 +113,17 @@ TEST(SpillManagerTest, TotalSpillBytesAccountsForAllStreams) {
 
     const size_t total = mgr.TotalSpillBytes();
     const auto& s = mgr.Spills()[0];
-    const size_t expected = s.tis_bytes.size() + s.tii_bytes.size() + s.frq_bytes.size() +
-                            s.prx_bytes.size() + s.fnm_bytes.size() + s.segments_n_bytes.size() +
-                            s.segments_gen_bytes.size();
+    const size_t expected = sizeof(SpillSegment) + s.segment_name.size() + s.spill_path.size();
     EXPECT_EQ(total, expected);
+
+    // The on-disk streams must still be loadable and non-empty.
+    SegmentMerger::Input in;
+    ASSERT_TRUE(mgr.LoadSpill(0, in).ok());
+    EXPECT_FALSE(in.tis_bytes.empty());
+    EXPECT_FALSE(in.frq_bytes.empty());
+    EXPECT_FALSE(in.prx_bytes.empty());
+
+    mgr.CleanupSpillFiles();
 }
 
 TEST(SpillManagerTest, BufferIsEmptyAfterFlush) {
@@ -133,11 +147,12 @@ TEST(SpillManagerTest, SpillSegmentsHaveCompleteManifest) {
     mgr.FlushBuffer(buf, 1);
 
     const auto& s = mgr.Spills()[0];
-    // segments_N and segments.gen must be populated.
-    EXPECT_FALSE(s.segments_n_bytes.empty());
-    EXPECT_FALSE(s.segments_gen_bytes.empty());
+    // segments_N and segments.gen must be populated (now byte ranges in the
+    // tmp file rather than resident vectors).
+    EXPECT_GT(s.segments_n.length, 0);
+    EXPECT_GT(s.segments_gen.length, 0);
     // .fnm must be populated (field info).
-    EXPECT_FALSE(s.fnm_bytes.empty());
+    EXPECT_GT(s.fnm.length, 0);
 }
 
 TEST(SpillManagerTest, FlushResetsFlushNeededLatch) {
@@ -197,7 +212,10 @@ TEST(SpillManagerTest, FlushBufferWithCompactModeData) {
 
     const auto& spill = mgr.Spills()[0];
     EXPECT_EQ(spill.term_count, terms);
-    EXPECT_FALSE(spill.tis_bytes.empty());
+    EXPECT_GT(spill.tis.length, 0);
+    SegmentMerger::Input in;
+    ASSERT_TRUE(mgr.LoadSpill(0, in).ok());
+    EXPECT_FALSE(in.tis_bytes.empty());
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

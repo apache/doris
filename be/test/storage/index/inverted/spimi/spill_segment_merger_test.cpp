@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "gen_cpp/segment_v2.pb.h"
 #include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/field_infos_writer.h"
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
@@ -32,7 +33,6 @@
 #include "storage/index/inverted/spimi/segment_merger.h"
 #include "storage/index/inverted/spimi/spill_manager.h"
 #include "storage/index/inverted/spimi/term_enum.h"
-#include "gen_cpp/segment_v2.pb.h"
 #include "util/block_compression.h"
 #include "util/slice.h"
 
@@ -73,14 +73,10 @@ uint8_t FrqInnerModeByte(const std::vector<uint8_t>& frq_bytes, int64_t frq_star
     return raw.empty() ? 0 : raw[0];
 }
 
-// Build a SegmentMerger::Input from a SpillSegment.
-SegmentMerger::Input ToInput(const SpillSegment& seg) {
+// Build a SegmentMerger::Input by streaming spill `idx` back from its tmp file.
+SegmentMerger::Input ToInput(const SpillManager& mgr, size_t idx) {
     SegmentMerger::Input in;
-    in.tis_bytes = seg.tis_bytes;
-    in.tii_bytes = seg.tii_bytes;
-    in.frq_bytes = seg.frq_bytes;
-    in.prx_bytes = seg.prx_bytes;
-    in.doc_count = seg.doc_count;
+    EXPECT_TRUE(mgr.LoadSpill(idx, in).ok());
     return in;
 }
 
@@ -484,7 +480,7 @@ TEST(SegmentMergerTest, CompactModeFlushBufferDoesNotSkipData) {
     EXPECT_EQ(mgr.SpillCount(), 1);
 
     // Build Input from the spill and merge.
-    auto input = ToInput(mgr.Spills().back());
+    auto input = ToInput(mgr, mgr.SpillCount() - 1);
     auto result = DoMerge({input}, 100);
     EXPECT_GT(result.term_count, 0);
 
@@ -524,7 +520,7 @@ TEST(SegmentMergerTest, CompactModeMultiSpillMerge) {
                 << "segment " << s << ": compact mode should have cleared _records";
         EXPECT_EQ(buffer.RecordCount(), 600U);
         mgr.FlushBuffer(buffer, 60);
-        inputs.push_back(ToInput(mgr.Spills().back()));
+        inputs.push_back(ToInput(mgr, mgr.SpillCount() - 1));
     }
 
     EXPECT_EQ(mgr.SpillCount(), 3);
@@ -562,7 +558,7 @@ TEST(SegmentMergerTest, SingleInputFastPathByteCopy) {
     EXPECT_GT(spill_terms, 0);
     ASSERT_EQ(mgr.SpillCount(), 1U);
 
-    auto input = ToInput(mgr.Spills()[0]);
+    auto input = ToInput(mgr, mgr.SpillCount() - 1);
 
     // Merge with a single input -- this triggers the byte-copy fast
     // path because inputs.size()==1, omit_term_freq_and_positions=false,

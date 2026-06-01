@@ -20,7 +20,9 @@
 #include <algorithm>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/index/inverted/spimi/index_output_byte_output.h"
@@ -151,16 +153,22 @@ void SpimiIndexWriter::EmitMerged(const OutputStreams& streams, const SpimiFinis
     sink.segments_n = &seg_n_bo;
     sink.segments_gen = &seg_gen_bo;
 
-    const auto& spills = _spill_manager->Spills();
+    // Stream each spill back from its node-local tmp file into a
+    // SegmentMerger::Input. The bytes are owned by the Input alone (no parallel
+    // copy retained in _spills), so resident RAM is the sum of the loaded spills
+    // exactly ONCE — not the COPY-double the old copy-assignment loop incurred.
+    const size_t spill_count = _spill_manager->SpillCount();
     std::vector<SegmentMerger::Input> inputs;
-    inputs.reserve(spills.size());
-    for (const auto& spill : spills) {
+    inputs.reserve(spill_count);
+    for (size_t i = 0; i < spill_count; ++i) {
         SegmentMerger::Input inp;
-        inp.tis_bytes = spill.tis_bytes;
-        inp.tii_bytes = spill.tii_bytes;
-        inp.frq_bytes = spill.frq_bytes;
-        inp.prx_bytes = spill.prx_bytes;
-        inp.doc_count = spill.doc_count;
+        // LoadSpill moves bytes off disk into `inp`. For the single-spill case
+        // this feeds Merge() exactly one (moved) Input, keeping the
+        // MergeSingleInput byte-copy fast path reachable. IO errors propagate
+        // as doris::Exception through Finish's try/catch + FINALLY_CLOSE.
+        if (Status st = _spill_manager->LoadSpill(i, inp); !st.ok()) {
+            throw doris::Exception(st);
+        }
         inputs.push_back(std::move(inp));
     }
 

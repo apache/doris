@@ -85,14 +85,10 @@ void FillBuffer(SpimiPostingBuffer& buffer, const std::vector<std::string>& voca
     }
 }
 
-// Build a SegmentMerger::Input from a SpillSegment.
-SegmentMerger::Input ToInput(const SpillSegment& seg) {
+// Build a SegmentMerger::Input by streaming a spill back from its tmp file.
+SegmentMerger::Input ToInput(const SpillManager& mgr, size_t idx) {
     SegmentMerger::Input in;
-    in.tis_bytes = seg.tis_bytes;
-    in.tii_bytes = seg.tii_bytes;
-    in.frq_bytes = seg.frq_bytes;
-    in.prx_bytes = seg.prx_bytes;
-    in.doc_count = seg.doc_count;
+    [[maybe_unused]] auto st = mgr.LoadSpill(idx, in);
     return in;
 }
 
@@ -216,7 +212,7 @@ static void BM_SegmentMerge(benchmark::State& state) {
             SpimiPostingBuffer buffer;
             FillBuffer(buffer, vocab, records_per_seg, 1000, /*seed=*/static_cast<int>(s * 1000));
             mgr.FlushBuffer(buffer, 1000);
-            inputs.push_back(ToInput(mgr.Spills().back()));
+            inputs.push_back(ToInput(mgr, mgr.SpillCount() - 1));
         }
         OwnedSink owned;
         state.ResumeTiming();
@@ -267,7 +263,7 @@ static void BM_SegmentMergeSingleInput(benchmark::State& state) {
         SpimiPostingBuffer buffer;
         FillBuffer(buffer, vocab, records, 1000);
         mgr.FlushBuffer(buffer, 1000);
-        auto input = ToInput(mgr.Spills().back());
+        auto input = ToInput(mgr, mgr.SpillCount() - 1);
         OwnedSink owned;
         state.ResumeTiming();
         SegmentMerger::Merge({input}, owned.AsSink(), "_merged", "content", 1000,
@@ -334,7 +330,7 @@ static void BM_WithSpill_MergeN(benchmark::State& state) {
             SpimiPostingBuffer buffer;
             FillBuffer(buffer, vocab, records_per_spill, 50000, /*seed=*/static_cast<int>(s * 777));
             mgr.FlushBuffer(buffer, 50000);
-            inputs.push_back(ToInput(mgr.Spills().back()));
+            inputs.push_back(ToInput(mgr, mgr.SpillCount() - 1));
         }
         OwnedSink owned;
         state.ResumeTiming();
