@@ -367,12 +367,73 @@ void RepeatedParentSinkState::append_present_parent() const {
     parent_nulls->push_back(0);
 }
 
-Status RepeatedParentSinkState::add_entry(const std::string& column_name) const {
+Status RepeatedParentSinkState::require_parent(const std::string& column_name) const {
     DORIS_CHECK(entry_counts != nullptr);
     if (entry_counts->empty()) {
         return Status::Corruption("Invalid repeated level for column {}", column_name);
     }
+    return Status::OK();
+}
+
+Status RepeatedParentSinkState::add_entry(const std::string& column_name) const {
+    RETURN_IF_ERROR(require_parent(column_name));
     ++entry_counts->back();
+    return Status::OK();
+}
+
+Status RepeatedChildSinkState::append_null_child(const std::string& column_name,
+                                                 std::string_view parent_kind,
+                                                 std::string_view child_kind,
+                                                 const DataTypePtr& type) const {
+    DORIS_CHECK(entry_counts != nullptr);
+    DORIS_CHECK(parent_nulls != nullptr);
+    if (!type->is_nullable()) {
+        return Status::Corruption("Parquet {} column {} contains null for non-nullable {}",
+                                  parent_kind, column_name, child_kind);
+    }
+    entry_counts->push_back(0);
+    parent_nulls->push_back(1);
+    return Status::OK();
+}
+
+void RepeatedChildSinkState::append_present_child() const {
+    DORIS_CHECK(entry_counts != nullptr);
+    DORIS_CHECK(parent_nulls != nullptr);
+    entry_counts->push_back(0);
+    parent_nulls->push_back(0);
+}
+
+Status RepeatedChildSinkState::require_child(const std::string& column_name,
+                                             std::string_view child_kind) const {
+    DORIS_CHECK(entry_counts != nullptr);
+    if (entry_counts->empty()) {
+        return Status::Corruption("Invalid repeated {} level for column {}", child_kind,
+                                  column_name);
+    }
+    return Status::OK();
+}
+
+Status RepeatedChildSinkState::add_entry(const std::string& column_name,
+                                         std::string_view child_kind) const {
+    RETURN_IF_ERROR(require_child(column_name, child_kind));
+    ++entry_counts->back();
+    return Status::OK();
+}
+
+Status append_nullable_scalar_child(const std::string& column_name, std::string_view parent_kind,
+                                    std::string_view child_kind,
+                                    const ScalarColumnReader& child_reader,
+                                    const NestedScalarBatch& batch, int64_t level_idx,
+                                    int16_t max_definition_level, MutableColumnPtr& column) {
+    const int16_t def_level = batch.def_levels[level_idx];
+    if (def_level == max_definition_level) {
+        return append_scalar_batch_value(child_reader, batch, level_idx, column);
+    }
+    if (!child_reader.type()->is_nullable()) {
+        return Status::Corruption("Parquet {} column {} contains null for non-nullable {}",
+                                  parent_kind, column_name, child_kind);
+    }
+    column->insert_default();
     return Status::OK();
 }
 

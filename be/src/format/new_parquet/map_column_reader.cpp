@@ -105,23 +105,16 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
             }
 
             Status append_entry(const NestedScalarBatch& key_batch, int64_t level_idx) {
+                RETURN_IF_ERROR(parent_state.require_parent(self->_name));
                 if (key_batch.def_levels[level_idx] != key_max_definition_level) {
                     return Status::Corruption("Parquet MAP column {} contains null map key",
                                               self->_name);
                 }
                 RETURN_IF_ERROR(
                         append_scalar_batch_value(*key_reader, key_batch, level_idx, *key_column));
-                if (value_batch.def_levels[level_idx] == value_max_definition_level) {
-                    RETURN_IF_ERROR(append_scalar_batch_value(*value_reader, value_batch, level_idx,
-                                                              *value_column));
-                } else {
-                    if (!value_reader->type()->is_nullable()) {
-                        return Status::Corruption(
-                                "Parquet MAP column {} contains null for non-nullable value",
-                                self->_name);
-                    }
-                    (*value_column)->insert_default();
-                }
+                RETURN_IF_ERROR(append_nullable_scalar_child(
+                        self->_name, "MAP", "value", *value_reader, value_batch, level_idx,
+                        value_max_definition_level, *value_column));
                 return parent_state.add_entry(self->_name);
             }
 
@@ -183,8 +176,7 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
             MutableColumnPtr* key_column = nullptr;
             MutableColumnPtr* list_nested_column = nullptr;
             RepeatedParentSinkState parent_state;
-            std::vector<uint64_t>* list_entry_counts = nullptr;
-            NullMap* list_parent_nulls = nullptr;
+            RepeatedChildSinkState list_state;
             int16_t key_max_definition_level = 0;
             int16_t list_element_max_definition_level = 0;
             NestedScalarBatch key_batch;
@@ -234,10 +226,6 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
                 if (value_batch.rep_levels[level_idx] < value_reader->repeated_repetition_level()) {
                     return append_entry(value_batch, level_idx);
                 }
-                if (list_entry_counts->empty()) {
-                    return Status::Corruption("Invalid repeated MAP LIST value level for column {}",
-                                              self->_name);
-                }
                 return append_list_element(value_batch, level_idx);
             }
 
@@ -253,12 +241,10 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
                                 "Parquet MAP column {} contains null for non-nullable LIST value",
                                 self->_name);
                     }
-                    list_entry_counts->push_back(0);
-                    list_parent_nulls->push_back(1);
-                    return Status::OK();
+                    return list_state.append_null_child(self->_name, "MAP", "LIST value",
+                                                        value_reader->type());
                 }
-                list_entry_counts->push_back(0);
-                list_parent_nulls->push_back(0);
+                list_state.append_present_child();
                 if (def_level == value_reader->nullable_definition_level()) {
                     return Status::OK();
                 }
@@ -288,21 +274,11 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
             }
 
             Status append_list_element(const NestedScalarBatch& value_batch, int64_t level_idx) {
-                const int16_t def_level = value_batch.def_levels[level_idx];
-                if (def_level == list_element_max_definition_level) {
-                    RETURN_IF_ERROR(append_scalar_batch_value(*scalar_value_reader, value_batch,
-                                                              level_idx, *list_nested_column));
-                } else {
-                    if (!scalar_value_reader->type()->is_nullable()) {
-                        return Status::Corruption(
-                                "Parquet MAP column {} contains null for non-nullable LIST value "
-                                "element",
-                                self->_name);
-                    }
-                    (*list_nested_column)->insert_default();
-                }
-                ++list_entry_counts->back();
-                return Status::OK();
+                RETURN_IF_ERROR(list_state.require_child(self->_name, "MAP LIST value"));
+                RETURN_IF_ERROR(append_nullable_scalar_child(
+                        self->_name, "MAP", "LIST value element", *scalar_value_reader, value_batch,
+                        level_idx, list_element_max_definition_level, *list_nested_column));
+                return list_state.add_entry(self->_name, "MAP LIST value");
             }
         };
 
@@ -314,8 +290,7 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
         sink.key_column = &key_column;
         sink.list_nested_column = &list_nested_column;
         sink.parent_state = {&entry_counts, &parent_nulls};
-        sink.list_entry_counts = &list_entry_counts;
-        sink.list_parent_nulls = &list_parent_nulls;
+        sink.list_state = {&list_entry_counts, &list_parent_nulls};
         sink.key_max_definition_level = key_max_definition_level;
         sink.list_element_max_definition_level = list_element_max_definition_level;
         RETURN_IF_ERROR(assemble_repeated_levels(
@@ -382,6 +357,7 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
         }
 
         Status append_entry(const NestedScalarBatch& key_batch, int64_t level_idx) {
+            RETURN_IF_ERROR(parent_state.require_parent(self->_name));
             if (key_batch.def_levels[level_idx] != key_max_definition_level) {
                 return Status::Corruption("Parquet MAP column {} contains null map key",
                                           self->_name);

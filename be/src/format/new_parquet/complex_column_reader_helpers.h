@@ -88,8 +88,26 @@ struct RepeatedParentSinkState {
     Status append_null_parent(const std::string& column_name, std::string_view parent_kind,
                               const DataTypePtr& type) const;
     void append_present_parent() const;
+    Status require_parent(const std::string& column_name) const;
     Status add_entry(const std::string& column_name) const;
 };
+
+struct RepeatedChildSinkState {
+    std::vector<uint64_t>* entry_counts = nullptr;
+    NullMap* parent_nulls = nullptr;
+
+    Status append_null_child(const std::string& column_name, std::string_view parent_kind,
+                             std::string_view child_kind, const DataTypePtr& type) const;
+    void append_present_child() const;
+    Status require_child(const std::string& column_name, std::string_view child_kind) const;
+    Status add_entry(const std::string& column_name, std::string_view child_kind) const;
+};
+
+Status append_nullable_scalar_child(const std::string& column_name, std::string_view parent_kind,
+                                    std::string_view child_kind,
+                                    const ScalarColumnReader& child_reader,
+                                    const NestedScalarBatch& batch, int64_t level_idx,
+                                    int16_t max_definition_level, MutableColumnPtr& column);
 
 template <typename Sink>
 Status assemble_repeated_levels(ScalarColumnReader& driver_reader, int16_t repeated_level,

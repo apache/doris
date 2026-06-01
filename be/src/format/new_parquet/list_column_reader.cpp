@@ -72,18 +72,10 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
             }
 
             Status append_element(const NestedScalarBatch& batch, int64_t level_idx) {
-                const int16_t def_level = batch.def_levels[level_idx];
-                if (def_level == element_max_definition_level) {
-                    RETURN_IF_ERROR(append_scalar_batch_value(*element_reader, batch, level_idx,
-                                                              *nested_column));
-                } else {
-                    if (!element_reader->type()->is_nullable()) {
-                        return Status::Corruption(
-                                "Parquet LIST column {} contains null for non-nullable element",
-                                self->_name);
-                    }
-                    (*nested_column)->insert_default();
-                }
+                RETURN_IF_ERROR(parent_state.require_parent(self->_name));
+                RETURN_IF_ERROR(append_nullable_scalar_child(
+                        self->_name, "LIST", "element", *element_reader, batch, level_idx,
+                        element_max_definition_level, *nested_column));
                 return parent_state.add_entry(self->_name);
             }
         };
@@ -133,6 +125,7 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
             }
 
             Status append_element(const NestedStructBatch& batch, int64_t level_idx) {
+                RETURN_IF_ERROR(parent_state.require_parent(self->_name));
                 RETURN_IF_ERROR(append_struct_batch_value(*element_reader, batch, level_idx,
                                                           *nested_column));
                 return parent_state.add_entry(self->_name);
@@ -185,8 +178,7 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
         ScalarColumnReader* scalar_element_reader = nullptr;
         MutableColumnPtr* inner_nested_column = nullptr;
         RepeatedParentSinkState parent_state;
-        std::vector<uint64_t>* inner_entry_counts = nullptr;
-        NullMap* inner_parent_nulls = nullptr;
+        RepeatedChildSinkState inner_state;
         int16_t nested_element_max_definition_level = 0;
 
         Status start_batch(const NestedScalarBatch&) { return Status::OK(); }
@@ -207,10 +199,6 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
             if (batch.rep_levels[level_idx] < element_reader->_repeated_repetition_level) {
                 return append_inner_list(batch, level_idx);
             }
-            if (inner_entry_counts->empty()) {
-                return Status::Corruption("Invalid nested repeated LIST level for column {}",
-                                          self->_name);
-            }
             return append_scalar_element(batch, level_idx);
         }
 
@@ -223,13 +211,11 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
                             self->_name);
                 }
                 RETURN_IF_ERROR(parent_state.add_entry(self->_name));
-                inner_entry_counts->push_back(0);
-                inner_parent_nulls->push_back(1);
-                return Status::OK();
+                return inner_state.append_null_child(self->_name, "LIST", "nested list",
+                                                     element_reader->_type);
             }
             RETURN_IF_ERROR(parent_state.add_entry(self->_name));
-            inner_entry_counts->push_back(0);
-            inner_parent_nulls->push_back(0);
+            inner_state.append_present_child();
             if (def_level == element_reader->_nullable_definition_level) {
                 return Status::OK();
             }
@@ -237,20 +223,11 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
         }
 
         Status append_scalar_element(const NestedScalarBatch& batch, int64_t level_idx) {
-            const int16_t def_level = batch.def_levels[level_idx];
-            if (def_level == nested_element_max_definition_level) {
-                RETURN_IF_ERROR(append_scalar_batch_value(*scalar_element_reader, batch, level_idx,
-                                                          *inner_nested_column));
-            } else {
-                if (!scalar_element_reader->type()->is_nullable()) {
-                    return Status::Corruption(
-                            "Parquet LIST column {} contains null for non-nullable nested element",
-                            self->_name);
-                }
-                (*inner_nested_column)->insert_default();
-            }
-            ++inner_entry_counts->back();
-            return Status::OK();
+            RETURN_IF_ERROR(inner_state.require_child(self->_name, "nested LIST"));
+            RETURN_IF_ERROR(append_nullable_scalar_child(
+                    self->_name, "LIST", "nested element", *scalar_element_reader, batch, level_idx,
+                    nested_element_max_definition_level, *inner_nested_column));
+            return inner_state.add_entry(self->_name, "nested LIST");
         }
     };
 
@@ -259,8 +236,7 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
                          scalar_nested_element_reader,
                          &inner_nested_column,
                          {&entry_counts, &parent_nulls},
-                         &inner_entry_counts,
-                         &inner_parent_nulls,
+                         {&inner_entry_counts, &inner_parent_nulls},
                          nested_element_max_definition_level};
     RETURN_IF_ERROR(assemble_repeated_levels(
             *scalar_nested_element_reader, _repeated_repetition_level,
