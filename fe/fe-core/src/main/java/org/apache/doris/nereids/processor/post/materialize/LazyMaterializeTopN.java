@@ -114,6 +114,18 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         Set<Slot> requiredMaterializedSlots = new HashSet<>();
         collectProjectExprInputSlots(topN.child(), requiredMaterializedSlots);
 
+        /*
+         * requiredMaterializedSlots only records slots consumed by Project/final-projection expressions inside the
+         * TopN subtree. Other mandatory slots, such as TopN order keys or Filter predicates, are rejected by
+         * MaterializeProbeVisitor while tracing each output slot from TopN down to the source relation:
+         *
+         *   Project(b) -> TopN(order by id) -> Filter(a > 0) -> Scan(id, a, b, c)
+         *
+         * For id, the probe stops at TopN because id is in TopN.getInputSlots(); for a, it stops at Filter because
+         * a is in Filter.getInputSlots(). Both return Optional.empty() and are appended to materializedSlots below.
+         * Therefore an empty requiredMaterializedSlots set does not mean every scan column can be delayed; it only
+         * means no extra Project/final-projection input must be forced materialized by this local safety check.
+         */
         for (Slot slot : effectiveOutput) {
             Optional<MaterializeSource> source = computeMaterializeSource(topN, (SlotReference) slot,
                     requiredMaterializedSlots);
