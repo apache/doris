@@ -15,16 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/new_parquet/column_reader/map_column_reader.h"
+#include "format/new_parquet/reader/map_column_reader.h"
 
 #include <cstdint>
 #include <utility>
 #include <vector>
 
-#include "format/new_parquet/column_reader/complex_column_reader_helpers.h"
-#include "format/new_parquet/column_reader/list_column_reader.h"
-#include "format/new_parquet/column_reader/scalar_column_reader.h"
-#include "format/new_parquet/column_reader/struct_column_reader.h"
+#include "format/new_parquet/reader/list_column_reader.h"
+#include "format/new_parquet/reader/nested_column_reader.h"
+#include "format/new_parquet/reader/scalar_column_reader.h"
+#include "format/new_parquet/reader/struct_column_reader.h"
 
 namespace doris::parquet {
 

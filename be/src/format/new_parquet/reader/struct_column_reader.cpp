@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/new_parquet/column_reader/struct_column_reader.h"
+#include "format/new_parquet/reader/struct_column_reader.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -23,8 +23,8 @@
 #include <vector>
 
 #include "core/column/column_struct.h"
-#include "format/new_parquet/column_reader/complex_column_reader_helpers.h"
-#include "format/new_parquet/column_reader/scalar_column_reader.h"
+#include "format/new_parquet/reader/nested_column_reader.h"
+#include "format/new_parquet/reader/scalar_column_reader.h"
 
 namespace doris::parquet {
 

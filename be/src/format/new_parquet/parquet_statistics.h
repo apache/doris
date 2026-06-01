@@ -17,12 +17,13 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 
 #include "common/status.h"
 #include "core/field.h"
-#include "format/new_parquet/parquet_pruning.h"
+#include "format/new_parquet/selection_vector.h"
 #include "format/reader/file_reader.h"
 
 namespace parquet {
@@ -39,6 +40,24 @@ class ColumnPredicate;
 namespace doris::parquet {
 
 struct ParquetColumnSchema;
+
+enum class ParquetRowGroupPruneReason {
+    NONE,
+    STATISTICS,
+    DICTIONARY,
+};
+
+struct ParquetPruningStats {
+    int64_t total_row_groups = 0;
+    int64_t selected_row_groups = 0;
+    int64_t filtered_row_groups_by_statistics = 0;
+    int64_t filtered_row_groups_by_dictionary = 0;
+    int64_t filtered_row_groups_by_page_index = 0;
+    int64_t filtered_group_rows = 0;
+    int64_t filtered_page_rows = 0;
+    int64_t selected_row_ranges = 0;
+    int64_t page_index_read_calls = 0;
+};
 
 // Parquet row group column statistics 转换后的 Doris 统计视图。
 // DuckDB 会把 Parquet stats 转换成 BaseStatistics，然后让 TableFilter 自己判断；
@@ -95,5 +114,11 @@ Status select_row_groups_by_statistics(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const reader::FileScanRequest& request, std::vector<int>* selected_row_groups,
         ParquetPruningStats* pruning_stats);
+
+Status select_row_group_ranges_by_page_index(
+        ::parquet::ParquetFileReader* file_reader,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const reader::FileScanRequest& request, int row_group_idx, int64_t row_group_rows,
+        std::vector<RowRange>* selected_ranges, ParquetPruningStats* pruning_stats);
 
 } // namespace doris::parquet

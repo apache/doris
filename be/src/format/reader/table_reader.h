@@ -45,7 +45,7 @@
 #include "core/field.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
-#include "format/new_parquet/column_reader/column_reader.h"
+#include "format/new_parquet/reader/column_reader.h"
 #include "format/reader/column_mapper.h"
 #include "format/reader/expr/delete_predicate.h"
 #include "format/reader/expr/slot_ref.h"

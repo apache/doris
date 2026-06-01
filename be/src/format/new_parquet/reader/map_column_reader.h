@@ -22,9 +22,9 @@
 #include <string>
 #include <utility>
 
-#include "format/new_parquet/column_reader/column_reader.h"
-#include "format/new_parquet/column_reader/nested_level_assembler.h"
 #include "format/new_parquet/parquet_column_schema.h"
+#include "format/new_parquet/reader/column_reader.h"
+#include "format/new_parquet/reader/nested_column_reader.h"
 
 namespace doris::parquet {
 

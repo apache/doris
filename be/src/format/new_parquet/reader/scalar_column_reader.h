@@ -20,9 +20,9 @@
 #include <memory>
 #include <string>
 
-#include "format/new_parquet/column_reader/arrow_leaf_reader_adapter.h"
-#include "format/new_parquet/column_reader/column_reader.h"
 #include "format/new_parquet/parquet_type.h"
+#include "format/new_parquet/reader/arrow_leaf_reader_adapter.h"
+#include "format/new_parquet/reader/column_reader.h"
 
 namespace parquet {
 class ColumnDescriptor;

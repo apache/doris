@@ -25,7 +25,6 @@
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
-#include "format/new_parquet/column_reader/nested_level_assembler.h"
 #include "format/new_parquet/parquet_type.h"
 
 namespace parquet {
@@ -37,6 +36,8 @@ class RecordReader;
 } // namespace parquet
 
 namespace doris::parquet {
+
+struct NestedScalarBatch;
 
 struct ArrowLeafReaderContext {
     const ::parquet::ColumnDescriptor* descriptor = nullptr;

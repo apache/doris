@@ -29,12 +29,11 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
-#include "format/new_parquet/column_reader/column_reader.h"
 #include "format/new_parquet/parquet_column_schema.h"
 #include "format/new_parquet/parquet_file_context.h"
-#include "format/new_parquet/parquet_scan_planner.h"
-#include "format/new_parquet/parquet_scan_scheduler.h"
+#include "format/new_parquet/parquet_scan.h"
 #include "format/new_parquet/parquet_statistics.h"
+#include "format/new_parquet/reader/column_reader.h"
 
 namespace doris::parquet {
 

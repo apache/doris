@@ -17,16 +17,21 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <vector>
 
 #include "common/status.h"
-#include "format/new_parquet/column_reader/column_reader.h"
-#include "format/new_parquet/parquet_scan_planner.h"
+#include "core/column/column.h"
+#include "format/new_parquet/parquet_statistics.h"
+#include "format/new_parquet/reader/column_reader.h"
 #include "format/new_parquet/selection_vector.h"
+#include "format/reader/file_reader.h"
 
 namespace parquet {
+class FileMetaData;
+class ParquetFileReader;
 class RowGroupReader;
 } // namespace parquet
 
@@ -42,6 +47,40 @@ namespace doris::parquet {
 
 struct ParquetFileContext;
 struct ParquetColumnSchema;
+
+struct ParquetScanRange {
+    int64_t start_offset = 0;
+    int64_t size = -1;
+    int64_t file_size = -1;
+};
+
+struct RowGroupReadPlan {
+    int row_group_id = -1;
+    int64_t first_file_row = 0;
+    int64_t row_group_rows = 0;
+    std::vector<RowRange> selected_ranges;
+};
+
+struct RowGroupScanPlan {
+    std::vector<RowGroupReadPlan> row_groups;
+    ParquetPruningStats pruning_stats;
+};
+
+Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
+                               ::parquet::ParquetFileReader* file_reader,
+                               const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+                               const reader::FileScanRequest& request,
+                               const ParquetScanRange& scan_range, RowGroupScanPlan* plan);
+
+IColumn::Filter selection_to_filter(const SelectionVector& selection, uint16_t selected_rows,
+                                    int64_t batch_rows);
+
+Status execute_reader_expression_map(const reader::FileScanRequest& request, Block* file_block,
+                                     const std::vector<reader::ColumnId>& target_columns);
+
+Status execute_batch_filters(const reader::FileScanRequest& request, int64_t batch_rows,
+                             Block* file_block, SelectionVector* selection,
+                             uint16_t* selected_rows);
 
 class ParquetScanScheduler {
 public:

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/new_parquet/column_reader/shape_only_column_reader.h"
+#include "format/new_parquet/reader/shape_only_column_reader.h"
 
 #include <memory>
 #include <utility>

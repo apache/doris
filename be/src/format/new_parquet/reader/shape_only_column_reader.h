@@ -22,7 +22,7 @@
 #include <string>
 
 #include "common/status.h"
-#include "format/new_parquet/column_reader/column_reader.h"
+#include "format/new_parquet/reader/column_reader.h"
 
 namespace doris::parquet {
 

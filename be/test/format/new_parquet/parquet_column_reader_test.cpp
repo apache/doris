@@ -42,8 +42,8 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/types.h"
-#include "format/new_parquet/column_reader/column_reader.h"
 #include "format/new_parquet/parquet_column_schema.h"
+#include "format/new_parquet/reader/column_reader.h"
 #include "format/new_parquet/selection_vector.h"
 #include "format/reader/file_reader.h"
 
