@@ -52,9 +52,9 @@ suite("test_routine_load_preceding_filter_keyword", "p0") {
             sql """ DROP TABLE IF EXISTS ${tableName} """
             sql """
                 CREATE TABLE ${tableName} (
-                    app STRING,
-                    `group` STRING,
-                    msg STRING
+                    app VARCHAR(255),
+                    `group` VARCHAR(255),
+                    msg VARCHAR(255)
                 )
                 DUPLICATE KEY(app)
                 DISTRIBUTED BY HASH(app) BUCKETS 1
