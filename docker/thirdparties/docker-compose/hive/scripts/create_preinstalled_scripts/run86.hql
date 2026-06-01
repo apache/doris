@@ -52,3 +52,6 @@ STORED AS
     INPUTFORMAT  'com.hadoop.mapreduce.LzoTextInputFormat'
     OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
 LOCATION '/user/doris/preinstalled_data/text_lzo';
+
+LOAD DATA LOCAL INPATH '/mnt/scripts/preinstalled_data/text_lzo'
+OVERWRITE INTO TABLE text_lzo_format;
