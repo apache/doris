@@ -20,7 +20,6 @@
 #include <unistd.h>
 
 #include <atomic>
-#include <cstdlib>
 #include <memory>
 #include <utility>
 
@@ -47,17 +46,13 @@ std::atomic<uint64_t> g_spill_dir_counter {0};
 // (never S3). Resolution order:
 //   1. config::inverted_index_spimi_spill_path (if non-empty)
 //   2. config::spill_storage_root_path         (if non-empty)
-//   3. $DORIS_SPILL_TMP                         (if set/non-empty)
-//   4. "/tmp"
+//   3. "/tmp"
 std::string ResolveBaseTmpDir() {
     if (!config::inverted_index_spimi_spill_path.empty()) {
         return config::inverted_index_spimi_spill_path;
     }
     if (!config::spill_storage_root_path.empty()) {
         return config::spill_storage_root_path;
-    }
-    if (const char* env = std::getenv("DORIS_SPILL_TMP"); env != nullptr && env[0] != '\0') {
-        return std::string(env);
     }
     return "/tmp";
 }

@@ -204,17 +204,7 @@ Status InvertedIndexColumnWriter<field_type>::create_field(lucene::document::Fie
             !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
               INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES));
     if (_should_analyzer) {
-        // Default (production): analyzed fields keep norms — upstream behaviour.
-        //
-        // LOCAL-ONLY BENCHMARK TOGGLE (must NOT be committed): set env
-        // SPIMI_OMIT_V2_NORMS=1 to omit the per-doc length norms CLucene writes
-        // for analyzed fields (the ~13% `.nrm` stream). Doris fulltext columns
-        // filter/match rather than BM25-score (the reader synthesizes a
-        // default-norm array and never parses `.nrm`), so dropping norms loses
-        // nothing functionally and makes the V2 on-disk size apples-to-apples
-        // with V4 (which always omits norms) for fair storage benchmarking.
-        const char* omit_v2_norms = std::getenv("SPIMI_OMIT_V2_NORMS");
-        (*field)->setOmitNorms(omit_v2_norms != nullptr && omit_v2_norms[0] == '1');
+        (*field)->setOmitNorms(false);
     }
 
     DBUG_EXECUTE_IF("InvertedIndexColumnWriter::always_omit_norms",
