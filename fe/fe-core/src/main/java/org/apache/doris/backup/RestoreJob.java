@@ -71,6 +71,8 @@ import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.persist.gson.GsonUtilsBase;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentBoundedBatchTask;
@@ -107,6 +109,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -445,7 +448,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     continue;
                 }
                 ((DownloadTask) task).updateBrokerProperties(
-                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties());
+                        repo.getFileSystemDescriptor().getBackendConfigProperties());
                 AgentTaskQueue.updateTask(beId, TTaskType.DOWNLOAD, signature, task);
             }
             LOG.info("finished to update download job properties. {}", this);
@@ -713,6 +716,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                 if (localTbl != null) {
                     OlapTable localOlapTbl = (OlapTable) localTbl;
+                    if (localOlapTbl.needRowBinlog()) {
+                        status = new Status(ErrCode.COMMON_ERROR,
+                                "Do not support restore into local table with binlog<Row> enabled: "
+                                        + localOlapTbl.getName());
+                        return;
+                    }
                     OlapTable remoteOlapTbl = (OlapTable) remoteTbl;
 
                     if (localOlapTbl.isColocateTable() || (reserveColocate && remoteOlapTbl.isColocateTable())) {
@@ -757,6 +766,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                         + alias + " already exist but with different schema");
                                 return;
                             }
+                        }
+
+                        st = remoteOlapTbl.checkPropertiesForRestore();
+                        if (!st.ok()) {
+                            status = st;
+                            return;
                         }
 
                         checkStorageVault(localOlapTbl);
@@ -864,9 +879,15 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         }
                     }
 
+                    Status st = remoteOlapTbl.checkPropertiesForRestore();
+                    if (!st.ok()) {
+                        status = st;
+                        return;
+                    }
+
                     // reset all ids in this table
                     String srcDbName = jobInfo.dbName;
-                    Status st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc, reserveReplica,
+                    st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc, reserveReplica,
                             reserveColocate, colocatePersistInfos, srcDbName);
                     if (!st.ok()) {
                         status = st;
@@ -955,7 +976,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         return;
                     }
                 } else {
-                    remoteOdbcTable.resetIdsForRestore(env);
+                    // ODBC tables are deprecated. We can no longer reset IDs for restore.
+                    // Just add the table as-is for metadata compatibility.
+                    LOG.warn("Skipping resetIdsForRestore for deprecated ODBC table: {}", backupOdbcTableName);
                     stagingRestoreTables.add(remoteOdbcTable);
                 }
             }
@@ -997,7 +1020,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 }
                 // set restored table's new name after all 'genFileMapping'
                 String tableName = jobInfo.getAliasByOriginNameIfSet(restoreTbl.getName());
-                if (Env.isStoredTableNamesLowerCase()) {
+                if (GlobalVariable.isStoredTableNamesLowerCase()) {
                     tableName = tableName.toLowerCase();
                 }
                 if ((restoreTbl.getType() == TableType.OLAP || restoreTbl
@@ -1424,6 +1447,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                 for (Replica restoreReplica : restoreTablet.getReplicas()) {
                     Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
+                    MaterializedIndexMeta rowBinlogIndexMeta = null;
+                    if (localTbl.needRowBinlog() && restoredIdx.getId() == localTbl.getBaseIndexId()) {
+                        rowBinlogIndexMeta = localTbl.getRowBinlogMeta();
+                    }
                     CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendIdWithoutException(), dbId,
                             localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
                             restoreTablet.getId(), restoreReplica.getId(), indexMeta.getShortKeyColumnCount(),
@@ -1454,7 +1481,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.variantEnableFlattenNested(),
                             localTbl.storagePageSize(), localTbl.getTDEAlgorithm(),
                             localTbl.storageDictPageSize(),
-                            localTbl.getColumnSeqMapping());
+                            localTbl.getColumnSeqMapping(),
+                            localTbl.getVerticalCompactionNumColumnsPerGroup(),
+                            rowBinlogIndexMeta);
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {
@@ -1525,12 +1554,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             int schemaHash = remoteTbl.getSchemaHashByIndexId(remoteIdx.getId());
             int remotetabletSize = remoteIdx.getTablets().size();
             remoteIdx.clearTabletsForRestore();
+            // Collect locally and bulk-publish to keep copy-on-write O(n) for the whole index.
+            List<Tablet> newTablets = new ArrayList<>(remotetabletSize);
             for (int i = 0; i < remotetabletSize; i++) {
                 // generate new tablet id
                 long newTabletId = env.getNextId();
                 Tablet newTablet = EnvFactory.getInstance().createTablet(newTabletId);
-                // add tablet to index, but not add to TabletInvertedIndex
-                remoteIdx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
+                newTablets.add(newTablet);
                 // replicas
                 try {
                     Pair<Map<Tag, List<Long>>, TStorageMedium> beIdsAndMedium = Env.getCurrentSystemInfo()
@@ -1549,6 +1579,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     return null;
                 }
             }
+            // add tablets to index in one batch; TabletInvertedIndex registration
+            // is intentionally skipped on the restore path (rebuilt separately).
+            remoteIdx.appendTablets(newTablets);
         }
         return remotePart;
     }
@@ -1999,8 +2032,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     protected DownloadTask createDownloadTask(long beId, long signature, long jobId, long dbId,
                                               Map<String, String> srcToDest, FsBroker brokerAddr) {
         return new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
-            brokerAddr, repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
-            repo.getRemoteFileSystem().getStorageType(), repo.getLocation(), "");
+            brokerAddr, repo.getFileSystemDescriptor().getBackendConfigProperties(),
+            repo.getFileSystemDescriptor().getThriftStorageType(), repo.getLocation(), "");
     }
 
     // Get the id mapping for snapshot, user should hold the lock of table.
@@ -2535,7 +2568,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private Status atomicReplaceOlapTables(Database db, boolean isReplay) {
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
             String originName = jobInfo.getAliasByOriginNameIfSet(tableName);
-            if (Env.isStoredTableNamesLowerCase()) {
+            if (GlobalVariable.isStoredTableNamesLowerCase()) {
                 originName = originName.toLowerCase();
             }
             String aliasName = tableAliasWithAtomicRestore(originName);
@@ -2617,7 +2650,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
         for (BackupJobInfo.BackupViewInfo backupViewInfo : jobInfo.newBackupObjects.views) {
             String originName = jobInfo.getAliasByOriginNameIfSet(backupViewInfo.name);
-            if (Env.isStoredTableNamesLowerCase()) {
+            if (GlobalVariable.isStoredTableNamesLowerCase()) {
                 originName = originName.toLowerCase();
             }
             String aliasName = tableAliasWithAtomicRestore(originName);
@@ -2749,7 +2782,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     public static RestoreJob read(DataInput in) throws IOException {
         String json = Text.readString(in);
         if (AbstractJob.COMPRESSED_JOB_ID.equals(json)) {
-            return GsonUtils.fromJsonCompressed(in, RestoreJob.class);
+            return GsonUtilsBase.fromJsonCompressed(in, RestoreJob.class, GsonUtils.GSON);
         } else {
             return GsonUtils.GSON.fromJson(json, RestoreJob.class);
         }

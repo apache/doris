@@ -20,7 +20,6 @@ package org.apache.doris.catalog.authorizer.ranger.doris;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -76,7 +75,7 @@ public class RangerDorisAccessController extends RangerAccessController {
     @Override
     protected RangerAccessRequestImpl createRequest(UserIdentity currentUser) {
         RangerAccessRequestImpl request = new RangerAccessRequestImpl();
-        request.setUser(ClusterNamespace.getNameFromFullName(currentUser.getQualifiedUser()));
+        request.setUser(currentUser.getQualifiedUser());
         request.setClientIPAddress(currentUser.getHost());
         request.setClusterType(CLIENT_TYPE_DORIS);
         request.setClientType(CLIENT_TYPE_DORIS);
@@ -176,13 +175,13 @@ public class RangerDorisAccessController extends RangerAccessController {
     private boolean checkDbPrivInternal(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted,
             PrivBitSet checkedPrivs) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.DATABASE, ctl,
-                ClusterNamespace.getNameFromFullName(db));
+                db);
         return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
     }
 
     private boolean checkAnyPrivWithinDb(UserIdentity currentUser, String ctl, String db) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.DATABASE, ctl,
-                ClusterNamespace.getNameFromFullName(db));
+                db);
         return checkShowPrivilegeByPlugin(currentUser, resource);
     }
 
@@ -204,13 +203,13 @@ public class RangerDorisAccessController extends RangerAccessController {
     private boolean checkTblPrivInternal(UserIdentity currentUser, String ctl, String db, String tbl,
             PrivPredicate wanted, PrivBitSet checkedPrivs) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.TABLE,
-                ctl, ClusterNamespace.getNameFromFullName(db), tbl);
+                ctl, db, tbl);
         return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
     }
 
     private boolean checkAnyPrivWithinTbl(UserIdentity currentUser, String ctl, String db, String tbl) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.TABLE,
-                ctl, ClusterNamespace.getNameFromFullName(db), tbl);
+                ctl, db, tbl);
         return checkShowPrivilegeByPlugin(currentUser, resource);
     }
 
@@ -238,7 +237,7 @@ public class RangerDorisAccessController extends RangerAccessController {
     private boolean checkColPrivInternal(UserIdentity currentUser, String ctl, String db, String tbl, String col,
             PrivPredicate wanted, PrivBitSet checkedPrivs) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.COLUMN,
-                ctl, ClusterNamespace.getNameFromFullName(db), tbl, col);
+                ctl, db, tbl, col);
         return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
     }
 
@@ -312,13 +311,13 @@ public class RangerDorisAccessController extends RangerAccessController {
     @Override
     protected RangerDorisResource createResource(String ctl, String db, String tbl) {
         return new RangerDorisResource(DorisObjectType.TABLE,
-                ctl, ClusterNamespace.getNameFromFullName(db), tbl);
+                ctl, db, tbl);
     }
 
     @Override
     protected RangerDorisResource createResource(String ctl, String db, String tbl, String col) {
         return new RangerDorisResource(DorisObjectType.COLUMN,
-                ctl, ClusterNamespace.getNameFromFullName(db), tbl, col);
+                ctl, db, tbl, col);
     }
 
     @Override

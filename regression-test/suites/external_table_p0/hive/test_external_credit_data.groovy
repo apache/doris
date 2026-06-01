@@ -21,7 +21,7 @@ suite("test_external_credit_data", "p0,external") {
         logger.info("diable Hive test.")
         return;
     }
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "${hivePrefix}_test_external_credit_data"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")

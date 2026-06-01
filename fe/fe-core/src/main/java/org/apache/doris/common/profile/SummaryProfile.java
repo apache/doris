@@ -436,7 +436,13 @@ public class SummaryProfile {
     private Map<Backend, Long> assignedWeightPerBackend;
 
     public SummaryProfile() {
-        init();
+        this(true);
+    }
+
+    public SummaryProfile(boolean isEnable) {
+        if (isEnable) {
+            init();
+        }
     }
 
     public static SummaryProfile read(DataInput input) throws IOException {
@@ -1181,10 +1187,6 @@ public class SummaryProfile {
         return TimeUnit.NANOSECONDS.toMillis(getPartitionVersionTime + getTableVersionTime);
     }
 
-    public void addExternalCatalogMetaTime(long ms) {
-        this.externalCatalogMetaTime += ms;
-    }
-
     public long getExternalCatalogMetaTimeMs() {
         return externalCatalogMetaTime;
     }
@@ -1198,7 +1200,7 @@ public class SummaryProfile {
     }
 
     public void addNereidsPartitiionPruneTime(long ms) {
-        this.externalTvfInitTime += ms;
+        this.nereidsPartitiionPruneTime += ms;
     }
 
     public long getNereidsPartitiionPruneTimeMs() {

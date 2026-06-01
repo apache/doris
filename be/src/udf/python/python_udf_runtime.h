@@ -19,7 +19,7 @@
 
 #include <boost/process.hpp>
 
-#include "python_env.h"
+#include "udf/python/python_env.h"
 
 namespace doris {
 
@@ -82,6 +82,10 @@ public:
     bool operator==(const PythonUDFProcess& other) const { return _child_pid == other._child_pid; }
 
     bool operator!=(const PythonUDFProcess& other) const { return !(*this == other); }
+
+#ifdef BE_TEST
+    void set_uri_for_test(std::string uri) { _uri = std::move(uri); }
+#endif
 
 private:
     constexpr static int TERMINATE_RETRY_TIMES = 10;

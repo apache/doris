@@ -25,7 +25,7 @@
 #include <stdexcept>
 
 #include "common/exception.h"
-#include "olap/olap_common.h"
+#include "storage/olap_common.h"
 
 namespace doris {
 

@@ -19,13 +19,13 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
+import org.apache.doris.catalog.info.BranchOptions;
+import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
+import org.apache.doris.catalog.info.DropBranchInfo;
+import org.apache.doris.catalog.info.DropTagInfo;
+import org.apache.doris.catalog.info.TagOptions;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 import org.apache.doris.persist.EditLog;
 
 import com.google.common.collect.Lists;

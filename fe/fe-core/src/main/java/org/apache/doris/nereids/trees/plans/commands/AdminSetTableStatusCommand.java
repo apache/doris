@@ -19,12 +19,12 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -63,7 +63,7 @@ public class AdminSetTableStatusCommand extends Command implements ForwardWithSy
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
         Util.prohibitExternalCatalog(tableNameInfo.getCtl(), this.getClass().getSimpleName());
 
         checkProperties();

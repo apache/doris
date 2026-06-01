@@ -19,16 +19,13 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
-import org.apache.doris.analysis.ImportColumnsStmt;
-import org.apache.doris.analysis.ImportDeleteOnStmt;
-import org.apache.doris.analysis.ImportSequenceStmt;
-import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
@@ -38,7 +35,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
@@ -278,6 +274,10 @@ public class CreateRoutineLoadInfo {
         return tableName;
     }
 
+    public void setTableName(String tableName) {
+        this.tableName = tableName;
+    }
+
     public String getDBName() {
         return dbName;
     }
@@ -492,12 +492,12 @@ public class CreateRoutineLoadInfo {
         Separator columnSeparator = null;
         // TODO(yangzhengguo01): add line delimiter to properties
         Separator lineDelimiter = null;
-        ImportColumnsStmt importColumnsStmt = null;
-        ImportWhereStmt precedingImportWhereStmt = null;
-        ImportWhereStmt importWhereStmt = null;
-        ImportSequenceStmt importSequenceStmt = null;
+        List<ImportColumnDesc> columnInfos = null;
+        Expr precedingFilter = null;
+        Expr filter = null;
+        String sequenceColName = null;
         PartitionNamesInfo partitionNamesInfo = null;
-        ImportDeleteOnStmt importDeleteOnStmt = null;
+        Expr deleteCondition = null;
 
         if (loadPropertyMap != null) {
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
@@ -512,48 +512,42 @@ public class CreateRoutineLoadInfo {
                     if (isMultiTable) {
                         throw new AnalysisException("Multi-table load does not support setting columns info");
                     }
-                    List<ImportColumnDesc> importColumnDescList = new ArrayList<>();
+                    columnInfos = new ArrayList<>();
                     for (LoadColumnDesc columnDesc : ((LoadColumnClause) loadProperty).getColumns()) {
                         if (columnDesc.getExpression() != null) {
                             Expr expr = PlanUtils.translateToLegacyExpr(columnDesc.getExpression(), table, ctx);
-                            importColumnDescList.add(new ImportColumnDesc(columnDesc.getColumnName(), expr));
+                            columnInfos.add(new ImportColumnDesc(columnDesc.getColumnName(), expr));
                         } else {
-                            importColumnDescList.add(new ImportColumnDesc(columnDesc.getColumnName(), null));
+                            columnInfos.add(new ImportColumnDesc(columnDesc.getColumnName(), null));
                         }
                     }
-                    importColumnsStmt = new ImportColumnsStmt(importColumnDescList);
                 } else if (loadProperty instanceof LoadWhereClause) {
                     if (isMultiTable) {
                         throw new AnalysisException("Multi-table load does not support setting columns info");
                     }
-                    Expr expr = PlanUtils.translateToLegacyExpr(((LoadWhereClause) loadProperty).getExpression(),
+                    filter = PlanUtils.translateToLegacyExpr(((LoadWhereClause) loadProperty).getExpression(),
                             table, ctx);
-                    importWhereStmt = new ImportWhereStmt(expr, false);
                 } else if (loadProperty instanceof LoadPrecedingFilterClause) {
                     if (isMultiTable) {
                         throw new AnalysisException("Multi-table load does not support setting columns info");
                     }
-                    Expr expr = PlanUtils
+                    precedingFilter = PlanUtils
                             .translateToLegacyExpr(((LoadPrecedingFilterClause) loadProperty).getExpression(), null,
                                     ctx);
-                    precedingImportWhereStmt = new ImportWhereStmt(expr, true);
                 } else if (loadProperty instanceof LoadPartitionNames) {
                     partitionNamesInfo = new PartitionNamesInfo(((LoadPartitionNames) loadProperty).isTemp(),
                             ((LoadPartitionNames) loadProperty).getPartitionNames());
                 } else if (loadProperty instanceof LoadDeleteOnClause) {
-                    Expr expr = PlanUtils.translateToLegacyExpr(((LoadDeleteOnClause) loadProperty).getExpression(),
-                            table, ctx);
-                    importDeleteOnStmt = new ImportDeleteOnStmt(expr);
+                    deleteCondition = PlanUtils.translateToLegacyExpr(
+                            ((LoadDeleteOnClause) loadProperty).getExpression(), table, ctx);
                 } else if (loadProperty instanceof LoadSequenceClause) {
-                    importSequenceStmt = new ImportSequenceStmt(
-                            ((LoadSequenceClause) loadProperty).getSequenceColName());
+                    sequenceColName = ((LoadSequenceClause) loadProperty).getSequenceColName();
                 }
             }
         }
-        return new RoutineLoadDesc(columnSeparator, lineDelimiter, importColumnsStmt,
-            precedingImportWhereStmt, importWhereStmt,
-            partitionNamesInfo, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
-            importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
+        return new RoutineLoadDesc(columnSeparator, lineDelimiter, columnInfos,
+                precedingFilter, filter,
+                partitionNamesInfo, deleteCondition, mergeType, sequenceColName);
     }
 
     /**

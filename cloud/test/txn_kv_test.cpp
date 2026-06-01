@@ -59,6 +59,9 @@ int main(int argc, char** argv) {
     config::init(nullptr, true);
     ::testing::InitGoogleTest(&argc, argv);
     init_txn_kv();
+    DORIS_CLOUD_DEFER {
+        txn_kv.reset();
+    };
     return RUN_ALL_TESTS();
 }
 
@@ -982,7 +985,7 @@ TEST(TxnKvTest, FullRangeGetIterator) {
         auto inner_begin = begin;
         cnt = 0;
         start = std::chrono::steady_clock::now();
-        do {
+        while (inner_it == nullptr /* may be not init */ || inner_it->more()) {
             err = txn->get(inner_begin, end, &inner_it, false, 11);
             ASSERT_EQ(err, TxnErrorCode::TXN_OK);
             if (!inner_it->has_next()) {
@@ -998,7 +1001,7 @@ TEST(TxnKvTest, FullRangeGetIterator) {
                 }
             }
             inner_begin.push_back('\x00'); // Update to next smallest key for iteration
-        } while (inner_it->more());
+        }
         finish = std::chrono::steady_clock::now();
         EXPECT_EQ(cnt, 100);
         std::cout << "RangeGetIterator cost="
@@ -1312,7 +1315,7 @@ TEST(TxnKvTest, ReverseFullRangeGet) {
             std::string begin = range_begin, end = range_end;
 
             std::unique_ptr<RangeGetIterator> it;
-            do {
+            while (it == nullptr /* may be not init */ || it->more()) {
                 err = txn->get(begin, end, &it, options);
                 ASSERT_EQ(err, TxnErrorCode::TXN_OK);
 
@@ -1323,7 +1326,7 @@ TEST(TxnKvTest, ReverseFullRangeGet) {
                 // Get next begin key for reverse range get
                 end = it->last_key();
                 options.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
-            } while (it->more());
+            }
         }
 
         std::vector<std::string> actual_keys;
@@ -1419,7 +1422,7 @@ TEST(TxnKvTest, ReverseFullRangeGet2) {
             std::string begin = range_begin, end = range_end;
 
             std::unique_ptr<RangeGetIterator> it;
-            do {
+            while (it == nullptr /* may be not init */ || it->more()) {
                 err = txn->get(begin, end, &it, options);
                 ASSERT_EQ(err, TxnErrorCode::TXN_OK);
 
@@ -1430,7 +1433,7 @@ TEST(TxnKvTest, ReverseFullRangeGet2) {
                 // Get next begin key for reverse range get
                 end = it->last_key();
                 options.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
-            } while (it->more());
+            }
         }
 
         std::vector<std::string> actual_keys;

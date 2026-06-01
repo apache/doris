@@ -62,10 +62,11 @@ public class InitJoinOrder extends OneRewriteRuleFactory {
     }
 
     private Plan swapJoinChildrenIfNeed(LogicalJoin<? extends Plan, ? extends Plan> join, CascadesContext context) {
-        if (join.getJoinType().isLeftSemiOrAntiJoin()) {
-            // TODO: currently, the transform rules for right semi/anti join is not complete,
+        if (join.getJoinType().isLeftSemiOrAntiJoin() || join.getJoinType().isAsofJoin()) {
+            // TODO: currently, the transform rules for right semi/anti/asof join is not complete,
             //  for example LogicalJoinSemiJoinTransposeProject (tpch 22) only works for left semi/anti join
             //  if we swap left semi/anti to right semi/anti, we lost the opportunity to optimize join order
+            //  and for asof join, the asof right join's performance is poor, we also disable swap
             return null;
         }
         List<CatalogRelation> scans = join.collectToList(CatalogRelation.class::isInstance);
@@ -87,9 +88,8 @@ public class InitJoinOrder extends OneRewriteRuleFactory {
             // requires "left.getStats().getRowCount() > 0" to avoid dead loop when negative row count is estimated.
             if (left.getStats().getRowCount() < right.getStats().getRowCount() * SWAP_THRESHOLD
                     && left.getStats().getRowCount() > 0) {
-                join = join.withTypeChildren(swapType, right, left,
-                        join.getJoinReorderContext());
-                return join;
+                // Use swap() to properly handle ASOF JOIN MATCH_CONDITION commutation
+                return join.swap();
             }
         }
         return null;

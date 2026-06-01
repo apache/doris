@@ -19,10 +19,12 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.RangeUtils;
@@ -227,7 +229,7 @@ public class RangePartitionInfo extends PartitionInfo {
             sb.append("AUTO PARTITION BY RANGE ");
             for (Expr e : partitionExprs) {
                 sb.append("(");
-                sb.append(e.toSql());
+                sb.append(e.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                 sb.append(")");
             }
             sb.append("\n(");

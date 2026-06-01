@@ -110,7 +110,14 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
                 + "distributed by hash(k1) buckets 3\n"
                 + "properties('replication_num' = '1')";
 
-        createTables(nonPart, part1, part2, multiLeveParts);
+        String variantTable = "create table db1.variant_tbl("
+                + "  k1 int,\n"
+                + "  data variant)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "distributed by hash(k1) buckets 3\n"
+                + "properties('replication_num' = '1')";
+
+        createTables(nonPart, part1, part2, multiLeveParts, variantTable);
 
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         connectContext.getSessionVariable().setEnableQueryCache(true);
@@ -356,6 +363,22 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
         List<TNormalizedPlanNode> fourPhaseAggPlans = phaseAgg(4, () -> normalizePlans(
                 "select sum(distinct v1), k2 from db1.part1 where dt = '2024-04-10' group by k2"));
         Assertions.assertEquals(fourPhaseAggPlans, threePhaseAggPlans);
+    }
+
+    @Test
+    public void testVariantSubColumnDigest() throws Exception {
+        // Different variant subcolumns should produce different digests
+        String digest1 = getDigest(
+                "select cast(data['int_1'] as int), count(*) from db1.variant_tbl group by cast(data['int_1'] as int)");
+        String digest2 = getDigest(
+                "select cast(data['int_nested'] as int), count(*) from db1.variant_tbl group by cast(data['int_nested'] as int)");
+        Assertions.assertNotEquals(digest1, digest2,
+                "Queries on different variant subcolumns must have different cache digests");
+
+        // Same variant subcolumn with different aliases should produce same digest
+        String digest3 = getDigest(
+                "select cast(data['int_1'] as int) as a, count(*) as cnt from db1.variant_tbl group by cast(data['int_1'] as int)");
+        Assertions.assertEquals(digest1, digest3);
     }
 
     private String getDigest(String sql) throws Exception {

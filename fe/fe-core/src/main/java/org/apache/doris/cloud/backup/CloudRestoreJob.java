@@ -292,8 +292,8 @@ public class CloudRestoreJob extends RestoreJob {
         }
         Preconditions.checkState(storageVaultId != null, "Storage vault ID cannot be null");
         return new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
-            brokerAddr, repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
-            repo.getRemoteFileSystem().getStorageType(), repo.getLocation(), storageVaultId);
+            brokerAddr, repo.getFileSystemDescriptor().getBackendConfigProperties(),
+            repo.getFileSystemDescriptor().getThriftStorageType(), repo.getLocation(), storageVaultId);
     }
 
     public void downloadLocalSnapshots() {
@@ -333,18 +333,22 @@ public class CloudRestoreJob extends RestoreJob {
             int schemaHash = remoteTbl.getSchemaHashByIndexId(remoteIdx.getId());
             int remotetabletSize = remoteIdx.getTablets().size();
             remoteIdx.clearTabletsForRestore();
+            // Collect locally and bulk-publish to keep copy-on-write O(n) for the whole index.
+            List<Tablet> newTablets = new ArrayList<>(remotetabletSize);
             for (int i = 0; i < remotetabletSize; i++) {
                 // generate new tablet id
                 long newTabletId = env.getNextId();
                 Tablet newTablet = EnvFactory.getInstance().createTablet(newTabletId);
-                // add tablet to index, but not add to TabletInvertedIndex
-                remoteIdx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
+                newTablets.add(newTablet);
                 // replicas
                 long newReplicaId = Env.getCurrentEnv().getNextId();
                 Replica replica = new CloudReplica(newReplicaId, null, Replica.ReplicaState.NORMAL,
                         visibleVersion, schemaHash, dbId, localTbl.getId(), partitionId, remoteIdx.getId(), i);
                 newTablet.addReplica(replica, true /* is restore */);
             }
+            // add tablets to index in one batch; TabletInvertedIndex registration
+            // is intentionally skipped on the restore path (rebuilt separately).
+            remoteIdx.appendTablets(newTablets);
         }
         return remotePart;
     }
@@ -404,7 +408,8 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.variantEnableFlattenNested(), clusterKeyUids,
                                     localTbl.storagePageSize(), localTbl.getTDEAlgorithmPB(),
                                     localTbl.storageDictPageSize(), false,
-                                    localTbl.getColumnSeqMapping()));
+                                    localTbl.getColumnSeqMapping(),
+                                    localTbl.getVerticalCompactionNumColumnsPerGroup()));
                         // In cloud mode all storage medium will be saved to HDD.
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                                 restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);

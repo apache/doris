@@ -42,8 +42,10 @@ public class JdbcPostgreSQLClient extends JdbcClient {
 
     private static final String[] supportedInnerType = new String[] {
             "int2", "int4", "int8", "smallserial", "serial",
-            "bigserial", "float4", "float8", "timestamp", "timestamptz",
-            "date", "bool", "bpchar", "varchar", "text"
+            "bigserial", "float4", "float8", "numeric",
+            "timestamp", "timestamptz", "date", "bool",
+            "bpchar", "varchar", "text",
+            "json", "jsonb", "uuid"
     };
 
     protected JdbcPostgreSQLClient(JdbcClientConfig jdbcClientConfig) {
@@ -61,6 +63,11 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             String catalogName = getCatalogName(conn);
             rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
             while (rs.next()) {
+                // getColumns treats schema/table as LIKE patterns; drop rows pulled in via `_`/`%`.
+                if (!remoteDbName.equals(rs.getString("TABLE_SCHEM"))
+                        || !remoteTableName.equals(rs.getString("TABLE_NAME"))) {
+                    continue;
+                }
                 int dataType = rs.getInt("DATA_TYPE");
                 int arrayDimensions = 0;
                 if (dataType == Types.ARRAY) {
@@ -172,8 +179,11 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "cidr":
             case "inet":
             case "macaddr":
+            case "macaddr8":
             case "varbit":
             case "uuid":
+            case "xml":
+            case "hstore":
             case "json":
             case "jsonb":
                 return ScalarType.createStringType();

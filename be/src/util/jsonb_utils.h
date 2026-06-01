@@ -22,8 +22,8 @@
 #define JSONB_JSONBUTIL_H
 
 #include "common/status.h"
-#include "jsonb_document.h"
-#include "jsonb_stream.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_stream.h"
 
 namespace doris {
 
@@ -128,25 +128,25 @@ private:
         }
         case JsonbType::T_Decimal32: {
             const auto* decimal_val = val->unpack<JsonbDecimal32>();
-            decimal_to_json(vectorized::Decimal32 {decimal_val->val()}, decimal_val->precision,
+            decimal_to_json(Decimal32 {decimal_val->val()}, decimal_val->precision,
                             decimal_val->scale);
             break;
         }
         case JsonbType::T_Decimal64: {
             const auto* decimal_val = val->unpack<JsonbDecimal64>();
-            decimal_to_json(vectorized::Decimal64 {decimal_val->val()}, decimal_val->precision,
+            decimal_to_json(Decimal64 {decimal_val->val()}, decimal_val->precision,
                             decimal_val->scale);
             break;
         }
         case JsonbType::T_Decimal128: {
             const auto* decimal_val = val->unpack<JsonbDecimal128>();
-            decimal_to_json(vectorized::Decimal128V3 {decimal_val->val()}, decimal_val->precision,
+            decimal_to_json(Decimal128V3 {decimal_val->val()}, decimal_val->precision,
                             decimal_val->scale);
             break;
         }
         case JsonbType::T_Decimal256: {
             const auto* decimal_val = val->unpack<JsonbDecimal256>();
-            decimal_to_json(vectorized::Decimal256 {decimal_val->val()}, decimal_val->precision,
+            decimal_to_json(Decimal256 {decimal_val->val()}, decimal_val->precision,
                             decimal_val->scale);
             break;
         }

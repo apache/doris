@@ -80,7 +80,8 @@ public class JoinUtils {
     }
 
     public static boolean couldBroadcast(Join join) {
-        return !(join.getJoinType().isRightJoin() || join.getJoinType().isFullOuterJoin());
+        return !(join.getJoinType().isRightJoin() || join.getJoinType().isFullOuterJoin()
+                || join.getJoinType().isAsofRightOuterJoin());
     }
 
     /**
@@ -378,7 +379,8 @@ public class JoinUtils {
      * Check whether the given join can be eliminated by pk-fk
      */
     public static boolean canEliminateByFk(LogicalJoin<?, ?> join, Plan primaryPlan, Plan foreignPlan) {
-        if (!join.getJoinType().isInnerJoin() || !join.getOtherJoinConjuncts().isEmpty() || join.isMarkJoin()) {
+        if (!(join.getJoinType().isInnerJoin() || join.getJoinType().isAsofInnerJoin())
+                || !join.getOtherJoinConjuncts().isEmpty() || join.isMarkJoin()) {
             return false;
         }
 
@@ -401,7 +403,7 @@ public class JoinUtils {
      * can this join be eliminated by its left child
      */
     public static boolean canEliminateByLeft(LogicalJoin<?, ?> join, DataTrait rightFuncDeps) {
-        if (join.getJoinType().isLeftOuterJoin()) {
+        if (join.getJoinType().isLeftOuterJoin() || join.getJoinType().isAsofLeftOuterJoin()) {
             Pair<Set<Slot>, Set<Slot>> njHashKeys = join.extractNullRejectHashKeys();
             if (!join.getOtherJoinConjuncts().isEmpty() || njHashKeys == null) {
                 return false;
@@ -445,11 +447,13 @@ public class JoinUtils {
             case RIGHT_ANTI_JOIN:
                 return ImmutableList.copyOf(rightOutput);
             case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
                 return ImmutableList.<Slot>builder()
                         .addAll(leftOutput)
                         .addAll(applyNullable(rightOutput, true))
                         .build();
             case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
                 return ImmutableList.<Slot>builder()
                         .addAll(applyNullable(leftOutput, true))
                         .addAll(rightOutput)

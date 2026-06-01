@@ -18,7 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/tests/gtest_lru_file_cache.cpp
 // and modified by Doris
 
-#include "block_file_cache_test_common.h"
+#include "io/cache/block_file_cache_test_common.h"
 
 namespace doris::io {
 
@@ -528,6 +528,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_order_check) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
 
     std::string buffer;

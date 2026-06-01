@@ -51,10 +51,12 @@
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/cloud_snapshot_loader.h"
 #include "cloud/cloud_snapshot_mgr.h"
+#include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
@@ -63,26 +65,6 @@
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
-#include "olap/cumulative_compaction_time_series_policy.h"
-#include "olap/data_dir.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/rowset_meta.h"
-#include "olap/snapshot_manager.h"
-#include "olap/storage_engine.h"
-#include "olap/storage_policy.h"
-#include "olap/tablet.h"
-#include "olap/tablet_manager.h"
-#include "olap/tablet_meta.h"
-#include "olap/tablet_schema.h"
-#include "olap/task/engine_batch_load_task.h"
-#include "olap/task/engine_checksum_task.h"
-#include "olap/task/engine_clone_task.h"
-#include "olap/task/engine_cloud_index_change_task.h"
-#include "olap/task/engine_index_change_task.h"
-#include "olap/task/engine_publish_version_task.h"
-#include "olap/task/engine_storage_migration_task.h"
-#include "olap/txn_manager.h"
-#include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/index_policy/index_policy_mgr.h"
@@ -90,9 +72,29 @@
 #include "runtime/snapshot_loader.h"
 #include "runtime/user_function_cache.h"
 #include "service/backend_options.h"
+#include "storage/compaction/cumulative_compaction_time_series_policy.h"
+#include "storage/data_dir.h"
+#include "storage/olap_common.h"
+#include "storage/rowset/rowset_meta.h"
+#include "storage/snapshot/snapshot_manager.h"
+#include "storage/storage_engine.h"
+#include "storage/storage_policy.h"
+#include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_manager.h"
+#include "storage/tablet/tablet_meta.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/task/engine_batch_load_task.h"
+#include "storage/task/engine_checksum_task.h"
+#include "storage/task/engine_clone_task.h"
+#include "storage/task/engine_cloud_index_change_task.h"
+#include "storage/task/engine_index_change_task.h"
+#include "storage/task/engine_publish_version_task.h"
+#include "storage/task/engine_storage_migration_task.h"
+#include "storage/txn/txn_manager.h"
+#include "storage/utils.h"
+#include "udf/python/python_server.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
-#include "util/doris_metrics.h"
 #include "util/jni-util.h"
 #include "util/mem_info.h"
 #include "util/random.h"
@@ -103,7 +105,6 @@
 #include "util/trace.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace {
@@ -524,9 +525,11 @@ bvar::Adder<uint64_t> report_index_policy_failed("report", "index_policy_failed"
 
 } // namespace
 
-TaskWorkerPool::TaskWorkerPool(std::string_view name, int worker_count,
-                               std::function<void(const TAgentTaskRequest& task)> callback)
-        : _callback(std::move(callback)) {
+TaskWorkerPool::TaskWorkerPool(
+        std::string_view name, int worker_count,
+        std::function<void(const TAgentTaskRequest& task)> callback,
+        std::function<void(const TAgentTaskRequest& task)> pre_submit_callback)
+        : _callback(std::move(callback)), _pre_submit_callback(std::move(pre_submit_callback)) {
     auto st = ThreadPoolBuilder(fmt::format("TaskWP_{}", name))
                       .set_min_threads(worker_count)
                       .set_max_threads(worker_count)
@@ -550,6 +553,9 @@ void TaskWorkerPool::stop() {
 
 Status TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
     return _submit_task(task, [this](auto&& task) {
+        if (_pre_submit_callback) {
+            _pre_submit_callback(task);
+        }
         add_task_count(task, 1);
         return _thread_pool->submit_func([this, task]() {
             _callback(task);
@@ -964,6 +970,11 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
                     tablet_meta_info.time_series_compaction_level_threshold);
             need_to_save = true;
         }
+        if (tablet_meta_info.__isset.vertical_compaction_num_columns_per_group) {
+            tablet->tablet_meta()->set_vertical_compaction_num_columns_per_group(
+                    tablet_meta_info.vertical_compaction_num_columns_per_group);
+            need_to_save = true;
+        }
         if (tablet_meta_info.__isset.replica_id) {
             tablet->tablet_meta()->set_replica_id(tablet_meta_info.replica_id);
         }
@@ -1323,12 +1334,14 @@ void download_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequ
     if (download_request.__isset.remote_tablet_snapshots) {
         std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
                 engine, env, download_request.job_id, req.signature);
+        SCOPED_ATTACH_TASK(loader->resource_ctx());
         status = loader->remote_http_download(download_request.remote_tablet_snapshots,
                                               &downloaded_tablet_ids);
     } else {
         std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
                 engine, env, download_request.job_id, req.signature, download_request.broker_addr,
                 download_request.broker_prop);
+        SCOPED_ATTACH_TASK(loader->resource_ctx());
         status = loader->init(download_request.__isset.storage_backend
                                       ? download_request.storage_backend
                                       : TStorageBackendType::type::BROKER,
@@ -1376,6 +1389,7 @@ void download_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTas
         std::unique_ptr<CloudSnapshotLoader> loader = std::make_unique<CloudSnapshotLoader>(
                 engine, env, download_request.job_id, req.signature, download_request.broker_addr,
                 download_request.broker_prop);
+        SCOPED_ATTACH_TASK(loader->resource_ctx());
         status = loader->init(download_request.__isset.storage_backend
                                       ? download_request.storage_backend
                                       : TStorageBackendType::type::BROKER,
@@ -1529,6 +1543,7 @@ void move_dir_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequ
         status = Status::InvalidArgument("Could not find tablet");
     } else {
         SnapshotLoader loader(engine, env, move_dir_req.job_id, move_dir_req.tablet_id);
+        SCOPED_ATTACH_TASK(loader.resource_ctx());
         status = loader.move(move_dir_req.src, tablet, true);
     }
 
@@ -1591,28 +1606,113 @@ void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskReq
     const auto& compaction_req = req.compaction_req;
 
     LOG(INFO) << "get compaction task. signature=" << req.signature
-              << ", compaction_type=" << compaction_req.type;
+              << ", compaction_type=" << compaction_req.type
+              << ", tablet_id=" << compaction_req.tablet_id;
 
     CompactionType compaction_type;
     if (compaction_req.type == "base") {
         compaction_type = CompactionType::BASE_COMPACTION;
-    } else {
+    } else if (compaction_req.type == "cumulative") {
         compaction_type = CompactionType::CUMULATIVE_COMPACTION;
+    } else if (compaction_req.type == "full") {
+        compaction_type = CompactionType::FULL_COMPACTION;
+    } else {
+        LOG(WARNING) << "unknown compaction type: " << compaction_req.type
+                     << ", tablet_id=" << compaction_req.tablet_id;
+        return;
     }
 
     auto tablet_ptr = engine.tablet_manager()->get_tablet(compaction_req.tablet_id);
-    if (tablet_ptr != nullptr) {
-        auto* data_dir = tablet_ptr->data_dir();
-        if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
-            LOG(WARNING) << "could not do compaction. tablet_id=" << tablet_ptr->tablet_id()
-                         << ", compaction_type=" << compaction_type;
-            return;
-        }
+    if (tablet_ptr == nullptr) {
+        LOG(WARNING) << "tablet not found. tablet_id=" << compaction_req.tablet_id;
+        return;
+    }
 
-        Status status = engine.submit_compaction_task(tablet_ptr, compaction_type, false);
+    if (compaction_type == CompactionType::FULL_COMPACTION) {
+        // Full compaction goes through the dedicated threadpool path (align with
+        // compaction_action.cpp _handle_run_compaction). `force=false` keeps the
+        // admission under permit limiter, matching the HTTP API default.
+        tablet_ptr->set_last_full_compaction_schedule_time(UnixMillis());
+        Status status = engine.submit_compaction_task(tablet_ptr, CompactionType::FULL_COMPACTION,
+                                                      /*force=*/false, /*eager=*/true,
+                                                      /*trigger_method=*/1);
         if (!status.ok()) {
-            LOG(WARNING) << "failed to submit table compaction task. error=" << status;
+            LOG(WARNING) << "failed to submit full compaction task. tablet_id="
+                         << tablet_ptr->tablet_id() << ", error=" << status;
         }
+        return;
+    }
+
+    // base / cumulative
+    auto* data_dir = tablet_ptr->data_dir();
+    if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
+        LOG(WARNING) << "could not do compaction. tablet_id=" << tablet_ptr->tablet_id()
+                     << ", compaction_type=" << compaction_type;
+        return;
+    }
+
+    Status status = engine.submit_compaction_task(tablet_ptr, compaction_type, false);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to submit table compaction task. error=" << status;
+    }
+}
+
+void cloud_submit_table_compaction_callback(CloudStorageEngine& engine,
+                                            const TAgentTaskRequest& req) {
+    const auto& compaction_req = req.compaction_req;
+
+    LOG(INFO) << "get cloud compaction task. signature=" << req.signature
+              << ", compaction_type=" << compaction_req.type
+              << ", tablet_id=" << compaction_req.tablet_id;
+
+    CompactionType compaction_type;
+    if (compaction_req.type == "base") {
+        compaction_type = CompactionType::BASE_COMPACTION;
+    } else if (compaction_req.type == "cumulative") {
+        compaction_type = CompactionType::CUMULATIVE_COMPACTION;
+    } else if (compaction_req.type == "full") {
+        compaction_type = CompactionType::FULL_COMPACTION;
+    } else {
+        LOG(WARNING) << "unknown cloud compaction type: " << compaction_req.type
+                     << ", tablet_id=" << compaction_req.tablet_id;
+        return;
+    }
+
+    // Mirror cloud_compaction_action::_handle_run_compaction: base/cumu needs the
+    // delete bitmap synced eagerly, full does not (FullCompaction re-syncs itself).
+    bool sync_delete_bitmap = compaction_type != CompactionType::FULL_COMPACTION;
+    auto tablet_res = engine.tablet_mgr().get_tablet(compaction_req.tablet_id,
+                                                     /*warmup_data=*/false, sync_delete_bitmap);
+    if (!tablet_res.has_value()) {
+        LOG(WARNING) << "failed to get cloud tablet. tablet_id=" << compaction_req.tablet_id
+                     << ", error=" << tablet_res.error();
+        return;
+    }
+    CloudTabletSPtr tablet = std::move(tablet_res).value();
+    if (tablet == nullptr) {
+        LOG(WARNING) << "cloud tablet not found. tablet_id=" << compaction_req.tablet_id;
+        return;
+    }
+
+    switch (compaction_type) {
+    case CompactionType::BASE_COMPACTION:
+        tablet->set_last_base_compaction_schedule_time(UnixMillis());
+        break;
+    case CompactionType::CUMULATIVE_COMPACTION:
+        tablet->set_last_cumu_compaction_schedule_time(UnixMillis());
+        break;
+    case CompactionType::FULL_COMPACTION:
+        tablet->set_last_full_compaction_schedule_time(UnixMillis());
+        break;
+    default:
+        break;
+    }
+
+    Status status = engine.submit_compaction_task(tablet, compaction_type,
+                                                  /*trigger_method=*/1);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to submit cloud compaction task. tablet_id=" << tablet->tablet_id()
+                     << ", type=" << compaction_req.type << ", error=" << status;
     }
 }
 
@@ -1764,7 +1864,9 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
     Defer defer = [&] {
         auto elapsed_time = static_cast<double>(watch.elapsed_time());
         if (elapsed_time / 1e9 > config::agent_task_trace_threshold_sec) {
+#include "common/compile_check_avoid_begin.h"
             COUNTER_UPDATE(profile->total_time_counter(), elapsed_time);
+#include "common/compile_check_avoid_end.h"
             std::stringstream ss;
             profile->pretty_print(&ss);
             LOG(WARNING) << "create tablet cost(s) " << elapsed_time / 1e9 << std::endl << ss.str();
@@ -2029,8 +2131,8 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
 
     std::set<TTabletId> error_tablet_ids;
     std::map<TTabletId, TVersion> succ_tablets;
-    // partition_id, tablet_id, publish_version
-    std::vector<std::tuple<int64_t, int64_t, int64_t>> discontinuous_version_tablets;
+    // partition_id, tablet_id, publish_version, commit_tso
+    std::vector<DiscontinuousVersionTablet> discontinuous_version_tablets;
     std::map<TTableId, std::map<TTabletId, int64_t>> table_id_to_tablet_id_to_num_delta_rows;
     uint32_t retry_time = 0;
     Status status;
@@ -2087,8 +2189,8 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
     }
 
     for (auto& item : discontinuous_version_tablets) {
-        _engine.add_async_publish_task(std::get<0>(item), std::get<1>(item), std::get<2>(item),
-                                       publish_version_req.transaction_id, false);
+        _engine.add_async_publish_task(item.partition_id, item.tablet_id, item.publish_version,
+                                       publish_version_req.transaction_id, false, item.commit_tso);
     }
     TFinishTaskRequest finish_task_request;
     if (!status.ok()) [[unlikely]] {
@@ -2238,7 +2340,46 @@ void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskReq
                           std::chrono::system_clock::now().time_since_epoch())
                           .count();
     g_fragment_last_active_time.set_value(now);
+
+    // Clean up alter_version before remove_task_info to avoid race:
+    // remove_task_info allows same-signature re-submit, whose pre_submit_callback
+    // would set alter_version, then this cleanup would wipe it.
+    if (req.__isset.alter_tablet_req_v2) {
+        const auto& alter_req = req.alter_tablet_req_v2;
+        auto new_tablet = engine.tablet_mgr().get_tablet(alter_req.new_tablet_id);
+        auto base_tablet = engine.tablet_mgr().get_tablet(alter_req.base_tablet_id);
+        if (new_tablet.has_value()) {
+            new_tablet.value()->set_alter_version(-1);
+        }
+        if (base_tablet.has_value()) {
+            base_tablet.value()->set_alter_version(-1);
+        }
+    }
+
     remove_task_info(req.task_type, req.signature);
+}
+
+void set_alter_version_before_enqueue(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+    if (!req.__isset.alter_tablet_req_v2) {
+        return;
+    }
+    const auto& alter_req = req.alter_tablet_req_v2;
+    if (alter_req.alter_version <= 1) {
+        return;
+    }
+    auto new_tablet = engine.tablet_mgr().get_tablet(alter_req.new_tablet_id);
+    if (!new_tablet.has_value() || new_tablet.value()->tablet_state() == TABLET_RUNNING) {
+        return;
+    }
+    auto base_tablet = engine.tablet_mgr().get_tablet(alter_req.base_tablet_id);
+    if (!base_tablet.has_value()) {
+        return;
+    }
+    new_tablet.value()->set_alter_version(alter_req.alter_version);
+    base_tablet.value()->set_alter_version(alter_req.alter_version);
+    LOG(INFO) << "set alter_version=" << alter_req.alter_version
+              << " before enqueue, base_tablet=" << alter_req.base_tablet_id
+              << ", new_tablet=" << alter_req.new_tablet_id;
 }
 
 void gc_binlog_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
@@ -2388,6 +2529,57 @@ void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskReq
     remove_task_info(req.task_type, req.signature);
 }
 
+void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
+                                              const TAgentTaskRequest& req) {
+    if (!config::enable_cloud_make_rs_visible_on_be) {
+        return;
+    }
+    LOG(INFO) << "begin to make cloud tmp rs visible, txn_id="
+              << req.make_cloud_tmp_rs_visible_req.txn_id
+              << ", tablet_count=" << req.make_cloud_tmp_rs_visible_req.tablet_ids.size();
+
+    const auto& make_visible_req = req.make_cloud_tmp_rs_visible_req;
+    auto& tablet_mgr = engine.tablet_mgr();
+
+    int64_t txn_id = make_visible_req.txn_id;
+    int64_t version_update_time_ms = make_visible_req.__isset.version_update_time_ms
+                                             ? make_visible_req.version_update_time_ms
+                                             : 0;
+
+    // Process each tablet involved in this transaction on this BE
+    for (int64_t tablet_id : make_visible_req.tablet_ids) {
+        auto tablet_result =
+                tablet_mgr.get_tablet(tablet_id, /* warmup_data */ false,
+                                      /* sync_delete_bitmap */ false,
+                                      /* sync_stats */ nullptr, /* force_use_only_cached */ true,
+                                      /* cache_on_miss */ false);
+        if (!tablet_result.has_value()) {
+            continue;
+        }
+        auto cloud_tablet = tablet_result.value();
+
+        int64_t partition_id = cloud_tablet->partition_id();
+        auto version_iter = make_visible_req.partition_version_map.find(partition_id);
+        if (version_iter == make_visible_req.partition_version_map.end()) {
+            continue;
+        }
+        int64_t visible_version = version_iter->second;
+        DBUG_EXECUTE_IF("make_cloud_committed_rs_visible_callback.block", {
+            auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+            auto target_table_id = dp->param<int64_t>("table_id", -1);
+            auto version = dp->param<int64_t>("version", -1);
+            if ((target_tablet_id == tablet_id || target_table_id == cloud_tablet->table_id()) &&
+                version == visible_version) {
+                DBUG_BLOCK
+            }
+        });
+        cloud_tablet->try_make_committed_rs_visible(txn_id, visible_version,
+                                                    version_update_time_ms);
+    }
+    LOG(INFO) << "make cloud tmp rs visible finished, txn_id=" << txn_id
+              << ", processed_tablets=" << make_visible_req.tablet_ids.size();
+}
+
 void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     LOG(INFO) << "clean trash start";
     DBUG_EXECUTE_IF("clean_trash_callback_sleep", { sleep(100); })
@@ -2405,6 +2597,7 @@ void clean_udf_cache_callback(const TAgentTaskRequest& req) {
 
     if (clean_req.__isset.function_id && clean_req.function_id > 0) {
         UserFunctionCache::instance()->drop_function_cache(clean_req.function_id);
+        PythonServerManager::instance().clear_udaf_state_cache(clean_req.function_id);
     }
 
     LOG(INFO) << "clean udf cache finish: function_signature=" << clean_req.function_signature;
@@ -2426,5 +2619,4 @@ void report_index_policy_callback(const ClusterInfo* cluster_info) {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

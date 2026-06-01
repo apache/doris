@@ -92,6 +92,7 @@ public class PaimonJniScanner extends JniScanner {
             // so we need to provide a classloader, otherwise it will cause NPE.
             Thread.currentThread().setContextClassLoader(classLoader);
             preExecutionAuthenticator.execute(() -> {
+                PaimonJdbcDriverUtils.registerDriverIfNeeded(params, classLoader);
                 initTable();
                 initReader();
                 return null;
@@ -122,7 +123,11 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private int[] getProjected() {
-        return Arrays.stream(fields).mapToInt(paimonAllFieldNames::indexOf).toArray();
+        return Arrays.stream(fields).mapToInt(fieldName -> {
+            int index = paimonAllFieldNames.indexOf(fieldName);
+            Preconditions.checkArgument(index >= 0, "RequiredField %s not found in schema", fieldName);
+            return index;
+        }).toArray();
     }
 
     private List<Predicate> getPredicates() {
@@ -227,4 +232,3 @@ public class PaimonJniScanner extends JniScanner {
     }
 
 }
-

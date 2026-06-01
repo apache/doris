@@ -23,12 +23,14 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
-import org.apache.doris.cloud.storage.RemoteBase;
-import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.cloud.storage.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfoAdapter;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
@@ -150,8 +152,7 @@ public class CopyIntoAction extends RestBaseController {
             String host = request.getHeader("Host");
             boolean isInternal = Strings.isNullOrEmpty(eh) ? internalEndpoint(host)
                     : eh.equals(internal) || (!eh.equals(external));
-            String mysqlUserName = ClusterNamespace
-                    .getNameFromFullName(ConnectContext.get().getCurrentUserIdentity().getQualifiedUser());
+            String mysqlUserName = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
 
             String userId = Env.getCurrentEnv().getAuth().getUserId(mysqlUserName);
             LOG.info("receive Presigned url request [ user [{}]] for filename [{}], isInternal [{}], userId [{}]",
@@ -184,9 +185,11 @@ public class CopyIntoAction extends RestBaseController {
             }
             LOG.debug("obj info : {}, isInternal {}", objPb.toString(), isInternal);
 
-            // 2. call RemoteBase to get pre-signedUrl
-            RemoteBase rb = RemoteBase.newInstance(new ObjectInfo(objPb));
-            String signedUrl = rb.getPresignedUrl(fileName);
+            // 2. use ObjFileSystem to get pre-signedUrl
+            ObjectInfo objectInfo = new ObjectInfo(objPb);
+            StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
+            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps);
+            String signedUrl = fs.getPresignedUrl(fileName);
             long elapseMs = System.currentTimeMillis() - startTime;
             MetricRepo.HISTO_HTTP_COPY_INTO_UPLOAD_LATENCY.update(elapseMs);
             return redirectToObj(signedUrl);

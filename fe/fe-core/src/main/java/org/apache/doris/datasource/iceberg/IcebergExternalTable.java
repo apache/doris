@@ -25,12 +25,14 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.systable.IcebergSysTable;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
@@ -39,6 +41,7 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -58,6 +61,7 @@ import org.apache.iceberg.view.SQLViewRepresentation;
 import org.apache.iceberg.view.View;
 import org.apache.iceberg.view.ViewVersion;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -77,6 +81,11 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         super(id, name, remoteName, catalog, db, TableType.ICEBERG_EXTERNAL_TABLE);
     }
 
+    @Override
+    public String getMetaCacheEngine() {
+        return IcebergExternalMetaCache.ENGINE;
+    }
+
     public String getIcebergCatalogType() {
         return ((IcebergExternalCatalog) catalog).getIcebergCatalogType();
     }
@@ -93,6 +102,13 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
         boolean isView = isView();
         return IcebergUtils.loadSchemaCacheValue(this, ((IcebergSchemaCacheKey) key).getSchemaId(), isView);
+    }
+
+    @Override
+    public Optional<SchemaCacheValue> getSchemaCacheValue() {
+        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(
+                MvccUtil.getSnapshotFromContext(this), this);
+        return Optional.of(IcebergUtils.getSchemaCacheValue(this, snapshotValue));
     }
 
     @Override
@@ -255,8 +271,26 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     }
 
     @Override
+    protected boolean needInternalHiddenColumns() {
+        ConnectContext ctx = ConnectContext.get();
+        return ctx != null && ctx.needIcebergRowIdForTable(this.getId());
+    }
+
+    @Override
     public List<Column> getFullSchema() {
-        return IcebergUtils.getIcebergSchema(this);
+        List<Column> schema = IcebergUtils.getIcebergSchema(this);
+        schema = new ArrayList<>(schema);
+
+        if (Util.showHiddenColumns() || needInternalHiddenColumns()) {
+            schema.add(createIcebergRowIdColumn());
+        }
+
+        schema = IcebergUtils.appendRowLineageColumnsForV3(schema, getIcebergTable());
+        return schema;
+    }
+
+    private Column createIcebergRowIdColumn() {
+        return IcebergRowId.createHiddenColumn();
     }
 
     @Override
@@ -282,6 +316,19 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public Map<String, SysTable> getSupportedSysTables() {
         makeSureInitialized();
         return IcebergSysTable.SUPPORTED_SYS_TABLES;
+    }
+
+    @Override
+    public Optional<SysTable> findSysTable(String tableNameWithSysTableName) {
+        Optional<SysTable> sysTable = MTMVRelatedTableIf.super.findSysTable(tableNameWithSysTableName);
+        if (sysTable.isPresent()) {
+            return sysTable;
+        }
+        String sysTableName = SysTable.getTableNameWithSysTableName(tableNameWithSysTableName).second;
+        if (IcebergSysTable.POSITION_DELETES.equals(sysTableName)) {
+            return Optional.of(IcebergSysTable.UNSUPPORTED_POSITION_DELETES_TABLE);
+        }
+        return Optional.empty();
     }
 
     @Override
@@ -411,5 +458,55 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         Table table = getIcebergTable();
         org.apache.iceberg.SortOrder sortOrder = table.sortOrder();
         return sortOrder != null && !sortOrder.isUnsorted();
+    }
+
+    /** Reconstructs PARTITION BY LIST (...) () from the Iceberg PartitionSpec for SHOW CREATE TABLE. */
+    public String getPartitionSpecSql() {
+        makeSureInitialized();
+        Table table = getIcebergTable();
+        PartitionSpec spec = table.spec();
+        if (spec == null || spec.isUnpartitioned()) {
+            return "";
+        }
+        List<String> fields = new ArrayList<>();
+        for (PartitionField field : spec.fields()) {
+            String colName = table.schema().findColumnName(field.sourceId());
+            if (colName == null) {
+                continue;
+            }
+            org.apache.iceberg.transforms.Transform<?, ?> t = field.transform();
+            // isVoid/isIdentity: public interface methods; toString(): canonical spec-defined names.
+            if (t.isVoid()) {
+                continue;
+            }
+            String quotedCol = "`" + colName + "`";
+            if (t.isIdentity()) {
+                fields.add(quotedCol);
+            } else {
+                String transformStr = t.toString();
+                if (transformStr.startsWith("bucket[")) {
+                    int n = Integer.parseInt(transformStr.substring(7, transformStr.length() - 1));
+                    fields.add("BUCKET(" + n + ", " + quotedCol + ")");
+                } else if (transformStr.startsWith("truncate[")) {
+                    int w = Integer.parseInt(transformStr.substring(9, transformStr.length() - 1));
+                    fields.add("TRUNCATE(" + w + ", " + quotedCol + ")");
+                } else if ("year".equals(transformStr)) {
+                    fields.add("YEAR(" + quotedCol + ")");
+                } else if ("month".equals(transformStr)) {
+                    fields.add("MONTH(" + quotedCol + ")");
+                } else if ("day".equals(transformStr)) {
+                    fields.add("DAY(" + quotedCol + ")");
+                } else if ("hour".equals(transformStr)) {
+                    fields.add("HOUR(" + quotedCol + ")");
+                } else {
+                    LOG.warn("Unsupported Iceberg partition transform '{}' on column '{}', "
+                            + "skipped in SHOW CREATE TABLE.", transformStr, colName);
+                }
+            }
+        }
+        if (fields.isEmpty()) {
+            return "";
+        }
+        return "PARTITION BY LIST (" + String.join(", ", fields) + ") ()";
     }
 }

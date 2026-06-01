@@ -21,21 +21,21 @@ import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.analysis.VariableExpr;
+import org.apache.doris.authentication.Principal;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
-import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -89,8 +89,10 @@ import org.json.JSONObject;
 import org.xnio.StreamConnection;
 
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -171,10 +173,16 @@ public class ConnectContext {
     // In other word, currentUserIdentity is the entry that matched in Doris auth table.
     // This account determines user's access privileges.
     protected volatile UserIdentity currentUserIdentity;
+    // Authenticated external principal captured during the login flow.
+    protected volatile Principal authenticatedPrincipal;
+    // Roles granted during authentication and bound to the current session.
+    protected volatile Set<String> authenticatedRoles = Collections.emptySet();
     // Variables belong to this session.
     protected volatile SessionVariable sessionVariable;
     // Store user variable in this connection
     private Map<String, LiteralExpr> userVars = new HashMap<>();
+    // Connection attributes provided by the MySQL client during handshake.
+    private Map<String, String> connectAttributes = new HashMap<>();
     // Scheduler this connection belongs to
     protected volatile ConnectScheduler connectScheduler;
     // Executor
@@ -273,6 +281,11 @@ public class ConnectContext {
     }
 
     private StatementContext statementContext;
+    // internal flag to expose Iceberg rowid metadata during analysis/planning.
+    // When set to a valid table ID (>= 0), only that specific table's getFullSchema()
+    // will include __DORIS_ICEBERG_ROWID_COL__. This prevents ambiguity in MERGE INTO
+    // when the source table is also an Iceberg table.
+    private long icebergRowIdTargetTableId = -1;
 
     // new planner
     private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
@@ -420,7 +433,20 @@ public class ConnectContext {
         context.setEnv(env);
         context.setDatabase(currentDb);
         context.setCurrentUserIdentity(currentUserIdentity);
+        context.setConnectAttributes(connectAttributes);
         return context;
+    }
+
+    public Map<String, String> getConnectAttributes() {
+        return connectAttributes;
+    }
+
+    public void setConnectAttributes(Map<String, String> connectAttributes) {
+        if (connectAttributes == null || connectAttributes.isEmpty()) {
+            this.connectAttributes = new HashMap<>();
+            return;
+        }
+        this.connectAttributes = new HashMap<>(connectAttributes);
     }
 
     public boolean isTxnModel() {
@@ -563,10 +589,23 @@ public class ConnectContext {
             LiteralExpr literalExpr = userVars.get(varName);
             if (literalExpr instanceof BoolLiteral) {
                 return Literal.of(((BoolLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof IntLiteral) {
+            } else if (literalExpr instanceof IntLiteral || literalExpr instanceof LargeIntLiteral) {
                 // the value in the IntLiteral should be int, but now is long in old planner literalExpr
                 // so type coercion to generate right new planner int Literal
-                return Literal.of((int) ((IntLiteral) literalExpr).getValue());
+                switch (literalExpr.getType().getPrimitiveType()) {
+                    case LARGEINT:
+                        return Literal.of(new BigInteger(literalExpr.getStringValue()));
+                    case BIGINT:
+                        return Literal.of(((IntLiteral) literalExpr).getValue());
+                    case INT:
+                        return Literal.of((int) ((IntLiteral) literalExpr).getValue());
+                    case SMALLINT:
+                        return Literal.of((short) ((IntLiteral) literalExpr).getValue());
+                    case TINYINT:
+                        return Literal.of((byte) ((IntLiteral) literalExpr).getValue());
+                    default:
+                        return Literal.of((int) ((IntLiteral) literalExpr).getValue());
+                }
             } else if (literalExpr instanceof FloatLiteral) {
                 return Literal.of(((FloatLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof DecimalLiteral) {
@@ -581,36 +620,6 @@ public class ConnectContext {
         } else {
             // If there are no such user defined var, just return the NULL value.
             return Literal.of(null);
-        }
-    }
-
-    // Get variable value through variable name, used to satisfy statement like `SELECT @@comment_version`
-    public void fillValueForUserDefinedVar(VariableExpr desc) {
-        String varName = desc.getName().toLowerCase();
-        if (userVars.containsKey(varName)) {
-            LiteralExpr literalExpr = userVars.get(varName);
-            desc.setType(literalExpr.getType());
-            if (literalExpr instanceof BoolLiteral) {
-                desc.setBoolValue(((BoolLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof IntLiteral) {
-                desc.setIntValue(((IntLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof FloatLiteral) {
-                desc.setFloatValue(((FloatLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof DecimalLiteral) {
-                desc.setDecimalValue(((DecimalLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof StringLiteral) {
-                desc.setStringValue(((StringLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof NullLiteral) {
-                desc.setType(Type.NULL);
-                desc.setIsNull();
-            } else {
-                desc.setType(Type.VARCHAR);
-                desc.setStringValue(literalExpr.getStringValue());
-            }
-        } else {
-            // If there are no such user defined var, just fill the NULL value.
-            desc.setType(Type.NULL);
-            desc.setIsNull();
         }
     }
 
@@ -640,6 +649,26 @@ public class ConnectContext {
 
     public UserIdentity getCurrentUserIdentity() {
         return currentUserIdentity;
+    }
+
+    public Principal getAuthenticatedPrincipal() {
+        return authenticatedPrincipal;
+    }
+
+    public void setAuthenticatedPrincipal(Principal authenticatedPrincipal) {
+        this.authenticatedPrincipal = authenticatedPrincipal;
+    }
+
+    public Set<String> getAuthenticatedRoles() {
+        return authenticatedRoles;
+    }
+
+    public void setAuthenticatedRoles(Set<String> authenticatedRoles) {
+        if (authenticatedRoles.isEmpty()) {
+            this.authenticatedRoles = Collections.emptySet();
+            return;
+        }
+        this.authenticatedRoles = Collections.unmodifiableSet(new HashSet<>(authenticatedRoles));
     }
 
     // used for select user(), select session_user();
@@ -826,6 +855,10 @@ public class ConnectContext {
         return currentDb;
     }
 
+    public NameSpaceContext getNameSpaceContext() {
+        return new NameSpaceContext(defaultCatalog, currentDb, currentDbId);
+    }
+
     public void setDatabase(String db) {
         currentDb = db;
         Optional<DatabaseIf> dbInstance = getCurrentCatalog().getDb(db);
@@ -1008,6 +1041,28 @@ public class ConnectContext {
     public void setStatementContext(StatementContext statementContext) {
         this.statementContext = statementContext;
     }
+
+    /** Backward-compatible: returns true if any Iceberg table is targeted for row_id injection. */
+    public boolean needIcebergRowId() {
+        return icebergRowIdTargetTableId >= 0;
+    }
+
+    /** Check if a specific table should include the hidden row_id column. */
+    public boolean needIcebergRowIdForTable(long tableId) {
+        return icebergRowIdTargetTableId >= 0 && icebergRowIdTargetTableId == tableId;
+    }
+
+    /** Set the target table ID for row_id injection. Use -1 to clear. */
+    public void setIcebergRowIdTargetTableId(long tableId) {
+        this.icebergRowIdTargetTableId = tableId;
+    }
+
+    /** Get the previously saved target table ID (for save/restore pattern). */
+    public long getIcebergRowIdTargetTableId() {
+        return icebergRowIdTargetTableId;
+    }
+
+
 
     public void setResultSinkType(TResultSinkType resultSinkType) {
         this.resultSinkType = resultSinkType;
@@ -1211,7 +1266,7 @@ public class ConnectContext {
                 row.add("No");
             }
             row.add("" + connectionId);
-            row.add(ClusterNamespace.getNameFromFullName(getQualifiedUser()));
+            row.add(getQualifiedUser());
             row.add(getRemoteHostPortString());
             if (timeZone.isPresent()) {
                 row.add(TimeUtils.longToTimeStringWithTimeZone(loginTime, timeZone.get()));
@@ -1219,7 +1274,7 @@ public class ConnectContext {
                 row.add(TimeUtils.longToTimeString(loginTime));
             }
             row.add(defaultCatalog);
-            row.add(ClusterNamespace.getNameFromFullName(currentDb));
+            row.add(currentDb);
             row.add(command.toString());
             row.add("" + (nowMs - startTime) / 1000);
             row.add(state.toString());
@@ -1599,5 +1654,18 @@ public class ConnectContext {
         if (tableNameSet != null) {
             tableNameSet.remove(tableName);
         }
+    }
+
+    public int getAliveBeNumber() {
+        return Math.max(1, this.getEnv().getClusterInfo().getBackendsNumber(true));
+    }
+
+    public int getParallelInstanceNum() {
+        String clusterName = this.getSessionVariable().resolveCloudClusterName(this);
+        return Math.max(1, this.getSessionVariable().getParallelExecInstanceNum(clusterName));
+    }
+
+    public int getTotalInstanceNum() {
+        return getAliveBeNumber() * getParallelInstanceNum();
     }
 }

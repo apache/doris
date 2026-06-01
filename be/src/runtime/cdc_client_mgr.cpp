@@ -41,8 +41,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "http/http_client.h"
 #include "runtime/exec_env.h"
+#include "service/http/http_client.h"
 
 namespace doris {
 

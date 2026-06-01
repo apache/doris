@@ -24,8 +24,8 @@
 #include <string>
 
 #include "common/status.h"
-#include "runtime/define_primitive_type.h"
-#include "vec/data_types/data_type_factory.hpp"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/define_primitive_type.h"
 
 namespace doris {
 
@@ -33,17 +33,17 @@ class PythonUDFMetaTest : public ::testing::Test {
 protected:
     void SetUp() override {
         // Create common test data types using PrimitiveType
-        nullable_int32_ = vectorized::DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_INT, true);
-        nullable_string_ = vectorized::DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_STRING, true);
-        nullable_double_ = vectorized::DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_DOUBLE, true);
+        nullable_int32_ =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+        nullable_string_ =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
+        nullable_double_ =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DOUBLE, true);
     }
 
-    vectorized::DataTypePtr nullable_int32_;
-    vectorized::DataTypePtr nullable_string_;
-    vectorized::DataTypePtr nullable_double_;
+    DataTypePtr nullable_int32_;
+    DataTypePtr nullable_string_;
+    DataTypePtr nullable_double_;
 };
 
 // ============================================================================
@@ -109,7 +109,7 @@ TEST_F(PythonUDFMetaTest, CheckEmptyRuntimeVersion) {
     EXPECT_TRUE(status.to_string().find("runtime version is empty") != std::string::npos);
 }
 
-TEST_F(PythonUDFMetaTest, CheckEmptyInputTypes) {
+TEST_F(PythonUDFMetaTest, CheckEmptyInputTypesAllowedForUdf) {
     PythonUDFMeta meta;
     meta.name = "test_udf";
     meta.symbol = "test_func";
@@ -117,6 +117,35 @@ TEST_F(PythonUDFMetaTest, CheckEmptyInputTypes) {
     meta.input_types = {};
     meta.return_type = nullable_int32_;
     meta.type = PythonUDFLoadType::INLINE;
+    meta.client_type = PythonClientType::UDF;
+
+    Status status = meta.check();
+    EXPECT_TRUE(status.ok()) << status.to_string();
+}
+
+TEST_F(PythonUDFMetaTest, CheckEmptyInputTypesAllowedForUdtf) {
+    PythonUDFMeta meta;
+    meta.name = "test_udtf";
+    meta.symbol = "test_func";
+    meta.runtime_version = "3.9.16";
+    meta.input_types = {};
+    meta.return_type = nullable_string_;
+    meta.type = PythonUDFLoadType::INLINE;
+    meta.client_type = PythonClientType::UDTF;
+
+    Status status = meta.check();
+    EXPECT_TRUE(status.ok()) << status.to_string();
+}
+
+TEST_F(PythonUDFMetaTest, CheckEmptyInputTypesRejectedForUdaf) {
+    PythonUDFMeta meta;
+    meta.name = "test_udaf";
+    meta.symbol = "test_func";
+    meta.runtime_version = "3.9.16";
+    meta.input_types = {};
+    meta.return_type = nullable_int32_;
+    meta.type = PythonUDFLoadType::INLINE;
+    meta.client_type = PythonClientType::UDAF;
 
     Status status = meta.check();
     EXPECT_FALSE(status.ok());
@@ -323,6 +352,9 @@ TEST_F(PythonUDFMetaTest, SerializeToJsonBasic) {
     doc.Parse(json_str.c_str());
     EXPECT_FALSE(doc.HasParseError());
 
+    EXPECT_TRUE(doc.HasMember("id"));
+    EXPECT_EQ(doc["id"].GetInt64(), 1);
+
     EXPECT_TRUE(doc.HasMember("name"));
     EXPECT_STREQ(doc["name"].GetString(), "test_udf");
 
@@ -401,12 +433,33 @@ TEST_F(PythonUDFMetaTest, SerializeToJsonMultipleInputTypes) {
     EXPECT_TRUE(doc.HasMember("input_types"));
 }
 
+TEST_F(PythonUDFMetaTest, SerializeToJsonEmptyInputTypesForUdf) {
+    PythonUDFMeta meta;
+    meta.name = "zero_arg_udf";
+    meta.symbol = "func";
+    meta.runtime_version = "3.9.16";
+    meta.input_types = {};
+    meta.return_type = nullable_int32_;
+    meta.type = PythonUDFLoadType::INLINE;
+    meta.client_type = PythonClientType::UDF;
+
+    std::string json_str;
+    Status status = meta.serialize_to_json(&json_str);
+    EXPECT_TRUE(status.ok()) << status.to_string();
+
+    rapidjson::Document doc;
+    doc.Parse(json_str.c_str());
+    EXPECT_FALSE(doc.HasParseError());
+    EXPECT_TRUE(doc.HasMember("input_types"));
+    EXPECT_FALSE(std::string(doc["input_types"].GetString()).empty());
+}
+
 // ============================================================================
 // PythonUDFMeta convert_types_to_schema() tests
 // ============================================================================
 
 TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaBasic) {
-    vectorized::DataTypes types = {nullable_int32_, nullable_string_};
+    DataTypes types = {nullable_int32_, nullable_string_};
     std::shared_ptr<arrow::Schema> schema;
 
     Status status = PythonUDFMeta::convert_types_to_schema(types, TimezoneUtils::default_time_zone,
@@ -419,7 +472,7 @@ TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaBasic) {
 }
 
 TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaSingleType) {
-    vectorized::DataTypes types = {nullable_double_};
+    DataTypes types = {nullable_double_};
     std::shared_ptr<arrow::Schema> schema;
 
     Status status = PythonUDFMeta::convert_types_to_schema(types, TimezoneUtils::default_time_zone,
@@ -427,6 +480,17 @@ TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaSingleType) {
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_NE(schema, nullptr);
     EXPECT_EQ(schema->num_fields(), 1);
+}
+
+TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaEmpty) {
+    DataTypes types = {};
+    std::shared_ptr<arrow::Schema> schema;
+
+    Status status = PythonUDFMeta::convert_types_to_schema(types, TimezoneUtils::default_time_zone,
+                                                           &schema);
+    EXPECT_TRUE(status.ok()) << status.to_string();
+    EXPECT_NE(schema, nullptr);
+    EXPECT_EQ(schema->num_fields(), 0);
 }
 
 // ============================================================================

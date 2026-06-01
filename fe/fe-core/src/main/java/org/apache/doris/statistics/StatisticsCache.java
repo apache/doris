@@ -93,7 +93,7 @@ public class StatisticsCache {
 
     public ColumnStatistic getColumnStatistics(
             long catalogId, long dbId, long tblId, long idxId, String colName, ConnectContext ctx) {
-        if (ctx != null && ctx.getState().isPlanWithUnKnownColumnStats()) {
+        if (shouldReturnUnknownStats(catalogId, dbId, ctx)) {
             return ColumnStatistic.UNKNOWN;
         }
         // Need to change base index id to -1 for OlapTable.
@@ -130,7 +130,7 @@ public class StatisticsCache {
 
     public PartitionColumnStatistic getPartitionColumnStatistics(long catalogId, long dbId, long tblId, long idxId,
                                                   String partName, String colName, ConnectContext ctx) {
-        if (ctx != null && ctx.getState().isPlanWithUnKnownColumnStats()) {
+        if (shouldReturnUnknownStats(catalogId, dbId, ctx)) {
             return PartitionColumnStatistic.UNKNOWN;
         }
         // Need to change base index id to -1 for OlapTable.
@@ -157,6 +157,18 @@ public class StatisticsCache {
         return PartitionColumnStatistic.UNKNOWN;
     }
 
+    private boolean shouldReturnUnknownStats(long catalogId, long dbId, ConnectContext ctx) {
+        return isPlanWithUnknownColumnStats(ctx) || StatisticConstants.isSystemDb(catalogId, dbId);
+    }
+
+    private boolean shouldReturnUnknownStats(long catalogId, long dbId, TableIf table, ConnectContext ctx) {
+        return shouldReturnUnknownStats(catalogId, dbId, ctx) || StatisticConstants.isSystemTable(table);
+    }
+
+    private boolean isPlanWithUnknownColumnStats(ConnectContext ctx) {
+        return ctx != null && ctx.getState().isPlanWithUnKnownColumnStats();
+    }
+
     // Base index id should be set to -1 for OlapTable. Because statistics tables use -1 for base index.
     // TODO: Need to use the real index id in statistics table in later version.
     private long changeBaseIndexId(long catalogId, long dbId, long tblId, long idxId) {
@@ -178,7 +190,7 @@ public class StatisticsCache {
 
     private Optional<Histogram> getHistogram(long ctlId, long dbId, long tblId, long idxId, String colName) {
         ConnectContext ctx = ConnectContext.get();
-        if (ctx != null && ctx.getState().isPlanWithUnKnownColumnStats()) {
+        if (shouldReturnUnknownStats(ctlId, dbId, ctx)) {
             return Optional.empty();
         }
         StatisticsCacheKey k = new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName);
@@ -398,7 +410,7 @@ public class StatisticsCache {
 
         // this method can avoid compute table and select index id
         public ColumnStatistic getColumnStatistics(String colName, ConnectContext ctx) {
-            if (ctx != null && ctx.getState().isPlanWithUnKnownColumnStats()) {
+            if (shouldReturnUnknownStats(catalogId, schemaId, olapTable, ctx)) {
                 return ColumnStatistic.UNKNOWN;
             }
             return doGetColumnStatistics(
@@ -408,7 +420,7 @@ public class StatisticsCache {
 
         public PartitionColumnStatistic getPartitionColumnStatistics(
                 String partName, String colName, ConnectContext ctx) {
-            if (ctx != null && ctx.getState().isPlanWithUnKnownColumnStats()) {
+            if (shouldReturnUnknownStats(catalogId, schemaId, olapTable, ctx)) {
                 return PartitionColumnStatistic.UNKNOWN;
             }
             return doGetPartitionColumnStatistics(

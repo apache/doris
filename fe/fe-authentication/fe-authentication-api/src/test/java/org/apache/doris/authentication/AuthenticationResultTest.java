@@ -21,6 +21,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.Set;
+
 /**
  * Unit tests for {@link AuthenticationResult}.
  */
@@ -49,6 +51,21 @@ class AuthenticationResultTest {
         Assertions.assertEquals(principal, result.getPrincipal());
         Assertions.assertTrue(result.principal().isPresent());
         Assertions.assertNull(result.getException());
+        Assertions.assertTrue(result.getGrantedRoles().isEmpty());
+    }
+
+    @Test
+    @DisplayName("UT-API-AR-001A: Create success result with granted roles")
+    void testCreateSuccess_WithGrantedRoles() {
+        Principal principal = BasicPrincipal.builder()
+                .name("alice")
+                .authenticator("password")
+                .build();
+
+        AuthenticationResult result = AuthenticationResult.success(principal, Set.of("admin", "analyst"));
+
+        Assertions.assertTrue(result.isSuccess());
+        Assertions.assertEquals(Set.of("admin", "analyst"), result.getGrantedRoles());
     }
 
     @Test
@@ -69,6 +86,8 @@ class AuthenticationResultTest {
         Assertions.assertNull(result.getPrincipal());
         Assertions.assertNotNull(result.getException());
         Assertions.assertEquals(errorMessage, result.getException().getMessage());
+        Assertions.assertEquals(AuthenticationFailureType.INTERNAL_ERROR, result.getException().getFailureType());
+        Assertions.assertTrue(result.getGrantedRoles().isEmpty());
     }
 
     @Test
@@ -91,6 +110,7 @@ class AuthenticationResultTest {
         Assertions.assertNull(result.getException());
         Assertions.assertEquals(state, result.getNextState());
         Assertions.assertArrayEquals(challenge, result.getChallengeData());
+        Assertions.assertTrue(result.getGrantedRoles().isEmpty());
     }
 
     @Test
@@ -140,7 +160,8 @@ class AuthenticationResultTest {
     @DisplayName("UT-API-AR-010: Failure result with exception details")
     void testCreateFailure_WithException() {
         // Given
-        AuthenticationException cause = new AuthenticationException("Connection timeout");
+        AuthenticationException cause = new AuthenticationException(
+                "Connection timeout", AuthenticationFailureType.SOURCE_UNAVAILABLE);
 
         // When
         AuthenticationResult result = AuthenticationResult.failure(cause);
@@ -149,5 +170,17 @@ class AuthenticationResultTest {
         Assertions.assertTrue(result.isFailure());
         Assertions.assertNotNull(result.getException());
         Assertions.assertTrue(result.getException().getMessage().contains("Connection timeout"));
+        Assertions.assertEquals(AuthenticationFailureType.SOURCE_UNAVAILABLE, result.getException().getFailureType());
+    }
+
+    @Test
+    @DisplayName("UT-API-AR-011: Failure result preserves explicit failure type")
+    void testCreateFailure_WithFailureType() {
+        AuthenticationResult result = AuthenticationResult.failure(
+                AuthenticationFailureType.USER_NOT_FOUND, "User not found");
+
+        Assertions.assertTrue(result.isFailure());
+        Assertions.assertNotNull(result.getException());
+        Assertions.assertEquals(AuthenticationFailureType.USER_NOT_FOUND, result.getException().getFailureType());
     }
 }

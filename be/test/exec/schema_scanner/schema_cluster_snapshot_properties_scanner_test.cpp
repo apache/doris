@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/schema_scanner/schema_cluster_snapshot_properties_scanner.h"
+#include "information_schema/schema_cluster_snapshot_properties_scanner.h"
 
 #include <gtest/gtest.h>
 
-#include "vec/core/block.h"
-#include "vec/core/types.h"
+#include "core/block/block.h"
+#include "core/types.h"
 
 namespace doris {
 
@@ -35,7 +35,7 @@ TEST_F(SchemaClusterSnapshotPropertiesScannerTest, test_get_next_block_internal)
     scanner._max_reserved_snapshots = 30;
     scanner._snapshot_interval_seconds = 3600;
 
-    auto data_block = vectorized::Block::create_unique();
+    auto data_block = Block::create_unique();
     scanner._init_block(data_block.get());
 
     auto st = scanner._fill_block_impl(data_block.get());

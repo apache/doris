@@ -36,8 +36,6 @@ suite("test_bitmap_filter_nereids") {
             bitmap_from_string('32767, 1985, 255, 789, 1991')),
         (2, bitmap_from_string('10, 11, 12, 13, 14'), bitmap_empty());
 
-        set enable_nereids_planner=true;
-        set enable_fallback_to_original_planner=false;
         """
         
     qt_sql1 "select k1, k2 from test_query_db.bigtable where k1 in (select k2 from bitmap_table_nereids) order by k1;"

@@ -760,16 +760,8 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     @Override
-    public int getMinPipelineExecutorSize() {
-        String clusterName = "";
-        try {
-            clusterName = ConnectContext.get().getCloudCluster(false);
-        } catch (ComputeGroupException e) {
-            LOG.warn("failed to get cluster name", e);
-            return 1;
-        }
-        if (ConnectContext.get() != null
-                && Strings.isNullOrEmpty(clusterName)) {
+    public int getMinPipelineExecutorSize(String clusterName) {
+        if (Strings.isNullOrEmpty(clusterName)) {
             return 1;
         }
         List<Backend> currentBackends = getBackendsByClusterName(clusterName);
@@ -879,6 +871,9 @@ public class CloudSystemInfoService extends SystemInfoService {
                     if (acg == null || System.currentTimeMillis() - acg.getUnavailableSince()
                             > policy.getFailoverFailureThreshold() * Config.heartbeat_interval_second * 1000) {
                         switchActiveStandby(cg, acgName, scgName);
+                        String acgId = acg == null ? clusterNameToId.get(acgName) : acg.getId();
+                        MetricRepo.increaseVirtualComputeGroupSwitch(cg.getId(), cg.getName(), acgId,
+                                acgName, scg.getId(), scgName);
                         policy.setActiveComputeGroup(scgName);
                         policy.setStandbyComputeGroup(acgName);
                         cg.setNeedRebuildFileCache(true);

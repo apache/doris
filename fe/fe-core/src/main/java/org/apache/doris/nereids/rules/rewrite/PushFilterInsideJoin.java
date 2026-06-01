@@ -46,8 +46,7 @@ public class PushFilterInsideJoin extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter(logicalJoin())
                 // TODO: current just handle cross/inner join.
-                .when(filter -> filter.child().getJoinType().isCrossJoin()
-                        || filter.child().getJoinType().isInnerJoin())
+                .when(filter -> filter.child().getJoinType().isInnerOrCrossJoin())
                 .then(filter -> {
                     LogicalJoin<Plan, Plan> join = filter.child();
                     Set<Slot> childOutput = join.getOutputSet();
@@ -60,7 +59,7 @@ public class PushFilterInsideJoin extends OneRewriteRuleFactory {
                     List<Expression> otherConditions = Lists.newArrayListWithExpectedSize(
                             filter.getConjuncts().size() + join.getOtherJoinConjuncts().size());
                     for (Expression expr : filter.getConjuncts()) {
-                        if (expr.containsUniqueFunction()) {
+                        if (expr.containsVolatileExpression()) {
                             remainConditions.add(expr);
                         } else {
                             otherConditions.add(expr);

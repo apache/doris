@@ -38,20 +38,121 @@ suite("query_stats_test") {
         ) engine=olap
         DISTRIBUTED BY HASH(`k1`) BUCKETS 1 properties("replication_num" = "1")
         """
-    sql "admin set frontend config (\"enable_query_hit_stats\"=\"true\");"
+
+    def origNereids = sql("select @@enable_nereids_planner")[0][0]
+    def origCache   = sql("select @@enable_query_cache")[0][0]
+
+    sql "admin set all frontends config (\"enable_query_hit_stats\"=\"true\");"
+    sql "set enable_nereids_planner = true"
+    sql "set enable_query_cache = false"
+
+    sql """INSERT INTO ${tbName} VALUES
+            (true,  1,   100,  1000,  10000,  123.456, 'A1234', '2024-01-01', '2024-01-01 10:00:00', 'alpha',   1.23,  4.56, 'text1',  12345678901234567890),
+            (false, -5,  200,  2000,  20000,  234.567, 'B2345', '2024-02-02', '2024-02-02 11:30:00', 'beta',    2.34,  5.67, 'text2',  22345678901234567890),
+            (true,  10, -300,  3000,  30000,  345.678, 'C3456', '2024-03-03', '2024-03-03 12:45:00', 'gamma',   3.45,  6.78, 'text3',  32345678901234567890),
+            (NULL,   0,    0,     0,      0,    0.000, 'D4567', '2024-04-04', '2024-04-04 00:00:00', 'delta',   0.00,  0.00, 'text4',  42345678901234567890),
+            (false, 127, 32767, 2147483647, 9223372036854775807, 999.999, 'E5678', '2024-05-05', '2024-05-05 23:59:59', 'epsilon', 9.99, 9.99, 'text5', 52345678901234567890)"""
+
     sql "clean all query stats"
-    sql "set enable_nereids_planner=true"
-    explain {
-        sql("select k1 from ${tbName} where k1 = 1")
+
+    explain { sql("select k1 from ${tbName} where k1 = 1") }
+    def explainStats = sql "show query stats from ${tbName}"
+    for (row in explainStats) {
+        assertEquals(0, row[1] as int)
+        assertEquals(0, row[2] as int)
     }
 
-    qt_sql "show query stats from ${tbName}"
-
+    // Counts may exceed 1 in multi-FE clusters; verify right columns hit, wrong ones stay 0.
     sql "select k1 from ${tbName} where k0 = 1"
     sql "select k4 from ${tbName} where k2 = 1991"
+    def stats1 = sql "show query stats from ${tbName}"
+    def s1k1 = stats1.find { it[0] == "k1" }
+    def s1k0 = stats1.find { it[0] == "k0" }
+    def s1k4 = stats1.find { it[0] == "k4" }
+    def s1k2 = stats1.find { it[0] == "k2" }
+    assertNotNull(s1k1)
+    assertNotNull(s1k0)
+    assertNotNull(s1k4)
+    assertNotNull(s1k2)
+    assertTrue((s1k1[1] as int) >= 1)
+    assertTrue((s1k0[2] as int) >= 1)
+    assertTrue((s1k4[1] as int) >= 1)
+    assertTrue((s1k2[2] as int) >= 1)
+    assertEquals(0, s1k1[2] as int)
+    assertEquals(0, s1k0[1] as int)
+    for (col in ["k3", "k5", "k6", "k10", "k11", "k7", "k8", "k9", "k12", "k13"]) {
+        def row = stats1.find { it[0] == col }
+        assertNotNull(row)
+        assertEquals(0, row[1] as int)
+        assertEquals(0, row[2] as int)
+    }
+    def allStats1 = sql "show query stats from ${tbName} all"
+    assertTrue((allStats1[0][1] as int) >= 2)
+    def verboseStats1 = sql "show query stats from ${tbName} all verbose"
+    assertTrue(verboseStats1.size() > 0)
 
-    qt_sql "show query stats from ${tbName}"
-    qt_sql "show query stats from ${tbName} all"
-    qt_sql "show query stats from ${tbName} all verbose"
-    sql "admin set frontend config (\"enable_query_hit_stats\"=\"false\");"
+    sql "clean all query stats"
+    sql "select k3 from ${tbName} where k5 = 1.0"
+    def stats2 = sql "show query stats from ${tbName}"
+    def s2k3 = stats2.find { it[0] == "k3" }
+    def s2k5 = stats2.find { it[0] == "k5" }
+    assertNotNull(s2k3)
+    assertNotNull(s2k5)
+    assertTrue((s2k3[1] as int) >= 1)
+    assertTrue((s2k5[2] as int) >= 1)
+    assertEquals(0, s2k3[2] as int)
+    assertEquals(0, s2k5[1] as int)
+    for (col in ["k0", "k1", "k2", "k4", "k6", "k10", "k11", "k7", "k8", "k9", "k12", "k13"]) {
+        def row = stats2.find { it[0] == col }
+        assertNotNull(row)
+        assertEquals(0, row[1] as int)
+        assertEquals(0, row[2] as int)
+    }
+    def allStats2 = sql "show query stats from ${tbName} all"
+    assertTrue((allStats2[0][1] as int) >= 1)
+
+    // Column in both SELECT and WHERE.
+    sql "clean all query stats"
+    sql "select k1 from ${tbName} where k1 = 1"
+    def stats3 = sql "show query stats from ${tbName}"
+    def s3k1 = stats3.find { it[0] == "k1" }
+    assertNotNull(s3k1)
+    assertTrue((s3k1[1] as int) >= 1)
+    assertTrue((s3k1[2] as int) >= 1)
+    for (col in ["k0", "k2", "k3", "k4", "k5", "k6", "k10", "k11", "k7", "k8", "k9", "k12", "k13"]) {
+        def row = stats3.find { it[0] == col }
+        assertNotNull(row)
+        assertEquals(0, row[1] as int)
+        assertEquals(0, row[2] as int)
+    }
+
+    // INSERT INTO ... SELECT must not record stats.
+    sql "clean all query stats"
+    sql "insert into ${tbName} select * from ${tbName} where k1 > 0"
+    def insertStats = sql "show query stats from ${tbName}"
+    for (row in insertStats) {
+        assertEquals(0, row[1] as int)
+        assertEquals(0, row[2] as int)
+    }
+
+    // Alias gap: k1.queryHit = 0 until Part 2 walks Project nodes.
+    sql "clean all query stats"
+    sql "select k1 as x from ${tbName} where k2 = 1"
+    def aliasResult = sql "show query stats from ${tbName}"
+    def arK1 = aliasResult.find { it[0] == "k1" }
+    def arK2 = aliasResult.find { it[0] == "k2" }
+    assertNotNull(arK1)
+    assertNotNull(arK2)
+    assertEquals(0, arK1[1] as int)
+    assertTrue((arK2[2] as int) >= 1)
+
+    // Self-join: StatsDelta dedup keeps table count = 1 per FE.
+    sql "clean all query stats"
+    sql "select a.k1 from ${tbName} a, ${tbName} b where a.k1 = b.k1"
+    def joinResult = sql "show query stats from ${tbName} all"
+    assertTrue((joinResult[0][1] as int) >= 1)
+
+    sql "admin set all frontends config (\"enable_query_hit_stats\"=\"false\");"
+    sql "set enable_nereids_planner = ${origNereids}"
+    sql "set enable_query_cache = ${origCache}"
 }

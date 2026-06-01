@@ -33,6 +33,10 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+/**
+ * @deprecated Use {@link SapHanaTypeHandler} instead.
+ */
+@Deprecated
 public class SapHanaJdbcExecutor extends BaseJdbcExecutor {
     private static final Logger LOG = Logger.getLogger(SapHanaJdbcExecutor.class);
 

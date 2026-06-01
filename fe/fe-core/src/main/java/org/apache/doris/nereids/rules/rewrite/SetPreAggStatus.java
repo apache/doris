@@ -48,11 +48,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -147,11 +149,21 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
 
     @Override
     public Plan visitLogicalOlapScan(LogicalOlapScan logicalOlapScan, Stack<PreAggInfoContext> context) {
+        if (logicalOlapScan instanceof LogicalOlapTableStreamScan) {
+            // no pre-agg for LogicalOlapTableStreamScan
+            return logicalOlapScan;
+        }
         if (logicalOlapScan.isPreAggStatusUnSet()) {
             long selectIndexId = logicalOlapScan.getSelectedIndexId();
             MaterializedIndexMeta meta = logicalOlapScan.getTable().getIndexMetaByIndexId(selectIndexId);
             if (meta.getKeysType() == KeysType.DUP_KEYS || (meta.getKeysType() == KeysType.UNIQUE_KEYS
-                    && logicalOlapScan.getTable().getEnableUniqueKeyMergeOnWrite())) {
+                    && logicalOlapScan.getTable().getEnableUniqueKeyMergeOnWrite())
+                    || (meta.getKeysType() == KeysType.UNIQUE_KEYS
+                        && logicalOlapScan.getTable().isMorTable()
+                        && ConnectContext.get() != null
+                        && ConnectContext.get().getSessionVariable().isReadMorAsDupEnabled(
+                            logicalOlapScan.getTable().getQualifiedDbName(),
+                            logicalOlapScan.getTable().getName()))) {
                 return logicalOlapScan.withPreAggStatus(PreAggStatus.on());
             } else {
                 if (context.empty()) {
@@ -200,6 +212,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
         Plan plan = super.visit(logicalAggregate, context);
         if (!context.isEmpty()) {
             PreAggInfoContext preAggInfoContext = context.pop();
+            preAggInfoContext.olapScanIds.retainAll(logicalAggregate.child().getInputRelations());
             preAggInfoContext.addAggregateFunctions(logicalAggregate.getAggregateFunctions());
             preAggInfoContext.addGroupByExpresssions(logicalAggregate.getGroupByExpressions());
             for (RelationId id : preAggInfoContext.olapScanIds) {

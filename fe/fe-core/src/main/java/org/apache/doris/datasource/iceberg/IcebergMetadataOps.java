@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnType;
@@ -25,6 +24,13 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.info.BranchOptions;
+import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
+import org.apache.doris.catalog.info.DropBranchInfo;
+import org.apache.doris.catalog.info.DropTagInfo;
+import org.apache.doris.catalog.info.TagOptions;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -39,16 +45,10 @@ import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
-import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
-import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
@@ -73,7 +73,6 @@ import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
-import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -191,7 +190,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 // IcebergMetadataOps handles listTableNames and listViewNames separately.
                 // listTableNames should only focus on the table type,
                 // but in reality, Iceberg's return includes views. Therefore, we added a filter to exclude views.
-                if (catalog instanceof ViewCatalog) {
+                if (isViewCatalogEnabled()) {
                     views = ((ViewCatalog) catalog).listViews(getNamespace(dbName))
                             .stream().map(TableIdentifier::name).collect(Collectors.toList());
                 } else {
@@ -1127,7 +1126,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean viewExists(String remoteDbName, String remoteViewName) {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             return false;
         }
         try {
@@ -1140,8 +1139,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public View loadView(String dbName, String tblName) {
-        if (!(catalog instanceof ViewCatalog)) {
+    public Object loadView(String dbName, String tblName) {
+        if (!isViewCatalogEnabled()) {
             return null;
         }
         try {
@@ -1155,7 +1154,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public List<String> listViewNames(String db) {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             return Collections.emptyList();
         }
         try {
@@ -1193,12 +1192,25 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return externalCatalogName.map(Namespace::of).orElseGet(() -> Namespace.empty());
     }
 
+    private boolean isViewCatalogEnabled() {
+        if (!(catalog instanceof ViewCatalog)) {
+            return false;
+        }
+        if (dorisCatalog instanceof IcebergRestExternalCatalog) {
+            MetastoreProperties metaProps = dorisCatalog.getCatalogProperty().getMetastoreProperties();
+            if (metaProps instanceof IcebergRestProperties) {
+                return ((IcebergRestProperties) metaProps).isIcebergRestViewEnabled();
+            }
+        }
+        return true;
+    }
+
     public ThreadPoolExecutor getThreadPoolWithPreAuth() {
         return dorisCatalog.getThreadPoolWithPreAuth();
     }
 
     private void performDropView(String remoteDbName, String remoteViewName) throws DdlException {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             throw new DdlException("Drop Iceberg view is not supported with not view catalog.");
         }
         ViewCatalog viewCatalog = (ViewCatalog) catalog;

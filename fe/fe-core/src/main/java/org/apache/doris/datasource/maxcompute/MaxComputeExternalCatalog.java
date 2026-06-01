@@ -25,7 +25,6 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.aliyun.odps.Odps;
@@ -69,6 +68,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private int connectTimeout;
     private int readTimeout;
     private int retryTimes;
+    private long maxFieldSize;
 
     public boolean dateTimePredicatePushDown;
 
@@ -191,6 +191,8 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
                 props.getOrDefault(MCProperties.READ_TIMEOUT, MCProperties.DEFAULT_READ_TIMEOUT));
         retryTimes = Integer.parseInt(
                 props.getOrDefault(MCProperties.RETRY_COUNT, MCProperties.DEFAULT_RETRY_COUNT));
+        maxFieldSize = Long.parseLong(
+                props.getOrDefault(MCProperties.MAX_FIELD_SIZE, MCProperties.DEFAULT_MAX_FIELD_SIZE));
 
         RestOptions restOptions = RestOptions.newBuilder()
                 .withConnectTimeout(connectTimeout)
@@ -227,7 +229,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         mcStructureHelper = McStructureHelper.getHelper(enableNamespaceSchema, defaultProject);
 
         initPreExecutionAuthenticator();
-        metadataOps = ExternalMetadataOperations.newMaxComputeMetadataOps(this, odps);
+        metadataOps = new MaxComputeMetadataOps(this, odps);
         transactionManager = TransactionManagerFactory.createMCTransactionManager(this);
     }
 
@@ -318,6 +320,11 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     public int getReadTimeout() {
         makeSureInitialized();
         return readTimeout;
+    }
+
+    public long getMaxFieldSize() {
+        makeSureInitialized();
+        return maxFieldSize;
     }
 
     public boolean getDateTimePredicatePushDown() {

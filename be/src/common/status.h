@@ -14,8 +14,10 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
+#include "common/check.h"         // IWYU pragma: export
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/expected.h"
@@ -81,6 +83,7 @@ namespace ErrorCode {
     TStatusError(OBTAIN_LOCK_FAILED, false);              \
     TStatusError(SNAPSHOT_EXPIRED, false);                \
     TStatusError(DELETE_BITMAP_LOCK_ERROR, false);        \
+    TStatusError(SC_COMPACTION_CONFLICT, false);          \
     TStatusError(FINISHED, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
@@ -757,13 +760,15 @@ using ResultError = unexpected<Status>;
         std::forward<T>(res).value();                                                           \
     })
 
-// core in Debug mode, exception in Release mode.
-#define DORIS_CHECK(stmt)                                                                \
-    do {                                                                                 \
-        if (!static_cast<bool>(stmt)) [[unlikely]] {                                     \
-            throw Exception(Status::FatalError(fmt::format("Check failed: {}", #stmt))); \
-        }                                                                                \
-    } while (false)
+#define TEST_RESULT_ERROR(stmt)                                                                   \
+    ({                                                                                            \
+        auto&& _result_ = (stmt);                                                                 \
+        using _result_t = std::decay_t<decltype(_result_)>;                                       \
+        if (_result_.has_value()) [[unlikely]] {                                                  \
+            ASSERT_FALSE(_result_.has_value()) << "Expected ResultError, but got success result"; \
+        }                                                                                         \
+        std::forward<_result_t>(_result_).error();                                                \
+    })
 
 } // namespace doris
 

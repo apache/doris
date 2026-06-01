@@ -105,9 +105,18 @@ public class PaimonUtil {
     private static final String SYS_TABLE_TYPE_AUDIT_LOG = "audit_log";
     private static final String SYS_TABLE_TYPE_BINLOG = "binlog";
     private static final String TABLE_READ_SEQUENCE_NUMBER_ENABLED = "table-read.sequence-number.enabled";
+    private static final String PARTITION_LEGACY_NAME = "partition.legacy-name";
 
     public static boolean isDigitalString(String value) {
         return value != null && DIGITAL_REGEX.matcher(value).matches();
+    }
+
+    /**
+     * Extract the legacy partition name configuration from Paimon table options.
+     */
+    public static boolean isLegacyPartitionName(Table paimonTable) {
+        return Boolean.parseBoolean(
+                paimonTable.options().getOrDefault(PARTITION_LEGACY_NAME, "true"));
     }
 
     public static List<InternalRow> read(
@@ -141,7 +150,7 @@ public class PaimonUtil {
     }
 
     public static PaimonPartitionInfo generatePartitionInfo(List<Column> partitionColumns,
-            List<Partition> paimonPartitions) {
+            List<Partition> paimonPartitions, boolean legacyPartitionName) {
 
         if (CollectionUtils.isEmpty(partitionColumns) || paimonPartitions.isEmpty()) {
             return PaimonPartitionInfo.EMPTY;
@@ -161,8 +170,11 @@ public class PaimonUtil {
             StringBuilder sb = new StringBuilder();
             for (Map.Entry<String, String> entry : spec.entrySet()) {
                 sb.append(entry.getKey()).append("=");
-                // Paimon stores DATE type as days since 1970-01-01 (epoch), so we convert the integer to a date string.
-                if (columnNameToType.getOrDefault(entry.getKey(), Type.NULL).isDateV2()) {
+                // When partition.legacy-name = true (default), Paimon stores DATE type as days since
+                // 1970-01-01 (epoch integer), so we need to convert the integer to a date string.
+                // When partition.legacy-name = false, the value is already a human read date string.
+                if (legacyPartitionName
+                        && columnNameToType.getOrDefault(entry.getKey(), Type.NULL).isDateV2()) {
                     sb.append(DateTimeUtils.formatDate(Integer.parseInt(entry.getValue()))).append("/");
                 } else {
                     sb.append(entry.getValue()).append("/");
@@ -565,7 +577,8 @@ public class PaimonUtil {
                     return null;
                 }
                 return value.toString();
-            // case binary, varbinary should not supported, because if return string with utf8,
+            // case binary:
+            // case varbinary: should not supported, because if return string with utf8,
             // the data maybe be corrupted
             case DATE:
                 if (value == null) {

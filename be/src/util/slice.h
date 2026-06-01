@@ -28,11 +28,10 @@
 #include <utility>
 #include <vector>
 
-#include "vec/common/allocator.h"
-#include "vec/common/allocator_fwd.h"
+#include "core/allocator.h"
+#include "core/allocator_fwd.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class faststring;
 
 /// @brief A wrapper around externally allocated data.
@@ -376,4 +375,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

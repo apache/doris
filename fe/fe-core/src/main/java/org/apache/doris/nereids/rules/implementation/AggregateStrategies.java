@@ -23,6 +23,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.rules.Rule;
@@ -44,7 +45,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -513,7 +513,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 SlotReference.class::isInstance);
         List<SlotReference> usedSlotInTable = (List<SlotReference>) Project.findProject(aggUsedSlots, outPutSlots);
         for (SlotReference slot : usedSlotInTable) {
-            Column column = slot.getOriginalColumn().get();
+            Optional<Column> optionalColumn = slot.getOriginalColumn();
+            if (!optionalColumn.isPresent()) {
+                return false;
+            }
+            Column column = optionalColumn.get();
             PrimitiveType colType = column.getType().getPrimitiveType();
             if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()) {
                 return false;
@@ -687,7 +691,13 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 logicalScan.getOutput());
 
         for (SlotReference slot : usedSlotInTable) {
-            Column column = slot.getOriginalColumn().get();
+            Optional<Column> optionalColumn = slot.getOriginalColumn();
+            if (!optionalColumn.isPresent()) {
+                // virtual columns (e.g., generated from MATCH_ALL expressions) do not have
+                // an original column and cannot be pushed down to storage layer aggregate
+                return canNotPush;
+            }
+            Column column = optionalColumn.get();
             if (column.isAggregated()) {
                 return canNotPush;
             }

@@ -47,7 +47,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentMap;
@@ -55,11 +54,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * It is accessed by two kinds of thread, one is to create this RuntimeProfile
- * , named 'query thread', the other is to call
- * {@link org.apache.doris.common.proc.CurrentQueryInfoProvider}.
- */
 public class RuntimeProfile {
     // TODO: 这里维护性太差了
     // BE 上的 OperatorXBase::init 里面有 Operator 的命名规则
@@ -156,10 +150,6 @@ public class RuntimeProfile {
         this.counterLock = new ReentrantReadWriteLock();
     }
 
-    public void setIsCancel(Boolean isCancel) {
-        this.isCancel = isCancel;
-    }
-
     public Boolean getIsCancel() {
         return isCancel;
     }
@@ -203,11 +193,6 @@ public class RuntimeProfile {
     public Map<String, RuntimeProfile> getChildMap() {
         return childMap;
     }
-
-    public Map<String, TreeSet<String>> getChildCounterMap() {
-        return childCounterMap;
-    }
-
 
     public Counter addCounter(String name, TUnit type, String parentCounterName) {
         counterLock.writeLock().lock();
@@ -497,12 +482,11 @@ public class RuntimeProfile {
     }
 
     boolean shouldBeIncluded() {
-        if (Objects.equals(this.name, "CommonCounters") || Objects.equals(this.name, "CustomCounters")
-                || Objects.equals(this.name, "Scanner")) {
+        if ("CommonCounters".equals(this.name) || "CustomCounters".equals(this.name)
+                || "Scanner".equals(this.name)) {
             return true;
-        } else {
-            return this.name.matches(".*Pipeline.*") || this.name.matches(".*_OPERATOR.*");
         }
+        return this.name.startsWith("Pipeline") || this.name.contains("_OPERATOR");
     }
 
     private static void collectActualRowCount(RuntimeProfile mergedProfile) {

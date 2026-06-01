@@ -24,7 +24,6 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -380,7 +379,6 @@ public class Role implements GsonPostProcessable {
     }
 
     private boolean checkAnyColPrivWithinCtl(String ctl) {
-        ctl = ClusterNamespace.getNameFromFullName(ctl);
         for (ColPrivilegeKey colPrivilegeKey : colPrivMap.keySet()) {
             if (colPrivilegeKey.getCtl().equals(ctl)) {
                 return true;
@@ -390,8 +388,6 @@ public class Role implements GsonPostProcessable {
     }
 
     private boolean checkAnyColPrivWithinDb(String ctl, String db) {
-        ctl = ClusterNamespace.getNameFromFullName(ctl);
-        db = ClusterNamespace.getNameFromFullName(db);
         for (ColPrivilegeKey colPrivilegeKey : colPrivMap.keySet()) {
             if (colPrivilegeKey.getCtl().equals(ctl) && colPrivilegeKey.getDb().equals(db)) {
                 return true;
@@ -401,9 +397,6 @@ public class Role implements GsonPostProcessable {
     }
 
     private boolean checkAnyColPrivWithinTbl(String ctl, String db, String tbl) {
-        ctl = ClusterNamespace.getNameFromFullName(ctl);
-        db = ClusterNamespace.getNameFromFullName(db);
-        tbl = ClusterNamespace.getNameFromFullName(tbl);
         for (ColPrivilegeKey colPrivilegeKey : colPrivMap.keySet()) {
             if (colPrivilegeKey.getCtl().equals(ctl) && colPrivilegeKey.getDb().equals(db) && colPrivilegeKey
                     .getTbl().equals(tbl)) {
@@ -1030,14 +1023,8 @@ public class Role implements GsonPostProcessable {
         return sb.toString();
     }
 
-    // should be removed after version 3.0
-    private void removeClusterPrefix() {
-        roleName = ClusterNamespace.getNameFromFullName(roleName);
-    }
-
     @Override
     public void gsonPostProcess() {
-        removeClusterPrefix();
         compatibilityErrEnum();
         rebuildPrivTables();
     }

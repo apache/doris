@@ -23,12 +23,13 @@ import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
-import org.apache.doris.common.proc.CurrentQueryStatementsProcNode;
+import org.apache.doris.common.proc.CurrentQueryStatisticsProcDir;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.profile.ProfileManager.ProfileElement;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.mysql.privilege.Auth;
@@ -449,7 +450,7 @@ public class QueryProfileAction extends RestBaseController {
     }
 
     /**
-     * return the result of CurrentQueryStatementsProcNode.
+    * return the result of CurrentQueryStatisticsProcDir.
      *
      * @param request
      * @param response
@@ -459,8 +460,8 @@ public class QueryProfileAction extends RestBaseController {
     @RequestMapping(path = "/current_queries", method = RequestMethod.GET)
     public Object currentQueries(HttpServletRequest request, HttpServletResponse response,
             @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         if (isAllNode) {
             // Get current queries from all FE
@@ -479,15 +480,15 @@ public class QueryProfileAction extends RestBaseController {
                     LOG.warn("parse query info error: {}", data, e);
                 }
             }
-            List<String> titles = Lists.newArrayList(CurrentQueryStatementsProcNode.TITLE_NAMES);
+            List<String> titles = Lists.newArrayList(CurrentQueryStatisticsProcDir.TITLE_NAMES);
             titles.add(0, FRONTEND);
             return ResponseEntityBuilder.ok(new NodeAction.NodeInfo(titles, queries));
         } else {
             try {
-                CurrentQueryStatementsProcNode node = new CurrentQueryStatementsProcNode();
+                CurrentQueryStatisticsProcDir node = new CurrentQueryStatisticsProcDir();
                 ProcResult result = node.fetchResult();
                 // add frontend info at first column.
-                List<String> titles = Lists.newArrayList(CurrentQueryStatementsProcNode.TITLE_NAMES);
+                List<String> titles = Lists.newArrayList(CurrentQueryStatisticsProcDir.TITLE_NAMES);
                 titles.add(0, FRONTEND);
                 List<List<String>> rows = result.getRows();
                 String feIp = FrontendOptions.getLocalHostAddress();
@@ -513,8 +514,8 @@ public class QueryProfileAction extends RestBaseController {
     public Object killQuery(HttpServletRequest request, HttpServletResponse response,
             @PathVariable("query_id") String queryId,
             @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         if (isAllNode) {
             // Get current queries from all FE

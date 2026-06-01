@@ -96,7 +96,7 @@ struct TColumn {
     23: optional bool is_on_update_current_timestamp = false
     24: optional i32 variant_max_sparse_column_statistics_size = 10000
     25: optional i32 variant_sparse_hash_shard_count
-    26: optional bool variant_enable_doc_mode
+    26: optional bool variant_enable_doc_mode // deprecated, use TColumnType.variant_enable_doc_mode
   27: optional i64 variant_doc_materialization_min_rows
   28: optional i32 variant_doc_hash_shard_count
   29: optional bool variant_enable_nested_group
@@ -214,6 +214,12 @@ enum TSchemaTableType {
     SCH_LOAD_JOBS = 64;
     SCH_FILE_CACHE_INFO = 65;
     SCH_DATABASE_PROPERTIES = 66;
+    SCH_AUTHENTICATION_INTEGRATIONS = 67;
+    SCH_TABLE_STREAMS = 68;
+    SCH_TABLE_STREAM_CONSUMPTION = 69;
+    SCH_BE_COMPACTION_TASKS = 70;
+    SCH_ROLE_MAPPINGS = 71;
+    SCH_BACKEND_MS_RPC_TABLE_THROTTLERS = 72;
 }
 
 enum THdfsCompression {
@@ -277,6 +283,9 @@ struct TOlapTablePartition {
     11: optional i64 load_tablet_idx
     12: optional i32 total_replica_num
     13: optional i32 load_required_replica_num
+    // tablet_id -> list of backend_ids that have version gaps (lastFailedVersion >= 0)
+    // used by BE to exclude these backends from success counting in majority write
+    14: optional map<i64, list<i64>> tablet_version_gap_backends
 }
 
 struct TOlapTablePartitionParam {
@@ -323,6 +332,7 @@ struct TOlapTableIndexSchema {
     4: optional list<TColumn> columns_desc
     5: optional list<TOlapTableIndex> indexes_desc
     6: optional Exprs.TExpr where_clause
+    7: optional i64 row_binlog_id
 }
 
 struct TOlapTableSchemaParam {
@@ -344,6 +354,7 @@ struct TOlapTableSchemaParam {
     14: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
     15: optional i32 sequence_map_col_unique_id = -1
     16: optional TPartialUpdateNewRowPolicy partial_update_new_key_policy
+    17: optional TOlapTableIndexSchema row_binlog_index_schema
 }
 
 struct TTabletLocation {

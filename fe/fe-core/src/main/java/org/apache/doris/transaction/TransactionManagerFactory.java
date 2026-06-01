@@ -20,15 +20,15 @@ package org.apache.doris.transaction;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
-import org.apache.doris.fs.FileSystemProvider;
+import org.apache.doris.fs.SpiSwitchingFileSystem;
 
 import java.util.concurrent.Executor;
 
 public class TransactionManagerFactory {
 
     public static TransactionManager createHiveTransactionManager(HiveMetadataOps ops,
-            FileSystemProvider fileSystemProvider, Executor fileSystemExecutor) {
-        return new HiveTransactionManager(ops, fileSystemProvider, fileSystemExecutor);
+            SpiSwitchingFileSystem fileSystem, Executor fileSystemExecutor) {
+        return new HiveTransactionManager(ops, fileSystem, fileSystemExecutor);
     }
 
     public static TransactionManager createIcebergTransactionManager(IcebergMetadataOps ops) {

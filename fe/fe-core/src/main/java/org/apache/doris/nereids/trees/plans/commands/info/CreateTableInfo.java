@@ -30,26 +30,27 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.AutoBucketUtils;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.GeneratedColumnUtil;
+import org.apache.doris.common.util.GeneratedColumnUtil.ExprAndName;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -73,7 +74,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantField;
@@ -1114,10 +1114,8 @@ public class CreateTableInfo {
             distribution != null ? distribution.translateToCatalogStyle() : null;
 
         if (engineName.equals(ENGINE_ELASTICSEARCH)) {
-            try {
-                EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage(), e.getCause());
+            if (distributionDesc != null) {
+                throw new AnalysisException("could not support distribution clause");
             }
         } else if (!engineName.equals(ENGINE_OLAP)) {
             if (!engineName.equals(ENGINE_HIVE) && !engineName.equals(ENGINE_MAXCOMPUTE)
@@ -1172,7 +1170,7 @@ public class CreateTableInfo {
         }
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         List<Slot> slots = Lists.newArrayList(columnToSlotReference.values());
-        List<GeneratedColumnUtil.ExprAndname> exprAndnames = Lists.newArrayList();
+        List<ExprAndName> exprAndNames = Lists.newArrayList();
         for (int i = 0; i < columns.size(); i++) {
             ColumnDefinition column = columns.get(i);
             Optional<GeneratedColumnDesc> info = column.getGeneratedColumnDesc();
@@ -1196,7 +1194,7 @@ public class CreateTableInfo {
             ExpressionToExpr translator = new ExpressionToExpr(i, translateMap);
             Expr e = expr.accept(translator, planTranslatorContext);
             info.get().setExpr(e);
-            exprAndnames.add(new GeneratedColumnUtil.ExprAndname(e.clone(), column.getName()));
+            exprAndNames.add(new ExprAndName(e.clone(), column.getName()));
         }
 
         // for alter drop column
@@ -1222,14 +1220,7 @@ public class CreateTableInfo {
         }
 
         // expand expr
-        GeneratedColumnUtil.rewriteColumns(exprAndnames);
-        for (GeneratedColumnUtil.ExprAndname exprAndname : exprAndnames) {
-            if (nameToColumnDefinition.containsKey(exprAndname.getName())) {
-                ColumnDefinition columnDefinition = nameToColumnDefinition.get(exprAndname.getName());
-                Optional<GeneratedColumnDesc> info = columnDefinition.getGeneratedColumnDesc();
-                info.ifPresent(genCol -> genCol.setExpandExprForLoad(exprAndname.getExpr()));
-            }
-        }
+        GeneratedColumnUtil.rewriteColumns(exprAndNames);
     }
 
     private static class SlotReplacer extends DefaultExpressionRewriter<Map<String, Slot>> {
@@ -1569,13 +1560,13 @@ public class CreateTableInfo {
         // which is implemented in Catalog.getDdlStmt()
         if (properties != null && !properties.isEmpty()) {
             sb.append("\nPROPERTIES (");
-            sb.append(new PrintableMap<>(properties, " = ", true, true, true));
+            sb.append(new DatasourcePrintableMap<>(properties, " = ", true, true, true));
             sb.append(")");
         }
 
         if (extProperties != null && !extProperties.isEmpty()) {
             sb.append("\n").append(engineName.toUpperCase()).append(" PROPERTIES (");
-            sb.append(new PrintableMap<>(extProperties, " = ", true, true, true));
+            sb.append(new DatasourcePrintableMap<>(extProperties, " = ", true, true, true));
             sb.append(")");
         }
 

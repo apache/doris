@@ -66,6 +66,8 @@ under the License.
     </mailingLists>
     <properties>
         <doris.home>${basedir}/../../</doris.home>
+        <doris.thrift.executable>${doris.home}/thirdparty/installed/bin/thrift</doris.thrift.executable>
+        <doris.thrift.source>${doris.home}/gensrc/thrift</doris.thrift.source>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
@@ -75,9 +77,23 @@ under the License.
         <antlr.version>4.9.3</antlr.version>
         <hadoop.version>2.8.0</hadoop.version>
         <aws-java-sdk-s3.version>1.11.95</aws-java-sdk-s3.version>
+        <jackson.version>2.13.5</jackson.version>
         <!-- Arrow 18 only supports jdk17 -->
         <arrow.version>17.0.0</arrow.version>
     </properties>
+    <profiles>
+        <profile>
+            <id>thrift-executable-override</id>
+            <activation>
+                <property>
+                    <name>env.DORIS_THIRDPARTY</name>
+                </property>
+            </activation>
+            <properties>
+                <doris.thrift.executable>${env.DORIS_THIRDPARTY}/installed/bin/thrift</doris.thrift.executable>
+            </properties>
+        </profile>
+    </profiles>
     <build>
         <plugins>
             <plugin>
@@ -157,6 +173,25 @@ under the License.
                     <visitor>true</visitor>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.thrift</groupId>
+                <artifactId>thrift-maven-plugin</artifactId>
+                <version>0.10.0</version>
+                <configuration>
+                    <generator>java:fullcamel</generator>
+                    <thriftExecutable>${doris.thrift.executable}</thriftExecutable>
+                    <thriftSourceRoot>${doris.thrift.source}</thriftSourceRoot>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>thrift-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 
@@ -189,6 +224,27 @@ under the License.
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
             <version>2.10.1</version>
+        </dependency>
+        <!-- Keep jackson ABI compatible with aws-java-sdk-v1 (used by kinesis routine load tests). -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-cbor</artifactId>
+            <version>${jackson.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.groovy</groupId>
@@ -313,6 +369,11 @@ under the License.
         <dependency>
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-s3</artifactId>
+            <version>${aws-java-sdk-s3.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-java-sdk-kinesis</artifactId>
             <version>${aws-java-sdk-s3.version}</version>
         </dependency>
         <!-- aliyun ram -->

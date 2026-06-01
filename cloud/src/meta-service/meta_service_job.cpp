@@ -162,9 +162,15 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
             return;
         }
     }
-
-    if (compaction.base_compaction_cnt() < stats.base_compaction_cnt() ||
-        compaction.cumulative_compaction_cnt() < stats.cumulative_compaction_cnt()) {
+    // STOP_TOKEN is a lock marker used by schema change to block concurrent compactions during
+    // delete bitmap recalculation on MOW tables. It does not perform actual compaction, so the
+    // stale tablet cache check (which guards against compacting on outdated rowset metadata) is
+    // not meaningful for it and must be skipped to avoid spurious failures when the BE's cached
+    // compaction counts lag behind the meta-service due to a concurrent compaction completing
+    // on another BE node (see CORE-5964).
+    if (compaction.type() != TabletCompactionJobPB::STOP_TOKEN &&
+        (compaction.base_compaction_cnt() < stats.base_compaction_cnt() ||
+         compaction.cumulative_compaction_cnt() < stats.cumulative_compaction_cnt())) {
         code = MetaServiceCode::STALE_TABLET_CACHE;
         SS << "could not perform compaction on expired tablet cache."
            << " req_base_compaction_cnt=" << compaction.base_compaction_cnt()
@@ -801,7 +807,7 @@ std::pair<MetaServiceCode, std::string> scan_compaction_input_rowsets(
     };
 
     auto rs_start1 = rs_start;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         TxnErrorCode err = txn->get(rs_start1, rs_end, &it);
         if (err != TxnErrorCode::TXN_OK) {
             return {cast_as<ErrCategory::READ>(err),
@@ -827,7 +833,7 @@ std::pair<MetaServiceCode, std::string> scan_compaction_input_rowsets(
             if (!it->has_next()) rs_start1 = k;
         }
         rs_start1.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
     return {MetaServiceCode::OK, ""};
 }
 
@@ -1332,7 +1338,7 @@ std::pair<MetaServiceCode, std::string> scan_schema_change_input_rowsets(
         std::string& rs_start, std::string& rs_end, auto&& callback) {
     std::unique_ptr<RangeGetIterator> it;
     auto rs_start1 = rs_start;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         TxnErrorCode err = txn->get(rs_start1, rs_end, &it);
         if (err != TxnErrorCode::TXN_OK) {
             return {MetaServiceCode::KV_TXN_GET_ERR,
@@ -1358,7 +1364,7 @@ std::pair<MetaServiceCode, std::string> scan_schema_change_input_rowsets(
             if (!it->has_next()) rs_start1 = k;
         }
         rs_start1.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
     return {MetaServiceCode::OK, ""};
 }
 

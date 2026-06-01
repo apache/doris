@@ -22,6 +22,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -100,25 +101,25 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalSchemaScan(relationId, getTable(), qualifier,
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalSchemaScan(relationId, getTable(), qualifier,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics,
-                schemaCatalog, schemaDatabase, schemaTable, frontendConjuncts);
+                schemaCatalog, schemaDatabase, schemaTable, frontendConjuncts));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalSchemaScan(relationId, getTable(), qualifier,
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalSchemaScan(relationId, getTable(), qualifier,
                 groupExpression, logicalProperties.get(), physicalProperties, statistics,
-                schemaCatalog, schemaDatabase, schemaTable, frontendConjuncts);
+                schemaCatalog, schemaDatabase, schemaTable, frontendConjuncts));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalSchemaScan(relationId, getTable(), qualifier,
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalSchemaScan(relationId, getTable(), qualifier,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics,
-                schemaCatalog, schemaDatabase, schemaTable, frontendConjuncts);
+                schemaCatalog, schemaDatabase, schemaTable, frontendConjuncts));
     }
 
     @Override

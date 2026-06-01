@@ -22,7 +22,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/packed_file_manager.h"
 #include "io/fs/packed_file_writer.h"
-#include "olap/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_factory.h"
 
 namespace doris {
 
@@ -54,6 +54,8 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     _rowset_meta->set_rowset_id(_context.rowset_id);
     _rowset_meta->set_partition_id(_context.partition_id);
     _rowset_meta->set_tablet_id(_context.tablet_id);
+    _rowset_meta->set_db_id(_context.db_id);
+    _rowset_meta->set_table_id(_context.table_id);
     _rowset_meta->set_index_id(_context.index_id);
     _rowset_meta->set_tablet_schema_hash(_context.tablet_schema_hash);
     _rowset_meta->set_rowset_type(_context.rowset_type);

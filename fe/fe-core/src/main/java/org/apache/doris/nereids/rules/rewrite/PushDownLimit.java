@@ -127,11 +127,13 @@ public class PushDownLimit implements RewriteRuleFactory {
     private Plan pushLimitThroughJoin(LogicalLimit<? extends Plan> limit, LogicalJoin<Plan, Plan> join) {
         switch (join.getJoinType()) {
             case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
                 return join.withChildren(
                         limit.withChildren(join.left()),
                         join.right()
                 );
             case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
                 return join.withChildren(
                         join.left(),
                         limit.withChildren(join.right())

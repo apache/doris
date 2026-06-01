@@ -28,6 +28,8 @@ under the License.
     </parent>
     <artifactId>fe-common</artifactId>
     <packaging>jar</packaging>
+    <name>Doris FE Common Utils</name>
+    <description>Common Utils for Doris Frontend modules</description>
     <profiles>
         <profile>
             <id>thirdparty</id>
@@ -40,6 +42,29 @@ under the License.
                 <doris.thirdparty>${env.DORIS_THIRDPARTY}</doris.thirdparty>
             </properties>
         </profile>
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <configuration>
+                            <attach>true</attach>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>create-source-jar</id>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                    <goal>test-jar-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
     <dependencies>
         <dependency>
@@ -50,10 +75,9 @@ under the License.
             <groupId>commons-io</groupId>
             <artifactId>commons-io</artifactId>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/org.apache.thrift/libthrift -->
         <dependency>
-            <groupId>org.apache.thrift</groupId>
-            <artifactId>libthrift</artifactId>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
@@ -63,11 +87,6 @@ under the License.
         <dependency>
             <groupId>org.roaringbitmap</groupId>
             <artifactId>RoaringBitmap</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.hamcrest</groupId>
-            <artifactId>hamcrest</artifactId>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.google.code.gson</groupId>
@@ -108,6 +127,13 @@ under the License.
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-iostreams</artifactId>
         </dependency>
+        <!-- antl4 The version of antlr-runtime in trino parser is need to be consistent with doris,
+    when upgrade doris antlr-runtime version, should take care of trino-parser.-->
+        <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>${antlr4.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-core</artifactId>
@@ -131,21 +157,73 @@ under the License.
         <finalName>doris-fe-common</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
+            <!-- run make to generate Version and builtin -->
+            <!-- also parse the proto for FE -->
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-source-plugin</artifactId>
-                <configuration>
-                    <attach>true</attach>
-                </configuration>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
                 <executions>
                     <execution>
-                        <id>create-source-jar</id>
+                        <id>gensrc</id>
+                        <phase>generate-sources</phase>
                         <goals>
-                            <goal>jar-no-fork</goal>
-                            <goal>test-jar-no-fork</goal>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <environmentVariables>
+                                <DORIS_HOME>${doris.home}</DORIS_HOME>
+                            </environmentVariables>
+                            <environmentScript>${doris.home}/env.sh</environmentScript>
+                            <executable>make</executable>
+                            <arguments>
+                                <argument>-C</argument>
+                                <argument>${doris.home}/gensrc/script</argument>
+                            </arguments>
+                            <skip>${skip.plugin}</skip>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- add generated Version.java as source -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.2.0</version>
+                <executions>
+                    <execution>
+                        <id>add-source</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${basedir}/target/generated-sources/build/</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!--antlr-->
+            <plugin>
+                <groupId>org.antlr</groupId>
+                <artifactId>antlr4-maven-plugin</artifactId>
+                <version>${antlr4.version}</version>
+                <executions>
+                    <execution>
+                        <id>antlr</id>
+                        <goals>
+                            <goal>antlr4</goal>
                         </goals>
                     </execution>
                 </executions>
+                <configuration>
+                    <visitor>true</visitor>
+                    <sourceDirectory>src/main/antlr4</sourceDirectory>
+                    <treatWarningsAsErrors>true</treatWarningsAsErrors>
+                    <libDirectory>src/main/antlr4/org/apache/doris/parser</libDirectory>
+                </configuration>
             </plugin>
             <!-- Build test-jar's for all projects, since some projects depend on tests from others -->
             <plugin>

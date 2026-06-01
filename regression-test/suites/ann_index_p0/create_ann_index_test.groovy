@@ -39,6 +39,31 @@ suite("create_ann_index_test") {
     );
     """
 
+    sql "drop table if exists tbl_mor_without_ann"
+    sql """
+    CREATE TABLE `tbl_mor_without_ann` (
+      `id` int NOT NULL COMMENT "",
+      `embedding` array<float> NOT NULL COMMENT ""
+    ) ENGINE=OLAP
+    UNIQUE KEY(`id`) COMMENT "OLAP"
+    DISTRIBUTED BY HASH(`id`) BUCKETS 2
+    PROPERTIES (
+      "replication_num" = "1",
+      "enable_unique_key_merge_on_write" = "false"
+    );
+    """
+
+    test {
+        sql """
+        CREATE INDEX idx_test_ann_on_mor ON tbl_mor_without_ann(`embedding`) USING ANN PROPERTIES(
+            "index_type"="hnsw",
+            "metric_type"="l2_distance",
+            "dim"="1"
+        );
+        """
+        exception "ANN index can only be built on table with DUP_KEYS or UNIQUE_KEYS with merge-on-write enabled"
+    }
+
     // Test cases for creating tables with ANN indexes
 
     // 1. Case for nullable column
@@ -190,7 +215,7 @@ suite("create_ann_index_test") {
                 "replication_num" = "1"
             );
         """
-        exception "only support ann index with type hnsw or ivf"
+        exception "only support ann index with type hnsw, ivf or ivf_on_disk"
     }
 
     // metric_type is incorrect
@@ -299,26 +324,24 @@ suite("create_ann_index_test") {
         );
     """
 
-    sql "drop table if exists tbl_ann_unique_key"
-    test {
-        sql """
-            CREATE TABLE tbl_ann_unique_key (
-                id INT NOT NULL COMMENT "",
-                embedding ARRAY<FLOAT> NOT NULL COMMENT "",
-                INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
-                    "index_type"="hnsw",
-                    "metric_type"="inner_product",
-                    "dim"="128"
-                )
-            ) ENGINE=OLAP
-            UNIQUE KEY(id) COMMENT "OLAP"
-            DISTRIBUTED BY HASH(id) BUCKETS 2
-            PROPERTIES (
-                "replication_num" = "1"
-            );
-        """
-        exception "ANN index can only be used in DUP_KEYS table"
-    }
+    sql "drop table if exists tbl_ann_on_mow"
+    sql """
+        CREATE TABLE tbl_ann_on_mow (
+            id INT NOT NULL COMMENT "",
+            embedding ARRAY<FLOAT> NOT NULL COMMENT "",
+            INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
+                "index_type"="hnsw",
+                "metric_type"="inner_product",
+                "dim"="128"
+            )
+        ) ENGINE=OLAP
+        UNIQUE KEY(id) COMMENT "OLAP"
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
 
     sql "drop table if exists tbl_efconstruction"
     sql """
@@ -386,4 +409,26 @@ suite("create_ann_index_test") {
 
         exception "ANN index is not supported in index format V1"
     }
+
+    // CREATE INDEX with ivf_on_disk type on existing table
+    sql "drop table if exists tbl_ann_ivf_on_disk_create_idx"
+    sql """
+        CREATE TABLE tbl_ann_ivf_on_disk_create_idx (
+            id INT NOT NULL COMMENT "",
+            embedding ARRAY<FLOAT> NOT NULL COMMENT ""
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id) COMMENT "OLAP"
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+    sql """
+        CREATE INDEX idx_ivf_on_disk ON tbl_ann_ivf_on_disk_create_idx (`embedding`) USING ANN PROPERTIES(
+            "index_type"="ivf_on_disk",
+            "metric_type"="l2_distance",
+            "dim"="128",
+            "nlist"="64"
+        );
+    """
 }

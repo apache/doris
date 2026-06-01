@@ -40,7 +40,6 @@
 #include "recycler/snapshot_chain_compactor.h"
 #include "recycler/snapshot_data_migrator.h"
 #include "recycler/storage_vault_accessor.h"
-#include "recycler/white_black_list.h"
 #include "snapshot/snapshot_manager.h"
 
 namespace brpc {
@@ -88,6 +87,8 @@ public:
 
     bool stopped() const { return stopped_.load(std::memory_order_acquire); }
 
+    RecyclerThreadPoolGroup& thread_pool_group() { return _thread_pool_group; }
+
 private:
     void recycle_callback();
 
@@ -116,7 +117,6 @@ private:
 
     std::string ip_port_;
 
-    WhiteBlackList instance_filter_;
     std::unique_ptr<Checker> checker_;
 
     RecyclerThreadPoolGroup _thread_pool_group;
@@ -138,6 +138,7 @@ struct RowsetDeleteTask {
     std::string recycle_rowset_key;       // Primary key marking "pending recycle"
     std::string non_versioned_rowset_key; // Legacy non-versioned rowset meta key
     std::string versioned_rowset_key;     // Versioned meta rowset key
+    Versionstamp versionstamp;
     std::string rowset_ref_count_key;
 };
 
@@ -416,7 +417,8 @@ public:
     }
 
     // Recycle snapshot meta and data, return 0 for success otherwise error.
-    int recycle_snapshot_meta_and_data(const std::string& resource_id,
+    int recycle_snapshot_meta_and_data(const std::string& instance_id,
+                                       const std::string& resource_id,
                                        Versionstamp snapshot_version,
                                        const SnapshotPB& snapshot_pb);
 
@@ -428,10 +430,15 @@ private:
     int init_storage_vault_accessors();
 
     /**
-     * Scan key-value pairs between [`begin`, `end`), and perform `recycle_func` on each key-value pair.
+     * Scan key-value pairs between [`begin`, `end`) with multiple rounds of range get(`RangeGetIterator`),
+     * and perform `recycle_func` on each key-value pair.
      *
-     * @param recycle_func defines how to recycle resources corresponding to a key-value pair. Returns 0 if the recycling is successful.
-     * @param loop_done is called after `RangeGetIterator` has no next kv. Usually used to perform a batch recycling. Returns 0 if success. 
+     * @param recycle_func defines how to recycle resources corresponding to a key-value pair.
+     *                     The scan will stop if recycle_func() returns non-zero.
+     *                     recycle_func() returns 0 if the recycling is successful or the scan can continue with ignorable errors.
+     * @param loop_done is called after a round (`RangeGetIterator`) in the scan has no next kv. Usually used to perform a batch recycling.
+     *                  The scan will stop if loop_done() returns non-zero.
+     *                  loop_done() returns 0 if the recycling is successful or the scan can continue with ignorable errors.
      * @return 0 if all corresponding resources are recycled successfully, otherwise non-zero
      */
     int scan_and_recycle(std::string begin, std::string_view end,
@@ -454,13 +461,19 @@ private:
     // Returns 0 for success, -1 for error.
     int decrement_packed_file_ref_counts(const doris::RowsetMetaCloudPB& rs_meta_pb);
 
-    // Decrement packed file ref count for delete bitmap if it's stored in packed file.
+    enum class DeleteBitmapStorageType {
+        NOT_FOUND,
+        IN_FDB,
+        STANDALONE_FILE,
+        PACKED_FILE,
+    };
+
+    // Process delete bitmap storage and decrement packed file ref count when needed.
     // Returns 0 for success, -1 for error.
-    // If delete bitmap is not stored in packed file, this function does nothing and returns 0.
-    // out_is_packed: if not null, will be set to true if delete bitmap is stored in packed file.
+    // out_storage_type: if not null, will be set to the delete bitmap storage type.
     int decrement_delete_bitmap_packed_file_ref_counts(int64_t tablet_id,
                                                        const std::string& rowset_id,
-                                                       bool* out_is_packed);
+                                                       DeleteBitmapStorageType* out_storage_type);
 
     int delete_packed_file_and_kv(const std::string& packed_file_path,
                                   const std::string& packed_key,
@@ -494,12 +507,8 @@ private:
 
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
-    // Both recycle_rowset_key and non_versioned_rowset_key will be removed in the same transaction.
-    //
     // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
-    int recycle_rowset_meta_and_data(std::string_view recycle_rowset_key,
-                                     const RowsetMetaCloudPB& rowset_meta,
-                                     std::string_view non_versioned_rowset_key = "");
+    int recycle_rowset_meta_and_data(const RowsetDeleteTask& task);
 
     // Classify rowset task by ref_count, return 0 to add to batch delete, 1 if handled (ref>1), -1 on error
     int classify_rowset_task_by_ref_count(RowsetDeleteTask& task,
@@ -578,7 +587,8 @@ private:
     int abort_job_for_related_rowset(const RowsetMetaCloudPB& rowset_meta);
 
     template <typename T>
-    int abort_txn_or_job_for_recycle(T& rowset_meta_pb);
+    int batch_abort_txn_or_job_for_recycle(const std::vector<std::string>& keys,
+                                           bool skip_base_version);
 
 private:
     std::atomic_bool stopped_ {false};

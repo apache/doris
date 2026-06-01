@@ -30,9 +30,9 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "io/fs/broker_file_system.h"
-#include "util/doris_metrics.h"
 
 namespace doris::io {
 struct IOContext;

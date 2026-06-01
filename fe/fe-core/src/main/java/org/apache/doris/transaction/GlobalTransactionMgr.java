@@ -49,6 +49,7 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
@@ -64,6 +65,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
@@ -230,7 +232,8 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
-    public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse) {
+    public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse, List<TabletCommitInfo> tabletCommitInfos,
+            List<Long> tabletIds) {
     }
 
     /**
@@ -308,20 +311,21 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
             TxnCommitAttachment txnCommitAttachment)
             throws UserException {
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(db.getId());
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
-        if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
+        List<Table> lockTableList = buildLockTableList(tableList, dbTransactionMgr.getTransactionState(transactionId));
+        if (!MetaLockUtils.tryWriteLockTablesOrMetaException(lockTableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
             throw new UserException("get tableList write lock timeout, tableList=("
-                    + StringUtils.join(tableList, ",") + ")");
+                    + StringUtils.join(lockTableList, ",") + ")");
         }
         try {
             commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
-            MetaLockUtils.writeUnlockTables(tableList);
+            MetaLockUtils.writeUnlockTables(lockTableList);
         }
         stopWatch.stop();
         long publishTimeoutMillis = timeoutMillis - stopWatch.getTime();
-        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(db.getId());
         if (publishTimeoutMillis < 0) {
             // here commit transaction successfully cost too much time
             // to cause that publishTimeoutMillis is less than zero,
@@ -339,18 +343,19 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .collect(Collectors.toList());
         List<? extends TableIf> tableIfList = db.getTablesOnIdOrderOrThrowException(tableIdList);
         List<Table> tableList = tableIfList.stream().map(t -> (Table) t).collect(Collectors.toList());
-        if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(db.getId());
+        List<Table> lockTableList = buildLockTableList(tableList, dbTransactionMgr.getTransactionState(transactionId));
+        if (!MetaLockUtils.tryWriteLockTablesOrMetaException(lockTableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
             throw new UserException("get tableList write lock timeout, tableList=("
-                    + StringUtils.join(tableList, ",") + ")");
+                    + StringUtils.join(lockTableList, ",") + ")");
         }
         try {
             commitTransactionWithoutLock(db.getId(), tableList, transactionId, subTransactionStates, timeoutMillis);
         } finally {
-            MetaLockUtils.writeUnlockTables(tableList);
+            MetaLockUtils.writeUnlockTables(lockTableList);
         }
         stopWatch.stop();
         long publishTimeoutMillis = timeoutMillis - stopWatch.getTime();
-        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(db.getId());
         if (publishTimeoutMillis < 0) {
             // here commit transaction successfully cost too much time
             // to cause that publishTimeoutMillis is less than zero,
@@ -1013,5 +1018,23 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public int getQueueLength() {
         return 0;
+    }
+
+    private List<Table> buildLockTableList(List<Table> tableList, TransactionState transactionState)
+            throws UserException {
+        if (transactionState == null || CollectionUtils.isEmpty(transactionState.getStreamUpdateInfos())) {
+            return tableList;
+        }
+        TreeSet<Pair<Long, Long>> tableIfs = new TreeSet<>(new Pair.PairComparator<>());
+        tableList.forEach(table -> tableIfs.add(Pair.of(table.getDatabase().getId(), table.getId())));
+        transactionState.getStreamUpdateInfos()
+                .forEach(info -> tableIfs.add(Pair.of(info.getDbId(), info.getStreamId())));
+        List<Table> newTableList = new ArrayList<>(tableIfs.size());
+        for (Pair<Long, Long> p : tableIfs) {
+            Database db = env.getInternalCatalog().getDbOrMetaException(p.first);
+            Table table = db.getTableOrMetaException(p.second);
+            newTableList.add(table);
+        }
+        return newTableList;
     }
 }

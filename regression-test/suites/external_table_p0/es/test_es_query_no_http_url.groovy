@@ -23,36 +23,9 @@ suite("test_es_query_no_http_url", "p0,external") {
         String es_7_port = context.config.otherConfigs.get("es_7_port")
         String es_8_port = context.config.otherConfigs.get("es_8_port")
 
-        def executeWithRetry = { query, queryName, maxRetries ->
-            def retryCount = 0
-            def success = false
-
-            while (!success && retryCount < maxRetries) {
-                try {
-                    sql query
-                    success = true
-                } catch (Exception e) {
-                    if (e.getMessage().contains("EsTable metadata has not been synced, Try it later")) {
-                        logger.error("Failed to execute ${queryName}: ${e.getMessage()}")
-                        logger.info("Retrying... Attempt ${retryCount + 1}")
-                        retryCount++
-                        sleep(1000) // Sleep for 1 second
-                    } else {
-                        throw e // Rethrow if it's a different exception
-                    }
-                }
-            }
-
-            if (!success) {
-                throw new RuntimeException("Failed to execute ${queryName} after ${maxRetries} attempts")
-            }
-        }
-
         sql """drop catalog if exists es6_no_http_url;"""
         sql """drop catalog if exists es7_no_http_url;"""
         sql """drop catalog if exists es8_no_http_url;"""
-        sql """drop table if exists test_v1_no_http_url;"""
-        sql """drop table if exists test_v2_no_http_url;"""
 
         // test old create-catalog syntax for compatibility
         sql """
@@ -82,83 +55,6 @@ suite("test_es_query_no_http_url", "p0,external") {
                 "enable_keyword_sniff"="true"
         );
         """
-
-        // test external table for datetime
-        sql """
-            CREATE TABLE `test_v1_no_http_url` (
-                `c_datetime` array<datev2> NULL,
-                `c_long` array<bigint(20)> NULL,
-                `c_unsigned_long` array<largeint(40)> NULL,
-                `c_text` array<text> NULL,
-                `c_short` array<smallint(6)> NULL,
-                `c_ip` array<text> NULL,
-                `test1` text NULL,
-                `c_half_float` array<float> NULL,
-                `test4` date NULL,
-                `test5` datetime NULL,
-                `test2` text NULL,
-                `c_date` array<datev2> NULL,
-                `test3` double NULL,
-                `c_scaled_float` array<double> NULL,
-                `c_float` array<float> NULL,
-                `c_double` array<double> NULL,
-                `c_keyword` array<text> NULL,
-                `c_person` array<text> NULL,
-                `test6` datetime NULL,
-                `test7` datetime NULL,
-                `test8` datetime NULL,
-                `c_byte` array<tinyint(4)> NULL,
-                `c_bool` array<boolean> NULL,
-                `c_integer` array<int(11)> NULL
-            ) ENGINE=ELASTICSEARCH
-            COMMENT 'ELASTICSEARCH'
-            PROPERTIES (
-                "hosts" = "${externalEnvIp}:$es_7_port",
-                "index" = "test1",
-                "nodes_discovery"="false",
-                "enable_keyword_sniff"="true",
-                "http_ssl_enabled"="false"
-            );
-        """
-        executeWithRetry("""select * from test_v1_no_http_url where test2='text#1'""", "sql51", 30)
-
-        sql """
-            CREATE TABLE `test_v2_no_http_url` (
-                `c_datetime` array<datev2> NULL,
-                `c_long` array<bigint(20)> NULL,
-                `c_unsigned_long` array<largeint(40)> NULL,
-                `c_text` array<text> NULL,
-                `c_short` array<smallint(6)> NULL,
-                `c_ip` array<text> NULL,
-                `test1` text NULL,
-                `c_half_float` array<float> NULL,
-                `test4` datev2 NULL,
-                `test5` datetimev2 NULL,
-                `test2` text NULL,
-                `c_date` array<datev2> NULL,
-                `test3` double NULL,
-                `c_scaled_float` array<double> NULL,
-                `c_float` array<float> NULL,
-                `c_double` array<double> NULL,
-                `c_keyword` array<text> NULL,
-                `c_person` array<text> NULL,
-                `test6` datetimev2 NULL,
-                `test7` datetimev2 NULL,
-                `test8` datetimev2 NULL,
-                `c_byte` array<tinyint(4)> NULL,
-                `c_bool` array<boolean> NULL,
-                `c_integer` array<int(11)> NULL
-            ) ENGINE=ELASTICSEARCH
-            COMMENT 'ELASTICSEARCH'
-            PROPERTIES (
-                "hosts" = "${externalEnvIp}:$es_8_port",
-                "index" = "test1",
-                "nodes_discovery"="false",
-                "enable_keyword_sniff"="true",
-                "http_ssl_enabled"="false"
-            );
-        """
-        executeWithRetry("""select * from test_v2_no_http_url where test2='text#1'""", "sql52", 30)
 
         // es6
         sql """switch es6_no_http_url"""

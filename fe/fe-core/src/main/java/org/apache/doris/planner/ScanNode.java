@@ -71,6 +71,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -95,6 +96,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     protected long selectedPartitionNum = 0;
     protected int selectedSplitNum = 0;
+    private boolean hasPartitionPredicate = false;
 
     // support multi topn filter
     protected final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
@@ -106,10 +108,13 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     // This is also important for local shuffle logic.
     // Now only OlapScanNode and FileQueryScanNode implement this.
     protected HashSet<Long> scanBackendIds = new HashSet<>();
+    // Immutable scan context used for evolving scan-related metadata.
+    protected final ScanContext scanContext;
 
-    public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
+    public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext) {
         super(id, desc.getId().asList(), planNodeName);
         this.desc = desc;
+        this.scanContext = Objects.requireNonNull(scanContext, "scanContext can not be null");
     }
 
     protected List<Column> getColumns() {
@@ -189,6 +194,33 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     public TableIf getTableIf() {
         return desc.getTable();
+    }
+
+    public boolean isPartitionedTable() {
+        return getTableIf() != null && getTableIf().isPartitionedTable();
+    }
+
+    public boolean hasPartitionPredicate() {
+        return hasPartitionPredicate;
+    }
+
+    public void setHasPartitionPredicate(boolean hasPartitionPredicate) {
+        this.hasPartitionPredicate = hasPartitionPredicate;
+    }
+
+    static boolean containsPartitionPredicate(List<Column> partitionColumns, TupleDescriptor tupleDescriptor,
+            List<Expr> conjuncts, PartitionInfo partitionInfo) {
+        for (Column partitionColumn : partitionColumns) {
+            SlotDescriptor slotDescriptor = tupleDescriptor.getColumnSlot(partitionColumn.getName());
+            if (slotDescriptor == null) {
+                continue;
+            }
+            if (createPartitionFilter(slotDescriptor, conjuncts, partitionInfo) != null
+                    || createColumnRange(slotDescriptor, conjuncts, partitionInfo).hasFilter()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static ColumnRange createColumnRange(SlotDescriptor desc,
@@ -335,7 +367,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         }
     }
 
-    private PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts,
+    protected static PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts,
             PartitionInfo partitionsInfo) {
         PartitionColumnFilter partitionColumnFilter = null;
         for (Expr expr : conjuncts) {
@@ -555,6 +587,10 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return scanBackendIds.size();
     }
 
+    public Set<Long> getScanBackendIds() {
+        return scanBackendIds;
+    }
+
     public int getScanRangeNum() {
         return Integer.MAX_VALUE;
     }
@@ -692,11 +728,21 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return selectedSplitNum;
     }
 
+    public ScanContext getScanContext() {
+        return scanContext;
+    }
+
     @Override
     public boolean isSerialOperator() {
-        return numScanBackends() <= 0 || getScanRangeNum()
-                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() * numScanBackends()
-                || (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isForceToLocalShuffle());
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            return numScanBackends() <= 0;
+        }
+        int parallelExecInstanceNum = context.getSessionVariable()
+                .getParallelExecInstanceNum(scanContext.getClusterName());
+        return numScanBackends() <= 0
+                || getScanRangeNum() < parallelExecInstanceNum * numScanBackends()
+                || context.getSessionVariable().isForceToLocalShuffle();
     }
 
     @Override
@@ -710,5 +756,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     public long getCatalogId() {
         return Env.getCurrentInternalCatalog().getId();
+    }
+
+    protected boolean fileCacheAdmissionCheck() throws UserException {
+        return true;
     }
 }

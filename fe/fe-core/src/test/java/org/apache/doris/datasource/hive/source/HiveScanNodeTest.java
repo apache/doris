@@ -21,10 +21,13 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -46,13 +49,13 @@ public class HiveScanNodeTest {
         Mockito.when(table.getCatalog()).thenReturn(catalog);
         Mockito.when(catalog.bindBrokerName()).thenReturn("");
         desc.setTable(table);
-        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null);
+        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null, ScanContext.EMPTY);
 
-        HiveMetaStoreCache.FileCacheValue fileCacheValue = new HiveMetaStoreCache.FileCacheValue();
-        HiveMetaStoreCache.HiveFileStatus status = new HiveMetaStoreCache.HiveFileStatus();
+        HiveExternalMetaCache.FileCacheValue fileCacheValue = new HiveExternalMetaCache.FileCacheValue();
+        HiveExternalMetaCache.HiveFileStatus status = new HiveExternalMetaCache.HiveFileStatus();
         status.setLength(10_000L * MB);
         fileCacheValue.getFiles().add(status);
-        List<HiveMetaStoreCache.FileCacheValue> caches = Collections.singletonList(fileCacheValue);
+        List<HiveExternalMetaCache.FileCacheValue> caches = Collections.singletonList(fileCacheValue);
 
         Method method = HiveScanNode.class.getDeclaredMethod(
                 "determineTargetFileSplitSize", List.class, boolean.class);
@@ -71,18 +74,60 @@ public class HiveScanNodeTest {
         Mockito.when(table.getCatalog()).thenReturn(catalog);
         Mockito.when(catalog.bindBrokerName()).thenReturn("");
         desc.setTable(table);
-        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null);
+        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null, ScanContext.EMPTY);
 
-        HiveMetaStoreCache.FileCacheValue fileCacheValue = new HiveMetaStoreCache.FileCacheValue();
-        HiveMetaStoreCache.HiveFileStatus status = new HiveMetaStoreCache.HiveFileStatus();
+        HiveExternalMetaCache.FileCacheValue fileCacheValue = new HiveExternalMetaCache.FileCacheValue();
+        HiveExternalMetaCache.HiveFileStatus status = new HiveExternalMetaCache.HiveFileStatus();
         status.setLength(500L * MB);
         fileCacheValue.getFiles().add(status);
-        List<HiveMetaStoreCache.FileCacheValue> caches = Collections.singletonList(fileCacheValue);
+        List<HiveExternalMetaCache.FileCacheValue> caches = Collections.singletonList(fileCacheValue);
 
         Method method = HiveScanNode.class.getDeclaredMethod(
                 "determineTargetFileSplitSize", List.class, boolean.class);
         method.setAccessible(true);
         long target = (long) method.invoke(node, caches, false);
         Assert.assertEquals(32 * MB, target);
+    }
+
+    @Test
+    public void testSelectedPartitionsCarryPartitionPredicateFlag() {
+        SelectedPartitions selectedPartitions = new SelectedPartitions(3, ImmutableMap.of(), true, true);
+        Assert.assertTrue(selectedPartitions.hasPartitionPredicate);
+    }
+
+    @Test
+    public void testHiveScanNodeExposePartitionPredicateFlag() {
+        HiveScanNode node = createHiveScanNode();
+        node.setSelectedPartitions(new SelectedPartitions(3, ImmutableMap.of(), true, true));
+        Assert.assertTrue(node.hasPartitionPredicate());
+    }
+
+    @Test
+    public void testHiveScanNodeExposePartitionedTableFlag() {
+        HiveScanNode node = createHiveScanNode(true);
+        Assert.assertTrue(node.isPartitionedTable());
+    }
+
+    @Test
+    public void testHiveScanNodeExposeMissingPartitionPredicateFlag() {
+        HiveScanNode node = createHiveScanNode();
+        node.setSelectedPartitions(new SelectedPartitions(3, ImmutableMap.of(), true, false));
+        Assert.assertFalse(node.hasPartitionPredicate());
+    }
+
+    private HiveScanNode createHiveScanNode() {
+        return createHiveScanNode(false);
+    }
+
+    private HiveScanNode createHiveScanNode(boolean partitioned) {
+        SessionVariable sv = new SessionVariable();
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.bindBrokerName()).thenReturn("");
+        Mockito.when(table.isPartitionedTable()).thenReturn(partitioned);
+        desc.setTable(table);
+        return new HiveScanNode(new PlanNodeId(0), desc, false, sv, null, ScanContext.EMPTY);
     }
 }

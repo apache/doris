@@ -22,12 +22,16 @@
 #include <memory>
 #include <string>
 
-#include "common/config.h"
 #include "exprs/create_predicate_function.h"
 #include "gtest/internal/gtest-internal.h"
 #include "testutil/column_helper.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris {
+
+static constexpr auto CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT =
+        "ColumnStr.convert_column_if_overflow.max_string_size";
 
 // mock
 class HybridSetTest : public testing::Test {
@@ -446,9 +450,8 @@ TEST_F(HybridSetTest, string) {
     {                                                                                       \
         std::unique_ptr<HybridSetBase> set(create_set<N>(PrimitiveType::TYPE_INT, false));  \
                                                                                             \
-        auto column = vectorized::ColumnHelper::create_column<vectorized::DataTypeInt32>(   \
-                {1, 2, 3, 4, 5, 6, 7, 8});                                                  \
-        auto result_column = vectorized::ColumnUInt8::create(N, 0);                         \
+        auto column = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4, 5, 6, 7, 8}); \
+        auto result_column = ColumnUInt8::create(N, 0);                                     \
         try {                                                                               \
             set->find_batch(*column, N, result_column->get_data());                         \
             ASSERT_TRUE(false) << "should not be here";                                     \
@@ -501,18 +504,16 @@ TEST_F(HybridSetTest, FixedContainer) {
     TEST_FIXED_CONTAINER(8);
 
     std::unique_ptr<HybridSetBase> set(create_set<8>(PrimitiveType::TYPE_INT, false));
-    auto column = vectorized::ColumnHelper::create_column<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 5, 6, 7, 8});
+    auto column = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4, 5, 6, 7, 8});
 }
 
 TEST_F(HybridSetTest, FindBatch) {
     std::unique_ptr<HybridSetBase> string_set(create_set(PrimitiveType::TYPE_VARCHAR, true));
-    auto string_column = vectorized::ColumnHelper::create_column<vectorized::DataTypeString>(
+    auto string_column = ColumnHelper::create_column<DataTypeString>(
             {"ab", "cd", "ef", "gh", "ij", "kl", "mn", "op"});
-    auto nullmap_column = vectorized::ColumnUInt8::create(8, 0);
+    auto nullmap_column = ColumnUInt8::create(8, 0);
 
-    auto nullable_column =
-            vectorized::ColumnNullable::create(string_column->clone(), nullmap_column->clone());
+    auto nullable_column = ColumnNullable::create(string_column->clone(), nullmap_column->clone());
 
     string_set->insert_fixed_len(nullable_column->clone(), 0);
     ASSERT_EQ(string_set->size(), nullable_column->size());
@@ -520,15 +521,14 @@ TEST_F(HybridSetTest, FindBatch) {
     nullmap_column->get_data()[1] = 1;
     nullmap_column->get_data()[3] = 1;
     nullmap_column->get_data()[6] = 1;
-    auto nullable_column2 =
-            vectorized::ColumnNullable::create(string_column->clone(), nullmap_column->clone());
+    auto nullable_column2 = ColumnNullable::create(string_column->clone(), nullmap_column->clone());
 
     std::unique_ptr<HybridSetBase> string_set2(create_set(PrimitiveType::TYPE_VARCHAR, true));
     string_set2->insert_fixed_len(nullable_column2->clone(), 0);
     ASSERT_EQ(string_set2->size(), nullable_column2->size() - 3);
     ASSERT_TRUE(string_set2->contain_null());
 
-    auto result_column = vectorized::ColumnUInt8::create(nullable_column2->size(), 0);
+    auto result_column = ColumnUInt8::create(nullable_column2->size(), 0);
     string_set->find_batch(*string_column, string_column->size(), result_column->get_data());
 
     ASSERT_EQ(result_column->get_data()[0], 1);
@@ -551,7 +551,7 @@ TEST_F(HybridSetTest, FindBatch) {
     ASSERT_EQ(result_column->get_data()[6], 0);
     ASSERT_EQ(result_column->get_data()[7], 0);
 
-    // Only bloom fitler need to handle nullaware(VRuntimeFilterWrapper::execute),
+    // Only bloom fitler need to handle nullaware(RuntimeFilterExpr::execute),
     // So HybridSet will return false when find null value.
     string_set2->find_batch_nullable(*string_column, string_column->size(),
                                      nullmap_column->get_data(), result_column->get_data());
@@ -621,20 +621,19 @@ TEST_F(HybridSetTest, StringValueSet) {
         test_string_value_set(i);
     }
 
-    vectorized::ColumnPtr string_column =
-            vectorized::ColumnHelper::create_column<vectorized::DataTypeString>(
-                    {"ab", "cd", "ef", "gh", "ij", "kl", "mn", "op", "qr", "st", "uv", "wx"});
-    auto nullmap_column = vectorized::ColumnUInt8::create(12, 0);
+    ColumnPtr string_column = ColumnHelper::create_column<DataTypeString>(
+            {"ab", "cd", "ef", "gh", "ij", "kl", "mn", "op", "qr", "st", "uv", "wx"});
+    auto nullmap_column = ColumnUInt8::create(12, 0);
 
-    vectorized::ColumnPtr nullable_column =
-            vectorized::ColumnNullable::create(string_column->clone(), nullmap_column->clone());
+    ColumnPtr nullable_column =
+            ColumnNullable::create(string_column->clone(), nullmap_column->clone());
 
     std::unique_ptr<HybridSetBase> string_value_set(create_string_value_set(0, true));
     string_value_set->insert_fixed_len(nullable_column, 0);
 
     ASSERT_EQ(string_value_set->size(), nullable_column->size());
 
-    auto results = vectorized::ColumnUInt8::create(string_column->size(), 0);
+    auto results = ColumnUInt8::create(string_column->size(), 0);
     string_value_set->find_batch(*string_column, string_column->size(), results->get_data());
     for (size_t i = 0; i != string_column->size(); ++i) {
         ASSERT_TRUE(results->get_data()[i]);
@@ -646,8 +645,7 @@ TEST_F(HybridSetTest, StringValueSet) {
     nullmap_column->get_data()[1] = 1;
     nullmap_column->get_data()[3] = 1;
     nullmap_column->get_data()[6] = 1;
-    auto nullable_column2 =
-            vectorized::ColumnNullable::create(string_column, nullmap_column->clone());
+    auto nullable_column2 = ColumnNullable::create(string_column, nullmap_column->clone());
 
     string_value_set->insert_fixed_len(nullable_column2->clone(), 0);
     ASSERT_EQ(string_value_set->size(), nullable_column2->size() - 3);
@@ -667,11 +665,16 @@ TEST_F(HybridSetTest, StringValueSet) {
     }
 
     // test ColumnStr64
-    auto string_overflow_size = config::string_overflow_size;
-    config::string_overflow_size = 10;
-    Defer defer([string_overflow_size]() { config::string_overflow_size = string_overflow_size; });
+    auto origin_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add_with_params(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT,
+                                             {{"max_string_size", "10"}});
+    Defer defer([origin_enable_debug_points]() {
+        DebugPoints::instance()->remove(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT);
+        config::enable_debug_points = origin_enable_debug_points;
+    });
 
-    vectorized::ColumnPtr string64_column = string_column->clone()->convert_column_if_overflow();
+    ColumnPtr string64_column = string_column->clone()->convert_column_if_overflow();
     ASSERT_TRUE(string64_column->is_column_string64());
 
     string_value_set->clear();
@@ -688,8 +691,8 @@ TEST_F(HybridSetTest, StringValueSet) {
     string_value_set->clear();
     ASSERT_EQ(string_value_set->size(), 0);
 
-    vectorized::ColumnNullable::Ptr nullable_column3 =
-            vectorized::ColumnNullable::create(string64_column->clone(), nullmap_column->clone());
+    ColumnNullable::Ptr nullable_column3 =
+            ColumnNullable::create(string64_column->clone(), nullmap_column->clone());
 
     string_value_set->insert_fixed_len(nullable_column3, 0);
     ASSERT_EQ(string_value_set->size(), string64_column->size() - 3);

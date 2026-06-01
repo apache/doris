@@ -20,16 +20,22 @@
 #include "benchmark_bit_pack.hpp"
 #include "benchmark_bits.hpp"
 #include "benchmark_block_bloom_filter.hpp"
+#include "benchmark_column_array_view.hpp"
+#include "benchmark_column_array_view_distance.hpp"
+#include "benchmark_column_view.hpp"
 #include "benchmark_fastunion.hpp"
 #include "benchmark_hll_merge.hpp"
+#include "benchmark_hybrid_set.hpp"
 #include "benchmark_string.hpp"
+#include "benchmark_string_replace.hpp"
+#include "benchmark_zone_map_index.hpp"
 #include "binary_cast_benchmark.hpp"
-#include "vec/columns/column_string.h"
-#include "vec/core/block.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_string.h"
+#include "core/block/block.h"
+#include "core/column/column_string.h"
+#include "core/data_type/data_type.h"
+#include "core/data_type/data_type_string.h"
 
-namespace doris::vectorized { // change if need
+namespace doris { // change if need
 
 static void Example1(benchmark::State& state) {
     // init. dont time it.
@@ -51,6 +57,6 @@ static void Example1(benchmark::State& state) {
 }
 // could BENCHMARK many functions to compare them together.
 BENCHMARK(Example1);
-} // namespace doris::vectorized
+} // namespace doris
 
 BENCHMARK_MAIN();

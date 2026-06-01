@@ -17,13 +17,13 @@
 
 #include "cloud/cloud_cluster_info.h"
 
+#include <gen_cpp/cloud.pb.h>
 #include <glog/logging.h>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
-#include "gen_cpp/cloud.pb.h"
 #include "runtime/exec_env.h"
 #include "util/time.h"
 

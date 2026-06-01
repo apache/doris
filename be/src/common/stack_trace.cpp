@@ -20,10 +20,6 @@
 
 #include "common/stack_trace.h"
 
-#include <common/dwarf.h>
-#include <common/elf.h>
-#include <common/memory_sanitizer.h>
-#include <common/symbol_index.h>
 #include <fmt/format.h>
 
 #include <atomic>
@@ -33,10 +29,14 @@
 #include <sstream>
 #include <unordered_map>
 
-#include "config.h"
+#include "common/config.h"
+#include "common/demangle.h"
+#include "common/dwarf.h"
+#include "common/elf.h"
+#include "common/memory_sanitizer.h"
+#include "common/symbol_index.h"
+#include "exec/common/hex.h"
 #include "util/string_util.h"
-#include "vec/common/demangle.h"
-#include "vec/common/hex.h"
 
 #if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
 #include <libunwind.h>
@@ -53,7 +53,7 @@ std::atomic<bool> show_addresses = true;
 // void writePointerHex(const void* ptr, std::stringstream& buf) {
 //     buf.write("0x", 2);
 //     char hex_str[2 * sizeof(ptr)];
-//     doris::vectorized::write_hex_uint_lowercase(reinterpret_cast<uintptr_t>(ptr), hex_str);
+//     doris::write_hex_uint_lowercase(reinterpret_cast<uintptr_t>(ptr), hex_str);
 //     buf.write(hex_str, 2 * sizeof(ptr));
 // }
 // #endif

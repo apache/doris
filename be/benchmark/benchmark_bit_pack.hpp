@@ -65,8 +65,10 @@ static void BM_BitPack(benchmark::State& state) {
     std::vector<uint8_t> output(size);
 
     for (auto _ : state) {
-        benchmark::DoNotOptimize(test_data.data());
-        benchmark::DoNotOptimize(output.data());
+        auto* td = test_data.data();
+        auto* od = output.data();
+        benchmark::DoNotOptimize(td);
+        benchmark::DoNotOptimize(od);
         bit_pack(test_data.data(), (uint8_t)n, w, output.data());
         benchmark::ClobberMemory();
     }
@@ -92,8 +94,10 @@ static void BM_BitPackOptimized(benchmark::State& state) {
     ForEncoder<__int128_t> forEncoder(nullptr);
 
     for (auto _ : state) {
-        benchmark::DoNotOptimize(test_data.data());
-        benchmark::DoNotOptimize(output.data());
+        auto* td = test_data.data();
+        auto* od = output.data();
+        benchmark::DoNotOptimize(td);
+        benchmark::DoNotOptimize(od);
         forEncoder.bit_pack(test_data.data(), (uint8_t)n, w, output.data());
         benchmark::ClobberMemory();
     }

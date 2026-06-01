@@ -93,6 +93,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // Read back using wildcard on the prefix
 
     sshExec("root", be_host, "rm -f ${basePath}/basic_csv_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -113,6 +115,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 2. Parquet basic types ============
 
     sshExec("root", be_host, "rm -f ${basePath}/basic_parquet_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -133,6 +137,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 3. ORC basic types ============
 
     sshExec("root", be_host, "rm -f ${basePath}/basic_orc_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -153,6 +159,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 4. Parquet complex types ============
 
     sshExec("root", be_host, "rm -f ${basePath}/complex_parquet_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -173,6 +181,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 5. ORC complex types ============
 
     sshExec("root", be_host, "rm -f ${basePath}/complex_orc_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -193,6 +203,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 6. CSV separator: comma ============
 
     sshExec("root", be_host, "rm -f ${basePath}/sep_comma_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -215,6 +227,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 7. CSV separator: tab ============
 
     sshExec("root", be_host, "rm -f ${basePath}/sep_tab_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -237,6 +251,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 8. CSV separator: pipe ============
 
     sshExec("root", be_host, "rm -f ${basePath}/sep_pipe_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -259,6 +275,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 9. CSV separator: multi-char ============
 
     sshExec("root", be_host, "rm -f ${basePath}/sep_multi_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -281,6 +299,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 10. CSV line delimiter: CRLF ============
 
     sshExec("root", be_host, "rm -f ${basePath}/line_crlf_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -303,6 +323,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 11. CSV compress: gz ============
 
     sshExec("root", be_host, "rm -f ${basePath}/compress_gz_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -325,6 +347,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 12. CSV compress: zstd ============
 
     sshExec("root", be_host, "rm -f ${basePath}/compress_zstd_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -348,6 +372,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
 
     // TODO: lz4 read meet error: LZ4F_getFrameInfo error: ERROR_frameType_unknown
     sshExec("root", be_host, "rm -f ${basePath}/compress_lz4_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -370,6 +396,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 14. CSV compress: snappy ============
 
     sshExec("root", be_host, "rm -f ${basePath}/compress_snappy_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -394,6 +422,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
 
     // First write: 5 rows
     sshExec("root", be_host, "rm -f ${basePath}/overwrite_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -413,6 +443,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
 
     // Clean files via shell, then write 2 rows
     sshExec("root", be_host, "rm -f ${basePath}/overwrite_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -433,6 +465,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 16. Append mode (default, delete_existing_files=false) ============
 
     sshExec("root", be_host, "rm -f ${basePath}/append_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     // First write
     sql """
@@ -471,6 +505,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 17. Complex SELECT: constant expressions ============
 
     sshExec("root", be_host, "rm -f ${basePath}/const_expr_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -491,6 +527,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 18. Complex SELECT: WHERE + GROUP BY ============
 
     sshExec("root", be_host, "rm -f ${basePath}/where_groupby_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -511,6 +549,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 19. Complex SELECT: JOIN ============
 
     sshExec("root", be_host, "rm -f ${basePath}/join_query_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -533,6 +573,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 20. Complex SELECT: subquery ============
 
     sshExec("root", be_host, "rm -f ${basePath}/subquery_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -553,6 +595,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 21. Complex SELECT: type cast ============
 
     sshExec("root", be_host, "rm -f ${basePath}/type_cast_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(
@@ -574,6 +618,8 @@ suite("test_insert_into_local_tvf", "p0,external") {
     // ============ 22. Complex SELECT: UNION ALL ============
 
     sshExec("root", be_host, "rm -f ${basePath}/union_query_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
 
     sql """
         INSERT INTO local(

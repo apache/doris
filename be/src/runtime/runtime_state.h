@@ -42,13 +42,13 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "exec/scan/vector_search_user_params.h"
 #include "io/fs/s3_file_system.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/task_execution_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "util/debug_util.h"
-#include "util/runtime_profile.h"
 #include "util/timezone_utils.h"
-#include "vec/runtime/vector_search_user_params.h"
 
 namespace doris {
 class RuntimeFilter;
@@ -57,13 +57,11 @@ inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
     return std::min(config::execution_max_rpc_timeout_sec, execution_timeout_sec) * 1000;
 }
 
-namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
 class PipelineFragmentContext;
 class PipelineTask;
 class Dependency;
-} // namespace pipeline
 
 class DescriptorTbl;
 class ObjectPool;
@@ -140,7 +138,35 @@ public:
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
     void set_desc_tbl(const DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
-    MOCK_FUNCTION int batch_size() const { return _query_options.batch_size; }
+
+    // Row-count limit for output blocks. Clamp to [1, 65535].
+    // Adaptive byte budgeting still uses this as the hard row ceiling.
+    MOCK_FUNCTION int batch_size() const {
+        static constexpr int kMax = 65535;
+        auto v = _query_options.batch_size;
+        return std::min(std::max(1, v), kMax);
+    }
+
+    // Target byte budget per output block (default 8MB when adaptive is enabled).
+    // The public FE/session contract is [1MB, 512MB]; this accessor still clamps any direct
+    // thrift or mixed-version out-of-range value into that range. Returns `kMax` when adaptive
+    // is disabled by BE config so the value is always a legal byte budget; callers that need
+    // to know whether adaptive batch size is active should test
+    // `config::enable_adaptive_batch_size` explicitly.
+    MOCK_FUNCTION size_t preferred_block_size_bytes() const {
+        static constexpr int64_t kDefault = 8388608L; // 8MB
+        static constexpr int64_t kMax = 536870912L;   // 512MB
+        static constexpr int64_t kMin = 1048576L;     // 1MB
+        if (!config::enable_adaptive_batch_size) [[unlikely]] {
+            return kMax;
+        }
+        if (_query_options.__isset.preferred_block_size_bytes) [[likely]] {
+            return std::max<int64_t>(
+                    kMin, std::min<int64_t>(_query_options.preferred_block_size_bytes, kMax));
+        }
+        return kDefault;
+    }
+
     int query_parallel_instance_num() const { return _query_options.parallel_instance; }
     int max_errors() const { return _query_options.max_errors; }
     int execution_timeout() const {
@@ -217,16 +243,10 @@ public:
         return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
     }
 
-    bool enable_common_expr_pushdown() const {
-        return _query_options.__isset.enable_common_expr_pushdown &&
-               _query_options.enable_common_expr_pushdown;
+    bool enable_segment_limit_pushdown() const {
+        return !_query_options.__isset.enable_segment_limit_pushdown ||
+               _query_options.enable_segment_limit_pushdown;
     }
-
-    bool enable_common_expr_pushdown_for_inverted_index() const {
-        return enable_common_expr_pushdown() &&
-               _query_options.__isset.enable_common_expr_pushdown_for_inverted_index &&
-               _query_options.enable_common_expr_pushdown_for_inverted_index;
-    };
 
     bool mysql_row_binary_format() const {
         return _query_options.__isset.mysql_row_binary_format &&
@@ -560,6 +580,11 @@ public:
                _query_options.enable_streaming_agg_hash_join_force_passthrough;
     }
 
+    bool enable_local_exchange_before_agg() const {
+        return _query_options.__isset.enable_local_exchange_before_agg &&
+               _query_options.enable_local_exchange_before_agg;
+    }
+
     bool enable_distinct_streaming_agg_force_passthrough() const {
         return _query_options.__isset.enable_distinct_streaming_agg_force_passthrough &&
                _query_options.enable_distinct_streaming_agg_force_passthrough;
@@ -621,8 +646,8 @@ public:
 
     void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
 
-    using LocalState = doris::pipeline::PipelineXLocalStateBase;
-    using SinkLocalState = doris::pipeline::PipelineXSinkLocalStateBase;
+    using LocalState = doris::PipelineXLocalStateBase;
+    using SinkLocalState = doris::PipelineXSinkLocalStateBase;
     // get result can return an error message, and we will only call it during the prepare.
     void emplace_local_state(int id, std::unique_ptr<LocalState> state);
 
@@ -645,6 +670,8 @@ public:
         _task_execution_context_inited = true;
         _task_execution_context = context;
     }
+
+    bool task_execution_context_inited() const { return _task_execution_context_inited; }
 
     std::weak_ptr<TaskExecutionContext> get_task_execution_context() {
         CHECK(_task_execution_context_inited)
@@ -673,37 +700,91 @@ public:
 
     int64_t spill_min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
-            return std::max(_query_options.min_revocable_mem, (int64_t)1);
+            return std::max(_query_options.min_revocable_mem, (int64_t)1 << 20);
         }
-        return 1;
-    }
-
-    int64_t spill_sort_mem_limit() const {
-        if (_query_options.__isset.spill_sort_mem_limit) {
-            return std::max(_query_options.spill_sort_mem_limit, (int64_t)16777216);
-        }
-        return 134217728;
-    }
-
-    int64_t spill_sort_batch_bytes() const {
-        if (_query_options.__isset.spill_sort_batch_bytes) {
-            return std::max(_query_options.spill_sort_batch_bytes, (int64_t)8388608);
-        }
-        return 8388608;
+        return 32 << 20;
     }
 
     int spill_aggregation_partition_count() const {
         if (_query_options.__isset.spill_aggregation_partition_count) {
-            return std::min(std::max(_query_options.spill_aggregation_partition_count, 16), 8192);
+            return std::min(std::max(2, _query_options.spill_aggregation_partition_count), 32);
         }
-        return 32;
+        return 8;
     }
 
     int spill_hash_join_partition_count() const {
         if (_query_options.__isset.spill_hash_join_partition_count) {
-            return std::min(std::max(_query_options.spill_hash_join_partition_count, 16), 8192);
+            return std::min(std::max(2, _query_options.spill_hash_join_partition_count), 32);
         }
-        return 32;
+        return 8;
+    }
+
+    int spill_repartition_max_depth() const {
+        if (_query_options.__isset.spill_repartition_max_depth) {
+            // Clamp to a reasonable range: [1, 128]
+            return std::max(1, std::min(_query_options.spill_repartition_max_depth, 128));
+        }
+        return 8;
+    }
+
+    int64_t spill_buffer_size_bytes() const {
+        // clamp to [1MB, 256MB]
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 256LL * 1024 * 1024;
+        if (_query_options.__isset.spill_buffer_size_bytes) {
+            int64_t v = _query_options.spill_buffer_size_bytes;
+            if (v < kMin) return kMin;
+            if (v > kMax) return kMax;
+            return v;
+        }
+        return 8LL * 1024 * 1024;
+    }
+
+    // Per-sink memory limits: after spill is triggered, the sink proactively
+    // spills when its revocable memory exceeds this threshold.
+    // Clamped to [1MB, 4GB], default 64MB.
+    int64_t spill_join_build_sink_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_join_build_sink_mem_limit_bytes) {
+            int64_t v = _query_options.spill_join_build_sink_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
+    }
+
+    int64_t spill_aggregation_sink_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_aggregation_sink_mem_limit_bytes) {
+            int64_t v = _query_options.spill_aggregation_sink_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
+    }
+
+    int64_t spill_sort_sink_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_sort_sink_mem_limit_bytes) {
+            int64_t v = _query_options.spill_sort_sink_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
+    }
+
+    int64_t spill_sort_merge_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_sort_merge_mem_limit_bytes) {
+            int64_t v = _query_options.spill_sort_merge_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
     }
 
     int64_t low_memory_mode_buffer_limit() const {
@@ -730,7 +811,7 @@ public:
             return _query_options.minimum_operator_memory_required_kb * 1024;
         } else {
             // refer other database
-            return 100 * 1024;
+            return 4 * 1024 * 1024;
         }
     }
 
@@ -757,21 +838,22 @@ public:
 
     void set_id_file_map();
     VectorSearchUserParams get_vector_search_params() const {
-        return VectorSearchUserParams(_query_options.hnsw_ef_search,
-                                      _query_options.hnsw_check_relative_distance,
-                                      _query_options.hnsw_bounded_queue, _query_options.ivf_nprobe);
-    }
-
-    void reset_to_rerun();
-
-    void set_force_make_rf_wait_infinite() {
-        _query_options.__set_runtime_filter_wait_infinitely(true);
+        VectorSearchUserParams params;
+        params.hnsw_ef_search = _query_options.hnsw_ef_search;
+        params.hnsw_check_relative_distance = _query_options.hnsw_check_relative_distance;
+        params.hnsw_bounded_queue = _query_options.hnsw_bounded_queue;
+        params.ivf_nprobe = _query_options.ivf_nprobe;
+        return params;
     }
 
     bool runtime_filter_wait_infinitely() const {
         return _query_options.__isset.runtime_filter_wait_infinitely &&
                _query_options.runtime_filter_wait_infinitely;
     }
+
+    const std::set<int>& get_deregister_runtime_filter() const;
+
+    void merge_register_runtime_filter(const std::set<int>& runtime_filter_ids);
 
 private:
     Status create_error_log_file();
@@ -881,9 +963,9 @@ private:
     mutable std::mutex _mc_commit_datas_mutex;
     std::vector<TMCCommitData> _mc_commit_datas;
 
-    std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
+    std::vector<std::unique_ptr<doris::PipelineXLocalStateBase>> _op_id_to_local_state;
 
-    std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> _sink_local_state;
+    std::unique_ptr<doris::PipelineXSinkLocalStateBase> _sink_local_state;
 
     QueryContext* _query_ctx = nullptr;
 

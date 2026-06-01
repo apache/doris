@@ -38,7 +38,7 @@
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
 #include "io/cache/lru_queue_recorder.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_profile.h"
 #include "util/threadpool.h"
 
 namespace doris::io {
@@ -169,6 +169,7 @@ class BlockFileCache {
     friend class CacheLRUDumper;
     friend class LRUQueueRecorder;
     friend struct FileBlockCell;
+    friend class BlockFileCacheTest;
 
 public:
     // hash the file_name to uint128
@@ -199,6 +200,9 @@ public:
         }
         if (_cache_background_block_lru_update_thread.joinable()) {
             _cache_background_block_lru_update_thread.join();
+        }
+        if (_ttl_mgr) {
+            _ttl_mgr.reset();
         }
     }
 
@@ -306,6 +310,9 @@ public:
     void try_evict_in_advance(size_t size, std::lock_guard<std::mutex>& cache_lock);
 
     void update_ttl_atime(const UInt128Wrapper& hash);
+
+    void pause_ttl_manager();
+    void resume_ttl_manager();
 
     std::map<std::string, double> get_stats();
 

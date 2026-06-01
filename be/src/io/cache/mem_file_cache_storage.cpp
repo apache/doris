@@ -23,13 +23,13 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "exec/common/hex.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
 #include "io/cache/shard_mem_cache.h"
 #include "runtime/exec_env.h"
-#include "vec/common/hex.h"
 
 namespace doris::io {
 

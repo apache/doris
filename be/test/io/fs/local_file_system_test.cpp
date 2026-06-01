@@ -212,6 +212,30 @@ TEST_F(LocalFileSystemTest, Delete) {
     ASSERT_TRUE(check_exist(fmt::format("{}/dir/dir1", test_dir))); // Parent should exist
 }
 
+TEST_F(LocalFileSystemTest, DeleteEmptyDirectory) {
+    auto empty_dir = fmt::format("{}/empty_dir", test_dir);
+    auto st = io::global_local_filesystem()->create_directory(empty_dir);
+    ASSERT_TRUE(st.ok()) << st;
+
+    st = io::global_local_filesystem()->delete_empty_directory(empty_dir);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_FALSE(check_exist(empty_dir));
+    st = io::global_local_filesystem()->delete_empty_directory(empty_dir);
+    ASSERT_TRUE(st.ok()) << st;
+
+    auto non_empty_dir = fmt::format("{}/non_empty_dir", test_dir);
+    auto child_file = fmt::format("{}/child", non_empty_dir);
+    st = io::global_local_filesystem()->create_directory(non_empty_dir);
+    ASSERT_TRUE(st.ok()) << st;
+    st = save_string_file(child_file, "abc");
+    ASSERT_TRUE(st.ok()) << st;
+
+    st = io::global_local_filesystem()->delete_empty_directory(non_empty_dir);
+    ASSERT_FALSE(st.ok()) << st;
+    ASSERT_TRUE(check_exist(non_empty_dir));
+    ASSERT_TRUE(check_exist(child_file));
+}
+
 TEST_F(LocalFileSystemTest, AbnormalFileWriter) {
     auto fname = fmt::format("{}/abc", test_dir);
     {
@@ -466,5 +490,14 @@ TEST_F(LocalFileSystemTest, TestConvertToAbsPath) {
 
     st = doris::io::LocalFileSystem::convert_to_abs_path("hdfs:/abc", abs_path);
     ASSERT_TRUE(!st.ok());
+}
+
+TEST_F(LocalFileSystemTest, TestEqualOrSubPath) {
+    EXPECT_TRUE(io::LocalFileSystem::equal_or_sub_path("/data/store", "/data/store"));
+    EXPECT_TRUE(io::LocalFileSystem::equal_or_sub_path("/data/store", "/data/store/snapshot"));
+    EXPECT_TRUE(io::LocalFileSystem::equal_or_sub_path("/data/store/./snapshot",
+                                                       "/data/store/snapshot/dir/../dir"));
+    EXPECT_FALSE(io::LocalFileSystem::equal_or_sub_path("/data/store1", "/data/store11/snapshot"));
+    EXPECT_FALSE(io::LocalFileSystem::equal_or_sub_path("/data/store/snapshot", "/data/store"));
 }
 } // namespace doris

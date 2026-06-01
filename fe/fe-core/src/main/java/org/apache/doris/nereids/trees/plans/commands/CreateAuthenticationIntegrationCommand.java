@@ -59,11 +59,12 @@ public class CreateAuthenticationIntegrationCommand extends Command implements F
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
         Env.getCurrentEnv().getAuthenticationIntegrationMgr()
-                .createAuthenticationIntegration(integrationName, ifNotExists, properties, comment);
+                .createAuthenticationIntegration(integrationName, ifNotExists, properties, comment,
+                        Objects.requireNonNull(ctx.getQualifiedUser(), "qualifiedUser can not be null"));
     }
 
     @Override

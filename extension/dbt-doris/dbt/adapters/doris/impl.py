@@ -20,36 +20,28 @@
 
 from dbt.adapters.sql import SQLAdapter
 
-from concurrent.futures import Future
 from enum import Enum
 from typing import (
     Any,
-    Callable,
     Dict,
+    FrozenSet,
     Iterable,
-    Iterator,
     List,
-    Mapping,
     Optional,
     Set,
     Tuple,
-    Type,
-    Union,
 )
 
 import agate
 import dbt.exceptions
-from dbt.adapters.base.impl import _expect_row_value, catch_as_completed
-from dbt.adapters.base.relation import InformationSchema, BaseRelation
+from dbt.adapters.base.relation import BaseRelation
 from dbt.adapters.doris.column import DorisColumn
 from dbt.adapters.doris.connections import DorisConnectionManager
 from dbt.adapters.doris.relation import DorisRelation
 from dbt.adapters.protocol import AdapterConfig
+from dbt.adapters.contracts.relation import RelationConfig, RelationType
 from dbt.adapters.sql.impl import LIST_RELATIONS_MACRO_NAME, LIST_SCHEMAS_MACRO_NAME
 from dbt_common.clients.agate_helper import table_from_rows
-from dbt.contracts.graph.manifest import Manifest
-from dbt.adapters.contracts.relation import RelationType
-from dbt_common.utils import executor
 from dbt.adapters.doris.doris_column_item import DorisColumnItem
 
 
@@ -139,60 +131,44 @@ class DorisAdapter(SQLAdapter):
 
         return relations
 
-    def get_catalog(self, manifest):
-        schema_map = self._get_catalog_schemas(manifest)
-
-        with executor(self.config) as tpe:
-            futures: List[Future[agate.Table]] = []
-            for info, schemas in schema_map.items():
-                for schema in schemas:
-                    futures.append(
-                        tpe.submit_connected(
-                            self,
-                            schema,
-                            self._get_one_catalog,
-                            info,
-                            [schema],
-                            manifest,
-                        )
-                    )
-            catalogs, exceptions = catch_as_completed(futures)
-        return catalogs, exceptions
-
-    @classmethod
-    def _catalog_filter_schemas(cls, manifest: Manifest) -> Callable[[agate.Row], bool]:
-        schemas = frozenset((None, s.lower()) for d, s in manifest.get_used_schemas())
-
-        def _(row: agate.Row) -> bool:
-            table_database = _expect_row_value("table_database", row)
-            table_schema = _expect_row_value("table_schema", row)
-            if table_schema is None:
-                return False
-            return (table_database, table_schema.lower()) in schemas
-
-        return _
-
-    @classmethod
-    def _catalog_filter_table(cls, table: agate.Table, manifest: Manifest) -> agate.Table:
+    def _catalog_filter_table(
+            self, table: agate.Table, used_schemas: FrozenSet[Tuple[str, str]]
+    ) -> agate.Table:
         table = table_from_rows(
             table.rows,
             table.column_names,
             text_only_columns=["table_schema", "table_name"],
         )
-        return table.where(cls._catalog_filter_schemas(manifest))
+        return table.where(self._catalog_filter_schemas(used_schemas))
 
-    def _get_one_catalog(
-            self,
-            information_schema: InformationSchema,
-            schemas: Set[str],
-            manifest: Manifest,
-    ) -> agate.Table:
-        if len(schemas) != 1:
-            dbt.exceptions.raise_compiler_error(
-                f"Expected only one schema in Doris _get_one_catalog, found " f"{schemas}"
-            )
+    @staticmethod
+    def _catalog_filter_schemas(
+            used_schemas: FrozenSet[Tuple[str, str]]
+    ):
+        schemas = frozenset((None, s.lower()) for d, s in used_schemas)
 
-        return super()._get_one_catalog(information_schema, schemas, manifest)
+        def predicate(row: agate.Row) -> bool:
+            table_database = row.get("table_database")
+            table_schema = row.get("table_schema")
+            if table_schema is None:
+                return False
+            return (table_database, table_schema.lower()) in schemas
+
+        return predicate
+
+    @classmethod
+    def convert_number_type(cls, agate_table: agate.Table, col_idx: int) -> str:
+        decimals = agate_table.aggregate(agate.HasNulls(col_idx))
+        return "double" if decimals else "bigint"
+
+    @classmethod
+    def convert_boolean_type(cls, agate_table: agate.Table, col_idx: int) -> str:
+        return "boolean"
+
+    def quote_seed_column(self, column: str, quote_config: Optional[bool]) -> str:
+        if quote_config is None or quote_config:
+            return self.quote(column)
+        return column
 
     # Methods used in adapter tests
     def timestamp_add_sql(self, add_to: str, number: int = 1, interval: str = "hour") -> str:

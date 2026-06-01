@@ -19,8 +19,12 @@ package org.apache.doris.cloud.system;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.ComputeGroup;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -28,6 +32,8 @@ import org.apache.doris.system.Backend;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -40,6 +46,7 @@ public class CloudSystemInfoServiceTest {
     public void setUp() {
         // Enable cloud mode for testing
         Config.cloud_unique_id = "test_cloud_unique_id";
+        Config.meta_service_endpoint = "127.0.0.1:5000";
     }
 
     @Test
@@ -267,6 +274,65 @@ public class CloudSystemInfoServiceTest {
         Assert.assertEquals(pcgName2, res);
     }
 
+    @Test
+    public void testGetPhysicalClusterSwitchActiveStandbyMetric() throws Exception {
+        infoService = new CloudSystemInfoService();
+
+        String vcgName = "v_cluster_1";
+        String vcgId = "id1";
+        String pcgName1 = "p_cluster_1";
+        String pcgName2 = "p_cluster_2";
+
+        ComputeGroup vcg = new ComputeGroup(vcgId, vcgName, ComputeGroup.ComputeTypeEnum.VIRTUAL);
+        ComputeGroup.Policy policy = new ComputeGroup.Policy();
+        policy.setActiveComputeGroup(pcgName1);
+        policy.setStandbyComputeGroup(pcgName2);
+        policy.setUnhealthyNodeThresholdPercent(100);
+        vcg.setPolicy(policy);
+
+        ComputeGroup pcg2 = new ComputeGroup("id3", pcgName2, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        infoService.addComputeGroup(vcgId, vcg);
+        infoService.clusterNameToId.put(pcgName1, "id2");
+        infoService.addComputeGroup("id3", pcg2);
+
+        List<Backend> toAdd2 = new ArrayList<>();
+        for (int i = 0; i < 3; ++i) {
+            Backend b = new Backend(i + 4, "", i);
+            Map<String, String> newTagMap = Tag.DEFAULT_BACKEND_TAG.toMap();
+            newTagMap.put(Tag.CLOUD_CLUSTER_NAME, pcgName2);
+            newTagMap.put(Tag.CLOUD_CLUSTER_ID, "id3");
+            b.setTagMap(newTagMap);
+            b.setAlive(true);
+            toAdd2.add(b);
+        }
+        infoService.updateCloudClusterMapNoLock(toAdd2, new ArrayList<>());
+        Assert.assertNull(infoService.getComputeGroupByName(pcgName1));
+        Assert.assertTrue(infoService.isComputeGroupAvailable(pcgName2, policy.getUnhealthyNodeThresholdPercent()));
+
+        CloudEnv cloudEnv = Mockito.mock(CloudEnv.class);
+        Mockito.when(cloudEnv.getCloudInstanceId()).thenReturn("instance_id");
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        Cloud.AlterClusterResponse response = Cloud.AlterClusterResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.OK)
+                        .setMsg("OK"))
+                .build();
+        Mockito.when(metaServiceProxy.alterCluster(Mockito.any())).thenReturn(response);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<MetaServiceProxy> mockedMetaServiceProxy = Mockito.mockStatic(MetaServiceProxy.class);
+                MockedStatic<MetricRepo> mockedMetricRepo = Mockito.mockStatic(MetricRepo.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(cloudEnv);
+            mockedMetaServiceProxy.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+
+            String res = infoService.getPhysicalCluster(vcgName);
+
+            Assert.assertEquals(pcgName2, res);
+            mockedMetricRepo.verify(() ->
+                    MetricRepo.increaseVirtualComputeGroupSwitch(vcgId, vcgName, "id2", pcgName1, "id3", pcgName2));
+        }
+    }
+
     // active has 1 alive be and 2 dead be, standby has 3 alive be
     @Test
     public void testGetPhysicalClusterActive1AliveBe2DeadBe() {
@@ -369,7 +435,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Since there are no backends in the cluster, should return 1
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = infoService.getMinPipelineExecutorSize(clusterName);
             Assert.assertEquals(1, result);
         } finally {
             ConnectContext.remove();
@@ -403,7 +469,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return the pipeline executor size of the single backend
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = infoService.getMinPipelineExecutorSize(clusterName);
             Assert.assertEquals(8, result);
         } finally {
             ConnectContext.remove();
@@ -454,7 +520,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return the minimum pipeline executor size (6)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = infoService.getMinPipelineExecutorSize(clusterName);
             Assert.assertEquals(6, result);
         } finally {
             ConnectContext.remove();
@@ -505,7 +571,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return the minimum positive pipeline executor size (4)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = infoService.getMinPipelineExecutorSize(clusterName);
             Assert.assertEquals(4, result);
         } finally {
             ConnectContext.remove();
@@ -549,7 +615,7 @@ public class CloudSystemInfoServiceTest {
         try {
             // Should return 1 when no valid pipeline executor sizes are
             // found
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = infoService.getMinPipelineExecutorSize(clusterName);
             Assert.assertEquals(1, result);
         } finally {
             ConnectContext.remove();
@@ -565,7 +631,7 @@ public class CloudSystemInfoServiceTest {
         createTestConnectContext(null);
         try {
             // Should return 1 when no cluster is set in ConnectContext
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = infoService.getMinPipelineExecutorSize("");
             Assert.assertEquals(1, result);
         } finally {
             ConnectContext.remove();
@@ -628,7 +694,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return 8 (minimum valid size)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = infoService.getMinPipelineExecutorSize(clusterName);
             Assert.assertEquals(8, result);
         } finally {
             ConnectContext.remove();
@@ -679,7 +745,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return 512 (minimum among large values)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = infoService.getMinPipelineExecutorSize(clusterName);
             Assert.assertEquals(512, result);
         } finally {
             ConnectContext.remove();
@@ -715,7 +781,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return 32 (consistent across all backends)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = infoService.getMinPipelineExecutorSize(clusterName);
             Assert.assertEquals(32, result);
         } finally {
             ConnectContext.remove();
@@ -786,7 +852,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return 8 (minimum from current cluster2), not 2 (global minimum from cluster1)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = infoService.getMinPipelineExecutorSize(cluster2Name);
             Assert.assertEquals(8, result);
         } finally {
             ConnectContext.remove();
@@ -860,14 +926,14 @@ public class CloudSystemInfoServiceTest {
         try {
             // Should return 32 (minimum from virtual cluster's physical cluster), not 8
             // (from other cluster)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = infoService.getMinPipelineExecutorSize(virtualClusterName);
             Assert.assertEquals(32, result);
 
             // Switch to other cluster
             ctx.setCloudCluster(otherClusterName);
 
             // Should return 8 (from other cluster)
-            result = infoService.getMinPipelineExecutorSize();
+            result = infoService.getMinPipelineExecutorSize(otherClusterName);
             Assert.assertEquals(8, result);
 
         } finally {
@@ -885,7 +951,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return 1 because no cluster is set (will catch AnalysisException)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = infoService.getMinPipelineExecutorSize("");
             Assert.assertEquals(1, result);
 
         } finally {
@@ -958,14 +1024,14 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return 2 (minimum from cluster1), not 16 (minimum from cluster2)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = infoService.getMinPipelineExecutorSize(cluster1Name);
             Assert.assertEquals(2, result);
 
             // Now switch to cluster2
             ctx.setCloudCluster(cluster2Name);
 
             // Should return 16 (minimum from cluster2), not 2 (minimum from cluster1)
-            result = infoService.getMinPipelineExecutorSize();
+            result = infoService.getMinPipelineExecutorSize(cluster2Name);
             Assert.assertEquals(16, result);
         } finally {
             // Clean up ConnectContext

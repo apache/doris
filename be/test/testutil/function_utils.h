@@ -18,9 +18,8 @@
 #include <memory>
 #include <vector>
 
-#include "runtime/types.h"
+#include "core/data_type/data_type.h"
 #include "testutil/mock/mock_runtime_state.h"
-#include "vec/data_types/data_type.h"
 
 namespace doris {
 
@@ -28,8 +27,8 @@ class FunctionContext;
 
 class FunctionUtils {
 public:
-    FunctionUtils(const vectorized::DataTypePtr& return_type,
-                  const std::vector<vectorized::DataTypePtr>& arg_types, bool enable_strict_cast);
+    FunctionUtils(const DataTypePtr& return_type, const std::vector<DataTypePtr>& arg_types,
+                  bool enable_strict_cast);
 
     doris::FunctionContext* get_fn_ctx() { return _fn_ctx.get(); }
 

@@ -34,14 +34,13 @@
 #include "absl/strings/substitute.h"
 #include "common/cast_set.h"
 #include "common/config.h"
-#include "util/doris_metrics.h"
+#include "common/metrics/doris_metrics.h"
 #include "util/jni_native_method.h"
 // #include "util/libjvm_loader.h"
 
 using std::string;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 namespace Jni {
 JavaVM* g_vm;
 [[maybe_unused]] std::once_flag g_vm_once;
@@ -406,6 +405,8 @@ Status Util::_init_register_natives() {
     static char memory_alloc_batch_sign[] = "([I)[J";
     static char memory_free_batch_name[] = "memoryTrackerFreeBatch";
     static char memory_free_batch_sign[] = "([J)V";
+    static char request_mc_block_id_name[] = "requestMaxComputeBlockId";
+    static char request_mc_block_id_sign[] = "(JLjava/lang/String;)J";
     static JNINativeMethod java_native_methods[] = {
             {memory_alloc_name, memory_alloc_sign, (void*)&JavaNativeMethods::memoryMalloc},
             {memory_free_name, memory_free_sign, (void*)&JavaNativeMethods::memoryFree},
@@ -413,6 +414,8 @@ Status Util::_init_register_natives() {
              (void*)&JavaNativeMethods::memoryMallocBatch},
             {memory_free_batch_name, memory_free_batch_sign,
              (void*)&JavaNativeMethods::memoryFreeBatch},
+            {request_mc_block_id_name, request_mc_block_id_sign,
+             (void*)&JavaNativeMethods::requestMaxComputeBlockId},
     };
 
     int res = env->RegisterNatives(local_jni_native_exc_cl, java_native_methods,
@@ -425,5 +428,4 @@ Status Util::_init_register_natives() {
 }
 
 } // namespace Jni
-#include "common/compile_check_end.h"
 } // namespace doris

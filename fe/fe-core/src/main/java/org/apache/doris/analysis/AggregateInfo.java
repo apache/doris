@@ -69,9 +69,9 @@ public final class AggregateInfo {
                           ArrayList<FunctionCallExpr> aggExprs, AggPhase aggPhase)  {
         Preconditions.checkState(groupingExprs != null || aggExprs != null);
         this.groupingExprs =
-                groupingExprs != null ? Expr.cloneList(groupingExprs) : new ArrayList<Expr>();
+                groupingExprs != null ? Expr.cloneList(groupingExprs) : new ArrayList<>();
         aggregateExprs =
-                aggExprs != null ? Expr.cloneList(aggExprs) : new ArrayList<FunctionCallExpr>();
+                aggExprs != null ? Expr.cloneList(aggExprs) : new ArrayList<>();
         this.aggPhase = aggPhase;
     }
 
@@ -101,7 +101,8 @@ public final class AggregateInfo {
         for (int i = 0; i < aggExprSize; i++) {
             result.materializedSlots.add(i);
             String label = (isPartialAgg ? "partial_" : "")
-                    + aggExprs.get(i).toSql() + "[#" + aggExprIds.get(i) + "]";
+                    + aggExprs.get(i).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)
+                    + "[#" + aggExprIds.get(i) + "]";
             result.materializedSlotLabels.add(label);
         }
         return result;

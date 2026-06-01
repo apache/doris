@@ -19,6 +19,7 @@ package org.apache.doris.datasource.hudi.source;
 
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.hudi.HudiPartitionUtils;
 import org.apache.doris.spi.Split;
 
 import org.apache.hadoop.conf.Configuration;
@@ -217,7 +218,7 @@ public class COWIncrementalRelation implements IncrementalRelation {
             LocationPath locationPath = LocationPath.of(baseFile);
             HudiSplit hudiSplit = new HudiSplit(locationPath, 0,
                     stat.getFileSizeInBytes(), stat.getFileSizeInBytes(), new String[0],
-                    HudiPartitionProcessor.parsePartitionValues(partitionNames, stat.getPartitionPath()));
+                    HudiPartitionUtils.parsePartitionValues(partitionNames, stat.getPartitionPath()));
             hudiSplit.setTableFormatType(TableFormatType.HUDI);
             splits.add(hudiSplit);
         };

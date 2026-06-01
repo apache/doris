@@ -54,12 +54,12 @@
 #include "io/file_factory.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_file_writer.h"
-#include "olap/utils.h"
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "storage/utils.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
@@ -1496,6 +1496,7 @@ private:
                     doris::io::FileReaderOptions reader_opts;
                     reader_opts.cache_type = doris::io::FileCachePolicy::FILE_BLOCK_CACHE;
                     reader_opts.is_doris_table = true;
+                    reader_opts.tablet_id = 1; // microbench placeholder
 
                     doris::io::FileDescription fd;
                     std::string obj_path = "s3://" + doris::config::test_s3_bucket + "/";

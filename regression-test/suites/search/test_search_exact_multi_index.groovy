@@ -51,23 +51,23 @@ suite("test_search_exact_multi_index", "p0") {
     Thread.sleep(3000)
 
     // Test 1: EXACT should use untokenized index - exact match only
-    qt_exact_full_match "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content FROM ${tableName} WHERE search('content:EXACT(machine learning)') ORDER BY id"
+    qt_exact_full_match """SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content FROM ${tableName} WHERE search('content:EXACT(machine learning)', '{"mode":"standard"}') ORDER BY id"""
 
     // Test 2: EXACT should not match partial tokens
-    qt_exact_no_partial "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content FROM ${tableName} WHERE search('content:EXACT(machine)') ORDER BY id"
+    qt_exact_no_partial """SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content FROM ${tableName} WHERE search('content:EXACT(machine)', '{"mode":"standard"}') ORDER BY id"""
 
     // Test 3: ANY should use tokenized index - matches any token
-    qt_any_token_match "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content FROM ${tableName} WHERE search('content:ANY(machine learning)') ORDER BY id"
+    qt_any_token_match """SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content FROM ${tableName} WHERE search('content:ANY(machine learning)', '{"mode":"standard"}') ORDER BY id"""
 
     // Test 4: ALL should use tokenized index - matches all tokens
-    qt_all_token_match "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content FROM ${tableName} WHERE search('content:ALL(machine learning)') ORDER BY id"
+    qt_all_token_match """SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content FROM ${tableName} WHERE search('content:ALL(machine learning)', '{"mode":"standard"}') ORDER BY id"""
 
     // Test 5: Verify EXACT vs ANY behavior difference
     // EXACT: only exact string match
     // ANY: any token matches
-    qt_exact_strict "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content FROM ${tableName} WHERE search('content:EXACT(deep learning)') ORDER BY id"
-    qt_any_loose "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content FROM ${tableName} WHERE search('content:ANY(deep learning)') ORDER BY id"
+    qt_exact_strict """SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content FROM ${tableName} WHERE search('content:EXACT(deep learning)', '{"mode":"standard"}') ORDER BY id"""
+    qt_any_loose """SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content FROM ${tableName} WHERE search('content:ANY(deep learning)', '{"mode":"standard"}') ORDER BY id"""
 
     // Test 6: Multiple conditions with EXACT and ANY
-    qt_mixed_exact_any "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content FROM ${tableName} WHERE search('content:EXACT(machine learning) OR content:ANY(intelligence)') ORDER BY id"
+    qt_mixed_exact_any """SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content FROM ${tableName} WHERE search('content:EXACT(machine learning) OR content:ANY(intelligence)', '{"mode":"standard"}') ORDER BY id"""
 }

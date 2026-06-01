@@ -66,7 +66,7 @@ suite("predefine_type_multi_index_doc_value", "p1"){
                 MATCH_NAME 'actor.login' : string,
                 MATCH_NAME 'type' : string,
                 MATCH_NAME 'payload.action' : string,
-                MATCH_NAME 'created_at' : datetime,
+                MATCH_NAME 'created_at' : string,
                 MATCH_NAME 'payload.issue.number' : int,
                 MATCH_NAME 'payload.comment.body' : string,
                 MATCH_NAME 'type.name' : string
@@ -76,7 +76,7 @@ suite("predefine_type_multi_index_doc_value", "p1"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "false");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "deprecated_variant_enable_flatten_nested" = "false");
     """
 
     // 2015

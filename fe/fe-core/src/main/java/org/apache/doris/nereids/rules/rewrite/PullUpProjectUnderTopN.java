@@ -45,8 +45,9 @@ public class PullUpProjectUnderTopN extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalTopN(
-                logicalProject(logicalJoin().when(j -> j.getJoinType().isLeftRightOuterOrCrossJoin()))
-                        .whenNot(p -> p.isAllSlots()))
+                logicalProject(logicalJoin().when(j -> j.getJoinType().isLeftRightOuterOrCrossJoin()
+                    || j.getJoinType().isAsofOuterJoin()))
+                    .whenNot(p -> p.isAllSlots()))
                 .then(topN -> {
                     LogicalProject<LogicalJoin<Plan, Plan>> project = topN.child();
                     Set<Slot> outputSet = project.child().getOutputSet();

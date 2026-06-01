@@ -20,12 +20,12 @@
 #include <string>
 
 #include "common/status.h"
+#include "core/block/column_with_type_and_name.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "testutil/column_helper.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/exprs/vexpr.h"
-#include "vec/exprs/vexpr_context.h"
-#include "vec/exprs/vliteral.h"
-#include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 class SlotDescriptor;
@@ -33,7 +33,6 @@ class RowDescriptor;
 class RuntimeState;
 class TExprNode;
 
-namespace vectorized {
 class Block;
 class VExprContext;
 
@@ -118,5 +117,4 @@ private:
     std::shared_ptr<ColumnPtrWrapper> _mock_const_expr_col;
 };
 
-} // namespace vectorized
 } // namespace doris

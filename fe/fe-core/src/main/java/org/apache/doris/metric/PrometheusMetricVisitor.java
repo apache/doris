@@ -35,12 +35,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -190,8 +188,20 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             }
         }
         final String fullName = prefix + String.join("_", names);
+        appendHistogram(fullName, histogram, tags);
+    }
+
+    @Override
+    public void visitHistogram(String prefix, String name, Histogram histogram, List<MetricLabel> labels) {
+        final String fullName = prefix + name.replace('.', '_');
+        List<String> tags = labels.stream()
+                .map(l -> l.getKey() + "=\"" + l.getValue() + "\"")
+                .collect(Collectors.toList());
+        appendHistogram(fullName, histogram, tags);
+    }
+
+    private void appendHistogram(String fullName, Histogram histogram, List<String> tags) {
         final String fullTag = String.join(",", tags);
-        // we should define metric name only once
         if (!metricNames.contains(fullName)) {
             sb.append(HELP).append(fullName).append(" ").append("\n");
             sb.append(TYPE).append(fullName).append(" ").append("summary\n");
@@ -200,15 +210,15 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         String delimiter = tags.isEmpty() ? "" : ",";
         Snapshot snapshot = histogram.getSnapshot();
         sb.append(fullName).append("{quantile=\"0.75\"").append(delimiter).append(fullTag).append("} ")
-            .append(snapshot.get75thPercentile()).append("\n");
+                .append(snapshot.get75thPercentile()).append("\n");
         sb.append(fullName).append("{quantile=\"0.95\"").append(delimiter).append(fullTag).append("} ")
-            .append(snapshot.get95thPercentile()).append("\n");
+                .append(snapshot.get95thPercentile()).append("\n");
         sb.append(fullName).append("{quantile=\"0.98\"").append(delimiter).append(fullTag).append("} ")
-            .append(snapshot.get98thPercentile()).append("\n");
+                .append(snapshot.get98thPercentile()).append("\n");
         sb.append(fullName).append("{quantile=\"0.99\"").append(delimiter).append(fullTag).append("} ")
-            .append(snapshot.get99thPercentile()).append("\n");
+                .append(snapshot.get99thPercentile()).append("\n");
         sb.append(fullName).append("{quantile=\"0.999\"").append(delimiter).append(fullTag).append("} ")
-            .append(snapshot.get999thPercentile()).append("\n");
+                .append(snapshot.get999thPercentile()).append("\n");
         sb.append(fullName).append("_sum{").append(fullTag).append("} ")
                 .append(histogram.getCount() * snapshot.getMean()).append("\n");
         sb.append(fullName).append("_count{").append(fullTag).append("} ")
@@ -252,30 +262,8 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         StringBuilder tableRowCountBuilder = new StringBuilder();
 
         Collection<OlapTable.Statistics> values = tabletStatMgr.getCloudTableStats();
-        // calc totalTableSize
-        long totalTableSize = 0;
+        long totalTableSize = tabletStatMgr.getTotalTableSize();
         for (OlapTable.Statistics stats : values) {
-            totalTableSize += stats.getDataSize();
-        }
-        // output top N metrics
-        if (values.size() > Config.prom_output_table_metrics_limit) {
-            // only copy elements if number of tables > prom_output_table_metrics_limit
-            PriorityQueue<OlapTable.Statistics> topStats = new PriorityQueue<>(
-                    Config.prom_output_table_metrics_limit,
-                    Comparator.comparingLong(OlapTable.Statistics::getDataSize));
-            for (OlapTable.Statistics stats : values) {
-                if (topStats.size() < Config.prom_output_table_metrics_limit) {
-                    topStats.offer(stats);
-                } else if (!topStats.isEmpty()
-                        && stats.getDataSize() > topStats.peek().getDataSize()) {
-                    topStats.poll();
-                    topStats.offer(stats);
-                }
-            }
-            values = topStats;
-        }
-        for (OlapTable.Statistics stats : values) {
-
             dataSizeBuilder.append("doris_fe_table_data_size{db_name=\"");
             dataSizeBuilder.append(stats.getDbName());
             dataSizeBuilder.append("\", table_name=\"");

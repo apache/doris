@@ -41,6 +41,7 @@ import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TDownloadReq;
 import org.apache.doris.thrift.TDropTabletReq;
 import org.apache.doris.thrift.TGcBinlogReq;
+import org.apache.doris.thrift.TMakeCloudTmpRsVisibleRequest;
 import org.apache.doris.thrift.TMoveDirReq;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishVersionRequest;
@@ -497,6 +498,15 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setCleanUdfCacheReq(request);
+                return tAgentTaskRequest;
+            }
+            case MAKE_CLOUD_COMMITTED_RS_VISIBLE: {
+                MakeCloudTmpRsVisibleTask makeCloudTmpRsVisibleTask = (MakeCloudTmpRsVisibleTask) task;
+                TMakeCloudTmpRsVisibleRequest request = makeCloudTmpRsVisibleTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setMakeCloudTmpRsVisibleReq(request);
                 return tAgentTaskRequest;
             }
             default:

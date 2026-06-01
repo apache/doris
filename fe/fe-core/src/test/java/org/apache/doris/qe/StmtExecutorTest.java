@@ -24,6 +24,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.utframe.TestWithFeService;
@@ -33,8 +36,12 @@ import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -215,18 +222,21 @@ public class StmtExecutorTest extends TestWithFeService {
         columns.add(new Column());
         ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
         AtomicInteger i = new AtomicInteger();
-        Mockito.doAnswer(invocation -> {
-            byte[] expected0 = new byte[]{-5, 4, 114, 111, 119, 49};
-            byte[] expected1 = new byte[]{4, 49, 50, 51, 52, 4, 114, 111, 119, 50};
-            ByteBuffer buffer = invocation.getArgument(0);
-            if (i.get() == 0) {
-                Assertions.assertArrayEquals(expected0, buffer.array());
-                i.getAndIncrement();
-            } else if (i.get() == 1) {
-                Assertions.assertArrayEquals(expected1, buffer.array());
-                i.getAndIncrement();
+        Mockito.doAnswer(new Answer<Void>() {
+            @Override
+            public Void answer(InvocationOnMock invocation) {
+                byte[] expected0 = new byte[] {-5, 4, 114, 111, 119, 49};
+                byte[] expected1 = new byte[] {4, 49, 50, 51, 52, 4, 114, 111, 119, 50};
+                ByteBuffer buffer = invocation.getArgument(0);
+                if (i.get() == 0) {
+                    Assertions.assertArrayEquals(expected0, buffer.array());
+                    i.getAndIncrement();
+                } else if (i.get() == 1) {
+                    Assertions.assertArrayEquals(expected1, buffer.array());
+                    i.getAndIncrement();
+                }
+                return null;
             }
-            return null;
         }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
 
         StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
@@ -259,21 +269,85 @@ public class StmtExecutorTest extends TestWithFeService {
         columns.add(new Column("col2", PrimitiveType.DATETIMEV2));
         ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
         AtomicInteger i = new AtomicInteger();
-        Mockito.doAnswer(invocation -> {
-            byte[] expected0 = new byte[] {0, 4, 7, -23, 7, 1, 1, 1, 2, 3};
-            byte[] expected1 = new byte[] {0, 0, -46, 4, 0, 0, 0, 0, 0, 0, 11, -23, 7, 1, 1, 1, 2, 3, 64, -30, 1, 0};
-            ByteBuffer buffer = invocation.getArgument(0);
-            if (i.get() == 0) {
-                Assertions.assertArrayEquals(expected0, buffer.array());
-                i.getAndIncrement();
-            } else if (i.get() == 1) {
-                Assertions.assertArrayEquals(expected1, buffer.array());
-                i.getAndIncrement();
+        Mockito.doAnswer(new Answer<Void>() {
+            @Override
+            public Void answer(InvocationOnMock invocation) {
+                byte[] expected0 = new byte[] {0, 4, 7, -23, 7, 1, 1, 1, 2, 3};
+                byte[] expected1 = new byte[] {0, 0, -46, 4, 0, 0, 0, 0, 0, 0, 11, -23, 7, 1, 1, 1, 2, 3,
+                        64, -30, 1, 0};
+                ByteBuffer buffer = invocation.getArgument(0);
+                if (i.get() == 0) {
+                    Assertions.assertArrayEquals(expected0, buffer.array());
+                    i.getAndIncrement();
+                } else if (i.get() == 1) {
+                    Assertions.assertArrayEquals(expected1, buffer.array());
+                    i.getAndIncrement();
+                }
+                return null;
             }
-            return null;
         }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
 
         StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
         executor.sendBinaryResultRow(resultSet);
+    }
+
+    @Test
+    public void testSendBinaryBooleanResultRow() throws IOException {
+        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
+        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
+        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
+        SessionVariable sessionVariable = VariableMgr.newSessionVariable();
+        Mockito.when(mockCtx.getSessionVariable()).thenReturn(sessionVariable);
+        OriginStatement stmt = new OriginStatement("", 1);
+
+        List<List<String>> rows = Lists.newArrayList();
+        rows.add(Lists.newArrayList("false"));
+        rows.add(Lists.newArrayList("1"));
+        List<Column> columns = Lists.newArrayList();
+        columns.add(new Column("col1", PrimitiveType.BOOLEAN));
+        ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
+        AtomicInteger i = new AtomicInteger();
+        Mockito.doAnswer(new Answer<Void>() {
+            @Override
+            public Void answer(InvocationOnMock invocation) {
+                byte[] expected0 = new byte[] {0, 0, 0};
+                byte[] expected1 = new byte[] {0, 0, 1};
+                ByteBuffer buffer = invocation.getArgument(0);
+                if (i.get() == 0) {
+                    Assertions.assertArrayEquals(expected0, buffer.array());
+                    i.getAndIncrement();
+                } else if (i.get() == 1) {
+                    Assertions.assertArrayEquals(expected1, buffer.array());
+                    i.getAndIncrement();
+                }
+                return null;
+            }
+        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
+
+        StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
+        executor.sendBinaryResultRow(resultSet);
+    }
+
+    @Test
+    public void testClearDeleteExistingFilesInPlan() throws Exception {
+        Planner planner = Mockito.mock(Planner.class);
+        PlanFragment fragment = Mockito.mock(PlanFragment.class);
+        ResultFileSink resultFileSink = Mockito.mock(ResultFileSink.class);
+        Mockito.when(fragment.getSink()).thenReturn(resultFileSink);
+        Mockito.when(planner.getFragments()).thenReturn(Lists.newArrayList(fragment));
+
+        StmtExecutor executor = new StmtExecutor(connectContext, "");
+        Field plannerField = StmtExecutor.class.getDeclaredField("planner");
+        plannerField.setAccessible(true);
+        plannerField.set(executor, planner);
+
+        Method clearMethod = StmtExecutor.class.getDeclaredMethod("clearDeleteExistingFilesInPlan");
+        clearMethod.setAccessible(true);
+        clearMethod.invoke(executor);
+
+        Mockito.verify(resultFileSink).setDeleteExistingFiles(false);
     }
 }

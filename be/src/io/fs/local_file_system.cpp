@@ -39,8 +39,8 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_reader.h"
 #include "io/fs/local_file_writer.h"
-#include "olap/data_dir.h"
 #include "runtime/thread_context.h"
+#include "storage/data_dir.h"
 #include "util/async_io.h" // IWYU pragma: keep
 #include "util/debug_points.h"
 #include "util/defer_op.h"
@@ -167,6 +167,26 @@ Status LocalFileSystem::delete_directory_or_file(const Path& path) {
     FILESYSTEM_M(delete_directory_or_file_impl(path));
 }
 
+Status LocalFileSystem::delete_empty_directory(const Path& dir) {
+    FILESYSTEM_M(delete_empty_directory_impl(dir));
+}
+
+Status LocalFileSystem::delete_empty_directory_impl(const Path& dir) {
+    Path path;
+    RETURN_IF_ERROR(absolute_path(dir, path));
+    VLOG_DEBUG << "delete empty directory: " << path.native();
+    int ret = 0;
+    RETRY_ON_EINTR(ret, rmdir(path.c_str()));
+    if (ret != 0) {
+        std::error_code ec(errno, std::generic_category());
+        if (ec == std::errc::no_such_file_or_directory) {
+            return Status::OK();
+        }
+        return localfs_error(ec, fmt::format("failed to delete empty directory {}", path.native()));
+    }
+    return Status::OK();
+}
+
 Status LocalFileSystem::delete_directory_or_file_impl(const Path& path) {
     bool is_dir;
     RETURN_IF_ERROR(is_directory(path, &is_dir));
@@ -219,7 +239,7 @@ Status LocalFileSystem::directory_size(const Path& dir_path, size_t* dir_size) {
 Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
                                   bool* exists) {
     RETURN_IF_ERROR(exists_impl(dir, exists));
-    if (!exists) {
+    if (!(*exists)) {
         return Status::OK();
     }
     std::error_code ec;
@@ -411,6 +431,20 @@ bool LocalFileSystem::contain_path(const Path& parent_, const Path& sub_) {
         }
     }
     return true;
+}
+
+bool LocalFileSystem::equal_or_sub_path(const Path& parent, const Path& child) {
+    auto parent_path = parent.lexically_normal();
+    auto child_path = child.lexically_normal();
+    auto parent_it = parent_path.begin();
+    auto child_it = child_path.begin();
+    for (; parent_it != parent_path.end() && child_it != child_path.end();
+         ++parent_it, ++child_it) {
+        if (*parent_it != *child_it) {
+            return false;
+        }
+    }
+    return parent_it == parent_path.end();
 }
 
 const std::shared_ptr<LocalFileSystem>& global_local_filesystem() {

@@ -18,7 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/mem-info.cc
 // and modified by Doris
 
-#include "mem_info.h"
+#include "util/mem_info.h"
 
 #include "runtime/memory/cache_manager.h"
 

@@ -22,7 +22,7 @@
 
 #include <cstdint>
 
-#include "pipeline/thrift_builder.h"
+#include "exec/pipeline/thrift_builder.h"
 #include "runtime/workload_group/workload_group.h"
 #include "testutil/mock/mock_query_task_controller.h"
 

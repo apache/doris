@@ -25,6 +25,8 @@ add_executable(meta_tool
     meta_tool.cpp
 )
 
+target_include_directories(meta_tool PRIVATE ${PROJECT_SOURCE_DIR}/..)
+
 pch_reuse(meta_tool)
 
 # This permits libraries loaded by dlopen to link to the symbols in the program.
@@ -81,4 +83,36 @@ add_custom_command(TARGET packed_file_tool POST_BUILD
     COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:packed_file_tool>
     COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:packed_file_tool>.dbg $<TARGET_FILE:packed_file_tool>
     )
+endif()
+
+if (BUILD_INDEX_TOOL)
+    add_executable(index_tool
+        index_tool.cpp
+    )
+
+    pch_reuse(index_tool)
+
+    # This permits libraries loaded by dlopen to link to the symbols in the program.
+    set_target_properties(index_tool PROPERTIES ENABLE_EXPORTS 1)
+
+    target_link_libraries(index_tool
+        ${DORIS_LINK_LIBS}
+    )
+
+    if (COMPILER_CLANG)
+        target_compile_options(index_tool PRIVATE
+        -Wno-implicit-int-conversion
+        -Wno-shorten-64-to-32
+        )
+    endif()
+
+    install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
+    install(TARGETS index_tool DESTINATION ${OUTPUT_DIR}/lib/)
+    if (NOT OS_MACOSX)
+        add_custom_command(TARGET index_tool POST_BUILD
+            COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:index_tool> $<TARGET_FILE:index_tool>.dbg
+            COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:index_tool>
+            COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:index_tool>.dbg $<TARGET_FILE:index_tool>
+            )
+    endif()
 endif()

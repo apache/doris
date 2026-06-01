@@ -17,8 +17,6 @@
 suite("test_cut_ipv6_function") {
     sql """ DROP TABLE IF EXISTS test_cut_ipv6_function """
 
-    sql """ SET enable_nereids_planner=true """
-    sql """ SET enable_fallback_to_original_planner=false """
 
     sql """
     CREATE TABLE `test_cut_ipv6_function` (

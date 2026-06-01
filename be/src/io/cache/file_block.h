@@ -172,7 +172,7 @@ private:
     size_t _downloaded_size {0};
     bool _is_deleting {false};
 
-    FileBlockCell* cell;
+    FileBlockCell* cell {nullptr};
 };
 
 extern std::ostream& operator<<(std::ostream& os, const FileBlock::State& value);

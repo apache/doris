@@ -26,6 +26,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -50,6 +51,13 @@ public class RefreshExternalTableInfoTest {
 
         FakeEnv.setEnv(env);
         FakeEnv.setMetaVersion(FeConstants.meta_version);
+    }
+
+    @After
+    public void tearDown() {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
     }
 
     @Test

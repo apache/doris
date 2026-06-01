@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.planner.ScanNode;
@@ -71,7 +72,7 @@ public class TopnFilter {
         tFilter.setNullFirst(topn.getOrderKeys().get(0).isNullFirst());
         for (ScanNode scan : legacyTargets.keySet()) {
             tFilter.putToTargetNodeIdToTargetExpr(scan.getId().asInt(),
-                    legacyTargets.get(scan).treeToThrift());
+                    ExprToThriftVisitor.treeToThrift(legacyTargets.get(scan)));
         }
         return tFilter;
     }

@@ -38,7 +38,6 @@ public class RenamePartitionOp extends AlterTableOp {
         super(AlterOpType.RENAME);
         this.partitionName = partitionName;
         this.newPartitionName = newPartitionName;
-        this.needTableStable = false;
     }
 
     public String getPartitionName() {
@@ -75,6 +74,12 @@ public class RenamePartitionOp extends AlterTableOp {
     @Override
     public boolean needChangeMTMVState() {
         return false;
+    }
+
+    @Override
+    public boolean allowOpRowBinlog() {
+        // Renaming partition does not change schema, allow on row binlog tables.
+        return true;
     }
 
     @Override

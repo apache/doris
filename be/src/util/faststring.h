@@ -24,10 +24,10 @@
 #include <cstring>
 #include <string>
 
+#include "core/allocator.h"
+#include "core/allocator_fwd.h"
 #include "util/memcpy_inlined.h"
 #include "util/slice.h"
-#include "vec/common/allocator.h"
-#include "vec/common/allocator_fwd.h"
 
 namespace doris {
 

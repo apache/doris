@@ -17,7 +17,6 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.InternalCatalog;
@@ -112,7 +111,7 @@ public class FeNameFormat {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     columnName, getColumnNameRegex());
         }
-        checkColumnNamePrefix(columnName, SchemaChangeHandler.SHADOW_NAME_PREFIX);
+        checkColumnNamePrefix(columnName, Column.SHADOW_NAME_PREFIX);
     }
 
     private static void checkColumnNamePrefix(String columnName, String prefix) throws AnalysisException {

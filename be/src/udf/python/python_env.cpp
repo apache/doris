@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "python_env.h"
+#include "udf/python/python_env.h"
 
 #include <fmt/core.h>
+#include <gen_cpp/BackendService_types.h>
 #include <rapidjson/document.h>
 
 #include <filesystem>
@@ -26,7 +27,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/BackendService_types.h"
 #include "udf/python/python_server.h"
 #include "util/string_util.h"
 
@@ -267,8 +267,8 @@ std::string VenvEnvScanner::to_string() const {
     return ss.str();
 }
 
-Status PythonVersionManager::init(PythonEnvType env_type, const fs::path& python_root_path,
-                                  const std::string& python_venv_interpreter_paths) {
+Status PythonEnvScannerHolder::init(PythonEnvType env_type, const fs::path& python_root_path,
+                                    const std::string& python_venv_interpreter_paths) {
     switch (env_type) {
     case PythonEnvType::CONDA: {
         if (!fs::exists(python_root_path) || !fs::is_directory(python_root_path)) {
@@ -302,10 +302,10 @@ Status PythonVersionManager::init(PythonEnvType env_type, const fs::path& python
 
 std::vector<TPythonEnvInfo> PythonVersionManager::env_infos_to_thrift() const {
     std::vector<TPythonEnvInfo> infos;
-    const auto& envs = _env_scanner->get_envs();
+    const auto& envs = this->get_envs();
     infos.reserve(envs.size());
 
-    const auto env_type_str = _python_env_type_to_string(_env_scanner->env_type());
+    const auto env_type_str = _python_env_type_to_string(this->env_type());
     for (const auto& env : envs) {
         TPythonEnvInfo info;
         info.__set_env_name(env.env_name);

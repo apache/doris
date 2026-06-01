@@ -1306,6 +1306,7 @@ TEST(MetaServiceJobVersionedReadTest, CompactionJobTest) {
             auto tmp_rowset = create_rowset(tablet_id, tc.start_version, tc.end_version, 100);
             tmp_rowset.set_txn_id(txn_id);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res, txn_id);
             commit_rowset(meta_service.get(), tmp_rowset, res, txn_id);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
@@ -1485,6 +1486,7 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         rowset.set_txn_id(txn_id + i);
         output_rowsets.push_back(rowset);
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), output_rowsets.back(), res, txn_id + i);
         commit_rowset(meta_service.get(), output_rowsets.back(), res, txn_id + i);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -1640,6 +1642,71 @@ void check_job_key(MetaServiceProxy* meta_service, std::string instance_id, int6
         ASSERT_TRUE(err == TxnErrorCode::TXN_OK);
     } else {
         ASSERT_TRUE(err == TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+}
+
+// Regression test for CORE-5964: STOP_TOKEN should not be rejected by the stale tablet
+// cache check even when the BE's cached compaction counts lag behind the meta-service.
+// STOP_TOKEN is a lock marker used by schema change (MOW table) to block concurrent
+// compactions during delete bitmap recalculation -- it does not perform actual compaction
+// work, so verifying compaction count freshness is meaningless for it.
+TEST(MetaServiceJobTest, StopTokenSkipsStaleTabletCacheCheck) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    int64_t table_id = 1, index_id = 2, partition_id = 3, tablet_id = 101;
+
+    // Set up tablet index
+    auto index_key = meta_tablet_idx_key({instance_id, tablet_id});
+    TabletIndexPB idx_pb;
+    idx_pb.set_table_id(table_id);
+    idx_pb.set_index_id(index_id);
+    idx_pb.set_partition_id(partition_id);
+    idx_pb.set_tablet_id(tablet_id);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(index_key, idx_pb.SerializeAsString());
+
+    // Simulate meta-service state where cumulative_compaction_cnt=9 (advanced by another BE)
+    std::string stats_key =
+            stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    TabletStatsPB stats;
+    stats.set_base_compaction_cnt(0);
+    stats.set_cumulative_compaction_cnt(9);
+    txn->put(stats_key, stats.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    // A regular CUMULATIVE compaction with stale counts (req=8 < actual=9) must be rejected.
+    {
+        StartTabletJobResponse res;
+        start_compaction_job(meta_service.get(), tablet_id, "cumu_job", "ip:port",
+                             /*base_cnt=*/0, /*cumu_cnt=*/8, TabletCompactionJobPB::CUMULATIVE,
+                             res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_TABLET_CACHE)
+                << "CUMULATIVE with stale counts should be rejected";
+    }
+
+    // A STOP_TOKEN with the same stale counts must NOT be rejected (CORE-5964 regression).
+    // The BE's cached cumulative_compaction_cnt=8 lags behind the actual value=9 on the
+    // meta-service side, but STOP_TOKEN registration must still succeed.
+    {
+        StartTabletJobResponse res;
+        start_compaction_job(meta_service.get(), tablet_id, "stop_token_job", "ip:port",
+                             /*base_cnt=*/0, /*cumu_cnt=*/8, TabletCompactionJobPB::STOP_TOKEN,
+                             res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+                << "STOP_TOKEN with stale counts should NOT be rejected; got: "
+                << res.status().msg();
     }
 }
 
@@ -5211,6 +5278,7 @@ TEST(MetaServiceJobTest, GetStreamingTaskCommitAttachTest) {
         streaming_attach->set_job_id(1002);
         streaming_attach->set_offset("test_offset_3");
         streaming_attach->set_scanned_rows(2000);
+        streaming_attach->set_filtered_rows(150);
         streaming_attach->set_load_bytes(10000);
         streaming_attach->set_num_files(20);
         streaming_attach->set_file_bytes(15000);
@@ -5239,6 +5307,7 @@ TEST(MetaServiceJobTest, GetStreamingTaskCommitAttachTest) {
         EXPECT_TRUE(response.has_commit_attach());
         EXPECT_EQ(response.commit_attach().job_id(), 1002);
         EXPECT_EQ(response.commit_attach().scanned_rows(), 2000);
+        EXPECT_EQ(response.commit_attach().filtered_rows(), 150);
         EXPECT_EQ(response.commit_attach().load_bytes(), 10000);
         EXPECT_EQ(response.commit_attach().num_files(), 20);
         EXPECT_EQ(response.commit_attach().file_bytes(), 15000);
@@ -5361,6 +5430,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         streaming_attach->set_job_id(job_id);
         streaming_attach->set_offset("original_offset");
         streaming_attach->set_scanned_rows(1000);
+        streaming_attach->set_filtered_rows(50);
         streaming_attach->set_load_bytes(5000);
         streaming_attach->set_num_files(10);
         streaming_attach->set_file_bytes(8000);
@@ -5389,6 +5459,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         EXPECT_TRUE(response.has_commit_attach());
         EXPECT_EQ(response.commit_attach().offset(), "original_offset");
         EXPECT_EQ(response.commit_attach().scanned_rows(), 1000);
+        EXPECT_EQ(response.commit_attach().filtered_rows(), 50);
         EXPECT_EQ(response.commit_attach().load_bytes(), 5000);
     }
 
@@ -5425,6 +5496,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         EXPECT_EQ(response.commit_attach().offset(), "reset_offset");
         // Other fields should remain unchanged
         EXPECT_EQ(response.commit_attach().scanned_rows(), 1000);
+        EXPECT_EQ(response.commit_attach().filtered_rows(), 50);
         EXPECT_EQ(response.commit_attach().load_bytes(), 5000);
         EXPECT_EQ(response.commit_attach().num_files(), 10);
         EXPECT_EQ(response.commit_attach().file_bytes(), 8000);
@@ -6765,6 +6837,147 @@ TEST(MetaServiceJobTest, DeleteJobForRelatedRowsetTest) {
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             LOG(INFO) << "Step 6: commit_txn correctly failed for aborted txn";
         }
+    }
+}
+
+// Test: Verify that check_idempotent_for_txn_or_job correctly calls check_job_existed
+// when enable_recycle_delete_rowset_key_check is false and tablet_job_id is non-empty.
+// This covers the bug fix where the condition was:
+//   tablet_job_id.empty() && !tablet_job_id.empty()  (always false, check never ran)
+// Fixed to:
+//   !tablet_job_id.empty()
+TEST(MetaServiceJobTest, CheckIdempotentWithTabletJobId) {
+    auto meta_service = get_meta_service();
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        config::enable_recycle_delete_rowset_key_check = true;
+    };
+    // Disable recycle_delete_rowset_key_check so we enter the else-if branch
+    // in check_idempotent_for_txn_or_job where the bug existed.
+    config::enable_recycle_delete_rowset_key_check = false;
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    int64_t table_id = 13440;
+    int64_t index_id = 13450;
+    int64_t partition_id = 13460;
+    int64_t tablet_id = 13470;
+
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+
+    std::string job_id = "test_check_idempotent_job";
+
+    // Step 1: Create input rowsets for compaction
+    {
+        std::vector<doris::RowsetMetaCloudPB> input_rowsets;
+        input_rowsets.push_back(create_rowset(tablet_id, 2, 2, 100));
+        input_rowsets.push_back(create_rowset(tablet_id, 3, 3, 100));
+        input_rowsets[0].set_resource_id(std::string(RESOURCE_ID));
+        input_rowsets[1].set_resource_id(std::string(RESOURCE_ID));
+        insert_rowsets(meta_service->txn_kv().get(), table_id, index_id, partition_id, tablet_id,
+                       input_rowsets);
+    }
+
+    // Step 2: Start a compaction job
+    {
+        StartTabletJobResponse res;
+        start_compaction_job(meta_service.get(), tablet_id, job_id, "test_initiator", 0, 0,
+                             TabletCompactionJobPB::CUMULATIVE, res, {2, 3});
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Step 3: Prepare rowset with tablet_job_id
+    doris::RowsetMetaCloudPB rowset_meta;
+    {
+        rowset_meta = create_rowset(tablet_id, 4, 4, 200);
+        rowset_meta.set_job_id(job_id);
+        rowset_meta.set_resource_id(std::string(RESOURCE_ID));
+
+        brpc::Controller cntl;
+        CreateRowsetResponse res;
+        auto* arena = res.GetArena();
+        auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->mutable_rowset_meta()->CopyFrom(rowset_meta);
+        req->set_tablet_job_id(job_id);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Step 4: commit_rowset with tablet_job_id while job still exists - should succeed
+    {
+        brpc::Controller cntl;
+        CreateRowsetResponse res;
+        auto* arena = res.GetArena();
+        auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->mutable_rowset_meta()->CopyFrom(rowset_meta);
+        req->set_tablet_job_id(job_id);
+        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+                << "commit_rowset should succeed when job exists, msg=" << res.status().msg();
+    }
+
+    // Step 5: Abort the compaction job (removes the job entry from TabletJobInfoPB)
+    {
+        FinishTabletJobResponse res;
+        finish_compaction_job(meta_service.get(), tablet_id, job_id, "test_initiator", 0, 0,
+                              TabletCompactionJobPB::CUMULATIVE, res, FinishTabletJobRequest::ABORT,
+                              {2, 3});
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Step 6: Prepare a new rowset (without tablet_job_id to bypass prepare check)
+    doris::RowsetMetaCloudPB rowset_meta2;
+    {
+        rowset_meta2 = create_rowset(tablet_id, 5, 5, 200);
+        rowset_meta2.set_job_id(job_id);
+        rowset_meta2.set_resource_id(std::string(RESOURCE_ID));
+
+        brpc::Controller cntl;
+        CreateRowsetResponse res;
+        auto* arena = res.GetArena();
+        auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->mutable_rowset_meta()->CopyFrom(rowset_meta2);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Step 7: commit_rowset with tablet_job_id after job aborted - should fail.
+    // Before the fix, this would incorrectly succeed because check_job_existed was
+    // never called (the condition was always false).
+    {
+        brpc::Controller cntl;
+        CreateRowsetResponse res;
+        auto* arena = res.GetArena();
+        auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->mutable_rowset_meta()->CopyFrom(rowset_meta2);
+        req->set_tablet_job_id(job_id);
+        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+        ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_PREPARE_ROWSET)
+                << "commit_rowset should fail with STALE_PREPARE_ROWSET when job is aborted, msg="
+                << res.status().msg();
+    }
+
+    // Step 8: commit_rowset without tablet_job_id - should succeed (skips job check)
+    {
+        brpc::Controller cntl;
+        CreateRowsetResponse res;
+        auto* arena = res.GetArena();
+        auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->mutable_rowset_meta()->CopyFrom(rowset_meta2);
+        // Do NOT set tablet_job_id - the check should be skipped
+        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+                << "commit_rowset without tablet_job_id should succeed, msg=" << res.status().msg();
     }
 }
 

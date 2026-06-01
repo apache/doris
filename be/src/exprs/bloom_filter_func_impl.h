@@ -19,20 +19,19 @@
 
 #include <type_traits>
 
+#include "core/data_type/primitive_type.h"
+#include "core/string_ref.h"
+#include "exec/common/hash_table/hash.h"
 #include "exprs/bloom_filter_func_adaptor.h"
-#include "runtime/primitive_type.h"
-#include "vec/common/hash_table/hash.h"
-#include "vec/common/string_ref.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct fixed_len_to_uint32_v2 {
     template <typename T>
     uint32_t operator()(const T& value) {
         if constexpr (sizeof(T) <= sizeof(uint32_t)) {
             if constexpr (std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
                 return (uint32_t)value.to_date_int_val();
-            } else if constexpr (vectorized::IsDecimalNumber<T>) {
+            } else if constexpr (IsDecimalNumber<T>) {
                 return (uint32_t)value.value;
             } else {
                 return (uint32_t)value;
@@ -46,7 +45,7 @@ struct fixed_len_to_uint32_v2 {
                         value.to_date_int_val()));
             } else if constexpr (std::is_same_v<T, TimestampTzValue>) {
                 return uint32_t(HashCRC32<typename T::underlying_value>()(value.to_date_int_val()));
-            } else if constexpr (vectorized::IsDecimalNumber<T>) {
+            } else if constexpr (IsDecimalNumber<T>) {
                 return uint32_t(HashCRC32<typename T::NativeType>()(value.value));
             } else {
                 return uint32_t(HashCRC32<T>()(value));
@@ -55,23 +54,12 @@ struct fixed_len_to_uint32_v2 {
     }
 };
 
-template <typename fixed_len_to_uint32_method, typename T, bool need_trim = false>
+template <typename fixed_len_to_uint32_method, typename T>
 uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* data,
                          const uint8_t* nullmap, uint16_t* offsets, int number,
                          const bool is_parse_column) {
     auto get_element = [](const char* input_data, int idx) {
-        if constexpr (std::is_same_v<T, StringRef> && need_trim) {
-            const auto value = ((const StringRef*)(input_data))[idx];
-            int64_t size = value.size;
-            const char* data = value.data;
-            // CHAR type may pad the tail with \0, need to trim
-            while (size > 0 && data[size - 1] == '\0') {
-                size--;
-            }
-            return StringRef(value.data, size);
-        } else {
-            return ((const T*)(input_data))[idx];
-        }
+        return ((const T*)(input_data))[idx];
     };
 
     uint16_t new_size = 0;
@@ -127,5 +115,4 @@ uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* dat
     }
     return new_size;
 }
-#include "common/compile_check_end.h"
 } // namespace doris

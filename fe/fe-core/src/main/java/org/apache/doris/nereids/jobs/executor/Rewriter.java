@@ -36,7 +36,7 @@ import org.apache.doris.nereids.rules.expression.NullableDependentExpressionRewr
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
-import org.apache.doris.nereids.rules.rewrite.AddProjectForUniqueFunction;
+import org.apache.doris.nereids.rules.rewrite.AddProjectForVolatileExpression;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
@@ -52,6 +52,7 @@ import org.apache.doris.nereids.rules.rewrite.CheckScoreUsage;
 import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
+import org.apache.doris.nereids.rules.rewrite.CollectLimitAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.CollectPredicateOnScan;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConstantPropagation;
@@ -62,7 +63,6 @@ import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.DecomposeRepeatWithPreAggregation;
 import org.apache.doris.nereids.rules.rewrite.DecoupleEncodeDecode;
-import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggStrategySelector;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggregateRewriter;
 import org.apache.doris.nereids.rules.rewrite.DistinctWindowExpression;
@@ -113,6 +113,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
 import org.apache.doris.nereids.rules.rewrite.MergeTopNs;
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning;
+import org.apache.doris.nereids.rules.rewrite.NormalizeOlapTableStreamScan;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
@@ -139,6 +140,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownJoinOnAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
+import org.apache.doris.nereids.rules.rewrite.PushDownMatchProjectionAsVirtualColumn;
 import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownScoreTopNIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
@@ -157,6 +159,7 @@ import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.RewriteSearchToSlots;
+import org.apache.doris.nereids.rules.rewrite.RewriteSimpleAggToConstantRule;
 import org.apache.doris.nereids.rules.rewrite.SaltJoin;
 import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
@@ -285,6 +288,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             topDown(
                                     new NormalizeAggregate(),
                                     new CountLiteralRewrite(),
+                                    new RewriteSimpleAggToConstantRule(),
                                     new NormalizeSort()
                             ),
 
@@ -392,6 +396,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             topic("Push project and filter on cte consumer to cte producer",
                                     topDown(
                                             new CollectFilterAboveConsumer(),
+                                            new CollectLimitAboveConsumer(),
                                             new CollectCteConsumerOutput())
                             ),
                             topic("eliminate join according unique or foreign key",
@@ -522,6 +527,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topDown(
                         new NormalizeAggregate(),
                         new CountLiteralRewrite(),
+                        new RewriteSimpleAggToConstantRule(),
                         new NormalizeSort()
                 ),
 
@@ -718,6 +724,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("Table/Physical optimization",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalCatalogRelation.class),
                         topDown(
+                                // Mark short-circuit point query before pruning empty partitions,
+                                // otherwise PRUNE_EMPTY_PARTITION may replace LogicalOlapScan with LogicalEmptyRelation
+                                // and short-circuit flag can never be set.
+                                new LogicalResultSinkToShortCircuitPointQuery(),
                                 new PruneOlapScanPartition(),
                                 new PruneEmptyPartition(),
                                 new PruneFileScanPartition(),
@@ -730,8 +740,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("adjust preagg status",
                         custom(RuleType.SET_PREAGG_STATUS, SetPreAggStatus::new)
                 ),
-                topic("Point query short circuit",
-                        topDown(new LogicalResultSinkToShortCircuitPointQuery())),
                 topic("eliminate",
                         // SORT_PRUNING should be applied after mergeLimit
                         custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
@@ -756,10 +764,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new SumLiteralRewrite(),
                             new MergePercentileToArray())
                 ),
-                topic("add projection for unique function",
-                        // separate AddProjectForUniqueFunction and MergeProjectable
+                topic("add projection for volatile expression",
+                        // separate AddProjectForVolatileExpression and MergeProjectable
                         // to avoid dead loop if code has bug
-                        topDown(new AddProjectForUniqueFunction()),
+                        topDown(new AddProjectForVolatileExpression()),
                         topDown(new MergeProjectable())
                 ),
                 topic("collect scan filter for hbo",
@@ -769,6 +777,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("Push project and filter on cte consumer to cte producer",
                         topDown(
                                 new CollectFilterAboveConsumer(),
+                                new CollectLimitAboveConsumer(),
                                 new CollectCteConsumerOutput()
                         )
                 ),
@@ -790,12 +799,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
                 topDown(new PushDownVectorTopNIntoOlapScan()),
                 topDown(new PushDownVirtualColumnsIntoOlapScan()),
+                topDown(new PushDownMatchProjectionAsVirtualColumn()),
                 topic("score optimize",
                         topDown(new PushDownScoreTopNIntoOlapScan(),
                                 new CheckScoreUsage())
-                ),
-                topic("topn optimize",
-                        topDown(new DeferMaterializeTopNResult())
                 ),
                 topic("add projection for join",
                         custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
@@ -888,7 +895,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ImmutableSet.of(LogicalCTEAnchor.class),
                 () -> {
                     List<RewriteJob> rewriteJobs = Lists.newArrayListWithExpectedSize(300);
-
+                    rewriteJobs.add(
+                            topic("normalize olap table stream scan",
+                                    custom(RuleType.NORMALIZE_OlAP_TABLE_STREAM_SCAN,
+                                            NormalizeOlapTableStreamScan::new)
+                            )
+                    );
                     rewriteJobs.addAll(jobs(
                             topic("cte inline and pull up all cte anchor",
                                     custom(RuleType.PULL_UP_CTE_ANCHOR, PullUpCteAnchor::new),

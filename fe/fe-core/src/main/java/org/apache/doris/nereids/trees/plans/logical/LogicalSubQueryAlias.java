@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.DiffOutputInAsterisk;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -121,9 +122,14 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
                 newQualifier.addAll(qualifier);
             }
 
+            // Subquery alias outputs are synthetic slots. They should keep the aliased
+            // qualifier/name, but must not reuse the child slot's SQL index. Otherwise
+            // CREATE VIEW rewrite can map an outer alias-star expansion back onto inner
+            // aggregate SQL text and persist invalid self-references.
             Slot qualified = originSlot
                     .withQualifier(newQualifier)
-                    .withName(columnAlias);
+                    .withName(columnAlias)
+                    .withIndexInSql(null);
             currentOutput.add(qualified);
         }
         return currentOutput.build();
@@ -224,7 +230,8 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     @Override
     public LogicalSubQueryAlias<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalSubQueryAlias<>(qualifier, columnAliases, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalSubQueryAlias<>(qualifier, columnAliases, children.get(0)));
     }
 
     @Override
@@ -239,16 +246,18 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public LogicalSubQueryAlias<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalSubQueryAlias<>(qualifier, columnAliases, groupExpression,
-                Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalSubQueryAlias<>(qualifier, columnAliases, groupExpression,
+                Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalSubQueryAlias<>(qualifier, columnAliases, groupExpression, logicalProperties,
-                children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalSubQueryAlias<>(qualifier, columnAliases, groupExpression, logicalProperties,
+                children.get(0)));
     }
 
     @Override

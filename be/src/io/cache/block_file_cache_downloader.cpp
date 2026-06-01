@@ -39,7 +39,7 @@
 #include "cpp/sync_point.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
-#include "olap/rowset/beta_rowset.h"
+#include "storage/rowset/beta_rowset.h"
 #include "util/bvar_helper.h"
 
 namespace doris::io {
@@ -286,6 +286,7 @@ void FileCacheBlockDownloader::download_file_cache_block(
                                 .is_warmup = true,
                         },
                 .download_done = std::move(download_done),
+                .tablet_id = meta.tablet_id(),
         };
         download_segment_file(download_meta);
     });
@@ -300,6 +301,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
             .is_doris_table = true,
             .cache_base_path {},
             .file_size = meta.file_size,
+            .tablet_id = meta.tablet_id,
     };
     auto st = meta.file_system->open_file(meta.path, &file_reader, &opts);
     if (!st.ok()) {

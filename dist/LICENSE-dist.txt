@@ -1085,7 +1085,7 @@ The Apache Software License, Version 2.0
     * fastjson:
         - com.alibaba:fastjson:1.2.58 (https://github.com/alibaba/fastjson)
     * fastutil:
-        - it.unimi.dsi:fastutil:6.5.6 (http://fasutil.dsi.unimi.it/)
+        - it.unimi.dsi:fastutil:8.5.18 (http://fastutil.di.unimi.it/)
     * fe-common:
         - org.apache.doris:fe-common:0.15-SNAPSHOT (https://doris.apache.org/fe-common/)
     * hadoop-mapreduce-client-app:

@@ -22,33 +22,25 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class ShowTableCommandTest {
-    @Mocked
+import java.io.IOException;
+
+public class ShowTableCommandTest extends TestWithFeService {
     private ConnectContext ctx;
+
+    private void runBefore() throws IOException {
+        ctx = createDefaultCtx();
+    }
 
     @Test
     public void testValidate() throws Exception {
-        new Expectations() {
-            {
-                ctx.getDatabase();
-                minTimes = 0;
-                result = CatalogMocker.TEST_DB_NAME;
-
-                ctx.getDefaultCatalog();
-                minTimes = 0;
-                result = InternalCatalog.INTERNAL_CATALOG_NAME;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = ctx;
-            }
-        };
+        runBefore();
+        ctx.setDatabase(CatalogMocker.TEST_DB_NAME);
+        ctx.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
 
         ShowTableCommand command = new ShowTableCommand(CatalogMocker.TEST_DB_NAME,
                 InternalCatalog.INTERNAL_CATALOG_NAME, false, PlanType.SHOW_TABLES);
@@ -56,22 +48,10 @@ public class ShowTableCommandTest {
     }
 
     @Test
-    void testInvalidate() {
-        new Expectations() {
-            {
-                ctx.getDatabase();
-                minTimes = 0;
-                result = "";
-
-                ctx.getDefaultCatalog();
-                minTimes = 0;
-                result = "";
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = ctx;
-            }
-        };
+    void testInvalidate() throws Exception {
+        runBefore();
+        ctx.setDatabase("");
+        ctx.changeDefaultCatalog("");
 
         // db is empty
         ShowTableCommand command = new ShowTableCommand("",

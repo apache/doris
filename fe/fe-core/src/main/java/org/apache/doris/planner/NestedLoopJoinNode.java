@@ -18,16 +18,25 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNestedLoopJoinNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Nested loop join between left child and right child.
@@ -51,10 +60,18 @@ public class NestedLoopJoinNode extends JoinNodeBase {
 
     private List<Expr> markJoinConjuncts;
 
+    private final Set<SlotId> materializedSlotIds = Sets.newHashSet();
+
+    private final Map<ExprId, SlotId> materializedSlotIdMap = Maps.newHashMap();
+
+    private boolean hasMaterializedSlotIds = false;
+
     public static boolean canParallelize(JoinOperator joinOp) {
         return joinOp == JoinOperator.CROSS_JOIN || joinOp == JoinOperator.INNER_JOIN
                 || joinOp == JoinOperator.LEFT_OUTER_JOIN || joinOp == JoinOperator.LEFT_SEMI_JOIN
-                || joinOp == JoinOperator.LEFT_ANTI_JOIN || joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
+                || joinOp == JoinOperator.LEFT_ANTI_JOIN || joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN
+                || joinOp == JoinOperator.ASOF_LEFT_INNER_JOIN || joinOp == JoinOperator.ASOF_RIGHT_INNER_JOIN
+                || joinOp == JoinOperator.ASOF_LEFT_OUTER_JOIN;
     }
 
 
@@ -64,6 +81,29 @@ public class NestedLoopJoinNode extends JoinNodeBase {
 
     public void setMarkJoinConjuncts(List<Expr> markJoinConjuncts) {
         this.markJoinConjuncts = markJoinConjuncts;
+    }
+
+    public Set<SlotId> getMaterializedSlotIds() {
+        return materializedSlotIds;
+    }
+
+    public Map<ExprId, SlotId> getMaterializedSlotIdMap() {
+        return materializedSlotIdMap;
+    }
+
+    public void enableMaterializedSlotIds() {
+        hasMaterializedSlotIds = true;
+    }
+
+    public void addSlotIdToMaterializedSlotIds(SlotId slotId) {
+        materializedSlotIds.add(slotId);
+        hasMaterializedSlotIds = true;
+    }
+
+    private List<SlotId> getSortedMaterializedSlotIds() {
+        List<SlotId> sortedSlotIds = new ArrayList<>(materializedSlotIds);
+        sortedSlotIds.sort(Comparator.comparingInt(SlotId::asInt));
+        return sortedSlotIds;
     }
 
     public NestedLoopJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, List<TupleId> tupleIds,
@@ -83,11 +123,11 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         msg.nested_loop_join_node = new TNestedLoopJoinNode();
         msg.nested_loop_join_node.join_op = joinOp.toThrift();
         for (Expr conjunct : joinConjuncts) {
-            msg.nested_loop_join_node.addToJoinConjuncts(conjunct.treeToThrift());
+            msg.nested_loop_join_node.addToJoinConjuncts(ExprToThriftVisitor.treeToThrift(conjunct));
         }
         if (markJoinConjuncts != null) {
             for (Expr conjunct : markJoinConjuncts) {
-                msg.nested_loop_join_node.addToMarkJoinConjuncts(conjunct.treeToThrift());
+                msg.nested_loop_join_node.addToMarkJoinConjuncts(ExprToThriftVisitor.treeToThrift(conjunct));
             }
         }
 
@@ -100,6 +140,13 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         }
         msg.nested_loop_join_node.setIsOutputLeftSideOnly(isOutputLeftSideOnly);
         msg.nested_loop_join_node.setUseSpecificProjections(false);
+        if (hasMaterializedSlotIds) {
+            List<Integer> slotIds = new ArrayList<>();
+            for (SlotId slotId : getSortedMaterializedSlotIds()) {
+                slotIds.add(slotId.asInt());
+            }
+            msg.nested_loop_join_node.setMaterializedSlotIds(slotIds);
+        }
         msg.node_type = TPlanNodeType.CROSS_JOIN_NODE;
     }
 
@@ -141,6 +188,13 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         if (outputSlotIds != null) {
             output.append(detailPrefix).append("output slot ids: ");
             for (SlotId slotId : outputSlotIds) {
+                output.append(slotId).append(" ");
+            }
+            output.append("\n");
+        }
+        if (hasMaterializedSlotIds) {
+            output.append(detailPrefix).append("materialized slot ids: ");
+            for (SlotId slotId : getSortedMaterializedSlotIds()) {
                 output.append(slotId).append(" ");
             }
             output.append("\n");

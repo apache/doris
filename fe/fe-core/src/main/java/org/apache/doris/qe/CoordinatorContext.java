@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
@@ -103,6 +104,7 @@ public class CoordinatorContext {
     public final Supplier<Set<TUniqueId>> instanceIds = Suppliers.memoize(this::getInstanceIds);
     public final Supplier<Map<TNetworkAddress, Long>> backends = Suppliers.memoize(this::getBackends);
     public final Supplier<Integer> scanRangeNum = Suppliers.memoize(this::getScanRangeNum);
+    public final Supplier<Boolean> isSingleBackendQuery = Suppliers.memoize(this::computeIsSingleBackendQuery);
     public final Supplier<TNetworkAddress> directConnectFrontendAddress
             = Suppliers.memoize(this::computeDirectConnectCoordinator);
 
@@ -276,7 +278,7 @@ public class CoordinatorContext {
         ConnectContext connectContext = planner.getCascadesContext().getConnectContext();
         TQueryOptions queryOptions = initQueryOptions(connectContext);
         TQueryGlobals queryGlobals = createQueryGlobals(connectContext);
-        TDescriptorTable descriptorTable = planner.getDescTable().toThrift();
+        TDescriptorTable descriptorTable = DescriptorToThriftConverter.toThrift(planner.getDescTable());
 
         ExecutionProfile executionProfile = new ExecutionProfile(
                 connectContext.queryId,
@@ -307,6 +309,7 @@ public class CoordinatorContext {
         queryOptions.setProfileLevel(2);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setNewVersionUnixTimestamp(true);
+        queryOptions.setNewVersionPercentile(true);
 
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
@@ -322,7 +325,7 @@ public class CoordinatorContext {
         );
 
         return new CoordinatorContext(coordinator, jobId, fragments, distributedPlans,
-                scanNodes, queryId, queryOptions, queryGlobals, descTable.toThrift(),
+                scanNodes, queryId, queryOptions, queryGlobals, DescriptorToThriftConverter.toThrift(descTable),
                 executionProfile);
     }
 
@@ -445,6 +448,10 @@ public class CoordinatorContext {
             }
         }
         return scanRangeNum;
+    }
+
+    private boolean computeIsSingleBackendQuery() {
+        return backends.get().size() == 1;
     }
 
     private int computeScanRangeNumByScanRange(TScanRangeParams param) {

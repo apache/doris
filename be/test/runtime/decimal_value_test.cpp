@@ -20,7 +20,7 @@
 #include <iostream>
 #include <string>
 
-#include "runtime/decimalv2_value.h"
+#include "core/value/decimalv2_value.h"
 
 namespace doris {
 

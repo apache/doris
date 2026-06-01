@@ -27,16 +27,20 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class TabletTest {
 
@@ -48,8 +52,9 @@ public class TabletTest {
     private TabletInvertedIndex invertedIndex;
     private SystemInfoService  infoService;
 
-    @Mocked
-    private Env env;
+    private Env env = Mockito.mock(Env.class);
+
+    private MockedStatic<Env> mockedEnvStatic;
 
     @Before
     public void makeTablet() {
@@ -60,25 +65,12 @@ public class TabletTest {
             be.setAlive(true);
             infoService.addBackend(be);
         }
-        new Expectations(env) {
-            {
-                Env.getCurrentEnvJournalVersion();
-                minTimes = 0;
-                result = FeConstants.meta_version;
 
-                Env.getCurrentInvertedIndex();
-                minTimes = 0;
-                result = invertedIndex;
-
-                Env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = infoService;
-
-                Env.isCheckpointThread();
-                minTimes = 0;
-                result = false;
-            }
-        };
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
+        mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(infoService);
+        mockedEnvStatic.when(Env::isCheckpointThread).thenReturn(false);
 
         tablet = new LocalTablet(1);
         TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD);
@@ -89,6 +81,11 @@ public class TabletTest {
         tablet.addReplica(replica1);
         tablet.addReplica(replica2);
         tablet.addReplica(replica3);
+    }
+
+    @After
+    public void tearDown() {
+        mockedEnvStatic.close();
     }
 
     @Test
@@ -122,6 +119,82 @@ public class TabletTest {
         // delete replica2
         Assert.assertTrue(tablet.deleteReplica(replica2));
         Assert.assertEquals(1, tablet.getReplicas().size());
+    }
+
+    @Test
+    public void testGetReplicasReturnsImmutableSnapshot() {
+        List<Replica> snapshot = tablet.getReplicas();
+        Assert.assertEquals(3, snapshot.size());
+
+        // A write after the snapshot was taken must not be visible in it (copy-on-write).
+        Replica replica4 = new LocalReplica(4L, 4L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
+        tablet.addReplica(replica4);
+        Assert.assertEquals(3, snapshot.size());
+        Assert.assertEquals(4, tablet.getReplicas().size());
+
+        // The returned snapshot is read-only.
+        Assert.assertThrows(UnsupportedOperationException.class, () -> snapshot.add(replica4));
+    }
+
+    @Test
+    public void testIterateReplicasWhileMutatingDoesNotThrow() {
+        // Iterating the snapshot returned by getReplicas() must not throw
+        // ConcurrentModificationException even when the tablet is structurally modified
+        // during iteration.
+        int seen = 0;
+        for (Replica r : tablet.getReplicas()) {
+            Assert.assertNotNull(r);
+            tablet.addReplica(new LocalReplica(100L + seen, 100L + seen, 100L, 0, 200000L, 0, 3000L,
+                    ReplicaState.NORMAL, 0, 0));
+            tablet.deleteReplicaByBackendId(2L);
+            seen++;
+        }
+        Assert.assertEquals(3, seen);
+    }
+
+    @Test
+    public void testConcurrentGetReplicasNeverThrows() throws InterruptedException {
+        // A reader repeatedly snapshots and iterates getReplicas() while a writer keeps
+        // mutating the replica list. Copy-on-write guarantees the reader never observes a
+        // partially built list or throws ConcurrentModificationException.
+        AtomicReference<Throwable> error = new AtomicReference<>();
+        AtomicBoolean stop = new AtomicBoolean(false);
+
+        Thread writer = new Thread(() -> {
+            long id = 1000L;
+            while (!stop.get()) {
+                // Reuse a small set of backend ids so the list stays bounded while still
+                // exercising the add/replace path.
+                long beId = id % 8;
+                tablet.addReplica(new LocalReplica(id, beId, 100L, 0, 200000L, 0, 3000L,
+                        ReplicaState.NORMAL, 0, 0), true);
+                id++;
+            }
+        });
+
+        Thread reader = new Thread(() -> {
+            try {
+                for (int i = 0; i < 50000 && error.get() == null; i++) {
+                    for (Replica r : tablet.getReplicas()) {
+                        r.getId();
+                    }
+                }
+            } catch (Throwable t) {
+                error.set(t);
+            } finally {
+                stop.set(true);
+            }
+        });
+
+        writer.start();
+        reader.start();
+        reader.join();
+        stop.set(true);
+        writer.join();
+
+        if (error.get() != null) {
+            Assert.fail("getReplicas() iteration threw under concurrent mutation: " + error.get());
+        }
     }
 
     @Test

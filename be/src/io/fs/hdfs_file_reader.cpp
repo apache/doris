@@ -28,16 +28,15 @@
 #include "bvar/reducer.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/hdfs_util.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "service/backend_options.h"
-#include "util/doris_metrics.h"
 
 namespace doris::io {
-#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> hdfs_bytes_read_total("hdfs_file_reader", "bytes_read");
 bvar::LatencyRecorder hdfs_bytes_per_read("hdfs_file_reader", "bytes_per_read"); // also QPS
@@ -290,6 +289,5 @@ void HdfsFileReader::_collect_profile_before_close() {
 #endif
     }
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris::io

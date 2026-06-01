@@ -22,7 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginLoader.PluginStatus;
@@ -179,6 +179,8 @@ public class PluginMgr implements Writable {
             dialectPlugins[i].remove(name);
         }
     }
+
+
 
     /**
      * Dynamic uninstall plugin.
@@ -358,7 +360,7 @@ public class PluginMgr implements Writable {
                 }
 
                 r.add(loader.getStatus().toString());
-                r.add(pi != null ? "{" + new PrintableMap<>(pi.getProperties(),
+                r.add(pi != null ? "{" + new DatasourcePrintableMap<>(pi.getProperties(),
                         "=", true, false, true) + "}" : "UNKNOWN");
                 rows.add(r);
             }

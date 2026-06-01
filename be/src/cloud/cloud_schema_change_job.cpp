@@ -25,22 +25,23 @@
 #include <memory>
 #include <mutex>
 #include <random>
+#include <ranges>
 #include <thread>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "common/status.h"
-#include "olap/delete_handler.h"
-#include "olap/olap_define.h"
-#include "olap/rowset/beta_rowset.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet.h"
-#include "olap/tablet_fwd.h"
-#include "olap/tablet_meta.h"
 #include "service/backend_options.h"
+#include "storage/delete/delete_handler.h"
+#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/olap_define.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_factory.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_fwd.h"
+#include "storage/tablet/tablet_meta.h"
 #include "util/debug_points.h"
 
 namespace doris {
@@ -111,6 +112,13 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     _output_cumulative_point = _base_tablet->cumulative_layer_point();
     std::vector<RowSetSplits> rs_splits;
     int64_t base_max_version = _base_tablet->max_version_unlocked();
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::process_alter_tablet.override_base_max_version", {
+        auto v = dp->param<int64_t>("version", -1);
+        if (v > 0) {
+            LOG(INFO) << "override base_max_version from " << base_max_version << " to " << v;
+            base_max_version = v;
+        }
+    });
     cloud::TabletJobInfoPB job;
     auto* idx = job.mutable_idx();
     idx->set_tablet_id(_base_tablet->tablet_id());
@@ -148,6 +156,57 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         LOG(WARNING) << "inject error. res=" << res;
         return res;
     });
+
+    // Check for cross-V1 compaction rowsets on new tablet.
+    // A compaction may have committed a rowset that crosses the alter_version
+    // boundary (V1) before prepare_tablet_job's clear_compaction took effect.
+    // If detected, abort the SC job in meta-service so the next retry registers
+    // a fresh job with a higher V1 (where the crossing rowset falls within range).
+    {
+        RETURN_IF_ERROR(_new_tablet->sync_rowsets());
+        std::shared_lock rlock(_new_tablet->get_header_lock());
+        for (auto& [v, rs] : _new_tablet->rowset_map()) {
+            if (v.first > 1 && v.first <= start_resp.alter_version() &&
+                v.second > start_resp.alter_version()) {
+                LOG(WARNING) << "cross-V1 compaction detected on new tablet"
+                             << ", tablet_id=" << _new_tablet->tablet_id() << ", rowset=["
+                             << v.first << "-" << v.second << "]"
+                             << ", alter_version=" << start_resp.alter_version()
+                             << ", job_id=" << _job_id << ". Aborting SC job and retrying.";
+                // Abort the SC job so the next retry can register with a higher alter_version.
+                // retry_rpc() may already have committed an ABORT but lost the reply; the
+                // replay then sees INVALID_ARGUMENT "there is no running schema_change",
+                // which means the job is in fact cleared. Treat that as success so FE can
+                // still retry. Any other failure is ambiguous — the stale job may remain
+                // and subsequent retries would hit meta-service idempotency, so return a
+                // non-retryable error to avoid burning retries on a stuck state.
+                auto abort_st = _cloud_storage_engine.meta_mgr().abort_tablet_job(job);
+                bool job_already_cleared =
+                        abort_st.is<ErrorCode::INVALID_ARGUMENT>() &&
+                        abort_st.to_string().find("no running schema_change") != std::string::npos;
+                if (!abort_st.ok() && !job_already_cleared) {
+                    LOG(WARNING) << "failed to abort SC job after cross-V1 detection"
+                                 << ", tablet_id=" << _new_tablet->tablet_id()
+                                 << ", error=" << abort_st
+                                 << ". Returning non-retryable error to avoid stale job retries.";
+                    return Status::InternalError(
+                            "cross-V1 compaction detected but failed to abort SC job, "
+                            "tablet_id={}, rowset=[{}-{}], alter_version={}, abort_err={}",
+                            _new_tablet->tablet_id(), v.first, v.second, start_resp.alter_version(),
+                            abort_st.to_string());
+                }
+                if (job_already_cleared) {
+                    LOG(INFO) << "SC job already cleared (idempotent abort replay), safe to retry"
+                              << ", tablet_id=" << _new_tablet->tablet_id();
+                }
+                return Status::Error<ErrorCode::SC_COMPACTION_CONFLICT>(
+                        "cross-V1 compaction detected on new tablet, tablet_id={}, "
+                        "rowset=[{}-{}], alter_version={}",
+                        _new_tablet->tablet_id(), v.first, v.second, start_resp.alter_version());
+            }
+        }
+    }
+
     if (request.alter_version > 1) {
         // [0-1] is a placeholder rowset, no need to convert
         RETURN_IF_ERROR(_base_tablet->capture_rs_readers({2, start_resp.alter_version()},
@@ -156,6 +215,10 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
                                                           .enable_prefer_cached_rowset = false,
                                                           .query_freshness_tolerance_ms = -1}));
     }
+    // Between prepare_tablet_job (SC job registered in meta-service) and
+    // set_alter_version (local alter_version update). Used to test cross-V1 race.
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::process_alter_tablet.after_prepare_job", DBUG_BLOCK);
+
     Defer defer2 {[&]() {
         _new_tablet->set_alter_version(-1);
         _base_tablet->set_alter_version(-1);
@@ -344,8 +407,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, vertical));
 
         RowsetMetaSharedPtr existed_rs_meta;
-        auto st = _cloud_storage_engine.meta_mgr().prepare_rowset(*rowset_writer->rowset_meta(),
-                                                                  _job_id, &existed_rs_meta);
+        auto st = _cloud_storage_engine.meta_mgr().prepare_rowset(
+                *rowset_writer->rowset_meta(), _job_id, _new_tablet->table_id(), &existed_rs_meta);
         if (!st.ok()) {
             if (st.is<ALREADY_EXIST>()) {
                 LOG(INFO) << "Rowset " << rs_reader->version() << " has already existed in tablet "
@@ -380,8 +443,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                                          st.to_string());
         }
 
-        st = _cloud_storage_engine.meta_mgr().commit_rowset(*rowset_writer->rowset_meta(), _job_id,
-                                                            &existed_rs_meta);
+        st = _cloud_storage_engine.meta_mgr().commit_rowset(
+                *rowset_writer->rowset_meta(), _job_id, _new_tablet->table_id(), &existed_rs_meta);
         if (!st.ok()) {
             if (st.is<ALREADY_EXIST>()) {
                 LOG(INFO) << "Rowset " << rs_reader->version() << " has already existed in tablet "
@@ -487,7 +550,33 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         // during double write phase by `CloudMetaMgr::sync_tablet_rowsets` in another thread
         std::unique_lock lock {_new_tablet->get_sync_meta_lock()};
         std::unique_lock wlock(_new_tablet->get_header_lock());
+        // Mirror MS behavior: delete rowsets in [2, alter_version] before adding
+        // SC output rowsets to avoid stale compaction rowsets remaining visible.
+        {
+            int64_t alter_ver = sc_job->alter_version();
+            std::vector<RowsetSharedPtr> to_delete;
+            for (auto& [v, rs] : _new_tablet->rowset_map()) {
+                if (v.first >= 2 && v.second <= alter_ver) {
+                    to_delete.push_back(rs);
+                }
+            }
+            if (!to_delete.empty()) {
+                LOG_INFO(
+                        "schema change: delete {} local rowsets in [2, {}] before adding SC "
+                        "output, tablet_id={}, versions=[{}]",
+                        to_delete.size(), alter_ver, _new_tablet->tablet_id(),
+                        fmt::join(to_delete | std::views::transform([](const auto& rs) {
+                                      return rs->version().to_string();
+                                  }),
+                                  ", "));
+                _new_tablet->delete_rowsets_for_schema_change(to_delete, wlock);
+            }
+        }
         _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock, false);
+        // Ensure the real new tablet has a continuous local version graph before it becomes
+        // visible. Later RUNNING-tablet delete bitmap sync depends on capturing all old versions.
+        RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().fill_version_holes(
+                _new_tablet.get(), _new_tablet->max_version_unlocked(), wlock));
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
         _new_tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                              stats.num_rows(), stats.data_size());
@@ -588,7 +677,8 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     // step4, store delete bitmap
     RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().update_delete_bitmap(
             *_new_tablet, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, initiator, &delete_bitmap,
-            &delete_bitmap, "", storage_resource, config::delete_bitmap_store_write_version));
+            &delete_bitmap, "", storage_resource, config::delete_bitmap_store_write_version,
+            _new_tablet->table_id()));
 
     _new_tablet->tablet_meta()->delete_bitmap() = delete_bitmap;
     return Status::OK();

@@ -75,11 +75,10 @@ message PTransmitRecCTEBlockResult {
 
 message PRerunFragmentParams {
     enum Opcode {
-    wait = 1;    // wait fragment execute done
-    release = 2; // release current round's resource
-    rebuild = 3; // rebuild next round pipeline tasks
-    submit = 4;  // submit tasks to execute
-    close = 5;   // close fragment
+    WAIT_FOR_DESTROY = 1;     // deregister RF, destroy old PFC, async wait for tasks to close via brpc closure
+    REBUILD = 2;              // rebuild next round pipeline tasks
+    SUBMIT = 3;               // submit tasks to execute
+    FINAL_CLOSE = 4;          // async wait for tasks to close, send report, and clean up (last round)
     }
     optional PUniqueId query_id = 1;
     optional int32 fragment_id = 2;
@@ -353,6 +352,11 @@ message PFetchArrowFlightSchemaResult {
 
 message KeyTuple {
     repeated string key_column_rep = 1;
+    // Each entry is a serialized TExprNode (Thrift binary protocol) representing
+    // a literal value for the corresponding key column. When present, BE uses
+    // DataType::get_field(TExprNode) to extract typed Field values directly,
+    // avoiding the string-parsing path used by key_column_rep.
+    repeated bytes key_column_literals = 2;
 }
 
 message UUID {
@@ -389,6 +393,8 @@ message PTabletKeyLookupResponse {
     required PStatus status = 1;
     optional bytes row_batch = 2;
     optional bool empty_batch = 3;
+    // BE asks FE to resend once with full query context when lookup cache misses.
+    optional bool need_resend_query_context = 4;
 }
 
 //Add message definition to fetch and update cache
@@ -485,9 +491,32 @@ message PKafkaMetaProxyRequest {
     repeated PIntegerPair offset_flags = 5;
 };
 
+message PKinesisLoadInfo {
+    required string region = 1;
+    required string stream = 2;
+    optional string endpoint = 3;
+    repeated PStringPair properties = 4;
+};
+
+message PKinesisMetaProxyRequest {
+    optional PKinesisLoadInfo kinesis_info = 1;
+};
+
+message PShardInfo {
+    required string shard_id = 1;
+    optional string parent_shard_id = 2;
+    optional string adjacent_parent_shard_id = 3;
+};
+
+message PKinesisMetaProxyResult {
+    repeated string shard_ids = 1;  // Deprecated, use shard_infos instead
+    repeated PShardInfo shard_infos = 2;
+};
+
 message PProxyRequest {
     optional PKafkaMetaProxyRequest kafka_meta_request = 1;
     optional int64 timeout_secs = 2;
+    optional PKinesisMetaProxyRequest kinesis_meta_request = 3;
 };
 
 message PKafkaMetaProxyResult {
@@ -502,6 +531,7 @@ message PProxyResult {
     required PStatus status = 1;
     optional PKafkaMetaProxyResult kafka_meta_result = 2;
 	optional PKafkaPartitionOffsets partition_offsets = 3;
+    optional PKinesisMetaProxyResult kinesis_meta_result = 4;
 };
 
 message PDataColumn {
@@ -610,6 +640,7 @@ message PSendFilterSizeRequest {
     required PUniqueId query_id = 2;
     required PNetworkAddress source_addr = 3;
     required uint64 filter_size = 4;
+    optional uint32 stage = 5;
 };
 
 message PSendFilterSizeResponse {
@@ -620,6 +651,7 @@ message PSyncFilterSizeRequest {
     required int32 filter_id = 1;
     required PUniqueId query_id = 2;
     required uint64 filter_size = 3;
+    optional uint32 stage = 5;
 };
 
 message PSyncFilterSizeResponse {
@@ -641,6 +673,7 @@ message PMergeFilterRequest {
     optional bool ignored = 12;
     optional uint64 local_merge_time = 13;
     optional bool disabled = 14;
+    optional uint32 stage = 15;
 };
 
 message PMergeFilterResponse {
@@ -662,6 +695,7 @@ message PPublishFilterRequestV2 {
     repeated int32 fragment_ids = 12; // deprecated
     optional uint64 local_merge_time = 13;
     optional bool disabled = 14;
+    optional uint32 stage = 15;
 };
 
 message PPublishFilterResponse {

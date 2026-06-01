@@ -98,6 +98,10 @@ public class TableProperty implements GsonPostProcessable {
 
     private boolean enableSingleReplicaCompaction = false;
 
+    private boolean enableTso = false;
+
+    private int verticalCompactionNumColumnsPerGroup = 5;
+
     private boolean storeRowColumn = false;
 
     private boolean skipWriteIndexOnLoad = false;
@@ -167,6 +171,8 @@ public class TableProperty implements GsonPostProcessable {
                 buildTimeSeriesCompactionTimeThresholdSeconds();
                 buildSkipWriteIndexOnLoad();
                 buildEnableSingleReplicaCompaction();
+                buildEnableTso();
+                buildVerticalCompactionNumColumnsPerGroup();
                 buildDisableAutoCompaction();
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
                 buildTimeSeriesCompactionLevelThreshold();
@@ -324,9 +330,20 @@ public class TableProperty implements GsonPostProcessable {
     }
 
     public TableProperty buildVariantEnableFlattenNested() {
+        migrateDeprecatedVariantEnableFlattenNestedProperty();
         variantEnableFlattenNested = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED, "false"));
         return this;
+    }
+
+    private void migrateDeprecatedVariantEnableFlattenNestedProperty() {
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED)
+                && properties.containsKey(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED)) {
+            properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
+                    properties.remove(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED));
+            return;
+        }
+        properties.remove(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED);
     }
 
     public boolean variantEnableFlattenNested() {
@@ -341,6 +358,25 @@ public class TableProperty implements GsonPostProcessable {
 
     public boolean enableSingleReplicaCompaction() {
         return enableSingleReplicaCompaction;
+    }
+
+    public TableProperty buildEnableTso() {
+        enableTso = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_TSO, "false"));
+        return this;
+    }
+
+    public boolean enableTso() {
+        return enableTso;
+    }
+
+    public TableProperty buildVerticalCompactionNumColumnsPerGroup() {
+        verticalCompactionNumColumnsPerGroup = Integer.parseInt(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP, "5"));
+        return this;
+    }
+
+    public int verticalCompactionNumColumnsPerGroup() {
+        return verticalCompactionNumColumnsPerGroup;
     }
 
     public TableProperty buildStoreRowColumn() {
@@ -556,8 +592,15 @@ public class TableProperty implements GsonPostProcessable {
             binlogConfig.setMaxHistoryNums(
                     Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)));
         }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT)) {
+            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.valueOf(
+                    properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT)));
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)) {
+            binlogConfig.setNeedHistoricalValue(Boolean.parseBoolean(
+                    properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)));
+        }
         this.binlogConfig = binlogConfig;
-
         return this;
     }
 
@@ -570,13 +613,17 @@ public class TableProperty implements GsonPostProcessable {
 
     public void setBinlogConfig(BinlogConfig newBinlogConfig) {
         Map<String, String> binlogProperties = Maps.newHashMap();
-        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, String.valueOf(newBinlogConfig.isEnable()));
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, String.valueOf(newBinlogConfig.getEnable()));
         binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS,
                 String.valueOf(newBinlogConfig.getTtlSeconds()));
         binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES,
                 String.valueOf(newBinlogConfig.getMaxBytes()));
         binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS,
                 String.valueOf(newBinlogConfig.getMaxHistoryNums()));
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT,
+                String.valueOf(newBinlogConfig.getBinlogFormat()));
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE,
+                String.valueOf(newBinlogConfig.getNeedHistoricalValue()));
         modifyTableProperties(binlogProperties);
         this.binlogConfig = newBinlogConfig;
     }
@@ -751,6 +798,15 @@ public class TableProperty implements GsonPostProcessable {
             Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE)));
     }
 
+    public void setGroupCommitMode(String groupCommitMode) {
+        properties.put(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE, groupCommitMode);
+    }
+
+    public String getGroupCommitMode() {
+        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE,
+                PropertyAnalyzer.GROUP_COMMIT_MODE_OFF);
+    }
+
     public void setRowStoreColumns(List<String> rowStoreColumns) {
         if (rowStoreColumns != null && !rowStoreColumns.isEmpty()) {
             modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "true");
@@ -885,6 +941,8 @@ public class TableProperty implements GsonPostProcessable {
         buildTimeSeriesCompactionTimeThresholdSeconds();
         buildDisableAutoCompaction();
         buildEnableSingleReplicaCompaction();
+        buildEnableTso();
+        buildVerticalCompactionNumColumnsPerGroup();
         buildTimeSeriesCompactionEmptyRowsetsThreshold();
         buildTimeSeriesCompactionLevelThreshold();
         buildTTLSeconds();

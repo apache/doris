@@ -18,8 +18,9 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.InsertTableContext;
 import org.apache.doris.nereids.DorisParser.JobFromToClauseContext;
@@ -83,6 +84,15 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     public SetVarOp visitSetPassword(DorisParser.SetPasswordContext ctx) {
         encryptPassword(ctx.pwd.getStartIndex(), ctx.pwd.getStopIndex());
         return super.visitSetPassword(ctx);
+    }
+
+    // grant user identity clause
+    @Override
+    public UserDesc visitGrantUserIdentify(DorisParser.GrantUserIdentifyContext ctx) {
+        if (ctx.pwd != null) {
+            encryptPassword(ctx.pwd.getStartIndex(), ctx.pwd.getStopIndex());
+        }
+        return super.visitGrantUserIdentify(ctx);
     }
 
     // set ldap password clause
@@ -214,7 +224,7 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
 
     private void encryptProperty(Map<String, String> properties, int start, int stop) {
         if (MapUtils.isNotEmpty(properties)) {
-            PrintableMap<String, String> printableMap = new PrintableMap<>(properties, "=",
+            DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(properties, "=",
                     true, false, true);
             indexInSqlToString.put(Pair.of(start, stop), printableMap.toString());
         }

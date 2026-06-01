@@ -1,0 +1,550 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "storage/segment/encoding_info.h"
+
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+
+#include <array>
+#include <iterator>
+#include <type_traits>
+#include <unordered_map>
+#include <utility>
+
+#include "common/config.h"
+#include "common/exception.h"
+#include "runtime/exec_env.h"
+#include "storage/olap_common.h"
+#include "storage/segment/binary_dict_page.h"
+#include "storage/segment/binary_dict_page_pre_decoder.h"
+#include "storage/segment/binary_plain_page.h"
+#include "storage/segment/binary_plain_page_char_strip_pre_decoder.h"
+#include "storage/segment/binary_plain_page_v2.h"
+#include "storage/segment/binary_plain_page_v2_pre_decoder.h"
+#include "storage/segment/binary_prefix_page.h"
+#include "storage/segment/bitshuffle_page.h"
+#include "storage/segment/bitshuffle_page_pre_decoder.h"
+#include "storage/segment/frame_of_reference_page.h"
+#include "storage/segment/options.h"
+#include "storage/segment/plain_page.h"
+#include "storage/segment/rle_page.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/types.h"
+
+namespace doris {
+namespace segment_v2 {
+
+template <FieldType type, typename CppType>
+struct TypeEncodingTraits<type, PLAIN_ENCODING, CppType> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return PlainPageBuilder<type>::create(builder, opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new PlainPageDecoder<type>(data, opts);
+        return Status::OK();
+    }
+};
+
+template <FieldType type>
+struct TypeEncodingTraits<type, PLAIN_ENCODING, Slice> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return BinaryPlainPageBuilder<type>::create(builder, opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new BinaryPlainPageDecoder<type>(data, opts);
+        return Status::OK();
+    }
+};
+
+template <FieldType type, typename CppType>
+struct TypeEncodingTraits<type, PLAIN_ENCODING_V2, CppType> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return PlainPageBuilder<type>::create(builder, opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new PlainPageDecoder<type>(data, opts);
+        return Status::OK();
+    }
+};
+
+template <FieldType type>
+struct TypeEncodingTraits<type, PLAIN_ENCODING_V2, Slice> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return BinaryPlainPageV2Builder<type>::create(builder, opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new BinaryPlainPageV2Decoder<type>(data, opts);
+        return Status::OK();
+    }
+};
+
+template <FieldType type, typename CppType>
+struct TypeEncodingTraits<type, BIT_SHUFFLE, CppType,
+                          typename std::enable_if<!std::is_same<CppType, Slice>::value>::type> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return BitshufflePageBuilder<type>::create(builder, opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new BitShufflePageDecoder<type>(data, opts);
+        return Status::OK();
+    }
+};
+
+template <>
+struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_BOOL, RLE, uint8_t> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return RlePageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL>::create(builder, opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new RlePageDecoder<FieldType::OLAP_FIELD_TYPE_BOOL>(data, opts);
+        return Status::OK();
+    }
+};
+
+template <FieldType type>
+struct TypeEncodingTraits<type, DICT_ENCODING, Slice> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return BinaryDictPageBuilder::create(builder, opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new BinaryDictPageDecoder(data, opts);
+        return Status::OK();
+    }
+};
+
+template <>
+struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATE, FOR_ENCODING,
+                          typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATE>::create(builder, opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_DATE>(data, opts);
+        return Status::OK();
+    }
+};
+
+template <>
+struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATEV2, FOR_ENCODING,
+                          typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::CppType> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATEV2>::create(builder,
+                                                                                      opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_DATEV2>(data, opts);
+        return Status::OK();
+    }
+};
+
+template <>
+struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING,
+                          typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::CppType> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::create(builder,
+                                                                                          opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder =
+                new FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>(data, opts);
+        return Status::OK();
+    }
+};
+
+template <>
+struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, FOR_ENCODING,
+                          typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::CppType> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::create(builder,
+                                                                                           opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder =
+                new FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>(data, opts);
+        return Status::OK();
+    }
+};
+
+template <FieldType type, typename CppType>
+struct TypeEncodingTraits<type, FOR_ENCODING, CppType,
+                          typename std::enable_if<IsIntegral<CppType>::value>::type> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return FrameOfReferencePageBuilder<type>::create(builder, opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new FrameOfReferencePageDecoder<type>(data, opts);
+        return Status::OK();
+    }
+};
+
+template <FieldType type>
+struct TypeEncodingTraits<type, PREFIX_ENCODING, Slice> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return BinaryPrefixPageBuilder::create(builder, opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new BinaryPrefixPageDecoder(data, opts);
+        return Status::OK();
+    }
+};
+
+EncodingInfoResolver::EncodingInfoResolver() {
+    // ===== Phase 1: register every supported (type, encoding) combination exactly once =====
+    // _register_supported_encoding CHECKs against duplicates; the Phase 2 calls below do not insert into _encoding_map,
+    // so every (type, encoding) used as a default must appear here first.
+
+    // signed integers
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_TINYINT, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_TINYINT, FOR_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_SMALLINT, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_SMALLINT, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_SMALLINT, FOR_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_INT, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_INT, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_INT, FOR_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_BIGINT, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_BIGINT, FOR_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_LARGEINT, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_LARGEINT, FOR_ENCODING>();
+
+    // unsigned integers
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT, BIT_SHUFFLE>();
+
+    // FLOAT / DOUBLE
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_FLOAT, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DOUBLE, PLAIN_ENCODING>();
+
+    // binary types (CHAR/VARCHAR/STRING/JSONB/VARIANT)
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_CHAR, PREFIX_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARCHAR, PREFIX_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_STRING, PREFIX_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_JSONB, DICT_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_JSONB, PREFIX_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARIANT, DICT_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARIANT, PREFIX_ENCODING>();
+
+    // BOOL
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_BOOL, RLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_BOOL, PLAIN_ENCODING>();
+
+    // date / datetime
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATE, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATE, FOR_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATEV2, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATEV2, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATEV2, FOR_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIME, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIME, FOR_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, FOR_ENCODING>();
+
+    // decimal
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DECIMAL, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DECIMAL32, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DECIMAL32, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DECIMAL64, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DECIMAL64, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DECIMAL128I, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DECIMAL128I, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DECIMAL256, PLAIN_ENCODING>();
+
+    // ip
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_IPV4, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_IPV6, PLAIN_ENCODING>();
+
+    // aggregate / binary-flavored types
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING_V2>();
+
+    // ===== Phase 2a: V2 defaults (write path, V1/V2 segments) =====
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_SMALLINT, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_INT, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_JSONB, DICT_ENCODING>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_VARIANT, DICT_ENCODING>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_BOOL, RLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_DATEV2, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_DECIMAL32, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_DECIMAL64, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_DECIMAL128I, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING>();
+
+    // ===== Phase 2b: V3 defaults (write path, V3 segments) =====
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_TINYINT, PLAIN_ENCODING>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_SMALLINT, PLAIN_ENCODING>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_INT, PLAIN_ENCODING>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_BIGINT, PLAIN_ENCODING>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_LARGEINT, PLAIN_ENCODING>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_JSONB, DICT_ENCODING>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_VARIANT, DICT_ENCODING>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_BOOL, RLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_DATEV2, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_DECIMAL32, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_DECIMAL64, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_DECIMAL128I, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING_V2>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING_V2>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING_V2>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING_V2>();
+
+    // ===== Phase 2c: IndexedColumn (value-seek) defaults =====
+    // Only the PrimaryKeyIndexBuilder consults this map, and it hardcodes VARCHAR.
+    // Other types were registered historically (since #2308, 2019) for a generic
+    // "any IndexedColumn value-seek caller" use case that never materialized; they
+    // were removed to keep this map honest about what production actually needs.
+    _set_index_column_encoding<FieldType::OLAP_FIELD_TYPE_VARCHAR, PREFIX_ENCODING>();
+}
+
+EncodingInfoResolver::~EncodingInfoResolver() {
+    for (auto& it : _encoding_map) {
+        delete it.second;
+    }
+    _encoding_map.clear();
+}
+
+EncodingTypePB EncodingInfoResolver::get_v2_default_encoding(FieldType type) const {
+    return _lookup(_v2_default_map, type);
+}
+
+EncodingTypePB EncodingInfoResolver::get_v3_default_encoding(FieldType type) const {
+    return _lookup(_v3_default_map, type);
+}
+
+EncodingTypePB EncodingInfoResolver::get_index_column_encoding(FieldType type) const {
+    return _lookup(_index_column_encoding_map, type);
+}
+
+Status EncodingInfoResolver::get(FieldType data_type, EncodingTypePB encoding_type,
+                                 const EncodingInfo** out) {
+    auto key = std::make_pair(data_type, encoding_type);
+    auto it = _encoding_map.find(key);
+    if (it == std::end(_encoding_map)) {
+        return Status::InternalError("fail to find valid type encoding, type:{}, encoding:{}",
+                                     data_type, encoding_type);
+    }
+    *out = it->second;
+    return Status::OK();
+}
+
+template <typename TraitsClass>
+EncodingInfo::EncodingInfo(TraitsClass traits)
+        : _create_builder_func(TraitsClass::create_page_builder),
+          _create_decoder_func(TraitsClass::create_page_decoder),
+          _type(TraitsClass::type),
+          _encoding(TraitsClass::encoding) {
+    if (_encoding == BIT_SHUFFLE) {
+        _data_page_pre_decoder = std::make_unique<BitShufflePagePreDecoder>();
+    } else if (_encoding == DICT_ENCODING) {
+        if constexpr (TraitsClass::type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            _data_page_pre_decoder = std::make_unique<BinaryDictPagePreDecoder<true>>();
+        } else {
+            _data_page_pre_decoder = std::make_unique<BinaryDictPagePreDecoder<false>>();
+        }
+    } else if (_encoding == PLAIN_ENCODING) {
+        // CHAR plain pages may contain trailing '\0' padding written by older
+        // BEs; strip it once at page load so the cached page is unpadded.
+        if constexpr (TraitsClass::type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            _data_page_pre_decoder = std::make_unique<BinaryPlainPageCharStripPreDecoder>();
+        }
+    } else if (_encoding == PLAIN_ENCODING_V2) {
+        // Only binary types (Slice) need the predecoder for PLAIN_ENCODING_V2 — it converts
+        // varint-encoded lengths to an offset-array format that downstream Slice decoders expect.
+        // CHAR pages additionally strip trailing '\0' padding written by the convertor; other
+        // Slice types use the non-CHAR specialization. All current (type, PLAIN_ENCODING_V2)
+        // registrations are Slice (CHAR/VARCHAR/STRING/JSONB/VARIANT/HLL/BITMAP/QUANTILE_STATE/
+        // AGG_STATE per storage/types.h). The else throws at construction time to fail loudly
+        // if a future non-Slice registration is added.
+        if constexpr (TraitsClass::type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            _data_page_pre_decoder = std::make_unique<BinaryPlainPageV2PreDecoder<true>>();
+        } else if constexpr (std::is_same_v<typename TraitsClass::CppType, Slice>) {
+            _data_page_pre_decoder = std::make_unique<BinaryPlainPageV2PreDecoder<false>>();
+        } else {
+            throw Exception(Status::FatalError(
+                    "PLAIN_ENCODING_V2 is only supported for Slice (binary) types, but got "
+                    "non-Slice type {}",
+                    int(TraitsClass::type)));
+        }
+    }
+}
+
+#ifdef BE_TEST
+static EncodingInfoResolver s_encoding_info_resolver;
+#endif
+
+Status EncodingInfo::get(FieldType type, EncodingTypePB encoding_type, const EncodingInfo** out) {
+#ifdef BE_TEST
+    return s_encoding_info_resolver.get(type, encoding_type, out);
+#else
+    auto* resolver = ExecEnv::GetInstance()->get_encoding_info_resolver();
+    if (resolver == nullptr) {
+        return Status::InternalError("EncodingInfoResolver not initialized");
+    }
+    return resolver->get(type, encoding_type, out);
+#endif
+}
+
+EncodingTypePB EncodingInfo::get_v2_default_encoding(FieldType type) {
+#ifdef BE_TEST
+    return s_encoding_info_resolver.get_v2_default_encoding(type);
+#else
+    auto* resolver = ExecEnv::GetInstance()->get_encoding_info_resolver();
+    if (resolver == nullptr) {
+        return UNKNOWN_ENCODING;
+    }
+    return resolver->get_v2_default_encoding(type);
+#endif
+}
+
+EncodingTypePB EncodingInfo::get_v3_default_encoding(FieldType type) {
+#ifdef BE_TEST
+    return s_encoding_info_resolver.get_v3_default_encoding(type);
+#else
+    auto* resolver = ExecEnv::GetInstance()->get_encoding_info_resolver();
+    if (resolver == nullptr) {
+        return UNKNOWN_ENCODING;
+    }
+    return resolver->get_v3_default_encoding(type);
+#endif
+}
+
+EncodingTypePB EncodingInfo::get_index_column_encoding(FieldType type) {
+#ifdef BE_TEST
+    return s_encoding_info_resolver.get_index_column_encoding(type);
+#else
+    auto* resolver = ExecEnv::GetInstance()->get_encoding_info_resolver();
+    if (resolver == nullptr) {
+        return UNKNOWN_ENCODING;
+    }
+    return resolver->get_index_column_encoding(type);
+#endif
+}
+
+EncodingTypePB EncodingInfo::resolve_default_encoding(TabletStorageFormatPB storage_format,
+                                                      const TabletColumn& column) {
+    const bool is_v3 = (storage_format == TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
+
+    // Row store data is already serialized as a single blob. Keep it on plain pages to
+    // avoid introducing dictionary pages for the hidden row store column.
+    if (column.is_row_store_column()) {
+        return is_v3 ? PLAIN_ENCODING_V2 : PLAIN_ENCODING;
+    }
+    return is_v3 ? get_v3_default_encoding(column.type()) : get_v2_default_encoding(column.type());
+}
+
+Status EncodingInfo::create_page_builder(const PageBuilderOptions& opts,
+                                         std::unique_ptr<PageBuilder>& builder) const {
+    PageBuilder* raw_builder = nullptr;
+    RETURN_IF_ERROR(_create_builder_func(opts, &raw_builder));
+    builder.reset(raw_builder);
+    return Status::OK();
+}
+
+Status EncodingInfo::create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                         std::unique_ptr<PageDecoder>& decoder) const {
+    PageDecoder* raw_decoder = nullptr;
+    RETURN_IF_ERROR(_create_decoder_func(data, opts, &raw_decoder));
+    decoder.reset(raw_decoder);
+    return Status::OK();
+}
+
+} // namespace segment_v2
+} // namespace doris

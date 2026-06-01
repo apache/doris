@@ -58,10 +58,8 @@ suite("test_join_with_const", "query,p0") {
     order by t1.c1
     """
 
-    sql "set enable_nereids_planner = false;"
     qt_sql1 "${join_sql_str}"
 
-    sql "set enable_nereids_planner = true;"
     qt_sql1 "${join_sql_str}"
 
     sql "drop table ${left_table}"

@@ -67,6 +67,11 @@ public class MaxComputeExternalTable extends ExternalTable {
     }
 
     @Override
+    public String getMetaCacheEngine() {
+        return MaxComputeExternalMetaCache.ENGINE;
+    }
+
+    @Override
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
@@ -114,27 +119,9 @@ public class MaxComputeExternalTable extends ExternalTable {
         if (!schemaCacheValue.isPresent()) {
             return new TablePartitionValues();
         }
-        Table odpsTable = ((MaxComputeSchemaCacheValue) schemaCacheValue.get()).getOdpsTable();
-        String projectName = odpsTable.getProject();
-        String tableName = odpsTable.getName();
-        MaxComputeMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMaxComputeMetadataCache(catalog.getId());
-        return metadataCache.getCachedPartitionValues(
-                new MaxComputeCacheKey(projectName, tableName),
-                key -> loadPartitionValues((MaxComputeSchemaCacheValue) schemaCacheValue.get()));
-    }
-
-    private TablePartitionValues loadPartitionValues(MaxComputeSchemaCacheValue schemaCacheValue) {
-        List<String> partitionSpecs = schemaCacheValue.getPartitionSpecs();
-        List<Type> partitionTypes = schemaCacheValue.getPartitionTypes();
-        List<String> partitionColumnNames = schemaCacheValue.getPartitionColumnNames();
-        TablePartitionValues partitionValues = new TablePartitionValues();
-        partitionValues.addPartitions(partitionSpecs,
-                partitionSpecs.stream()
-                        .map(p -> parsePartitionValues(partitionColumnNames, p))
-                        .collect(Collectors.toList()),
-                partitionTypes, Collections.nCopies(partitionSpecs.size(), 0L));
-        return partitionValues;
+        MaxComputeExternalMetaCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .maxCompute(getCatalog().getId());
+        return metadataCache.getPartitionValues(getOrBuildNameMapping());
     }
 
     /**
@@ -146,7 +133,7 @@ public class MaxComputeExternalTable extends ExternalTable {
      * @param partitionPath partitionPath format is like the 'part1=123/part2=abc/part3=1bc'
      * @return all values of partitionPath
      */
-    private static List<String> parsePartitionValues(List<String> partitionColumns, String partitionPath) {
+    static List<String> parsePartitionValues(List<String> partitionColumns, String partitionPath) {
         String[] partitionFragments = partitionPath.split("/");
         if (partitionFragments.length != partitionColumns.size()) {
             throw new RuntimeException("Failed to parse partition values of path: " + partitionPath);

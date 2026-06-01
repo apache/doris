@@ -1,0 +1,152 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.analysis;
+
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
+
+import com.google.gson.annotations.SerializedName;
+
+public class IPv4Literal extends LiteralExpr {
+
+    public static final long IPV4_MIN = 0L;             // 0.0.0.0
+    public static final long IPV4_MAX = (2L << 31) - 1; // 255.255.255.255
+
+    @SerializedName("v")
+    private long value;
+
+    /**
+     * C'tor forcing type, e.g., due to implicit cast
+     */
+    // for restore
+    private IPv4Literal() {
+    }
+
+    public IPv4Literal(long value) {
+        super();
+        this.value = value;
+        this.type = Type.IPV4;
+        this.nullable = false;
+    }
+
+    public IPv4Literal(String value) throws AnalysisException {
+        super();
+        this.value = parseIPv4toLong(value);
+        this.type = Type.IPV4;
+        this.nullable = false;
+    }
+
+    protected IPv4Literal(IPv4Literal other) {
+        super(other);
+        this.value = other.value;
+    }
+
+    private static long parseIPv4toLong(String ipv4) {
+        String[] parts = ipv4.split("\\.");
+        if (parts.length != 4) {
+            return 0L;
+        }
+
+        long value = 0L;
+        for (int i = 0; i < 4; ++i) {
+            short octet;
+            try {
+                octet = Short.parseShort(parts[i]);
+            } catch (NumberFormatException e) {
+                return 0L;
+            }
+            if (octet < 0 || octet > 255) {
+                return 0L;
+            }
+            value = (value << 8) | octet;
+        }
+
+        return value;
+    }
+
+    private static String parseLongToIPv4(long ipv4) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 3; i >= 0; i--) {
+            short octet = (short) ((ipv4 >> (i * 8)) & 0xFF);
+            sb.append(octet);
+            if (i > 0) {
+                sb.append(".");
+            }
+        }
+        return sb.toString();
+    }
+
+    @Override
+    public Expr clone() {
+        return new IPv4Literal(this);
+    }
+
+    @Override
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitIPv4Literal(this, context);
+    }
+
+    @Override
+    public boolean isMinValue() {
+        return this.value == IPV4_MIN;
+    }
+
+    @Override
+    public int compareLiteral(LiteralExpr expr) {
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
+        if (expr instanceof NullLiteral) {
+            return 1;
+        }
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
+        }
+        if (expr instanceof IPv4Literal) {
+            return Long.compare(this.value, ((IPv4Literal) expr).value);
+        }
+        throw new RuntimeException("Cannot compare two values with different data types: "
+                + this + " (" + this.type + ") vs " + expr + " (" + expr.type + ")");
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (!(obj instanceof IPv4Literal)) {
+            return false;
+        }
+        return this.value == ((IPv4Literal) obj).value;
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Long.hashCode(value);
+    }
+
+    @Override
+    public String getStringValue() {
+        return parseLongToIPv4(this.value);
+    }
+
+    public long getValue() {
+        return value;
+    }
+
+}

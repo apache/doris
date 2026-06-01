@@ -36,12 +36,15 @@ import com.google.common.base.Strings;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.gson.annotations.SerializedName;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -57,23 +60,30 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     private ConcurrentHashMap<String, List<Long>> primaryClusterToBackends = null;
     @SerializedName(value = "be")
     private ConcurrentHashMap<String, Long> primaryClusterToBackend = new ConcurrentHashMap<>();
-    @SerializedName(value = "dbId")
-    private long dbId = -1;
     @SerializedName(value = "tableId")
     private long tableId = -1;
     @SerializedName(value = "partitionId")
     private long partitionId = -1;
-    @SerializedName(value = "indexId")
-    private long indexId = -1;
     @SerializedName(value = "idx")
     private long idx = -1;
-
-    private long segmentCount = 0L;
-    private long rowsetCount = 0L;
+    // last time to get tablet stats
+    @Getter
+    @Setter
+    @SerializedName(value = "gst")
+    long lastGetTabletStatsTime = 0;
+    /**
+     * The index of {@link org.apache.doris.catalog.CloudTabletStatMgr#DEFAULT_INTERVAL_LADDER_MS} array.
+     * Used to control the interval of getting tablet stats.
+     * When get tablet stats:
+     * if the stats is unchanged, will update this index to next value to get stats less frequently;
+     * if the stats is changed, will update this index to 0 to get stats more frequently.
+     */
+    @Getter
+    @Setter
+    @SerializedName(value = "sii")
+    int statsIntervalIndex = 0;
 
     private static final Random rand = new Random();
-
-    private Map<String, List<Long>> memClusterToBackends = null;
 
     // clusterId, secondaryBe, changeTimestamp
     private Map<String, Pair<Long, Long>> secondaryClusterToBackends
@@ -92,10 +102,8 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     public CloudReplica(long replicaId, Long backendId, ReplicaState state, long version, int schemaHash,
             long dbId, long tableId, long partitionId, long indexId, long idx) {
         super(replicaId, -1, state, version, schemaHash);
-        this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
-        this.indexId = indexId;
         this.idx = idx;
     }
 
@@ -104,8 +112,17 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     }
 
     public long getColocatedBeId(String clusterId) throws ComputeGroupException {
+        List<Backend> clusterBackends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getBackendsByClusterId(clusterId);
+        return getColocatedBeId(clusterId, clusterBackends);
+    }
+
+    // Same as getColocatedBeId(clusterId) but reuses an already fetched backend list of
+    // the compute group. Lets callers that resolve many replicas across the same compute
+    // groups (e.g. the colocate proc display) fetch each group's backends only once.
+    public long getColocatedBeId(String clusterId, List<Backend> clusterBackends) throws ComputeGroupException {
         CloudSystemInfoService infoService = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
-        List<Backend> bes = infoService.getBackendsByClusterId(clusterId).stream()
+        List<Backend> bes = clusterBackends.stream()
                 .filter(be -> be.isQueryAvailable()).collect(Collectors.toList());
         String clusterName = infoService.getClusterNameByClusterId(clusterId);
         if (bes.isEmpty()) {
@@ -209,6 +226,47 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         return primaryClusterToBackend.getOrDefault(clusterId, -1L);
     }
 
+    // For proc display only. In cloud mode a replica is hashed to a different BE in each
+    // compute group, so expose a clusterId -> backendId mapping; the proc display builds
+    // a separate bucket sequence per compute group from it so each group's sequence is
+    // self-consistent. Do not collapse this into a single BE (e.g. the first one):
+    // backends differ across compute groups and would not match.
+    //
+    // ATTN: colocated replicas do NOT use primaryClusterToBackend (see getBackendIdImpl /
+    // getClusterPrimaryBackendId, which short-circuit to getColocatedBeId), so that cache
+    // is empty for them. Resolve their placement per compute group on the fly instead.
+    // This reads CloudSystemInfoService / the colocate index, so callers must invoke it
+    // OUTSIDE any table lock to avoid nested lock acquisition. It does not auto-start any
+    // compute group: getColocatedBeId only reads the already-known backends of a clusterId.
+    // computeGroupBackendCache maps compute group id -> getBackendsByClusterId() result and
+    // is shared across all replicas resolved in a single proc call, so each compute group's
+    // backend list is fetched only once instead of once per replica.
+    @Override
+    public Map<String, Long> getClusterToBackendForProcDisplay(Map<String, List<Backend>> computeGroupBackendCache) {
+        if (!isColocated()) {
+            return new HashMap<>(primaryClusterToBackend);
+        }
+        Map<String, Long> result = new HashMap<>();
+        CloudSystemInfoService infoService = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+        for (String clusterId : infoService.getCloudClusterIds()) {
+            try {
+                List<Backend> clusterBackends =
+                        computeGroupBackendCache.computeIfAbsent(clusterId, infoService::getBackendsByClusterId);
+                long backendId = getColocatedBeId(clusterId, clusterBackends);
+                if (backendId != -1L) {
+                    result.put(clusterId, backendId);
+                }
+            } catch (ComputeGroupException e) {
+                // Skip compute groups that currently have no available backend.
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("skip compute group {} for colocate proc display, replica {}",
+                            clusterId, getId(), e);
+                }
+            }
+        }
+        return result;
+    }
+
     private String getCurrentClusterId() throws ComputeGroupException {
         // Not in a connect session
         String cluster = null;
@@ -305,30 +363,6 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
 
         if (Config.enable_cloud_multi_replica) {
             int indexRand = rand.nextInt(Config.cloud_replica_num);
-            int coldReadRand = rand.nextInt(100);
-            boolean allowColdRead = coldReadRand < Config.cloud_cold_read_percent;
-            initMemClusterToBackends();
-            boolean replicaEnough = memClusterToBackends.get(clusterId) != null
-                    && memClusterToBackends.get(clusterId).size() > indexRand;
-
-            long backendId = -1;
-            if (replicaEnough) {
-                backendId = memClusterToBackends.get(clusterId).get(indexRand);
-            }
-
-            if (!replicaEnough && !allowColdRead && primaryClusterToBackend.containsKey(clusterId)) {
-                backendId = primaryClusterToBackend.get(clusterId);
-            }
-
-            if (backendId > 0) {
-                Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
-                if (be != null && be.isQueryAvailable()) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("backendId={} ", backendId);
-                    }
-                    return backendId;
-                }
-            }
 
             List<Long> res = hashReplicaToBes(clusterId, false, Config.cloud_replica_num);
             if (res.size() < indexRand + 1) {
@@ -467,17 +501,6 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         return (hashValue % beNum + beNum) % beNum;
     }
 
-    private void initMemClusterToBackends() {
-        // the enable_cloud_multi_replica is not used now
-        if (memClusterToBackends == null) {
-            synchronized (this) {
-                if (memClusterToBackends == null) {
-                    memClusterToBackends = new ConcurrentHashMap<>();
-                }
-            }
-        }
-    }
-
     private List<Long> hashReplicaToBes(String clusterId, boolean isBackGround, int replicaNum)
             throws ComputeGroupException {
         // TODO(luwei) list should be sorted
@@ -537,11 +560,8 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
             LOG.info("picked beId {}, replicaId {}, partId {}, beNum {}, replicaIdx {}, picked Index {}, hashVal {}",
                     pickedBeId, getId(), partitionId, availableBes.size(), idx, index,
                     hashCode == null ? -1 : hashCode.asLong());
-            // save to memClusterToBackends map
             bes.add(pickedBeId);
         }
-
-        memClusterToBackends.put(clusterId, bes);
 
         return bes;
     }
@@ -554,20 +574,12 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         return true;
     }
 
-    public long getDbId() {
-        return dbId;
-    }
-
     public long getTableId() {
         return tableId;
     }
 
     public long getPartitionId() {
         return partitionId;
-    }
-
-    public long getIndexId() {
-        return indexId;
     }
 
     public long getIdx() {
@@ -626,26 +638,6 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
             }
         });
         return result;
-    }
-
-    @Override
-    public long getSegmentCount() {
-        return segmentCount;
-    }
-
-    @Override
-    public void setSegmentCount(long segmentCount) {
-        this.segmentCount = segmentCount;
-    }
-
-    @Override
-    public long getRowsetCount() {
-        return rowsetCount;
-    }
-
-    @Override
-    public void setRowsetCount(long rowsetCount) {
-        this.rowsetCount = rowsetCount;
     }
 
     @Override

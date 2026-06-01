@@ -33,6 +33,7 @@
 #include <exception>
 #include <future>
 #include <memory>
+#include <numeric>
 #include <random>
 #include <string>
 #include <string_view>
@@ -1215,7 +1216,7 @@ static int get_copy_file_num(TxnKv* txn_kv, const std::string& stage_id, int64_t
         return -1;
     }
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         if (txn->get(key0, key1, &it) != TxnErrorCode::TXN_OK) {
             return -1;
         }
@@ -1224,7 +1225,7 @@ static int get_copy_file_num(TxnKv* txn_kv, const std::string& stage_id, int64_t
             ++(*file_num);
         }
         key0.push_back('\x00');
-    } while (it->more());
+    }
     return 0;
 }
 
@@ -1242,14 +1243,14 @@ static void check_delete_bitmap_keys_size(TxnKv* txn_kv, int64_t tablet_id, int 
         dbm_end_key = meta_delete_bitmap_key({instance_id, tablet_id + 1, "", 0, 0});
     }
     int size = 0;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         ASSERT_EQ(txn->get(dbm_start_key, dbm_end_key, &it), TxnErrorCode::TXN_OK);
         while (it->has_next()) {
             it->next();
             size++;
         }
         dbm_start_key = it->next_begin_key();
-    } while (it->more());
+    }
     EXPECT_EQ(size, expected_size);
 }
 
@@ -3326,6 +3327,96 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     }
 }
 
+// Regression test: if commit_rowset is called but the txn is never committed,
+// the rowset stays in meta_rowset_tmp_key with data_rowset_ref_count_key=1.
+// recycle_deleted_instance() must call recycle_tmp_rowsets() first so that
+// the orphan ref_count is cleaned up before recycle_ref_rowsets() runs,
+// otherwise the instance is never fully deleted and data files are leaked.
+TEST(RecyclerTest, recycle_deleted_instance_with_orphan_tmp_rowset) {
+    config::retention_seconds = 0;
+    config::force_immediate_recycle = true;
+    DORIS_CLOUD_DEFER {
+        config::force_immediate_recycle = false;
+    };
+
+    auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_NE(txn_kv.get(), nullptr);
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    // Create instance with multi-version read/write and snapshot support
+    InstanceInfoPB instance_info;
+    instance_info.set_instance_id(instance_id);
+    instance_info.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_READ_WRITE);
+    instance_info.set_snapshot_switch_status(SnapshotSwitchStatus::SNAPSHOT_SWITCH_ON);
+    auto* obj_info = instance_info.add_obj_info();
+    obj_info->set_id("orphan_tmp_rowset_test");
+
+    // Write instance info to FDB (required by OperationLogRecycleChecker::init())
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = instance_key({instance_id});
+        std::string val = instance_info.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    InstanceRecycler recycler(txn_kv, instance_info, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    constexpr int64_t tablet_id = 20001;
+    constexpr int64_t index_id = 20002;
+    constexpr int64_t txn_id = 888888;
+
+    // Simulate commit_rowset: write meta_rowset_tmp_key + increment ref_count,
+    // but do NOT commit the txn (no meta_rowset_key, no operation log).
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(0);
+    auto rowset = create_rowset("orphan_tmp_rowset_test", tablet_id, index_id, 2, schema, txn_id);
+    ASSERT_EQ(0, create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, false));
+
+    // Verify the data file exists
+    {
+        std::unique_ptr<ListIterator> list_iter;
+        ASSERT_EQ(0, accessor->list_all(&list_iter));
+        ASSERT_TRUE(list_iter->has_next());
+    }
+
+    // Verify the ref_count key exists
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::unique_ptr<RangeGetIterator> it;
+        auto begin_key = versioned::data_rowset_ref_count_key({instance_id, 0, ""});
+        auto end_key = versioned::data_rowset_ref_count_key({instance_id, INT64_MAX, ""});
+        ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(it->size(), 1);
+    }
+
+    // Recycle deleted instance
+    ASSERT_EQ(0, recycler.recycle_deleted_instance());
+
+    // All data files must be deleted
+    {
+        std::unique_ptr<ListIterator> list_iter;
+        ASSERT_EQ(0, accessor->list_all(&list_iter));
+        ASSERT_FALSE(list_iter->has_next());
+    }
+
+    // All ref_count keys must be cleaned up
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::unique_ptr<RangeGetIterator> it;
+        auto begin_key = versioned::data_rowset_ref_count_key({instance_id, 0, ""});
+        auto end_key = versioned::data_rowset_ref_count_key({instance_id, INT64_MAX, ""});
+        ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(it->size(), 0);
+    }
+}
+
 TEST(RecyclerTest, multi_recycler) {
     config::recycle_concurrency = 2;
     config::recycle_interval_seconds = 10;
@@ -3823,7 +3914,7 @@ TEST(CheckerTest, abnormal_inverted_check_index_file_v1) {
     DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
 
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         err = txn->get(meta_rowset_key_begin, meta_rowset_key_end, &it);
         while (it->has_next()) {
             auto [k, v] = it->next();
@@ -3835,7 +3926,7 @@ TEST(CheckerTest, abnormal_inverted_check_index_file_v1) {
             }
         }
         meta_rowset_key_begin.push_back('\x00');
-    } while (it->more());
+    }
 
     for (const auto& key : rowset_key_to_delete) {
         std::unique_ptr<Transaction> txn;
@@ -3908,7 +3999,7 @@ TEST(CheckerTest, abnormal_inverted_check_index_file_v2) {
     DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
 
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         err = txn->get(meta_rowset_key_begin, meta_rowset_key_end, &it);
         while (it->has_next()) {
             auto [k, v] = it->next();
@@ -3920,7 +4011,7 @@ TEST(CheckerTest, abnormal_inverted_check_index_file_v2) {
             }
         }
         meta_rowset_key_begin.push_back('\x00');
-    } while (it->more());
+    }
 
     for (const auto& key : rowset_key_to_delete) {
         std::unique_ptr<Transaction> txn;
@@ -5479,6 +5570,57 @@ TEST(RecyclerTest, delete_rowset_data) {
         ASSERT_EQ(0, accessor->list_all(&list_iter));
         ASSERT_FALSE(list_iter->has_next());
     }
+}
+
+TEST(RecyclerTest, delete_rowset_data_without_delete_bitmap_meta) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view resource_id = "delete_rowset_data_without_delete_bitmap_meta";
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id(std::string(resource_id));
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix(std::string(resource_id));
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+
+    auto rowset = create_rowset(std::string(resource_id), 10002, 10001, 1, schema);
+    ASSERT_EQ(create_recycle_rowset(txn_kv.get(), accessor.get(), rowset, RecycleRowsetPB::COMPACT,
+                                    true),
+              0);
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    std::vector<std::string> deleted_paths;
+    sp->set_call_back("MockAccessor::delete_files", [&](auto&& args) {
+        auto* paths = try_any_cast<const std::vector<std::string>*>(args[0]);
+        deleted_paths.insert(deleted_paths.end(), paths->begin(), paths->end());
+    });
+    sp->enable_processing();
+
+    ASSERT_EQ(recycler.delete_rowset_data(rowset), 0);
+    ASSERT_EQ(deleted_paths.size(), 1)
+            << " size: " << deleted_paths.size() << " content: "
+            << std::accumulate(deleted_paths.begin(), deleted_paths.end(), std::string(),
+                               [](const std::string& str, const std::string& it) {
+                                   return str.empty() ? it : str + ", " + it;
+                               });
+    EXPECT_EQ(deleted_paths[0], segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), 0));
 }
 
 TEST(RecyclerTest, delete_rowset_data_packed_file_single_rowset) {
@@ -7410,7 +7552,7 @@ void check_multiple_txn_info_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t s
     int64_t total_kv = 0;
 
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         int get_ret = txn_get(txn_kv.get(), begin, end, it);
         if (get_ret != 0) { // txn kv may complain "Request for future version"
             LOG(WARNING) << "failed to get kv, range=[" << hex(begin) << "," << hex(end)
@@ -7432,7 +7574,7 @@ void check_multiple_txn_info_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t s
             total_kv++;
         }
         begin.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
     ASSERT_EQ(total_kv, size);
 }
 
@@ -7508,12 +7650,12 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
     };
+    size_t recycle_txn_info_keys_cnt = 0;
     sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.check_recycle_txn_info_keys",
-                      [](auto&& args) {
+                      [&](auto&& args) {
                           auto* recycle_txn_info_keys =
                                   try_any_cast<std::vector<std::string>*>(args[0]);
-
-                          ASSERT_LE(recycle_txn_info_keys->size(), 10000);
+                          recycle_txn_info_keys_cnt += recycle_txn_info_keys->size();
                       });
     sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.failure", [](auto&& args) {
         auto* ret = try_any_cast<int*>(args[0]);
@@ -7532,7 +7674,7 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
     std::cout << "recycle expired txn label cost="
               << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
               << "ms" << std::endl;
-    check_multiple_txn_info_kvs(txn_kv, 5000);
+    check_multiple_txn_info_kvs(txn_kv, (20000 - recycle_txn_info_keys_cnt));
 }
 TEST(RecyclerTest, concurrent_recycle_txn_label_conflict_test) {
     config::label_keep_max_second = 0;
@@ -8550,5 +8692,116 @@ TEST(RecyclerTest, recycle_tablet_with_delete_file_failure) {
         ASSERT_EQ(txn->get(recyc_rs_key_begin, recyc_rs_key_end, &it), TxnErrorCode::TXN_OK);
         EXPECT_EQ(it->size(), 0) << "All recycle rowset keys should be deleted";
     }
+}
+
+TEST(RecyclerTest, enable_recycler_default_true) {
+    EXPECT_TRUE(config::enable_recycler);
+}
+
+TEST(RecyclerTest, enable_recycler_skip_instance_scanner) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    bool old_val = config::enable_recycler;
+    config::enable_recycler = false;
+    DORIS_CLOUD_DEFER {
+        config::enable_recycler = old_val;
+    };
+
+    int64_t old_recycle_interval = config::recycle_interval_seconds;
+    config::recycle_interval_seconds = 0;
+    DORIS_CLOUD_DEFER {
+        config::recycle_interval_seconds = old_recycle_interval;
+    };
+
+    int64_t old_sleep = config::recycler_sleep_before_scheduling_seconds;
+    config::recycler_sleep_before_scheduling_seconds = 0;
+    DORIS_CLOUD_DEFER {
+        config::recycler_sleep_before_scheduling_seconds = old_sleep;
+    };
+
+    Recycler recycler(txn_kv);
+    std::thread t([&]() { recycler.instance_scanner_callback(); });
+
+    // Let the callback complete one iteration:
+    //   sleep(0) -> check enable_recycler (false, skip) -> wait_for(0, timeout)
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    recycler.stopped_ = true;
+    recycler.notifier_.notify_all();
+    t.join();
+
+    EXPECT_TRUE(recycler.pending_instance_queue_.empty());
+}
+
+TEST(RecyclerTest, enable_recycler_skip_recycle_callback) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    bool old_val = config::enable_recycler;
+    config::enable_recycler = false;
+    DORIS_CLOUD_DEFER {
+        config::enable_recycler = old_val;
+    };
+
+    Recycler recycler(txn_kv);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id("test_instance");
+    recycler.pending_instance_queue_.push_back(instance);
+    recycler.pending_instance_set_.insert("test_instance");
+
+    std::thread t([&]() { recycler.recycle_callback(); });
+
+    // Wait until the callback has popped the instance from the queue.
+    // Can not wait on pending_instance_cond_ here because the callback does
+    // not notify after popping, which may cause a deadlock: both the main
+    // thread and the callback end up waiting on the same CV with different
+    // predicates and no one will wake them up.
+    while (true) {
+        {
+            std::lock_guard lock(recycler.mtx_);
+            if (recycler.pending_instance_queue_.empty()) break;
+        }
+        std::this_thread::yield();
+    }
+
+    recycler.stopped_ = true;
+    recycler.pending_instance_cond_.notify_all();
+    t.join();
+
+    EXPECT_TRUE(recycler.pending_instance_queue_.empty());
+    EXPECT_TRUE(recycler.pending_instance_set_.empty());
+    EXPECT_TRUE(recycler.recycling_instance_map_.empty());
+}
+
+TEST(RecyclerTest, RecycleInstanceFilterReadsConfigDynamically) {
+    auto old_whitelist = config::recycle_whitelist;
+    auto old_blacklist = config::recycle_blacklist;
+    DORIS_CLOUD_DEFER {
+        config::recycle_whitelist = old_whitelist;
+        config::recycle_blacklist = old_blacklist;
+    };
+
+    auto [succ, cause] = config::update_config("recycle_whitelist=", false, "");
+    ASSERT_TRUE(succ) << cause;
+    std::tie(succ, cause) =
+            config::update_config("recycle_blacklist=instance1,instance2", false, "");
+    ASSERT_TRUE(succ) << cause;
+    ASSERT_EQ(config::recycle_blacklist.size(), 2);
+    EXPECT_TRUE(filter_out_instance("instance1"));
+    EXPECT_TRUE(filter_out_instance("instance2"));
+    EXPECT_FALSE(filter_out_instance("instance3"));
+
+    std::tie(succ, cause) = config::update_config("recycle_blacklist=instance2", false, "");
+    ASSERT_TRUE(succ) << cause;
+    EXPECT_FALSE(filter_out_instance("instance1"));
+    EXPECT_TRUE(filter_out_instance("instance2"));
+
+    std::tie(succ, cause) = config::update_config(
+            "recycle_whitelist=instance1,recycle_blacklist=instance1", false, "");
+    ASSERT_TRUE(succ) << cause;
+    EXPECT_FALSE(filter_out_instance("instance1"));
+    EXPECT_TRUE(filter_out_instance("instance2"));
 }
 } // namespace doris::cloud

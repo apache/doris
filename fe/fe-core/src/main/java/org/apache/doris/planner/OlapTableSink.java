@@ -17,18 +17,23 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.IndexToThriftConvertor;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -226,8 +231,12 @@ public class OlapTableSink extends DataSink {
         for (TOlapTablePartition partition : tOlapTablePartitionParam.getPartitions()) {
             partition.setTotalReplicaNum(dstTable.getPartitionTotalReplicasNum(partition.getId()));
             partition.setLoadRequiredReplicaNum(dstTable.getLoadRequiredReplicaNum(partition.getId()));
+            Map<Long, List<Long>> gapBackends = dstTable.getPartitionVersionGapBackends(partition.getId());
+            if (!gapBackends.isEmpty()) {
+                partition.setTabletVersionGapBackends(gapBackends);
+            }
         }
-        tOlapTableLocationParams = createLocation(tSink.getDbId(), dstTable);
+        tOlapTableLocationParams = initLocationParams(tSink);
 
         tSink.setTableId(dstTable.getId());
         tSink.setTupleId(tupleDescriptor.getId().asInt());
@@ -280,8 +289,12 @@ public class OlapTableSink extends DataSink {
         for (TOlapTablePartition partition : tOlapTablePartitionParam.getPartitions()) {
             partition.setTotalReplicaNum(dstTable.getPartitionTotalReplicasNum(partition.getId()));
             partition.setLoadRequiredReplicaNum(dstTable.getLoadRequiredReplicaNum(partition.getId()));
+            Map<Long, List<Long>> gapBackends = dstTable.getPartitionVersionGapBackends(partition.getId());
+            if (!gapBackends.isEmpty()) {
+                partition.setTabletVersionGapBackends(gapBackends);
+            }
         }
-        tOlapTableLocationParams = createLocation(tSink.getDbId(), dstTable);
+        tOlapTableLocationParams = initLocationParams(tSink);
 
         tSink.setTableId(dstTable.getId());
         tSink.setTupleId(tupleDescriptor.getId().asInt());
@@ -389,9 +402,9 @@ public class OlapTableSink extends DataSink {
         schemaParam.setVersion(table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion());
         schemaParam.setIsStrictMode(isStrictMode);
 
-        schemaParam.tuple_desc = tupleDescriptor.toThrift();
+        schemaParam.tuple_desc = DescriptorToThriftConverter.toThrift(tupleDescriptor);
         for (SlotDescriptor slotDesc : tupleDescriptor.getSlots()) {
-            schemaParam.addToSlotDescs(slotDesc.toThrift());
+            schemaParam.addToSlotDescs(DescriptorToThriftConverter.toThrift(slotDesc));
         }
 
         for (Map.Entry<Long, MaterializedIndexMeta> pair : table.getIndexIdToMeta().entrySet()) {
@@ -401,14 +414,14 @@ public class OlapTableSink extends DataSink {
             List<TOlapTableIndex> indexDesc = Lists.newArrayList();
             columns.addAll(indexMeta.getSchema().stream().map(Column::getNonShadowName).collect(Collectors.toList()));
             for (Column column : indexMeta.getSchema()) {
-                TColumn tColumn = column.toThrift();
+                TColumn tColumn = ColumnToThrift.toThrift(column);
                 // When schema change is doing, some modified column has prefix in name. Columns here
                 // is for the schema in rowset meta, which should be no column with shadow prefix.
                 // So we should remove the shadow prefix here.
-                if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+                if (column.getName().startsWith(Column.SHADOW_NAME_PREFIX)) {
                     tColumn.setColumnName(column.getNonShadowName());
                 }
-                column.setIndexFlag(tColumn, table);
+                ColumnToThrift.setIndexFlag(tColumn, table);
                 columnsDesc.add(tColumn);
             }
             List<Index> indexes = indexMeta.getIndexes();
@@ -418,23 +431,41 @@ public class OlapTableSink extends DataSink {
                 indexes = table.getIndexes();
             }
             for (Index index : indexes) {
-                TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(table.getBaseSchema()));
+                TOlapTableIndex tIndex = IndexToThriftConvertor.toThrift(index, table.getBaseSchema());
                 indexDesc.add(tIndex);
             }
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
                     indexMeta.getSchemaHash());
+            indexSchema.setRowBinlogId(indexMeta.getRowBinlogIndexId());
             Expr whereClause = indexMeta.getWhereClause();
             if (whereClause != null) {
                 Expr expr = syncMvWhereClauses.getOrDefault(pair.getKey(), null);
                 if (expr == null) {
-                    throw new AnalysisException(String.format("%s is not analyzed", whereClause.toSqlWithoutTbl()));
+                    throw new AnalysisException(String.format("%s is not analyzed",
+                            whereClause.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE)));
                 }
-                indexSchema.setWhereClause(expr.treeToThrift());
+                indexSchema.setWhereClause(ExprToThriftVisitor.treeToThrift(expr));
             }
             indexSchema.setColumnsDesc(columnsDesc);
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
         }
+
+        if (table.needRowBinlog()) {
+            MaterializedIndexMeta rowBinlogMeta = table.getRowBinlogMeta();
+            List<String> binlogColumns = Lists.newArrayList();
+            List<TColumn> binlogColumnsDesc = Lists.newArrayList();
+            for (Column column : rowBinlogMeta.getSchema(true)) {
+                TColumn tColumn = ColumnToThrift.toThrift(column);
+                binlogColumnsDesc.add(tColumn);
+                binlogColumns.add(column.getName());
+            }
+            TOlapTableIndexSchema rowBinlogIndexSchema = new TOlapTableIndexSchema(
+                    rowBinlogMeta.getIndexId(), binlogColumns, rowBinlogMeta.getSchemaHash());
+            rowBinlogIndexSchema.setColumnsDesc(binlogColumnsDesc);
+            schemaParam.setRowBinlogIndexSchema(rowBinlogIndexSchema);
+        }
+
         setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
         schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
         return schemaParam;
@@ -535,7 +566,7 @@ public class OlapTableSink extends DataSink {
             if (exprSource.size() != partitionExprs.size()) {
                 throw new UserException(String.format("%s is not analyzed", exprSource));
             }
-            partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(partitionExprs));
+            partitionParam.setPartitionFunctionExprs(ExprToThriftVisitor.treesToThrift(partitionExprs));
         }
 
         return partitionParam;
@@ -616,7 +647,7 @@ public class OlapTableSink extends DataSink {
                     if (exprSource.size() != partitionExprs.size()) {
                         throw new UserException(String.format("%s is not analyzed", exprSource));
                     }
-                    partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(partitionExprs));
+                    partitionParam.setPartitionFunctionExprs(ExprToThriftVisitor.treesToThrift(partitionExprs));
                 }
 
                 partitionParam.setEnableAutomaticPartition(enableAutomaticPartition);
@@ -673,7 +704,8 @@ public class OlapTableSink extends DataSink {
             // set start keys. min value is a REAL value. should be legal.
             if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
                 for (int i = 0; i < partColNum; i++) {
-                    tPartition.addToStartKeys(range.lowerEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
+                    tPartition.addToStartKeys(ExprToThriftVisitor.treeToThrift(
+                            range.lowerEndpoint().getKeys().get(i)).getNodes().get(0));
                 }
             }
             // TODO: support real MaxLiteral in thrift.
@@ -681,7 +713,8 @@ public class OlapTableSink extends DataSink {
             // see VOlapTablePartition's ctor in tablet_info.h
             if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
                 for (int i = 0; i < partColNum; i++) {
-                    tPartition.addToEndKeys(range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
+                    tPartition.addToEndKeys(ExprToThriftVisitor.treeToThrift(
+                            range.upperEndpoint().getKeys().get(i)).getNodes().get(0));
                 }
             }
         } else if (partitionItem instanceof ListPartitionItem) {
@@ -692,15 +725,25 @@ public class OlapTableSink extends DataSink {
                 for (int i = 0; i < partColNum; i++) {
                     LiteralExpr literalExpr = partitionKey.getKeys().get(i);
                     if (literalExpr.isNullLiteral()) {
-                        tExprNodes.add(NullLiteral.create(literalExpr.getType()).treeToThrift().getNodes().get(0));
+                        tExprNodes.add(ExprToThriftVisitor.treeToThrift(
+                                NullLiteral.create(literalExpr.getType())).getNodes().get(0));
                     } else {
-                        tExprNodes.add(literalExpr.treeToThrift().getNodes().get(0));
+                        tExprNodes.add(ExprToThriftVisitor.treeToThrift(literalExpr).getNodes().get(0));
                     }
                 }
                 tPartition.addToInKeys(tExprNodes);
                 tPartition.setIsDefaultPartition(partitionItem.isDefaultPartition());
             }
         }
+    }
+
+    // Hook for subclasses to control how the tablet location params are populated.
+    // Default behavior computes the full tablet -> backend mapping via createLocation,
+    // which under high-concurrency stream load on large tables is the dominant FE CPU
+    // cost. Subclasses whose BE counterpart does not consume TOlapTableSink.location
+    // (e.g. GroupCommitBlockSink) can override this hook to skip that work.
+    protected List<TOlapTableLocationParam> initLocationParams(TOlapTableSink tSink) throws UserException {
+        return createLocation(tSink.getDbId(), dstTable);
     }
 
     public List<TOlapTableLocationParam> createDummyLocation(OlapTable table) throws UserException {

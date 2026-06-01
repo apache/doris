@@ -7,9 +7,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_returns.wr_returning_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[wr_returning_addr_sk]
+--------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_returns.wr_returning_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->wr_returning_addr_sk
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_returns.wr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[wr_returned_date_sk]
+------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_returns.wr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->wr_returned_date_sk
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[web_returns] apply RFs: RF0 RF1
 --------------------PhysicalProject
@@ -22,11 +22,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN broadcast] hashCondition=((ctr1.ctr_state = ctr2.ctr_state)) otherCondition=((cast(ctr_total_return as DECIMALV3(38, 5)) > (avg(ctr_total_return) * 1.2))) build RFs:RF4 ctr_state->[ctr_state]
+------------hashJoin[INNER_JOIN broadcast] hashCondition=((ctr1.ctr_state = ctr2.ctr_state)) otherCondition=((cast(ctr_total_return as DECIMALV3(38, 5)) > (avg(ctr_total_return) * 1.2))) build RFs:RF4 ctr_state->ctr_state
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[c_current_addr_sk]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF3 ca_address_sk->c_current_addr_sk
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffle] hashCondition=((ctr1.ctr_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF2 ctr_customer_sk->[c_customer_sk]
+--------------------hashJoin[INNER_JOIN shuffle] hashCondition=((ctr1.ctr_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF2 ctr_customer_sk->c_customer_sk
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[customer] apply RFs: RF2 RF3
 ----------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF4

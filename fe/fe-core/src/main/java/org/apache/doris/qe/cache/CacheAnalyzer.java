@@ -27,16 +27,13 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -56,7 +53,6 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -97,9 +93,7 @@ public class CacheAnalyzer {
     private CacheTable latestTable;
     private StatementBase parsedStmt;
     private List<ScanNode> scanNodes;
-    private RangePartitionInfo partitionInfo;
     private Column partColumn;
-    private CompoundPredicate partitionPredicate;
     private Cache cache;
     private final Set<String> allViewStmtSet;
     private String allViewExpandStmtListStr;
@@ -182,10 +176,6 @@ public class CacheAnalyzer {
                         partitionNum, sumOfPartitionNum);
             }
         }
-    }
-
-    public boolean enableCache() {
-        return enableSqlCache || enablePartitionCache;
     }
 
     public boolean enableSqlCache() {
@@ -520,20 +510,5 @@ public class CacheAnalyzer {
 
     public CacheTable getLatestTable() {
         return latestTable;
-    }
-
-    public boolean isEqualViewString(List<TableIf> views) {
-        Set<String> viewSet = Sets.newHashSet();
-        for (TableIf view : views) {
-            if (view instanceof View) {
-                viewSet.add(((View) view).getInlineViewDef());
-            } else if (view instanceof HMSExternalTable) {
-                viewSet.add(((HMSExternalTable) view).getViewText());
-            } else {
-                return false;
-            }
-        }
-
-        return StringUtils.equals(allViewExpandStmtListStr, StringUtils.join(viewSet, "|"));
     }
 }

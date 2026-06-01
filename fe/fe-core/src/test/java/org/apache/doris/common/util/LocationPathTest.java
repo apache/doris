@@ -19,8 +19,8 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
-import org.apache.doris.fs.FileSystemType;
+import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.thrift.TFileType;
 
 import org.apache.commons.lang3.StringUtils;
@@ -103,16 +103,17 @@ public class LocationPathTest {
     }
 
     @Test
-    public void testJFSLocationConvert() {
+    public void testJfsLocationConvertAsHdfsCompatible() {
         LocationPath locationPath = LocationPath.of("jfs://test.com");
         // FE
         Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("jfs://"));
         // BE
         String loc = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(loc.startsWith("jfs://"));
-        Assertions.assertEquals(FileSystemType.JFS, locationPath.getFileSystemType());
+        // JFS is treated as Hadoop-compatible, so Doris maps it to HDFS file system type.
+        Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
         Assertions.assertEquals("jfs://test.com", locationPath.getFsIdentifier());
-        Assertions.assertEquals(TFileType.FILE_BROKER, locationPath.getTFileTypeForBE());
+        Assertions.assertEquals(TFileType.FILE_HDFS, locationPath.getTFileTypeForBE());
     }
 
     @Disabled("not support in master")
@@ -331,6 +332,21 @@ public class LocationPathTest {
         Assertions.assertEquals(full.getNormalizedLocation(), cached.getNormalizedLocation());
         Assertions.assertEquals(full.getFsIdentifier(), cached.getFsIdentifier());
         Assertions.assertEquals(full.getSchema(), cached.getSchema());
+    }
+
+    @Test
+    public void testLocationPathWithCacheUsesDefaultFsForHdfsPath() {
+        StorageProperties storageProperties = STORAGE_PROPERTIES_MAP.get(StorageProperties.Type.HDFS);
+        String location = "/hadoop_catalog/fdm/f_csm_t_consume_info/data/data_dt=20220407/file.parquet";
+        LocationPath cached = LocationPath.ofWithCache(location, storageProperties, null, null);
+        LocationPath full = LocationPath.of(location, STORAGE_PROPERTIES_MAP);
+        Assertions.assertEquals(full.getNormalizedLocation(), cached.getNormalizedLocation());
+        Assertions.assertEquals("hdfs://namenode:8020/hadoop_catalog/fdm/f_csm_t_consume_info/data/"
+                + "data_dt=20220407/file.parquet", cached.getNormalizedLocation());
+        Assertions.assertEquals("hdfs://namenode:8020", cached.getFsIdentifier());
+        Assertions.assertEquals("hdfs", cached.getSchema());
+        Assertions.assertEquals(TFileType.FILE_HDFS, cached.getTFileTypeForBE());
+        Assertions.assertEquals(FileSystemType.HDFS, cached.getFileSystemType());
     }
 
     @Test

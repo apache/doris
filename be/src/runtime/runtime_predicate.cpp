@@ -22,12 +22,12 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
-#include "olap/accept_null_predicate.h"
-#include "olap/column_predicate.h"
-#include "olap/predicate_creator.h"
-#include "runtime/define_primitive_type.h"
+#include "core/data_type/define_primitive_type.h"
+#include "storage/predicate/accept_null_predicate.h"
+#include "storage/predicate/column_predicate.h"
+#include "storage/predicate/predicate_creator.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
         : _nulls_first(desc.null_first), _is_asc(desc.is_asc) {
@@ -81,7 +81,7 @@ Status RuntimePredicate::init_target(
 
 bool RuntimePredicate::_init(PrimitiveType type) {
     return is_int_or_bool(type) || is_decimal(type) || is_string_type(type) || is_date_type(type) ||
-           is_time_type(type) || is_ip(type) || is_varbinary(type);
+           is_time_type(type) || is_timestamptz_type(type) || is_ip(type) || is_varbinary(type);
 }
 
 Status RuntimePredicate::update(const Field& value) {
@@ -143,4 +143,4 @@ Status RuntimePredicate::update(const Field& value) {
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

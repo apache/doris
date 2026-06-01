@@ -45,8 +45,12 @@ class DorisRelation(BaseRelation):
     quote_character: str = "`"
 
     def __post_init__(self):
-        if self.database != self.schema and self.database:
-            raise DbtRuntimeError(f"Cannot set database {self.database} in Doris!")
+        # In Doris, database and schema are the same concept — there is only
+        # one namespace level.  When a source or model sets "database" to a
+        # value that differs from "schema", treat database AS the schema so
+        # that cross-database references like {{ source(...) }} work correctly.
+        if self.database and self.database != self.schema:
+            self.path.schema = self.database
 
     def render(self):
         if self.include_policy.database and self.include_policy.schema:

@@ -18,7 +18,6 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.catalog.InfoSchemaDb;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
@@ -63,7 +62,7 @@ public class DbPrivEntry extends CatalogPrivEntry {
     private static PatternMatcher createDbPatternMatcher(String db) throws AnalysisException {
         // the database 'information_schema''s name is case insensibility.
         boolean dbCaseSensibility = CaseSensibility.DATABASE.getCaseSensibility();
-        if (ClusterNamespace.getNameFromFullName(db).equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
+        if (db.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
             dbCaseSensibility = false;
         }
 

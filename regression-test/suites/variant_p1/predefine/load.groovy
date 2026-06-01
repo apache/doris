@@ -56,7 +56,6 @@ suite("test_predefine_type_multi_index", "p1"){
     table_name = "github_events"
     // int rand_subcolumns_count = Math.floor(Math.random() * (611 - 511 + 1)) + 400
     // int rand_subcolumns_count = 0;
-    sql "set enable_variant_flatten_nested = true"
     sql """ drop table if exists github_events_2 """
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -77,7 +76,7 @@ suite("test_predefine_type_multi_index", "p1"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "true");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
 
     // 2015

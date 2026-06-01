@@ -33,9 +33,21 @@ import java.util.Map;
 public class FetchTableSplitsRequest extends JobBaseConfig {
     private String snapshotTable;
 
+    /**
+     * The next split start, null = fresh start (START_BOUND).
+     * cdc_client takes to construct ChunkSplitterState.
+     */
+    private Object[] nextSplitStart;
+
+    /** Next split id; null = 0 (fresh start). */
+    private Integer nextSplitId;
+
+    /** Splits to fetch in this RPC; null lets cdc_client use its default. */
+    private Integer batchSize;
+
     public FetchTableSplitsRequest(Long jobId, String name,
             Map<String, String> sourceProperties, String frontendAddress, String snapshotTable) {
-        super(jobId, name, sourceProperties, frontendAddress);
+        super(jobId.toString(), name, sourceProperties, frontendAddress);
         this.snapshotTable = snapshotTable;
     }
 }

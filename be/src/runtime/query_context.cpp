@@ -24,7 +24,6 @@
 #include <glog/logging.h>
 
 #include <algorithm>
-#include <exception>
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -32,10 +31,11 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "olap/olap_common.h"
-#include "pipeline/dependency.h"
-#include "pipeline/exec/rec_cte_scan_operator.h"
-#include "pipeline/pipeline_fragment_context.h"
+#include "exec/operator/rec_cte_scan_operator.h"
+#include "exec/pipeline/dependency.h"
+#include "exec/pipeline/pipeline_fragment_context.h"
+#include "exec/runtime_filter/runtime_filter_definitions.h"
+#include "exec/spill/spill_file_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/heap_profiler.h"
@@ -44,10 +44,9 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/query_task_controller.h"
-#include "runtime_filter/runtime_filter_definitions.h"
+#include "storage/olap_common.h"
 #include "util/mem_info.h"
 #include "util/uid_util.h"
-#include "vec/spill/spill_stream_manager.h"
 
 namespace doris {
 
@@ -73,6 +72,8 @@ const std::string toString(QuerySource queryType) {
         return "ROUTINE_LOAD";
     case QuerySource::EXTERNAL_CONNECTOR:
         return "EXTERNAL_CONNECTOR";
+    case QuerySource::EXTERNAL_FRONTEND:
+        return "EXTERNAL_FRONTEND";
     default:
         return "UNKNOWN";
     }
@@ -102,10 +103,9 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _init_resource_context();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
     _query_watcher.start();
-    _execution_dependency =
-            pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", false);
+    _execution_dependency = Dependency::create_unique(-1, -1, "ExecutionDependency", false);
     _memory_sufficient_dependency =
-            pipeline::Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
+            Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
 
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(true);
 
@@ -139,6 +139,9 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     }
     clock_gettime(CLOCK_MONOTONIC, &this->_query_arrival_timestamp);
     DorisMetrics::instance()->query_ctx_cnt->increment(1);
+    _mem_arb = MemShareArbitrator::create_shared(
+            query_id, query_options.mem_limit,
+            query_options.__isset.max_scan_mem_ratio ? query_options.max_scan_mem_ratio : 1.0);
 }
 
 void QueryContext::_init_query_mem_tracker() {
@@ -219,26 +222,12 @@ QueryContext::~QueryContext() {
                 PrettyPrinter::print_bytes(query_mem_tracker()->consumption()),
                 PrettyPrinter::print_bytes(query_mem_tracker()->peak_consumption()));
     }
-    [[maybe_unused]] uint64_t group_id = 0;
-    if (workload_group()) {
-        group_id = workload_group()->id(); // before remove
-    }
-
     _resource_ctx->task_controller()->finish();
 
     if (enable_profile()) {
         _report_query_profile();
     }
 
-#ifndef BE_TEST
-    if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
-        try {
-            ExecEnv::GetInstance()->pipeline_tracer_context()->end_query(_query_id, group_id);
-        } catch (std::exception& e) {
-            LOG(WARNING) << "Dump trace log failed bacause " << e.what();
-        }
-    }
-#endif
     _runtime_filter_mgr.reset();
     _execution_dependency.reset();
     _runtime_predicates.clear();
@@ -342,7 +331,7 @@ std::string QueryContext::get_first_error_msg() {
 }
 
 void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {
-    std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
+    std::vector<std::weak_ptr<PipelineFragmentContext>> ctx_to_cancel;
     {
         std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
         for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
@@ -360,7 +349,7 @@ void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragmen
 }
 
 std::string QueryContext::print_all_pipeline_context() {
-    std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_print;
+    std::vector<std::weak_ptr<PipelineFragmentContext>> ctx_to_print;
     fmt::memory_buffer debug_string_buffer;
     size_t i = 0;
     {
@@ -386,13 +375,15 @@ std::string QueryContext::print_all_pipeline_context() {
     return fmt::to_string(debug_string_buffer);
 }
 
-void QueryContext::set_pipeline_context(
-        const int fragment_id, std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx) {
+void QueryContext::set_pipeline_context(const int fragment_id,
+                                        std::shared_ptr<PipelineFragmentContext> pip_ctx) {
     std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
-    _fragment_id_to_pipeline_ctx.insert({fragment_id, pip_ctx});
+    // Use insert_or_assign instead of insert to support overwriting old entries
+    // when recursive CTE recreates PipelineFragmentContext between rounds.
+    _fragment_id_to_pipeline_ctx.insert_or_assign(fragment_id, pip_ctx);
 }
 
-doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
+doris::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
     if (!_task_scheduler) {
         throw Exception(Status::InternalError("task_scheduler is null"));
     }
@@ -473,10 +464,6 @@ QueryContext::_collect_realtime_query_profile() {
                 continue;
             }
 
-            if (fragment_ctx->need_notify_close()) {
-                continue;
-            }
-
             auto profile = fragment_ctx->collect_realtime_profile();
 
             if (profile.empty()) {
@@ -533,7 +520,7 @@ Status QueryContext::send_block_to_cte_scan(
 }
 
 void QueryContext::registe_cte_scan(const TUniqueId& instance_id, int node_id,
-                                    pipeline::RecCTEScanLocalState* scan) {
+                                    RecCTEScanLocalState* scan) {
     std::unique_lock<std::mutex> l(_cte_scan_lock);
     auto key = std::make_pair(instance_id, node_id);
     DCHECK(!_cte_scan.contains(key)) << "Duplicate registe cte scan for instance "
@@ -554,6 +541,18 @@ Status QueryContext::reset_global_rf(const google::protobuf::RepeatedField<int32
         return _merge_controller_handler->reset_global_rf(this, filter_ids);
     }
     return Status::OK();
+}
+
+void QueryContext::add_total_task_num(int delta) {
+    if (auto* qtc = dynamic_cast<QueryTaskController*>(_resource_ctx->task_controller())) {
+        qtc->add_total_task_num(delta);
+    }
+}
+
+void QueryContext::inc_finished_task_num() {
+    if (auto* qtc = dynamic_cast<QueryTaskController*>(_resource_ctx->task_controller())) {
+        qtc->inc_finished_task_num();
+    }
 }
 
 } // namespace doris

@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
@@ -30,7 +30,7 @@ import java.util.Set;
 
 public class HdfsPropertiesUtilsTest {
 
-    private static final Set<String> supportSchema = ImmutableSet.of("hdfs", "viewfs");
+    private static final Set<String> supportSchema = ImmutableSet.of("hdfs", "viewfs", "jfs");
 
     @Test
     public void testCheckLoadPropsAndReturnUri_success() throws Exception {
@@ -67,6 +67,13 @@ public class HdfsPropertiesUtilsTest {
         String uri = "viewfs://cluster/user/test";
         String result = HdfsPropertiesUtils.convertUrlToFilePath(uri, "", supportSchema);
         Assertions.assertEquals("viewfs://cluster/user/test", result);
+    }
+
+    @Test
+    public void testConvertUrlToFilePath_jfs() throws Exception {
+        String uri = "jfs://cluster/user/test";
+        String result = HdfsPropertiesUtils.convertUrlToFilePath(uri, "", supportSchema);
+        Assertions.assertEquals("jfs://cluster/user/test", result);
     }
 
     @Test

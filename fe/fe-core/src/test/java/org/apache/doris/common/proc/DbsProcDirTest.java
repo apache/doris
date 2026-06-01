@@ -22,38 +22,28 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 
 public class DbsProcDirTest {
     private Database db1;
     private Database db2;
-    @Mocked
-    private Env env;
-    @Mocked
-    private InternalCatalog catalog;
+    private Env env = Mockito.mock(Env.class);
+    private InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
 
-    @Mocked
-    GlobalTransactionMgr transactionMgr;
+    GlobalTransactionMgr transactionMgr = Mockito.mock(GlobalTransactionMgr.class);
 
     // construct test case
     //  catalog
@@ -81,37 +71,13 @@ public class DbsProcDirTest {
 
     @Test(expected = AnalysisException.class)
     public void testLookupNormal() throws AnalysisException {
-        new Expectations(env, catalog) {
-            {
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-
-                catalog.getDbNullable("db1");
-                minTimes = 0;
-                result = db1;
-
-                catalog.getDbNullable("db2");
-                minTimes = 0;
-                result = db2;
-
-                catalog.getDbNullable("db3");
-                minTimes = 0;
-                result = null;
-
-                catalog.getDbNullable(db1.getId());
-                minTimes = 0;
-                result = db1;
-
-                catalog.getDbNullable(db2.getId());
-                minTimes = 0;
-                result = db2;
-
-                catalog.getDbNullable(anyLong);
-                minTimes = 0;
-                result = null;
-            }
-        };
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDbNullable("db1")).thenReturn(db1);
+        Mockito.when(catalog.getDbNullable("db2")).thenReturn(db2);
+        Mockito.when(catalog.getDbNullable("db3")).thenReturn(null);
+        Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(null);
+        Mockito.when(catalog.getDbNullable(db1.getId())).thenReturn(db1);
+        Mockito.when(catalog.getDbNullable(db2.getId())).thenReturn(db2);
 
         DbsProcDir dir;
         ProcNodeInterface node;
@@ -161,53 +127,17 @@ public class DbsProcDirTest {
 
     @Test
     public void testFetchResultNormal() throws AnalysisException {
-        new Expectations(env, catalog) {
-            {
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-
-                env.getGlobalTransactionMgr();
-                minTimes = 0;
-                result = transactionMgr;
-
-                transactionMgr.getRunningTxnNums(db1.getId());
-                minTimes = 0;
-                result = 10;
-
-                transactionMgr.getRunningTxnNums(db2.getId());
-                minTimes = 0;
-                result = 20;
-
-                catalog.getDbNames();
-                minTimes = 0;
-                result = Lists.newArrayList("db1", "db2");
-
-                catalog.getDbNullable("db1");
-                minTimes = 0;
-                result = db1;
-
-                catalog.getDbNullable("db2");
-                minTimes = 0;
-                result = db2;
-
-                catalog.getDbNullable("db3");
-                minTimes = 0;
-                result = null;
-
-                catalog.getDbNullable(db1.getId());
-                minTimes = 0;
-                result = db1;
-
-                catalog.getDbNullable(db2.getId());
-                minTimes = 0;
-                result = db2;
-
-                catalog.getDbNullable(anyLong);
-                minTimes = 0;
-                result = null;
-            }
-        };
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(env.getGlobalTransactionMgr()).thenReturn(transactionMgr);
+        Mockito.when(transactionMgr.getRunningTxnNums(db1.getId())).thenReturn(10);
+        Mockito.when(transactionMgr.getRunningTxnNums(db2.getId())).thenReturn(20);
+        Mockito.when(catalog.getDbNames()).thenReturn(Lists.newArrayList("db1", "db2"));
+        Mockito.when(catalog.getDbNullable("db1")).thenReturn(db1);
+        Mockito.when(catalog.getDbNullable("db2")).thenReturn(db2);
+        Mockito.when(catalog.getDbNullable("db3")).thenReturn(null);
+        Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(null);
+        Mockito.when(catalog.getDbNullable(db1.getId())).thenReturn(db1);
+        Mockito.when(catalog.getDbNullable(db2.getId())).thenReturn(db2);
 
         DbsProcDir dir;
         ProcResult result;
@@ -230,17 +160,8 @@ public class DbsProcDirTest {
 
     @Test
     public void testFetchResultInvalid() throws AnalysisException {
-        new Expectations(env, catalog) {
-            {
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-
-                catalog.getDbNames();
-                minTimes = 0;
-                result = null;
-            }
-        };
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDbNames()).thenReturn(null);
 
         DbsProcDir dir;
         ProcResult result;
@@ -264,27 +185,14 @@ public class DbsProcDirTest {
 
     @Test
     public void testListTableNameFailed() throws AnalysisException {
-        HashMap<String, String> props = new HashMap<>();
-        props.put("warehouse", "file:///tmp");
-        IcebergHadoopExternalCatalog ctlg = new IcebergHadoopExternalCatalog(1, "iceberg", "iceberg", props, null);
-        new MockUp<ExternalCatalog>(ExternalCatalog.class) {
-            @Mock
-            public List<String> getDbNames() {
-                return Lists.newArrayList("db1");
-            }
+        IcebergHadoopExternalCatalog ctlg = Mockito.mock(IcebergHadoopExternalCatalog.class);
+        Mockito.when(ctlg.getDbNames()).thenReturn(Lists.newArrayList("db1"));
 
-            @Mock
-            public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
-                return new IcebergExternalDatabase(ctlg, 3L, "db1", "db1");
-            }
-        };
+        IcebergExternalDatabase mockDb = Mockito.mock(IcebergExternalDatabase.class);
+        Mockito.when(mockDb.getId()).thenReturn(3L);
+        Mockito.when(mockDb.getTables()).thenThrow(new RuntimeException("list table failed"));
+        Mockito.doReturn(mockDb).when(ctlg).getDbNullable("db1");
 
-        new MockUp<ExternalDatabase>(ExternalDatabase.class) {
-            @Mock
-            public List getTables() {
-                throw new RuntimeException("list table failed");
-            }
-        };
         DbsProcDir dbsProcDir = new DbsProcDir(env, ctlg);
         ProcResult procResult = dbsProcDir.fetchResult();
         List<List<String>> rows = procResult.getRows();

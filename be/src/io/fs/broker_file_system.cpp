@@ -35,6 +35,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "core/custom_allocator.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/broker_file_writer.h"
 #include "io/fs/file_reader.h"
@@ -44,7 +45,6 @@
 #include "runtime/broker_mgr.h"
 #include "runtime/exec_env.h"
 #include "util/slice.h"
-#include "vec/common/custom_allocator.h"
 
 namespace doris::io {
 

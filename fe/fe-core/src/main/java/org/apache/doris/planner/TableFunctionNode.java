@@ -18,7 +18,10 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -73,7 +76,7 @@ public class TableFunctionNode extends PlanNode {
         StringBuilder output = new StringBuilder();
         output.append(prefix).append("table function: ");
         for (Expr fnExpr : fnCallExprList) {
-            output.append(fnExpr.toSql()).append(" ");
+            output.append(fnExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append(" ");
         }
         output.append("\n");
 
@@ -111,8 +114,8 @@ public class TableFunctionNode extends PlanNode {
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.TABLE_FUNCTION_NODE;
         msg.table_function_node = new TTableFunctionNode();
-        msg.table_function_node.setFnCallExprList(Expr.treesToThrift(fnCallExprList));
-        msg.table_function_node.setExpandConjuncts(Expr.treesToThrift(expandConjuncts));
+        msg.table_function_node.setFnCallExprList(ExprToThriftVisitor.treesToThrift(fnCallExprList));
+        msg.table_function_node.setExpandConjuncts(ExprToThriftVisitor.treesToThrift(expandConjuncts));
         for (SlotId slotId : outputSlotIds) {
             msg.table_function_node.addToOutputSlotIds(slotId.asInt());
         }

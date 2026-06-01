@@ -20,7 +20,7 @@ suite("test_pythonudf_file_protocol") {
     
     def zipPath = """${context.file.parent}/udf_scripts/pyudf.zip"""
     scp_udf_file_to_all_be(zipPath)
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     log.info("Python zip path: ${zipPath}".toString())
     
     try {
@@ -55,19 +55,20 @@ suite("test_pythonudf_file_protocol") {
         qt_select_file_string """ SELECT py_file_string_mask('1234567890', 3, 3) AS result; """
         
         // Test 3: Load float_test.py from zip package using file:// protocol
-        sql """ DROP FUNCTION IF EXISTS py_file_float_process(FLOAT); """
+        sql """ DROP FUNCTION IF EXISTS py_file_float_process(FLOAT, FLOAT); """
         sql """
-        CREATE FUNCTION py_file_float_process(FLOAT) 
+        CREATE FUNCTION py_file_float_process(FLOAT, FLOAT)
         RETURNS FLOAT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "file" = "file://${zipPath}",
             "symbol" = "float_test.evaluate",
-            "runtime_version" = "${runtime_version}"
+            "runtime_version" = "${runtime_version}",
+            "always_nullable" = "true"
         );
         """
         
-        qt_select_file_float """ SELECT py_file_float_process(3.14) AS result; """
+        qt_select_file_float """ SELECT py_file_float_process(3.14, null) AS result; """
         
         // Test 4: Load boolean_test.py from zip package using file:// protocol
         sql """ DROP FUNCTION IF EXISTS py_file_bool_not(BOOLEAN); """
@@ -116,11 +117,33 @@ suite("test_pythonudf_file_protocol") {
         FROM file_protocol_test_table
         ORDER BY id;
         """
+
+        // Inline code must take precedence over FILE. Use a missing FILE path so the
+        // test fails if FE or BE tries to validate/load it as a module.
+        sql """ DROP FUNCTION IF EXISTS py_file_inline_precedence(INT); """
+        sql """
+        CREATE FUNCTION py_file_inline_precedence(INT)
+        RETURNS INT
+        PROPERTIES (
+            "type" = "PYTHON_UDF",
+            "file" = "file://${context.file.parent}/udf_scripts/missing_inline_precedence.zip",
+            "symbol" = "evaluate",
+            "runtime_version" = "${runtime_version}"
+        )
+        AS \$\$
+def evaluate(arg):
+    if arg is None:
+        return None
+    return int(arg + 1000)
+\$\$;
+        """
+
+        qt_select_file_inline_precedence """ SELECT py_file_inline_precedence(7) AS result; """
         
     } finally {
         try_sql("DROP FUNCTION IF EXISTS py_file_int_add(INT);")
         try_sql("DROP FUNCTION IF EXISTS py_file_string_mask(STRING, INT, INT);")
-        try_sql("DROP FUNCTION IF EXISTS py_file_float_process(FLOAT);")
+        try_sql("DROP FUNCTION IF EXISTS py_file_float_process(FLOAT, FLOAT);")
         try_sql("DROP FUNCTION IF EXISTS py_file_bool_not(BOOLEAN);")
         try_sql("DROP TABLE IF EXISTS file_protocol_test_table;")
     }

@@ -19,7 +19,9 @@ package org.apache.doris.load;
 
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -30,6 +32,7 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -39,7 +42,6 @@ import org.apache.doris.datasource.property.fileformat.DeferredFileFormatPropert
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsImportColumnDesc;
@@ -51,8 +53,6 @@ import org.apache.doris.thrift.TFileFormatType;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -64,7 +64,6 @@ import java.util.Map;
  * broker file information will be saved here.
  */
 public class BrokerFileGroup {
-    private static final Logger LOG = LogManager.getLogger(BrokerFileGroup.class);
 
     private long tableId;
     // columnSeparator and lineDelimiter here are only for toString(),
@@ -157,7 +156,7 @@ public class BrokerFileGroup {
                         .anyMatch(partition -> partition.getState() == PartitionState.RESTORE);
                 // tbl RESTORE && all partition NOT RESTORE -> whole table restore
                 // tbl RESTORE && some partition RESTORE -> just partitions restore, NOT WHOLE TABLE
-                // so check wether the whole table restore here
+                // so check whether the whole table restore here
                 if (!hasPartitionRestoring) {
                     throw new DdlException("Table [" + olapTable.getName() + "] is under restore");
                 }
@@ -237,36 +236,12 @@ public class BrokerFileGroup {
         return whereExpr;
     }
 
-    public void setWhereExpr(Expr whereExpr) {
-        this.whereExpr = whereExpr;
-    }
-
     public List<String> getFilePaths() {
         return filePaths;
     }
 
     public List<String> getColumnNamesFromPath() {
         return columnNamesFromPath;
-    }
-
-    public List<ImportColumnDesc> getColumnExprList() {
-        return columnExprList;
-    }
-
-    public List<String> getFileFieldNames() {
-        return fileFieldNames;
-    }
-
-    public Map<String, Pair<String, List<String>>> getColumnToHadoopFunction() {
-        return columnToHadoopFunction;
-    }
-
-    public long getSrcTableId() {
-        return srcTableId;
-    }
-
-    public boolean isLoadFromTable() {
-        return isLoadFromTable;
     }
 
     public Expr getDeleteCondition() {
@@ -310,10 +285,6 @@ public class BrokerFileGroup {
 
     public FileFormatProperties getFileFormatProperties() {
         return fileFormatProperties;
-    }
-
-    public boolean getIgnoreCsvRedundantCol() {
-        return ignoreCsvRedundantCol;
     }
 
     @Override
@@ -375,20 +346,24 @@ public class BrokerFileGroup {
 
     public NereidsBrokerFileGroup toNereidsBrokerFileGroup() throws UserException {
         Expression deleteCondition = getDeleteCondition() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getDeleteCondition().toSqlWithoutTbl()).get(0)
+                ? NereidsLoadUtils.parseExpressionSeq(getDeleteCondition().accept(
+                ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE)).get(0)
                 : null;
         Expression precedingFilter = getPrecedingFilterExpr() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getPrecedingFilterExpr().toSqlWithoutTbl()).get(0)
+                ? NereidsLoadUtils.parseExpressionSeq(getPrecedingFilterExpr().accept(
+                ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE)).get(0)
                 : null;
         Expression whereExpr = getWhereExpr() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().toSqlWithoutTbl()).get(0)
+                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().accept(
+                ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE)).get(0)
                 : null;
         List<NereidsImportColumnDesc> importColumnDescs = null;
         if (columnExprList != null && !columnExprList.isEmpty()) {
             importColumnDescs = new ArrayList<>(columnExprList.size());
             for (ImportColumnDesc desc : columnExprList) {
                 Expression expression = desc.getExpr() != null
-                        ? NereidsLoadUtils.parseExpressionSeq(desc.getExpr().toSqlWithoutTbl()).get(0)
+                        ? NereidsLoadUtils.parseExpressionSeq(desc.getExpr().accept(
+                        ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE)).get(0)
                         : null;
                 importColumnDescs.add(new NereidsImportColumnDesc(desc.getColumnName(), expression));
             }

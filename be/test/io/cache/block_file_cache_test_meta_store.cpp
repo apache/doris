@@ -25,7 +25,7 @@
 
 #define private public
 #define protected public
-#include "block_file_cache_test_common.h"
+#include "io/cache/block_file_cache_test_common.h"
 #undef private
 #undef protected
 

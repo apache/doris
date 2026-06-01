@@ -22,12 +22,12 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -57,6 +57,9 @@ public class UserAuthentication {
         if (table instanceof PaimonSysExternalTable) {
             authTable = ((PaimonSysExternalTable) table).getSourceTable();
             authColumns = Collections.emptySet();
+        } else if (table instanceof IcebergSysExternalTable) {
+            authTable = ((IcebergSysExternalTable) table).getSourceTable();
+            authColumns = Collections.emptySet();
         }
         String tableName = authTable.getName();
         DatabaseIf db = authTable.getDatabase();
@@ -64,7 +67,7 @@ public class UserAuthentication {
         if (db == null) {
             return;
         }
-        String dbName = ClusterNamespace.getNameFromFullName(db.getFullName());
+        String dbName = db.getFullName();
 
         // Special handling: cluster snapshot related tables in information_schema
         // require privilege based on configuration

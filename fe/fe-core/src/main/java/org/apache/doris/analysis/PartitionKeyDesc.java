@@ -133,14 +133,6 @@ public class PartitionKeyDesc {
         return this == DUMMY_KEY_DESC;
     }
 
-    public boolean hasLowerValues() {
-        return lowerValues != null;
-    }
-
-    public boolean hasUpperValues() {
-        return upperValues != null;
-    }
-
     public PartitionKeyValueType getPartitionType() {
         return partitionKeyValueType;
     }

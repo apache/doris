@@ -57,8 +57,7 @@ suite("doc_date_functions_test") {
 
             def matcher = sqlWithTz =~ /(\w+)\s*\((.*)\)/
             if (!matcher) {
-                logger.error("Failed to parse SQL: ${sqlWithTz}")
-                return false
+                assertTrue(false, "Failed to parse SQL: ${sqlWithTz}")
             }
 
             def funcName = matcher[0][1]
@@ -78,7 +77,7 @@ suite("doc_date_functions_test") {
                     def tzMatcher = param =~ /'([^']+)'/
                     if (tzMatcher) {
                         def tzValue = tzMatcher[0][1]
-                        def convertedResult = sql("SELECT CAST(CAST('${tzValue}' AS DATETIME) AS STRING)")[0][0]
+                        def convertedResult = sql("SELECT CAST(CAST('${tzValue}' AS DATETIME(6)) AS STRING)")[0][0]
                         return "'${convertedResult}'"
                     }
                 }
@@ -97,26 +96,18 @@ suite("doc_date_functions_test") {
             if (allTimestamptz) {
                 // Case 1: All time parameters are timestamptz
                 // Validate: resTz (without timezone) should equal resDttm
-                if (!resTzStr.replaceAll(/[+-]\d{2}:\d{2}$/, '').trim().equals(resDttmStr)) {
-                    logger.error("Validation failed for all-timestamptz: ${sqlWithTz}")
-                    logger.error("Expected (datetime): ${resDttmStr}")
-                    logger.error("Got (timestamptz): ${resTzStr}")
-                    return false
-                }
+                def normalizedTz = resTzStr.replaceAll(/[+-]\d{2}:\d{2}$/, '').trim().replaceAll(/(\.\d*[1-9])0+$/, '$1').replaceAll(/\.0+$/, '')
+                def normalizedDttm = resDttmStr.replaceAll(/(\.\d*[1-9])0+$/, '$1').replaceAll(/\.0+$/, '')
+                assertTrue(normalizedTz.equals(normalizedDttm),
+                    "Validation failed for all-timestamptz: ${sqlWithTz}, Expected (datetime): ${normalizedDttm}, Got (timestamptz): ${normalizedTz}")
                 logger.info("All timestamptz validation passed: resTz=${resTzStr}, resDttm=${resDttmStr}")
             } else {
                 // Case 2: Mixed types (some timestamptz, some datetime)
                 // Validate: resTz should equal resDttm directly
-                if (!resTzStr.equals(resDttmStr)) {
-                    logger.error("Validation failed for mixed-types: ${sqlWithTz}")
-                    logger.error("Expected: ${resDttmStr}")
-                    logger.error("Got: ${resTzStr}")
-                    return false
-                }
+                assertTrue(resTzStr.equals(resDttmStr),
+                    "Validation failed for mixed-types: ${sqlWithTz}, Time-Zone: ${timeZone}, Expected: ${resDttmStr}, Got: ${resTzStr}")
                 logger.info("Mixed types validation passed: resTz=${resTzStr}, resDttm=${resDttmStr}")
             }
-            
-            return true
         } finally {
             if (originalTimeZone != null) {
                 sql "set time_zone = '${originalTimeZone}'"
@@ -142,8 +133,7 @@ suite("doc_date_functions_test") {
             // Extract function name and parameters
             def matcher = sqlWithTz =~ /(\w+)\s*\((.*)\)/
             if (!matcher) {
-                logger.error("Failed to parse SQL: ${sqlWithTz}")
-                return false
+                assertTrue(false, "Failed to parse SQL: ${sqlWithTz}")
             }
             
             def funcName = matcher[0][1]
@@ -151,8 +141,7 @@ suite("doc_date_functions_test") {
             
             // Check if first parameter exists and is timestamptz
             if (params.size() < 1) {
-                logger.error("No parameters found in: ${sqlWithTz}")
-                return false
+                assertTrue(false, "No parameters found in: ${sqlWithTz}")
             }
             
             def firstParam = params[0]
@@ -160,18 +149,17 @@ suite("doc_date_functions_test") {
             
             if (!isTimestamptz) {
                 logger.info("First parameter is not timestamptz, skipping validation: ${sqlWithTz}")
-                return true
+                return
             }
             
             // Convert first parameter to datetime in current timezone
             def tzMatcher = firstParam =~ /'([^']+)'/
             if (!tzMatcher) {
-                logger.error("Failed to extract timestamptz value from: ${firstParam}")
-                return false
+                assertTrue(false, "Failed to extract timestamptz value from: ${firstParam}")
             }
             
             def tzValue = tzMatcher[0][1]
-            def convertedResult = sql("SELECT CAST(CAST('${tzValue}' AS DATETIME) AS STRING)")[0][0]
+            def convertedResult = sql("SELECT CAST(CAST('${tzValue}' AS DATETIME(6)) AS STRING)")[0][0]
             
             // Build datetime query with converted first parameter
             def convertedParams = ["'${convertedResult}'"] + params.drop(1)
@@ -187,17 +175,13 @@ suite("doc_date_functions_test") {
             def resDttmStr = resDttm.toString()
             
             def expectedTz = "${resDttmStr}${timeZone}"
+            def normalizedResTz = resTzStr.trim().replaceAll(/[\u0000-\u001F]/, '')
+            def normalizedExpectedTz = expectedTz.trim().replaceAll(/[\u0000-\u001F]/, '')
             
-            if (!resTzStr.equals(expectedTz)) {
-                logger.error("Validation failed for DATE_TRUNC with timestamptz: ${sqlWithTz}")
-                logger.error("Expected: ${expectedTz}")
-                logger.error("Got: ${resTzStr}")
-                logger.error("Datetime result: ${resDttmStr}")
-                return false
-            }
+            assertTrue(normalizedResTz.equals(normalizedExpectedTz),
+                "Validation failed for DATE_TRUNC with timestamptz: ${sqlWithTz}, Expected: ${normalizedExpectedTz} (len=${normalizedExpectedTz.length()}), Got: ${normalizedResTz} (len=${normalizedResTz.length()}), RawExpected: ${expectedTz}, RawGot: ${resTzStr}, Datetime result: ${resDttmStr}")
             
             logger.info("DATE_TRUNC timestamptz validation passed: resTz=${resTzStr}, resDttm=${resDttmStr}")
-            return true
         } finally {
             if (originalTimeZone != null) {
                 sql "set time_zone = '${originalTimeZone}'"
@@ -854,7 +838,7 @@ suite("doc_date_functions_test") {
     validateTimestamptzCeilFloor("select hour_floor('2023-07-13 22:28:18.456789+05:00', 4, '2023-07-13 08:00:00')", '+09:30')
     validateTimestamptzCeilFloor("select hour_floor('2023-07-13 22:28:18.789123', 5, '2023-07-13 18:00:00+08:00')", '-09:30')
     validateTimestamptzCeilFloor("select hour_floor('0001-07-13 22:28:18.456789+05:00', 4)", '+06:30')
-    validateTimestamptzCeilFloor("select hour_floor('9999-12-31 22:28:18.456789+05:00', 4)", '-04:30')
+    validateTimestamptzCeilFloor("select hour_floor('9999-12-31 21:28:18.456789+05:00', 4)", '-04:30')
     validateTimestamptzCeilFloor("select hour_floor('2023-07-13 23:59:59.999+00:00', 4, '2023-07-13 20:00:00+08:00')", '+03:30')
     validateTimestamptzCeilFloor("select hour_floor('2023-12-31 23:30:00.111+00:00', 5)", '-03:30')
     validateTimestamptzCeilFloor("select hour_floor('2023-07-13 22:28:18+05:00', 6, '0001-01-01 00:00:00')", '+10:30')
@@ -1060,11 +1044,11 @@ suite("doc_date_functions_test") {
     qt_minute_floor_7 """SELECT MINUTE_FLOOR(NULL, 5), MINUTE_FLOOR('2023-07-13 22:28:18', NULL)"""
     validateTimestamptzCeilFloor("SELECT MINUTE_FLOOR('2023-07-13 22:28:18.999999+03:00')", '+13:00')
     validateTimestamptzCeilFloor("SELECT MINUTE_FLOOR('2023-07-13 22:28:18.000001+08:00')", '-10:30')
-    validateTimestamptzCeilFloor("SELECT MINUTE_FLOOR('2023-07-13 22:28:18.500000+05:00', 5)", '+02:15')
+    validateTimestamptzCeilFloor("SELECT MINUTE_FLOOR('2023-07-13 22:28:18.500000+05:00', 5)", '+02:45')
     validateTimestamptzCeilFloor("SELECT MINUTE_FLOOR('2023-07-13 22:28:18.456789+05:00', '2023-07-13 22:20:00')", '-05:45')
     validateTimestamptzCeilFloor("SELECT MINUTE_FLOOR('2023-07-13 22:28:18.789123', '2023-07-13 22:20:00+08:00')", '+06:30')
-    validateTimestamptzCeilFloor("SELECT MINUTE_FLOOR('2023-07-13 22:28:18.123456+05:00', 5, '2023-07-13 22:20:00')", '-04:15')
-    validateTimestamptzCeilFloor("SELECT MINUTE_FLOOR('2023-07-13 22:28:18.654321', 5, '2023-07-13 22:20:00+08:00')", '+09:15')
+    validateTimestamptzCeilFloor("SELECT MINUTE_FLOOR('2023-07-13 22:28:18.123456+05:00', 5, '2023-07-13 22:20:00')", '-04:45')
+    validateTimestamptzCeilFloor("SELECT MINUTE_FLOOR('2023-07-13 22:28:18.654321', 5, '2023-07-13 22:20:00+08:00')", '+09:45')
     validateTimestamptzCeilFloor("SELECT MINUTE_FLOOR('2023-07-13 23:59:59.999+00:00')", '-08:45')
     validateTimestamptzCeilFloor("SELECT MINUTE_FLOOR('2023-07-13 23:59:59.111+00:00', '2023-07-13 23:50:00+08:00')", '+04:00')
     validateTimestamptzCeilFloor("SELECT MINUTE_FLOOR('2023-07-13 22:28:30.678-01:00', 15)", '-02:30')
@@ -1128,10 +1112,10 @@ suite("doc_date_functions_test") {
     validateTimestamptzCeilFloor("SELECT MONTH_CEIL('9999-06-15 10:30:45+05:00', 3, '9999-01-01 00:00:00')", '-03:30')
     validateTimestamptzCeilFloor("SELECT MONTH_CEIL('2023-01-31 23:59:59.999+08:00', 3)", '+01:30')
     validateTimestamptzCeilFloor("SELECT MONTH_CEIL('2023-11-30 23:59:59.999+08:00', 3, '2023-01-01 00:00:00')", '-09:00')
-    validateTimestamptzCeilFloor("SELECT MONTH_CEIL('2024-02-29 23:59:59.999+08:00', 3)", '+10:15')
+    validateTimestamptzCeilFloor("SELECT MONTH_CEIL('2024-02-29 23:59:59.999+08:00', 3)", '+10:45')
     validateTimestamptzCeilFloor("SELECT MONTH_CEIL('2023-12-31 23:59:59.999+00:00', 3)", '-06:30')
     validateTimestamptzCeilFloor("SELECT MONTH_CEIL('0001-12-31 23:59:59.999+08:00', 3)", '+08:30')
-    validateTimestamptzCeilFloor("SELECT MONTH_CEIL('2023-01-01 00:00:00.000001+08:00', 3)", '-01:15')
+    validateTimestamptzCeilFloor("SELECT MONTH_CEIL('2023-01-01 00:00:00.000001+08:00', 3)", '-01:45')
     validateTimestamptzCeilFloor("SELECT MONTH_CEIL('2023-06-30 23:59:59.999999+08:00', 3)", '+07:00')
     validateTimestamptzCeilFloor("SELECT MONTH_CEIL('2023-07-13 22:28:18', '2023-01-01 00:00:00+08:00')", '-12:00')
     validateTimestamptzCeilFloor("SELECT MONTH_CEIL('2023-07-13 22:28:18+05:00', 5)", '+14:00')
@@ -1160,10 +1144,10 @@ suite("doc_date_functions_test") {
     validateTimestamptzCeilFloor("SELECT MONTH_FLOOR('2023-01-01 00:00:00.000001+08:00', 3)", '+02:00')
     validateTimestamptzCeilFloor("SELECT MONTH_FLOOR('2023-06-30 23:59:59.999999+08:00', 3)", '-11:30')
     validateTimestamptzCeilFloor("SELECT MONTH_FLOOR('2023-07-13 22:28:18', '2023-01-01 00:00:00+08:00')", '+13:45')
-    validateTimestamptzCeilFloor("SELECT MONTH_FLOOR('2023-07-13 22:28:18+05:00', 5)", '-03:15')
-    validateTimestamptzCeilFloor("SELECT MONTH_FLOOR('2023-07-13 22:28:18+05:00', 5, '2023-01-01')", '+06:15')
+    validateTimestamptzCeilFloor("SELECT MONTH_FLOOR('2023-07-13 22:28:18+05:00', 5)", '-03:45')
+    validateTimestamptzCeilFloor("SELECT MONTH_FLOOR('2023-07-13 22:28:18+05:00', 5, '2023-01-01')", '+06:45')
     validateTimestamptzCeilFloor("SELECT MONTH_FLOOR('2023-07-13 22:28:18', 5, '2023-01-01 00:00:00+08:00')", '-01:45')
-    validateTimestamptzCeilFloor("SELECT MONTH_FLOOR('0001-01-15 12:00:00+08:00')", '+08:15')
+    validateTimestamptzCeilFloor("SELECT MONTH_FLOOR('0001-01-15 12:00:00+08:00')", '+08:45')
     validateTimestamptzCeilFloor("SELECT MONTH_FLOOR('9999-12-15 12:00:00+08:00')", '-00:45')
     validateTimestamptzCeilFloor("SELECT MONTH_FLOOR('2023-07-13 23:59:59+00:00', 5, '2023-01-01 00:00:00+08:00')", '+11:45')
     // 52. MONTH function tests
@@ -1556,14 +1540,14 @@ suite("doc_date_functions_test") {
     validateTimestamptzCeilFloor("SELECT SECOND_CEIL('0001-01-01 00:00:00.000001+08:00', 5)", '-05:00')
     validateTimestamptzCeilFloor("SELECT SECOND_CEIL('2025-12-31 23:59:59.999+00:00', 20, '2025-12-31 23:59:00+08:00')", '+03:30')
     validateTimestamptzCeilFloor("SELECT SECOND_CEIL('2023-06-30 23:59:59.500+00:00', 30)", '-02:00')
-    validateTimestamptzCeilFloor("SELECT SECOND_CEIL('2023-07-13 22:28:18+05:00', 30, '0001-01-01 00:00:00')", '+00:15')
+    validateTimestamptzCeilFloor("SELECT SECOND_CEIL('2023-07-13 22:28:18+05:00', 30, '0001-01-01 00:00:00')", '+00:45')
     validateTimestamptzCeilFloor("SELECT SECOND_CEIL('9999-12-31 10:30:45+05:00', 30, '9999-12-31 10:30:00')", '-11:45')
     validateTimestamptzCeilFloor("SELECT SECOND_CEIL('2023-01-01 23:59:59.999+08:00', 30)", '+12:30')
-    validateTimestamptzCeilFloor("SELECT SECOND_CEIL('2023-06-30 23:59:59.999+08:00', 30, '2023-06-30 23:59:00')", '-08:15')
+    validateTimestamptzCeilFloor("SELECT SECOND_CEIL('2023-06-30 23:59:59.999+08:00', 30, '2023-06-30 23:59:00')", '-08:45')
     validateTimestamptzCeilFloor("SELECT SECOND_CEIL('2023-12-31 23:59:59.999+00:00', 30)", '+05:30')
     validateTimestamptzCeilFloor("SELECT SECOND_CEIL('0001-01-01 23:59:59.999+08:00', 20)", '-04:45')
     validateTimestamptzCeilFloor("SELECT SECOND_CEIL('2023-07-13 12:00:00.000001+08:00', 30)", '+09:45')
-    validateTimestamptzCeilFloor("SELECT SECOND_CEIL('2023-07-13 23:59:59.999999+08:00', 30)", '-06:15')
+    validateTimestamptzCeilFloor("SELECT SECOND_CEIL('2023-07-13 23:59:59.999999+08:00', 30)", '-06:45')
     validateTimestamptzCeilFloor("SELECT SECOND_CEIL('9999-12-31 20:55:59+05:00');", '+01:00')
 
     // 64. SECOND_FLOOR function tests
@@ -1573,21 +1557,21 @@ suite("doc_date_functions_test") {
     qt_second_floor_4 """SELECT SECOND_FLOOR('2025-01-23 12:34:56.789', 5)"""
     qt_second_floor_5 """SELECT SECOND_FLOOR('2025-01-23', 30)"""
     qt_second_floor_6 """SELECT SECOND_FLOOR(NULL, 5), SECOND_FLOOR('2025-01-23 12:34:56', NULL)"""
-    validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2023-07-13 22:28:18.456789+05:00', 5)", '+11:15')
+    validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2023-07-13 22:28:18.456789+05:00', 5)", '+11:45')
     validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2023-07-13 22:28:18.456789+05:00', 10, '2023-07-13 22:28:00')", '-10:45')
-    validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2023-07-13 22:28:18.654321', 10, '2023-07-13 22:28:00+08:00')", '+04:15')
+    validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2023-07-13 22:28:18.654321', 10, '2023-07-13 22:28:00+08:00')", '+04:45')
     validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('0001-01-01 00:00:00.000001+08:00', 5)", '-03:45')
     validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('9999-12-31 23:59:59.999999-02:00', 5)", '+08:00')
-    validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2025-12-31 23:59:59.999+00:00', 20, '2025-12-31 23:59:00+08:00')", '-07:15')
+    validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2025-12-31 23:59:59.999+00:00', 20, '2025-12-31 23:59:00+08:00')", '-07:45')
     validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2023-06-30 23:59:59.500+00:00', 30)", '+13:30')
-    validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2023-07-13 22:28:18+05:00', 30, '0001-01-01 00:00:00')", '-00:15')
+    validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2023-07-13 22:28:18+05:00', 30, '0001-01-01 00:00:00')", '-00:45')
     validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('9999-12-31 10:30:45+05:00', 30, '9999-12-31 10:30:00')", '+06:45')
-    validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2023-01-01 23:59:59.999+08:00', 30)", '-05:15')
+    validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2023-01-01 23:59:59.999+08:00', 30)", '-05:45')
     validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2023-06-30 23:59:59.999+08:00', 30, '2023-06-30 23:59:00')", '+02:45')
     validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2023-12-31 23:59:59.999+00:00', 30)", '-01:30')
     validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('0001-01-01 23:59:59.999+08:00', 20)", '+09:00')
     validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('9999-12-31 23:59:59.123+08:00', 20)", '-08:30')
-    validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2023-07-13 12:00:00.000001+08:00', 30)", '+05:15')
+    validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2023-07-13 12:00:00.000001+08:00', 30)", '+05:45')
     validateTimestamptzCeilFloor("SELECT SECOND_FLOOR('2023-07-13 23:59:59.999999+08:00', 30)", '-06:45')
 
     // 65. SECOND function tests
@@ -1776,12 +1760,12 @@ suite("doc_date_functions_test") {
     validateTimestamptzCeilFloor("SELECT WEEK_CEIL('2023-06-30 23:59:59.999+08:00', 2, '2023-01-02 00:00:00')", '-02:00')
     validateTimestamptzCeilFloor("SELECT WEEK_CEIL('2023-12-31 23:59:59.999+00:00', 2)", '+06:30')
     validateTimestamptzCeilFloor("SELECT WEEK_CEIL('0001-01-07 23:59:59.999+08:00', 1)", '-00:45')
-    validateTimestamptzCeilFloor("SELECT WEEK_CEIL('2023-01-01 00:00:00.000001+08:00', 2)", '+08:15')
+    validateTimestamptzCeilFloor("SELECT WEEK_CEIL('2023-01-01 00:00:00.000001+08:00', 2)", '+08:45')
     validateTimestamptzCeilFloor("SELECT WEEK_CEIL('2023-07-08 23:59:59.999999+08:00', 2)", '-01:00')
     validateTimestamptzCeilFloor("SELECT WEEK_CEIL('2023-07-13 22:28:18', '2023-07-03 00:00:00+08:00')", '+13:00')
     validateTimestamptzCeilFloor("SELECT WEEK_CEIL('2023-07-13 22:28:18+05:00', 2)", '-09:45')
     validateTimestamptzCeilFloor("SELECT WEEK_CEIL('2023-07-13 22:28:18+05:00', 2, '2023-07-03')", '+05:00')
-    validateTimestamptzCeilFloor("SELECT WEEK_CEIL('2023-07-13 22:28:18', 2, '2023-07-03 00:00:00+08:00')", '-04:15')
+    validateTimestamptzCeilFloor("SELECT WEEK_CEIL('2023-07-13 22:28:18', 2, '2023-07-03 00:00:00+08:00')", '-04:45')
     validateTimestamptzCeilFloor("SELECT WEEK_CEIL('0001-01-08 12:00:00+08:00')", '+12:00')
     validateTimestamptzCeilFloor("SELECT WEEK_CEIL('2023-07-13 23:59:59+00:00', 2, '2023-07-03 00:00:00+08:00')", '-07:30')
 
@@ -1802,20 +1786,20 @@ suite("doc_date_functions_test") {
     validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('2023-07-31 20:00:00+00:00', '2023-07-03 00:00:00+08:00')", '-10:30')
     validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('2023-07-13 22:28:18+05:00', 2, '0001-01-01 00:00:00')", '+04:30')
     validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('9999-06-15 10:30:45+05:00', 2, '9999-06-07 00:00:00')", '-03:45')
-    validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('2023-01-07 23:59:59.999+08:00', 2)", '+09:15')
+    validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('2023-01-07 23:59:59.999+08:00', 2)", '+09:45')
     validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('2023-06-30 23:59:59.999+08:00', 2, '2023-01-02 00:00:00')", '-02:30')
     validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('2023-12-31 23:59:59.999+00:00', 2)", '+06:45')
-    validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('0001-01-07 23:59:59.999+08:00', 1)", '-00:15')
+    validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('0001-01-07 23:59:59.999+08:00', 1)", '-00:45')
     validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('9999-12-31 12:00:00.123+08:00', 1)", '+08:30')
-    validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('2023-01-01 00:00:00.000001+08:00', 2)", '-01:15')
-    validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('2023-07-08 23:59:59.999999+08:00', 2)", '+13:15')
+    validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('2023-01-01 00:00:00.000001+08:00', 2)", '-01:45')
+    validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('2023-07-08 23:59:59.999999+08:00', 2)", '+13:45')
     validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('2023-07-13 22:28:18', '2023-07-03 00:00:00+08:00')", '-09:30')
     validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('2023-07-13 22:28:18+05:00', 2)", '+05:30')
     validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('2023-07-13 22:28:18+05:00', 2, '2023-07-03')", '-04:45')
     validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('2023-07-13 22:28:18', 2, '2023-07-03 00:00:00+08:00')", '+12:30')
     validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('0001-01-08 12:00:00+08:00')", '-07:45')
-    validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('9999-12-27 12:00:00+08:00')", '+02:15')
-    validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('2023-07-13 23:59:59+00:00', 2, '2023-07-03 00:00:00+08:00')", '-11:15')
+    validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('9999-12-27 12:00:00+08:00')", '+02:45')
+    validateTimestamptzCeilFloor("SELECT WEEK_FLOOR('2023-07-13 23:59:59+00:00', 2, '2023-07-03 00:00:00+08:00')", '-11:45')
 
     // 87. WEEK function tests
     qt_week_1 """SELECT WEEK('2020-01-01') AS week_result"""
@@ -1881,11 +1865,11 @@ suite("doc_date_functions_test") {
     qt_year_ceil_5 """SELECT YEAR_CEIL('2023-07-13', 1, '2020-01-01 08:30:00') AS result"""
     qt_year_ceil_6 """SELECT YEAR_CEIL('2023-01-01', 1, '2023-01-01') AS result"""
     qt_year_ceil_7 """SELECT YEAR_CEIL(NULL, 1) AS result"""
-    validateTimestamptzCeilFloor("SELECT YEAR_CEIL('2025-12-31 23:59:59+05:00')", '+10:15')
+    validateTimestamptzCeilFloor("SELECT YEAR_CEIL('2025-12-31 23:59:59+05:00')", '+10:45')
     validateTimestamptzCeilFloor("SELECT YEAR_CEIL('2025-12-31 20:00:00+00:00', '2020-01-01 00:00:00+08:00')", '-08:45')
     validateTimestamptzCeilFloor("SELECT YEAR_CEIL('2023-07-13 22:28:18', '2020-01-01 00:00:00+08:00')", '+03:30')
     validateTimestamptzCeilFloor("SELECT YEAR_CEIL('2023-07-13 22:28:18+05:00', 5)", '-02:00')
-    validateTimestamptzCeilFloor("SELECT YEAR_CEIL('2023-07-13 22:28:18+05:00', 2, '2020-01-01')", '+07:15')
+    validateTimestamptzCeilFloor("SELECT YEAR_CEIL('2023-07-13 22:28:18+05:00', 2, '2020-01-01')", '+07:45')
     validateTimestamptzCeilFloor("SELECT YEAR_CEIL('2023-07-13 22:28:18', 2, '2020-01-01 00:00:00+08:00')", '-12:00')
     validateTimestamptzCeilFloor("SELECT YEAR_CEIL('0001-06-15 12:30:00+08:00')", '+01:30')
     validateTimestamptzCeilFloor("SELECT YEAR_CEIL('2025-12-31 20:00:00+00:00', 3, '2020-01-01 00:00:00+08:00')", '-11:30')
@@ -1893,7 +1877,7 @@ suite("doc_date_functions_test") {
     validateTimestamptzCeilFloor("SELECT YEAR_CEIL('2023-07-13 22:28:18', 3, '0001-06-15 00:00:00+08:00')", '-05:00')
     validateTimestamptzCeilFloor("SELECT YEAR_CEIL('9998-06-15 10:30:45+05:00', 1, '9998-01-01 00:00:00')", '+11:00')
     validateTimestamptzCeilFloor("SELECT YEAR_CEIL('9998-10-20 10:30:45', 1, '9998-01-01 00:00:00+08:00')", '-06:00')
-    validateTimestamptzCeilFloor("SELECT YEAR_CEIL('2023-12-31 23:59:59.999+08:00', 2)", '+12:15')
+    validateTimestamptzCeilFloor("SELECT YEAR_CEIL('2023-12-31 23:59:59.999+08:00', 2)", '+12:45')
     validateTimestamptzCeilFloor("SELECT YEAR_CEIL('2023-12-31 23:59:59.999+00:00', 3, '2020-01-01 00:00:00')", '-01:00')
     validateTimestamptzCeilFloor("SELECT YEAR_CEIL('0001-12-31 23:59:59.999+08:00', 1)", '+10:30')
     validateTimestamptzCeilFloor("SELECT YEAR_CEIL('2023-01-01 00:00:00.000001+08:00', 2)", '-09:30')
@@ -1913,21 +1897,21 @@ suite("doc_date_functions_test") {
     qt_year_floor_11 """SELECT YEAR_FLOOR(NULL, 1) AS result"""
     validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('2025-12-31 23:59:59+05:00')", '+10:45')
     validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('2025-12-31 20:00:00+00:00', '2020-01-01 00:00:00+08:00')", '-08:30')
-    validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('2023-07-13 22:28:18', '2020-01-01 00:00:00+08:00')", '+03:15')
+    validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('2023-07-13 22:28:18', '2020-01-01 00:00:00+08:00')", '+03:45')
     validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('2023-07-13 22:28:18+05:00', 5)", '-02:30')
     validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('2023-07-13 22:28:18+05:00', 2, '2020-01-01')", '+07:45')
     validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('2023-07-13 22:28:18', 2, '2020-01-01 00:00:00+08:00')", '-11:45')
-    validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('0001-06-15 12:30:00+08:00')", '+01:15')
+    validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('0001-06-15 12:30:00+08:00')", '+01:45')
     validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('9999-06-15 12:30:00+08:00')", '-11:30')
-    validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('2025-12-31 20:00:00+00:00', 3, '2020-01-01 00:00:00+08:00')", '+05:15')
+    validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('2025-12-31 20:00:00+00:00', 3, '2020-01-01 00:00:00+08:00')", '+05:45')
     validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('2023-07-13 22:28:18+05:00', 5, '0001-01-01 00:00:00')", '-05:45')
     validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('2023-07-13 22:28:18', 3, '0001-06-15 00:00:00+08:00')", '+11:30')
     validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('9999-06-15 10:30:45+05:00', 1, '9999-01-01 00:00:00')", '-06:45')
     validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('9999-10-20 10:30:45', 1, '9999-01-01 00:00:00+08:00')", '+12:45')
     validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('2023-12-31 23:59:59.999+08:00', 2)", '-01:45')
     validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('2023-12-31 23:59:59.999+00:00', 3, '2020-01-01 00:00:00')", '+09:45')
-    validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('0001-12-31 23:59:59.999+08:00', 1)", '-10:15')
-    validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('9999-12-31 12:00:00.123+08:00', 1)", '+04:15')
+    validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('0001-12-31 23:59:59.999+08:00', 1)", '-10:45')
+    validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('9999-12-31 12:00:00.123+08:00', 1)", '+04:45')
     validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('2023-01-01 00:00:00.000001+08:00', 2)", '-03:30')
     validateTimestamptzCeilFloor("SELECT YEAR_FLOOR('2023-12-31 23:59:59.999999+08:00', 2)", '+06:30')
 
@@ -2443,7 +2427,7 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT HOUR_CEIL('2023-07-13 22:28:18.456789+05:00', 4, '2023-07-13 08:00:00')")
     testFoldConst("SELECT HOUR_CEIL('2023-07-13 22:28:18.789123', 5, '2023-07-13 18:00:00+08:00')")
     testFoldConst("SELECT HOUR_CEIL('0001-07-13 22:28:18.456789+05:00', 4)")
-    testFoldConst("SELECT HOUR_CEIL('9999-12-31 22:28:18.456789+05:00', 4)")
+    testFoldConst("SELECT HOUR_CEIL('9999-12-30 22:28:18.456789+05:00', 4)")
     testFoldConst("SELECT HOUR_CEIL('2023-07-13 23:59:59.999+00:00', 4, '2023-07-13 20:00:00+08:00')")
     testFoldConst("SELECT HOUR_CEIL('2023-12-31 23:30:00.111+00:00', 5)")
 
@@ -2457,7 +2441,7 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT HOUR_FLOOR('2023-07-13 22:28:18.456789+05:00', 4, '2023-07-13 08:00:00')")
     testFoldConst("SELECT HOUR_FLOOR('2023-07-13 22:28:18.789123', 5, '2023-07-13 18:00:00+08:00')")
     testFoldConst("SELECT HOUR_FLOOR('0001-07-13 22:28:18.456789+05:00', 4)")
-    testFoldConst("SELECT HOUR_FLOOR('9999-12-31 22:28:18.456789+05:00', 4)")
+    testFoldConst("SELECT HOUR_FLOOR('9999-12-30 22:28:18.456789+05:00', 4)")
     testFoldConst("SELECT HOUR_FLOOR('2023-07-13 23:59:59.999+00:00', 4, '2023-07-13 20:00:00+08:00')")
     testFoldConst("SELECT HOUR_FLOOR('2023-12-31 23:30:00.111+00:00', 5)")
 
@@ -3368,15 +3352,15 @@ suite("doc_date_functions_test") {
     qt_quarter_ceil_7 """SELECT QUARTER_CEIL(NULL, 2), QUARTER_CEIL('2023-07-13 22:28:18', NULL)"""
     validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('2023-07-13 22:28:18+05:00')", '+11:00')
     validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('2023-12-31 20:00:00+00:00', '2023-01-01 00:00:00+08:00')", '-09:00')
-    validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('2023-07-13 22:28:18', '2023-01-01 00:00:00+08:00')", '+04:15')
+    validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('2023-07-13 22:28:18', '2023-01-01 00:00:00+08:00')", '+04:45')
     validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('2023-07-13 22:28:18+05:00', 2)", '-05:00')
     validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('2023-07-13 22:28:18+05:00', 2, '2023-01-01')", '+07:00')
     validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('2023-07-13 22:28:18', 2, '2023-01-01 00:00:00+08:00')", '-11:30')
     validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('0001-01-15 12:00:00+08:00')", '+02:45')
-    validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('2023-07-13 23:59:59+00:00', 2, '2023-01-01 00:00:00+08:00')", '-03:15')
+    validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('2023-07-13 23:59:59+00:00', 2, '2023-01-01 00:00:00+08:00')", '-03:45')
     validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('2023-07-13 22:28:18+05:00', 2, '0001-01-01 00:00:00')", '+08:30')
     validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('2023-03-31 23:59:59.999+08:00', 2)", '-06:45')
-    validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('2023-09-30 23:59:59.999+08:00', 2, '2023-01-01 00:00:00')", '+13:15')
+    validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('2023-09-30 23:59:59.999+08:00', 2, '2023-01-01 00:00:00')", '+13:45')
     validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('2023-12-31 23:59:59.999+00:00', 2)", '-10:00')
     validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('0001-03-31 23:59:59.999+08:00', 1)", '+05:45')
     validateTimestamptzCeilFloor("SELECT QUARTER_CEIL('2023-01-01 00:00:00.000001+08:00', 2)", '-01:00')
@@ -3403,24 +3387,24 @@ suite("doc_date_functions_test") {
     qt_quarter_floor_5 """SELECT QUARTER_FLOOR('2023-07-13 22:28:18.456789', 2)"""
     qt_quarter_floor_6 """SELECT QUARTER_FLOOR('2023-07-13', 1)"""
     qt_quarter_floor_7 """SELECT QUARTER_FLOOR(NULL, 2), QUARTER_FLOOR('2023-07-13 22:28:18', NULL)"""
-    validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-07-13 22:28:18+05:00')", '+11:15')
+    validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-07-13 22:28:18+05:00')", '+11:45')
     validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-12-31 20:00:00+00:00', '2023-01-01 00:00:00+08:00')", '-09:30')
     validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-07-13 22:28:18', '2023-01-01 00:00:00+08:00')", '+04:45')
     validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-07-13 22:28:18+05:00', 2)", '-05:30')
-    validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-07-13 22:28:18+05:00', 2, '2023-01-01')", '+07:15')
+    validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-07-13 22:28:18+05:00', 2, '2023-01-01')", '+07:45')
     validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-07-13 22:28:18', 2, '2023-01-01 00:00:00+08:00')", '-11:45')
-    validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('0001-01-15 12:00:00+08:00')", '+02:15')
+    validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('0001-01-15 12:00:00+08:00')", '+02:45')
     validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('9999-12-15 12:00:00+08:00')", '-03:45')
     validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-07-13 23:59:59+00:00', 2, '2023-01-01 00:00:00+08:00')", '+08:45')
-    validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-07-13 22:28:18+05:00', 2, '0001-01-01 00:00:00')", '-06:15')
+    validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-07-13 22:28:18+05:00', 2, '0001-01-01 00:00:00')", '-06:45')
     validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('9999-06-15 10:30:45+05:00', 1, '9999-01-01 00:00:00')", '+13:30')
     validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-03-31 23:59:59.999+08:00', 2)", '-10:30')
-    validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-09-30 23:59:59.999+08:00', 2, '2023-01-01 00:00:00')", '+05:15')
+    validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-09-30 23:59:59.999+08:00', 2, '2023-01-01 00:00:00')", '+05:45')
     validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-12-31 23:59:59.999+00:00', 2)", '-01:30')
     validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('0001-03-31 23:59:59.999+08:00', 1)", '+12:45')
     validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('9999-12-31 12:00:00.123+08:00', 1)", '-07:45')
-    validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-01-01 00:00:00.000001+08:00', 2)", '+01:15')
-    validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-06-30 23:59:59.999999+08:00', 2)", '-00:15')
+    validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-01-01 00:00:00.000001+08:00', 2)", '+01:45')
+    validateTimestamptzCeilFloor("SELECT QUARTER_FLOOR('2023-06-30 23:59:59.999999+08:00', 2)", '-00:45')
 
     testFoldConst("SELECT QUARTER_FLOOR('2023-07-13 22:28:18')")
     testFoldConst("SELECT QUARTER_FLOOR('2023-07-13 22:28:18', 2)")

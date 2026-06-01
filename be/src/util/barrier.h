@@ -20,7 +20,7 @@
 #include <condition_variable>
 #include <mutex>
 
-#include "olap/olap_define.h"
+#include "storage/olap_define.h"
 
 namespace doris {
 

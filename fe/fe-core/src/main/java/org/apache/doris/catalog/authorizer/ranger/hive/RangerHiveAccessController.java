@@ -21,7 +21,6 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.InternalCatalog;
@@ -82,9 +81,9 @@ public class RangerHiveAccessController extends RangerAccessController {
     protected RangerAccessRequestImpl createRequest(UserIdentity currentUser) {
         RangerAccessRequestImpl request = new RangerAccessRequestImpl();
         String user = currentUser.getQualifiedUser();
-        request.setUser(ClusterNamespace.getNameFromFullName(user));
+        request.setUser(user);
         Set<String> roles = Env.getCurrentEnv().getAuth().getRolesByUser(currentUser, false);
-        request.setUserRoles(roles.stream().map(role -> ClusterNamespace.getNameFromFullName(role)).collect(
+        request.setUserRoles(roles.stream().collect(
                 Collectors.toSet()));
         request.setClientIPAddress(currentUser.getHost());
         request.setClusterType(CLIENT_TYPE_DORIS);
@@ -152,14 +151,14 @@ public class RangerHiveAccessController extends RangerAccessController {
     @Override
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
         RangerHiveResource resource = new RangerHiveResource(HiveObjectType.DATABASE,
-                ClusterNamespace.getNameFromFullName(db));
+                db);
         return checkPrivilege(currentUser, convertToAccessType(wanted), resource);
     }
 
     @Override
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
         RangerHiveResource resource = new RangerHiveResource(HiveObjectType.TABLE,
-                ClusterNamespace.getNameFromFullName(db), tbl);
+                db, tbl);
         return checkPrivilege(currentUser, convertToAccessType(wanted), resource);
     }
 
@@ -169,7 +168,7 @@ public class RangerHiveAccessController extends RangerAccessController {
         List<RangerHiveResource> resources = new ArrayList<>();
         for (String col : cols) {
             RangerHiveResource resource = new RangerHiveResource(HiveObjectType.COLUMN,
-                    ClusterNamespace.getNameFromFullName(db), tbl, col);
+                    db, tbl, col);
             resources.add(resource);
         }
 
@@ -202,13 +201,13 @@ public class RangerHiveAccessController extends RangerAccessController {
     @Override
     protected RangerHiveResource createResource(String ctl, String db, String tbl) {
         return new RangerHiveResource(HiveObjectType.TABLE,
-                ClusterNamespace.getNameFromFullName(db), tbl);
+                db, tbl);
     }
 
     @Override
     protected RangerHiveResource createResource(String ctl, String db, String tbl, String col) {
         return new RangerHiveResource(HiveObjectType.COLUMN,
-                ClusterNamespace.getNameFromFullName(db), tbl, col);
+                db, tbl, col);
     }
 
     @Override

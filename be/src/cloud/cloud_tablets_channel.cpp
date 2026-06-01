@@ -23,11 +23,11 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
-#include "olap/delta_writer.h"
-#include "runtime/tablets_channel.h"
+#include "load/channel/tablets_channel.h"
+#include "load/delta_writer/delta_writer.h"
+#include "storage/tablet_info.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 CloudTabletsChannel::CloudTabletsChannel(CloudStorageEngine& engine, const TabletsChannelKey& key,
                                          const UniqueId& load_id, bool is_high_priority,
@@ -43,10 +43,15 @@ std::unique_ptr<BaseDeltaWriter> CloudTabletsChannel::create_delta_writer(
 
 Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                                       PTabletWriterAddBlockResult* response) {
+    if (_schema != nullptr && _schema->row_binlog_index_schema() != nullptr) {
+        return Status::NotSupported("cloud mode does not support binlog<row> now");
+    }
     // FIXME(plat1ko): Too many duplicate code with `TabletsChannel`
     SCOPED_TIMER(_add_batch_timer);
     int64_t cur_seq = 0;
-    _add_batch_number_counter->update(1);
+    if (_add_batch_number_counter != nullptr) {
+        _add_batch_number_counter->update(1);
+    }
 
     auto status = _get_current_seq(cur_seq, request);
     if (UNLIKELY(!status.ok())) {
@@ -250,9 +255,9 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
         }
     }
 
-    // 6. set txn related delete bitmap if necessary
+    // 6. set txn related info if necessary
     for (auto it = writers_to_commit.begin(); it != writers_to_commit.end();) {
-        auto st = (*it)->set_txn_related_delete_bitmap();
+        auto st = (*it)->set_txn_related_info();
         if (!st.ok()) {
             _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
             _close_status = std::move(st);
@@ -277,5 +282,4 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

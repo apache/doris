@@ -42,7 +42,7 @@ public class RemoteDorisRestClientTest extends DorisHttpTestCase {
     public void testGetTablesNameList() throws Exception {
         List<String> res = RemoteDorisRestClient.parseStringLists(
                 execute("api/meta/namespaces/default_cluster/databases/" + DB_NAME + "/tables"));
-        Assert.assertArrayEquals(new String[]{"es_table", "testTbl1"}, res.toArray());
+        Assert.assertArrayEquals(new String[]{"testTbl1"}, res.toArray());
     }
 
     @Test

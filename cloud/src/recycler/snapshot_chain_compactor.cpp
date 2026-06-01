@@ -27,6 +27,7 @@
 #include "recycler/hdfs_accessor.h"
 #include "recycler/s3_accessor.h"
 #include "recycler/util.h"
+#include "snapshot/snapshot_manager_factory.h"
 
 namespace doris::cloud {
 
@@ -98,9 +99,8 @@ void SnapshotChainCompactor::compaction_loop() {
         }
 
         std::string job_key = job_snapshot_chain_compactor_key(instance.instance_id());
-        int ret =
-                prepare_instance_recycle_job(txn_kv_.get(), job_key, instance.instance_id(),
-                                             ip_port_, config::recycle_job_lease_expired_ms * 1000);
+        int ret = prepare_instance_recycle_job(txn_kv_.get(), job_key, instance.instance_id(),
+                                               ip_port_, config::recycle_job_lease_expired_ms);
         if (ret != 0) { // Prepare failed
             continue;
         } else {
@@ -123,11 +123,6 @@ void SnapshotChainCompactor::scan_instance_loop() {
     while (!stopped()) {
         std::vector<InstanceInfoPB> instances;
         get_all_instances(txn_kv_.get(), instances);
-        LOG(INFO) << "Snapshot chain compactor get instances: " << [&instances] {
-            std::stringstream ss;
-            for (auto& i : instances) ss << ' ' << i.instance_id();
-            return ss.str();
-        }();
         if (!instances.empty()) {
             // enqueue instances
             std::lock_guard lock(mtx_);
@@ -144,7 +139,7 @@ void SnapshotChainCompactor::scan_instance_loop() {
         }
         {
             std::unique_lock lock(mtx_);
-            notifier_.wait_for(lock, std::chrono::seconds(config::recycle_interval_seconds),
+            notifier_.wait_for(lock, std::chrono::seconds(config::scan_instances_interval_seconds),
                                [&]() { return stopped(); });
         }
     }
@@ -230,6 +225,16 @@ int is_instance_cloned(TxnKv* txn_kv, const std::string& instance_id, bool* is_c
 }
 
 bool SnapshotChainCompactor::is_snapshot_chain_need_compact(const InstanceInfoPB& instance_info) {
+    // Skip instances that have already completed compact
+    if (instance_info.snapshot_compact_status() == SnapshotCompactStatus::SNAPSHOT_COMPACT_DONE) {
+        return false;
+    }
+
+    // Instances with DOING status should be compacted (manually triggered)
+    if (instance_info.snapshot_compact_status() == SnapshotCompactStatus::SNAPSHOT_COMPACT_DOING) {
+        return true;
+    }
+
     // compact the instance which meets the following conditions:
     // 1. the instance is cloned from snapshot
     // 2. its source instance is not cloned from other snapshots
@@ -247,7 +252,9 @@ bool SnapshotChainCompactor::is_snapshot_chain_need_compact(const InstanceInfoPB
                      << instance_info.source_instance_id();
         return false;
     }
-    if (is_instance_cloned_from_snapshot(source_instance_info)) {
+    if (is_instance_cloned_from_snapshot(source_instance_info) &&
+        source_instance_info.snapshot_compact_status() !=
+                SnapshotCompactStatus::SNAPSHOT_COMPACT_DONE) {
         return false;
     }
 
@@ -384,8 +391,8 @@ int InstanceChainCompactor::do_compact() {
                 .tag("cost(sec)", stop_watch.elapsed_seconds());
     };
 
-    SnapshotManager snapshot_mgr(txn_kv_);
-    int res = snapshot_mgr.compact_snapshot_chains(this);
+    auto snapshot_mgr = create_snapshot_manager(txn_kv_);
+    int res = snapshot_mgr->compact_snapshot_chains(this);
     if (res != 0) {
         LOG_WARNING("failed to compact snapshot chains").tag("instance_id", instance_id_);
         return res;
@@ -435,8 +442,8 @@ int InstanceChainCompactor::handle_compaction_completion() {
     std::string reference_key = versioned::snapshot_reference_key(ref_key_info);
     txn->remove(reference_key);
 
-    // instance_info.clear_source_instance_id();
-    instance_info.clear_source_snapshot_id();
+    // Preserve source_instance_id and source_snapshot_id, mark compact as done
+    instance_info.set_snapshot_compact_status(SnapshotCompactStatus::SNAPSHOT_COMPACT_DONE);
     instance_info.clear_compacted_key_sets();
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, instance_info.SerializeAsString());
