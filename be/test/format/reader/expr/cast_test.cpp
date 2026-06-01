@@ -92,6 +92,49 @@ private:
     const std::string _expr_name = "Int64ChildGreaterThanExpr";
 };
 
+class Int64BinaryPredicateExpr final : public VExpr {
+public:
+    explicit Int64BinaryPredicateExpr(TExprOpcode::type opcode)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false) {
+        set_node_type(TExprNodeType::BINARY_PRED);
+        _opcode = opcode;
+    }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        ColumnPtr left_column;
+        RETURN_IF_ERROR(get_child(0)->execute_column(context, block, selector, count, left_column));
+        ColumnPtr right_column;
+        RETURN_IF_ERROR(
+                get_child(1)->execute_column(context, block, selector, count, right_column));
+
+        auto result = ColumnUInt8::create();
+        auto& result_data = result->get_data();
+        result_data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const auto left = left_column->get_int(row);
+            const auto right = right_column->get_int(row);
+            switch (_opcode) {
+            case TExprOpcode::GT:
+                result_data[row] = left > right;
+                break;
+            case TExprOpcode::LT:
+                result_data[row] = left < right;
+                break;
+            default:
+                return Status::InternalError("Unsupported test opcode {}", _opcode);
+            }
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    const std::string _expr_name = "Int64BinaryPredicateExpr";
+};
+
 TEST_F(CastTest, CastIntSlotToBigInt) {
     auto source_type = std::make_shared<DataTypeInt32>();
     auto return_type = std::make_shared<DataTypeInt64>();
@@ -314,6 +357,261 @@ TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
     EXPECT_EQ(filter[1], 1);
 
     file_request.conjuncts[0]->close();
+}
+
+TEST_F(CastTest, ColumnMapperCastsLiteralForSlotLiteralPredicateTypeMismatch) {
+    reader::TableColumnMapper mapper;
+    reader::TableColumn table_column;
+    table_column.id = 7;
+    table_column.name = "value";
+    table_column.type = std::make_shared<DataTypeInt64>();
+    std::vector<reader::TableColumn> projected_columns {table_column};
+
+    reader::SchemaField file_field;
+    file_field.id = 0;
+    file_field.name = "value";
+    file_field.type = std::make_shared<DataTypeInt32>();
+    std::vector<reader::SchemaField> file_schema {file_field};
+
+    auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto predicate = std::make_shared<Int64BinaryPredicateExpr>(TExprOpcode::GT);
+    predicate->add_child(TableSlotRef::create_shared(7, 7, -1, table_column.type, "value"));
+    predicate->add_child(
+            TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
+    reader::TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(predicate);
+    table_filter.slot_ids = {7};
+
+    reader::FileScanRequest file_request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+    ASSERT_EQ(file_request.conjuncts.size(), 1);
+    ASSERT_EQ(file_request.predicate_columns, std::vector<reader::ColumnId>({0}));
+    const auto& localized_expr = file_request.conjuncts[0]->root();
+    ASSERT_EQ(localized_expr->get_num_children(), 2);
+    const auto* localized_slot =
+            assert_cast<const TableSlotRef*>(localized_expr->children()[0].get());
+    EXPECT_EQ(localized_slot->column_id(), 0);
+    EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
+    const auto& localized_literal = localized_expr->children()[1];
+    EXPECT_TRUE(localized_literal->is_literal());
+    EXPECT_TRUE(localized_literal->data_type()->equals(*file_field.type));
+
+    Block block;
+    block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({11, 22}));
+    auto* conjunct = file_request.conjuncts[0].get();
+    status = conjunct->prepare(&state, RowDescriptor());
+    ASSERT_TRUE(status.ok()) << status;
+    status = conjunct->open(&state);
+    ASSERT_TRUE(status.ok()) << status;
+    IColumn::Filter filter(block.rows(), 1);
+    bool can_filter_all = false;
+    status = conjunct->execute_filter(&block, filter.data(), block.rows(), false, &can_filter_all);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_FALSE(can_filter_all);
+    ASSERT_EQ(filter.size(), 2);
+    EXPECT_EQ(filter[0], 0);
+    EXPECT_EQ(filter[1], 1);
+
+    file_request.conjuncts[0]->close();
+}
+
+TEST_F(CastTest, ColumnMapperCastsLiteralForLiteralSlotPredicateTypeMismatch) {
+    reader::TableColumnMapper mapper;
+    reader::TableColumn table_column;
+    table_column.id = 7;
+    table_column.name = "value";
+    table_column.type = std::make_shared<DataTypeInt64>();
+    std::vector<reader::TableColumn> projected_columns {table_column};
+
+    reader::SchemaField file_field;
+    file_field.id = 0;
+    file_field.name = "value";
+    file_field.type = std::make_shared<DataTypeInt32>();
+    std::vector<reader::SchemaField> file_schema {file_field};
+
+    auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto predicate = std::make_shared<Int64BinaryPredicateExpr>(TExprOpcode::LT);
+    predicate->add_child(
+            TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
+    predicate->add_child(TableSlotRef::create_shared(7, 7, -1, table_column.type, "value"));
+    reader::TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(predicate);
+    table_filter.slot_ids = {7};
+
+    reader::FileScanRequest file_request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+    ASSERT_EQ(file_request.conjuncts.size(), 1);
+    const auto& localized_expr = file_request.conjuncts[0]->root();
+    ASSERT_EQ(localized_expr->get_num_children(), 2);
+    const auto& localized_literal = localized_expr->children()[0];
+    EXPECT_TRUE(localized_literal->is_literal());
+    EXPECT_TRUE(localized_literal->data_type()->equals(*file_field.type));
+    const auto* localized_slot =
+            assert_cast<const TableSlotRef*>(localized_expr->children()[1].get());
+    EXPECT_EQ(localized_slot->column_id(), 0);
+    EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
+
+    Block block;
+    block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({11, 22}));
+    auto* conjunct = file_request.conjuncts[0].get();
+    status = conjunct->prepare(&state, RowDescriptor());
+    ASSERT_TRUE(status.ok()) << status;
+    status = conjunct->open(&state);
+    ASSERT_TRUE(status.ok()) << status;
+    IColumn::Filter filter(block.rows(), 1);
+    bool can_filter_all = false;
+    status = conjunct->execute_filter(&block, filter.data(), block.rows(), false, &can_filter_all);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_FALSE(can_filter_all);
+    ASSERT_EQ(filter.size(), 2);
+    EXPECT_EQ(filter[0], 0);
+    EXPECT_EQ(filter[1], 1);
+
+    file_request.conjuncts[0]->close();
+}
+
+TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenLiteralRewriteFails) {
+    reader::TableColumnMapper mapper;
+    reader::TableColumn table_column;
+    table_column.id = 7;
+    table_column.name = "value";
+    table_column.type = std::make_shared<DataTypeString>();
+    std::vector<reader::TableColumn> projected_columns {table_column};
+
+    reader::SchemaField file_field;
+    file_field.id = 0;
+    file_field.name = "value";
+    file_field.type = std::make_shared<DataTypeInt32>();
+    std::vector<reader::SchemaField> file_schema {file_field};
+
+    auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto predicate = std::make_shared<Int64BinaryPredicateExpr>(TExprOpcode::GT);
+    predicate->add_child(TableSlotRef::create_shared(7, 7, -1, table_column.type, "value"));
+    predicate->add_child(TableLiteral::create_shared(table_column.type,
+                                                     Field::create_field<TYPE_STRING>("bad")));
+    reader::TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(predicate);
+    table_filter.slot_ids = {7};
+
+    reader::FileScanRequest file_request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+    ASSERT_EQ(file_request.conjuncts.size(), 1);
+    const auto& localized_expr = file_request.conjuncts[0]->root();
+    ASSERT_EQ(localized_expr->get_num_children(), 2);
+    const auto& localized_child = localized_expr->children()[0];
+    ASSERT_NE(dynamic_cast<const Cast*>(localized_child.get()), nullptr);
+    ASSERT_EQ(localized_child->get_num_children(), 1);
+    const auto* localized_slot =
+            assert_cast<const TableSlotRef*>(localized_child->children()[0].get());
+    EXPECT_EQ(localized_slot->column_id(), 0);
+    EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
+    EXPECT_TRUE(localized_child->data_type()->equals(*table_column.type));
+    EXPECT_TRUE(localized_expr->children()[1]->is_literal());
+    EXPECT_TRUE(localized_expr->children()[1]->data_type()->equals(*table_column.type));
+}
+
+TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenLiteralAcrossSplits) {
+    reader::TableColumn table_column;
+    table_column.id = 7;
+    table_column.name = "value";
+    table_column.type = std::make_shared<DataTypeInt64>();
+    std::vector<reader::TableColumn> projected_columns {table_column};
+
+    auto predicate = std::make_shared<Int64BinaryPredicateExpr>(TExprOpcode::GT);
+    predicate->add_child(TableSlotRef::create_shared(7, 7, -1, table_column.type, "value"));
+    predicate->add_child(
+            TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
+    reader::TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(predicate);
+    table_filter.slot_ids = {7};
+
+    reader::SchemaField int_file_field;
+    int_file_field.id = 0;
+    int_file_field.name = "value";
+    int_file_field.type = std::make_shared<DataTypeInt32>();
+    reader::TableColumnMapper int_mapper;
+    ASSERT_TRUE(int_mapper.create_mapping(projected_columns, {}, {int_file_field}).ok());
+    reader::FileScanRequest int_request;
+    ASSERT_TRUE(int_mapper.create_scan_request({table_filter}, {}, projected_columns, &int_request)
+                        .ok());
+    ASSERT_EQ(int_request.conjuncts.size(), 1);
+    const auto& int_localized_expr = int_request.conjuncts[0]->root();
+    ASSERT_EQ(int_localized_expr->get_num_children(), 2);
+    EXPECT_TRUE(int_localized_expr->children()[1]->is_literal());
+    EXPECT_TRUE(int_localized_expr->children()[1]->data_type()->equals(*int_file_field.type));
+
+    reader::SchemaField bigint_file_field;
+    bigint_file_field.id = 0;
+    bigint_file_field.name = "value";
+    bigint_file_field.type = std::make_shared<DataTypeInt64>();
+    reader::TableColumnMapper bigint_mapper;
+    ASSERT_TRUE(bigint_mapper.create_mapping(projected_columns, {}, {bigint_file_field}).ok());
+    reader::FileScanRequest bigint_request;
+    ASSERT_TRUE(bigint_mapper
+                        .create_scan_request({table_filter}, {}, projected_columns, &bigint_request)
+                        .ok());
+    ASSERT_EQ(bigint_request.conjuncts.size(), 1);
+    const auto& bigint_localized_expr = bigint_request.conjuncts[0]->root();
+    ASSERT_EQ(bigint_localized_expr->get_num_children(), 2);
+    const auto* localized_slot =
+            assert_cast<const TableSlotRef*>(bigint_localized_expr->children()[0].get());
+    EXPECT_EQ(localized_slot->column_id(), 0);
+    EXPECT_TRUE(localized_slot->data_type()->equals(*bigint_file_field.type));
+    EXPECT_TRUE(bigint_localized_expr->children()[1]->is_literal());
+    EXPECT_TRUE(bigint_localized_expr->children()[1]->data_type()->equals(*bigint_file_field.type));
+}
+
+TEST_F(CastTest, ColumnMapperKeepsExplicitSlotCastInSlotLiteralPredicate) {
+    reader::TableColumnMapper mapper;
+    reader::TableColumn table_column;
+    table_column.id = 7;
+    table_column.name = "value";
+    table_column.type = std::make_shared<DataTypeInt64>();
+    std::vector<reader::TableColumn> projected_columns {table_column};
+
+    reader::SchemaField file_field;
+    file_field.id = 0;
+    file_field.name = "value";
+    file_field.type = std::make_shared<DataTypeInt32>();
+    std::vector<reader::SchemaField> file_schema {file_field};
+
+    auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto explicit_cast = Cast::create_shared(std::make_shared<DataTypeString>());
+    explicit_cast->add_child(TableSlotRef::create_shared(7, 7, -1, table_column.type, "value"));
+    auto predicate = std::make_shared<Int64BinaryPredicateExpr>(TExprOpcode::GT);
+    predicate->add_child(explicit_cast);
+    predicate->add_child(
+            TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
+    reader::TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(predicate);
+    table_filter.slot_ids = {7};
+
+    reader::FileScanRequest file_request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+    ASSERT_EQ(file_request.conjuncts.size(), 1);
+    const auto& localized_expr = file_request.conjuncts[0]->root();
+    ASSERT_EQ(localized_expr->get_num_children(), 2);
+    const auto& localized_cast = localized_expr->children()[0];
+    ASSERT_NE(dynamic_cast<const Cast*>(localized_cast.get()), nullptr);
+    EXPECT_TRUE(localized_cast->data_type()->equals(DataTypeString()));
+    ASSERT_EQ(localized_cast->get_num_children(), 1);
+    ASSERT_NE(dynamic_cast<const Cast*>(localized_cast->children()[0].get()), nullptr);
+    const auto* localized_slot =
+            assert_cast<const TableSlotRef*>(localized_cast->children()[0]->children()[0].get());
+    EXPECT_EQ(localized_slot->column_id(), 0);
+    EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
 }
 
 TEST_F(CastTest, ColumnMapperDoesNotNestCastFilterAcrossScanRequests) {
