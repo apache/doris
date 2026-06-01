@@ -185,6 +185,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     // if not, will core dump when input is not null column, but need return null
     // like https://github.com/apache/doris/pull/14002/files
     private NullableMode returnNullMode = NullableMode.ALWAYS_NULLABLE;
+    // Keep IMMUTABLE as the UDAF/UDTF default for compatibility with previous behavior.
     private FunctionVolatility volatility = FunctionVolatility.IMMUTABLE;
     private String runtimeVersion;
     private String functionCode;
@@ -324,10 +325,6 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             throw new AnalysisException("do not support 'NATIVE' udf type after doris version 1.2.0,"
                     + "please use JAVA_UDF or RPC instead");
         }
-        if (properties.containsKey(VOLATILITY) && (isAggregate || isTableFunction)) {
-            throw new AnalysisException("volatility property only supports scalar JAVA_UDF and PYTHON_UDF");
-        }
-
         userFile = properties.getOrDefault(FILE_KEY, properties.get(OBJECT_FILE_KEY));
         originalUserFile = userFile; // Keep original jar name for BE
         // Inline Python code is authoritative. Keep FILE in metadata for replay, but do not load or validate it here.
@@ -347,9 +344,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         if (binaryType == Function.BinaryType.JAVA_UDF) {
             FunctionUtil.checkEnableJavaUdf();
             checkUdfSupportedTypes();
-            if (!isAggregate && !isTableFunction) {
-                volatility = analyzeVolatility();
-            }
+            volatility = analyzeVolatility(defaultVolatility());
 
             // always_nullable the default value is true, equal null means true
             Boolean isReturnNull = parseBooleanFromProperties(IS_RETURN_NULL);
@@ -365,9 +360,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         } else if (binaryType == Function.BinaryType.PYTHON_UDF) {
             FunctionUtil.checkEnablePythonUdf();
             checkUdfSupportedTypes();
-            if (!isAggregate && !isTableFunction) {
-                volatility = analyzeVolatility();
-            }
+            volatility = analyzeVolatility(defaultVolatility());
 
             // always_nullable the default value is true, equal null means true
             Boolean isReturnNull = parseBooleanFromProperties(IS_RETURN_NULL);
@@ -389,9 +382,13 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
     }
 
-    private FunctionVolatility analyzeVolatility() throws AnalysisException {
+    private FunctionVolatility defaultVolatility() {
+        return isAggregate || isTableFunction ? FunctionVolatility.IMMUTABLE : FunctionVolatility.VOLATILE;
+    }
+
+    private FunctionVolatility analyzeVolatility(FunctionVolatility defaultVolatility) throws AnalysisException {
         if (!properties.containsKey(VOLATILITY)) {
-            return FunctionVolatility.VOLATILE;
+            return defaultVolatility;
         }
         try {
             return FunctionVolatility.fromString(properties.get(VOLATILITY));

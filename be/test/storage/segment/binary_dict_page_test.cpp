@@ -74,7 +74,7 @@ public:
                                                           std::unique_ptr<DataPage>& decoded_page) {
         // Apply pre-decode for BinaryPlainPageV2
         if (encoding_type == PLAIN_ENCODING_V2) {
-            BinaryPlainPageV2PreDecoder pre_decoder;
+            BinaryPlainPageV2PreDecoder<false> pre_decoder;
             Status status = pre_decoder.decode(&decoded_page, &dict_slice, 0, false,
                                                PageTypePB::DATA_PAGE, "");
             if (!status.ok()) {
@@ -107,7 +107,7 @@ public:
     // Apply pre-decode for BinaryDictPage data pages
     // This method handles all encoding types (bitshuffle, plain V1, plain V2)
     Status apply_pre_decode(Slice& page_slice, std::unique_ptr<DataPage>& decoded_page) {
-        BinaryDictPagePreDecoder pre_decoder;
+        BinaryDictPagePreDecoder</*IS_CHAR=*/false> pre_decoder;
         return pre_decoder.decode(&decoded_page, &page_slice, 0, false, PageTypePB::DATA_PAGE, "");
     }
 
@@ -674,7 +674,7 @@ TEST_F(BinaryDictPageTest, TestConfigAffectsDictionaryPageEncoding) {
         // First apply pre-decode for BinaryPlainPageV2
         Slice dict_page_slice = dict_slice.slice();
         std::unique_ptr<DataPage> decoded_page;
-        BinaryPlainPageV2PreDecoder pre_decoder;
+        BinaryPlainPageV2PreDecoder<false> pre_decoder;
         status = pre_decoder.decode(&decoded_page, &dict_page_slice, 0, false,
                                     PageTypePB::DATA_PAGE, "");
         EXPECT_TRUE(status.ok());

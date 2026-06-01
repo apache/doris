@@ -124,7 +124,8 @@ public:
     void resize(size_t new_size) override { s = new_size; }
 
     MutableColumnPtr clone_resized(size_t new_size) const override {
-        return ColumnConst::create(data, new_size, false, false);
+        auto cloned_data = data->clone_resized(data->size());
+        return ColumnConst::create(std::move(cloned_data), new_size, false, false);
     }
 
     size_t size() const override { return s; }

@@ -161,6 +161,8 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto res_data_column = ColumnFloat64::create();

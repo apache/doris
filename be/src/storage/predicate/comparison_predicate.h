@@ -280,7 +280,12 @@ public:
             if (bf->is_ngram_bf()) {
                 return true;
             }
-            if constexpr (is_string_type(Type)) {
+            if constexpr (Type == TYPE_CHAR) {
+                // CHAR BFs hash zero-padded bytes while the predicate value is
+                // unpadded, so probing the BF would always miss. Skip BF
+                // pruning for CHAR entirely and let the scan filter the rows.
+                return true;
+            } else if constexpr (is_string_type(Type)) {
                 return bf->test_bytes(_value.data(), _value.size());
             } else {
                 // DecimalV2 using decimal12_t in bloom filter, should convert value to decimal12_t

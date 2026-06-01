@@ -5,16 +5,16 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t_s_firstyear.customer_id = t_w_secyear.customer_id)) otherCondition=((if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL) > if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL))) build RFs:RF22 customer_id->c_customer_id;RF23 customer_id->c_customer_id;RF24 customer_id->c_customer_id;RF25 customer_id->c_customer_id;RF26 customer_id->c_customer_id
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t_s_firstyear.customer_id = t_w_secyear.customer_id)) otherCondition=((if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL) > if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL))) build RFs:RF26 customer_id->c_customer_id;RF27 customer_id->c_customer_id;RF28 customer_id->c_customer_id;RF29 customer_id->c_customer_id;RF30 customer_id->c_customer_id
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t_s_firstyear.customer_id = t_w_firstyear.customer_id)) otherCondition=() build RFs:RF18 customer_id->c_customer_id;RF19 customer_id->c_customer_id;RF20 customer_id->c_customer_id;RF21 customer_id->c_customer_id
+--------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t_s_firstyear.customer_id = t_w_firstyear.customer_id)) otherCondition=() build RFs:RF21 customer_id->c_customer_id;RF22 customer_id->c_customer_id;RF23 customer_id->c_customer_id;RF24 customer_id->c_customer_id
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t_s_firstyear.customer_id = t_c_secyear.customer_id)) otherCondition=((if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL) > if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL))) build RFs:RF15 customer_id->c_customer_id;RF16 customer_id->c_customer_id;RF17 customer_id->c_customer_id
+------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t_s_firstyear.customer_id = t_c_secyear.customer_id)) otherCondition=((if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL) > if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL))) build RFs:RF17 customer_id->c_customer_id;RF18 customer_id->c_customer_id;RF19 customer_id->c_customer_id
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t_s_firstyear.customer_id = t_c_firstyear.customer_id)) otherCondition=() build RFs:RF13 customer_id->c_customer_id;RF14 customer_id->c_customer_id
+----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t_s_firstyear.customer_id = t_c_firstyear.customer_id)) otherCondition=() build RFs:RF14 customer_id->c_customer_id;RF15 customer_id->c_customer_id
 ------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((t_s_secyear.customer_id = t_s_firstyear.customer_id)) otherCondition=() build RFs:RF12 customer_id->c_customer_id
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF11 c_customer_sk->ss_customer_sk
+----------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF11 c_customer_sk->ss_customer_sk;RF13 customer_id->c_customer_id;RF16 customer_id->c_customer_id;RF20 customer_id->c_customer_id;RF25 customer_id->c_customer_id;RF31 customer_id->c_customer_id
 ------------------------------PhysicalProject
 --------------------------------filter((year_total > 0.000000))
 ----------------------------------hashAgg[GLOBAL]
@@ -28,7 +28,7 @@ PhysicalResultSink
 ----------------------------------------------filter((date_dim.d_year = 1999))
 ------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer] apply RFs: RF12 RF13 RF15 RF18 RF22
+--------------------------------PhysicalOlapScan[customer] apply RFs: RF12 RF14 RF17 RF21 RF26
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF9 c_customer_sk->ss_customer_sk
 ------------------------------PhysicalProject
@@ -43,7 +43,7 @@ PhysicalResultSink
 --------------------------------------------filter((date_dim.d_year = 2000))
 ----------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer] apply RFs: RF14 RF16 RF19 RF23
+--------------------------------PhysicalOlapScan[customer] apply RFs: RF13 RF15 RF18 RF22 RF27
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF7 c_customer_sk->cs_bill_customer_sk
 ----------------------------PhysicalProject
@@ -59,7 +59,7 @@ PhysicalResultSink
 --------------------------------------------filter((date_dim.d_year = 1999))
 ----------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[customer] apply RFs: RF17 RF20 RF24
+------------------------------PhysicalOlapScan[customer] apply RFs: RF16 RF19 RF23 RF28
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF5 c_customer_sk->cs_bill_customer_sk
 ------------------------PhysicalProject
@@ -74,7 +74,7 @@ PhysicalResultSink
 --------------------------------------filter((date_dim.d_year = 2000))
 ----------------------------------------PhysicalOlapScan[date_dim]
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[customer] apply RFs: RF21 RF25
+--------------------------PhysicalOlapScan[customer] apply RFs: RF20 RF24 RF29
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 c_customer_sk->ws_bill_customer_sk
 --------------------PhysicalProject
@@ -90,7 +90,7 @@ PhysicalResultSink
 ------------------------------------filter((date_dim.d_year = 1999))
 --------------------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[customer] apply RFs: RF26
+----------------------PhysicalOlapScan[customer] apply RFs: RF25 RF30
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF1 c_customer_sk->ws_bill_customer_sk
 ----------------PhysicalProject
@@ -105,5 +105,5 @@ PhysicalResultSink
 ------------------------------filter((date_dim.d_year = 2000))
 --------------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[customer]
+------------------PhysicalOlapScan[customer] apply RFs: RF31
 
