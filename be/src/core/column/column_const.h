@@ -103,7 +103,7 @@ class ColumnConst final : public COWHelper<IColumn, ColumnConst> {
 private:
     friend class COWHelper<IColumn, ColumnConst>;
     using Self = ColumnConst;
-    WrappedPtr data;
+    IColumn::WrappedPtr data;
     size_t s;
 
     ColumnConst(const ColumnPtr& data, size_t s_, bool create_with_empty = false,
@@ -124,7 +124,8 @@ public:
     void resize(size_t new_size) override { s = new_size; }
 
     MutableColumnPtr clone_resized(size_t new_size) const override {
-        return ColumnConst::create(data, new_size, false, false);
+        auto cloned_data = data->clone_resized(data->size());
+        return ColumnConst::create(std::move(cloned_data), new_size, false, false);
     }
 
     size_t size() const override { return s; }

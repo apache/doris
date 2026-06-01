@@ -20,14 +20,19 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.AnalysisInfo;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.AfterEach;
@@ -36,6 +41,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public class AnalyzeTableCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
@@ -59,6 +67,8 @@ public class AnalyzeTableCommandTest {
 
         Mockito.when(env.getAccessManager()).thenReturn(accessManager);
         Mockito.when(ctx.getState()).thenReturn(new QueryState());
+        Mockito.when(ctx.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(ctx.getNameSpaceContext()).thenReturn(new NameSpaceContext(internalCtl, null, -1));
     }
 
     @AfterEach
@@ -97,5 +107,63 @@ public class AnalyzeTableCommandTest {
                 () -> analyzeTableCommand.checkAnalyzePrivilege(tableNameInfo2),
                 "ANALYZE command denied to user 'null'@'null' for table 'test_db: test_tbl2'");
     }
-}
 
+    @Test
+    void testCollectHotValueDefaultAndOverride() {
+        TableNameInfo tableNameInfo = new TableNameInfo(internalCtl,
+                CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME);
+
+        AnalyzeTableCommand fullAnalyzeCommand = new AnalyzeTableCommand(tableNameInfo,
+                null, null, new AnalyzeProperties(defaultAnalyzeProperties()));
+        Assertions.assertFalse(fullAnalyzeCommand.getAnalyzeProperties().hasCollectHotValue());
+        Assertions.assertEquals(AnalysisInfo.AnalysisMethod.FULL, fullAnalyzeCommand.getAnalysisMethod());
+
+        Map<String, String> sampleProperties = defaultAnalyzeProperties();
+        sampleProperties.put(AnalyzeProperties.PROPERTY_SAMPLE_ROWS, "100");
+        AnalyzeTableCommand sampleAnalyzeCommand = new AnalyzeTableCommand(tableNameInfo,
+                null, null, new AnalyzeProperties(sampleProperties));
+        Assertions.assertFalse(sampleAnalyzeCommand.getAnalyzeProperties().hasCollectHotValue());
+        Assertions.assertEquals(AnalysisInfo.AnalysisMethod.SAMPLE, sampleAnalyzeCommand.getAnalysisMethod());
+
+        Map<String, String> forcedFullHotValueProperties = defaultAnalyzeProperties();
+        forcedFullHotValueProperties.put(AnalyzeProperties.PROPERTY_COLLECT_HOT_VALUE, "true");
+        AnalyzeTableCommand forcedFullHotValueCommand = new AnalyzeTableCommand(tableNameInfo,
+                null, null, new AnalyzeProperties(forcedFullHotValueProperties));
+        Assertions.assertTrue(forcedFullHotValueCommand.getAnalyzeProperties().collectHotValue());
+    }
+
+    @Test
+    void testCollectHotValuePropertyValidation() {
+        Map<String, String> properties = defaultAnalyzeProperties();
+        properties.put(AnalyzeProperties.PROPERTY_COLLECT_HOT_VALUE, "invalid");
+        AnalyzeProperties analyzeProperties = new AnalyzeProperties(properties);
+        Assertions.assertThrows(AnalysisException.class, analyzeProperties::check);
+    }
+
+    @Test
+    void testParseWithHotValue() {
+        NereidsParser parser = new NereidsParser();
+        LogicalPlan plan = parser.parseSingle("ANALYZE TABLE test_db.test_tbl WITH HOT VALUE");
+        Assertions.assertTrue(plan instanceof AnalyzeTableCommand);
+        AnalyzeTableCommand command = (AnalyzeTableCommand) plan;
+        Assertions.assertTrue(command.getAnalyzeProperties().hasCollectHotValue());
+        Assertions.assertTrue(command.getAnalyzeProperties().collectHotValue());
+    }
+
+    @Test
+    void testSampleAnalyzeWithHotValueRejected() {
+        NereidsParser parser = new NereidsParser();
+        AnalyzeTableCommand command = (AnalyzeTableCommand) parser.parseSingle(
+                "ANALYZE TABLE test_db.test_tbl WITH SAMPLE ROWS 100 WITH HOT VALUE");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> command.validate(ctx));
+        Assertions.assertEquals("Sample analyze always collects hot value", exception.getDetailMessage());
+    }
+
+    private Map<String, String> defaultAnalyzeProperties() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(AnalyzeProperties.PROPERTY_SYNC, "false");
+        properties.put(AnalyzeProperties.PROPERTY_ANALYSIS_TYPE, "FUNDAMENTALS");
+        return properties;
+    }
+}

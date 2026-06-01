@@ -44,7 +44,11 @@ TEST(SegmentIteratorNoNeedReadDataTest, extracted_variant_count_on_index) {
     const ColumnId subcol_cid = tablet_schema->field_index(*subcol.path_info_ptr());
     ASSERT_GE(subcol_cid, 0);
 
-    auto read_schema = std::make_shared<Schema>(tablet_schema);
+    std::vector<ColumnId> read_column_ids(tablet_schema->num_columns());
+    for (uint32_t cid = 0; cid < read_column_ids.size(); ++cid) {
+        read_column_ids[cid] = cid;
+    }
+    auto read_schema = std::make_shared<Schema>(tablet_schema->columns(), read_column_ids);
     SegmentIterator iter(nullptr, read_schema);
     iter._opts.tablet_schema = tablet_schema;
     iter._opts.push_down_agg_type_opt = TPushAggOp::COUNT_ON_INDEX;

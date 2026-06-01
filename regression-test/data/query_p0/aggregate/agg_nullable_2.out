@@ -378,13 +378,13 @@ false
 0.0
 
 -- !select_stddev_samp --
-0.0
+NaN
 
 -- !select_stddev_samp2 --
-0.0
+NaN
 
 -- !select_stddev_samp_n --
-0.0
+NaN
 
 -- !select_sum0 --
 50
@@ -441,22 +441,22 @@ false
 0.0
 
 -- !select_variance_samp --
-0.0
+NaN
 
 -- !select_variance_samp2 --
-0.0
+NaN
 
 -- !select_variance_samp_n --
-0.0
+NaN
 
 -- !select_var_samp --
-0.0
+NaN
 
 -- !select_var_samp2 --
-0.0
+NaN
 
 -- !select_var_samp_n --
-0.0
+NaN
 
 -- !select_window_funnel --
 0
@@ -493,4 +493,3 @@ false
 
 -- !select_retention_n --
 [0, 0]
-

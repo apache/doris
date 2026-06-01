@@ -491,8 +491,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 -- !limit_cte_outside_query --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----filter((t1.id < 10))
-------PhysicalOlapScan[t1]
+----PhysicalLimit[GLOBAL]
+------PhysicalLimit[LOCAL]
+--------filter((t1.id < 10))
+----------PhysicalOlapScan[t1]
 --PhysicalResultSink
 ----PhysicalLimit[GLOBAL]
 ------PhysicalLimit[LOCAL]

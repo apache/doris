@@ -248,6 +248,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HammingDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
@@ -338,6 +339,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lcm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Levenshtein;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
@@ -500,6 +502,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StDisjoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
@@ -508,6 +511,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StIntersects;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinefromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinestringfromtext;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StNumGeometries;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StNumPoints;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolyfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygon;
@@ -1895,6 +1900,14 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(locate, context);
     }
 
+    default R visitHammingDistance(HammingDistance hammingDistance, C context) {
+        return visitScalarFunction(hammingDistance, context);
+    }
+
+    default R visitLevenshtein(Levenshtein levenshtein, C context) {
+        return visitScalarFunction(levenshtein, context);
+    }
+
     default R visitLog(Log log, C context) {
         return visitScalarFunction(log, context);
     }
@@ -2381,6 +2394,18 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStGeometryType(StGeometryType stGeometryType, C context) {
         return visitScalarFunction(stGeometryType, context);
+    }
+
+    default R visitStNumGeometries(StNumGeometries stNumGeometries, C context) {
+        return visitScalarFunction(stNumGeometries, context);
+    }
+
+    default R visitStNumPoints(StNumPoints stNumPoints, C context) {
+        return visitScalarFunction(stNumPoints, context);
+    }
+
+    default R visitStGeometries(StGeometries stGeometries, C context) {
+        return visitScalarFunction(stGeometries, context);
     }
 
     default R visitStDistance(StDistance stDistance, C context) {

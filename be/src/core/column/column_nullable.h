@@ -26,11 +26,13 @@
 #include "core/column/column_vector.h"
 #include "core/cow.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type/primitive_type.h"
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/typeid_cast.h"
 #include "core/types.h"
 #include "storage/olap_common.h"
+#include "util/defer_op.h"
 
 class SipHash;
 
@@ -57,6 +59,7 @@ private:
     ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnPtr&& null_map_);
     struct SharedTag {};
     ColumnNullable(SharedTag, ColumnPtr nested_column_, ColumnPtr null_map_);
+    ColumnNullable(MutableColumnPtr&& nested_column_, ColumnUInt8::MutablePtr&& null_map_);
     ColumnNullable(const ColumnNullable&) = default;
 
 public:
@@ -66,6 +69,11 @@ public:
     using Base = COWHelper<IColumn, ColumnNullable>;
     static MutablePtr create(const ColumnPtr& nested_column_, const ColumnPtr& null_map_) {
         return Base::create(SharedTag {}, nested_column_, null_map_);
+    }
+
+    static MutablePtr create(MutableColumnPtr&& nested_column_,
+                             ColumnUInt8::MutablePtr&& null_map_) {
+        return Base::create(std::move(nested_column_), std::move(null_map_));
     }
 
     template <typename... Args>
@@ -84,8 +92,6 @@ public:
         }
         _nested_column->sanity_check();
     }
-
-    void shrink_padding_chars() override;
 
     bool is_variable_length() const override { return _nested_column->is_variable_length(); }
 
@@ -246,7 +252,12 @@ public:
 
     void for_each_subcolumn(ColumnCallback callback) override {
         callback(_nested_column);
-        callback(_null_map);
+
+        IColumn::WrappedPtr null_map(std::move(static_cast<ColumnUInt8::Ptr&>(_null_map)));
+        Defer defer([&] {
+            _null_map = cast_to_column<ColumnUInt8>(static_cast<const IColumn::Ptr&>(null_map));
+        });
+        callback(null_map);
     }
 
     bool structure_equals(const IColumn& rhs) const override {
@@ -380,16 +391,16 @@ public:
     }
 
     // return the column that represents the byte map. if want use null_map, just call this.
-    const ColumnPtr& get_null_map_column_ptr() const { return _null_map; }
-    const ColumnUInt8& get_null_map_column() const {
-        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*_null_map);
-    }
+    const ColumnUInt8::Ptr& get_null_map_column_ptr() const { return _null_map; }
+    const ColumnUInt8& get_null_map_column() const { return *_null_map; }
     const NullMap& get_null_map_data() const { return get_null_map_column().get_data(); }
 
-    MutableColumnPtr get_null_map_column_ptr() { return _null_map->assert_mutable(); }
-    ColumnUInt8& get_null_map_column() {
-        return assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*_null_map);
+    ColumnUInt8::MutablePtr get_null_map_column_ptr() {
+        auto null_map = _null_map->assert_mutable();
+        return ColumnUInt8::cast_to_column_mutptr(
+                assert_cast<ColumnUInt8*, TypeCheckOnRelease::DISABLE>(null_map.get()));
     }
+    ColumnUInt8& get_null_map_column() { return *_null_map; }
     NullMap& get_null_map_data() { return get_null_map_column().get_data(); }
 
     // push not null value wouldn't change the nullity. no need to update _has_null
@@ -403,8 +414,8 @@ private:
     template <bool negative>
     void apply_null_map_impl(const ColumnUInt8& map);
 
-    WrappedPtr _nested_column;
-    WrappedPtr _null_map;
+    IColumn::WrappedPtr _nested_column;
+    ColumnUInt8::WrappedPtr _null_map;
 };
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);

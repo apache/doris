@@ -494,7 +494,7 @@ TEST(ExternalColMetaUtilTest, BuildSegmentAndVerifyDataAndFooterMeta) {
     TabletSchemaSPtr tablet_schema = create_schema(columns, UNIQUE_KEYS);
     // Enable external ColumnMetaPB so that SegmentWriter produces a V3 footer with
     // externalized column meta region + column_meta_entries.
-    tablet_schema->set_external_segment_meta_used_default(true);
+    tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
 
     // 2. Use existing build_segment helper (SegmentWriter-based) to write a segment file.
     SegmentWriterOptions opts;
