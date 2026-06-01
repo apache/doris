@@ -79,9 +79,8 @@ public:
                 nested_nullable_column.get_null_map_column_ptr()->clone_resized(nested_column_size);
 
         // 2. compute result
-        MutableColumnPtr result_column = ColumnUInt8::create(nested_column_size, 0);
-        auto* __restrict result_column_data =
-                assert_cast<ColumnUInt8&>(*result_column).get_data().data();
+        auto result_column = ColumnUInt8::create(nested_column_size, 0);
+        auto* __restrict result_column_data = result_column->get_data().data();
         MutableColumnPtr result_offset_column = first_off_data.clone_resized(first_off_data.size());
         const auto* __restrict nested_column_data =
                 assert_cast<const ColumnUInt8&>(*nested_column).get_data().data();
