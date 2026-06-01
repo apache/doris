@@ -38,7 +38,6 @@ import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.MultiCastDataSink;
-import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
@@ -166,12 +165,10 @@ public class ThriftPlansBuilder {
         return workerToInstances;
     }
 
-    private static void setRuntimePredicateIfNeed(Collection<ScanNode> scanNodes) {
+    static void setRuntimePredicateIfNeed(Collection<ScanNode> scanNodes) {
         for (ScanNode scanNode : scanNodes) {
-            if (scanNode instanceof OlapScanNode) {
-                for (SortNode topnFilterSortNode : scanNode.getTopnFilterSortNodes()) {
-                    topnFilterSortNode.setHasRuntimePredicate();
-                }
+            for (SortNode topnFilterSortNode : scanNode.getTopnFilterSortNodes()) {
+                topnFilterSortNode.setHasRuntimePredicate();
             }
         }
     }
