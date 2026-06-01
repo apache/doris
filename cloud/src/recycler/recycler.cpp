@@ -96,6 +96,15 @@ void sleep_for_packed_file_retry() {
     std::this_thread::sleep_for(std::chrono::milliseconds(packed_file_retry_sleep_ms()));
 }
 
+bool filter_out_instance(const std::string& instance_id) {
+    if (config::recycle_whitelist.empty()) {
+        return std::ranges::find(config::recycle_blacklist, instance_id) !=
+               config::recycle_blacklist.end();
+    }
+    return std::ranges::find(config::recycle_whitelist, instance_id) ==
+           config::recycle_whitelist.end();
+}
+
 } // namespace
 
 // return 0 for success get a key, 1 for key not found, negative for error
@@ -261,7 +270,7 @@ void Recycler::instance_scanner_callback() {
                 // enqueue instances
                 std::lock_guard lock(mtx_);
                 for (auto& instance : instances) {
-                    if (instance_filter_.filter_out(instance.instance_id())) continue;
+                    if (filter_out_instance(instance.instance_id())) continue;
                     auto [_, success] = pending_instance_set_.insert(instance.instance_id());
                     // skip instance already in pending queue
                     if (success) {
@@ -414,7 +423,6 @@ void Recycler::check_recycle_tasks() {
 }
 
 int Recycler::start(brpc::Server* server) {
-    instance_filter_.reset(config::recycle_whitelist, config::recycle_blacklist);
     g_bvar_recycler_task_max_concurrency.set_value(config::recycle_concurrency);
     S3Environment::getInstance();
 
