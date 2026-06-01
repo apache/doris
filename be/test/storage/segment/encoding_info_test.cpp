@@ -28,6 +28,7 @@
 #include "runtime/exec_env.h"
 #include "storage/olap_common.h"
 #include "storage/segment/binary_dict_page_pre_decoder.h"
+#include "storage/segment/binary_plain_page_char_strip_pre_decoder.h"
 #include "storage/segment/binary_plain_page_v2_pre_decoder.h"
 #include "storage/segment/bitshuffle_page_pre_decoder.h"
 #include "storage/types.h"
@@ -149,10 +150,15 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
         auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
         ASSERT_NE(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
                                         << " with DICT_ENCODING should have pre_decoder";
-        auto* dict_decoder = dynamic_cast<BinaryDictPagePreDecoder*>(pre_decoder);
-        EXPECT_NE(nullptr, dict_decoder)
-                << "Type " << static_cast<int>(type)
-                << " with DICT_ENCODING should have BinaryDictPagePreDecoder";
+        // CHAR uses the IS_CHAR=true specialization so it strips trailing '\0'
+        // padding from inline-binary dict fallbacks; other string types use
+        // the regular non-CHAR specialization.
+        bool is_dict_decoder =
+                (type == FieldType::OLAP_FIELD_TYPE_CHAR)
+                        ? dynamic_cast<BinaryDictPagePreDecoder<true>*>(pre_decoder) != nullptr
+                        : dynamic_cast<BinaryDictPagePreDecoder<false>*>(pre_decoder) != nullptr;
+        EXPECT_TRUE(is_dict_decoder) << "Type " << static_cast<int>(type)
+                                     << " with DICT_ENCODING should have BinaryDictPagePreDecoder";
     }
 
     // Test PLAIN_ENCODING_V2 with Slice types - should have BinaryPlainPageV2PreDecoder
@@ -173,10 +179,16 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
         auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
         ASSERT_NE(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
                                         << " with PLAIN_ENCODING_V2 should have pre_decoder";
-        auto* v2_decoder = dynamic_cast<BinaryPlainPageV2PreDecoder*>(pre_decoder);
-        EXPECT_NE(nullptr, v2_decoder) << "Type " << static_cast<int>(type)
-                                       << " with PLAIN_ENCODING_V2 should have "
-                                          "BinaryPlainPageV2PreDecoder";
+        // CHAR PLAIN_ENCODING_V2 is wired to BinaryPlainPageV2PreDecoder<true>
+        // so the trailing '\0' padding written by OlapColumnDataConvertorChar
+        // is stripped at page load time; other binary types use the regular
+        // <false> instantiation.
+        bool ok =
+                (type == FieldType::OLAP_FIELD_TYPE_CHAR)
+                        ? dynamic_cast<BinaryPlainPageV2PreDecoder<true>*>(pre_decoder) != nullptr
+                        : dynamic_cast<BinaryPlainPageV2PreDecoder<false>*>(pre_decoder) != nullptr;
+        EXPECT_TRUE(ok) << "Type " << static_cast<int>(type)
+                        << " with PLAIN_ENCODING_V2 should have V2 pre-decoder";
     }
 
     // Test PLAIN_ENCODING - should NOT have pre_decoder
@@ -216,8 +228,19 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
         auto status = EncodingInfo::get(type, PLAIN_ENCODING, &encoding_info);
         if (status.ok() && encoding_info != nullptr) {
             auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
-            EXPECT_EQ(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
-                                            << " with PLAIN_ENCODING should NOT have pre_decoder";
+            if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+                // CHAR PLAIN_ENCODING has a CHAR-strip pre-decoder that strips
+                // the trailing '\0' padding written by the convertor.
+                EXPECT_NE(nullptr, pre_decoder)
+                        << "CHAR with PLAIN_ENCODING should have a pre_decoder";
+                EXPECT_NE(nullptr, dynamic_cast<BinaryPlainPageCharStripPreDecoder*>(pre_decoder))
+                        << "CHAR PLAIN_ENCODING pre-decoder should be "
+                           "BinaryPlainPageCharStripPreDecoder";
+            } else {
+                EXPECT_EQ(nullptr, pre_decoder)
+                        << "Type " << static_cast<int>(type)
+                        << " with PLAIN_ENCODING should NOT have pre_decoder";
+            }
         }
     }
 

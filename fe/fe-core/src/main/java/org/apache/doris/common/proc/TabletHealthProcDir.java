@@ -199,7 +199,12 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                 Tablet tablet = tablets.get(i);
                                 ++tabletNum;
                                 Tablet.TabletStatus res = null;
-                                if (groupId != null) {
+                                if (Config.isCloudMode()) {
+                                    // In cloud mode, tablet replica health is managed by cloud components.
+                                    // getHealth/getColocateHealth follows local deployment logic and may
+                                    // misclassify tablets as UNRECOVERABLE.
+                                    res = Tablet.TabletStatus.HEALTHY;
+                                } else if (groupId != null) {
                                     ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(groupId);
                                     if (groupSchema != null) {
                                         replicaAlloc = groupSchema.getReplicaAlloc();

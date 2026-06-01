@@ -32,6 +32,7 @@ import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -48,12 +49,17 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 
 /**
  * all expr rewrite rule test case.
@@ -323,9 +329,9 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     @Test
     void testAddMinMax() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-            bottomUp(
-                AddMinMax.INSTANCE
-            )
+                bottomUp(
+                        AddMinMax.INSTANCE
+                )
         ));
 
         assertRewriteAfterTypeCoercion("5 * 100 >= 10 and 5 * 100 <= 5", "5 * 100 >= 10 and 5 * 100 <= 5");
@@ -384,6 +390,55 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("AA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or AA < timestamp '2024-01-01 01:00:00'",
                 "(AA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or AA < timestamp '2024-01-01 01:00:00' ) and AA <= timestamp '2024-01-03 02:00:00'");
 
+    }
+
+    @Test
+    void testAddMinMaxMarksOriginalAndInferredBoundaryPredicates() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(
+                        AddMinMax.INSTANCE
+                )
+        ));
+
+        Map<String, Slot> slots = Maps.newHashMap();
+        Expression expression = typeCoercion(replaceUnboundSlot(PARSER.parseExpression(
+                "TA > 10 and TA < 20 or TA > 30 and TA < 40"), slots));
+        Expression lowerPredicate = typeCoercion(replaceUnboundSlot(PARSER.parseExpression("TA > 10"), slots));
+        Expression upperPredicate = typeCoercion(replaceUnboundSlot(PARSER.parseExpression("TA < 40"), slots));
+
+        Expression rewrittenExpression = executor.rewrite(expression, context);
+        List<Expression> rewrittenConjuncts = ExpressionUtils.extractConjunction(rewrittenExpression);
+        Assertions.assertTrue(rewrittenConjuncts.stream()
+                .anyMatch(conjunct -> conjunct.equals(lowerPredicate) && !conjunct.isInferred()));
+        Assertions.assertTrue(rewrittenConjuncts.stream()
+                .anyMatch(conjunct -> conjunct.equals(upperPredicate) && !conjunct.isInferred()));
+
+        Expression inferredExpression = expression.withInferred(true);
+        rewrittenExpression = executor.rewrite(inferredExpression, context);
+        rewrittenConjuncts = ExpressionUtils.extractConjunction(rewrittenExpression);
+        Assertions.assertTrue(rewrittenConjuncts.stream()
+                .anyMatch(conjunct -> conjunct.equals(lowerPredicate) && conjunct.isInferred()));
+        Assertions.assertTrue(rewrittenConjuncts.stream()
+                .anyMatch(conjunct -> conjunct.equals(upperPredicate) && conjunct.isInferred()));
+    }
+
+    @Test
+    void testAddMinMaxMarksGeneratedPredicateInferred() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(
+                        AddMinMax.INSTANCE
+                )
+        ));
+
+        Map<String, Slot> slots = Maps.newHashMap();
+        Expression expression = typeCoercion(replaceUnboundSlot(PARSER.parseExpression(
+                "TA = 4 or (TA > 4 and TB is null)"), slots));
+        Expression generatedPredicate = typeCoercion(replaceUnboundSlot(PARSER.parseExpression("TA >= 4"), slots));
+
+        Expression rewrittenExpression = executor.rewrite(expression, context);
+        List<Expression> rewrittenConjuncts = ExpressionUtils.extractConjunction(rewrittenExpression);
+        Assertions.assertTrue(rewrittenConjuncts.stream()
+                .anyMatch(conjunct -> conjunct.equals(generatedPredicate) && conjunct.isInferred()));
     }
 
     @Test
