@@ -29,6 +29,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <string>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -80,6 +81,43 @@ bool is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key
         last = cur_max;
     }
     return false;
+}
+
+bool copy_key_bounds_with_truncation(const KeyBoundsPB& src, KeyBoundsPB* dst) {
+    DCHECK(dst != nullptr);
+    if (config::random_segments_key_bounds_truncation) {
+        dst->CopyFrom(src);
+        return false;
+    }
+    const int32_t truncation_threshold = config::segments_key_bounds_truncation_threshold;
+    if (truncation_threshold <= 0) {
+        dst->CopyFrom(src);
+        return false;
+    }
+    const size_t truncation_size = cast_set<size_t>(truncation_threshold);
+
+    bool truncated = false;
+    auto copy_key = [&](const std::string& key, std::string* stored_key) {
+        if (key.size() > truncation_size) {
+            stored_key->assign(key.data(), truncation_size);
+            truncated = true;
+            return;
+        }
+        stored_key->assign(key.data(), key.size());
+    };
+    copy_key(src.min_key(), dst->mutable_min_key());
+    copy_key(src.max_key(), dst->mutable_max_key());
+    return truncated;
+}
+
+SegmentStatistics copy_segment_statistics_with_truncated_key_bounds(const SegmentStatistics& src,
+                                                                    bool& key_bounds_truncated) {
+    SegmentStatistics dst;
+    dst.row_num = src.row_num;
+    dst.data_size = src.data_size;
+    dst.index_size = src.index_size;
+    key_bounds_truncated = copy_key_bounds_with_truncation(src.key_bounds, &dst.key_bounds);
+    return dst;
 }
 
 void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
@@ -991,6 +1029,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     int64_t total_index_size = 0;
     std::vector<KeyBoundsPB> segments_encoded_key_bounds;
     std::vector<uint32_t> segment_rows;
+    std::optional<bool> segments_key_bounds_truncated;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         for (const auto& itr : _segid_statistics_map) {
@@ -1001,6 +1040,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
             // segcompaction don't modify _segment_num_rows, so we need to get segment rows from _segid_statistics_map for load
             segment_rows.push_back(cast_set<uint32_t>(itr.second.row_num));
         }
+        segments_key_bounds_truncated = _segments_key_bounds_truncated;
     }
     if (segment_rows.empty()) {
         // vertical compaction and linked schema change will not record segment statistics,
@@ -1011,8 +1051,8 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     for (auto& key_bound : _segments_encoded_key_bounds) {
         segments_encoded_key_bounds.push_back(key_bound);
     }
-    if (_segments_key_bounds_truncated.has_value()) {
-        rowset_meta->set_segments_key_bounds_truncated(_segments_key_bounds_truncated.value());
+    if (segments_key_bounds_truncated.has_value()) {
+        rowset_meta->set_segments_key_bounds_truncated(segments_key_bounds_truncated.value());
     }
     rowset_meta->set_num_segment_rows(segment_rows);
     // segment key bounds are empty in old version(before version 1.2.x). So we should not modify
@@ -1199,14 +1239,20 @@ Status BetaRowsetWriter::_check_segment_number_limit(size_t segnum) {
 
 Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
     uint32_t segid_offset = segment_id - _segment_start_id;
+    bool key_bounds_truncated = false;
+    SegmentStatistics stored_segstat =
+            copy_segment_statistics_with_truncated_key_bounds(segstat, key_bounds_truncated);
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         CHECK_EQ(_segid_statistics_map.find(segment_id) == _segid_statistics_map.end(), true);
-        _segid_statistics_map.emplace(segment_id, segstat);
+        _segid_statistics_map.emplace(segment_id, std::move(stored_segstat));
         if (segment_id >= _segment_num_rows.size()) {
             _segment_num_rows.resize(segment_id + 1);
         }
         _segment_num_rows[segid_offset] = cast_set<uint32_t>(segstat.row_num);
+        if (key_bounds_truncated) {
+            _segments_key_bounds_truncated = true;
+        }
     }
     VLOG_DEBUG << "_segid_statistics_map add new record. segment_id:" << segment_id
                << " row_num:" << segstat.row_num << " data_size:" << segstat.data_size
@@ -1250,11 +1296,14 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
     segstat.row_num = row_num;
     segstat.data_size = segment_size;
     segstat.index_size = inverted_index_file_size;
-    segstat.key_bounds = key_bounds;
+    bool key_bounds_truncated = copy_key_bounds_with_truncation(key_bounds, &segstat.key_bounds);
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         CHECK_EQ(_segid_statistics_map.find(segid) == _segid_statistics_map.end(), true);
-        _segid_statistics_map.emplace(segid, segstat);
+        _segid_statistics_map.emplace(segid, std::move(segstat));
+        if (key_bounds_truncated) {
+            _segments_key_bounds_truncated = true;
+        }
     }
     VLOG_DEBUG << "_segid_statistics_map add new record. segid:" << segid << " row_num:" << row_num
                << " data_size:" << PrettyPrinter::print_bytes(segment_size)
