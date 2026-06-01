@@ -426,9 +426,10 @@ public class LocalShuffleNodeCoverageTest {
         intersectNode.addChild(right);
         Pair<PlanNode, LocalExchangeType> intersectOutput = intersectNode.enforceAndDeriveLocalExchange(
                 ctx, null, LocalExchangeTypeRequire.requireHash());
-        Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, intersectOutput.second);
-        assertChildLocalExchangeType(intersectNode, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
-        assertChildLocalExchangeType(intersectNode, 1, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+        // PARTITIONED intersect requires GLOBAL hash (DORIS-26100)
+        Assertions.assertEquals(LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE, intersectOutput.second);
+        assertChildLocalExchangeType(intersectNode, 0, LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE);
+        assertChildLocalExchangeType(intersectNode, 1, LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE);
 
         // Colocated ExceptNode with OlapScan children: OlapScan already provides BUCKET_HASH_SHUFFLE,
         // so requireBucketHash() is satisfied and no LocalExchangeNode is inserted.
