@@ -30,9 +30,15 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.foundation.format.FormatOptions;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -268,6 +274,8 @@ public class StatementContext implements Closeable {
     private Backend groupCommitMergeBackend;
 
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
+    // Record external tables that can be preloaded before internal table locks are acquired.
+    private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
 
     private boolean privChecked;
 
@@ -482,6 +490,21 @@ public class StatementContext implements Closeable {
             throw new AnalysisException("AI resource name can not be empty");
         }
         usedAIResourceNames.add(resourceName);
+    }
+
+    // Register external relations that may be preloaded before internal table locks are acquired.
+    public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        if (!(table instanceof ExternalTable) || !supportsExternalMetadataPreload(table)) {
+            return;
+        }
+        ExternalTablePreloadInfo preloadInfo = externalTablePreloadInfos.computeIfAbsent(table.getId(),
+                id -> new ExternalTablePreloadInfo((ExternalTable) table));
+        if (tableSnapshot.isPresent() || scanParams.isPresent()) {
+            preloadInfo.disableLatestSnapshotPreload();
+        } else {
+            preloadInfo.enableLatestSnapshotPreload();
+        }
     }
 
     public void setOriginStatement(OriginStatement originStatement) {
@@ -885,6 +908,19 @@ public class StatementContext implements Closeable {
         }
     }
 
+    // Preload external metadata before internal table locks are acquired to reduce lock holding time.
+    public void preloadExternalTablesBeforeLock() {
+        if (!shouldPreloadExternalTablesBeforeLock()) {
+            return;
+        }
+        for (ExternalTablePreloadInfo preloadInfo : externalTablePreloadInfos.values()) {
+            if (!preloadInfo.shouldPreloadLatest()) {
+                continue;
+            }
+            preloadExternalTable(preloadInfo.table);
+        }
+    }
+
     /** releasePlannerResources */
     public synchronized void releasePlannerResources() {
         Throwable throwable = null;
@@ -990,6 +1026,84 @@ public class StatementContext implements Closeable {
      */
     public void setSnapshot(MvccTableInfo mvccTableInfo, MvccSnapshot snapshot) {
         snapshots.put(mvccTableInfo, snapshot);
+    }
+
+    private boolean shouldPreloadExternalTablesBeforeLock() {
+        if (connectContext == null || connectContext.getSessionVariable() == null
+                || !connectContext.getSessionVariable()
+                        .isEnablePreloadExternalMetadata()) {
+            return false;
+        }
+        if (externalTablePreloadInfos.isEmpty()) {
+            return false;
+        }
+        return containsPlanReadLockTable(tables.values())
+                || containsPlanReadLockTable(mtmvRelatedTables.values())
+                || containsPlanReadLockTable(insertTargetTables.values());
+    }
+
+    private boolean containsPlanReadLockTable(Collection<TableIf> tableIfs) {
+        for (TableIf tableIf : tableIfs) {
+            if (tableIf.needReadLockWhenPlan()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean supportsExternalMetadataPreload(TableIf table) {
+        return table instanceof HMSExternalTable
+                || table instanceof IcebergExternalTable
+                || table instanceof PaimonExternalTable;
+    }
+
+    // Preload metadata that is commonly accessed during planning before internal table locks are acquired.
+    private void preloadExternalTable(ExternalTable table) {
+        if (supportsLatestSnapshotPreload(table)) {
+            loadSnapshots(table, Optional.empty(), Optional.empty());
+        }
+        // Preload the latest schema and partition metadata while no internal table lock is held.
+        table.getBaseSchema();
+        if (table.supportInternalPartitionPruned()) {
+            table.initSelectedPartitions(getSnapshot(table));
+        }
+    }
+
+    // Keep the latest snapshot preload decision explicit so metadata preload support and
+    // snapshot preload support are not conflated.
+    private boolean supportsLatestSnapshotPreload(ExternalTable table) {
+        // Paimon and Iceberg are not HMSExternalTable even when their catalog metadata comes from HMS.
+        if (table instanceof PaimonExternalTable || table instanceof IcebergExternalTable) {
+            return true;
+        }
+        if (!(table instanceof HMSExternalTable)) {
+            return false;
+        }
+        // Hive and Hudi share HMSExternalTable, but only Hudi has a meaningful latest snapshot to preload.
+        DLAType dlaType = ((HMSExternalTable) table).getDlaType();
+        return dlaType == DLAType.HUDI;
+    }
+
+    private static class ExternalTablePreloadInfo {
+        private final ExternalTable table;
+        private boolean hasLatestRelation;
+        private boolean hasNonLatestRelation;
+
+        private ExternalTablePreloadInfo(ExternalTable table) {
+            this.table = table;
+        }
+
+        private void enableLatestSnapshotPreload() {
+            hasLatestRelation = true;
+        }
+
+        private void disableLatestSnapshotPreload() {
+            hasNonLatestRelation = true;
+        }
+
+        private boolean shouldPreloadLatest() {
+            return hasLatestRelation && !hasNonLatestRelation;
+        }
     }
 
     private static class CloseableResource implements Closeable {

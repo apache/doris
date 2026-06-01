@@ -420,6 +420,8 @@ public class NereidsPlanner extends Planner {
             LOG.debug("Start collect and lock table");
         }
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTableCollector(true).collect());
+        // Preload external metadata before internal table locks are acquired.
+        statementContext.preloadExternalTablesBeforeLock();
         statementContext.lock();
         cascadesContext.setCteContext(new CTEContext());
         NereidsTracer.logImportantTime("EndCollectAndLockTables");

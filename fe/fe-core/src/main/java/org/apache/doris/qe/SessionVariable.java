@@ -392,6 +392,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String REQUIRED_GROUP_IDS = "required_group_ids";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
+    public static final String ENABLE_PRELOAD_EXTERNAL_METADATA = "enable_preload_external_metadata";
     public static final String ENABLE_NEREIDS_DISTRIBUTE_PLANNER = "enable_nereids_distribute_planner";
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
     public static final String ENABLE_NEREIDS_RULES = "enable_nereids_rules";
@@ -2018,6 +2019,14 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true, varType = VariableAnnotation.REMOVED)
     private boolean enableNereidsPlanner = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PRELOAD_EXTERNAL_METADATA,
+            needForward = true, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
+                "是否在获取内表规划期读锁前预加载 Hive/Hudi/Iceberg/Paimon 外表元数据",
+                "Whether to preload Hive/Hudi/Iceberg/Paimon external table metadata before internal table "
+                        + "plan-time read locks are acquired"
+            })
+    private boolean enablePreloadExternalMetadata = false;
 
     @VarAttrDef.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
     private String disableNereidsRules = "";
@@ -4560,6 +4569,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableSqlCache() {
         return enableSqlCache;
+    }
+
+    public boolean isEnablePreloadExternalMetadata() {
+        return enablePreloadExternalMetadata;
+    }
+
+    public void setEnablePreloadExternalMetadata(boolean enablePreload) {
+        this.enablePreloadExternalMetadata = enablePreload;
     }
 
     public void setEnableSqlCache(boolean enableSqlCache) {
