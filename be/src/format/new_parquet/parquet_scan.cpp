@@ -28,17 +28,11 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
-#include "core/column/column_nullable.h"
-#include "core/column/column_string.h"
 #include "core/column/column_vector.h"
-#include "core/column/predicate_column.h"
-#include "core/data_type/primitive_type.h"
 #include "exprs/vexpr_context.h"
 #include "format/new_parquet/parquet_column_schema.h"
 #include "format/new_parquet/parquet_file_context.h"
 #include "format/new_parquet/parquet_statistics.h"
-#include "storage/predicate/column_predicate.h"
-#include "storage/schema.h"
 
 namespace doris::parquet {
 
@@ -141,129 +135,6 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
 
 namespace {
 
-template <PrimitiveType Type>
-void append_to_predicate_column(const IColumn& column, size_t rows,
-                                IColumn::MutablePtr* predicate_column) {
-    auto* target = assert_cast<PredicateColumnType<Type>*>(predicate_column->get());
-    const auto materialized_column = column.convert_to_full_column_if_const();
-    const auto* source = assert_cast<const typename PrimitiveTypeTraits<Type>::ColumnType*>(
-            materialized_column.get());
-    target->reserve(rows);
-    for (size_t row = 0; row < rows; ++row) {
-        const auto storage_value =
-                PrimitiveTypeConvertor<Type>::to_storage_field_type(source->get_element(row));
-        target->insert_data(reinterpret_cast<const char*>(&storage_value), sizeof(storage_value));
-    }
-}
-
-Status append_to_predicate_column(PrimitiveType primitive_type, const IColumn& column, size_t rows,
-                                  IColumn::MutablePtr* predicate_column) {
-    switch (primitive_type) {
-    case TYPE_BOOLEAN:
-        append_to_predicate_column<TYPE_BOOLEAN>(column, rows, predicate_column);
-        break;
-    case TYPE_TINYINT:
-        append_to_predicate_column<TYPE_TINYINT>(column, rows, predicate_column);
-        break;
-    case TYPE_SMALLINT:
-        append_to_predicate_column<TYPE_SMALLINT>(column, rows, predicate_column);
-        break;
-    case TYPE_INT:
-        append_to_predicate_column<TYPE_INT>(column, rows, predicate_column);
-        break;
-    case TYPE_BIGINT:
-        append_to_predicate_column<TYPE_BIGINT>(column, rows, predicate_column);
-        break;
-    case TYPE_LARGEINT:
-        append_to_predicate_column<TYPE_LARGEINT>(column, rows, predicate_column);
-        break;
-    case TYPE_FLOAT:
-        append_to_predicate_column<TYPE_FLOAT>(column, rows, predicate_column);
-        break;
-    case TYPE_DOUBLE:
-        append_to_predicate_column<TYPE_DOUBLE>(column, rows, predicate_column);
-        break;
-    case TYPE_DATE:
-        append_to_predicate_column<TYPE_DATE>(column, rows, predicate_column);
-        break;
-    case TYPE_DATETIME:
-        append_to_predicate_column<TYPE_DATETIME>(column, rows, predicate_column);
-        break;
-    case TYPE_DATEV2:
-        append_to_predicate_column<TYPE_DATEV2>(column, rows, predicate_column);
-        break;
-    case TYPE_DATETIMEV2:
-        append_to_predicate_column<TYPE_DATETIMEV2>(column, rows, predicate_column);
-        break;
-    case TYPE_TIMESTAMPTZ:
-        append_to_predicate_column<TYPE_TIMESTAMPTZ>(column, rows, predicate_column);
-        break;
-    case TYPE_DECIMALV2:
-        append_to_predicate_column<TYPE_DECIMALV2>(column, rows, predicate_column);
-        break;
-    case TYPE_DECIMAL32:
-        append_to_predicate_column<TYPE_DECIMAL32>(column, rows, predicate_column);
-        break;
-    case TYPE_DECIMAL64:
-        append_to_predicate_column<TYPE_DECIMAL64>(column, rows, predicate_column);
-        break;
-    case TYPE_DECIMAL128I:
-        append_to_predicate_column<TYPE_DECIMAL128I>(column, rows, predicate_column);
-        break;
-    case TYPE_DECIMAL256:
-        append_to_predicate_column<TYPE_DECIMAL256>(column, rows, predicate_column);
-        break;
-    case TYPE_IPV4:
-        append_to_predicate_column<TYPE_IPV4>(column, rows, predicate_column);
-        break;
-    case TYPE_IPV6:
-        append_to_predicate_column<TYPE_IPV6>(column, rows, predicate_column);
-        break;
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING: {
-        auto* target = assert_cast<PredicateColumnType<TYPE_STRING>*>(predicate_column->get());
-        const auto materialized_column = column.convert_to_full_column_if_const();
-        const auto* source = assert_cast<const ColumnString*>(materialized_column.get());
-        target->reserve(rows);
-        for (size_t row = 0; row < rows; ++row) {
-            const auto value = source->get_data_at(row);
-            target->insert_data(value.data, value.size);
-        }
-        break;
-    }
-    default:
-        return Status::NotSupported("Parquet column predicate does not support type {}",
-                                    type_to_string(primitive_type));
-    }
-    return Status::OK();
-}
-
-Status build_predicate_column(const ColumnWithTypeAndName& column, size_t rows,
-                              IColumn::MutablePtr* predicate_column) {
-    DORIS_CHECK(column.type != nullptr);
-    DORIS_CHECK(column.column.get() != nullptr);
-    const auto field_type = column.type->get_storage_field_type();
-    *predicate_column = Schema::get_predicate_column_ptr(field_type, column.type->is_nullable(),
-                                                         ReaderType::READER_ALTER_TABLE);
-    if (column.type->is_nullable()) {
-        const auto materialized_column = column.column->convert_to_full_column_if_const();
-        const auto* nullable_column = assert_cast<const ColumnNullable*>(materialized_column.get());
-        auto* predicate_nullable_column = assert_cast<ColumnNullable*>(predicate_column->get());
-        auto nested_predicate_column = predicate_nullable_column->get_nested_column_ptr();
-        RETURN_IF_ERROR(append_to_predicate_column(column.type->get_primitive_type(),
-                                                   nullable_column->get_nested_column(), rows,
-                                                   &nested_predicate_column));
-        auto& null_map = predicate_nullable_column->get_null_map_data();
-        DCHECK(null_map.empty());
-        const auto& source_null_map = nullable_column->get_null_map_data();
-        null_map.insert(source_null_map.begin(), source_null_map.begin() + rows);
-        return Status::OK();
-    }
-    return append_to_predicate_column(column.type->get_primitive_type(), *column.column, rows,
-                                      predicate_column);
-}
-
 uint16_t apply_filter_to_selection(const IColumn::Filter& filter, SelectionVector* selection,
                                    uint16_t selected_rows) {
     uint16_t new_selected_rows = 0;
@@ -274,34 +145,6 @@ uint16_t apply_filter_to_selection(const IColumn::Filter& filter, SelectionVecto
         }
     }
     return new_selected_rows;
-}
-
-Status execute_column_predicate_filters(const reader::FileScanRequest& request, int64_t batch_rows,
-                                        Block* file_block, SelectionVector* selection,
-                                        uint16_t* selected_rows) {
-    for (const auto& column_filter : request.column_predicate_filters) {
-        if (column_filter.predicates.empty()) {
-            continue;
-        }
-        auto position_it = request.column_positions.find(column_filter.file_column_id);
-        DORIS_CHECK(position_it != request.column_positions.end());
-        const auto block_position = position_it->second;
-        IColumn::MutablePtr predicate_column;
-        RETURN_IF_ERROR(build_predicate_column(file_block->get_by_position(block_position),
-                                               static_cast<size_t>(batch_rows), &predicate_column));
-        for (const auto& predicate : column_filter.predicates) {
-            DORIS_CHECK(predicate != nullptr);
-            *selected_rows =
-                    predicate->evaluate(*predicate_column, selection->data(), *selected_rows);
-            if (*selected_rows == 0) {
-                break;
-            }
-        }
-        if (*selected_rows == 0) {
-            break;
-        }
-    }
-    return Status::OK();
 }
 
 Status execute_filter_conjuncts(const reader::FileScanRequest& request, int64_t batch_rows,
@@ -394,9 +237,7 @@ Status execute_reader_expression_map(const reader::FileScanRequest& request, Blo
 Status execute_batch_filters(const reader::FileScanRequest& request, int64_t batch_rows,
                              Block* file_block, SelectionVector* selection,
                              uint16_t* selected_rows) {
-    RETURN_IF_ERROR(execute_column_predicate_filters(request, batch_rows, file_block, selection,
-                                                     selected_rows));
-    if (*selected_rows == 0) {
+    if (request.conjuncts.empty() && request.delete_conjuncts.empty()) {
         return Status::OK();
     }
     RETURN_IF_ERROR(
@@ -528,7 +369,9 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                                                  const reader::FileScanRequest& request,
                                                  Block* file_block, SelectionVector* selection,
                                                  uint16_t* selected_rows) {
-    selection->resize(static_cast<size_t>(batch_rows));
+    if (!request.conjuncts.empty() || !request.delete_conjuncts.empty()) {
+        selection->resize(static_cast<size_t>(batch_rows));
+    }
     for (size_t filter_idx = 0; filter_idx < request.predicate_columns.size(); ++filter_idx) {
         const int file_field_id = request.predicate_columns[filter_idx];
         auto& column_reader = _current_predicate_columns[filter_idx];

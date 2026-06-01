@@ -74,8 +74,8 @@ struct TableColumn {
     bool is_partition_key = false;
 };
 
-// All complex predicates on table/global schema, which cannot be directly localized to file
-// schema. They will be evaluated at table level and may depend on multiple columns.
+// Row-level predicates on table/global schema. They are rewritten to file-local expressions when
+// possible, and remain the source of row-level filtering after localization.
 struct TableFilter {
     // 表达式过滤，适合表达 cast、复杂表达式、复杂列提取等语义。
     VExprContextSPtr conjunct;
@@ -259,8 +259,10 @@ protected:
         // 2. Build table filters based on conjuncts and column predicates.
         RETURN_IF_ERROR(_build_table_filters_from_conjuncts());
 
-        // 3. Create file scan request based on column mapping and table filters, then open file reader with the request.
-        // file scan request is the main carrier of file-level pruning information, including column mapping, column-level filters and expression filters. The file reader will evaluate the filters and only return rows that satisfy the filters to table reader.
+        // 3. Create file scan request based on column mapping and table filters, then open file
+        // reader with the request. File scan request carries row-level expression filters and
+        // file-level pruning hints. Only expression filters decide returned rows; column predicates
+        // are pruning hints.
         auto file_request = std::make_unique<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper.create_scan_request(
                 _table_filters, _table_column_predicates, _projected_columns, file_request.get()));

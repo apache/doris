@@ -62,12 +62,13 @@ ParquetReader facade
 核心原则：
 
 1. `ParquetReader` 只做 file-local orchestration，不直接处理 leaf decode、def/rep level 和 nested column 写入。
-2. pruning/filter 与 DuckDB 一致：只有 metadata、dictionary、bloom filter、page index 或 batch predicate 能证明数据不可能匹配时才裁剪；无法证明时保留。这里的“保留”是正确性原则，不代表实现上要散落重复防御分支。
+2. pruning/filter 与 DuckDB 一致：metadata、dictionary、bloom filter、page index 等文件级信息只有在能证明数据不可能匹配时才裁剪；无法证明时保留。batch `Expr` 只做 row-level filter，不参与 row group/page 裁剪。这里的“保留”是正确性原则，不代表实现上要散落重复防御分支。
 3. row group/page/dictionary/bloom pruning 统一输出 row group-local row ranges 或 row group keep/drop 结论。
-4. `ParquetColumnReader` 的 `read/skip/select` 参数语义是 parent rows，不是 leaf values。
-5. nested reader 必须通过 def/rep level 组装 parent shape，不能把复杂类型 skip 退化成 leaf value-level skip。
-6. Arrow 负责 Parquet footer、metadata、page、level 和 value decode 的底层能力；Doris 负责 scan 语义、selection、projection、nested shape 和 Doris column 输出。
-7. Arrow buffer 不能跨 `RecordReader::ReadRecords()` 生命周期保存；binary/string 必须 materialize 到 Doris-owned column。
+4. row-level filter 只使用 file-local `Expr`/`VExprContext` 执行；`ColumnPredicate` 只作为 row group、page index、dictionary、statistics、bloom filter 等 pruning hint，不参与 batch 内行级过滤。
+5. `ParquetColumnReader` 的 `read/skip/select` 参数语义是 parent rows，不是 leaf values。
+6. nested reader 必须通过 def/rep level 组装 parent shape，不能把复杂类型 skip 退化成 leaf value-level skip。
+7. Arrow 负责 Parquet footer、metadata、page、level 和 value decode 的底层能力；Doris 负责 scan 语义、selection、projection、nested shape 和 Doris column 输出。
+8. Arrow buffer 不能跨 `RecordReader::ReadRecords()` 生命周期保存；binary/string 必须 materialize 到 Doris-owned column。
 
 ## 层与组件映射
 
@@ -171,6 +172,8 @@ ParquetReader facade
 - 基于 page index 做 row group-local row range selection。
 - 后续基于 bloom filter 做 row group keep/drop。
 - 输出 `RowGroupScanPlan`，而不是直接读取 output columns。
+- 只消费 `FileScanRequest::column_predicate_filters` 作为 pruning hint；这些 `ColumnPredicate`
+  不要求对应列 materialize 到 scan block，也不能决定 batch 内某一行是否返回。
 
 当前边界：
 
@@ -199,10 +202,16 @@ ParquetReader facade
 - 管理 row group cursor 和 row range cursor。
 - 打开当前 row group 的 reader tree。
 - 对 range gap 调用所有 reader 的 row-level `skip()`。
-- 先读取 predicate columns，执行 batch predicate。
+- 先读取 predicate columns，执行 file-local `Expr` batch filter。
 - 根据 `SelectionVector` lazy materialize non-predicate columns。
 - 处理 predicate column 同时输出时的复用。
 - 生成 file-local output `Block`。
+
+过滤契约：
+
+- `request.conjuncts` 是 batch 内行级过滤的唯一普通谓词来源。
+- `request.delete_conjuncts` 是 delete file 语义的行级过滤来源。
+- `request.column_predicate_filters` 不在 scheduler 内执行，只在 pruning 层用于证明 row group/page/dictionary/statistics/bloom 可以跳过。
 
 不负责：
 

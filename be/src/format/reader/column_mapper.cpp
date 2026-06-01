@@ -362,16 +362,15 @@ Status TableColumnMapper::create_scan_request(const std::vector<TableFilter>& ta
         auto* mapping = _find_mapping(table_column.id);
         if (mapping != nullptr && mapping->file_column_id.has_value()) {
             // A file column can be read lazily as a non-predicate column only when it is not used
-            // by either expression filters or single-column predicate pruning.
-            bool used_by_filter = table_column_predicates.count(table_column.id) > 0;
-            if (!used_by_filter) {
-                for (const auto& table_filter : table_filters) {
-                    const auto slot_ids = filter_slot_ids(table_filter);
-                    if (std::find(slot_ids.begin(), slot_ids.end(), table_column.id) !=
-                        slot_ids.end()) {
-                        used_by_filter = true;
-                        break;
-                    }
+            // by row-level expression filters. Single-column ColumnPredicate filters are pruning
+            // hints only and must not force row-level predicate materialization.
+            bool used_by_filter = false;
+            for (const auto& table_filter : table_filters) {
+                const auto slot_ids = filter_slot_ids(table_filter);
+                if (std::find(slot_ids.begin(), slot_ids.end(), table_column.id) !=
+                    slot_ids.end()) {
+                    used_by_filter = true;
+                    break;
                 }
             }
             if (!used_by_filter) {
@@ -423,13 +422,6 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             add_scan_column(file_request, *mapping->file_column_id,
                             &file_request->predicate_columns);
         }
-    }
-    for (const auto& [table_column_id, _] : table_column_predicates) {
-        const auto* mapping = _find_mapping(table_column_id);
-        if (mapping == nullptr || !mapping->file_column_id.has_value()) {
-            continue;
-        }
-        add_scan_column(file_request, *mapping->file_column_id, &file_request->predicate_columns);
     }
 
     // Build the complete table-slot rewrite map after all predicate columns have been assigned.

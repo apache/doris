@@ -101,11 +101,12 @@ struct FileScanRequest {
     std::vector<ColumnId> non_predicate_columns;
     std::map<ColumnId, size_t> column_positions; // file_column_id -> file-local block position
     std::map<ColumnId, FieldProjection> complex_projections;
-    // Complex conjuncts converted to file-local predicates from table-level predicates.
+    // Row-level filters converted to file-local expressions from table-level predicates.
     VExprContextSPtrs conjuncts;
-    // Delete predicates converted to file-local predicates.
+    // Delete predicates converted to file-local expressions.
     VExprContextSPtrs delete_conjuncts;
-    // Only simple predicates that can be directly evaluated on column, such as `a` > 1. Now we use it for zone-map filtering.
+    // Single-column predicates used only for file-layer pruning, such as statistics, page index,
+    // dictionary and bloom filter. They must not be used for batch row-level filtering.
     std::vector<FileColumnPredicateFilter> column_predicate_filters;
     // fallback path if filters cannot be localized to file-local predicates. The expression can reference projected_file_columns and partition columns.
     std::vector<std::pair<ColumnId, VExprContextSPtr>> reader_expression_map;

@@ -204,14 +204,6 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
             return Status::InvalidArgument("Invalid parquet filter top-level field id {}",
                                            file_column_id);
         }
-        if (std::find(_request->predicate_columns.begin(), _request->predicate_columns.end(),
-                      file_column_id) == _request->predicate_columns.end()) {
-            _request->predicate_columns.push_back(file_column_id);
-        }
-        _request->non_predicate_columns.erase(
-                std::remove(_request->non_predicate_columns.begin(),
-                            _request->non_predicate_columns.end(), file_column_id),
-                _request->non_predicate_columns.end());
     }
     for (const auto& [file_column_id, _] : _request->reader_expression_map) {
         if (file_column_id < 0 || file_column_id >= num_fields) {
@@ -253,13 +245,6 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
             continue;
         }
         DORIS_CHECK(file_column_id >= 0 && file_column_id < num_fields);
-    }
-    for (const auto& column_filter : _request->column_predicate_filters) {
-        if (_request->column_positions.count(column_filter.file_column_id) == 0) {
-            return Status::InvalidArgument(
-                    "Parquet column predicate field id {} is not materialized in output block",
-                    column_filter.file_column_id);
-        }
     }
     for (const auto& [file_column_id, _] : _request->reader_expression_map) {
         if (_request->column_positions.count(file_column_id) == 0) {
