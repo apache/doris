@@ -21,6 +21,7 @@
 
 #include <algorithm>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "storage/index/inverted/spimi/pfor_encoder.h"
 #include "storage/index/inverted/spimi/window_frame_encoder.h"
@@ -54,6 +55,11 @@ namespace {
 // burned for no benefit. Reusing one context is the dominant ZSTD CPU saving and
 // produces byte-identical output (level + input fully determine the result).
 inline bool TryCompressBlock(ZSTD_CCtx* cctx, const uint8_t* data, size_t n, faststring* comp) {
+    // Below the configured threshold, skip ZSTD's fixed table-build cost — small
+    // blocks barely compress. Threshold 0 => always attempt (byte-identical).
+    if (static_cast<int64_t>(n) < config::inverted_index_spimi_zstd_min_bytes) {
+        return false;
+    }
     const size_t bound = ZSTD_compressBound(n);
     comp->resize(bound);
     const size_t csize = ZSTD_compressCCtx(cctx, comp->data(), bound, data, n, /*level=*/1);

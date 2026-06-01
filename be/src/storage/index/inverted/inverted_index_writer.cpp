@@ -489,26 +489,23 @@ void InvertedIndexColumnWriter<field_type>::new_field_char_value(const char* s, 
 }
 
 template <FieldType field_type>
-bool InvertedIndexColumnWriter<field_type>::ShouldSpillNow() const {
+bool InvertedIndexColumnWriter<field_type>::ShouldSpillUnderPressure() const {
     DCHECK(_spimi_writer != nullptr);
-    // (1) 256MiB hard floor — unchanged default; the ONLY trigger when there
-    //     is no memory pressure, so default (no-pressure) behaviour and .idx
-    //     output match today exactly.
-    if (_spimi_writer->ShouldFlush()) {
-        return true;
-    }
-    // (2) Process hard mem limit exceeded → force a spill regardless of size.
+    // Process-pressure spill triggers ONLY (the cheap 256MiB ShouldFlush() hard
+    // floor is checked separately every row in add_values; this is the expensive
+    // half, throttled to every inverted_index_spimi_spill_check_interval_rows).
+    // (1) Process hard mem limit exceeded → force a spill regardless of size.
     if (GlobalMemoryArbitrator::is_exceed_hard_mem_limit()) {
         return true;
     }
     const int64_t mem = _spimi_writer->MemoryUsage();
-    // (3) Soft pressure + buffer past the opportunistic min. Avoids tiny
+    // (2) Soft pressure + buffer past the opportunistic min. Avoids tiny
     //     segments under transient soft pressure.
     if (GlobalMemoryArbitrator::is_exceed_soft_mem_limit() &&
         mem >= (config::inverted_index_spimi_min_spill_mem_mb << 20)) {
         return true;
     }
-    // (4) Per-writer backstop.
+    // (3) Per-writer backstop.
     return mem >= _spimi_backstop_bytes;
 }
 
@@ -637,39 +634,45 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
                                 "would be dropped silently",
                                 std::string(_field_name.begin(), _field_name.end()));
                     }
-                    // Spill check: ShouldSpillNow() ORs the 256MiB hard floor
-                    // (unchanged default behaviour) with process-global memory
-                    // pressure + the per-writer backstop. With no pressure and
-                    // buffer < 256MiB this is identical to the old ShouldFlush()
-                    // gate (no extra spills, .idx byte-identical).
-                    if (ShouldSpillNow()) {
+                    // Spill gate. The cheap 256MiB ShouldFlush() latch (set
+                    // inside Append when the buffer crosses the budget) is checked
+                    // EVERY row so the hard floor stays responsive and the
+                    // no-pressure default behaviour + .idx output are unchanged.
+                    // The EXPENSIVE checks — process memory watermarks, MemoryUsage
+                    // and the growth reserve — run only every
+                    // inverted_index_spimi_spill_check_interval_rows rows, keeping
+                    // the per-row hot path lean (a 512-row window cannot cross the
+                    // 256MiB budget for any realistic doc size).
+                    if (_spimi_writer->ShouldFlush()) {
                         _spimi_writer->FlushPending(_spimi_doc_count);
-                    }
-                    // P2 reserve-before-growth: once the buffer is past the soft
-                    // floor (growth territory), reserve a fixed incremental
-                    // growth granule before accepting more rows. CHECK_PROCESS
-                    // only — the write_tracker task limit is -1 so a task-level
-                    // reserve is a no-op. We reserve ONLY the granule, NEVER the
-                    // full MemoryUsage() (the commented-out flush-level reserve
-                    // at memtable_flush_executor.cpp:407-411 reserves the flush
-                    // size; reserving MemoryUsage() here too would double-charge
-                    // the same bytes if that path is ever re-enabled).
-                    if (_spimi_writer->MemoryUsage() >= kSpimiMinSpillBytes &&
-                        thread_context()->thread_mem_tracker_mgr->reserved_mem() == 0) {
-                        Status rst = thread_context()->thread_mem_tracker_mgr->try_reserve(
-                                kSpimiReserveGranule,
-                                ThreadMemTrackerMgr::TryReserveChecker::CHECK_PROCESS);
-                        if (!rst.ok()) {
-                            // PROCESS_MEMORY_EXCEEDED: relieve by spilling, then
-                            // retry the reservation ONCE.
+                    } else if (++_spimi_gate_counter >=
+                               std::max<int64_t>(
+                                       1, config::inverted_index_spimi_spill_check_interval_rows)) {
+                        _spimi_gate_counter = 0;
+                        // Expensive process hard/soft pressure + per-writer
+                        // backstop (ShouldFlush already false here).
+                        if (ShouldSpillUnderPressure()) {
                             _spimi_writer->FlushPending(_spimi_doc_count);
-                            rst = thread_context()->thread_mem_tracker_mgr->try_reserve(
+                        } else if (_spimi_writer->MemoryUsage() >= kSpimiMinSpillBytes &&
+                                   thread_context()->thread_mem_tracker_mgr->reserved_mem() == 0) {
+                            // P2 reserve-before-growth: reserve a fixed incremental
+                            // growth granule (CHECK_PROCESS only — the write_tracker
+                            // task limit is -1). ONLY the granule, never the full
+                            // MemoryUsage() (would double-charge the disabled
+                            // flush-level reserve at memtable_flush_executor.cpp).
+                            Status rst = thread_context()->thread_mem_tracker_mgr->try_reserve(
                                     kSpimiReserveGranule,
                                     ThreadMemTrackerMgr::TryReserveChecker::CHECK_PROCESS);
-                            // Still failing → proceed best-effort. SPIMI is a
-                            // builder and must NEVER fail the load; the buffer's
-                            // own hard floors + Saturated() still bound memory.
-                            (void)rst;
+                            if (!rst.ok()) {
+                                // PROCESS_MEMORY_EXCEEDED: spill to relieve, retry
+                                // ONCE, else proceed best-effort (SPIMI must NEVER
+                                // fail the load).
+                                _spimi_writer->FlushPending(_spimi_doc_count);
+                                rst = thread_context()->thread_mem_tracker_mgr->try_reserve(
+                                        kSpimiReserveGranule,
+                                        ThreadMemTrackerMgr::TryReserveChecker::CHECK_PROCESS);
+                                (void)rst;
+                            }
                         }
                     }
                     if (static_cast<int32_t>(_rid) + 1 > _spimi_doc_count) {

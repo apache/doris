@@ -1293,6 +1293,16 @@ DEFINE_mInt64(inverted_index_spimi_min_spill_mem_mb, "64");
 // SPIMI buffer is past its soft floor. Reserve only this chunk, never the full
 // MemoryUsage().
 DEFINE_mInt64(inverted_index_spimi_reserve_granule_mb, "16");
+// Minimum window/block size (bytes) below which the SPIMI encoder SKIPS the
+// per-window ZSTD attempt and stores the bytes raw. ZSTD level-1 pays a fixed
+// Huffman/FSE table-build cost per call that small windows can't amortize, so
+// gating it trades a tiny .idx increase for a large write-CPU saving. 0 disables
+// the gate (always attempt ZSTD = byte-identical to pre-gate output).
+DEFINE_mInt64(inverted_index_spimi_zstd_min_bytes, "512");
+// How often (in rows) add_values runs the EXPENSIVE spill gate (process memory
+// watermarks + reserve). The cheap 256MiB ShouldFlush() latch is still checked
+// every row; this only throttles the per-row watermark/MemoryUsage reads.
+DEFINE_mInt64(inverted_index_spimi_spill_check_interval_rows, "512");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction

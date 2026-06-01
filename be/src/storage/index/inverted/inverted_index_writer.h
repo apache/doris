@@ -142,12 +142,20 @@ private:
     // branch. min(2GiB, MemInfo::mem_limit()/20).
     int64_t _spimi_backstop_bytes = 0;
 
-    // Returns true when the V4 SPIMI buffer should be flushed to a spill
-    // segment now. OR of: (1) buffer past the 256MiB hard floor (ShouldFlush),
-    // (2) process hard-mem-limit exceeded (force), (3) process soft pressure +
-    // buffer past the opportunistic min, (4) per-writer backstop. Only the V4
-    // branch calls this; _spimi_writer must be non-null.
-    bool ShouldSpillNow() const;
+    // Row counter throttling the EXPENSIVE per-row spill gate (process memory
+    // watermarks + MemoryUsage + reserve). The cheap 256MiB ShouldFlush() latch
+    // is still checked every row; the expensive checks run only every
+    // inverted_index_spimi_spill_check_interval_rows rows. Persists across the
+    // batched add_values calls.
+    int64_t _spimi_gate_counter = 0;
+
+    // True when process memory PRESSURE warrants a spill (the expensive half of
+    // the gate, throttled to every N rows): OR of (1) process hard-mem-limit
+    // exceeded (force), (2) process soft pressure + buffer past the opportunistic
+    // min, (3) per-writer backstop. The cheap 256MiB ShouldFlush() hard floor is
+    // checked separately every row. Only the V4 branch calls this; _spimi_writer
+    // must be non-null.
+    bool ShouldSpillUnderPressure() const;
 };
 
 } // namespace segment_v2

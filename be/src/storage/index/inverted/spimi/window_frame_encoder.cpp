@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <array>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
 #include "storage/index/inverted/spimi/pfor_encoder.h"
@@ -214,7 +215,12 @@ size_t EmitWindowPayload(const std::vector<uint8_t>& inner, ZSTD_CCtx* cctx,
                          faststring& comp_scratch, ByteOutput* out) {
     const int64_t start = out->FilePointer();
     const size_t raw = inner.size();
-    if (cctx != nullptr && raw > 0) {
+    // Skip the ZSTD attempt (and its fixed Huffman/FSE table-build cost) for
+    // windows below the configured threshold — they barely compress, so the
+    // table-build is pure write-CPU waste. Threshold 0 => always attempt
+    // (byte-identical to the pre-gate output).
+    if (cctx != nullptr && raw > 0 &&
+        static_cast<int64_t>(raw) >= config::inverted_index_spimi_zstd_min_bytes) {
         const size_t bound = ZSTD_compressBound(raw);
         comp_scratch.resize(bound);
         const size_t csize =

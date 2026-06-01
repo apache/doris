@@ -33,6 +33,7 @@
 #include <tuple>
 #include <vector>
 
+#include "common/config.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
@@ -522,6 +523,15 @@ TEST(SegmentRoundtripTest, FilePointersInTermDictMatchByteOffsets) {
 // compressible must take the ZSTD envelope (mode byte kProxZstd) AND round-trip
 // bit-for-bit through the decompressing reader. Guards the .prx ZSTD-1 path.
 TEST(SegmentRoundtripTest, ProxZstdBlockRoundTripsAndUsesZstdMode) {
+    // This test exercises the .prx ZSTD-1 envelope specifically, so pin the
+    // small-block-ZSTD-skip threshold to 0 (always attempt ZSTD) — the
+    // production default (512) would store this ~300B block raw.
+    const int64_t saved = config::inverted_index_spimi_zstd_min_bytes;
+    config::inverted_index_spimi_zstd_min_bytes = 0;
+    struct Restore {
+        int64_t v;
+        ~Restore() { config::inverted_index_spimi_zstd_min_bytes = v; }
+    } restore {saved};
     MemoryByteOutput tis, tii, frq, prx;
     SegmentWriter w(&tis, &tii, &frq, &prx);
     SpimiPostingBuffer buffer;
