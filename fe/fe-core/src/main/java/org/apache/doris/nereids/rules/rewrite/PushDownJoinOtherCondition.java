@@ -75,16 +75,16 @@ public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
                     Set<Expression> rightConjuncts = Sets.newHashSet();
 
                     for (Expression otherConjunct : otherJoinConjuncts) {
-                        // A conjunct with a unique (non-idempotent) function (rand/uuid/...)
+                        // A conjunct with a volatile function (rand/uuid/...)
                         // and no input slots (e.g. `rand() > 0.5`) would otherwise pass
                         // `allCoveredBy(..., child.getOutputSet())` because
                         // `Set.containsAll(emptySet) == true`, leading to an arbitrary push
-                        // into the left child. Keep such empty-slot unique predicates in
-                        // `otherJoinConjuncts`. When the unique function has side-specific
+                        // into the left child. Keep such empty-slot volatile predicates in
+                        // `otherJoinConjuncts`. When the volatile expression has side-specific
                         // slots, push-down is allowed: output cardinality expectation is
                         // preserved and users typically want the sampling to happen
                         // pre-join for efficiency.
-                        if (otherConjunct.containsUniqueFunction()
+                        if (otherConjunct.containsVolatileExpression()
                                 && otherConjunct.getInputSlots().isEmpty()) {
                             remainingOther.add(otherConjunct);
                         } else if (PUSH_DOWN_LEFT_VALID_TYPE.contains(join.getJoinType())
