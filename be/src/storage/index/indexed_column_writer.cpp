@@ -53,12 +53,15 @@ IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& optio
 IndexedColumnWriter::~IndexedColumnWriter() = default;
 
 Status IndexedColumnWriter::init() {
+    // Caller must set _options.encoding to a concrete value before calling init.
+    if (_options.encoding == DEFAULT_ENCODING) {
+        return Status::InternalError(
+                "IndexedColumnWriterOptions::encoding is DEFAULT_ENCODING for type={}; caller must "
+                "resolve to a concrete encoding before IndexedColumnWriter::init",
+                _type);
+    }
     const EncodingInfo* encoding_info;
-    RETURN_IF_ERROR(EncodingInfo::get(_type, _options.encoding, {}, &encoding_info));
-    _options.encoding = encoding_info->encoding();
-    // should store more concrete encoding type instead of DEFAULT_ENCODING
-    // because the default encoding of a data type can be changed in the future
-    DCHECK_NE(_options.encoding, DEFAULT_ENCODING);
+    RETURN_IF_ERROR(EncodingInfo::get(_type, _options.encoding, &encoding_info));
 
     PageBuilder* data_page_builder = nullptr;
     PageBuilderOptions builder_option;

@@ -6515,28 +6515,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowVariables(ShowVariablesContext ctx) {
         SetType statementScope = visitStatementScope(ctx.statementScope());
-        if (ctx.wildWhere() != null) {
-            if (ctx.wildWhere().LIKE() != null) {
-                return new ShowVariablesCommand(statementScope,
-                        stripQuotes(ctx.wildWhere().STRING_LITERAL().getText()));
-            } else {
-                StringBuilder sb = new StringBuilder();
-                sb.append("SELECT `VARIABLE_NAME` AS `Variable_name`, `VARIABLE_VALUE` AS `Value` FROM ");
-                sb.append("`").append(InternalCatalog.INTERNAL_CATALOG_NAME).append("`");
-                sb.append(".");
-                sb.append("`").append(InfoSchemaDb.DATABASE_NAME).append("`");
-                sb.append(".");
-                if (statementScope == SetType.GLOBAL) {
-                    sb.append("`global_variables` ");
-                } else {
-                    sb.append("`session_variables` ");
-                }
-                sb.append(getOriginSql(ctx.wildWhere()));
-                return new NereidsParser().parseSingle(sb.toString());
-            }
+        LogicalPlan plan;
+        if (ctx.wildWhere() == null) {
+            plan = new ShowVariablesCommand(statementScope, null);
+        } else if (ctx.wildWhere().LIKE() != null) {
+            plan = new ShowVariablesCommand(statementScope,
+                    stripQuotes(ctx.wildWhere().STRING_LITERAL().getText()));
         } else {
-            return new ShowVariablesCommand(statementScope, null);
+            StringBuilder sb = new StringBuilder();
+            sb.append("SELECT `VARIABLE_NAME` AS `Variable_name`, `VARIABLE_VALUE` AS `Value` FROM ");
+            sb.append("`").append(InternalCatalog.INTERNAL_CATALOG_NAME).append("`");
+            sb.append(".");
+            sb.append("`").append(InfoSchemaDb.DATABASE_NAME).append("`");
+            sb.append(".");
+            if (statementScope == SetType.GLOBAL) {
+                sb.append("`global_variables` ");
+            } else {
+                sb.append("`session_variables` ");
+            }
+            sb.append(getOriginSql(ctx.wildWhere()));
+            plan = new NereidsParser().parseSingle(sb.toString());
         }
+        return plan;
     }
 
     @Override
@@ -8501,6 +8501,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             properties.put(AnalyzeProperties.PROPERTY_EXTERNAL_TABLE_USE_SQL, "true");
         } else if (ctx.HISTOGRAM() != null) {
             properties.put(AnalyzeProperties.PROPERTY_ANALYSIS_TYPE, AnalysisInfo.AnalysisType.HISTOGRAM.toString());
+        } else if (ctx.HOT() != null) {
+            properties.put(AnalyzeProperties.PROPERTY_COLLECT_HOT_VALUE, "true");
         } else if (ctx.SAMPLE() != null) {
             if (ctx.ROWS() != null) {
                 properties.put(AnalyzeProperties.PROPERTY_SAMPLE_ROWS, ctx.INTEGER_VALUE().getText());

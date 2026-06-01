@@ -40,7 +40,6 @@
 #include "recycler/snapshot_chain_compactor.h"
 #include "recycler/snapshot_data_migrator.h"
 #include "recycler/storage_vault_accessor.h"
-#include "recycler/white_black_list.h"
 #include "snapshot/snapshot_manager.h"
 
 namespace brpc {
@@ -118,7 +117,6 @@ private:
 
     std::string ip_port_;
 
-    WhiteBlackList instance_filter_;
     std::unique_ptr<Checker> checker_;
 
     RecyclerThreadPoolGroup _thread_pool_group;

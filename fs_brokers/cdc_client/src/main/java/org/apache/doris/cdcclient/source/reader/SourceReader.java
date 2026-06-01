@@ -98,4 +98,9 @@ public interface SourceReader {
      * indicate how far the source TX log can be discarded.
      */
     default void commitSourceOffset(String jobId, SourceSplit sourceSplit) {}
+
+    /** Whether all snapshot splits have received their high-watermark event. */
+    default boolean isSnapshotFinished() {
+        return true;
+    }
 }

@@ -417,7 +417,7 @@ public class DorisBatchStreamLoad implements Serializable {
                                     OBJECT_MAPPER.readValue(loadResult, RespContent.class);
                             if (DORIS_SUCCESS_STATUS.contains(respContent.getStatus())) {
                                 long cacheByteBeforeFlush =
-                                        currentCacheBytes.getAndAdd(-respContent.getLoadBytes());
+                                        currentCacheBytes.getAndAdd(-buffer.getBufferSizeBytes());
                                 LOG.info(
                                         "load success, cacheBeforeFlushBytes: {}, currentCacheBytes : {}",
                                         cacheByteBeforeFlush,
