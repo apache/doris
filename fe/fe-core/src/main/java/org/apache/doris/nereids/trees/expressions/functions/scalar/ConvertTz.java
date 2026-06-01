@@ -168,11 +168,15 @@ public class ConvertTz extends ScalarFunction
             transition = zoneId.getRules().nextTransition(lower.atZone(zoneId).toInstant());
         }
         while (transition != null) {
-            LocalDateTime transitionStart = min(transition.getDateTimeBefore(), transition.getDateTimeAfter());
+            LocalDateTime transitionBefore = transition.getDateTimeBefore();
+            LocalDateTime transitionAfter = transition.getDateTimeAfter();
+            LocalDateTime transitionStart = transitionBefore.isBefore(transitionAfter)
+                    ? transitionBefore : transitionAfter;
             if (upper.isBefore(transitionStart)) {
                 return false;
             }
-            LocalDateTime transitionEnd = max(transition.getDateTimeBefore(), transition.getDateTimeAfter());
+            LocalDateTime transitionEnd = transitionBefore.isAfter(transitionAfter)
+                    ? transitionBefore : transitionAfter;
             if (!transitionEnd.isBefore(lower) && !upper.isBefore(transitionStart)) {
                 return true;
             }
@@ -190,13 +194,5 @@ public class ConvertTz extends ScalarFunction
             transition = zoneId.getRules().nextTransition(lower);
         }
         return transition != null && !transition.getInstant().isAfter(upper);
-    }
-
-    private LocalDateTime min(LocalDateTime left, LocalDateTime right) {
-        return left.isBefore(right) ? left : right;
-    }
-
-    private LocalDateTime max(LocalDateTime left, LocalDateTime right) {
-        return left.isAfter(right) ? left : right;
     }
 }

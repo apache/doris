@@ -111,9 +111,10 @@ suite("test_convert_tz") {
     PROPERTIES(
             "storage_format" = "DEFAULT",
             "replication_num" = "1");"""
-    sql "insert into test_convert_tz_dst values('2021-10-31 00:30:00'),('2021-10-31 00:30:00'),('2021-10-31 00:30:00')"
+    sql "insert into test_convert_tz_dst values('2021-10-31 00:30:00'),('2021-10-31 01:30:00'),('2021-10-31 02:30:00')"
     explain {
         sql "SELECT * FROM test_convert_tz_dst WHERE convert_tz(ts, 'UTC', 'Europe/Paris') = '2021-10-31 02:30:00';"
         contains("partitions=2/3 (p_00,p_01)")
     }
+    order_qt_convert_tz_dst "SELECT * FROM test_convert_tz_dst WHERE convert_tz(ts, 'UTC', 'Europe/Paris') = '2021-10-31 02:30:00';"
 }
