@@ -394,6 +394,36 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    void testRestoreNonPulledSlotsByExprIdAfterPullUp() {
+        LogicalOlapScan scan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of("db"));
+        Slot id = scan.getOutput().get(0);
+        Slot a = scan.getOutput().get(1);
+        Slot c = scan.getOutput().get(3);
+        Alias x = new Alias(new Add(a, new IntegerLiteral((byte) 1)), "x");
+
+        LogicalPlan plan = new LogicalPlanBuilder(scan)
+                .projectExprs(ImmutableList.of(id, x, c))
+                .topN(3, 0, ImmutableList.of(0))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .matchesFromRoot(
+                        logicalProject(
+                                logicalTopN(
+                                        logicalProject(
+                                                logicalOlapScan()
+                                        )
+                                )
+                        ).when(project -> project.getProjects().size() == 3
+                                && project.getProjects().get(0).getExprId().equals(id.getExprId())
+                                && project.getProjects().get(1).getExprId().equals(x.getExprId())
+                                && project.getProjects().get(2).getExprId().equals(c.getExprId()))
+                );
+    }
+
+    @Test
     void testNotPullUpNoneMovableFunction() {
         // topn -> project(assert_true(a+1, "msg") as x) -> scan
         // NoneMovableFunction should not be pulled up.

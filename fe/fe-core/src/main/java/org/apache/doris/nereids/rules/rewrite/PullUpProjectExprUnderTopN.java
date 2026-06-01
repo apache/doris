@@ -432,19 +432,26 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         // whose expressions were deduplicated to an outer TopN reference
         // the correct post-simplification ExprIds instead of stale ones.
         List<Slot> currentOutput = topN.getOutput();
+        Map<ExprId, Slot> currentOutputByExprId = new HashMap<>();
+        for (Slot slot : currentOutput) {
+            currentOutputByExprId.put(slot.getExprId(), slot);
+        }
         List<NamedExpression> upperOutput = new ArrayList<>();
         for (int i = 0; i < info.originalTopNOutput.size(); i++) {
             Slot origSlot = info.originalTopNOutput.get(i);
             NamedExpression pulledUpExpr = pulledUpBySlotExprId.get(origSlot.getExprId());
             if (pulledUpExpr != null) {
                 upperOutput.add(pulledUpExpr);
-            } else if (i < currentOutput.size()) {
-                // Slot was not pulled up: use the current slot at the same
-                // position so the ExprId matches the rewritten child subtree.
-                upperOutput.add(currentOutput.get(i));
+            } else {
+                Slot currentSlot = currentOutputByExprId.get(origSlot.getExprId());
+                if (currentSlot != null) {
+                    upperOutput.add(currentSlot);
+                } else if (i < currentOutput.size()) {
+                    // The original slot may have been removed because another TopN owns its pull-up.
+                    // In that case keep the rewritten replacement at the same position.
+                    upperOutput.add(currentOutput.get(i));
+                }
             }
-            // else: slot was deduplicated to an outer TopN and its base slot
-            // was already present in the simplified lower project — skip.
         }
 
         return new LogicalProject<>(ImmutableList.copyOf(upperOutput), topN);
