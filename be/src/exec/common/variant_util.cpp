@@ -1863,7 +1863,6 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
         }
         break;
     case ParseConfig::ParseTo::OnlyDocValueColumn: {
-        CHECK(column_variant.enable_doc_mode()) << "OnlyDocValueColumn requires doc mode enabled";
         std::vector<size_t> doc_item_indexes;
         doc_item_indexes.reserve(paths.size());
         phmap::flat_hash_set<StringRef, StringRefHash> seen_paths;
@@ -1873,6 +1872,10 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
             FieldInfo field_info;
             get_field_info(values[i], &field_info);
             if (paths[i].empty()) {
+                if (!column_variant.enable_doc_mode() &&
+                    field_info.scalar_type_id == PrimitiveType::INVALID_TYPE) {
+                    continue;
+                }
                 auto* subcolumn = column_variant.get_subcolumn(paths[i]);
                 DCHECK(subcolumn != nullptr);
                 flush_defaults(subcolumn);
@@ -2124,8 +2127,23 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
             return Status::InternalError("column is not variant type, column name: {}",
                                          column.name());
         }
-        // if doc mode is not enabled, no need to parse to doc value column
-        if (!column.variant_enable_doc_mode()) {
+        // NestedGroup still needs the legacy subcolumn parse tree to build NG data.
+        if (column.variant_enable_nested_group()) {
+            configs[i].parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+            continue;
+        }
+
+        if (column.variant_enable_doc_mode()) {
+            configs[i].parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+            continue;
+        }
+
+        // The doc-value KV staging path intentionally targets plain dynamic VARIANT columns: it
+        // avoids eagerly creating thousands of dynamic subcolumns and lets the writer pick the
+        // materialized/sparse split. Keep legacy subcolumn parsing for cases where parse-time path
+        // metadata or schema/index behavior is part of the storage contract.
+        if (configs[i].deprecated_enable_flatten_nested || column.get_subtype_count() > 0 ||
+            !tablet_schema.inverted_indexs(column.unique_id()).empty()) {
             configs[i].parse_to = ParseConfig::ParseTo::OnlySubcolumns;
             continue;
         }

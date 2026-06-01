@@ -185,6 +185,7 @@ struct SubcolumnSparseData {
 
 using DocSparseSubcolumns = phmap::flat_hash_map<StringRef, SubcolumnSparseData, StringRefHash>;
 using DocValuePathStats = phmap::flat_hash_map<StringRef, uint32_t, StringRefHash>;
+using DocValuePathSet = phmap::flat_hash_set<StringRef, StringRefHash>;
 
 struct SubcolumnWriteEntry {
     std::string_view path;
@@ -204,6 +205,8 @@ struct SubcolumnWritePlan {
 };
 
 constexpr size_t kInitialDocPathReserve = 8192;
+
+void release_processed_subcolumn_write_entry(SubcolumnWriteEntry* entry);
 
 // Build per-path non-null counts from the serialized doc-value representation.
 void build_doc_value_stats(const ColumnVariant& variant, DocValuePathStats* stats) {
@@ -229,6 +232,7 @@ void build_doc_value_stats(const ColumnVariant& variant, DocValuePathStats* stat
 // For each row, we decode only present (path, value) pairs and append them to the
 // corresponding subcolumn, while recording the row id to allow gap filling later.
 void build_sparse_subcolumns(const ColumnVariant& variant, const DocValuePathStats& stats,
+                             const DocValuePathSet* selected_paths,
                              DocSparseSubcolumns* subcolumns) {
     auto [column_key, column_value] = variant.get_doc_value_data_paths_and_values();
     const auto& column_offsets = variant.serialized_doc_value_column_offsets();
@@ -242,6 +246,9 @@ void build_sparse_subcolumns(const ColumnVariant& variant, const DocValuePathSta
         const size_t end = column_offsets[row];
         for (size_t i = start; i < end; ++i) {
             const StringRef path = column_key->get_data_at(i);
+            if (selected_paths != nullptr && !selected_paths->contains(path)) {
+                continue;
+            }
             auto stat_it = stats.find(path);
             DCHECK(stat_it != stats.end());
             auto [data_it, inserted] = subcolumns->try_emplace(path);
@@ -257,7 +264,9 @@ void build_sparse_subcolumns(const ColumnVariant& variant, const DocValuePathSta
 }
 
 SubcolumnWritePlan build_subcolumn_write_plan(const ColumnVariant& variant, size_t num_rows,
-                                              int64_t variant_doc_materialization_min_rows) {
+                                              int64_t variant_doc_materialization_min_rows,
+                                              const DocValuePathStats* precomputed_stats = nullptr,
+                                              const DocValuePathSet* selected_paths = nullptr) {
     SubcolumnWritePlan plan;
     // Below threshold: skip materialization and let finalize() compute stats on demand.
     if (num_rows < static_cast<size_t>(variant_doc_materialization_min_rows)) {
@@ -265,8 +274,12 @@ SubcolumnWritePlan build_subcolumn_write_plan(const ColumnVariant& variant, size
     }
 
     if (config::enable_variant_doc_sparse_write_subcolumns) {
-        build_doc_value_stats(variant, &plan.stats);
-        build_sparse_subcolumns(variant, plan.stats, &plan.sparse_subcolumns);
+        if (precomputed_stats != nullptr) {
+            plan.stats = *precomputed_stats;
+        } else {
+            build_doc_value_stats(variant, &plan.stats);
+        }
+        build_sparse_subcolumns(variant, plan.stats, selected_paths, &plan.sparse_subcolumns);
         plan.entries.reserve(plan.sparse_subcolumns.size());
         for (auto& [path, sparse] : plan.sparse_subcolumns) {
             SubcolumnWriteEntry entry;
@@ -279,7 +292,29 @@ SubcolumnWritePlan build_subcolumn_write_plan(const ColumnVariant& variant, size
         return plan;
     }
 
-    build_doc_value_stats(variant, &plan.stats);
+    if (selected_paths != nullptr) {
+        if (precomputed_stats != nullptr) {
+            plan.stats = *precomputed_stats;
+        } else {
+            build_doc_value_stats(variant, &plan.stats);
+        }
+        build_sparse_subcolumns(variant, plan.stats, selected_paths, &plan.sparse_subcolumns);
+        plan.entries.reserve(plan.sparse_subcolumns.size());
+        for (auto& [path, sparse] : plan.sparse_subcolumns) {
+            SubcolumnWriteEntry entry;
+            entry.path = std::string_view(path.data, path.size);
+            entry.subcolumn = &sparse.subcolumn;
+            entry.rowids = &sparse.rowids;
+            plan.entries.push_back(entry);
+        }
+        return plan;
+    }
+
+    if (precomputed_stats != nullptr) {
+        plan.stats = *precomputed_stats;
+    } else {
+        build_doc_value_stats(variant, &plan.stats);
+    }
     plan.dense_subcolumns =
             variant_util::materialize_docs_to_subcolumns_map(variant, plan.stats.size());
     plan.entries.reserve(plan.dense_subcolumns.size());
@@ -298,10 +333,13 @@ Status execute_doc_write_pipeline(const ColumnVariant& variant, size_t num_rows,
                                   int64_t variant_doc_materialization_min_rows, int& column_id,
                                   WriteMaterializedFn&& write_materialized_fn,
                                   WriteDocValueFn&& write_doc_value_fn,
-                                  DocValuePathStats* out_column_stats) {
+                                  DocValuePathStats* out_column_stats,
+                                  const DocValuePathStats* precomputed_stats = nullptr,
+                                  const DocValuePathSet* selected_paths = nullptr) {
     {
         SubcolumnWritePlan plan =
-                build_subcolumn_write_plan(variant, num_rows, variant_doc_materialization_min_rows);
+                build_subcolumn_write_plan(variant, num_rows, variant_doc_materialization_min_rows,
+                                           precomputed_stats, selected_paths);
         *out_column_stats = std::move(plan.stats);
         if (out_column_stats->empty()) {
             build_doc_value_stats(variant, out_column_stats);
@@ -309,6 +347,7 @@ Status execute_doc_write_pipeline(const ColumnVariant& variant, size_t num_rows,
 
         for (auto& entry : plan.entries) {
             RETURN_IF_ERROR(write_materialized_fn(entry, column_id));
+            release_processed_subcolumn_write_entry(&entry);
         }
     }
     RETURN_IF_ERROR(write_doc_value_fn(column_id));
@@ -555,6 +594,156 @@ Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnW
     converter->clear_source_content(cid);
     return Status::OK();
 }
+
+bool has_doc_value_data(const ColumnVariant& variant) {
+    if (variant.size() == 0) {
+        return false;
+    }
+    const auto& offsets = variant.serialized_doc_value_column_offsets();
+    return !offsets.empty() && offsets[variant.size() - 1] > 0;
+}
+
+struct RegularVariantDocValuePlan {
+    DocValuePathStats stats;
+    DocValuePathSet materialized_paths;
+};
+
+size_t dotted_path_depth(StringRef path) {
+    return static_cast<size_t>(std::count(path.data, path.data + path.size, '.'));
+}
+
+Status build_regular_variant_doc_value_plan(
+        const ColumnVariant& variant, const TabletColumn& parent_column,
+        const TabletSchema& tablet_schema,
+        std::unordered_map<std::string, TabletSchema::SubColumnInfo>* subcolumns_info,
+        RegularVariantDocValuePlan* plan) {
+    build_doc_value_stats(variant, &plan->stats);
+    if (plan->stats.empty()) {
+        return Status::OK();
+    }
+
+    struct Candidate {
+        StringRef path;
+        uint32_t non_null_count = 0;
+    };
+    std::vector<Candidate> dynamic_candidates;
+    dynamic_candidates.reserve(plan->stats.size());
+    const bool materialize_all_dynamic_paths = parent_column.variant_max_subcolumns_count() == 0;
+
+    for (const auto& [path_ref, non_null_count] : plan->stats) {
+        if (path_ref.size == 0 || non_null_count == 0) {
+            continue;
+        }
+        std::string path(path_ref.data, path_ref.size);
+        TabletSchema::SubColumnInfo sub_column_info;
+        const bool is_typed_path = variant_util::generate_sub_column_info(
+                tablet_schema, parent_column.unique_id(), path, &sub_column_info);
+        if (is_typed_path) {
+            subcolumns_info->emplace(path, std::move(sub_column_info));
+        }
+        if (is_typed_path && !parent_column.variant_enable_typed_paths_to_sparse()) {
+            plan->materialized_paths.emplace(path_ref);
+            continue;
+        }
+        dynamic_candidates.push_back({path_ref, non_null_count});
+    }
+
+    std::sort(dynamic_candidates.begin(), dynamic_candidates.end(),
+              [](const Candidate& lhs, const Candidate& rhs) {
+                  if (lhs.non_null_count != rhs.non_null_count) {
+                      return lhs.non_null_count > rhs.non_null_count;
+                  }
+                  const auto lhs_depth = dotted_path_depth(lhs.path);
+                  const auto rhs_depth = dotted_path_depth(rhs.path);
+                  if (lhs_depth != rhs_depth) {
+                      return lhs_depth > rhs_depth;
+                  }
+                  return std::string_view(lhs.path.data, lhs.path.size) >
+                         std::string_view(rhs.path.data, rhs.path.size);
+              });
+
+    const size_t dynamic_limit =
+            materialize_all_dynamic_paths
+                    ? dynamic_candidates.size()
+                    : static_cast<size_t>(parent_column.variant_max_subcolumns_count());
+    for (size_t i = 0; i < std::min(dynamic_limit, dynamic_candidates.size()); ++i) {
+        plan->materialized_paths.emplace(dynamic_candidates[i].path);
+    }
+    return Status::OK();
+}
+
+Status append_typed_doc_value_to_sparse_column(const ColumnString* doc_values, size_t doc_value_pos,
+                                               std::string_view path,
+                                               const DataTypePtr& storage_type,
+                                               ColumnString* sparse_keys,
+                                               ColumnString* sparse_values) {
+    ColumnVariant::Subcolumn subcolumn(0, true, false);
+    subcolumn.deserialize_from_binary_column(doc_values, doc_value_pos);
+    subcolumn.finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
+
+    ColumnPtr current_column = subcolumn.get_finalized_column_ptr()->get_ptr();
+    DataTypePtr current_type = subcolumn.get_least_common_type();
+    if (!storage_type->equals(*current_type)) {
+        RETURN_IF_ERROR(variant_util::cast_column({current_column, current_type, ""}, storage_type,
+                                                  &current_column));
+    }
+
+    DataTypePtr sparse_type = storage_type;
+    if (!current_column->is_nullable()) {
+        current_column = make_nullable(current_column);
+        sparse_type = make_nullable(storage_type);
+    }
+
+    auto mutable_column = IColumn::mutate(std::move(current_column));
+    ColumnVariant::Subcolumn typed_subcolumn(std::move(mutable_column), sparse_type, true, false);
+    typed_subcolumn.serialize_to_binary_column(sparse_keys, path, sparse_values, 0);
+    return Status::OK();
+}
+
+Status build_sparse_column_from_doc_values(
+        const ColumnVariant& variant, const DocValuePathSet& materialized_paths,
+        const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths,
+        size_t num_rows, MutableColumnPtr* result) {
+    auto sparse_column = ColumnVariant::create_binary_column_fn();
+    auto& sparse_map = assert_cast<ColumnMap&>(*sparse_column);
+    auto& sparse_keys = assert_cast<ColumnString&>(sparse_map.get_keys());
+    auto& sparse_values = assert_cast<ColumnString&>(sparse_map.get_values());
+    auto& sparse_offsets = sparse_map.get_offsets();
+    sparse_offsets.reserve(num_rows);
+
+    std::unordered_map<std::string_view, DataTypePtr> typed_storage_types;
+    typed_storage_types.reserve(typed_paths.size());
+    for (const auto& [path, subcolumn_info] : typed_paths) {
+        typed_storage_types.emplace(
+                std::string_view(path.data(), path.size()),
+                DataTypeFactory::instance().create_data_type(subcolumn_info.column));
+    }
+
+    const auto [doc_keys, doc_values] = variant.get_doc_value_data_paths_and_values();
+    const auto& doc_offsets = variant.serialized_doc_value_column_offsets();
+    for (size_t row = 0; row < num_rows; ++row) {
+        const size_t start = doc_offsets[row - 1];
+        const size_t end = doc_offsets[row];
+        for (size_t i = start; i < end; ++i) {
+            const StringRef path = doc_keys->get_data_at(i);
+            if (materialized_paths.contains(path)) {
+                continue;
+            }
+            const std::string_view path_view(path.data, path.size);
+            if (auto typed_it = typed_storage_types.find(path_view);
+                typed_it != typed_storage_types.end()) {
+                RETURN_IF_ERROR(append_typed_doc_value_to_sparse_column(
+                        doc_values, i, path_view, typed_it->second, &sparse_keys, &sparse_values));
+            } else {
+                sparse_keys.insert_data(path.data, path.size);
+                sparse_values.insert_from(*doc_values, i);
+            }
+        }
+        sparse_offsets.push_back(sparse_keys.size());
+    }
+    *result = std::move(sparse_column);
+    return Status::OK();
+}
 } // namespace
 
 Status UnifiedSparseColumnWriter::init(const TabletColumn* parent_column, int bucket_num,
@@ -699,7 +888,8 @@ Status UnifiedSparseColumnWriter::append_single_sparse(const ColumnVariant& src,
                                                        OlapBlockDataConvertor* converter,
                                                        const TabletColumn& parent_column) {
     TabletColumn sparse_column = variant_util::create_sparse_column(parent_column);
-    converter->add_column_data_convertor(sparse_column);
+    converter->resize(_first_column_id + 1);
+    converter->add_column_data_convertor_at(sparse_column, _first_column_id);
     DCHECK_EQ(src.get_sparse_column()->size(), num_rows);
     RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
             {src.get_sparse_column(), nullptr, ""}, 0, num_rows, _first_column_id));
@@ -799,10 +989,11 @@ Status UnifiedSparseColumnWriter::append_bucket_sparse(const ColumnVariant& src,
             bucket_offsets[b]->push_back(bucket_keys[b]->size());
         }
     }
+    converter->resize(_first_column_id + bucket_num);
     for (int b = 0; b < bucket_num; ++b) {
         TabletColumn bucket_col = variant_util::create_sparse_shard_column(parent_column, b);
-        converter->add_column_data_convertor(bucket_col);
         int this_col_id = _first_column_id + b;
+        converter->add_column_data_convertor_at(bucket_col, this_col_id);
         RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
                 {tmp_maps[b]->get_ptr(), nullptr, ""}, 0, num_rows, this_col_id));
         auto [st, converted] = converter->convert_column_data(this_col_id);
@@ -1330,6 +1521,45 @@ Status VariantColumnWriterImpl::_process_subcolumns(ColumnVariant* ptr,
     return Status::OK();
 }
 
+Status VariantColumnWriterImpl::_process_doc_value_as_subcolumns_and_sparse(
+        ColumnVariant* ptr, OlapBlockDataConvertor* converter, size_t num_rows, int& column_id) {
+    DCHECK(!_tablet_column->variant_enable_doc_mode());
+    RegularVariantDocValuePlan plan;
+    RETURN_IF_ERROR(build_regular_variant_doc_value_plan(
+            *ptr, *_tablet_column, *_opts.rowset_ctx->tablet_schema, &_subcolumns_info, &plan));
+
+    DocValuePathStats column_stats;
+    RETURN_IF_ERROR(execute_doc_write_pipeline(
+            *ptr, num_rows, 0 /* materialize selected paths regardless of row count */, column_id,
+            [this, num_rows, converter](SubcolumnWriteEntry& entry, int& materialized_column_id) {
+                return write_materialized_subcolumn(*_tablet_column, entry.path, *entry.subcolumn,
+                                                    num_rows, converter, materialized_column_id,
+                                                    _opts, &_subcolumns_indexes, &_subcolumn_opts,
+                                                    &_subcolumn_writers, entry.rowids);
+            },
+            [this, ptr, num_rows, converter, &plan](int& binary_column_id) {
+                if (!variant_util::should_write_variant_binary_columns(*_tablet_column)) {
+                    return Status::OK();
+                }
+
+                MutableColumnPtr sparse_column;
+                RETURN_IF_ERROR(build_sparse_column_from_doc_values(
+                        *ptr, plan.materialized_paths, _subcolumns_info, num_rows, &sparse_column));
+                auto sparse_variant = ColumnVariant::create(0, false, num_rows);
+                sparse_variant->set_sparse_column(sparse_column->get_ptr());
+
+                _binary_writer = std::make_unique<UnifiedSparseColumnWriter>();
+                const int bucket_num =
+                        std::max(1, _tablet_column->variant_sparse_hash_shard_count());
+                RETURN_IF_ERROR(_binary_writer->init(_tablet_column, bucket_num, binary_column_id,
+                                                     _opts, _opts.footer));
+                return _binary_writer->append_data(_tablet_column, *sparse_variant, num_rows,
+                                                   converter);
+            },
+            &column_stats, &plan.stats, &plan.materialized_paths));
+    return Status::OK();
+}
+
 Status VariantColumnWriterImpl::_process_binary_column(ColumnVariant* ptr,
                                                        OlapBlockDataConvertor* converter,
                                                        size_t num_rows, int& column_id) {
@@ -1361,25 +1591,32 @@ Status VariantColumnWriterImpl::finalize() {
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
 
     DCHECK(ptr->is_finalized());
+    const bool use_doc_value_regular_write_path = !_tablet_column->variant_enable_doc_mode() &&
+                                                  !_tablet_column->variant_enable_nested_group() &&
+                                                  has_doc_value_data(*ptr);
 
-    for (const auto& entry : variant_util::get_sorted_subcolumns(ptr->get_subcolumns())) {
-        if (entry->path.empty()) {
-            // already handled
-            continue;
-        }
-        // Not supported nested path to generate sub column info, currently
-        if (entry->path.has_nested_part()) {
-            continue;
-        }
-        TabletSchema::SubColumnInfo sub_column_info;
-        if (variant_util::generate_sub_column_info(*_opts.rowset_ctx->tablet_schema,
-                                                   _tablet_column->unique_id(),
-                                                   entry->path.get_path(), &sub_column_info)) {
-            _subcolumns_info.emplace(entry->path.get_path(), std::move(sub_column_info));
+    if (!use_doc_value_regular_write_path) {
+        for (const auto& entry : variant_util::get_sorted_subcolumns(ptr->get_subcolumns())) {
+            if (entry->path.empty()) {
+                // already handled
+                continue;
+            }
+            // Not supported nested path to generate sub column info, currently
+            if (entry->path.has_nested_part()) {
+                continue;
+            }
+            TabletSchema::SubColumnInfo sub_column_info;
+            if (variant_util::generate_sub_column_info(*_opts.rowset_ctx->tablet_schema,
+                                                       _tablet_column->unique_id(),
+                                                       entry->path.get_path(), &sub_column_info)) {
+                _subcolumns_info.emplace(entry->path.get_path(), std::move(sub_column_info));
+            }
         }
     }
 
-    RETURN_IF_ERROR(ptr->convert_typed_path_to_storage_type(_subcolumns_info));
+    if (!use_doc_value_regular_write_path) {
+        RETURN_IF_ERROR(ptr->convert_typed_path_to_storage_type(_subcolumns_info));
+    }
 
     // Root NG dedup is handled in _process_root_column() — see the
     // has_root_ng check there. We intentionally do NOT modify the in-memory
@@ -1398,7 +1635,8 @@ Status VariantColumnWriterImpl::finalize() {
         has_prebuilt_nested_groups = true;
     }
 
-    if (variant_util::should_write_variant_binary_columns(*_tablet_column)) {
+    if (!use_doc_value_regular_write_path &&
+        variant_util::should_write_variant_binary_columns(*_tablet_column)) {
         RETURN_IF_ERROR(ptr->pick_subcolumns_to_sparse_column(
                 _subcolumns_info, _tablet_column->variant_enable_typed_paths_to_sparse()));
     }
@@ -1416,11 +1654,17 @@ Status VariantColumnWriterImpl::finalize() {
     if (!has_extracted_columns) {
         if (!_tablet_column->variant_enable_doc_mode()) {
             // process and append each subcolumns to sub columns writers buffer
-            RETURN_IF_ERROR(
-                    _process_subcolumns(ptr, olap_data_convertor.get(), num_rows, column_id));
+            if (use_doc_value_regular_write_path) {
+                RETURN_IF_ERROR(_process_doc_value_as_subcolumns_and_sparse(
+                        ptr, olap_data_convertor.get(), num_rows, column_id));
+            } else {
+                RETURN_IF_ERROR(
+                        _process_subcolumns(ptr, olap_data_convertor.get(), num_rows, column_id));
+            }
         }
 
-        if (variant_util::should_write_variant_binary_columns(*_tablet_column)) {
+        if (!use_doc_value_regular_write_path &&
+            variant_util::should_write_variant_binary_columns(*_tablet_column)) {
             // process sparse/doc column and append to binary writer buffer
             RETURN_IF_ERROR(
                     _process_binary_column(ptr, olap_data_convertor.get(), num_rows, column_id));
@@ -1892,7 +2136,6 @@ Status VariantDocCompactWriter::finalize() {
                         materialized_column_id, entry.rowids));
                 DCHECK_EQ(_subcolumn_writers.size(), prev_writer_count + 1);
                 RETURN_IF_ERROR(finish_and_write_column_writer(_subcolumn_writers.back().get()));
-                release_processed_subcolumn_write_entry(&entry);
                 return Status::OK();
             },
             [this, &parent_column, variant_column, &converter, num_rows](int doc_value_column_id) {
