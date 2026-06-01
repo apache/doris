@@ -34,6 +34,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
@@ -104,6 +105,13 @@ public class SessionVariablesTest extends TestWithFeService {
         Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
                 restored.getInsertVisibleTimeoutReturnMode());
 
+        // Verify map restore also normalizes values because it bypasses the dedicated setter.
+        Map<String, String> restoredMap = new HashMap<>();
+        restoredMap.put(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE, "ERROR");
+        restored.readFromMap(restoredMap);
+        Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
+                restored.getInsertVisibleTimeoutReturnMode());
+
         Map<String, String> forwardVars = sessionVar.getForwardVariables();
         forwardVars.put(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE, "ERROR");
         restored.setForwardedSessionVariables(forwardVars);
@@ -136,6 +144,28 @@ public class SessionVariablesTest extends TestWithFeService {
                 "insertVisibleTimeoutReturnMode value is invalid",
                 () -> VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
                         SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE, new StringLiteral("unexpected"))));
+    }
+
+    @Test
+    public void testInsertVisibleTimeoutReturnModeDefaultsAndCheckerBranches() {
+        // Cover the default branch and the helper methods used by setter/checker paths.
+        SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED,
+                sessionVar.getInsertVisibleTimeoutReturnMode());
+        Assertions.assertFalse(sessionVar.isInsertVisibleTimeoutReturnError());
+
+        // Verify setter normalization is case-insensitive and stores the canonical lowercase value.
+        sessionVar.setInsertVisibleTimeoutReturnMode("ErRoR");
+        Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
+                sessionVar.getInsertVisibleTimeoutReturnMode());
+        Assertions.assertTrue(sessionVar.isInsertVisibleTimeoutReturnError());
+
+        // Verify the raw normalize helper keeps null values untouched.
+        Assertions.assertNull(sessionVar.normalizeInsertVisibleTimeoutReturnMode(null));
+
+        ExceptionChecker.expectThrowsWithMsg(UnsupportedOperationException.class,
+                "insertVisibleTimeoutReturnMode value is empty",
+                () -> sessionVar.checkInsertVisibleTimeoutReturnMode(""));
     }
 
     @Test

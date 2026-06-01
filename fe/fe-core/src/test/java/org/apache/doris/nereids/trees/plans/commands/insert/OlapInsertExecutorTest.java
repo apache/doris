@@ -153,6 +153,67 @@ class OlapInsertExecutorTest {
         }
     }
 
+    @Test
+    void testOnFailKeepsCommittedInsertResult() throws Exception {
+        ConnectContext ctx = createExecutorContext();
+        Coordinator coordinator = createCoordinator();
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TransactionState txnState = Mockito.mock(TransactionState.class);
+        LoadManager loadManager = Mockito.mock(LoadManager.class);
+        Env currentEnv = createCurrentEnv(loadManager);
+
+        try (MockedStatic<EnvFactory> envFactoryMock = Mockito.mockStatic(EnvFactory.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            prepareFactoryMocks(envFactoryMock, envMock, coordinator, txnMgr, txnState, currentEnv);
+            ctx.setEnv(currentEnv);
+
+            // Simulate a post-commit failure window so committed accounting must survive the error rewrite.
+            OlapInsertExecutor executor = createExecutor(ctx);
+            executor.txnId = 10003L;
+            executor.txnStatus = TransactionStatus.COMMITTED;
+            executor.loadedRows = 8L;
+            executor.filteredRows = 2;
+
+            executor.onFail(new RuntimeException("post-commit failure"));
+
+            Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+            Assertions.assertTrue(ctx.getState().getErrorMessage().contains("post-commit failure"));
+            Assertions.assertEquals(8L, ctx.getReturnRows());
+            Assertions.assertEquals(TransactionStatus.COMMITTED, ctx.getInsertResult().txnStatus);
+            Mockito.verify(txnMgr, Mockito.never()).abortTransaction(Mockito.anyLong(), Mockito.anyLong(),
+                    Mockito.anyString());
+        }
+    }
+
+    @Test
+    void testOnFailAbortsUncommittedTransaction() throws Exception {
+        ConnectContext ctx = createExecutorContext();
+        Coordinator coordinator = createCoordinator();
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TransactionState txnState = Mockito.mock(TransactionState.class);
+        LoadManager loadManager = Mockito.mock(LoadManager.class);
+        Env currentEnv = createCurrentEnv(loadManager);
+
+        try (MockedStatic<EnvFactory> envFactoryMock = Mockito.mockStatic(EnvFactory.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            prepareFactoryMocks(envFactoryMock, envMock, coordinator, txnMgr, txnState, currentEnv);
+            ctx.setEnv(currentEnv);
+
+            // Simulate a pre-commit failure so the executor must abort the transaction.
+            OlapInsertExecutor executor = createExecutor(ctx);
+            executor.txnId = 10004L;
+            executor.txnStatus = TransactionStatus.ABORTED;
+
+            executor.onFail(new RuntimeException("pre-commit failure"));
+
+            Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+            Assertions.assertTrue(ctx.getState().getErrorMessage().contains("pre-commit failure"));
+            Assertions.assertNull(ctx.getInsertResult());
+            Mockito.verify(txnMgr).abortTransaction(Mockito.eq(1L), Mockito.eq(10004L),
+                    Mockito.eq("pre-commit failure"));
+        }
+    }
+
     // Build a fresh context per case so insertResult and QueryState do not leak between tests.
     private ConnectContext createExecutorContext() {
         ConnectContext ctx = new ConnectContext();
