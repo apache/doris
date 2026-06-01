@@ -354,7 +354,7 @@ under the License.
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
-        <hadoop.version>doris_2026042216-SNAPSHOT</hadoop.version>
+        <hadoop.version>2.100.87_2025111417-SNAPSHOT</hadoop.version>
         <re2j.version>1.8</re2j.version>
         <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
         <hadoop.thirdparty.protobuf_3_25.version>1.5.0</hadoop.thirdparty.protobuf_3_25.version>
