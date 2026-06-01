@@ -82,9 +82,9 @@ suite('push_down_filter_through_join_with_unique_function') {
          where random() > 10 and t1.id * 2 = t3.id * 5
          '''
 
-    // Empty-slot unique predicate stays above the join; side-specific unique
-    // predicate is pushed to its side (statistically equivalent, pre-join
-    // evaluation reduces join size).
+    // Volatile predicates stay above the join even when they reference only one
+    // side. Pushing them into a child would evaluate the volatile expression once
+    // per input row instead of once per joined row.
     qt_push_down_filter_through_join_4 '''
         explain shape plan
         select t1.id, t2.id
