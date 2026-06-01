@@ -48,6 +48,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaCatalogMetaCacheStatsScanner::_s_tb
         {"TOTAL_LOAD_TIME_MS", TYPE_BIGINT, sizeof(int64_t), true},
         {"AVG_LOAD_PENALTY_MS", TYPE_DOUBLE, sizeof(double), true},
         {"EVICTION_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"EVICTION_RATE", TYPE_DOUBLE, sizeof(double), true},
         {"INVALIDATE_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
         {"LAST_LOAD_SUCCESS_TIME", TYPE_STRING, sizeof(StringRef), true},
         {"LAST_LOAD_FAILURE_TIME", TYPE_STRING, sizeof(StringRef), true},
