@@ -160,6 +160,18 @@ bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency("cloud_table_stat
 bvar::Adder<uint64_t> g_cloud_meta_mgr_rpc_timeout_count("cloud_meta_mgr_rpc_timeout_count");
 bvar::Window<bvar::Adder<uint64_t>> g_cloud_ms_rpc_timeout_count_window(
         "cloud_meta_mgr_rpc_timeout_qps", &g_cloud_meta_mgr_rpc_timeout_count, 30);
+bvar::Adder<uint64_t> g_cloud_meta_mgr_ms_too_busy_reason_total_count(
+        "cloud_meta_mgr_ms_too_busy_reason", "total");
+bvar::Adder<uint64_t> g_cloud_meta_mgr_ms_too_busy_reason_fdb_cluster_count(
+        "cloud_meta_mgr_ms_too_busy_reason", "fdb_cluster");
+bvar::Adder<uint64_t> g_cloud_meta_mgr_ms_too_busy_reason_fdb_client_thread_count(
+        "cloud_meta_mgr_ms_too_busy_reason", "fdb_client_thread");
+bvar::Adder<uint64_t> g_cloud_meta_mgr_ms_too_busy_reason_ms_resource_count(
+        "cloud_meta_mgr_ms_too_busy_reason", "ms_resource");
+bvar::Adder<uint64_t> g_cloud_meta_mgr_ms_too_busy_reason_test_injection_count(
+        "cloud_meta_mgr_ms_too_busy_reason", "test_injection");
+bvar::Adder<uint64_t> g_cloud_meta_mgr_ms_too_busy_reason_no_stress_condition_matched_count(
+        "cloud_meta_mgr_ms_too_busy_reason", "no_stress_condition_matched");
 bvar::LatencyRecorder g_cloud_be_mow_get_dbm_lock_backoff_sleep_time(
         "cloud_be_mow_get_dbm_lock_backoff_sleep_time");
 bvar::Adder<uint64_t> g_cloud_version_hole_filled_count("cloud_version_hole_filled_count");
