@@ -130,6 +130,17 @@ public class CreateFunctionTest {
                 + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2');";
         createFunction(defaultVolatileSql, ctx);
         Assert.assertEquals(FunctionVolatility.VOLATILE, findFunction(db, "py_default").getVolatility());
+
+        String defaultImmutableUdafSql = "create aggregate function db1.py_agg_default(int) returns int "
+                + "properties('type'='PYTHON_UDF', 'symbol'='Agg', 'runtime_version'='3.10.2');";
+        createFunction(defaultImmutableUdafSql, ctx);
+        Assert.assertEquals(FunctionVolatility.IMMUTABLE, findFunction(db, "py_agg_default").getVolatility());
+
+        String stableUdtfSql = "create tables function db1.py_table_stable(int) returns array<int> "
+                + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2', "
+                + "'volatility'='stable');";
+        createFunction(stableUdtfSql, ctx);
+        Assert.assertEquals(FunctionVolatility.STABLE, findFunction(db, "py_table_stable").getVolatility());
     }
 
     @Test

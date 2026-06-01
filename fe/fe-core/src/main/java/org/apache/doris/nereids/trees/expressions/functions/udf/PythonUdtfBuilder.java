@@ -88,7 +88,7 @@ public class PythonUdtfBuilder extends UdfBuilder {
         for (int i = 0; i < exprs.size(); ++i) {
             processedExprs.add(TypeCoercionUtils.castIfNotSameType(exprs.get(i), argTypes.get(i)));
         }
-        return Pair.ofSame(udtf.withChildren(processedExprs));
+        return Pair.ofSame(udtf.withFreshVolatileIdentity().withChildren(processedExprs));
     }
 
     @Override

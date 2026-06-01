@@ -294,9 +294,8 @@ public class ShowFunctionsCommand extends ShowCommand {
         }
         if (function instanceof ScalarFunction) {
             ScalarFunction scalarFunction = (ScalarFunction) function;
-            if (!scalarFunction.isUDTFunction()
-                    && (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF
-                    || function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF)) {
+            if (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF
+                    || function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
                 properties.put("VOLATILITY", function.getVolatility().toSql());
             }
             properties.put("SYMBOL", Strings.nullToEmpty(scalarFunction.getSymbolName()));
@@ -310,6 +309,10 @@ public class ShowFunctionsCommand extends ShowCommand {
 
         if (function instanceof AggregateFunction) {
             AggregateFunction aggregateFunction = (AggregateFunction) function;
+            if (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF
+                    || function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+                properties.put("VOLATILITY", function.getVolatility().toSql());
+            }
             properties.put("INIT_FN", Strings.nullToEmpty(aggregateFunction.getInitFnSymbol()));
             properties.put("UPDATE_FN", Strings.nullToEmpty(aggregateFunction.getUpdateFnSymbol()));
             properties.put("MERGE_FN", Strings.nullToEmpty(aggregateFunction.getMergeFnSymbol()));

@@ -28,7 +28,6 @@ import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
@@ -47,7 +46,7 @@ import java.util.stream.Collectors;
 /**
  * Java UDF for Nereids
  */
-public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignature, Udf, VolatileExpression {
+public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignature, Udf {
     private final String dbName;
     private final long functionId;
     private final TFunctionBinaryType binaryType;
@@ -135,6 +134,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
     }
 
     /** Return a copy with a new per-call identity when this UDF is VOLATILE. */
+    @Override
     public JavaUdf withFreshVolatileIdentity() {
         if (volatility != FunctionVolatility.VOLATILE) {
             return this;
@@ -143,11 +143,6 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
                 volatility, VolatileIdentity.newVolatileIdentity(),
                 objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad, expirationTime,
                 children.toArray(new Expression[0]));
-    }
-
-    @Override
-    public boolean isDeterministic() {
-        return volatility == FunctionVolatility.IMMUTABLE;
     }
 
     @Override
@@ -184,7 +179,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
                 .toArray(SlotReference[]::new);
 
         JavaUdf udf = new JavaUdf(fnName, scalar.getId(), dbName, scalar.getBinaryType(), sig,
-                scalar.getNullableMode(), scalar.getVolatility(), createVolatileIdentity(scalar.getVolatility()),
+                scalar.getNullableMode(), scalar.getVolatility(), Udf.createVolatileIdentity(scalar.getVolatility()),
                 scalar.getLocation() == null ? null : scalar.getLocation().getLocation(),
                 scalar.getSymbolName(),
                 scalar.getPrepareFnSymbol(),
@@ -227,8 +222,8 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
         }
     }
 
-    private static VolatileIdentity createVolatileIdentity(FunctionVolatility volatility) {
-        return volatility == FunctionVolatility.VOLATILE
-                ? VolatileIdentity.newVolatileIdentity() : VolatileIdentity.NON_VOLATILE;
+    @Override
+    public FunctionVolatility getVolatility() {
+        return volatility;
     }
 }
