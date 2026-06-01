@@ -596,4 +596,111 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_order_check) {
     FileCacheFactory::instance()->_capacity = 0;
 }
 
+TEST_F(BlockFileCacheTest, get_or_set_hit_order_check) {
+    std::string cache_base_path = caches_dir / "cache_get_or_set_hit_order_check" / "";
+
+    const auto old_async_touch = config::enable_file_cache_async_touch_on_get_or_set;
+    const auto old_update_interval_ms = config::file_cache_background_block_lru_update_interval_ms;
+    const auto old_update_qps_limit = config::file_cache_background_block_lru_update_qps_limit;
+    Defer defer {[old_async_touch, old_update_interval_ms, old_update_qps_limit] {
+        config::enable_file_cache_async_touch_on_get_or_set = old_async_touch;
+        config::file_cache_background_block_lru_update_interval_ms = old_update_interval_ms;
+        config::file_cache_background_block_lru_update_qps_limit = old_update_qps_limit;
+    }};
+
+    config::enable_file_cache_async_touch_on_get_or_set = true;
+    config::file_cache_background_block_lru_update_interval_ms = 200;
+    config::file_cache_background_block_lru_update_qps_limit = 100000;
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 6291456;
+    settings.query_queue_elements = 6;
+    settings.index_queue_size = 1048576;
+    settings.index_queue_elements = 1;
+    settings.disposable_queue_size = 1048576;
+    settings.disposable_queue_elements = 1;
+    settings.capacity = 8388608;
+    settings.max_file_block_size = 1048576;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context;
+    ReadStatistics stats;
+    context.stats = &stats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    context.query_id = query_id;
+
+    auto key = io::BlockFileCache::hash("get_or_set_hit_order_check_key");
+    constexpr size_t kBlockSize = 1024 * 1024;
+    std::vector<size_t> offsets {0, kBlockSize, 2 * kBlockSize};
+
+    for (size_t offset : offsets) {
+        auto holder = cache.get_or_set(key, offset, kBlockSize, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download_into_memory(blocks[0]);
+        ASSERT_EQ(blocks[0]->state(), io::FileBlock::State::DOWNLOADED);
+    }
+
+    std::vector<size_t> initial_offsets;
+    for (auto it = cache._normal_queue.begin(); it != cache._normal_queue.end(); ++it) {
+        initial_offsets.push_back(it->offset);
+    }
+    ASSERT_EQ(initial_offsets.size(), 3);
+    ASSERT_EQ(initial_offsets[0], 0);
+    ASSERT_EQ(initial_offsets[1], kBlockSize);
+    ASSERT_EQ(initial_offsets[2], 2 * kBlockSize);
+
+    auto holder = cache.get_or_set(key, 0, kBlockSize, context);
+    auto blocks = fromHolder(holder);
+    ASSERT_EQ(blocks.size(), 1);
+    ASSERT_EQ(blocks[0]->state(), io::FileBlock::State::DOWNLOADED);
+
+    std::vector<size_t> before_updated_offsets;
+    for (auto it = cache._normal_queue.begin(); it != cache._normal_queue.end(); ++it) {
+        before_updated_offsets.push_back(it->offset);
+    }
+    ASSERT_EQ(before_updated_offsets.size(), 3);
+    ASSERT_EQ(before_updated_offsets[0], 0);
+    ASSERT_EQ(before_updated_offsets[1], kBlockSize);
+    ASSERT_EQ(before_updated_offsets[2], 2 * kBlockSize);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+            2 * config::file_cache_background_block_lru_update_interval_ms));
+
+    std::vector<size_t> updated_offsets;
+    for (auto it = cache._normal_queue.begin(); it != cache._normal_queue.end(); ++it) {
+        updated_offsets.push_back(it->offset);
+    }
+    ASSERT_EQ(updated_offsets.size(), 3);
+    std::vector<size_t> sorted_before = before_updated_offsets;
+    std::vector<size_t> sorted_after = updated_offsets;
+    std::sort(sorted_before.begin(), sorted_before.end());
+    std::sort(sorted_after.begin(), sorted_after.end());
+    ASSERT_EQ(sorted_after, sorted_before);
+    ASSERT_EQ(updated_offsets.back(), 0);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
 } // namespace doris::io
