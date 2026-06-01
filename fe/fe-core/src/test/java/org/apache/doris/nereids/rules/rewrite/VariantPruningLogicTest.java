@@ -71,6 +71,24 @@ public class VariantPruningLogicTest extends TestWithFeService {
     }
 
     @Test
+    public void testVariantArraySubscriptUsesPrunedSubPath() throws Exception {
+        String sql = "select cast(v['items']['type'] as array<string>)[1] from variant_tbl";
+        String explain = getSQLPlanOrErrorMsg(sql, true);
+        Assertions.assertTrue(explain.contains("final projections: element_at(CAST(v AS array<text>), 1)"),
+                explain);
+        Assertions.assertTrue(explain.contains("subColPath=[items, type]"),
+                explain);
+        Assertions.assertFalse(explain.contains("element_at(CAST(element_at(element_at("),
+                explain);
+        assertVariantSubColumnSlots(
+                sql,
+                ImmutableList.of(
+                        ImmutableList.of("items", "type")
+                )
+        );
+    }
+
+    @Test
     public void testVariantOrPredicatePaths() throws Exception {
         assertPredicateAccessPathsEqual(
                 "select 1 from variant_tbl where v['a'] = 1 or v['b']['c'] = 2",
