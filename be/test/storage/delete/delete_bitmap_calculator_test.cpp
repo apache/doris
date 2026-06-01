@@ -83,7 +83,8 @@ void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, siz
     EXPECT_TRUE(st.ok());
 
     RowCursor row;
-    auto olap_st = row.init(build_schema, build_schema->num_columns());
+    std::vector<Field> fields(build_schema->num_columns(), Field(PrimitiveType::TYPE_NULL));
+    auto olap_st = row.init_scan_key(build_schema, std::move(fields));
     EXPECT_EQ(Status::OK(), olap_st);
 
     for (size_t rid = 0; rid < nrows; ++rid) {

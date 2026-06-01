@@ -50,12 +50,6 @@ public:
     // Initialize from OlapTuple (which now stores Fields).
     // Sets up the schema and copies Fields from the tuple.
     Status init(TabletSchemaSPtr schema, const OlapTuple& tuple);
-    Status init(TabletSchemaSPtr schema, const OlapTuple& tuple,
-                const std::shared_ptr<Schema>& shared_schema);
-
-    // Initialize with schema and num_columns, creating null Fields.
-    // Caller sets individual fields via mutable_field().
-    Status init(TabletSchemaSPtr schema, size_t num_columns);
 
     // Initialize from typed Fields directly.
     Status init_scan_key(TabletSchemaSPtr schema, std::vector<Field> fields);
@@ -95,10 +89,9 @@ public:
 
 private:
     // Copy Fields from an OlapTuple into this cursor.
-    Status from_tuple(const OlapTuple& tuple);
+    Status _from_tuple(const OlapTuple& tuple);
 
     void _init_schema(TabletSchemaSPtr schema, uint32_t column_count);
-    void _init_schema(const std::shared_ptr<Schema>& shared_schema, uint32_t column_count);
 
     // Helper: encode a single non-null field for the given column.
     // Converts the core::Field to storage format and calls KeyCoder.
