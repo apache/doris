@@ -65,6 +65,8 @@ Added regression tests must comply with the following standards:
 
 Files in git commit should only be related to the current modification task. Environment modifications for running (e.g., `conf/`, `AGENTS.md`, `hooks/`, etc.) must not be `git add`ed. When delivering the final task, you must ensure all actual code modifications have been committed.
 
+If the BE code has been modified, it must be formatted using the correct skill before committing.
+
 Commit messages must follow the format below, which mirrors the PR template (`.github/PULL_REQUEST_TEMPLATE.md`):
 
 ```
