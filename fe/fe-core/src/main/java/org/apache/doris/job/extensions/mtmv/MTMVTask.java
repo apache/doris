@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -70,6 +71,7 @@ import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -114,7 +116,8 @@ public class MTMVTask extends AbstractTask {
             new Column("NeedRefreshPartitions", ScalarType.createStringType()),
             new Column("CompletedPartitions", ScalarType.createStringType()),
             new Column("Progress", ScalarType.createStringType()),
-            new Column("LastQueryId", ScalarType.createStringType()));
+            new Column("LastQueryId", ScalarType.createStringType()),
+            new Column("ComputeGroup", ScalarType.createStringType()));
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
@@ -152,6 +155,8 @@ public class MTMVTask extends AbstractTask {
     MTMVTaskRefreshMode refreshMode;
     @SerializedName("lastQueryId")
     String lastQueryId;
+    @SerializedName("cg")
+    private String computeGroup;
 
     private MTMV mtmv;
     private MTMVRelation relation;
@@ -322,6 +327,8 @@ public class MTMVTask extends AbstractTask {
             Map<TableIf, String> tableWithPartKey)
             throws Exception {
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+        setComputeGroup(ctx);
+        recordComputeGroup(ctx);
         StatementContext statementContext = new StatementContext();
         for (Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
             statementContext.setSnapshot(entry.getKey(), entry.getValue());
@@ -351,6 +358,26 @@ public class MTMVTask extends AbstractTask {
                 AuditLogHelper.logAuditLog(ctx, getDummyStmt(refreshPartitionNames),
                         executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
             }
+        }
+    }
+
+    private void setComputeGroup(ConnectContext ctx) {
+        String taskComputeGroup = taskContext.getComputeGroup();
+        if (Config.isCloudMode() && !Strings.isNullOrEmpty(taskComputeGroup)) {
+            ctx.setCloudCluster(taskComputeGroup);
+        }
+    }
+
+    private void recordComputeGroup(ConnectContext ctx) {
+        if (!Config.isCloudMode()) {
+            computeGroup = FeConstants.null_string;
+            return;
+        }
+        try {
+            computeGroup = ctx.getCloudCluster(false);
+        } catch (ComputeGroupException e) {
+            computeGroup = FeConstants.null_string;
+            LOG.warn("failed to resolve compute group for mtmv task, taskId: {}", getTaskId(), e);
         }
     }
 
@@ -532,6 +559,8 @@ public class MTMVTask extends AbstractTask {
                 new TCell().setStringVal(getProgress()));
         trow.addToColumnValue(
                 new TCell().setStringVal(lastQueryId));
+        trow.addToColumnValue(new TCell().setStringVal(
+                computeGroup == null || computeGroup.isEmpty() ? FeConstants.null_string : computeGroup));
         return trow;
     }
 
