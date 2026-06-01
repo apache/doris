@@ -18,7 +18,6 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.resource.Tag;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -30,10 +29,13 @@ import java.util.Map;
  * show proc "/colocation_group/group_name";
  */
 public class ColocationGroupBackendSeqsProcNode implements ProcNodeInterface {
-    private Map<Tag, List<List<Long>>> backendsSeq;
+    // Column name -> per-bucket backend id sequence. The column name is a resource Tag in
+    // local mode, a compute group name in cloud mode, or "BackendIds" when there is no
+    // per-scope breakdown.
+    private Map<String, List<List<Long>>> backendsSeqByColumn;
 
-    public ColocationGroupBackendSeqsProcNode(Map<Tag, List<List<Long>>> backendsSeq) {
-        this.backendsSeq = backendsSeq;
+    public ColocationGroupBackendSeqsProcNode(Map<String, List<List<Long>>> backendsSeqByColumn) {
+        this.backendsSeqByColumn = backendsSeqByColumn;
     }
 
     @Override
@@ -42,21 +44,21 @@ public class ColocationGroupBackendSeqsProcNode implements ProcNodeInterface {
         List<String> titleNames = Lists.newArrayList();
         titleNames.add("BucketIndex");
         int bucketNum = 0;
-        for (Tag tag : backendsSeq.keySet()) {
-            titleNames.add(tag.toString());
+        for (String column : backendsSeqByColumn.keySet()) {
+            titleNames.add(column);
             if (bucketNum == 0) {
-                bucketNum = backendsSeq.get(tag).size();
-            } else if (bucketNum != backendsSeq.get(tag).size()) {
+                bucketNum = backendsSeqByColumn.get(column).size();
+            } else if (bucketNum != backendsSeqByColumn.get(column).size()) {
                 throw new AnalysisException("Invalid bucket number: "
-                        + bucketNum + " vs. " + backendsSeq.get(tag).size());
+                        + bucketNum + " vs. " + backendsSeqByColumn.get(column).size());
             }
         }
         result.setNames(titleNames);
         for (int i = 0; i < bucketNum; i++) {
             List<String> info = Lists.newArrayList();
             info.add(String.valueOf(i)); // bucket index
-            for (Tag tag : backendsSeq.keySet()) {
-                List<List<Long>> bucketBackends = backendsSeq.get(tag);
+            for (String column : backendsSeqByColumn.keySet()) {
+                List<List<Long>> bucketBackends = backendsSeqByColumn.get(column);
                 info.add(Joiner.on(", ").join(bucketBackends.get(i)));
             }
             result.addRow(info);
