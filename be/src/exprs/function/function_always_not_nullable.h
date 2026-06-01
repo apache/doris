@@ -51,8 +51,7 @@ public:
             const ColumnNullable* col_nullable = assert_cast<const ColumnNullable*>(column.get());
             const ColumnType* col =
                     check_and_get_column<ColumnType>(col_nullable->get_nested_column_ptr().get());
-            const ColumnUInt8* col_nullmap =
-                    assert_cast<const ColumnUInt8*>(col_nullable->get_null_map_column_ptr().get());
+            const ColumnUInt8* col_nullmap = col_nullable->get_null_map_column_ptr().get();
 
             if (col != nullptr) {
                 if constexpr (WithReturn) {

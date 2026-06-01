@@ -23,6 +23,7 @@
 #include "core/data_type/data_type_bitmap.h"
 #include "core/data_type/data_type_number.h"
 #include "core/value/bitmap_value.h"
+#include "exec/exchange/local_exchange_source_operator.h"
 #include "exec/operator/aggregation_sink_operator.h"
 #include "exec/operator/aggregation_source_operator.h"
 #include "exec/operator/mock_operator.h"
@@ -150,6 +151,19 @@ TEST_F(StreamingAggOperatorTest, test1) {
     }
 
     { EXPECT_TRUE(local_state->close(state.get()).ok()); }
+}
+
+TEST_F(StreamingAggOperatorTest, require_hash_shuffle_after_non_hash_local_exchange) {
+    state->_query_options.__set_enable_local_exchange_before_agg(false);
+    op->_needs_finalize = false;
+    op->_partition_exprs.emplace_back();
+
+    OperatorPtr child = std::make_shared<LocalExchangeSourceOperatorX>();
+    EXPECT_TRUE(child->init(ExchangeType::ADAPTIVE_PASSTHROUGH).ok());
+    EXPECT_TRUE(op->set_child(child));
+
+    const auto distribution = op->required_data_distribution(state.get());
+    EXPECT_EQ(ExchangeType::HASH_SHUFFLE, distribution.distribution_type);
 }
 
 TEST_F(StreamingAggOperatorTest, test2) {

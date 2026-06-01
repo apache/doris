@@ -274,6 +274,107 @@ suite("test_point_query") {
             }
         }
 
+        sql "DROP TABLE IF EXISTS ${realDb}.tbl_point_query_meta_change"
+        sql "DROP TABLE IF EXISTS ${realDb}.tbl_point_query_meta_change_renamed"
+        sql "DROP TABLE IF EXISTS ${realDb}.tbl_point_query_meta_change_replace"
+        sql "DROP TABLE IF EXISTS ${realDb}.tbl_point_query_meta_change_swap"
+        sql "DROP TABLE IF EXISTS ${realDb}.tbl_point_query_meta_change_string_key"
+        sql "DROP TABLE IF EXISTS ${realDb}.tbl_point_query_meta_change_string_key_renamed"
+        def create_meta_change_table = { tbl ->
+            sql """
+                CREATE TABLE ${tbl} (
+                    `k` int NOT NULL,
+                    `v` varchar(30) NULL
+                ) ENGINE=OLAP
+                UNIQUE KEY(`k`)
+                DISTRIBUTED BY HASH(`k`) BUCKETS 1
+                PROPERTIES (
+                    "replication_allocation" = "tag.location.default: 1",
+                    "enable_unique_key_merge_on_write" = "true",
+                    "light_schema_change" = "true",
+                    "store_row_column" = "true"
+                )
+            """
+        }
+        def create_string_key_meta_change_table = { tbl ->
+            sql """
+                CREATE TABLE ${tbl} (
+                    `k` varchar(30) NOT NULL,
+                    `v` varchar(30) NULL
+                ) ENGINE=OLAP
+                UNIQUE KEY(`k`)
+                DISTRIBUTED BY HASH(`k`) BUCKETS 1
+                PROPERTIES (
+                    "replication_allocation" = "tag.location.default: 1",
+                    "enable_unique_key_merge_on_write" = "true",
+                    "light_schema_change" = "true",
+                    "store_row_column" = "true"
+                )
+            """
+        }
+        def get_prepared_value = { stmt, key ->
+            stmt.setInt(1, key)
+            try (ResultSet rs = stmt.executeQuery()) {
+                assertTrue(rs.next())
+                def value = rs.getString(1)
+                assertFalse(rs.next())
+                return value
+            }
+        }
+        def get_prepared_string_key_value = { stmt, key ->
+            stmt.setString(1, key)
+            try (ResultSet rs = stmt.executeQuery()) {
+                assertTrue(rs.next())
+                def value = rs.getString(1)
+                assertFalse(rs.next())
+                return value
+            }
+        }
+        create_meta_change_table("${realDb}.tbl_point_query_meta_change")
+        sql "INSERT INTO ${realDb}.tbl_point_query_meta_change VALUES (1, 'origin')"
+        connect(user, password, prepare_url) {
+            def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ v from ${realDb}.tbl_point_query_meta_change where k = ?"
+            assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement)
+            assertEquals('origin', get_prepared_value(stmt, 1))
+            assertEquals('origin', get_prepared_value(stmt, 1))
+
+            nprep_sql "ALTER TABLE ${realDb}.tbl_point_query_meta_change RENAME tbl_point_query_meta_change_renamed"
+            create_meta_change_table("${realDb}.tbl_point_query_meta_change")
+            sql "INSERT INTO ${realDb}.tbl_point_query_meta_change VALUES (1, 'renamed')"
+            assertEquals('renamed', get_prepared_value(stmt, 1))
+
+            sql "DROP TABLE ${realDb}.tbl_point_query_meta_change"
+            create_meta_change_table("${realDb}.tbl_point_query_meta_change")
+            sql "INSERT INTO ${realDb}.tbl_point_query_meta_change VALUES (1, 'recreated')"
+            assertEquals('recreated', get_prepared_value(stmt, 1))
+
+            create_meta_change_table("${realDb}.tbl_point_query_meta_change_replace")
+            sql "INSERT INTO ${realDb}.tbl_point_query_meta_change_replace VALUES (1, 'replaced')"
+            sql "ALTER TABLE ${realDb}.tbl_point_query_meta_change REPLACE WITH TABLE tbl_point_query_meta_change_replace PROPERTIES('swap' = 'false')"
+            assertEquals('replaced', get_prepared_value(stmt, 1))
+
+            create_meta_change_table("${realDb}.tbl_point_query_meta_change_swap")
+            sql "INSERT INTO ${realDb}.tbl_point_query_meta_change_swap VALUES (1, 'swapped')"
+            sql "ALTER TABLE ${realDb}.tbl_point_query_meta_change REPLACE WITH TABLE tbl_point_query_meta_change_swap PROPERTIES('swap' = 'true')"
+            assertEquals('swapped', get_prepared_value(stmt, 1))
+            stmt.close()
+        }
+
+        create_string_key_meta_change_table("${realDb}.tbl_point_query_meta_change_string_key")
+        sql "INSERT INTO ${realDb}.tbl_point_query_meta_change_string_key VALUES ('key1', 'string_origin')"
+        connect(user, password, prepare_url) {
+            def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ v from ${realDb}.tbl_point_query_meta_change_string_key where k = ?"
+            assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement)
+            assertEquals('string_origin', get_prepared_string_key_value(stmt, 'key1'))
+
+            nprep_sql "ALTER TABLE ${realDb}.tbl_point_query_meta_change_string_key RENAME tbl_point_query_meta_change_string_key_renamed"
+            create_string_key_meta_change_table("${realDb}.tbl_point_query_meta_change_string_key")
+            sql "INSERT INTO ${realDb}.tbl_point_query_meta_change_string_key VALUES ('key1', 'string_renamed')"
+            assertEquals('string_renamed', get_prepared_string_key_value(stmt, 'key1'))
+            assertEquals('string_renamed', get_prepared_string_key_value(stmt, 'key1'))
+            stmt.close()
+        }
+
         sql """ADMIN SET FRONTEND CONFIG ("enable_lightweight_lookup_request" = "true")"""
         try {
             connect(user, password, prepare_url) {

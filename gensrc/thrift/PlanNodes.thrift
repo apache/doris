@@ -1051,6 +1051,11 @@ struct TNestedLoopJoinNode {
   9: optional list<Exprs.TExpr> mark_join_conjuncts
   // deprecated
   10: optional bool use_specific_projections
+
+  // Slots that need to be materialized after join conjunct evaluation.
+  // If this field is not set, BE keeps the legacy behavior.
+  // If this field is set to an empty list, no payload slot needs materialization.
+  11: optional list<Types.TSlotId> materialized_slot_ids
 }
 
 struct TMergeJoinNode {
@@ -1497,6 +1502,10 @@ struct TRuntimeFilterDesc {
   16: optional bool sync_filter_size; // Deprecated
   
   17: optional bool build_bf_by_runtime_size;
+
+  // Per-filter wait time in ms. When set, overrides query-level runtime_filter_wait_time_ms.
+  // 0 means non-blocking (don't wait for this filter).
+  18: optional i32 wait_time_ms;
 }
 
 

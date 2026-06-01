@@ -179,7 +179,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.record_rowids = read_params.record_rowids;
     _reader_context.rowid_conversion = read_params.rowid_conversion;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
-    _reader_context.remaining_conjunct_roots = read_params.remaining_conjunct_roots;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
     _reader_context.output_columns = &read_params.output_columns;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
@@ -349,11 +348,6 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                 scan_key_size, _tablet_schema->num_columns());
     }
 
-    std::vector<uint32_t> columns(scan_key_size);
-    std::iota(columns.begin(), columns.end(), 0);
-
-    std::shared_ptr<Schema> schema = std::make_shared<Schema>(_tablet_schema->columns(), columns);
-
     for (size_t i = 0; i < start_key_size; ++i) {
         if (read_params.start_key[i].size() != scan_key_size) {
             return Status::Error<INVALID_ARGUMENT>(
@@ -361,8 +355,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                     read_params.start_key[i].size(), scan_key_size);
         }
 
-        Status res =
-                _keys_param.start_keys[i].init(_tablet_schema, read_params.start_key[i], schema);
+        Status res = _keys_param.start_keys[i].init(_tablet_schema, read_params.start_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
@@ -379,7 +372,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                     read_params.end_key[i].size(), scan_key_size);
         }
 
-        Status res = _keys_param.end_keys[i].init(_tablet_schema, read_params.end_key[i], schema);
+        Status res = _keys_param.end_keys[i].init(_tablet_schema, read_params.end_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;

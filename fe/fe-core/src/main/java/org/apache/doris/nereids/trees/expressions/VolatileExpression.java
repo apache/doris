@@ -17,12 +17,15 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+
 /** Expression that may carry per-call volatile identity for optimizer rewrite safety. */
-public interface VolatileExpression {
+public interface VolatileExpression extends ExpressionTrait {
     VolatileIdentity getVolatileIdentity();
 
     Expression withIgnoreUniqueId(boolean ignoreUniqueId);
 
+    @Override
     default boolean isVolatile() {
         return getVolatileIdentity().isVolatile();
     }

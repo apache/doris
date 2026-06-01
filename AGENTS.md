@@ -2,6 +2,10 @@
 
 This is the codebase for Apache Doris, an MPP OLAP database. It primarily consists of the Backend module BE (`be/`, execution and storage engine), the Frontend module FE (`fe/`, optimizer and transaction core), and the Cloud module (`cloud/`, storage-compute separation). Your basic development workflow is: modify code, build using standard procedures, add and run tests, and submit relevant changes.
 
+## Security Threat Model
+
+For security scans, vulnerability triage, security reviews, and changes involving authentication, authorization, network boundaries, external catalogs, cloud tenancy, or other security-sensitive behavior, read `SECURITY.md` first, then follow it to `threat-model.md`. Use `threat-model.md` to determine in-scope components, trust boundaries, attacker roles, explicit non-goals, and triage classification. Findings that are out of model or by design under `threat-model.md` should be reported as such, not treated as Doris vulnerabilities. Such reviews will not be conducted unless explicitly requested by the user, and no conclusions regarding this matter need to be provided.
+
 ## When running in a WORKTREE directory
 
 To ensure smooth test execution without interference between worktrees, the first thing to do upon entering a worktree directory is to check if `.worktree_initialized` exists. If not, execute `hooks/setup_worktree.sh`, setting `$ROOT_WORKSPACE_PATH` to the base directory (typically `${DORIS_REPO}`) beforehand. After successful execution, verify that `.worktree_initialized` has been touched and that `thirdparty/installed` dependencies exist correctly. Also check if submodules have been properly initialized; if not, do so manually.
@@ -60,6 +64,8 @@ Added regression tests must comply with the following standards:
 ## Commit Standards
 
 Files in git commit should only be related to the current modification task. Environment modifications for running (e.g., `conf/`, `AGENTS.md`, `hooks/`, etc.) must not be `git add`ed. When delivering the final task, you must ensure all actual code modifications have been committed.
+
+If the BE code has been modified, it must be formatted using the correct skill before committing.
 
 Commit messages must follow the format below, which mirrors the PR template (`.github/PULL_REQUEST_TEMPLATE.md`):
 

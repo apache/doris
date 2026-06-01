@@ -175,8 +175,11 @@ Status BucketedAggSinkLocalState::_execute_with_serialized_key(Block* block) {
             block->get_by_position(result_column_id).column =
                     block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
+            auto mutable_column =
+                    IColumn::mutate(std::move(block->get_by_position(result_column_id).column));
+            mutable_column->replace_float_special_values();
+            block->get_by_position(result_column_id).column = std::move(mutable_column);
             key_columns[i] = block->get_by_position(result_column_id).column.get();
-            key_columns[i]->assume_mutable()->replace_float_special_values();
         }
     }
 

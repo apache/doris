@@ -76,7 +76,6 @@
 #include "runtime/thread_context.h"
 #include "storage/binlog.h"
 #include "storage/compaction/collection_similarity.h"
-#include "storage/field.h"
 #include "storage/id_manager.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_index_iterator.h"
@@ -236,8 +235,7 @@ SegmentIterator::~SegmentIterator() = default;
 
 void SegmentIterator::_init_row_bitmap_by_condition_cache() {
     // Only dispose need column predicate and expr cal in condition cache
-    if (!_col_predicates.empty() ||
-        (_enable_common_expr_pushdown && !_remaining_conjunct_roots.empty())) {
+    if (!_col_predicates.empty() || !_common_expr_ctxs_push_down.empty()) {
         if (_opts.condition_cache_digest) {
             auto* condition_cache = ConditionCache::instance();
             ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
@@ -523,8 +521,6 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _initial_block_row_max = _opts.block_row_max;
     _block_size_predictor = _make_block_size_predictor();
 
-    _remaining_conjunct_roots = opts.remaining_conjunct_roots;
-
     if (_schema->rowid_col_idx() > 0) {
         _record_rowids = true;
     }
@@ -541,12 +537,12 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _storage_name_and_type.resize(_schema->columns().size());
     auto storage_format = _opts.tablet_schema->get_inverted_index_storage_format();
     for (int i = 0; i < _schema->columns().size(); ++i) {
-        const StorageField* col = _schema->column(i);
+        const TabletColumn* col = _schema->column(i);
         if (col) {
-            auto storage_type = _segment->get_data_type_of(col->get_desc(), _opts);
+            auto storage_type = _segment->get_data_type_of(*col, _opts);
             if (storage_type == nullptr) {
-                storage_type = DataTypeFactory::instance().create_data_type(col->get_desc(),
-                                                                            col->is_nullable());
+                storage_type =
+                        DataTypeFactory::instance().create_data_type(*col, col->is_nullable());
             }
             // Currently, when writing a lucene index, the field of the document is column_name, and the column name is
             // bound to the index field. Since version 1.2, the data file storage has been changed from column_name to
@@ -568,7 +564,9 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
                 }
             }
             _storage_name_and_type[i] = std::make_pair(field_name, storage_type);
-            if (int32_t uid = col->get_unique_id(); !_variant_sparse_column_cache.contains(uid)) {
+            if (int32_t uid =
+                        col->is_extracted_column() ? col->parent_unique_id() : col->unique_id();
+                !_variant_sparse_column_cache.contains(uid)) {
                 DCHECK(uid >= 0);
                 _variant_sparse_column_cache.emplace(uid,
                                                      std::make_unique<PathToBinaryColumnCache>());
@@ -579,7 +577,6 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     RETURN_IF_ERROR(init_iterators());
 
     RETURN_IF_ERROR(_construct_compound_expr_context());
-    _enable_common_expr_pushdown = !_common_expr_ctxs_push_down.empty();
     VLOG_DEBUG << fmt::format(
             "Segment iterator init, virtual_column_exprs size: {}, "
             "_vir_cid_to_idx_in_block size: {}, common_expr_pushdown size: {}",
@@ -596,7 +593,7 @@ void SegmentIterator::_initialize_predicate_results() {
         _column_predicate_index_exec_status[cid][pred] = false;
     }
 
-    _calculate_expr_in_remaining_conjunct_root();
+    _calculate_common_expr_index_exec_status();
 }
 
 Status SegmentIterator::init_iterators() {
@@ -657,7 +654,7 @@ Status SegmentIterator::_lazy_init(Block* block) {
     }
     _current_return_columns.resize(_schema->columns().size());
 
-    _vec_init_char_column_id(block);
+    _vec_init_char_column_id();
     for (size_t i = 0; i < _schema->column_ids().size(); i++) {
         ColumnId cid = _schema->column_ids()[i];
         const auto* column_desc = _schema->column(cid);
@@ -804,10 +801,11 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
     }
 
     // Read & seek key columns is a waste of time when no key column in _schema
-    if (std::none_of(
-                _schema->columns().begin(), _schema->columns().end(), [&](const StorageField* col) {
-                    return col && _opts.tablet_schema->column_by_uid(col->unique_id()).is_key();
-                })) {
+    if (std::none_of(_schema->columns().begin(), _schema->columns().end(),
+                     [&](const TabletColumnPtr& col) {
+                         return col &&
+                                _opts.tablet_schema->column_by_uid(col->unique_id()).is_key();
+                     })) {
         return Status::OK();
     }
 
@@ -839,31 +837,31 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
 
 // Set up environment for the following seek.
 Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_range) {
-    std::vector<const StorageField*> key_fields;
+    std::vector<const TabletColumn*> key_columns;
     std::set<uint32_t> column_set;
     if (key_range.lower_key != nullptr) {
         for (auto cid : key_range.lower_key->schema()->column_ids()) {
             column_set.emplace(cid);
-            key_fields.emplace_back(key_range.lower_key->column_schema(cid));
+            key_columns.emplace_back(key_range.lower_key->column(cid));
         }
     }
     if (key_range.upper_key != nullptr) {
         for (auto cid : key_range.upper_key->schema()->column_ids()) {
             if (column_set.count(cid) == 0) {
-                key_fields.emplace_back(key_range.upper_key->column_schema(cid));
+                key_columns.emplace_back(key_range.upper_key->column(cid));
                 column_set.emplace(cid);
             }
         }
     }
     if (!_seek_schema) {
-        // Schema constructors accept a vector of TabletColumnPtr. Convert
-        // StorageField pointers to TabletColumnPtr by copying their descriptors.
         std::vector<TabletColumnPtr> cols;
-        cols.reserve(key_fields.size());
-        for (const StorageField* f : key_fields) {
-            cols.emplace_back(std::make_shared<TabletColumn>(f->get_desc()));
+        cols.reserve(key_columns.size());
+        for (const TabletColumn* col : key_columns) {
+            cols.emplace_back(std::make_shared<TabletColumn>(*col));
         }
-        _seek_schema = std::make_unique<Schema>(cols, cols.size());
+        std::vector<uint32_t> column_ids(cols.size());
+        std::iota(column_ids.begin(), column_ids.end(), 0);
+        _seek_schema = std::make_unique<Schema>(cols, column_ids);
     }
     // todo(wb) need refactor here, when using pk to search, _seek_block is useless
     if (_seek_block.size() == 0) {
@@ -871,7 +869,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
         int i = 0;
         for (auto cid : _seek_schema->column_ids()) {
             auto column_desc = _seek_schema->column(cid);
-            _seek_block[i] = Schema::get_column_by_field(*column_desc);
+            _seek_block[i] = Schema::get_data_type_ptr(*column_desc)->create_column();
             i++;
         }
     }
@@ -928,12 +926,6 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                             (*it)->root().get());
                     if (result != nullptr) {
                         _row_bitmap &= *result->get_data_bitmap();
-                        auto root = (*it)->root();
-                        auto iter_find = std::find(_remaining_conjunct_roots.begin(),
-                                                   _remaining_conjunct_roots.end(), root);
-                        if (iter_find != _remaining_conjunct_roots.end()) {
-                            _remaining_conjunct_roots.erase(iter_find);
-                        }
                         it = _common_expr_ctxs_push_down.erase(it);
                     }
                 } else {
@@ -1376,10 +1368,14 @@ Status SegmentIterator::_apply_index_expr() {
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
         segment_v2::AnnIndexStats ann_index_stats;
         size_t origin_rows = _row_bitmap.cardinality();
+        bool ann_range_search_executed = false;
         RETURN_IF_ERROR(expr_ctx->evaluate_ann_range_search(
                 _index_iterators, _schema->column_ids(), _column_iterators,
                 _common_expr_to_slotref_map, _row_bitmap, ann_index_stats,
-                enable_ann_index_result_cache));
+                enable_ann_index_result_cache, &ann_range_search_executed));
+        if (ann_range_search_executed) {
+            _opts.stats->ann_index_range_search_cnt++;
+        }
         _opts.stats->rows_ann_index_range_filtered += (origin_rows - _row_bitmap.cardinality());
         _opts.stats->ann_index_load_ns += ann_index_stats.load_index_costs_ns.value();
         _opts.stats->ann_index_range_search_ns += ann_index_stats.search_costs_ns.value();
@@ -1395,16 +1391,6 @@ Status SegmentIterator::_apply_index_expr() {
         _opts.stats->ann_fall_back_brute_force_cnt += ann_index_stats.fall_back_brute_force_cnt;
         _opts.stats->ann_index_range_cache_hits += ann_index_stats.range_cache_hits.value();
     }
-
-    for (auto it = _common_expr_ctxs_push_down.begin(); it != _common_expr_ctxs_push_down.end();) {
-        if ((*it)->root()->ann_range_search_executedd()) {
-            _opts.stats->ann_index_range_search_cnt++;
-            it = _common_expr_ctxs_push_down.erase(it);
-        } else {
-            ++it;
-        }
-    }
-    // TODO：Do we need to remove these expr root from _remaining_conjunct_roots?
 
     return Status::OK();
 }
@@ -1734,8 +1720,8 @@ Status SegmentIterator::_init_index_iterators() {
                         data_type = inferred_type;
                     }
                 }
-                inverted_indexs_holder =
-                        variant_reader->find_subcolumn_tablet_indexes(column, data_type);
+                inverted_indexs_holder = variant_reader->find_subcolumn_tablet_indexes(
+                        column, data_type, _opts.stats);
                 // Extract raw pointers from shared_ptr for iteration
                 for (const auto& index_ptr : inverted_indexs_holder) {
                     inverted_indexs.push_back(index_ptr.get());
@@ -1745,9 +1731,38 @@ Status SegmentIterator::_init_index_iterators() {
             else {
                 inverted_indexs = _segment->_tablet_schema->inverted_indexs(column);
             }
+            if (column.is_extracted_column() && inverted_indexs.empty() && _opts.stats != nullptr) {
+                const auto relative_path = column.path_info_ptr()->copy_pop_front().get_path();
+                const auto diagnostic = fmt::format(
+                        "[VariantSearchBinding] phase=init_index_iterators "
+                        "result=no_candidate tablet_id={} rowset_id={} segment_id={} cid={} "
+                        "logical_path={} relative_path={} materialized_column={}",
+                        _tablet_id, _segment->rowset_id().to_string(), _segment->id(), cid,
+                        column.path_info_ptr()->get_path(), relative_path, column.name());
+                VLOG_DEBUG << diagnostic;
+                _opts.stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
+            }
             for (const auto& inverted_index : inverted_indexs) {
+                const bool had_iterator = _index_iterators[cid] != nullptr;
                 RETURN_IF_ERROR(_segment->new_index_iterator(column, inverted_index, _opts,
                                                              &_index_iterators[cid]));
+                if ((column.is_extracted_column() || column.is_variant_type()) &&
+                    _opts.stats != nullptr) {
+                    const auto diagnostic = fmt::format(
+                            "[VariantSearchBinding] phase=init_index_iterators "
+                            "result={} tablet_id={} rowset_id={} segment_id={} cid={} "
+                            "logical_path={} materialized_column={} index_id={} suffix={} "
+                            "field_pattern={} iterator_state={}",
+                            _index_iterators[cid] == nullptr ? "no_iterator" : "accepted",
+                            _tablet_id, _segment->rowset_id().to_string(), _segment->id(), cid,
+                            column.has_path_info() ? column.path_info_ptr()->get_path()
+                                                   : column.name(),
+                            column.name(), inverted_index->index_id(),
+                            inverted_index->get_index_suffix(), inverted_index->field_pattern(),
+                            had_iterator ? "preserved" : "created");
+                    VLOG_DEBUG << diagnostic;
+                    _opts.stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
+                }
             }
             if (_index_iterators[cid] != nullptr) {
                 _index_iterators[cid]->set_context(_index_query_context);
@@ -1803,13 +1818,6 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
 
     const auto& key_col_ids = key.schema()->column_ids();
 
-    // Clone the key once and pad CHAR fields to storage format before the binary search.
-    // _seek_block holds storage-format data where CHAR is zero-padded to column length,
-    // while RowCursor holds CHAR in compute format (unpadded). Padding once here avoids
-    // repeated allocation inside the comparison loop.
-    RowCursor padded_key = key.clone();
-    padded_key.pad_char_fields();
-
     ssize_t start_block_id = 0;
     auto start_iter = sk_index_decoder->lower_bound(index_key);
     if (start_iter.valid()) {
@@ -1837,7 +1845,7 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
     while (start < end) {
         rowid_t mid = (start + end) / 2;
         RETURN_IF_ERROR(_seek_and_peek(mid));
-        int cmp = _compare_short_key_with_seek_block(padded_key, key_col_ids);
+        int cmp = _compare_short_key_with_seek_block(key, key_col_ids);
         if (cmp > 0) {
             start = mid + 1;
         } else if (cmp == 0) {
@@ -2065,9 +2073,9 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
 
     // Step2: extract columns that can execute expr context
     _is_common_expr_column.resize(_schema->columns().size(), false);
-    if (_enable_common_expr_pushdown && !_remaining_conjunct_roots.empty()) {
-        for (auto expr : _remaining_conjunct_roots) {
-            RETURN_IF_ERROR(_extract_common_expr_columns(expr));
+    if (!_common_expr_ctxs_push_down.empty()) {
+        for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
+            RETURN_IF_ERROR(_extract_common_expr_columns(expr_ctx->root()));
         }
         if (!_common_expr_columns.empty()) {
             _is_need_expr_eval = true;
@@ -2193,43 +2201,14 @@ bool SegmentIterator::_can_evaluated_by_vectorized(std::shared_ptr<ColumnPredica
     }
 }
 
-bool SegmentIterator::_has_char_type(const StorageField& column_desc) {
-    switch (column_desc.type()) {
-    case FieldType::OLAP_FIELD_TYPE_CHAR:
-        return true;
-    case FieldType::OLAP_FIELD_TYPE_ARRAY:
-        return _has_char_type(*column_desc.get_sub_field(0));
-    case FieldType::OLAP_FIELD_TYPE_MAP:
-        return _has_char_type(*column_desc.get_sub_field(0)) ||
-               _has_char_type(*column_desc.get_sub_field(1));
-    case FieldType::OLAP_FIELD_TYPE_STRUCT:
-        for (int idx = 0; idx < column_desc.get_sub_field_count(); ++idx) {
-            if (_has_char_type(*column_desc.get_sub_field(idx))) {
-                return true;
-            }
-        }
-        return false;
-    default:
-        return false;
-    }
-};
-
-void SegmentIterator::_vec_init_char_column_id(Block* block) {
-    if (!_char_type_idx.empty()) {
+void SegmentIterator::_vec_init_char_column_id() {
+    if (!_is_char_type.empty()) {
         return;
     }
     _is_char_type.resize(_schema->columns().size(), false);
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
-        const StorageField* column_desc = _schema->column(cid);
-
-        // The additional deleted filter condition will be in the materialized column at the end of the block.
-        // After _output_column_by_sel_idx, it will be erased, so we do not need to shrink it.
-        if (i < block->columns()) {
-            if (_has_char_type(*column_desc)) {
-                _char_type_idx.emplace_back(i);
-            }
-        }
+        const TabletColumn* column_desc = _schema->column(cid);
 
         if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
             _is_char_type[cid] = true;
@@ -2292,7 +2271,9 @@ Status SegmentIterator::_init_current_block(Block* block,
                     "col_path {}",
                     block->get_by_position(i).type->get_name(), file_column_type->get_name(),
                     column_desc->name(),
-                    column_desc->path() == nullptr ? "" : column_desc->path()->get_path());
+                    column_desc->path_info_ptr() == nullptr
+                            ? ""
+                            : column_desc->path_info_ptr()->get_path());
             // TODO reuse
             current_columns[cid] = file_column_type->create_column();
             current_columns[cid]->reserve(nrows_read_limit);
@@ -2924,21 +2905,22 @@ Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& c
         if (!_current_return_columns[i] || _converted_column_ids[i] || _is_pred_column[i]) {
             continue;
         }
-        const StorageField* field_type = _schema->column(i);
-        DataTypePtr expected_type = Schema::get_data_type_ptr(*field_type);
+        const TabletColumn* column_desc = _schema->column(i);
+        DataTypePtr expected_type = Schema::get_data_type_ptr(*column_desc);
         DataTypePtr file_column_type = _storage_name_and_type[i].second;
         if (!file_column_type->equals(*expected_type)) {
             ColumnPtr expected;
-            ColumnPtr original = _current_return_columns[i]->assume_mutable()->get_ptr();
+            ColumnPtr original = _current_return_columns[i]->assert_mutable()->get_ptr();
             RETURN_IF_ERROR(variant_util::cast_column({original, file_column_type, ""},
                                                       expected_type, &expected));
-            _current_return_columns[i] = expected->assume_mutable();
+            _current_return_columns[i] = expected->assert_mutable();
             _converted_column_ids[i] = true;
-            VLOG_DEBUG << fmt::format(
-                    "Convert {} fom file column type {} to {}, num_rows {}",
-                    field_type->path() == nullptr ? "" : field_type->path()->get_path(),
-                    file_column_type->get_name(), expected_type->get_name(),
-                    _current_return_columns[i]->size());
+            VLOG_DEBUG << fmt::format("Convert {} fom file column type {} to {}, num_rows {}",
+                                      column_desc->path_info_ptr() == nullptr
+                                              ? ""
+                                              : column_desc->path_info_ptr()->get_path(),
+                                      file_column_type->get_name(), expected_type->get_name(),
+                                      _current_return_columns[i]->size());
         }
     }
     return Status::OK();
@@ -3109,8 +3091,6 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
         _output_index_result_column(vir_ctxs, sel_rowid_idx, _selected_size, block);
     }
     RETURN_IF_ERROR(_materialization_of_virtual_column(block));
-    // shrink char_type suffix zero data
-    block->shrink_char_type_column_suffix_zero(_char_type_idx);
     if (_opts.read_limit > 0) {
         _rows_returned += block->rows();
     }
@@ -3220,7 +3200,6 @@ Status SegmentIterator::_process_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
         common_ctxs.push_back(ctx.get());
     }
     _output_index_result_column(common_ctxs, _sel_rowid_idx.data(), _selected_size, block);
-    block->shrink_char_type_column_suffix_zero(_char_type_idx);
     RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), _selected_size, block));
 
     if (need_mock_col) {
@@ -3235,7 +3214,7 @@ Status SegmentIterator::_process_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
 Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                              Block* block) {
     SCOPED_RAW_TIMER(&_opts.stats->expr_filter_ns);
-    DCHECK(!_remaining_conjunct_roots.empty());
+    DCHECK(!_common_expr_ctxs_push_down.empty());
     DCHECK(block->rows() != 0);
     int prev_columns = block->columns();
     uint16_t original_size = selected_size;
@@ -3432,7 +3411,7 @@ Status SegmentIterator::_construct_compound_expr_context() {
     return Status::OK();
 }
 
-void SegmentIterator::_calculate_expr_in_remaining_conjunct_root() {
+void SegmentIterator::_calculate_common_expr_index_exec_status() {
     for (const auto& root_expr_ctx : _common_expr_ctxs_push_down) {
         const auto& root_expr = root_expr_ctx->root();
         if (root_expr == nullptr) {
@@ -3623,7 +3602,6 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
                     idx_in_block, block->columns(), _vir_cid_to_idx_in_block.size(),
                     column_expr->root()->debug_string());
         }
-        block->shrink_char_type_column_suffix_zero(_char_type_idx);
         if (check_and_get_column<const ColumnNothing>(
                     block->get_by_position(idx_in_block).column.get())) {
             VLOG_DEBUG << fmt::format("Virtual column is doing materialization, cid {}, col idx {}",

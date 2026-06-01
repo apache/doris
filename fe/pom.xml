@@ -224,6 +224,7 @@ under the License.
         <module>fe-extension-spi</module>
         <module>fe-connector</module>
         <module>fe-extension-loader</module>
+        <module>fe-sql-parser</module>
         <module>fe-core</module>
         <module>hive-udf</module>
         <module>be-java-extensions</module>

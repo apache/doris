@@ -372,7 +372,7 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, Block* input_blo
         if (local_state._block_convertor->num_filtered_rows() > 0 ||
             local_state._has_filtered_rows) {
             auto cloneBlock = block->clone_without_columns();
-            auto res_block = MutableBlock::build_mutable_block(&cloneBlock);
+            auto res_block = MutableBlock::build_mutable_block(std::move(cloneBlock));
             for (int i = 0; i < rows; ++i) {
                 if (local_state._block_convertor->filter_map()[i]) {
                     continue;

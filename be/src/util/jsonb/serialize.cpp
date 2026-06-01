@@ -20,6 +20,7 @@
 #include <assert.h>
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <unordered_set>
 #include <vector>
@@ -36,6 +37,7 @@
 #include "core/value/jsonb_value.h"
 #include "runtime/descriptors.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_stream.h"
 #include "util/jsonb_writer.h"
@@ -46,13 +48,31 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
                                         ColumnString& dst, int num_cols,
                                         const DataTypeSerDeSPtrs& serdes,
                                         const std::unordered_set<int32_t>& row_store_cids) {
-    auto num_rows = block.rows();
+    block_to_jsonb(schema, block, dst, num_cols, serdes, row_store_cids, 0, block.rows());
+}
+
+void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block& block,
+                                        ColumnString& dst, int num_cols,
+                                        const DataTypeSerDeSPtrs& serdes,
+                                        const std::unordered_set<int32_t>& row_store_cids,
+                                        size_t row_pos, size_t num_rows) {
+    static_cast<void>(block_to_jsonb(schema, block, dst, num_cols, serdes, row_store_cids, row_pos,
+                                     num_rows, std::numeric_limits<size_t>::max()));
+}
+
+size_t JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block& block,
+                                          ColumnString& dst, int num_cols,
+                                          const DataTypeSerDeSPtrs& serdes,
+                                          const std::unordered_set<int32_t>& row_store_cids,
+                                          size_t row_pos, size_t num_rows, size_t max_bytes) {
     Arena arena;
     assert(num_cols <= block.columns());
+    assert(row_pos + num_rows <= block.rows());
     DataTypeSerDe::FormatOptions options;
     auto tz = cctz::utc_time_zone();
     options.timezone = &tz;
-    for (int i = 0; i < num_rows; ++i) {
+    size_t written_rows = 0;
+    for (size_t i = row_pos; i < row_pos + num_rows; ++i) {
         JsonbWriterT<JsonbOutStream> jsonb_writer;
         jsonb_writer.writeStartObject();
         for (int j = 0; j < num_cols; ++j) {
@@ -70,7 +90,12 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
         }
         jsonb_writer.writeEndObject();
         dst.insert_data(jsonb_writer.getOutput()->getBuffer(), jsonb_writer.getOutput()->getSize());
+        ++written_rows;
+        if (dst.byte_size() >= max_bytes) {
+            break;
+        }
     }
+    return written_rows;
 }
 
 // batch rows
@@ -79,51 +104,55 @@ Status JsonbSerializeUtil::jsonb_to_block(
         const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx, Block& dst,
         const std::vector<std::string>& default_values,
         const std::unordered_set<int>& include_cids) {
+    auto dst_columns_guard = dst.mutate_columns_scoped();
+    MutableColumns& dst_columns = dst_columns_guard.mutable_columns();
     for (int i = 0; i < jsonb_column.size(); ++i) {
         StringRef jsonb_data = jsonb_column.get_data_at(i);
-        RETURN_IF_ERROR(jsonb_to_block(serdes, jsonb_data.data, jsonb_data.size, col_id_to_idx, dst,
-                                       default_values, include_cids));
+        RETURN_IF_ERROR(jsonb_to_columns(serdes, jsonb_data.data, jsonb_data.size, col_id_to_idx,
+                                         dst_columns, default_values, include_cids));
     }
     return Status::OK();
 }
 
-// single row
-Status JsonbSerializeUtil::jsonb_to_block(
+Status JsonbSerializeUtil::jsonb_to_columns(
         const DataTypeSerDeSPtrs& serdes, const char* data, size_t size,
-        const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx, Block& dst,
+        const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx, MutableColumns& dst_columns,
         const std::vector<std::string>& default_values,
         const std::unordered_set<int>& include_cids) {
     const JsonbDocument* pdoc = nullptr;
     RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(data, size, &pdoc));
     const JsonbDocument& doc = *pdoc;
-    size_t num_rows = dst.rows();
+    DCHECK(!dst_columns.empty());
+    size_t num_rows = dst_columns[0]->size();
     size_t filled_columns = 0;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         auto col_it = col_id_to_idx.find(it->getKeyId());
         if (col_it != col_id_to_idx.end() &&
             (include_cids.empty() || include_cids.contains(it->getKeyId()))) {
-            MutableColumnPtr dst_column =
-                    dst.get_by_position(col_it->second).column->assume_mutable();
+            auto& dst_column = dst_columns[col_it->second];
             serdes[col_it->second]->read_one_cell_from_jsonb(*dst_column, it->value());
             ++filled_columns;
         }
     }
-    if (filled_columns >= dst.columns()) {
+    if (filled_columns >= dst_columns.size()) {
         return Status::OK();
     }
-    auto fill_column = [&](Block& dst, int pos, size_t old_num_rows) {
-        MutableColumnPtr dst_column = dst.get_by_position(pos).column->assume_mutable();
+    auto fill_column = [&](size_t pos, size_t old_num_rows) {
+        auto& dst_column = dst_columns[pos];
         if (dst_column->size() < old_num_rows + 1) {
             DCHECK(dst_column->size() == old_num_rows);
+            Status st = Status::OK();
             if (default_values[pos].empty()) {
                 dst_column->insert_default();
             } else {
                 Slice value(default_values[pos].data(), default_values[pos].size());
                 DataTypeSerDe::FormatOptions opt;
                 opt.converted_from_string = true;
-                RETURN_IF_ERROR(
-                        serdes[pos]->deserialize_one_cell_from_json(*dst_column, value, opt));
+                st = serdes[pos]->deserialize_one_cell_from_json(*dst_column, value, opt);
             }
+            RETURN_IF_ERROR(st);
+            DCHECK(dst_column->size() == num_rows + 1);
+            return Status::OK();
         }
         DCHECK(dst_column->size() == num_rows + 1);
         return Status::OK();
@@ -135,14 +164,26 @@ Status JsonbSerializeUtil::jsonb_to_block(
             if (col_it == col_id_to_idx.end()) {
                 continue;
             }
-            RETURN_IF_ERROR(fill_column(dst, col_it->second, num_rows));
+            RETURN_IF_ERROR(fill_column(static_cast<size_t>(col_it->second), num_rows));
         }
     } else {
-        for (int i = 0; i < dst.columns(); ++i) {
-            RETURN_IF_ERROR(fill_column(dst, i, num_rows));
+        for (size_t i = 0; i < dst_columns.size(); ++i) {
+            RETURN_IF_ERROR(fill_column(i, num_rows));
         }
     }
     return Status::OK();
+}
+
+// single row
+Status JsonbSerializeUtil::jsonb_to_block(
+        const DataTypeSerDeSPtrs& serdes, const char* data, size_t size,
+        const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx, Block& dst,
+        const std::vector<std::string>& default_values,
+        const std::unordered_set<int>& include_cids) {
+    auto dst_columns_guard = dst.mutate_columns_scoped();
+    MutableColumns& dst_columns = dst_columns_guard.mutable_columns();
+    return jsonb_to_columns(serdes, data, size, col_id_to_idx, dst_columns, default_values,
+                            include_cids);
 }
 
 } // namespace doris

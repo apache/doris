@@ -38,6 +38,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.DataSketchesHllUnionAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ExponentialMovingAverage;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
@@ -139,6 +141,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(CollectSet.class, "collect_set", "group_uniq_array"),
                 agg(Corr.class, "corr"),
                 agg(CorrWelford.class, "corr_welford"),
+                agg(ExponentialMovingAverage.class, "exponential_moving_average"),
                 agg(Count.class, "count"),
                 agg(CountByEnum.class, "count_by_enum"),
                 agg(Covar.class, "covar", "covar_pop"),
@@ -153,6 +156,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(Histogram.class, "hist", "histogram"),
                 agg(HllUnion.class, "hll_raw_agg", "hll_union"),
                 agg(HllUnionAgg.class, "hll_union_agg"),
+                agg(DataSketchesHllUnionAgg.class, "datasketches_hll_union_agg",
+                    "ds_hll_estimate", "datasketches_hll_estimate"),
                 agg(IntersectCount.class, "intersect_count"),
                 agg(Kurt.class, "kurt", "kurt_pop", "kurtosis"),
                 agg(LinearHistogram.class, "linear_histogram"),

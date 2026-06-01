@@ -124,8 +124,6 @@ public:
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     io::IOContext io_ctx;
-    VExpr* remaining_vconjunct_root = nullptr;
-    std::vector<VExprSPtr> remaining_conjunct_roots;
     VExprContextSPtrs common_expr_ctxs_push_down;
     const std::set<int32_t>* output_columns = nullptr;
     // runtime state

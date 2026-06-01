@@ -122,6 +122,9 @@ import java.util.stream.Collectors;
 public class ExpressionUtils {
 
     public static final List<Expression> EMPTY_CONDITION = ImmutableList.of();
+    private static final int MAX_INFER_NOT_NULL_EXPR_WIDTH = 256;
+    private static final int MAX_INFER_NOT_NULL_EXPR_DEPTH = 64;
+    private static final int MAX_INFER_NOT_NULL_INPUT_SLOTS = 32;
 
     public static List<Expression> extractConjunction(Expression expr) {
         return extract(And.class, expr);
@@ -643,11 +646,11 @@ public class ExpressionUtils {
     }
 
     /**
-     * set ignore unique id for unique functions
+     * Set ignore unique id for volatile expressions.
      */
-    public static Expression setIgnoreUniqueIdForUniqueFunc(Expression expression, boolean ignoreUniqueId) {
+    public static Expression setIgnoreUniqueIdForVolatileExpression(Expression expression, boolean ignoreUniqueId) {
         return expression.rewriteDownShortCircuit(e ->
-                e instanceof VolatileExpression && ((VolatileExpression) e).isVolatile()
+                e.isVolatile()
                         ? ((VolatileExpression) e).withIgnoreUniqueId(ignoreUniqueId) : e);
     }
 
@@ -784,7 +787,7 @@ public class ExpressionUtils {
      */
     public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, CascadesContext cascadesContext) {
         ImmutableSet.Builder<Slot> notNullSlots = ImmutableSet.builderWithExpectedSize(predicates.size());
-        for (Expression predicate : predicates) {
+        for (Expression predicate : filterCheapPredicatesForNotNull(predicates)) {
             for (Slot slot : predicate.getInputSlots()) {
                 Map<Expression, Expression> replaceMap = new HashMap<>();
                 Literal nullLiteral = new NullLiteral(slot.getDataType());
@@ -798,6 +801,56 @@ public class ExpressionUtils {
             }
         }
         return notNullSlots.build();
+    }
+
+    /**
+     * Return whether all predicates are cheap enough for not-null inference.
+     */
+    public static boolean isCheapEnoughToInferNotNull(Collection<? extends Expression> predicates) {
+        Set<Slot> inputSlots = new HashSet<>();
+        for (Expression predicate : predicates) {
+            Optional<Set<Slot>> mergedInputSlots = mergeInputSlotsIfCheap(predicate, inputSlots);
+            if (!mergedInputSlots.isPresent()) {
+                return false;
+            }
+            inputSlots = mergedInputSlots.get();
+        }
+        return true;
+    }
+
+    /**
+     * Filter predicates that are cheap enough for not-null inference.
+     */
+    public static Set<Expression> filterCheapPredicatesForNotNull(
+            Collection<? extends Expression> predicates) {
+        Set<Slot> inputSlots = new HashSet<>();
+        Set<Expression> cheapPredicates = Sets.newLinkedHashSet();
+        for (Expression predicate : predicates) {
+            Optional<Set<Slot>> mergedInputSlots = mergeInputSlotsIfCheap(predicate, inputSlots);
+            if (!mergedInputSlots.isPresent()) {
+                continue;
+            }
+            inputSlots = mergedInputSlots.get();
+            cheapPredicates.add(predicate);
+        }
+        return cheapPredicates;
+    }
+
+    private static Optional<Set<Slot>> mergeInputSlotsIfCheap(Expression predicate, Set<Slot> inputSlots) {
+        if (predicate.getWidth() > MAX_INFER_NOT_NULL_EXPR_WIDTH
+                || predicate.getDepth() > MAX_INFER_NOT_NULL_EXPR_DEPTH) {
+            return Optional.empty();
+        }
+        Set<Slot> predicateInputSlots = predicate.getInputSlots();
+        if (predicateInputSlots.size() > MAX_INFER_NOT_NULL_INPUT_SLOTS) {
+            return Optional.empty();
+        }
+        Set<Slot> mergedInputSlots = new HashSet<>(inputSlots);
+        mergedInputSlots.addAll(predicateInputSlots);
+        if (mergedInputSlots.size() > MAX_INFER_NOT_NULL_INPUT_SLOTS) {
+            return Optional.empty();
+        }
+        return Optional.of(mergedInputSlots);
     }
 
     /**
@@ -1344,15 +1397,13 @@ public class ExpressionUtils {
     }
 
     /**
-     * check if the expressions contain a unique function which exists multiple times
+     * check if the expressions contain a volatile expression which exists multiple times
      */
-    public static boolean containUniqueFunctionExistMultiple(Collection<? extends Expression> expressions) {
+    public static boolean containVolatileExpressionExistMultiple(Collection<? extends Expression> expressions) {
         Set<Expression> counterSet = Sets.newHashSet();
         for (Expression expression : expressions) {
             if (expression.anyMatch(
-                    expr -> expr instanceof VolatileExpression
-                            && ((VolatileExpression) expr).isVolatile()
-                            && !counterSet.add((Expression) expr))) {
+                    expr -> ((Expression) expr).isVolatile() && !counterSet.add((Expression) expr))) {
                 return true;
             }
         }

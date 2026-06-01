@@ -955,7 +955,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
                     const auto* nullmap =
                             assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
                     // make sure null cell is filled by 0x0
-                    key_columns[j]->assume_mutable()->replace_column_null_data(nullmap);
+                    const_cast<IColumn*>(key_columns[j])->replace_column_null_data(nullmap);
                 }
                 auto* __restrict current = result_data + offset;
                 for (size_t i = 0; i < row_numbers; ++i) {

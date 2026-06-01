@@ -54,6 +54,8 @@ public class RuntimeFilter {
 
     private final boolean bloomFilterSizeCalculatedByNdv;
 
+    private boolean nonBlocking;
+
     /**
      * constructor
      */
@@ -228,6 +230,14 @@ public class RuntimeFilter {
         sb.append(ignore).append("RF").append(id.asInt())
                 .append(" ").append(getSrcExpr().toSql()).append("->").append(targetExpression.toSql());
         return sb.toString();
+    }
+
+    public boolean isNonBlocking() {
+        return nonBlocking;
+    }
+
+    public void setNonBlocking(boolean nonBlocking) {
+        this.nonBlocking = nonBlocking;
     }
 
     public boolean isBloomFilterSizeCalculatedByNdv() {

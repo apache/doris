@@ -16,6 +16,7 @@
 // under the License.
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <cstdlib>
 #include <filesystem>
@@ -33,26 +34,55 @@ protected:
     void SetUp() override {
         // Save original config and environment
         original_jdbc_drivers_dir_ = config::jdbc_drivers_dir;
-        original_doris_home_ = getenv("DORIS_HOME");
+        const char* original_doris_home = getenv("DORIS_HOME");
+        if (original_doris_home != nullptr) {
+            original_doris_home_ = original_doris_home;
+            has_original_doris_home_ = true;
+        }
 
         // Set DORIS_HOME for testing
-        setenv("DORIS_HOME", "/tmp/test_doris", 1);
+        temp_home_ = std::filesystem::temp_directory_path() /
+                     ("doris_jdbc_utils_test_" + std::to_string(::getpid()));
+        second_temp_home_ = std::filesystem::temp_directory_path() /
+                            ("doris_jdbc_utils_test_second_" + std::to_string(::getpid()));
+        std::filesystem::remove_all(temp_home_);
+        std::filesystem::remove_all(second_temp_home_);
+        std::filesystem::create_directories(temp_home_);
+        setenv("DORIS_HOME", temp_home_.c_str(), 1);
     }
 
     void TearDown() override {
         // Restore original config and environment
         config::jdbc_drivers_dir = original_jdbc_drivers_dir_;
 
-        if (original_doris_home_) {
-            setenv("DORIS_HOME", original_doris_home_, 1);
+        if (has_original_doris_home_) {
+            setenv("DORIS_HOME", original_doris_home_.c_str(), 1);
         } else {
             unsetenv("DORIS_HOME");
         }
+        std::filesystem::remove_all(temp_home_);
+        std::filesystem::remove_all(second_temp_home_);
     }
 
-private:
+    std::string default_driver_dir() const {
+        return (temp_home_ / "plugins" / "jdbc_drivers").string();
+    }
+
+    std::string old_driver_dir() const { return (temp_home_ / "jdbc_drivers").string(); }
+
+    std::string second_default_driver_dir() const {
+        return (second_temp_home_ / "plugins" / "jdbc_drivers").string();
+    }
+
+    std::string second_old_driver_dir() const {
+        return (second_temp_home_ / "jdbc_drivers").string();
+    }
+
     std::string original_jdbc_drivers_dir_;
-    const char* original_doris_home_ = nullptr;
+    std::string original_doris_home_;
+    bool has_original_doris_home_ = false;
+    std::filesystem::path temp_home_;
+    std::filesystem::path second_temp_home_;
 };
 
 // Test resolve_driver_url with absolute URLs
@@ -79,10 +109,10 @@ TEST_F(JdbcUtilsTest, TestResolveDriverUrlWithRelativeUrl) {
     std::string result_url;
 
     // Set config to default value to trigger the default directory logic
-    config::jdbc_drivers_dir = "/tmp/test_doris/plugins/jdbc_drivers";
+    config::jdbc_drivers_dir = default_driver_dir();
 
     // Create the target directory and file for testing
-    std::string dir = "/tmp/test_doris/plugins/jdbc_drivers";
+    std::string dir = default_driver_dir();
     std::string file_path = dir + "/mysql-connector.jar";
 
     // Create directory and file
@@ -104,10 +134,10 @@ TEST_F(JdbcUtilsTest, TestResolveDriverUrlWithRelativeUrl) {
 
 // Test resolve_driver_url with default directory
 TEST_F(JdbcUtilsTest, TestResolveWithDefaultConfig) {
-    config::jdbc_drivers_dir = "/tmp/test_doris/plugins/jdbc_drivers";
+    config::jdbc_drivers_dir = default_driver_dir();
 
     // Create the target directory and file for testing
-    std::string dir = "/tmp/test_doris/plugins/jdbc_drivers";
+    std::string dir = default_driver_dir();
     std::string file_path = dir + "/mysql-connector.jar";
 
     std::filesystem::create_directories(dir);
@@ -138,9 +168,9 @@ TEST_F(JdbcUtilsTest, TestResolveWithCustomConfig) {
 }
 
 TEST_F(JdbcUtilsTest, TestDefaultDirectoryFileExistsPath) {
-    config::jdbc_drivers_dir = "/tmp/test_doris/plugins/jdbc_drivers";
+    config::jdbc_drivers_dir = default_driver_dir();
 
-    std::string dir = "/tmp/test_doris/plugins/jdbc_drivers";
+    std::string dir = default_driver_dir();
     std::string file_path = dir + "/existing-driver.jar";
 
     std::filesystem::create_directories(dir);
@@ -160,10 +190,10 @@ TEST_F(JdbcUtilsTest, TestDefaultDirectoryFileExistsPath) {
 }
 
 TEST_F(JdbcUtilsTest, TestFallbackToOldDirectory) {
-    config::jdbc_drivers_dir = "/tmp/test_doris/plugins/jdbc_drivers";
+    config::jdbc_drivers_dir = default_driver_dir();
 
     // Create only the old directory and file (not the new one)
-    std::string old_dir = "/tmp/test_doris/jdbc_drivers";
+    std::string old_dir = old_driver_dir();
     std::string file_path = old_dir + "/fallback-driver.jar";
 
     std::filesystem::create_directories(old_dir);
@@ -183,10 +213,11 @@ TEST_F(JdbcUtilsTest, TestFallbackToOldDirectory) {
 }
 
 TEST_F(JdbcUtilsTest, TestPathConstruction) {
-    setenv("DORIS_HOME", "/tmp/test_doris2", 1);
-    config::jdbc_drivers_dir = "/tmp/test_doris2/plugins/jdbc_drivers";
+    std::filesystem::create_directories(second_temp_home_);
+    setenv("DORIS_HOME", second_temp_home_.c_str(), 1);
+    config::jdbc_drivers_dir = second_default_driver_dir();
 
-    std::string old_dir = "/tmp/test_doris2/jdbc_drivers";
+    std::string old_dir = second_old_driver_dir();
     std::string file_path = old_dir + "/test.jar";
 
     std::filesystem::create_directories(old_dir);
@@ -223,9 +254,9 @@ TEST_F(JdbcUtilsTest, TestEdgeCases) {
 }
 
 TEST_F(JdbcUtilsTest, TestMultipleCallsConsistency) {
-    config::jdbc_drivers_dir = "/tmp/test_doris/plugins/jdbc_drivers";
+    config::jdbc_drivers_dir = default_driver_dir();
 
-    std::string dir = "/tmp/test_doris/plugins/jdbc_drivers";
+    std::string dir = default_driver_dir();
     std::string file_path = dir + "/same-driver.jar";
 
     std::filesystem::create_directories(dir);

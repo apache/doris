@@ -100,9 +100,8 @@ void SnapshotDataMigrator::migration_loop() {
         }
 
         std::string job_key = job_snapshot_data_migrator_key(instance.instance_id());
-        int ret =
-                prepare_instance_recycle_job(txn_kv_.get(), job_key, instance.instance_id(),
-                                             ip_port_, config::recycle_job_lease_expired_ms * 1000);
+        int ret = prepare_instance_recycle_job(txn_kv_.get(), job_key, instance.instance_id(),
+                                               ip_port_, config::recycle_job_lease_expired_ms);
         if (ret != 0) { // Prepare failed
             continue;
         } else {

@@ -1276,6 +1276,7 @@ DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_qps_limit);
+DECLARE_mBool(enable_file_cache_async_touch_on_get_or_set);
 DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
@@ -1646,9 +1647,6 @@ DECLARE_mInt32(thrift_client_open_num_tries);
 DECLARE_String(s3_client_http_scheme);
 
 DECLARE_mBool(ignore_schema_change_check);
-
-/** Only use in fuzzy test **/
-DECLARE_mInt64(string_overflow_size);
 
 // The min thread num for BufferedReaderPrefetchThreadPool
 DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread);

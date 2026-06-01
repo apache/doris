@@ -235,6 +235,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantTyp
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HammingDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
@@ -319,6 +320,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lcm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Levenshtein;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
@@ -480,6 +482,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StDisjoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
@@ -488,6 +491,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StIntersects;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinefromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinestringfromtext;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StNumGeometries;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StNumPoints;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolyfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygon;
@@ -801,6 +806,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Greatest.class, "greatest"),
             scalar(Grouping.class, "grouping"),
             scalar(GroupingId.class, "grouping_id"),
+            scalar(HammingDistance.class, "hamming_distance"),
             scalar(Hex.class, "hex"),
             scalar(HllCardinality.class, "hll_cardinality"),
             scalar(HllEmpty.class, "hll_empty"),
@@ -888,6 +894,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(LastQueryId.class, "last_query_id"),
             scalar(Lcm.class, "lcm"),
             scalar(Least.class, "least"),
+            scalar(Levenshtein.class, "levenshtein"),
             scalar(Left.class, "left", "strleft"),
             scalar(Length.class, "length", "octet_length"),
             scalar(Crc32.class, "crc32"),
@@ -1058,6 +1065,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StTouches.class, "st_touches"),
             scalar(StLength.class, "st_length"),
             scalar(StGeometryType.class, "st_geometrytype"),
+            scalar(StNumGeometries.class, "st_numgeometries"),
+            scalar(StGeometries.class, "st_geometries"),
+            scalar(StNumPoints.class, "st_numpoints", "st_npoints"),
             scalar(StDistance.class, "st_distance"),
             scalar(StDistanceSphere.class, "st_distance_sphere"),
             scalar(StAngleSphere.class, "st_angle_sphere"),
