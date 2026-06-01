@@ -17,12 +17,15 @@
 
 package org.apache.doris.nereids.processor.post.materialize;
 
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 
@@ -37,6 +40,44 @@ import java.util.Optional;
 import java.util.Set;
 
 public class MaterializeProbeVisitorTest {
+
+    @Test
+    public void testOlapScanIgnoresGlobalOperativeSlots() {
+        SlotReference baseSlot = new SlotReference("a", IntegerType.INSTANCE);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getBaseIndexId()).thenReturn(1L);
+        Mockito.when(table.getKeysType()).thenReturn(KeysType.DUP_KEYS);
+        PhysicalOlapScan scan = Mockito.mock(PhysicalOlapScan.class);
+        Mockito.when(scan.getSelectedIndexId()).thenReturn(1L);
+        Mockito.when(scan.getTable()).thenReturn(table);
+        Mockito.when(scan.getOperativeSlots()).thenReturn(ImmutableList.of(baseSlot));
+
+        MaterializeProbeVisitor.ProbeContext context = new MaterializeProbeVisitor.ProbeContext(baseSlot);
+        Optional<MaterializeSource> source = new MaterializeProbeVisitor().visitPhysicalOlapScan(scan, context);
+
+        Assertions.assertTrue(source.isPresent());
+        Assertions.assertEquals(scan, source.get().relation);
+        Assertions.assertEquals(baseSlot, source.get().baseSlot);
+    }
+
+    @Test
+    public void testOlapScanRejectsRequiredMaterializedSlots() {
+        SlotReference baseSlot = new SlotReference("a", IntegerType.INSTANCE);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getBaseIndexId()).thenReturn(1L);
+        Mockito.when(table.getKeysType()).thenReturn(KeysType.DUP_KEYS);
+        PhysicalOlapScan scan = Mockito.mock(PhysicalOlapScan.class);
+        Mockito.when(scan.getSelectedIndexId()).thenReturn(1L);
+        Mockito.when(scan.getTable()).thenReturn(table);
+
+        Set<Slot> requiredMaterializedSlots = new HashSet<>();
+        requiredMaterializedSlots.add(baseSlot);
+        MaterializeProbeVisitor.ProbeContext context = new MaterializeProbeVisitor.ProbeContext(
+                baseSlot, requiredMaterializedSlots);
+        Optional<MaterializeSource> source = new MaterializeProbeVisitor().visitPhysicalOlapScan(scan, context);
+
+        Assertions.assertFalse(source.isPresent());
+    }
 
     @Test
     @SuppressWarnings("unchecked")

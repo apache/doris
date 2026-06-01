@@ -158,7 +158,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         if (KeysType.AGG_KEYS.equals(table.getKeysType())) {
             return Optional.empty();
         }
-        if (scan.getOperativeSlots().contains(context.slot)) {
+        if (context.requiredMaterializedSlots.contains(context.slot)) {
             return Optional.empty();
         }
         return Optional.of(new MaterializeSource(scan, context.slot));
@@ -169,8 +169,8 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
             PhysicalCatalogRelation relation, ProbeContext context) {
         if (checkRelationTableSupportedType(relation)
                     && relation.getOutput().contains(context.slot)
-                    && !relation.getOperativeSlots().contains(context.slot)) {
-            // lazy materialize slot must be a passive slot
+                    && !context.requiredMaterializedSlots.contains(context.slot)) {
+            // lazy materialize slot must be backed by a base column.
             if (context.slot.getOriginalColumn().isPresent()) {
                 return Optional.of(new MaterializeSource(relation, context.slot));
             } else {
@@ -185,8 +185,8 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     public Optional<MaterializeSource> visitPhysicalTVFRelation(
             PhysicalTVFRelation tvfRelation, ProbeContext context) {
         if (checkTVFRelationTableSupportedType(tvfRelation) && tvfRelation.getOutput().contains(context.slot)
-                && !tvfRelation.getOperativeSlots().contains(context.slot)) {
-            // lazy materialize slot must be a passive slot
+                && !context.requiredMaterializedSlots.contains(context.slot)) {
+            // lazy materialize slot must be backed by a base column.
             if (context.slot.getOriginalColumn().isPresent()) {
                 return Optional.of(new MaterializeSource(tvfRelation, context.slot));
             } else {
