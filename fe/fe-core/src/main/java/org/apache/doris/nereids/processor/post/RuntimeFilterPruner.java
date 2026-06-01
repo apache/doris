@@ -25,11 +25,13 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGroupJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
@@ -144,6 +146,18 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     public PhysicalHashJoin<? extends Plan, ? extends Plan> visitPhysicalHashJoin(
             PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             CascadesContext context) {
+        return pruneJoinRuntimeFilters(join, context);
+    }
+
+    @Override
+    public PhysicalGroupJoin<? extends Plan, ? extends Plan> visitPhysicalGroupJoin(
+            PhysicalGroupJoin<? extends Plan, ? extends Plan> join,
+            CascadesContext context) {
+        return pruneJoinRuntimeFilters(join, context);
+    }
+
+    private <T extends AbstractPhysicalJoin<? extends Plan, ? extends Plan>> T pruneJoinRuntimeFilters(
+            T join, CascadesContext context) {
         join.right().accept(this, context);
         RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
         if (rfContext.isEffectiveSrcNode(join.right())) {
@@ -279,7 +293,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
      * @param join join node
      * @return true if runtime-filter is effective
      */
-    private boolean isEffectiveRuntimeFilter(EqualTo equalTo, PhysicalHashJoin join) {
+    private boolean isEffectiveRuntimeFilter(EqualTo equalTo, AbstractPhysicalJoin<? extends Plan, ? extends Plan> join) {
         Statistics leftStats = ((AbstractPlan) join.child(0)).getStats();
         Statistics rightStats = ((AbstractPlan) join.child(1)).getStats();
         if (leftStats == null || rightStats == null) {

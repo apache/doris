@@ -27,6 +27,7 @@ suite("q3") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
+    sql 'set enable_group_join=true'
     sql "set runtime_filter_mode='GLOBAL'"
 
     sql 'set exec_mem_limit=21G'

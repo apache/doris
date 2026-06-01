@@ -63,7 +63,8 @@ enum TPlanNodeType {
   MATERIALIZATION_NODE = 34,
   REC_CTE_NODE = 35,
   REC_CTE_SCAN_NODE = 36,
-  BUCKETED_AGGREGATION_NODE = 37
+  BUCKETED_AGGREGATION_NODE = 37,
+  GROUP_JOIN_NODE = 38
 }
 
 struct TKeyRange {
@@ -1504,7 +1505,21 @@ struct TRuntimeFilterDesc {
   17: optional bool build_bf_by_runtime_size;
 }
 
+struct TGroupJoinNode {
+  1: required TJoinOp join_op
+  2: required list<TEqJoinCondition> eq_join_conjuncts
+  3: optional Exprs.TExpr vother_join_conjunct
+  4: optional bool is_broadcast_join
+  5: optional TJoinDistributionType dist_type
 
+  10: optional list<Exprs.TExpr> grouping_exprs
+  11: required list<Exprs.TExpr> aggregate_functions
+  12: optional Types.TTupleId intermediate_tuple_id
+  13: optional Types.TTupleId output_tuple_id
+  14: optional bool need_finalize
+
+  20: optional list<TRuntimeFilterDesc> runtime_filters
+}
 
 struct TDataGenScanNode {
 	1: optional Types.TTupleId tuple_id
@@ -1576,15 +1591,13 @@ struct TPlanNode {
   45: optional TJdbcScanNode jdbc_scan_node
   46: optional TNestedLoopJoinNode nested_loop_join_node
   47: optional TTestExternalScanNode test_external_scan_node
-
   48: optional TPushAggOp push_down_agg_type_opt
-
   49: optional i64 push_down_count
-
   50: optional list<list<Exprs.TExpr>> distribute_expr_lists
   51: optional bool is_serial_operator
   52: optional TRecCTEScanNode rec_cte_scan_node
   53: optional TBucketedAggregationNode bucketed_agg_node
+  54: optional TGroupJoinNode group_join_node
 
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections

@@ -77,7 +77,11 @@ public:
 
     DorisVector<uint8_t>& get_visited() { return visited; }
 
+    DorisVector<uint32_t>& get_first() { return first; }
+
     const DorisVector<uint32_t>& get_first() const { return first; }
+
+    DorisVector<uint32_t>& get_next() { return next; }
 
     const DorisVector<uint32_t>& get_next() const { return next; }
 
