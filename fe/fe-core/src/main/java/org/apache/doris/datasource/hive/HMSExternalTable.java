@@ -317,7 +317,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
      * then we can quickly obtain the partition information of the table from HMS.
      */
     public boolean useHiveSyncPartition() {
-        return Boolean.parseBoolean(catalog.getProperties().getOrDefault(USE_HIVE_SYNC_PARTITION, "false"));
+        return Boolean.parseBoolean(catalog.getProperties().getOrDefault(USE_HIVE_SYNC_PARTITION, "true"));
     }
 
     /**
