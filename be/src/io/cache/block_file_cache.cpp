@@ -145,12 +145,19 @@ struct QueueConsumePlan {
     size_t batch_limit = 0;
 };
 
+constexpr size_t kLruLogReplayAdaptiveLowWatermark = 50'000;
+constexpr size_t kLruLogReplayAdaptiveHighWatermark = 300'000;
+constexpr int64_t kLruLogReplayAdaptiveMinIntervalMs = 100;
+constexpr size_t kLruLogReplayAdaptiveMaxBatchPerType = 25'000;
+
+constexpr size_t kBlockLruUpdateAdaptiveLowWatermark = 10'000;
+constexpr size_t kBlockLruUpdateAdaptiveHighWatermark = 50'000;
+constexpr int64_t kBlockLruUpdateAdaptiveMinIntervalMs = 500;
+constexpr size_t kBlockLruUpdateAdaptiveMaxBatch = 10'000;
+constexpr size_t kBlockLruUpdateLockSliceBatch = 500;
+
 int64_t positive_or_default(int64_t value, int64_t default_value) {
     return value > 0 ? value : default_value;
-}
-
-size_t positive_size_or_default(int64_t value, size_t default_value) {
-    return value > 0 ? static_cast<size_t>(value) : default_value;
 }
 
 QueueConsumePlan build_queue_consume_plan(size_t backlog, int64_t base_interval_ms,
@@ -179,25 +186,15 @@ QueueConsumePlan build_queue_consume_plan(size_t backlog, int64_t base_interval_
 }
 
 QueueConsumePlan build_lru_log_replay_plan(size_t backlog) {
-    if (!config::enable_file_cache_adaptive_queue_consume) {
-        return {positive_or_default(config::file_cache_background_lru_log_replay_interval_ms, 1),
-                0};
-    }
     const auto base_interval =
             positive_or_default(config::file_cache_background_lru_log_replay_interval_ms, 1);
-    const auto max_batch = positive_size_or_default(
-            config::file_cache_lru_log_replay_adaptive_max_batch_per_type, 1);
-    if (backlog < static_cast<size_t>(std::max<int64_t>(
-                          config::file_cache_lru_log_replay_adaptive_low_watermark, 0))) {
+    if (backlog < kLruLogReplayAdaptiveLowWatermark) {
         return {base_interval, 0};
     }
     return build_queue_consume_plan(
-            backlog, base_interval, std::max<size_t>(max_batch / 4, 1),
-            static_cast<size_t>(
-                    std::max<int64_t>(config::file_cache_lru_log_replay_adaptive_low_watermark, 0)),
-            static_cast<size_t>(std::max<int64_t>(
-                    config::file_cache_lru_log_replay_adaptive_high_watermark, 0)),
-            config::file_cache_lru_log_replay_adaptive_min_interval_ms, max_batch);
+            backlog, base_interval, kLruLogReplayAdaptiveMaxBatchPerType / 4,
+            kLruLogReplayAdaptiveLowWatermark, kLruLogReplayAdaptiveHighWatermark,
+            kLruLogReplayAdaptiveMinIntervalMs, kLruLogReplayAdaptiveMaxBatchPerType);
 }
 
 QueueConsumePlan build_block_lru_update_plan(size_t backlog) {
@@ -209,17 +206,10 @@ QueueConsumePlan build_block_lru_update_plan(size_t backlog) {
     if (base_batch == 0) {
         return {base_interval, 0};
     }
-    if (!config::enable_file_cache_adaptive_queue_consume) {
-        return {base_interval, base_batch};
-    }
     return build_queue_consume_plan(
-            backlog, base_interval, base_batch,
-            static_cast<size_t>(std::max<int64_t>(
-                    config::file_cache_block_lru_update_adaptive_low_watermark, 0)),
-            static_cast<size_t>(std::max<int64_t>(
-                    config::file_cache_block_lru_update_adaptive_high_watermark, 0)),
-            config::file_cache_block_lru_update_adaptive_min_interval_ms,
-            positive_size_or_default(config::file_cache_block_lru_update_adaptive_max_batch, 1));
+            backlog, base_interval, base_batch, kBlockLruUpdateAdaptiveLowWatermark,
+            kBlockLruUpdateAdaptiveHighWatermark, kBlockLruUpdateAdaptiveMinIntervalMs,
+            kBlockLruUpdateAdaptiveMaxBatch);
 }
 
 } // namespace
@@ -430,20 +420,12 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_evict_in_advance_latency_us");
     _lru_dump_latency_us = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_lru_dump_latency_us");
-    _recycle_keys_length_recorder = std::make_shared<bvar::LatencyRecorder>(
-            _cache_base_path.c_str(), "file_cache_recycle_keys_length");
-    _need_update_lru_blocks_length_recorder = std::make_shared<bvar::LatencyRecorder>(
-            _cache_base_path.c_str(), "file_cache_need_update_lru_blocks_length");
-    _lru_recorder_ttl_log_queue_length_recorder = std::make_shared<bvar::LatencyRecorder>(
-            _cache_base_path.c_str(), "file_cache_lru_recorder_ttl_log_queue_length");
-    _lru_recorder_index_log_queue_length_recorder = std::make_shared<bvar::LatencyRecorder>(
-            _cache_base_path.c_str(), "file_cache_lru_recorder_index_log_queue_length");
-    _lru_recorder_normal_log_queue_length_recorder = std::make_shared<bvar::LatencyRecorder>(
-            _cache_base_path.c_str(), "file_cache_lru_recorder_normal_log_queue_length");
-    _lru_recorder_disposable_log_queue_length_recorder = std::make_shared<bvar::LatencyRecorder>(
-            _cache_base_path.c_str(), "file_cache_lru_recorder_disposable_log_queue_length");
-    _lru_recorder_total_log_queue_length_recorder = std::make_shared<bvar::LatencyRecorder>(
-            _cache_base_path.c_str(), "file_cache_lru_recorder_log_queue_length");
+    _recycle_keys_length_metrics = std::make_shared<bvar::Status<size_t>>(
+            _cache_base_path.c_str(), "file_cache_recycle_keys_length", 0);
+    _need_update_lru_blocks_length_metrics = std::make_shared<bvar::Status<size_t>>(
+            _cache_base_path.c_str(), "file_cache_need_update_lru_blocks_length", 0);
+    _lru_recorder_log_queue_length_metrics = std::make_shared<bvar::Status<size_t>>(
+            _cache_base_path.c_str(), "file_cache_lru_recorder_log_queue_length", 0);
     _update_lru_blocks_latency_us = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_update_lru_blocks_latency_us");
     _ttl_gc_latency_us = std::make_shared<bvar::LatencyRecorder>(_cache_base_path.c_str(),
@@ -749,7 +731,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
 
 void BlockFileCache::add_need_update_lru_block(FileBlockSPtr block) {
     if (_need_update_lru_blocks.insert(std::move(block))) {
-        *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size();
+        _need_update_lru_blocks_length_metrics->set_value(_need_update_lru_blocks.size());
     }
 }
 
@@ -1554,7 +1536,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
             // but it's ok, because the rowset is stale already
             bool ret = _recycle_keys.enqueue(key);
             if (ret) [[likely]] {
-                *_recycle_keys_length_recorder << _recycle_keys.size_approx();
+                _recycle_keys_length_metrics->set_value(_recycle_keys.size_approx());
             } else {
                 LOG_WARNING("Failed to push recycle key to queue, do it synchronously");
                 int64_t duration_ns = 0;
@@ -2148,7 +2130,7 @@ void BlockFileCache::run_background_gc() {
             }
             batch_count++;
         }
-        *_recycle_keys_length_recorder << _recycle_keys.size_approx();
+        _recycle_keys_length_metrics->set_value(_recycle_keys.size_approx());
         batch_count = 0;
     }
 }
@@ -2205,13 +2187,12 @@ void BlockFileCache::run_background_block_lru_update() {
         batch.reserve(plan.batch_limit);
         size_t drained = _need_update_lru_blocks.drain(plan.batch_limit, &batch);
         if (drained == 0) {
-            *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size();
+            _need_update_lru_blocks_length_metrics->set_value(_need_update_lru_blocks.size());
             continue;
         }
 
         int64_t duration_ns = 0;
-        const size_t slice_batch = positive_size_or_default(
-                config::file_cache_block_lru_update_lock_slice_batch, drained);
+        const size_t slice_batch = std::min(kBlockLruUpdateLockSliceBatch, drained);
         for (size_t begin = 0; begin < batch.size(); begin += slice_batch) {
             const size_t end = std::min(begin + slice_batch, batch.size());
             {
@@ -2223,9 +2204,8 @@ void BlockFileCache::run_background_block_lru_update() {
             }
         }
         *_update_lru_blocks_latency_us << (duration_ns / 1000);
-        *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size();
-        if (backlog >= static_cast<size_t>(std::max<int64_t>(
-                               config::file_cache_block_lru_update_adaptive_high_watermark, 0))) {
+        _need_update_lru_blocks_length_metrics->set_value(_need_update_lru_blocks.size());
+        if (backlog >= kBlockLruUpdateAdaptiveHighWatermark) {
             LOG_EVERY_N(WARNING, 60)
                     << "need_update_lru_blocks backlog is high, backlog=" << backlog
                     << " drained=" << drained << " interval_ms=" << plan.interval_ms
@@ -2307,7 +2287,7 @@ bool BlockFileCache::try_reserve_during_async_load(size_t size,
 
 void BlockFileCache::clear_need_update_lru_blocks() {
     _need_update_lru_blocks.clear();
-    *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size();
+    _need_update_lru_blocks_length_metrics->set_value(_need_update_lru_blocks.size());
 }
 
 void BlockFileCache::pause_ttl_manager() {
@@ -2443,8 +2423,7 @@ void BlockFileCache::run_background_lru_log_replay() {
         drained += _lru_recorder->replay_queue_event(FileCacheType::NORMAL, plan.batch_limit);
         drained += _lru_recorder->replay_queue_event(FileCacheType::DISPOSABLE, plan.batch_limit);
         record_lru_recorder_log_queue_length();
-        if (backlog >= static_cast<size_t>(std::max<int64_t>(
-                               config::file_cache_lru_log_replay_adaptive_high_watermark, 0))) {
+        if (backlog >= kLruLogReplayAdaptiveHighWatermark) {
             LOG_EVERY_N(WARNING, 60)
                     << "lru recorder backlog is high, backlog=" << backlog << " drained=" << drained
                     << " interval_ms=" << plan.interval_ms << " batch_limit=" << plan.batch_limit;
@@ -2461,15 +2440,8 @@ void BlockFileCache::run_background_lru_log_replay() {
 }
 
 void BlockFileCache::record_lru_recorder_log_queue_length() {
-    const auto ttl = _lru_recorder->get_lru_log_queue_size(FileCacheType::TTL);
-    const auto index = _lru_recorder->get_lru_log_queue_size(FileCacheType::INDEX);
-    const auto normal = _lru_recorder->get_lru_log_queue_size(FileCacheType::NORMAL);
-    const auto disposable = _lru_recorder->get_lru_log_queue_size(FileCacheType::DISPOSABLE);
-    *_lru_recorder_ttl_log_queue_length_recorder << ttl;
-    *_lru_recorder_index_log_queue_length_recorder << index;
-    *_lru_recorder_normal_log_queue_length_recorder << normal;
-    *_lru_recorder_disposable_log_queue_length_recorder << disposable;
-    *_lru_recorder_total_log_queue_length_recorder << (ttl + index + normal + disposable);
+    _lru_recorder_log_queue_length_metrics->set_value(
+            _lru_recorder->get_total_lru_log_queue_size());
 }
 
 void BlockFileCache::dump_lru_queues(bool force) {

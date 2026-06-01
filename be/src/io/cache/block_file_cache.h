@@ -613,14 +613,10 @@ private:
     std::shared_ptr<bvar::LatencyRecorder> _storage_retry_sync_remove_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _storage_async_remove_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _evict_in_advance_latency_us;
-    std::shared_ptr<bvar::LatencyRecorder> _recycle_keys_length_recorder;
+    std::shared_ptr<bvar::Status<size_t>> _recycle_keys_length_metrics;
     std::shared_ptr<bvar::LatencyRecorder> _update_lru_blocks_latency_us;
-    std::shared_ptr<bvar::LatencyRecorder> _need_update_lru_blocks_length_recorder;
-    std::shared_ptr<bvar::LatencyRecorder> _lru_recorder_ttl_log_queue_length_recorder;
-    std::shared_ptr<bvar::LatencyRecorder> _lru_recorder_index_log_queue_length_recorder;
-    std::shared_ptr<bvar::LatencyRecorder> _lru_recorder_normal_log_queue_length_recorder;
-    std::shared_ptr<bvar::LatencyRecorder> _lru_recorder_disposable_log_queue_length_recorder;
-    std::shared_ptr<bvar::LatencyRecorder> _lru_recorder_total_log_queue_length_recorder;
+    std::shared_ptr<bvar::Status<size_t>> _need_update_lru_blocks_length_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _lru_recorder_log_queue_length_metrics;
     std::shared_ptr<bvar::LatencyRecorder> _ttl_gc_latency_us;
 
     std::shared_ptr<bvar::LatencyRecorder> _shadow_queue_levenshtein_distance;
