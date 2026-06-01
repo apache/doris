@@ -72,23 +72,11 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
             RepeatedParentSinkState parent_state;
             int16_t key_max_definition_level = 0;
             int16_t value_max_definition_level = 0;
-
-            Status read_value_batch(int64_t batch_rows, NestedScalarBatch* out_value_batch) {
-                return read_nested_scalar_batch_from_overflow(
-                        *value_reader, batch_rows, self->_nullable_definition_level + 1,
-                        &self->_value_overflow, out_value_batch);
-            }
-
-            Status validate_value_alignment(const NestedScalarBatch& key_batch,
-                                            const NestedScalarBatch& candidate_value_batch) {
-                return validate_nested_scalar_alignment(self->_name, key_batch,
-                                                        candidate_value_batch, "value", "");
-            }
+            NestedValueStream<NestedScalarBatch, NestedScalarOverflow, ScalarColumnReader>
+                    value_stream;
 
             Status start_batch(const NestedScalarBatch& key_batch) {
-                RETURN_IF_ERROR(read_value_batch(key_batch.records_read, &value_batch));
-                RETURN_IF_ERROR(validate_value_alignment(key_batch, value_batch));
-                return Status::OK();
+                return value_stream.read_aligned_to_driver(self->_name, key_batch, "");
             }
 
             Status start_parent(const NestedScalarBatch& key_batch, int64_t level_idx) {
@@ -116,12 +104,10 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
                 RETURN_IF_ERROR(
                         append_scalar_batch_value(*key_reader, key_batch, level_idx, *key_column));
                 RETURN_IF_ERROR(append_nullable_scalar_child(
-                        self->_name, "MAP", "value", *value_reader, value_batch, level_idx,
+                        self->_name, "MAP", "value", *value_reader, value_stream.batch, level_idx,
                         value_max_definition_level, *value_column));
                 return parent_state.add_entry(self->_name);
             }
-
-            NestedScalarBatch value_batch;
         };
 
         ScalarMapSink sink;
@@ -133,15 +119,12 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
         sink.parent_state = {&entry_counts, &parent_nulls};
         sink.key_max_definition_level = key_max_definition_level;
         sink.value_max_definition_level = value_max_definition_level;
+        sink.value_stream = {value_reader, &_value_overflow,
+                             static_cast<int16_t>(_nullable_definition_level + 1), "value"};
         RETURN_IF_ERROR(assemble_repeated_levels(*key_reader, _repeated_repetition_level,
                                                  entry_definition_level, rows, &_key_overflow, sink,
                                                  rows_read));
-        if (!_key_overflow.empty()) {
-            move_nested_scalar_tail(
-                    sink.value_batch,
-                    sink.value_batch.levels_written - _key_overflow.batch.levels_written,
-                    &_value_overflow);
-        }
+        sink.value_stream.move_tail_from_driver_overflow(_key_overflow);
 
         map_column->get_keys_ptr() = std::move(key_column);
         map_column->get_values_ptr() = std::move(value_column);
@@ -182,33 +165,10 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
             RepeatedChildSinkState list_state;
             int16_t key_max_definition_level = 0;
             int16_t list_element_max_definition_level = 0;
-            NestedScalarBatch key_batch;
-            int64_t key_level_idx = 0;
-
-            Status read_key_batch(int64_t batch_rows, NestedScalarBatch* out_key_batch) {
-                return read_nested_scalar_batch_from_overflow(*key_reader, batch_rows,
-                                                              self->_nullable_definition_level + 1,
-                                                              &self->_key_overflow, out_key_batch);
-            }
-
-            Status validate_key_batch(const NestedScalarBatch& value_batch,
-                                      const NestedScalarBatch& candidate_key_batch) {
-                if (candidate_key_batch.records_read != value_batch.records_read) {
-                    return Status::Corruption(
-                            "Parquet MAP key/value rows are not aligned for column {}: key "
-                            "rows={}, "
-                            "value rows={}",
-                            self->_name, candidate_key_batch.records_read,
-                            value_batch.records_read);
-                }
-                return Status::OK();
-            }
+            NestedScalarSlotStream key_stream;
 
             Status start_batch(const NestedScalarBatch& value_batch) {
-                RETURN_IF_ERROR(read_key_batch(value_batch.records_read, &key_batch));
-                RETURN_IF_ERROR(validate_key_batch(value_batch, key_batch));
-                key_level_idx = 0;
-                return Status::OK();
+                return key_stream.read_records(self->_name, value_batch.records_read, "");
             }
 
             Status start_parent(const NestedScalarBatch& value_batch, int64_t level_idx) {
@@ -234,8 +194,8 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
 
             Status append_entry(const NestedScalarBatch& value_batch, int64_t level_idx) {
                 RETURN_IF_ERROR(consume_key_slot(value_batch, level_idx, true));
-                RETURN_IF_ERROR(append_scalar_batch_value(*key_reader, key_batch, key_level_idx - 1,
-                                                          *key_column));
+                RETURN_IF_ERROR(append_scalar_batch_value(*key_reader, key_stream.batch,
+                                                          key_stream.level_idx - 1, *key_column));
                 RETURN_IF_ERROR(parent_state.add_entry(self->_name));
                 const int16_t def_level = value_batch.def_levels[level_idx];
                 if (def_level < value_reader->nullable_definition_level()) {
@@ -256,23 +216,12 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
 
             Status consume_key_slot(const NestedScalarBatch& value_batch, int64_t value_level_idx,
                                     bool require_defined_key) {
-                if (key_level_idx >= key_batch.levels_written) {
-                    return Status::Corruption(
-                            "Parquet MAP key stream ended before value stream for column {}",
-                            self->_name);
+                RETURN_IF_ERROR(key_stream.consume_aligned_slot(self->_name, value_batch,
+                                                                value_level_idx, ""));
+                if (require_defined_key) {
+                    RETURN_IF_ERROR(key_stream.require_last_slot_defined(
+                            self->_name, key_max_definition_level, "map key"));
                 }
-                if (key_batch.rep_levels[key_level_idx] !=
-                    value_batch.rep_levels[value_level_idx]) {
-                    return Status::Corruption(
-                            "Parquet MAP key/value repetition levels are not aligned for column {}",
-                            self->_name);
-                }
-                if (require_defined_key &&
-                    key_batch.def_levels[key_level_idx] != key_max_definition_level) {
-                    return Status::Corruption("Parquet MAP column {} contains null map key",
-                                              self->_name);
-                }
-                ++key_level_idx;
                 return Status::OK();
             }
 
@@ -296,11 +245,13 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
         sink.list_state = {&list_entry_counts, &list_parent_nulls};
         sink.key_max_definition_level = key_max_definition_level;
         sink.list_element_max_definition_level = list_element_max_definition_level;
+        sink.key_stream = {key_reader, &_key_overflow,
+                           static_cast<int16_t>(_nullable_definition_level + 1), "key"};
         RETURN_IF_ERROR(assemble_repeated_levels(
                 *scalar_list_value_reader, _repeated_repetition_level,
                 list_element_slot_definition_level, rows, &_value_overflow, sink, rows_read));
         if (!_value_overflow.empty()) {
-            move_nested_scalar_tail(sink.key_batch, sink.key_level_idx, &_key_overflow);
+            sink.key_stream.move_tail_to_overflow();
         }
 
         list_value_column->get_data_ptr() = std::move(list_nested_column);
@@ -321,23 +272,10 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
         MutableColumnPtr* value_column = nullptr;
         RepeatedParentSinkState parent_state;
         int16_t key_max_definition_level = 0;
-
-        Status read_value_batch(int64_t batch_rows, NestedStructBatch* out_value_batch) {
-            return read_nested_struct_batch_from_overflow(
-                    *value_reader, batch_rows, self->_nullable_definition_level + 1,
-                    &self->_struct_value_overflow, out_value_batch);
-        }
-
-        Status validate_value_alignment(const NestedScalarBatch& key_batch,
-                                        const NestedStructBatch& candidate_value_batch) {
-            return validate_nested_struct_alignment(self->_name, key_batch, candidate_value_batch,
-                                                    "");
-        }
+        NestedValueStream<NestedStructBatch, NestedStructOverflow, StructColumnReader> value_stream;
 
         Status start_batch(const NestedScalarBatch& key_batch) {
-            RETURN_IF_ERROR(read_value_batch(key_batch.records_read, &value_batch));
-            RETURN_IF_ERROR(validate_value_alignment(key_batch, value_batch));
-            return Status::OK();
+            return value_stream.read_aligned_to_driver(self->_name, key_batch, "");
         }
 
         Status start_parent(const NestedScalarBatch& key_batch, int64_t level_idx) {
@@ -367,12 +305,10 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
             }
             RETURN_IF_ERROR(
                     append_scalar_batch_value(*key_reader, key_batch, level_idx, *key_column));
-            RETURN_IF_ERROR(append_struct_batch_value(*value_reader, value_batch, level_idx,
+            RETURN_IF_ERROR(append_struct_batch_value(*value_reader, value_stream.batch, level_idx,
                                                       *value_column));
             return parent_state.add_entry(self->_name);
         }
-
-        NestedStructBatch value_batch;
     };
 
     StructMapSink sink;
@@ -383,15 +319,12 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
     sink.value_column = &value_column;
     sink.parent_state = {&entry_counts, &parent_nulls};
     sink.key_max_definition_level = key_max_definition_level;
+    sink.value_stream = {struct_value_reader, &_struct_value_overflow,
+                         static_cast<int16_t>(_nullable_definition_level + 1), "value"};
     RETURN_IF_ERROR(assemble_repeated_levels(*key_reader, _repeated_repetition_level,
                                              entry_definition_level, rows, &_key_overflow, sink,
                                              rows_read));
-    if (!_key_overflow.empty()) {
-        move_nested_struct_tail(
-                sink.value_batch,
-                sink.value_batch.levels_written - _key_overflow.batch.levels_written,
-                &_struct_value_overflow);
-    }
+    sink.value_stream.move_tail_from_driver_overflow(_key_overflow);
 
     map_column->get_keys_ptr() = std::move(key_column);
     map_column->get_values_ptr() = std::move(value_column);
@@ -423,84 +356,52 @@ Status MapColumnReader::skip(int64_t rows) {
         struct SkipSink {
             MapColumnReader* self = nullptr;
             ScalarColumnReader* value_reader = nullptr;
-
-            Status read_value_batch(int64_t batch_rows, NestedScalarBatch* out_value_batch) {
-                return read_nested_scalar_batch_from_overflow(
-                        *value_reader, batch_rows, self->_nullable_definition_level + 1,
-                        &self->_value_overflow, out_value_batch);
-            }
-
-            Status validate_value_alignment(const NestedScalarBatch& key_batch,
-                                            const NestedScalarBatch& candidate_value_batch) {
-                return validate_nested_scalar_alignment(
-                        self->_name, key_batch, candidate_value_batch, "value", " while skipping");
-            }
+            NestedValueStream<NestedScalarBatch, NestedScalarOverflow, ScalarColumnReader>
+                    value_stream;
 
             Status start_batch(const NestedScalarBatch& key_batch) {
-                RETURN_IF_ERROR(read_value_batch(key_batch.records_read, &value_batch));
-                RETURN_IF_ERROR(validate_value_alignment(key_batch, value_batch));
-                return Status::OK();
+                return value_stream.read_aligned_to_driver(self->_name, key_batch,
+                                                           " while skipping");
             }
 
             Status start_parent(const NestedScalarBatch&, int64_t) { return Status::OK(); }
 
             Status append_repeated(const NestedScalarBatch&, int64_t) { return Status::OK(); }
-
-            NestedScalarBatch value_batch;
         };
         SkipSink sink;
         sink.self = this;
         sink.value_reader = value_reader;
+        sink.value_stream = {value_reader, &_value_overflow,
+                             static_cast<int16_t>(_nullable_definition_level + 1), "value"};
         RETURN_IF_ERROR(assemble_repeated_levels(*key_reader, _repeated_repetition_level,
                                                  _nullable_definition_level + 1, rows,
                                                  &_key_overflow, sink, &rows_read));
-        if (!_key_overflow.empty()) {
-            move_nested_scalar_tail(
-                    sink.value_batch,
-                    sink.value_batch.levels_written - _key_overflow.batch.levels_written,
-                    &_value_overflow);
-        }
+        sink.value_stream.move_tail_from_driver_overflow(_key_overflow);
     } else if (struct_value_reader != nullptr) {
         struct StructSkipSink {
             MapColumnReader* self = nullptr;
             StructColumnReader* value_reader = nullptr;
-
-            Status read_value_batch(int64_t batch_rows, NestedStructBatch* out_value_batch) {
-                return read_nested_struct_batch_from_overflow(
-                        *value_reader, batch_rows, self->_nullable_definition_level + 1,
-                        &self->_struct_value_overflow, out_value_batch);
-            }
-
-            Status validate_value_alignment(const NestedScalarBatch& key_batch,
-                                            const NestedStructBatch& candidate_value_batch) {
-                return validate_nested_struct_alignment(self->_name, key_batch,
-                                                        candidate_value_batch, " while skipping");
-            }
+            NestedValueStream<NestedStructBatch, NestedStructOverflow, StructColumnReader>
+                    value_stream;
 
             Status start_batch(const NestedScalarBatch& key_batch) {
-                RETURN_IF_ERROR(read_value_batch(key_batch.records_read, &value_batch));
-                RETURN_IF_ERROR(validate_value_alignment(key_batch, value_batch));
-                return Status::OK();
+                return value_stream.read_aligned_to_driver(self->_name, key_batch,
+                                                           " while skipping");
             }
 
             Status start_parent(const NestedScalarBatch&, int64_t) { return Status::OK(); }
 
             Status append_repeated(const NestedScalarBatch&, int64_t) { return Status::OK(); }
-
-            NestedStructBatch value_batch;
         };
         StructSkipSink sink;
         sink.self = this;
         sink.value_reader = struct_value_reader;
+        sink.value_stream = {struct_value_reader, &_struct_value_overflow,
+                             static_cast<int16_t>(_nullable_definition_level + 1), "value"};
         RETURN_IF_ERROR(assemble_repeated_levels(*key_reader, _repeated_repetition_level,
                                                  _nullable_definition_level + 1, rows,
                                                  &_key_overflow, sink, &rows_read));
-        if (!_key_overflow.empty()) {
-            move_nested_struct_tail(
-                    sink.value_batch,
-                    sink.value_batch.levels_written - _key_overflow.batch.levels_written,
-                    &_struct_value_overflow);
-        }
+        sink.value_stream.move_tail_from_driver_overflow(_key_overflow);
     } else {
         auto* scalar_list_value_reader =
                 dynamic_cast<ScalarColumnReader*>(list_value_reader->element_reader());
@@ -514,31 +415,11 @@ Status MapColumnReader::skip(int64_t rows) {
             MapColumnReader* self = nullptr;
             ScalarColumnReader* key_reader = nullptr;
             ListColumnReader* value_reader = nullptr;
-            NestedScalarBatch key_batch;
-            int64_t key_level_idx = 0;
-
-            Status read_key_batch(int64_t batch_rows, NestedScalarBatch* out_key_batch) {
-                return read_nested_scalar_batch_from_overflow(*key_reader, batch_rows,
-                                                              self->_nullable_definition_level + 1,
-                                                              &self->_key_overflow, out_key_batch);
-            }
-
-            Status validate_key_batch(const NestedScalarBatch& value_batch,
-                                      const NestedScalarBatch& candidate_key_batch) {
-                if (candidate_key_batch.records_read != value_batch.records_read) {
-                    return Status::Corruption(
-                            "Parquet MAP key/value rows are not aligned for column {} while "
-                            "skipping",
-                            self->_name);
-                }
-                return Status::OK();
-            }
+            NestedScalarSlotStream key_stream;
 
             Status start_batch(const NestedScalarBatch& value_batch) {
-                RETURN_IF_ERROR(read_key_batch(value_batch.records_read, &key_batch));
-                RETURN_IF_ERROR(validate_key_batch(value_batch, key_batch));
-                key_level_idx = 0;
-                return Status::OK();
+                return key_stream.read_records(self->_name, value_batch.records_read,
+                                               " while skipping");
             }
 
             Status start_parent(const NestedScalarBatch& value_batch, int64_t level_idx) {
@@ -553,33 +434,22 @@ Status MapColumnReader::skip(int64_t rows) {
             }
 
             Status consume_key_slot(const NestedScalarBatch& value_batch, int64_t value_level_idx) {
-                if (key_level_idx >= key_batch.levels_written) {
-                    return Status::Corruption(
-                            "Parquet MAP key stream ended before value stream for column {} while "
-                            "skipping",
-                            self->_name);
-                }
-                if (key_batch.rep_levels[key_level_idx] !=
-                    value_batch.rep_levels[value_level_idx]) {
-                    return Status::Corruption(
-                            "Parquet MAP key/value repetition levels are not aligned for column {} "
-                            "while skipping",
-                            self->_name);
-                }
-                ++key_level_idx;
-                return Status::OK();
+                return key_stream.consume_aligned_slot(self->_name, value_batch, value_level_idx,
+                                                       " while skipping");
             }
         };
         ListSkipSink sink;
         sink.self = this;
         sink.key_reader = key_reader;
         sink.value_reader = list_value_reader;
+        sink.key_stream = {key_reader, &_key_overflow,
+                           static_cast<int16_t>(_nullable_definition_level + 1), "key"};
         RETURN_IF_ERROR(assemble_repeated_levels(*scalar_list_value_reader,
                                                  _repeated_repetition_level,
                                                  list_value_reader->nullable_definition_level() + 1,
                                                  rows, &_value_overflow, sink, &rows_read));
         if (!_value_overflow.empty()) {
-            move_nested_scalar_tail(sink.key_batch, sink.key_level_idx, &_key_overflow);
+            sink.key_stream.move_tail_to_overflow();
         }
     }
     if (rows_read != rows) {

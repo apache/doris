@@ -178,6 +178,55 @@ inline void move_nested_struct_tail(const NestedStructBatch& src, int64_t start_
     overflow->batch = std::move(dst);
 }
 
+inline void move_nested_tail(const NestedScalarBatch& src, int64_t start_level,
+                             NestedScalarOverflow* overflow) {
+    move_nested_scalar_tail(src, start_level, overflow);
+}
+
+inline void move_nested_tail(const NestedStructBatch& src, int64_t start_level,
+                             NestedStructOverflow* overflow) {
+    move_nested_struct_tail(src, start_level, overflow);
+}
+
+inline bool nested_shape_has_levels(const NestedScalarBatch&) {
+    return true;
+}
+
+inline bool nested_shape_has_levels(const NestedStructBatch& batch) {
+    return !batch.child_batches.empty();
+}
+
+template <typename DriverBatch, typename CandidateBatch>
+Status validate_nested_shape_alignment(const std::string& column_name,
+                                       const DriverBatch& driver_batch,
+                                       const CandidateBatch& candidate_batch,
+                                       std::string_view candidate_name, std::string_view action) {
+    NestedShapeCursor driver_cursor(driver_batch);
+    NestedShapeCursor candidate_cursor(candidate_batch);
+    if (candidate_cursor.records_read() != driver_cursor.records_read() ||
+        candidate_cursor.levels_written() != driver_cursor.levels_written()) {
+        return Status::Corruption(
+                "Parquet nested streams are not aligned for column {}{}: driver rows={}, "
+                "driver levels={}, {} rows={}, {} levels={}",
+                column_name, action, driver_cursor.records_read(), driver_cursor.levels_written(),
+                candidate_name, candidate_cursor.records_read(), candidate_name,
+                candidate_cursor.levels_written());
+    }
+    if (candidate_cursor.levels_written() > 0 && !nested_shape_has_levels(candidate_batch)) {
+        return Status::Corruption("Parquet nested stream {} has no shape levels for column {}{}",
+                                  candidate_name, column_name, action);
+    }
+    for (int64_t level_idx = 0; level_idx < driver_cursor.levels_written(); ++level_idx) {
+        if (candidate_cursor.repetition_level(level_idx) !=
+            driver_cursor.repetition_level(level_idx)) {
+            return Status::Corruption(
+                    "Parquet nested repetition levels are not aligned for column {}{}", column_name,
+                    action);
+        }
+    }
+    return Status::OK();
+}
+
 template <typename Batch, typename Overflow, typename ReadBatchFn, typename MoveTailFn,
           typename Sink>
 Status assemble_repeated_levels(const std::string& column_name, int16_t repeated_level,
@@ -248,6 +297,10 @@ Status read_nested_scalar_batch_from_overflow(ScalarColumnReader& reader, int64_
                                               NestedScalarOverflow* overflow,
                                               NestedScalarBatch* batch);
 
+Status read_nested_batch_from_overflow(ScalarColumnReader& reader, int64_t batch_rows,
+                                       int16_t value_slot_definition_level,
+                                       NestedScalarOverflow* overflow, NestedScalarBatch* batch);
+
 Status validate_nested_scalar_alignment(const std::string& column_name,
                                         const NestedScalarBatch& driver_batch,
                                         const NestedScalarBatch& candidate_batch,
@@ -268,6 +321,10 @@ Status read_nested_struct_batch_from_overflow(StructColumnReader& reader, int64_
                                               int16_t value_slot_definition_level,
                                               NestedStructOverflow* overflow,
                                               NestedStructBatch* batch);
+
+Status read_nested_batch_from_overflow(StructColumnReader& reader, int64_t batch_rows,
+                                       int16_t value_slot_definition_level,
+                                       NestedStructOverflow* overflow, NestedStructBatch* batch);
 
 Status append_struct_batch_value(StructColumnReader& struct_reader, const NestedStructBatch& batch,
                                  int64_t level_idx, MutableColumnPtr& column);
@@ -307,6 +364,105 @@ Status append_nullable_scalar_child(const std::string& column_name, std::string_
                                     const ScalarColumnReader& child_reader,
                                     const NestedScalarBatch& batch, int64_t level_idx,
                                     int16_t max_definition_level, MutableColumnPtr& column);
+
+template <typename Batch, typename Overflow, typename Reader>
+struct NestedValueStream {
+    NestedValueStream() = default;
+
+    NestedValueStream(Reader* reader_, Overflow* overflow_, int16_t value_slot_definition_level_,
+                      std::string_view value_name_)
+            : reader(reader_),
+              overflow(overflow_),
+              value_slot_definition_level(value_slot_definition_level_),
+              value_name(value_name_) {}
+
+    Reader* reader = nullptr;
+    Overflow* overflow = nullptr;
+    int16_t value_slot_definition_level = 0;
+    std::string_view value_name;
+    Batch batch;
+
+    Status read_aligned_to_driver(const std::string& column_name,
+                                  const NestedScalarBatch& driver_batch, std::string_view action) {
+        DORIS_CHECK(reader != nullptr);
+        DORIS_CHECK(overflow != nullptr);
+        RETURN_IF_ERROR(read_nested_batch_from_overflow(
+                *reader, driver_batch.records_read, value_slot_definition_level, overflow, &batch));
+        return validate_nested_shape_alignment(column_name, driver_batch, batch, value_name,
+                                               action);
+    }
+
+    void move_tail_from_driver_overflow(const NestedScalarOverflow& driver_overflow) {
+        if (driver_overflow.empty()) {
+            return;
+        }
+        const int64_t levels_written = nested_shape_levels_written(batch);
+        DORIS_CHECK(levels_written >= driver_overflow.batch.levels_written);
+        move_nested_tail(batch, levels_written - driver_overflow.batch.levels_written, overflow);
+    }
+};
+
+struct NestedScalarSlotStream {
+    NestedScalarSlotStream() = default;
+
+    NestedScalarSlotStream(ScalarColumnReader* reader_, NestedScalarOverflow* overflow_,
+                           int16_t value_slot_definition_level_, std::string_view slot_name_)
+            : reader(reader_),
+              overflow(overflow_),
+              value_slot_definition_level(value_slot_definition_level_),
+              slot_name(slot_name_) {}
+
+    ScalarColumnReader* reader = nullptr;
+    NestedScalarOverflow* overflow = nullptr;
+    int16_t value_slot_definition_level = 0;
+    std::string_view slot_name;
+    NestedScalarBatch batch;
+    int64_t level_idx = 0;
+
+    Status read_records(const std::string& column_name, int64_t records, std::string_view action) {
+        DORIS_CHECK(reader != nullptr);
+        DORIS_CHECK(overflow != nullptr);
+        RETURN_IF_ERROR(read_nested_scalar_batch_from_overflow(
+                *reader, records, value_slot_definition_level, overflow, &batch));
+        if (batch.records_read != records) {
+            return Status::Corruption(
+                    "Parquet nested stream {} rows are not aligned for column {}{}: expected "
+                    "rows={}, actual rows={}",
+                    slot_name, column_name, action, records, batch.records_read);
+        }
+        level_idx = 0;
+        return Status::OK();
+    }
+
+    Status consume_aligned_slot(const std::string& column_name,
+                                const NestedScalarBatch& driver_batch, int64_t driver_level_idx,
+                                std::string_view action) {
+        if (level_idx >= batch.levels_written) {
+            return Status::Corruption(
+                    "Parquet nested stream {} ended before driver stream for column {}{}",
+                    slot_name, column_name, action);
+        }
+        if (batch.rep_levels[level_idx] != driver_batch.rep_levels[driver_level_idx]) {
+            return Status::Corruption(
+                    "Parquet nested stream {} repetition levels are not aligned for column {}{}",
+                    slot_name, column_name, action);
+        }
+        ++level_idx;
+        return Status::OK();
+    }
+
+    Status require_last_slot_defined(const std::string& column_name, int16_t max_definition_level,
+                                     std::string_view slot_kind) const {
+        DORIS_CHECK(level_idx > 0);
+        if (batch.def_levels[level_idx - 1] != max_definition_level) {
+            return Status::Corruption("Parquet MAP column {} contains null {}", column_name,
+                                      slot_kind);
+        }
+        return Status::OK();
+    }
+
+    void move_tail_to_overflow() { move_nested_scalar_tail(batch, level_idx, overflow); }
+};
 
 template <typename Sink>
 Status assemble_repeated_levels(ScalarColumnReader& driver_reader, int16_t repeated_level,

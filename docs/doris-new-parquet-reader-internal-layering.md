@@ -1,54 +1,17 @@
 # Doris New Parquet Reader 内部分层设计
 
-本文档只描述 Doris `be/src/format/new_parquet/` 内部的 reader 分层。这里假设输入已经是 file-local scan request，输出也是 file-local `Block`。table schema、table reader、schema evolution 策略、partition/default/generated column 等上层语义不在本文档范围内。
+本文档只描述 `be/src/format/new_parquet/` 内部的 file-local reader，不描述 table reader。
 
-目标是把 new parquet reader 从当前较集中的实现，逐步收敛成职责清晰的 file-local scan pipeline：
+这里的 file-local reader 指：输入已经是单个 Parquet 文件上的 scan request，输出也是该文件语义下的 Doris `Block`。table schema、跨文件 schema evolution、partition/default/generated column、Iceberg delete file、FE predicate 生成和最终 table block finalize/cast 都不在本文档范围内。
 
-```text
-ParquetReader
-    -> FileContext
-    -> Metadata / Schema Layer
-    -> RowGroupScanPlanner
-    -> BatchScanScheduler
-    -> Predicate / Selection Layer
-    -> ParquetColumnReaderFactory
-    -> ParquetColumnReader Tree
-    -> Nested Shape / Level Assembler
-    -> Leaf Decode Adapter
-    -> Arrow Parquet Core API
-    -> Doris Column / Block
-```
+本文档同时区分两个概念：
 
-## 范围和非目标
+- **层**：长期稳定的职责边界，描述一个功能应该归属到哪里。
+- **组件**：当前代码中的文件、类和 helper。组件可以合并或拆分，但不能打破层的职责边界。
 
-本文档范围：
+## 当前源码结构
 
-- 单个 Parquet 文件内的 schema、metadata、row group、column chunk、page index、dictionary/bloom/statistics。
-- file-local projection、file-local predicate、row group selection、row range selection。
-- file-local `Block` 的读取、skip、select、lazy materialization。
-- `STRUCT`、`LIST`、`MAP` 等复杂类型的 def/rep level 组装。
-- Arrow Parquet core API 的复用边界。
-
-本文档不讨论：
-
-- table/global schema 和 file schema 的映射。
-- 多文件 schema evolution 策略。
-- partition/default/generated column。
-- Iceberg delete file。
-- 最终 table block finalize/cast。
-- FE/Planner 层 predicate 生成。
-
-## 总体原则
-
-1. `ParquetReader` 是 file-local scan orchestration，不直接处理 leaf decode 和 nested level 组装。
-2. `ParquetColumnReader` 是 file-local column reader tree，统一提供 `read`、`skip`、`select`。
-3. `Nested Shape / Level Assembler` 统一处理 def/rep level 到 Doris complex column 的映射。
-4. `Leaf Decode Adapter` 封装 Arrow `RecordReader`，避免 Arrow internal API 扩散到 scan 调度层。
-5. Row group/page/dictionary/bloom pruning 统一输出 row group-local row ranges，供 scan scheduler 消费。
-6. pruning/filter 的安全性与 DuckDB 对齐：只有在 statistics、dictionary、bloom、page index 或 batch predicate 能证明某批数据不可能匹配时才裁剪；无法证明时保留。这个判断应集中在 planner/filter helper 中，不应在调用路径散落重复的防御式分支。
-7. Arrow 负责底层 Parquet metadata/page/value/level 能力，Doris 负责 scan 语义、selection、projection 和输出 column 组织。
-
-## 目标模块
+当前 `new_parquet` 的主要文件结构如下：
 
 ```text
 be/src/format/new_parquet/
@@ -56,298 +19,228 @@ be/src/format/new_parquet/
     parquet_file_context.*
     parquet_column_schema.*
     parquet_type.*
-    parquet_scan_planner.*
-    parquet_scan_scheduler.*
-    parquet_batch_filter.*
+    parquet_scan.*
     parquet_statistics.*
-    parquet_page_index.*
-    parquet_bloom_filter.*
-    selection_vector.*
-    column_reader/
-      column_reader.*
-      scalar_column_reader.*
-      struct_column_reader.*
-      list_column_reader.*
-      map_column_reader.*
-      shape_only_column_reader.*
-      nested_level_assembler.*
-      arrow_leaf_reader_adapter.*
+    selection_vector.h
+    reader/
+        column_reader.*
+        scalar_column_reader.*
+        shape_only_column_reader.*
+        struct_column_reader.*
+        list_column_reader.*
+        map_column_reader.*
+        nested_column_reader.*
+        arrow_leaf_reader_adapter.*
 ```
 
-当前代码还没有完全拆到这些文件。该列表描述目标边界，后续可以按功能演进逐步拆分。
+当前已经删除或合并的旧组件：
 
-## 当前实现快照
+- `column_reader/` 目录已重命名为 `reader/`，对齐 DuckDB `extension/parquet/reader/` 的 reader 归属方式。
+- `complex_column_reader_helpers.*` 和 `nested_level_assembler.h` 已合并到 `reader/nested_column_reader.*`。
+- `parquet_scan_planner.*`、`parquet_scan_scheduler.*`、`parquet_batch_filter.*` 已合并到 `parquet_scan.*`。
+- `parquet_pruning.h`、`parquet_page_index.*` 已合并到 `parquet_statistics.*`。
 
-当前分支已经完成 reader 主流程的第一轮分层，`ParquetReader` 已基本退回 file-local orchestration：文件上下文、schema 构造、row group/page range planning、batch scheduling、batch filter、scalar leaf decode、shape-only reader 都已经拆出独立模块。`column_reader/column_reader.cpp` 当前只保留 base `ParquetColumnReader` 行为和 factory，`STRUCT` / `LIST` / `MAP` reader 已拆到独立实现和独立头文件。最大遗留点转为 complex reader 内部的 nested child 组合分支和更彻底的 sink 抽象。
+保留 `selection_vector.h` 的原因是它同时被 column reader `select()` API、scan batch filter 和 row range planning 使用，是跨层共享的轻量数据结构。强行塞入 `parquet_scan.h` 会让 reader 层依赖 scan 层。
 
-当前已实现：
+## 目标分层
 
-- `ParquetFileContext` 持有 Arrow file reader、footer metadata 和 schema descriptor。
-- `ParquetColumnSchema` / `ParquetTypeDescriptor` 描述 file-local schema，不承担 table schema evolution。
-- `RowGroupScanPlan` 已从 row group id 列表升级为 per-row-group `RowGroupReadPlan`，包含 `first_file_row`、row group rows 和 row group-local `selected_ranges`。
-- row group pruning 已支持 min/max statistics 和 string-like dictionary page。
-- page index pruning 已接入 Arrow `PageIndexReader`，并输出 row group-local row ranges。
-- scheduler 已消费 `selected_ranges`，range gap 通过所有 column reader 的 row-level `skip()` 推进。
-- batch filter 已通过 `SelectionVector` 驱动 lazy materialization。
-- scalar reader、shape-only reader、row-position reader 和 Arrow leaf adapter 已从 `column_reader.cpp` 拆出到 `column_reader/` 子目录。
-- `StructColumnReader`、`ListColumnReader`、`MapColumnReader` 已拆出到独立 `.h/.cpp`，factory 直接 include 具体 reader header，不再保留 `complex_column_reader.h` 聚合头。
-- list/map 的 parent null map 与 entry count 写入已抽出 `RepeatedParentSinkState`，repeated child null map、entry count 和 nullable scalar child 写入已抽出 `RepeatedChildSinkState` / `append_nullable_scalar_child`。
-- nested level 侧已有 repeated assembler、scalar/struct batch overflow、`NestedShapeCursor`，支持跨 `read/skip/select` 维护 cursor。
-- complex type 当前支持 `STRUCT` nullable parent/child/projection，`LIST` null/empty/nullable scalar element，`MAP` null/empty/nullable scalar value，以及部分 `LIST<STRUCT>`、嵌套 `LIST`、`MAP` value 为 `STRUCT` / `LIST` 的组合。
-- planner pruning stats 已接入 profile，包括 row group、dictionary、page index、filtered rows、selected ranges 和 page index read calls。
+目标 pipeline：
 
-当前未完成或仍需重构：
+```text
+ParquetReader facade
+    -> FileContext
+    -> File-local Schema / Type
+    -> Pruning / Row Range Planning
+    -> Scan Scheduler / Batch Selection
+    -> Column Reader Factory
+    -> Column Reader Tree
+    -> Nested Shape / Value Assembler
+    -> Arrow Leaf Decode Adapter
+    -> Doris Column Materialization
+```
 
-- bloom filter pruning 只有 profile counter 和类型支持判断入口，尚未形成独立 `parquet_bloom_filter.*` helper 并接入 planner。
-- list/map/struct 的 Doris column 写入 sink 已完成 parent state 和 repeated scalar child state 抽取，但 map key/value alignment、struct value append 和更通用的 shape/value stream 组合仍在各 reader 内部，复杂 child 组合仍依赖 `dynamic_cast` 和多处分支。
-- nested batch/overflow 仍区分 scalar、struct 和部分 complex child 路径，还没有形成统一 shape stream + value stream 抽象。
-- scheduler、column reader、adapter 的 skip/select/overflow/decode profile 还不完整。
-- schema change / schema evolution 仍不在当前实现范围内；现有 file-local schema、row-range plan 和 reader tree 边界为后续接入保留空间。
-- page-level decoder 尚未实现；当前 page index pruning 仍通过 `RecordReader + skip/read/select` 消费 row ranges。
+核心原则：
 
-当前功能矩阵：
+1. `ParquetReader` 只做 file-local orchestration，不直接处理 leaf decode、def/rep level 和 nested column 写入。
+2. pruning/filter 与 DuckDB 一致：只有 metadata、dictionary、bloom filter、page index 或 batch predicate 能证明数据不可能匹配时才裁剪；无法证明时保留。这里的“保留”是正确性原则，不代表实现上要散落重复防御分支。
+3. row group/page/dictionary/bloom pruning 统一输出 row group-local row ranges 或 row group keep/drop 结论。
+4. `ParquetColumnReader` 的 `read/skip/select` 参数语义是 parent rows，不是 leaf values。
+5. nested reader 必须通过 def/rep level 组装 parent shape，不能把复杂类型 skip 退化成 leaf value-level skip。
+6. Arrow 负责 Parquet footer、metadata、page、level 和 value decode 的底层能力；Doris 负责 scan 语义、selection、projection、nested shape 和 Doris column 输出。
+7. Arrow buffer 不能跨 `RecordReader::ReadRecords()` 生命周期保存；binary/string 必须 materialize 到 Doris-owned column。
 
-| 功能 | 当前状态 | 说明 |
+## 层与组件映射
+
+| 层 | 当前组件 | 当前状态 |
 | --- | --- | --- |
-| File-local schema | 已实现 | 只描述 Parquet 文件内部 schema，不处理 table schema evolution |
-| Row group statistics pruning | 已实现 | 安全裁剪，无法证明不匹配时保留 |
-| Dictionary row group pruning | 已实现 | 当前覆盖 string-like dictionary predicate 场景 |
-| Page index row range pruning | 已实现 | 输出 row group-local selected ranges，scheduler 已消费 |
-| Bloom filter pruning | 待实现 | 需要新增 planner helper，不应放回 `ParquetReader` |
-| Batch predicate / lazy read | 已实现 | 通过 `SelectionVector` 和 selected ranges 推进 |
-| Scalar leaf reader | 已拆分 | `column_reader/scalar_column_reader.*` + `column_reader/arrow_leaf_reader_adapter.*` |
-| Shape-only / row-position reader | 已拆分 | `column_reader/shape_only_column_reader.*` |
-| STRUCT reader | 已实现，已拆分 | 支持 nullable parent/child/projection，实现在 `column_reader/struct_column_reader.*` |
-| LIST reader | 已实现，已拆分，sink 第二阶段统一 | 支持 null/empty/nullable scalar element、overflow、skip/select，部分 nested child |
-| MAP reader | 已实现，已拆分，sink 第二阶段统一 | 支持 null/empty/nullable scalar value、overflow、skip/select，部分 complex value |
-| Complex child projection | 部分实现 | struct child projection 已有，list/map nested child 仍需继续收敛 |
-| Schema change | 未实现 | 当前边界应保持 file-local，后续由上层映射接入 |
-| Page-level decode control | 未实现 | 暂不替代 Arrow `RecordReader` |
+| Reader facade | `parquet_reader.*` | 已收敛为 file-local reader 入口，负责 init/open/get_schema/get_block/profile 聚合 |
+| FileContext | `parquet_file_context.*` | 已独立，封装 Doris file reader 到 Arrow `RandomAccessFile`、`ParquetFileReader` 和 footer metadata |
+| File-local schema/type | `parquet_column_schema.*`, `parquet_type.*` | 已独立，描述 Parquet 文件内部 schema/type，不处理 table schema evolution |
+| Pruning / row range planning | `parquet_statistics.*`, `parquet_scan.*` | statistics、dictionary、page index 已接入；bloom filter 仅有 profile/支持判断入口 |
+| Scan scheduler / batch selection | `parquet_scan.*`, `selection_vector.h` | 已按 selected row ranges 扫描，predicate columns 先读，non-predicate columns lazy materialize |
+| Column reader factory | `reader/column_reader.*` | 已集中创建 reader tree 和 Arrow `RecordReader` cache |
+| Column reader tree | `reader/scalar_column_reader.*`, `reader/shape_only_column_reader.*`, `reader/struct_column_reader.*`, `reader/list_column_reader.*`, `reader/map_column_reader.*` | scalar、shape-only、row-position、struct、list、map reader 已拆分 |
+| Nested shape/value assembler | `reader/nested_column_reader.*`, complex reader sinks | 已有 repeated assembler、overflow、parent/child sink state；shape/value stream 还未完全统一 |
+| Arrow leaf decode adapter | `reader/arrow_leaf_reader_adapter.*` | 已封装 Arrow `RecordReader` read/skip/value materialization |
+| Doris column materialization | `reader/*`, Doris `DataTypeSerDe` | scalar 主要走 SerDe；complex offsets/null map/child append 仍分布在 reader sink 中 |
+| Observability | `parquet_reader.*`, `parquet_statistics.*` | pruning profile 已接入；scheduler/adapter/nested overflow profile 仍不足 |
 
-## 1. FileContext 层
+## 各层职责
+
+### 1. Reader Facade
+
+组件：
+
+- `ParquetReader`
+- `ParquetScanRequest`
+- `ParquetReaderScanState`
 
 职责：
 
-- 持有物理文件句柄。
-- 将 Doris `io::FileReader` 适配成 Arrow `RandomAccessFile`。
+- 打开单个 Parquet 文件。
+- 初始化 file context、file schema 和 scan plan。
+- 将 `get_block()` 委托给 scan scheduler。
+- 聚合 profile counter。
+- 暴露 file-local `get_schema()`。
+
+不负责：
+
+- table/global schema 映射。
+- partition/default/generated column。
+- nested level 组装。
+- Arrow page/value decode 细节。
+- row group/page pruning 的具体判断。
+
+### 2. FileContext
+
+组件：
+
+- `ParquetFileContext`
+
+职责：
+
+- 持有 Doris `io::FileReader`。
+- 适配 Arrow `RandomAccessFile`。
 - 创建并持有 Arrow `ParquetFileReader`。
-- 持有 footer metadata、schema descriptor、file size 等 file-level 对象。
-- 提供统一的 Arrow status/exception 到 Doris `Status` 的转换入口。
+- 持有 footer metadata、schema descriptor、file size。
+- 提供 Arrow status/exception 到 Doris `Status` 的转换边界。
 
-目标对象：
+后续约束：
 
-```text
-ParquetFileContext
-    arrow_file
-    file_reader
-    metadata
-    schema_descriptor
-    file_size
-```
+- Footer cache、page index cache 等 file-level cache 可以挂在这里或 metadata helper，不能回流到 `ParquetReader` 主流程。
 
-当前实现位置：
+### 3. File-local Schema / Type
 
-- `parquet_file_context.*`
-- `ParquetReaderScanState` 持有 `ParquetFileContext` 和 file-local schema。
+组件：
 
-后续方向：
-
-- `FileContext` 只处理文件和 Arrow core reader 生命周期，不处理 scan cursor。
-- 后续如果接入 footer/page index cache，应继续放在 FileContext 或 planner 辅助层，不回流到 `ParquetReader`。
-
-## 2. Metadata / Schema 层
+- `ParquetColumnSchema`
+- `ParquetTypeDescriptor`
 
 职责：
 
-- 从 Arrow `SchemaDescriptor` 构造 Doris file-local `ParquetColumnSchema` tree。
-- 解析 Parquet physical/logical/converted type，生成 Doris file-local type。
-- 记录 leaf column id、schema node id、file path、field id path、name path、max def/rep level。
-- 提供 row group metadata、column chunk metadata、statistics/page index/bloom filter 查询所需的 file-local id。
+- 从 Arrow `SchemaDescriptor` 构造 Doris file-local schema tree。
+- 记录 file column id、leaf column id、schema node id、field id path、name path、max def/rep level。
+- 解析 Parquet physical/logical/converted type。
+- 为 reader factory、statistics/page index/dictionary/bloom helper 提供 file-local id。
 
-目标对象：
+不负责：
 
-```text
-ParquetColumnSchema
-ParquetTypeDescriptor
-ParquetSchemaTree
-```
+- table schema evolution。
+- missing column/default column 补齐。
+- 跨文件字段对齐。
 
-当前实现位置：
+### 4. Pruning / Row Range Planning
 
-- `parquet_column_schema.*`
-- `parquet_type.*`
+组件：
 
-边界：
-
-- 只描述 Parquet 文件内部 schema。
-- 不决定某个 file field 是否对应 table field。
-- 不补 missing column。
-
-## 3. RowGroupScanPlanner 层
-
-职责：
-
-- 基于 row group metadata 和 file-local predicate 选择 row group。
-- 基于 statistics、dictionary page、bloom filter、page index 做安全 pruning：能证明不匹配才跳过，否则保留。
-- 将 page-level keep/drop 结果合并成 row group-local row ranges。
-- 处理 scan range ownership，避免多个 scan range 重复读同一个 row group。
-- 输出 `RowGroupScanPlan` 给 scan scheduler。
-
-目标输入：
-
-```text
-File metadata
-ParquetColumnSchema tree
-file-local predicates
-scan range
-```
-
-目标输出：
-
-```text
-struct RowRange {
-    int64_t start;
-    int64_t length;
-};
-
-struct RowGroupReadPlan {
-    int row_group_id;
-    int64_t first_file_row;
-    int64_t row_group_rows;
-    std::vector<RowRange> selected_ranges;
-};
-
-struct RowGroupScanPlan {
-    std::vector<RowGroupReadPlan> row_groups;
-    ParquetPruningStats pruning_stats;
-};
-```
-
-当前实现位置：
-
-- `parquet_scan_planner.*`
-- `parquet_statistics.*` 已承载 row group statistics pruning 和 string-like dictionary row group pruning。
-- `parquet_page_index.*` 已把 Arrow `PageIndexReader` / `ColumnIndex` / `OffsetIndex` 转成 row group-local row ranges。
-- `parquet_pruning.h` 已承载 planner 输出的 pruning reason/stats，包括 statistics、dictionary、page index、filtered rows 和 selected ranges。
-- 当前 `RowGroupScanPlan` 已升级为 per-row-group row range plan；没有 page index 或无法安全裁剪时输出完整 row group range。
-
-后续方向：
-
-- 将 bloom filter 也收敛到 planner，形态与 statistics/dictionary/page index 一致。
-- planner 不读取 column values，只读取 metadata 和必要的 dictionary/bloom/page index 辅助结构。
-- page index 第一阶段已复用 `RecordReader + select(skip + read)`；只有证明确实需要更细粒度 IO 控制时再考虑 `GetColumnPageReader()` 自研 page decoder。
-
-## 4. BatchScanScheduler 层
+- `ParquetStatisticsUtils`
+- `ParquetColumnStatistics`
+- `ParquetPruningStats`
+- `select_row_groups_by_statistics(...)`
+- `select_row_group_ranges_by_page_index(...)`
+- `plan_parquet_row_groups(...)`
+- `RowGroupReadPlan`
+- `RowGroupScanPlan`
+- `RowRange`
 
 职责：
 
-- 管理当前 row group 和 row range cursor。
-- 决定每次 `get_block()` 读取多少 file-local rows。
-- 创建当前 row group 的 column reader tree。
-- 先读 predicate columns，再根据 selection 延时物化 non-predicate columns。
-- 推进所有 reader 的 row-level cursor。
-- 组装 file-local output `Block`。
+- 基于 scan range 选择当前 reader 拥有的 row group。
+- 基于 row group statistics 做 row group keep/drop。
+- 基于 dictionary page 做 row group keep/drop。
+- 基于 page index 做 row group-local row range selection。
+- 后续基于 bloom filter 做 row group keep/drop。
+- 输出 `RowGroupScanPlan`，而不是直接读取 output columns。
 
-目标状态：
+当前边界：
 
-```text
-ParquetScanState
-    selected_row_group_plans
-    current_row_group
-    current_row_range
-    current_row_group_rows_read
-    predicate_readers
-    non_predicate_readers
-    row_position_reader
-```
+- `parquet_statistics.*` 承载 statistics、dictionary、page index 和 pruning stats。
+- `parquet_scan.*` 承载 row group plan 的 orchestration。
+- 这两个组件的职责可以后续再拆细，但不应把 pruning 逻辑放回 `ParquetReader`。
 
-当前实现位置：
+与 DuckDB 的对齐点：
 
-- `parquet_scan_scheduler.*`
+- 先把 Parquet metadata 转换成统一的本地统计表达，再交给 predicate/filter 判断。
+- 裁剪判断必须是 proof-based：能证明不匹配才 skip。
+- page index 是 metadata pruning，输出 row ranges；是否进一步自研 page decoder 是后续 adapter 层决策。
 
-当前状态：
+### 5. Scan Scheduler / Batch Selection
 
-- scheduler 已消费 `RowGroupReadPlan::selected_ranges`。
-- range 间 gap 通过所有当前 column reader 的 `skip()` 推进。
-- row position reader 使用 `first_file_row` 保持 file-local position。
-- `ParquetReader::get_block` 只委托 scheduler 读取下一批。
+组件：
 
-后续方向：
-
-- 增加 scheduler 级 selected rows、skipped rows、range cursor、lazy read filtered rows 统计。
-- 后续如果切到 page-level decoder，scheduler 仍只消费 row ranges，不直接处理 page。
-
-边界：
-
-- scheduler 不理解 leaf page encoding。
-- scheduler 不做 def/rep level 组装。
-- scheduler 只消费 column reader 的 `read/skip/select`。
-
-## 5. Predicate / Selection 层
+- `ParquetScanScheduler`
+- `SelectionVector`
+- `execute_batch_filters(...)`
+- `execute_reader_expression_map(...)`
+- `selection_to_filter(...)`
 
 职责：
 
-- 在 batch 内执行 file-local predicate。
-- 将 predicate 结果表达成 `SelectionVector`。
-- 支持 predicate column 同时输出时的 column 复用。
-- 为空 selection 提供快速 skip。
-- 将 sparse selection 合并成连续 ranges，驱动 column reader `select()`。
+- 管理 row group cursor 和 row range cursor。
+- 打开当前 row group 的 reader tree。
+- 对 range gap 调用所有 reader 的 row-level `skip()`。
+- 先读取 predicate columns，执行 batch predicate。
+- 根据 `SelectionVector` lazy materialize non-predicate columns。
+- 处理 predicate column 同时输出时的复用。
+- 生成 file-local output `Block`。
 
-目标对象：
+不负责：
 
-```text
-SelectionVector
-BatchFilterExecutor
-PredicateColumnBuilder
-```
+- Parquet page encoding。
+- def/rep level 组装。
+- statistics/dictionary/page index 判断。
+- table-level cast/finalize。
 
-当前实现位置：
+### 6. Column Reader Factory
 
-- `selection_vector.h`
-- `parquet_batch_filter.*`
+组件：
 
-后续方向：
-
-- 继续保持 expression filter、delete filter 和 `ColumnPredicate` batch filter 统一输出 `SelectionVector`。
-- 保持 `SelectionVector` 只表达 batch 内 row offset，不携带 schema 语义。
-
-## 6. ParquetColumnReaderFactory 层
+- `ParquetColumnReaderFactory`
 
 职责：
 
-- 根据 `ParquetColumnSchema` 和 file-local projection 创建 reader tree。
+- 根据 `ParquetColumnSchema` 和 `FieldProjection` 创建 reader tree。
 - 创建并缓存 Arrow internal `RecordReader`。
-- 决定 primitive、struct、list、map、row position、shape-only reader 的具体类型。
-- 保证 Arrow internal `RecordReader` 不暴露给 `ParquetReader`。
+- 决定 scalar、struct、list、map、shape-only、row-position reader。
+- 保证 Arrow internal `RecordReader` 不泄露到 scan scheduler。
 
-目标 reader：
+设计约束：
 
-```text
-ScalarColumnReader
-StructColumnReader
-ListColumnReader
-MapColumnReader
-ShapeOnlyColumnReader
-RowPositionColumnReader
-```
+- factory 只负责构造 reader tree，不承载复杂类型 read 语义。
+- complex child projection 只影响输出 child，不破坏 file child slot 和 shape 推进。
+- 后续 schema evolution 应先在上层完成 file-local projection 映射，再传入 factory。
 
-当前实现位置：
+### 7. Column Reader Tree
 
-- `column_reader/column_reader.h`
-- `column_reader/column_reader.cpp`
-- `column_reader/scalar_column_reader.*`
-- `column_reader/shape_only_column_reader.*`
-- `column_reader/struct_column_reader.*`
-- `column_reader/list_column_reader.*`
-- `column_reader/map_column_reader.*`
+组件：
 
-后续方向：
-
-- 将 Arrow `RecordReader` 创建逻辑集中在 factory 或 leaf adapter。
-- complex child projection 只改变 output child index，不破坏 file child slot。
-- factory 继续只负责 reader tree 构造；complex reader 逻辑保留在各自实现文件，不回流到 factory。
-
-## 7. ParquetColumnReader Tree 层
+- `ParquetColumnReader`
+- `ScalarColumnReader`
+- `ShapeOnlyColumnReader`
+- `RowPositionColumnReader`
+- `StructColumnReader`
+- `ListColumnReader`
+- `MapColumnReader`
 
 统一接口：
 
@@ -360,262 +253,319 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 
 语义：
 
-- `rows` 是 parent rows，不是 leaf values。
-- `skip()` 是 row-level skip，不能直接退化成 value-level skip。
-- `select()` 使用 `skip + read` 推进 cursor。
-- reader tree 必须能跨多次 `read/skip/select` 保持 overflow/cursor 状态。
+- `rows` 是 file-local parent rows。
+- `skip()` 必须推进 row-level cursor。
+- `select()` 使用 `skip + read` 推进 cursor，不能整批 read 后丢弃。
+- reader tree 必须跨多次 `read/skip/select` 保持 overflow/cursor 状态。
 
-目标 reader 关系：
+当前状态：
 
-```text
-ScalarColumnReader
-    -> LeafDecodeAdapter
+- scalar flat read/skip/select 已实现。
+- shape-only reader 用于未投影 child 的 shape 推进。
+- row-position reader 支持 file-local row position 输出。
+- struct 支持 nullable parent、nullable child、projection 和部分 complex child。
+- list/map 支持 null parent、empty parent、nullable scalar child/value、overflow、skip/select，并支持部分 nested complex child。
 
-StructColumnReader
-    -> child ParquetColumnReader slots
+### 8. Nested Shape / Value Assembler
 
-ListColumnReader
-    -> element ParquetColumnReader
-    -> NestedLevelAssembler
-
-MapColumnReader
-    -> key ParquetColumnReader
-    -> value ParquetColumnReader
-    -> NestedLevelAssembler
-```
-
-当前实现状态：
-
-- scalar flat read/skip/select 已拆入 `column_reader/scalar_column_reader.*`。
-- shape-only / row-position reader 已拆入 `column_reader/shape_only_column_reader.*`。
-- struct 支持 nullable parent、nullable child、child projection，以及复杂 child 的部分组合。
-- list/map 支持 null/empty parent、nullable scalar child/value、overflow、skip/select，并已扩展部分 complex child。
-- `StructColumnReader`、`ListColumnReader`、`MapColumnReader` 已拆入独立 `.h/.cpp`，factory 仍在 `column_reader/column_reader.cpp`。
-
-## 8. Nested Shape / Level Assembler 层
-
-职责：
-
-- 读取或消费 leaf def/rep level stream。
-- 折叠 repeated levels，生成 parent row。
-- 区分 null parent、empty parent、non-empty parent。
-- 写入 Doris array/map/struct offsets 和 null map。
-- 支持 nullable scalar child、struct child、nested list/map child。
-- 维护 overflow state。
-- 校验多 leaf stream alignment。
-
-目标抽象：
-
-```text
-NestedLeafBatch
-    def_levels
-    rep_levels
-    value_column
-    level_count
-    value_count
-
-NestedOverflow
-    def_levels
-    rep_levels
-    compact_value_column
-
-RepeatedShapeAssembler
-    assemble(rows, driver_stream, sink)
-    skip(rows, driver_stream)
-
-NestedSink
-    start_parent()
-    append_null_parent()
-    append_empty_parent()
-    append_entry()
-    finish_parent()
-```
-
-设计要求：
-
-- Arrow buffer 不能跨 `RecordReader::ReadRecords()` 生命周期保存。
-- string/binary 必须复制到 Doris-owned column。
-- output rows 满时，如果已经进入下一条 parent row，需要把 tail 放入 overflow。
-- 同一 parent row 内的 repeated entries 必须完整消费。
-- map key/value、struct 多 child 必须做 level alignment check。
-
-当前实现位置：
+组件：
 
 - `NestedScalarBatch`
 - `NestedScalarOverflow`
 - `NestedStructBatch`
 - `NestedStructOverflow`
-- `assemble_repeated_levels`
-- `assemble_repeated_struct_levels`
-- `column_reader/nested_level_assembler.h`
-- `column_reader/complex_column_reader_helpers.*`
-- `column_reader/struct_column_reader.cpp`、`column_reader/list_column_reader.cpp`、`column_reader/map_column_reader.cpp` 中仍保留不同 child 组合分支。
-
-后续方向：
-
-- 统一 scalar/struct/list/map 的 batch 和 overflow 结构。
-- 继续用 shape cursor 减少 list/map/struct 组合分支。
-- 支持 shape-only stream，用于未投影 child 推进。
-
-## 9. Leaf Decode Adapter 层
+- `NestedShapeCursor`
+- `NestedValueStream`
+- `NestedScalarSlotStream`
+- `assemble_repeated_levels(...)`
+- `read_nested_scalar_batch(...)`
+- `read_nested_struct_batch(...)`
+- `RepeatedParentSinkState`
+- `RepeatedChildSinkState`
+- list/map/struct reader 内部 sink
 
 职责：
 
-- 封装 Arrow internal `RecordReader::ReadRecords()`、`SkipRecords()`。
+- 复制并持有 def/rep levels。
+- 将 Arrow decoded values materialize 到 Doris-owned temporary column。
+- 折叠 repeated levels，生成 parent rows。
+- 区分 null parent、empty parent、non-empty parent。
+- 写入 array/map offsets 和 nullable parent null map。
+- 写入 nullable scalar child/value。
+- 对 map key/value 和 struct 多 child 做 level alignment check。
+- 维护 read-ahead overflow。
+
+当前不足：
+
+- scalar 和 struct batch 已适配到统一 shape view；MAP scalar/struct value 已通过 `NestedValueStream` 统一 read、alignment 和 overflow tail。
+- MAP LIST value 的 key stream 已通过 `NestedScalarSlotStream` 统一按 value driver 消费 key slot。
+- LIST 侧 scalar/struct/nested list sink 仍有按 child 类型展开的分支。
+- nested list/map 的 shape-only 和 value stream 组合还不够通用。
+- struct value append 仍有较多 reader-local 逻辑。
+
+后续目标：
+
+- reader 文件只表达 LIST/MAP/STRUCT 自身的 Parquet 语义。
+- def/rep stream、overflow、alignment、shape-only 推进统一收敛到 nested assembler。
+- 新增 complex child 类型时不复制 list/map 主循环。
+
+### 9. Arrow Leaf Decode Adapter
+
+组件：
+
+- `ArrowLeafReaderContext`
+- `read_leaf_records(...)`
+- `read_nested_leaf_batch(...)`
+- `build_leaf_null_map(...)`
+- `append_leaf_values(...)`
+
+职责：
+
+- 封装 Arrow `RecordReader::ReadRecords()`。
+- 封装 Arrow `RecordReader::SkipRecords()`。
 - 复制 def/rep levels。
-- 将 Arrow decoded values materialize 成 Doris-owned temporary column。
-- 暴露 leaf batch 给 scalar reader 或 nested assembler。
+- 将 Arrow decoded values 写入 Doris-owned column。
 - 转换 Arrow status/exception。
 
-目标对象：
+不负责：
 
-```text
-ArrowLeafReaderAdapter
-    read_records(parent_rows)
-    skip_records(parent_rows)
-    read_nested_batch(parent_rows)
-```
+- list/map/struct parent shape。
+- predicate/filter。
+- row group/page pruning。
+- table schema evolution。
 
-当前实现位置：
+关于 `GetColumnPageReader()`：
 
-- `column_reader/arrow_leaf_reader_adapter.*`
-- `column_reader/scalar_column_reader.*`
-- `read_nested_scalar_batch`
-- `read_nested_struct_batch`
+- 当前主路径仍复用 Arrow `RecordReader`。
+- 当前 page index pruning 已能读取 Arrow page index 并转成 row ranges。
+- 如果 profile 证明 `RecordReader + skip/read/select` 不能有效避免 page IO/decode，再在 adapter/page decoder 层评估自研 page-level decoder。
+- 即使实现 page-level decoder，也不应改变 scan scheduler 和 column reader tree 的 row-level API。
 
-边界：
+### 10. Doris Column Materialization
 
-- adapter 可以理解 Arrow `RecordReader`。
-- adapter 不决定 list/map parent shape。
-- adapter 不执行 predicate。
-- adapter 不处理 row group planning。
+组件：
 
-## 10. Arrow Parquet Core API 复用边界
-
-当前应继续复用：
-
-- `arrow::io::RandomAccessFile`
-- `parquet::ParquetFileReader`
-- `parquet::RowGroupReader`
-- `parquet::internal::RecordReader`
-- `parquet::PageIndexReader`
-- `parquet::RowGroupPageIndexReader`
-- `parquet::ColumnIndex`
-- `parquet::OffsetIndex`
-- `parquet::PageReader`
-
-使用原则：
-
-- `RecordReader` 是当前 leaf value/level decode 主路径。
-- `PageIndexReader` 用于 page-level metadata pruning。
-- `GetColumnPageReader()` 可用于 dictionary page pruning，以及未来必要的 page-level decoder。
-- 不使用 `parquet::arrow::FileReader` 作为 scan 输出路径。
-- 不把 Arrow `Array` / `RecordBatch` / `Table` 作为主中间表示。
-
-关于 page-level pruning：
-
-- 复用 Arrow 不妨碍读取 page index。
-- Doris new parquet reader 已把 page index 转成 row ranges 并接入 scan scheduler。
-- 如果 row-range `select(skip + read)` 已经足够减少 decode，可以继续保留 `RecordReader`。
-- 如果 `SkipRecords()` 仍会产生过多 IO/decode，再在 adapter 层引入更细粒度 page reader。
-
-## 11. Doris Column Materialization 层
+- `DataTypeSerDe::read_column_from_decoded_values(...)`
+- scalar reader/adapter materialization helper
+- complex reader sink
+- `RepeatedParentSinkState`
+- `RepeatedChildSinkState`
 
 职责：
 
-- 将 decoded values 写入 Doris `MutableColumnPtr`。
-- 使用 `DataTypeSerDe::read_column_from_decoded_values(...)` 复用 Doris 类型写入逻辑。
-- 处理 nullable wrapper、array/map offsets、struct child columns。
+- 写入 Doris `MutableColumnPtr`。
+- 处理 nullable wrapper。
+- 处理 array/map offsets。
+- 处理 struct child columns。
+- 保证 binary/string 数据由 Doris column 持有。
 
-当前实现位置：
+后续目标：
 
-- `DecodedColumnView`
-- `DataTypeSerDe` 相关调用。
-- scalar value 写入在 `column_reader/scalar_column_reader.*` / `column_reader/arrow_leaf_reader_adapter.*`。
-- complex outer parent null map / entry count 已由 `RepeatedParentSinkState` 统一。
-- nested child append、inner offsets/null map 仍在 list/map/struct reader sink 内。
+- scalar value 写入继续走 SerDe。
+- complex offsets/null map/child append 继续向 nested sink helper 收敛。
+- 不保存 Arrow buffer view。
 
-后续方向：
+### 11. Observability
 
-- scalar value 写入继续通过 SerDe。
-- complex nested offsets/null map 写入继续向 nested assembler sink/helper 收敛。
-- reader 不应保存指向 Arrow buffer 的 value view。
+组件：
 
-## 12. Profile / Observability 层
+- `ParquetReader::ParquetProfile`
+- `ParquetPruningStats`
 
-职责：
+当前已有：
 
-- 统计 row group/page/dictionary/bloom pruning 效果。
-- 统计 Arrow read、decode、skip、select、filter、materialization 时间。
-- 统计 selected rows、skipped rows、empty selection、overflow 次数。
-- 帮助判断是否需要从 `RecordReader` 进一步下沉到 page-level decoder。
+- total/to-read/filtered row groups。
+- statistics/dictionary/page index filtered row groups。
+- filtered row group rows。
+- filtered page rows。
+- selected row ranges。
+- page index read calls 和相关耗时 counter。
+- lazy read filtered rows counter。
 
-当前状态：
+仍需补齐：
 
-- `parquet_reader.cpp` 已有 profile counter 初始化。
-- planner 已通过 `ParquetPruningStats` 输出 row group、dictionary、page index、filtered rows、selected ranges、page index read calls 等统计，并由 `ParquetReader` 写入 profile。
-- bloom filter、scheduler skip/select、column reader overflow、Arrow decode/page cache 的统计还没有完整迁移到各自分层。
+- scheduler selected/skipped rows。
+- empty selection 次数。
+- reader read/skip/select rows。
+- nested overflow 次数和 tail rows。
+- Arrow adapter read/decode/materialization 细分耗时。
+- bloom filter read/check 统计。
 
-后续方向：
+## 功能矩阵
 
-- column reader 层输出 read/skip/select/overflow 统计。
-- adapter 层输出 Arrow read/decode 统计。
-- bloom filter 接入后复用 planner stats，不让 `ParquetReader` 直接判断裁剪原因。
+| 功能 | 当前状态 | 归属层 | 说明 |
+| --- | --- | --- | --- |
+| File open/footer parse | 已实现 | FileContext | 通过 Arrow `ParquetFileReader` |
+| File-local schema 输出 | 已实现 | Schema/Reader facade | `get_schema()` 返回 Parquet 文件自身 schema |
+| Primitive scalar read | 已实现 | Column reader / Adapter | Doris-owned column materialization |
+| Primitive scalar skip/select | 已实现 | Column reader | `select()` 走 `skip + read` |
+| Row position column | 已实现 | Column reader | 使用 row group `first_file_row` |
+| Top-level projection | 已实现 | Scheduler / Factory | 按 file-local column id 创建 reader |
+| Struct projection | 已实现 | Factory / Struct reader | 支持 child projection 和 nullable child |
+| List/Map nested projection | 部分实现 | Factory / Nested assembler | 已支持部分 complex child，shape/value stream 仍需统一 |
+| Row group statistics pruning | 已实现 | Pruning | min/max/null count 转 Doris statistics 后判断 |
+| Dictionary row group pruning | 已实现 | Pruning | 当前覆盖 string-like dictionary predicate |
+| Page index pruning | 已实现 | Pruning / Scheduler | Arrow page index 转 row group-local row ranges |
+| Bloom filter pruning | 未完成 | Pruning | 有 profile/支持判断入口，未形成完整 helper |
+| Batch predicate filter | 已实现 | Scheduler / Selection | 输出 `SelectionVector` |
+| Lazy materialization | 已实现 | Scheduler / Selection | predicate columns 先读，non-predicate columns 按 selection 读 |
+| Selected row range scan | 已实现 | Scheduler | range gap 通过 row-level `skip()` 推进 |
+| Nullable STRUCT | 已实现 | Struct reader / Nested assembler | 对齐 child shape/null map |
+| STRUCT complex child | 部分实现 | Struct reader / Nested assembler | 支持部分 list/map child，仍需收敛分支 |
+| LIST scalar element | 已实现 | List reader / Nested assembler | 支持 null/empty/nullable scalar/overflow |
+| LIST struct element | 部分实现 | List reader / Nested assembler | 已有 struct batch/overflow，接口仍未统一 |
+| Nested LIST | 部分实现 | List reader / Nested assembler | 支持部分组合，shape stream 抽象待完成 |
+| MAP scalar value | 已实现 | Map reader / Nested assembler | key required，value 支持 nullable scalar |
+| MAP struct/list value | 部分实现 | Map reader / Nested assembler | scalar/struct value stream 和 LIST value key slot stream 已收敛，sink 仍需继续通用化 |
+| MAP nested map value | 未完成 | Map reader / Nested assembler | 后续依赖统一 shape/value stream |
+| Required/nullability corruption check | 部分实现 | Column reader / Nested assembler | list/map scalar 路径较完整，complex child 需继续统一 |
+| Schema change / schema evolution | 未实现 | 上层映射 + Factory | 当前只保留 file-local 边界 |
+| Page-level decoder | 未实现 | Adapter | 当前不替代 Arrow `RecordReader` |
+| Profile/metrics | 部分实现 | Observability | pruning 较完整，scheduler/adapter/nested 仍需补齐 |
+| BE unit tests | 部分实现 | Tests | column reader complex/path tests 已有，覆盖矩阵仍需补 |
 
-## 当前代码到目标分层的映射
+## 后续实现计划
 
-| 目标层 | 当前主要位置 | 当前状态 |
-| --- | --- | --- |
-| FileContext | `parquet_file_context.*` | 已独立拆分 |
-| Metadata / Schema | `parquet_column_schema.*`, `parquet_type.*` | 基本成型 |
-| RowGroupScanPlanner | `parquet_scan_planner.*`, `parquet_statistics.*`, `parquet_page_index.*`, `parquet_pruning.h` | statistics/dictionary/page index row range pruning 已接入，bloom 待补 |
-| BatchScanScheduler | `parquet_scan_scheduler.*` | 已独立拆分，已按 selected row ranges 扫描 |
-| Predicate / Selection | `selection_vector.h`, `parquet_batch_filter.*` | 已独立拆分 |
-| ColumnReaderFactory | `column_reader/column_reader.*` | 已实现，只负责 reader tree 构造 |
-| ColumnReader Tree | `column_reader/scalar_column_reader.*`, `column_reader/shape_only_column_reader.*`, `column_reader/struct_column_reader.*`, `column_reader/list_column_reader.*`, `column_reader/map_column_reader.*` | scalar/shape/complex reader 均已拆分 |
-| Nested Assembler | `column_reader/nested_level_assembler.h`, `column_reader/complex_column_reader_helpers.*`, complex reader files | repeated assembler 和 shape cursor 已抽出，outer parent 和 repeated scalar child sink 已部分统一 |
-| Leaf Decode Adapter | `column_reader/arrow_leaf_reader_adapter.*`, `column_reader/scalar_column_reader.*` | 已独立拆分 |
-| Column Materialization | `column_reader/arrow_leaf_reader_adapter.*`, `column_reader/scalar_column_reader.*`, `column_reader/complex_column_reader_helpers.*`, complex reader files, `DataTypeSerDe` | 已接入 SerDe，complex outer parent 和 repeated scalar child state 已统一，更通用 child sink 待继续收敛 |
-| Profile | `parquet_reader.cpp`, `parquet_pruning.h` | planner pruning counter 已接入，scheduler/adapter/overflow 统计待补 |
+### P0：统一 Nested Shape / Value Stream
 
-## 推荐重构顺序
+目标：
 
-本节只保留后续待执行项；已完成内容在前面的当前状态和代码映射表中体现，不在重构计划里重复列出。
+- 把 scalar、struct、list/map child 的 batch/overflow 抽象成统一 shape stream 和 value stream。
+- 让 list/map 主循环不再按 scalar/struct/list value 大量分叉。
+- 保持当前 `read/skip/select` row-level API 不变。
 
-### Step 1：统一 shape stream / value stream
+建议步骤：
 
-- 把 scalar、struct、list value 的 batch/overflow 和 alignment 抽成统一 shape stream / value stream helper。
-- 目标是减少 list/map 中按 child 类型展开的 `dynamic_cast` 分支，并让 reader 文件只描述 LIST/MAP/STRUCT 自身的 def/rep 语义。
-- 保持当前 schema change 预留接口，不在这一步实现 schema evolution。
+1. 已定义统一 shape stream view：records read、levels written、def/rep level、starts parent。
+2. 已将 `NestedScalarBatch`、`NestedStructBatch` 适配到统一 view，并为 MAP 增加 `NestedValueStream` / `NestedScalarSlotStream`。
+3. 继续定义统一 value appender：append defined value、append null value、append shape-only slot。
+4. 收敛 `ListColumnReader` 的 scalar/struct/nested list sink。
+5. 继续收敛 `MapColumnReader` 的 value sink，减少 reader-local entry append 分支。
+6. 补 list/map/struct nested projection 和 overflow 的单测。
 
-### Step 2：接入 bloom filter planner helper
+验收标准：
 
-- 新增 `parquet_bloom_filter.*`，负责读取和判断 bloom filter。
-- planner 只消费 keep/drop 结论，并把 reason 写入 `ParquetPruningStats`。
-- bloom 判断必须和 statistics/dictionary/page index 一样安全：无法证明不匹配时保留。
+- 新增 complex child 类型时不需要复制 repeated level 主循环。
+- `skip()` 和 `select()` 继续复用同一 assembler。
+- null parent、empty parent、nullable child、overflow 行为不回退。
 
-### Step 3：补 scheduler / column reader / adapter profile
+### P1：补 Bloom Filter Pruning
 
-- scheduler 统计 selected ranges、skip rows、lazy read filtered rows、empty selection。
-- column reader 统计 read/skip/select、nested overflow 次数。
-- Arrow adapter 统计 Arrow read/decode/null map/materialization 时间。
+目标：
 
-### Step 4：评估 page-level decoder 必要性
+- 在 pruning 层补完整 bloom filter row group pruning。
+- 与 statistics/dictionary/page index 一样输出 proof-based keep/drop 结论和 profile stats。
 
-- 先用 profile 判断 `RecordReader + row range select` 的收益和开销。
-- 只有当 page index 已证明可跳过大量 page、但 Arrow `RecordReader` 无法避免对应 IO/解码时，再考虑 `GetColumnPageReader()`。
-- 如需实现，放在 adapter/page decoder 层，不回流到 `ParquetReader` 主流程。
+建议步骤：
+
+1. 在 `parquet_statistics.*` 内先实现 bloom helper，必要时后续再拆独立组件。
+2. 复用 `ParquetColumnSchema` 做类型支持判断。
+3. 只对能安全判断的 predicate 启用 bloom pruning。
+4. 接入 `ParquetPruningStats` 和 `ParquetReader::ParquetProfile`。
+5. 添加 positive/negative/unsupported type 测试。
+
+验收标准：
+
+- bloom filter 不能证明不匹配时保留 row group。
+- statistics、dictionary、page index、bloom 的 pruning stats 不互相覆盖。
+
+### P2：补 Observability
+
+目标：
+
+- 让后续是否需要 page-level decoder 有数据依据。
+
+建议步骤：
+
+1. scheduler 统计 selected ranges、range gap skip rows、batch selected rows、empty selection。
+2. column reader 统计 read/skip/select rows。
+3. nested assembler 统计 overflow 次数、overflow level slots、tail value count。
+4. adapter 统计 Arrow read、decode、null map、materialization 时间。
+
+验收标准：
+
+- 能从 profile 判断 page index pruning 是否真正减少 decode/materialization。
+- 能定位复杂类型 read-ahead overflow 的开销。
+
+### P3：补复杂类型剩余覆盖
+
+目标：
+
+- 在 P0 的统一 assembler 之上补齐 nested projection 和 nested complex combinations。
+
+建议覆盖：
+
+- `Array(Array(T))`
+- `Array(Map<K,V>)`
+- `Array(Struct(...complex child...))`
+- `Map<K, Array(T)>`
+- `Map<K, Map<K2,V2>>`
+- `Map<K, Struct(...complex child...)>`
+- struct 内 list/map projection 与未投影 child shape-only 推进
+- required/nullable 组合的 corruption check
+
+验收标准：
+
+- 所有复杂 child 组合使用统一 shape/value stream。
+- 列裁剪不会破坏未投影 child 的 row-level cursor。
+
+### P4：Schema Change 接入准备
+
+目标：
+
+- 不在 file-local reader 内直接实现 table schema evolution，但保证 reader 边界可以承接上层映射结果。
+
+建议步骤：
+
+1. 明确 `FieldProjection` 中 file child slot 与 output child slot 的表达。
+2. 支持 missing projected child 由上层以 default/null reader 形式注入。
+3. 保证 factory 只消费 file-local schema + projection mapping。
+4. 为 field id/name/path mapping 预留测试入口。
+
+验收标准：
+
+- file-local reader 不知道 table/global schema。
+- schema evolution 不需要改 nested assembler 主循环。
+
+### P5：评估 Page-level Decoder
+
+目标：
+
+- 在 profile 证明必要时，再考虑从 Arrow `RecordReader` 下沉到 page-level decoder。
+
+建议步骤：
+
+1. 基于 P2 profile 分析 page index pruning 后的 IO/decode 成本。
+2. 如果 `RecordReader + skip/read/select` 不能避免主要开销，在 adapter 层封装 `GetColumnPageReader()`。
+3. 保持 column reader tree 的 row-level API 不变。
+4. 先支持 scalar leaf，再考虑 nested leaf stream。
+
+验收标准：
+
+- page-level decoder 是 adapter 内部实现细节。
+- scan scheduler 仍只消费 row ranges。
 
 ## 功能归位规则
 
-新增功能按以下规则放置：
+新增代码按以下规则放置：
 
-- 需要 Parquet footer/row group/page metadata：放在 scan planner 或 metadata helper。
-- 需要 Arrow `RecordReader`：放在 leaf adapter 或 column reader factory。
+- 需要 Parquet footer、row group metadata、column chunk metadata、dictionary、bloom 或 page index：放在 pruning/statistics 组件。
+- 需要 scan range、row group cursor、row range cursor、batch selection：放在 `parquet_scan.*`。
+- 需要 Arrow `RecordReader`：放在 reader factory 或 Arrow leaf adapter。
 - 需要 def/rep level：放在 nested assembler。
-- 需要 Doris column 写入：放在 column reader sink/materialization。
-- 需要 batch selection：放在 predicate/selection 层。
-- 需要 row group/page pruning：输出 row ranges，不直接读取 output column。
-- 需要 page-level decode 控制：先放在 Arrow adapter 层，不进入 `ParquetReader` 主流程。
+- 需要 Doris column offsets/null map/child append：放在 column reader sink 或 nested sink helper。
+- 需要 batch predicate：放在 selection/batch filter 路径。
+- 需要 table/global schema：不放在 `new_parquet` file-local reader 内。
 
-这个分层的核心目的是：`ParquetReader` 只负责 file-local scan 编排，`ParquetColumnReader` 只负责 file-local column cursor，nested assembler 只负责 shape，Arrow adapter 只负责底层 Parquet API。这样后续实现复杂类型、page index、dictionary id filter、bloom filter 和 selected read 优化时，不需要继续把逻辑叠加到同一个大函数或同一个大文件里。
+## 当前与理想状态的差距
+
+当前结构已经完成第一轮文件归并和职责收敛：reader 代码集中在 `reader/`，scan 调度集中在 `parquet_scan.*`，metadata pruning 集中在 `parquet_statistics.*`。这比之前“每个小 helper 一个文件”的结构更接近 DuckDB 的 reader 目录组织。
+
+主要差距仍在 nested 层：
+
+- 现在已经有 repeated assembler 和 overflow state，但还不是完整的 shape/value stream 抽象。
+- list/map 对 complex child 的支持已经开始落地，但 reader-local sink 分支仍偏多。
+- schema change 还停留在边界预留阶段。
+- bloom filter pruning 和 observability 还没补完整。
+
+后续优先级应先收敛 nested assembler，再补 pruning 能力和 profile。否则继续堆复杂类型 case 会让 list/map reader 重新变厚，偏离本文档的目标分层。

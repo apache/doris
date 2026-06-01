@@ -61,59 +61,27 @@ Status read_nested_scalar_batch_from_overflow(ScalarColumnReader& reader, int64_
     return read_nested_scalar_batch(reader, batch_rows, value_slot_definition_level, batch);
 }
 
+Status read_nested_batch_from_overflow(ScalarColumnReader& reader, int64_t batch_rows,
+                                       int16_t value_slot_definition_level,
+                                       NestedScalarOverflow* overflow, NestedScalarBatch* batch) {
+    return read_nested_scalar_batch_from_overflow(reader, batch_rows, value_slot_definition_level,
+                                                  overflow, batch);
+}
+
 Status validate_nested_scalar_alignment(const std::string& column_name,
                                         const NestedScalarBatch& driver_batch,
                                         const NestedScalarBatch& candidate_batch,
                                         std::string_view candidate_name, std::string_view action) {
-    NestedShapeCursor driver_cursor(driver_batch);
-    NestedShapeCursor candidate_cursor(candidate_batch);
-    if (candidate_cursor.records_read() != driver_cursor.records_read() ||
-        candidate_cursor.levels_written() != driver_cursor.levels_written()) {
-        return Status::Corruption(
-                "Parquet MAP key/value levels are not aligned for column {}{}: driver rows={}, "
-                "driver levels={}, {} rows={}, {} levels={}",
-                column_name, action, driver_cursor.records_read(), driver_cursor.levels_written(),
-                candidate_name, candidate_cursor.records_read(), candidate_name,
-                candidate_cursor.levels_written());
-    }
-    for (int64_t level_idx = 0; level_idx < driver_cursor.levels_written(); ++level_idx) {
-        if (candidate_cursor.repetition_level(level_idx) !=
-            driver_cursor.repetition_level(level_idx)) {
-            return Status::Corruption(
-                    "Parquet MAP key/value repetition levels are not aligned for column {}{}",
-                    column_name, action);
-        }
-    }
-    return Status::OK();
+    return validate_nested_shape_alignment(column_name, driver_batch, candidate_batch,
+                                           candidate_name, action);
 }
 
 Status validate_nested_struct_alignment(const std::string& column_name,
                                         const NestedScalarBatch& driver_batch,
                                         const NestedStructBatch& candidate_batch,
                                         std::string_view action) {
-    if (candidate_batch.child_batches.empty()) {
-        return Status::Corruption("Parquet MAP value STRUCT has no child batch for column {}{}",
-                                  column_name, action);
-    }
-    NestedShapeCursor driver_cursor(driver_batch);
-    NestedShapeCursor candidate_cursor(candidate_batch);
-    if (candidate_cursor.records_read() != driver_cursor.records_read() ||
-        candidate_cursor.levels_written() != driver_cursor.levels_written()) {
-        return Status::Corruption(
-                "Parquet MAP key/value levels are not aligned for column {}{}: key rows={}, key "
-                "levels={}, value rows={}, value levels={}",
-                column_name, action, driver_cursor.records_read(), driver_cursor.levels_written(),
-                candidate_cursor.records_read(), candidate_cursor.levels_written());
-    }
-    for (int64_t level_idx = 0; level_idx < driver_cursor.levels_written(); ++level_idx) {
-        if (candidate_cursor.repetition_level(level_idx) !=
-            driver_cursor.repetition_level(level_idx)) {
-            return Status::Corruption(
-                    "Parquet MAP key/value repetition levels are not aligned for column {}{}",
-                    column_name, action);
-        }
-    }
-    return Status::OK();
+    return validate_nested_shape_alignment(column_name, driver_batch, candidate_batch, "value",
+                                           action);
 }
 
 Status advance_non_scalar_struct_children(StructColumnReader& struct_reader, bool parent_is_null,
@@ -215,6 +183,13 @@ Status read_nested_struct_batch_from_overflow(StructColumnReader& reader, int64_
         return Status::OK();
     }
     return read_nested_struct_batch(reader, batch_rows, value_slot_definition_level, batch);
+}
+
+Status read_nested_batch_from_overflow(StructColumnReader& reader, int64_t batch_rows,
+                                       int16_t value_slot_definition_level,
+                                       NestedStructOverflow* overflow, NestedStructBatch* batch) {
+    return read_nested_struct_batch_from_overflow(reader, batch_rows, value_slot_definition_level,
+                                                  overflow, batch);
 }
 
 Status append_struct_batch_value(StructColumnReader& struct_reader, const NestedStructBatch& batch,
