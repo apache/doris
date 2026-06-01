@@ -158,8 +158,7 @@ public:
             if (i == 0) {
                 nested_array_column_rows = col_array.get_data_ptr()->size();
                 first_array_offsets = col_array.get_offsets_ptr();
-                const auto& off_data = assert_cast<const ColumnArray::ColumnOffsets&>(
-                        col_array.get_offsets_column());
+                const auto& off_data = col_array.get_offsets_column();
                 array_column_offset = off_data.clone_resized(col_array.get_offsets_column().size());
                 args_info.offsets_ptr = &col_array.get_offsets();
             } else {

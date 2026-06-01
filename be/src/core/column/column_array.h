@@ -37,6 +37,7 @@
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
+#include "util/defer_op.h"
 
 class SipHash;
 
@@ -193,24 +194,22 @@ public:
     IColumn& get_data() { return *data; }
     const IColumn& get_data() const { return *data; }
 
-    IColumn& get_offsets_column() { return *offsets; }
-    const IColumn& get_offsets_column() const { return *offsets; }
+    ColumnOffsets& get_offsets_column() { return *offsets; }
+    const ColumnOffsets& get_offsets_column() const { return *offsets; }
 
-    Offsets64& ALWAYS_INLINE get_offsets() {
-        return assert_cast<ColumnOffsets&, TypeCheckOnRelease::DISABLE>(*offsets).get_data();
-    }
+    Offsets64& ALWAYS_INLINE get_offsets() { return offsets->get_data(); }
 
-    const Offsets64& ALWAYS_INLINE get_offsets() const {
-        return assert_cast<const ColumnOffsets&, TypeCheckOnRelease::DISABLE>(*offsets).get_data();
-    }
+    const Offsets64& ALWAYS_INLINE get_offsets() const { return offsets->get_data(); }
 
     bool has_equal_offsets(const ColumnArray& other) const;
 
     const ColumnPtr& get_data_ptr() const { return data; }
     ColumnPtr& get_data_ptr() { return data; }
 
-    const ColumnPtr& get_offsets_ptr() const { return offsets; }
-    ColumnPtr& get_offsets_ptr() { return offsets; }
+    const ColumnOffsets::Ptr& get_offsets_ptr() const {
+        return static_cast<const ColumnOffsets::Ptr&>(offsets);
+    }
+    ColumnOffsets::Ptr& get_offsets_ptr() { return static_cast<ColumnOffsets::Ptr&>(offsets); }
 
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
     size_t ALWAYS_INLINE size_at(ssize_t i) const {
@@ -218,7 +217,12 @@ public:
     }
 
     void for_each_subcolumn(ColumnCallback callback) override {
-        callback(offsets);
+        IColumn::WrappedPtr offsets_column(std::move(static_cast<ColumnOffsets::Ptr&>(offsets)));
+        Defer defer([&] {
+            static_cast<ColumnOffsets::Ptr&>(offsets) =
+                    cast_to_column<ColumnOffsets>(static_cast<const IColumn::Ptr&>(offsets_column));
+        });
+        callback(offsets_column);
         callback(data);
     }
 
@@ -265,7 +269,7 @@ private:
     // [2,1,5,9,1]\n[1,2,4] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8
     // [[2,1,5],[9,1]]\n[[1,2]] --> data column [3 column array], offset[-1] = 0, offset[0] = 2, offset[1] = 3
     IColumn::WrappedPtr data;
-    IColumn::WrappedPtr offsets;
+    ColumnOffsets::WrappedPtr offsets;
 };
 
 } // namespace doris

@@ -165,7 +165,11 @@ const char* DataTypeMap::deserialize(const char* buf, MutableColumnPtr* column,
         auto nested_values_column = std::move(*map_column->get_values_ptr()).mutate();
         buf = get_key_type()->deserialize(buf, &nested_keys_column, be_exec_version);
         buf = get_value_type()->deserialize(buf, &nested_values_column, be_exec_version);
-        map_column->get_offsets_ptr() = std::move(offsets_column);
+        auto typed_offsets_column = ColumnMap::COffsets::cast_to_column_mutptr(
+                assert_cast<ColumnMap::COffsets*, TypeCheckOnRelease::DISABLE>(
+                        offsets_column.get()));
+        offsets_column = nullptr;
+        map_column->get_offsets_ptr() = std::move(typed_offsets_column);
         map_column->get_keys_ptr() = std::move(nested_keys_column);
         map_column->get_values_ptr() = std::move(nested_values_column);
         return buf;
@@ -185,7 +189,11 @@ const char* DataTypeMap::deserialize(const char* buf, MutableColumnPtr* column,
         auto nested_values_column = std::move(*map_column->get_values_ptr()).mutate();
         buf = get_key_type()->deserialize(buf, &nested_keys_column, be_exec_version);
         buf = get_value_type()->deserialize(buf, &nested_values_column, be_exec_version);
-        map_column->get_offsets_ptr() = std::move(offsets_column);
+        auto typed_offsets_column = ColumnMap::COffsets::cast_to_column_mutptr(
+                assert_cast<ColumnMap::COffsets*, TypeCheckOnRelease::DISABLE>(
+                        offsets_column.get()));
+        offsets_column = nullptr;
+        map_column->get_offsets_ptr() = std::move(typed_offsets_column);
         map_column->get_keys_ptr() = std::move(nested_keys_column);
         map_column->get_values_ptr() = std::move(nested_values_column);
         return buf;
