@@ -297,4 +297,72 @@ suite("test_local_shuffle_global_hash_require") {
     assertEquals(23, intersect_baseline.size())
     assertEquals(intersect_baseline, intersect_fe,
         "DORIS-26100: analytic -> INTERSECT")
+
+    // ============================================================
+    // DORIS-26103: UNION ALL -> PartitionTopN analytic -> INTERSECT
+    // ============================================================
+    sql "DROP TABLE IF EXISTS ls_upset_a"
+    sql "DROP TABLE IF EXISTS ls_upset_b"
+    sql "DROP TABLE IF EXISTS ls_upset_dim"
+    sql """CREATE TABLE ls_upset_a (pk INT, g INT, v INT)
+           ENGINE=OLAP DUPLICATE KEY(pk,g) DISTRIBUTED BY HASH(pk) BUCKETS 13
+           PROPERTIES ("replication_num"="1")"""
+    sql """CREATE TABLE ls_upset_b (pk INT, g INT, v INT)
+           ENGINE=OLAP DUPLICATE KEY(pk,g) DISTRIBUTED BY HASH(pk) BUCKETS 11
+           PROPERTIES ("replication_num"="1")"""
+    sql """CREATE TABLE ls_upset_dim (g INT, w INT)
+           ENGINE=OLAP DUPLICATE KEY(g) DISTRIBUTED BY HASH(g) BUCKETS 17
+           PROPERTIES ("replication_num"="1")"""
+    sql """INSERT INTO ls_upset_a
+           SELECT CAST(number AS INT), CAST(number%23 AS INT), CAST(number*10+1 AS INT)
+           FROM numbers("number"="920")"""
+    sql """INSERT INTO ls_upset_b
+           SELECT CAST(number+10000 AS INT), CAST(number%23 AS INT), CAST(number*20+3 AS INT)
+           FROM numbers("number"="920")"""
+    sql """INSERT INTO ls_upset_dim
+           SELECT CAST(number AS INT), CAST(100+number AS INT)
+           FROM numbers("number"="23")"""
+
+    def ptopnHints = { ls_on ->
+        """/*+SET_VAR(
+            enable_sql_cache=false, disable_join_reorder=true,
+            disable_colocate_plan=true,
+            auto_broadcast_join_threshold=-1, broadcast_row_count_limit=0,
+            experimental_force_to_local_shuffle=true,
+            experimental_enable_parallel_scan=false,
+            enable_runtime_filter_prune=false,
+            enable_runtime_filter_partition_prune=false,
+            runtime_filter_type='IN,MIN_MAX',
+            parallel_pipeline_task_num=16,
+            parallel_exchange_instance_num=8,
+            query_timeout=600,
+            ignore_storage_data_distribution=false,
+            use_serial_exchange=false,
+            experimental_use_serial_exchange=false,
+            enable_partition_topn=true,
+            global_partition_topn_threshold=1,
+            enable_local_shuffle=${ls_on},
+            enable_local_shuffle_planner=${ls_on}
+        )*/"""
+    }
+
+    def ptopn_baseline = sql """SELECT ${ptopnHints('false')} g FROM (
+        SELECT g, ROW_NUMBER() OVER(PARTITION BY g ORDER BY pk) AS rn
+        FROM (SELECT g, pk FROM ls_upset_a UNION ALL SELECT g, pk FROM ls_upset_b) u
+        ) x WHERE rn <= 3
+        INTERSECT
+        SELECT g FROM ls_upset_dim
+        ORDER BY g"""
+
+    def ptopn_fe = sql """SELECT ${ptopnHints('true')} g FROM (
+        SELECT g, ROW_NUMBER() OVER(PARTITION BY g ORDER BY pk) AS rn
+        FROM (SELECT g, pk FROM ls_upset_a UNION ALL SELECT g, pk FROM ls_upset_b) u
+        ) x WHERE rn <= 3
+        INTERSECT
+        SELECT g FROM ls_upset_dim
+        ORDER BY g"""
+
+    assertEquals(23, ptopn_baseline.size())
+    assertEquals(ptopn_baseline, ptopn_fe,
+        "DORIS-26103: UNION ALL -> PartitionTopN -> INTERSECT")
 }
