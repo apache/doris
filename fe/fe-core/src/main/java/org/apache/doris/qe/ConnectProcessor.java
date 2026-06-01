@@ -146,8 +146,15 @@ public abstract class ConnectProcessor {
     }
 
     protected void handleResetConnection() {
-        ctx.resetConnection();
-        ctx.getState().setOk();
+        try {
+            ctx.resetConnection();
+            if (ctx.getSessionVariable().autoCommit) {
+                ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_STATUS_AUTOCOMMIT;
+            }
+            ctx.getState().setOk();
+        } catch (UserException e) {
+            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+        }
     }
 
     protected void handleStmtReset() {

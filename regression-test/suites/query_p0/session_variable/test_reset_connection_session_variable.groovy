@@ -16,12 +16,17 @@
 // under the License.
 
 suite("test_reset_connection_session_variable", "p0") {
+    def currentDb = (sql "select database()")[0][0]
+
     sql "set sql_select_limit = 0"
 
     def limitedResult = sql "select 1 union all select 2"
     assertEquals(0, limitedResult.size())
 
     resetConnection()
+
+    def resetDb = (sql "select database()")[0][0]
+    assertEquals(currentDb, resetDb)
 
     def resetResult = sql "select 1 union all select 2"
     assertEquals(2, resetResult.size())
