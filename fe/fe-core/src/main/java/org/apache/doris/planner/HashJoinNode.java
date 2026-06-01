@@ -344,13 +344,13 @@ public class HashJoinNode extends JoinNodeBase {
                     LocalExchangeTypeRequire.requireBucketHash(), translatorContext, this,
                     children.get(0));
         } else {
-            // Use requireHash() (not requireGlobalExecutionHash()) so that resolveExchangeType()
-            // can downgrade to LOCAL_EXECUTION_HASH_SHUFFLE via shouldUseLocalExecutionHash().
-            // This matches BE-native behavior where use_serial_exchange=true sets _use_serial_source=true,
-            // causing _add_local_exchange_impl to use LOCAL (not GLOBAL) hash shuffle.
-            // With use_serial_exchange=false, the upstream ExchangeNode already outputs
-            // GLOBAL_EXECUTION_HASH_SHUFFLE which satisfies requireHash() — no new exchange inserted.
-            buildSideRequire = probeSideRequire = LocalExchangeTypeRequire.requireHash();
+            // PARTITIONED (shuffle) join: both sides enter via global hash exchange.
+            // Require GLOBAL specifically so that any inserted exchange uses the same
+            // instance mapping as the cross-fragment exchange. LOCAL hash has a different
+            // modulus (per-BE instance count vs total instance count) and would cause
+            // join mismatches (DORIS-26101).
+            buildSideRequire = probeSideRequire
+                    = LocalExchangeTypeRequire.requireGlobalExecutionHash();
             outputType = null; // derived from probeResult.second below
         }
 
