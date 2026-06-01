@@ -1328,6 +1328,10 @@ DECLARE_mInt32(inverted_index_max_buffered_docs);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);
+// SPIMI (V4 pure-SPIMI write path) tunables.
+DECLARE_String(inverted_index_spimi_spill_path);
+DECLARE_mInt64(inverted_index_spimi_min_spill_mem_mb);
+DECLARE_mInt64(inverted_index_spimi_reserve_granule_mb);
 // tree depth for bkd index
 DECLARE_Int32(max_depth_in_bkd_tree);
 // index compaction

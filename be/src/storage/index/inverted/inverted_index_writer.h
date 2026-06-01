@@ -135,6 +135,19 @@ private:
     std::unique_ptr<segment_v2::inverted_index::spimi::TeeTokenStream> _spimi_tee;
     int32_t _spimi_doc_count = 0;
     bool _is_v4 = false;
+    // Per-writer backstop: force a spill once the SPIMI buffer alone exceeds
+    // this many resident bytes, independent of process-global pressure. Caps a
+    // single column writer from hoarding memory when the process limit is huge.
+    // Cached once at writer init; only meaningful in the V4 (_spimi_writer)
+    // branch. min(2GiB, MemInfo::mem_limit()/20).
+    int64_t _spimi_backstop_bytes = 0;
+
+    // Returns true when the V4 SPIMI buffer should be flushed to a spill
+    // segment now. OR of: (1) buffer past the 256MiB hard floor (ShouldFlush),
+    // (2) process hard-mem-limit exceeded (force), (3) process soft pressure +
+    // buffer past the opportunistic min, (4) per-writer backstop. Only the V4
+    // branch calls this; _spimi_writer must be non-null.
+    bool ShouldSpillNow() const;
 };
 
 } // namespace segment_v2

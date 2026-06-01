@@ -1282,6 +1282,17 @@ DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
+// SPIMI (V4 pure-SPIMI write path) tunables.
+// Explicit base dir for SPIMI spill tmp files. Empty -> fall back to
+// spill_storage_root_path, then $DORIS_SPILL_TMP, then "/tmp". Always BE-local.
+DEFINE_String(inverted_index_spimi_spill_path, "");
+// Minimum buffer bytes (MiB) before an opportunistic soft-pressure spill is
+// allowed. Avoids producing tiny spill segments under transient soft pressure.
+DEFINE_mInt64(inverted_index_spimi_min_spill_mem_mb, "64");
+// Incremental growth granule (MiB) reserved before accepting more rows once the
+// SPIMI buffer is past its soft floor. Reserve only this chunk, never the full
+// MemoryUsage().
+DEFINE_mInt64(inverted_index_spimi_reserve_granule_mb, "16");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction

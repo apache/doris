@@ -19,6 +19,10 @@
 
 #include <cstdlib>
 
+#include "common/config.h"
+#include "runtime/memory/global_memory_arbitrator.h"
+#include "runtime/memory/thread_mem_tracker_mgr.h"
+#include "runtime/thread_context.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
@@ -27,6 +31,7 @@
 #include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/faststring.h"
+#include "util/mem_info.h"
 
 namespace doris::segment_v2 {
 
@@ -292,6 +297,11 @@ Status InvertedIndexColumnWriter<field_type>::init_fulltext_index() {
         _spimi_writer = std::make_unique<segment_v2::inverted_index::spimi::SpimiIndexWriter>(
                 field_name_utf8, /*is_v4=*/true);
         _spimi_tee = std::make_unique<segment_v2::inverted_index::spimi::TeeTokenStream>();
+        // Per-writer backstop: cap a single column writer at min(2GiB,
+        // mem_limit/20) of SPIMI buffer before forcing a spill, independent of
+        // process-global pressure. Cached once here (mem_limit is effectively
+        // fixed for the process lifetime).
+        _spimi_backstop_bytes = std::min<int64_t>(int64_t {2} << 30, MemInfo::mem_limit() / 20);
         LOG_FIRST_N(INFO, 1) << "V4 storage format: pure SPIMI write path (no CLucene)";
     }
     _analyzer_config.analyzer_name = get_analyzer_name_from_properties(_index_meta->properties());
@@ -479,6 +489,30 @@ void InvertedIndexColumnWriter<field_type>::new_field_char_value(const char* s, 
 }
 
 template <FieldType field_type>
+bool InvertedIndexColumnWriter<field_type>::ShouldSpillNow() const {
+    DCHECK(_spimi_writer != nullptr);
+    // (1) 256MiB hard floor — unchanged default; the ONLY trigger when there
+    //     is no memory pressure, so default (no-pressure) behaviour and .idx
+    //     output match today exactly.
+    if (_spimi_writer->ShouldFlush()) {
+        return true;
+    }
+    // (2) Process hard mem limit exceeded → force a spill regardless of size.
+    if (GlobalMemoryArbitrator::is_exceed_hard_mem_limit()) {
+        return true;
+    }
+    const int64_t mem = _spimi_writer->MemoryUsage();
+    // (3) Soft pressure + buffer past the opportunistic min. Avoids tiny
+    //     segments under transient soft pressure.
+    if (GlobalMemoryArbitrator::is_exceed_soft_mem_limit() &&
+        mem >= (config::inverted_index_spimi_min_spill_mem_mb << 20)) {
+        return true;
+    }
+    // (4) Per-writer backstop.
+    return mem >= _spimi_backstop_bytes;
+}
+
+template <FieldType field_type>
 Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, const void* values,
                                                          size_t count) {
     if constexpr (field_is_slice_type(field_type)) {
@@ -496,6 +530,24 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
             // segment writer's caller. Matches the catch placement
             // in `add_document()` for the V1/V2/V3 path.
             try {
+                // P2: return any unused growth reservation at scope end. The
+                // reserve below only ever charges incremental growth granules
+                // (never the full MemoryUsage()), so this DEFER is the matching
+                // release for whatever try_reserve left outstanding.
+                DEFER_RELEASE_RESERVED();
+                // SPIMI write memory is ALWAYS tracked under the synchronous
+                // attached limiter (LOAD / COMPACTION / SCHEMA_CHANGE depending
+                // on the caller) — never Orphan. Cheap debug guard catches a
+                // future thread-move that would silently mis-account / make the
+                // process-global watermark gate and try_reserve no-ops. Assert
+                // NON-Orphan (any valid Type), not LOAD specifically.
+                DCHECK(thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->label() !=
+                       "Orphan")
+                        << "V4 SPIMI add_values running under Orphan mem tracker";
+                const int64_t kSpimiReserveGranule = config::inverted_index_spimi_reserve_granule_mb
+                                                     << 20;
+                const int64_t kSpimiMinSpillBytes = config::inverted_index_spimi_min_spill_mem_mb
+                                                    << 20;
                 const auto* v = (Slice*)values;
                 for (size_t i = 0; i < count; ++i) {
                     if ((!_should_analyzer && v->get_size() > _ignore_above) ||
@@ -585,11 +637,40 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
                                 "would be dropped silently",
                                 std::string(_field_name.begin(), _field_name.end()));
                     }
-                    // Spill check: if the buffer exceeded the memory
-                    // budget, flush it to an in-memory spill segment
-                    // and continue accepting tokens.
-                    if (_spimi_writer->ShouldFlush()) {
+                    // Spill check: ShouldSpillNow() ORs the 256MiB hard floor
+                    // (unchanged default behaviour) with process-global memory
+                    // pressure + the per-writer backstop. With no pressure and
+                    // buffer < 256MiB this is identical to the old ShouldFlush()
+                    // gate (no extra spills, .idx byte-identical).
+                    if (ShouldSpillNow()) {
                         _spimi_writer->FlushPending(_spimi_doc_count);
+                    }
+                    // P2 reserve-before-growth: once the buffer is past the soft
+                    // floor (growth territory), reserve a fixed incremental
+                    // growth granule before accepting more rows. CHECK_PROCESS
+                    // only — the write_tracker task limit is -1 so a task-level
+                    // reserve is a no-op. We reserve ONLY the granule, NEVER the
+                    // full MemoryUsage() (the commented-out flush-level reserve
+                    // at memtable_flush_executor.cpp:407-411 reserves the flush
+                    // size; reserving MemoryUsage() here too would double-charge
+                    // the same bytes if that path is ever re-enabled).
+                    if (_spimi_writer->MemoryUsage() >= kSpimiMinSpillBytes &&
+                        thread_context()->thread_mem_tracker_mgr->reserved_mem() == 0) {
+                        Status rst = thread_context()->thread_mem_tracker_mgr->try_reserve(
+                                kSpimiReserveGranule,
+                                ThreadMemTrackerMgr::TryReserveChecker::CHECK_PROCESS);
+                        if (!rst.ok()) {
+                            // PROCESS_MEMORY_EXCEEDED: relieve by spilling, then
+                            // retry the reservation ONCE.
+                            _spimi_writer->FlushPending(_spimi_doc_count);
+                            rst = thread_context()->thread_mem_tracker_mgr->try_reserve(
+                                    kSpimiReserveGranule,
+                                    ThreadMemTrackerMgr::TryReserveChecker::CHECK_PROCESS);
+                            // Still failing → proceed best-effort. SPIMI is a
+                            // builder and must NEVER fail the load; the buffer's
+                            // own hard floors + Saturated() still bound memory.
+                            (void)rst;
+                        }
                     }
                     if (static_cast<int32_t>(_rid) + 1 > _spimi_doc_count) {
                         _spimi_doc_count = static_cast<int32_t>(_rid) + 1;
