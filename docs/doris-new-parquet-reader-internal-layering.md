@@ -578,19 +578,7 @@ ArrowLeafReaderAdapter
 
 ## 推荐重构顺序
 
-### 已完成：拆分 complex column reader 文件
-
-- `StructColumnReader`、`ListColumnReader`、`MapColumnReader` 已从 `column_reader.cpp` 移到独立实现文件。
-- `column_reader.cpp` 当前保留 base `ParquetColumnReader` 行为、reader factory、projection helper 和 Arrow `RecordReader` 缓存。
-- complex reader class 声明集中在 `complex_column_reader.h`，供 factory 和 complex helper 使用。
-
-### 已完成第二阶段：统一 complex materialization sink
-
-- list/map 的 outer parent null map 和 entry count 维护已收敛到 `RepeatedParentSinkState`。
-- nested list/list value 的 repeated child null map 和 entry count 维护已收敛到 `RepeatedChildSinkState`。
-- nullable scalar element/value/list element 写入已收敛到 `append_nullable_scalar_child`。
-- `complex_column_reader_helpers.*` 已承载 nested scalar/struct batch、alignment、output column unwrap、offset/null map append 等公共逻辑。
-- 剩余 sink 工作是继续收敛 map key/value alignment、struct value append，以及更通用的 shape stream + value stream 组合分支。
+本节只保留后续待执行项；已完成内容在前面的当前状态和代码映射表中体现，不在重构计划里重复列出。
 
 ### Step 1：统一 shape stream / value stream
 
