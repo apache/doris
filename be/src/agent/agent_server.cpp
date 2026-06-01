@@ -198,6 +198,10 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_INDEX_POLICY", _cluster_info, config::report_index_policy_interval_seconds,[&cluster_info = _cluster_info] { report_index_policy_callback(cluster_info); }));
+
+    _report_workers.push_back(std::make_unique<ReportWorker>(
+            "REPORT_RESOURCE_USAGE", _cluster_info, config::report_resource_usage_interval_seconds,
+            [&cluster_info = _cluster_info] { report_resource_usage_callback(cluster_info); }));
     // clang-format on
 
     exec_env->storage_engine().to_local().workers = &_workers;
@@ -271,6 +275,10 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_INDEX_POLICY", _cluster_info, config::report_index_policy_interval_seconds,
             [&cluster_info = _cluster_info] { report_index_policy_callback(cluster_info); }));
+
+    _report_workers.push_back(std::make_unique<ReportWorker>(
+            "REPORT_RESOURCE_USAGE", _cluster_info, config::report_resource_usage_interval_seconds,
+            [&cluster_info = _cluster_info] { report_resource_usage_callback(cluster_info); }));
 }
 
 // TODO(lingbin): each task in the batch may have it own status or FE must check and

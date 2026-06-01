@@ -217,4 +217,6 @@ void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
 
 void report_index_policy_callback(const ClusterInfo* cluster_info);
 
+void report_resource_usage_callback(const ClusterInfo* cluster_info);
+
 } // namespace doris
