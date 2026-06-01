@@ -605,11 +605,6 @@ TEST_F(ColumnArrayTest, ColumnStringFuncsTest) {
     assert_column_string_funcs(array_columns);
 }
 
-// test shrink_padding_chars_callback
-TEST_F(ColumnArrayTest, ShrinkPaddingCharsTest) {
-    shrink_padding_chars_callback(array_columns, serdes);
-}
-
 //////////////////////// special function from column_array.h ////////////////////////
 TEST_F(ColumnArrayTest, SharedCreateValidatesOffsetsAndDataSize) {
     auto data_mut = ColumnInt32::create();

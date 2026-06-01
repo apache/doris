@@ -654,7 +654,7 @@ Status SegmentIterator::_lazy_init(Block* block) {
     }
     _current_return_columns.resize(_schema->columns().size());
 
-    _vec_init_char_column_id(block);
+    _vec_init_char_column_id();
     for (size_t i = 0; i < _schema->column_ids().size(); i++) {
         ColumnId cid = _schema->column_ids()[i];
         const auto* column_desc = _schema->column(cid);
@@ -1816,13 +1816,6 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
 
     const auto& key_col_ids = key.schema()->column_ids();
 
-    // Clone the key once and pad CHAR fields to storage format before the binary search.
-    // _seek_block holds storage-format data where CHAR is zero-padded to column length,
-    // while RowCursor holds CHAR in compute format (unpadded). Padding once here avoids
-    // repeated allocation inside the comparison loop.
-    RowCursor padded_key = key.clone();
-    padded_key.pad_char_fields();
-
     ssize_t start_block_id = 0;
     auto start_iter = sk_index_decoder->lower_bound(index_key);
     if (start_iter.valid()) {
@@ -1850,7 +1843,7 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
     while (start < end) {
         rowid_t mid = (start + end) / 2;
         RETURN_IF_ERROR(_seek_and_peek(mid));
-        int cmp = _compare_short_key_with_seek_block(padded_key, key_col_ids);
+        int cmp = _compare_short_key_with_seek_block(key, key_col_ids);
         if (cmp > 0) {
             start = mid + 1;
         } else if (cmp == 0) {
@@ -2206,43 +2199,14 @@ bool SegmentIterator::_can_evaluated_by_vectorized(std::shared_ptr<ColumnPredica
     }
 }
 
-bool SegmentIterator::_has_char_type(const TabletColumn& column_desc) {
-    switch (column_desc.type()) {
-    case FieldType::OLAP_FIELD_TYPE_CHAR:
-        return true;
-    case FieldType::OLAP_FIELD_TYPE_ARRAY:
-        return _has_char_type(column_desc.get_sub_column(0));
-    case FieldType::OLAP_FIELD_TYPE_MAP:
-        return _has_char_type(column_desc.get_sub_column(0)) ||
-               _has_char_type(column_desc.get_sub_column(1));
-    case FieldType::OLAP_FIELD_TYPE_STRUCT:
-        for (uint32_t idx = 0; idx < column_desc.get_subtype_count(); ++idx) {
-            if (_has_char_type(column_desc.get_sub_column(idx))) {
-                return true;
-            }
-        }
-        return false;
-    default:
-        return false;
-    }
-};
-
-void SegmentIterator::_vec_init_char_column_id(Block* block) {
-    if (!_char_type_idx.empty()) {
+void SegmentIterator::_vec_init_char_column_id() {
+    if (!_is_char_type.empty()) {
         return;
     }
     _is_char_type.resize(_schema->columns().size(), false);
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
         const TabletColumn* column_desc = _schema->column(cid);
-
-        // The additional deleted filter condition will be in the materialized column at the end of the block.
-        // After _output_column_by_sel_idx, it will be erased, so we do not need to shrink it.
-        if (i < block->columns()) {
-            if (_has_char_type(*column_desc)) {
-                _char_type_idx.emplace_back(i);
-            }
-        }
 
         if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
             _is_char_type[cid] = true;
@@ -3125,8 +3089,6 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
         _output_index_result_column(vir_ctxs, sel_rowid_idx, _selected_size, block);
     }
     RETURN_IF_ERROR(_materialization_of_virtual_column(block));
-    // shrink char_type suffix zero data
-    block->shrink_char_type_column_suffix_zero(_char_type_idx);
     if (_opts.read_limit > 0) {
         _rows_returned += block->rows();
     }
@@ -3236,7 +3198,6 @@ Status SegmentIterator::_process_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
         common_ctxs.push_back(ctx.get());
     }
     _output_index_result_column(common_ctxs, _sel_rowid_idx.data(), _selected_size, block);
-    block->shrink_char_type_column_suffix_zero(_char_type_idx);
     RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), _selected_size, block));
 
     if (need_mock_col) {
@@ -3639,7 +3600,6 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
                     idx_in_block, block->columns(), _vir_cid_to_idx_in_block.size(),
                     column_expr->root()->debug_string());
         }
-        block->shrink_char_type_column_suffix_zero(_char_type_idx);
         if (check_and_get_column<const ColumnNothing>(
                     block->get_by_position(idx_in_block).column.get())) {
             VLOG_DEBUG << fmt::format("Virtual column is doing materialization, cid {}, col idx {}",
