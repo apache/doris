@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
@@ -106,6 +107,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         final Map<LogicalProject<? extends Plan>, List<NamedExpression>> projectToPulledUpExprs
                 = new LinkedHashMap<>();
         final Map<ExprId, List<Slot>> baseSlotsByExpr = new HashMap<>();
+        final Map<ExprId, List<Slot>> passThroughSlotsByDeduplicatedExpr = new HashMap<>();
 
         PullUpInfo(LogicalTopN topN) {
             this.topN = topN;
@@ -116,6 +118,11 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             allPulledUpExprs.add(expr);
             projectToPulledUpExprs.computeIfAbsent(project, k -> new ArrayList<>()).add(expr);
             baseSlotsByExpr.put(expr.getExprId(), ImmutableList.copyOf(expr.getInputSlots()));
+        }
+
+        void addPassThroughSlotsForDeduplicatedExpr(NamedExpression expr) {
+            passThroughSlotsByDeduplicatedExpr.put(
+                    expr.getExprId(), ImmutableList.copyOf(expr.getInputSlots()));
         }
     }
 
@@ -311,6 +318,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                 }
             }
             for (NamedExpression expr : toRemove) {
+                info.addPassThroughSlotsForDeduplicatedExpr(expr);
                 info.allPulledUpExprs.remove(expr);
                 for (List<NamedExpression> list : info.projectToPulledUpExprs.values()) {
                     list.removeIf(e -> e == expr);
@@ -437,23 +445,42 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             currentOutputByExprId.put(slot.getExprId(), slot);
         }
         List<NamedExpression> upperOutput = new ArrayList<>();
+        Set<ExprId> upperOutputExprIds = new HashSet<>();
         for (int i = 0; i < info.originalTopNOutput.size(); i++) {
             Slot origSlot = info.originalTopNOutput.get(i);
             NamedExpression pulledUpExpr = pulledUpBySlotExprId.get(origSlot.getExprId());
             if (pulledUpExpr != null) {
                 upperOutput.add(pulledUpExpr);
+                upperOutputExprIds.add(pulledUpExpr.getExprId());
             } else {
                 Slot currentSlot = currentOutputByExprId.get(origSlot.getExprId());
                 if (currentSlot != null) {
                     upperOutput.add(currentSlot);
-                } else if (i < currentOutput.size()) {
-                    // The original slot may have been removed because another TopN owns its pull-up.
-                    // In that case keep the rewritten replacement at the same position.
-                    upperOutput.add(currentOutput.get(i));
+                    upperOutputExprIds.add(currentSlot.getExprId());
+                } else {
+                    List<Slot> passThroughSlots = info.passThroughSlotsByDeduplicatedExpr.get(origSlot.getExprId());
+                    Preconditions.checkState(passThroughSlots != null,
+                            "Original slot %s should be restored or passed through", origSlot);
+                    addPassThroughSlots(upperOutput, upperOutputExprIds, currentOutputByExprId, passThroughSlots);
                 }
             }
         }
 
         return new LogicalProject<>(ImmutableList.copyOf(upperOutput), topN);
+    }
+
+    private static void addPassThroughSlots(
+            List<NamedExpression> upperOutput,
+            Set<ExprId> upperOutputExprIds,
+            Map<ExprId, Slot> currentOutputByExprId,
+            List<Slot> passThroughSlots) {
+        for (Slot passThroughSlot : passThroughSlots) {
+            Slot currentSlot = currentOutputByExprId.get(passThroughSlot.getExprId());
+            Preconditions.checkState(currentSlot != null,
+                    "Pass-through slot %s should be produced by rewritten TopN", passThroughSlot);
+            if (upperOutputExprIds.add(currentSlot.getExprId())) {
+                upperOutput.add(currentSlot);
+            }
+        }
     }
 }

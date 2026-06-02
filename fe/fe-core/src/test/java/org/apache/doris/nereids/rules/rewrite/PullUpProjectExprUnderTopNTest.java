@@ -424,6 +424,38 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    void testDeduplicatedPullUpPassesThroughInputSlots() {
+        LogicalOlapScan scan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of("db"));
+        Slot id = scan.getOutput().get(0);
+        Slot a = scan.getOutput().get(1);
+        Slot b = scan.getOutput().get(3);
+        Alias x = new Alias(new Add(a, new IntegerLiteral((byte) 1)), "x");
+        Alias y = new Alias(new Add(b, new IntegerLiteral((byte) 1)), "y");
+        GreaterThan filter = new GreaterThan(x.toSlot(), new IntegerLiteral((byte) 1));
+
+        LogicalPlan plan = new LogicalPlanBuilder(scan)
+                .projectExprs(ImmutableList.of(x, y, id))
+                .topN(10, 0, ImmutableList.of(2))
+                .filter(filter)
+                .topN(3, 0, ImmutableList.of(2))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .matches(
+                        logicalProject(
+                                logicalTopN(
+                                        logicalProject(logicalOlapScan())
+                                )
+                        ).when(project -> project.getProjects().size() == 3
+                                && project.getProjects().get(0).getExprId().equals(x.getExprId())
+                                && project.getProjects().get(1).getExprId().equals(b.getExprId())
+                                && project.getProjects().get(2).getExprId().equals(id.getExprId()))
+                );
+    }
+
+    @Test
     void testNotPullUpNoneMovableFunction() {
         // topn -> project(assert_true(a+1, "msg") as x) -> scan
         // NoneMovableFunction should not be pulled up.
