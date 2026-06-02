@@ -975,10 +975,15 @@ public class ConnectContext {
             return;
         }
 
+        Map<String, Set<String>> tempTables = new HashMap<>();
+        for (Map.Entry<String, Set<String>> entry : dbToTempTableNamesMap.entrySet()) {
+            tempTables.put(entry.getKey(), new HashSet<>(entry.getValue()));
+        }
+
         // if current fe is master, delete temporary table directly
         if (Env.getCurrentEnv().isMaster()) {
-            for (String dbName : dbToTempTableNamesMap.keySet()) {
-                for (String tableName : dbToTempTableNamesMap.get(dbName)) {
+            for (String dbName : tempTables.keySet()) {
+                for (String tableName : tempTables.get(dbName)) {
                     LOG.info("try to drop temporary table: {}.{}", dbName, tableName);
                     try {
                         Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbName).get();
@@ -999,8 +1004,8 @@ public class ConnectContext {
         } else {
             // forward to master fe to drop table
             RedirectStatus redirectStatus = new RedirectStatus(true, false);
-            for (String dbName : dbToTempTableNamesMap.keySet()) {
-                for (String tableName : dbToTempTableNamesMap.get(dbName)) {
+            for (String dbName : tempTables.keySet()) {
+                for (String tableName : tempTables.get(dbName)) {
                     LOG.info("request to delete temporary table: {}.{}", dbName, tableName);
                     String dropTableSql = String.format("drop table `%s`", tableName);
                     OriginStatement originStmt = new OriginStatement(dropTableSql, 0);

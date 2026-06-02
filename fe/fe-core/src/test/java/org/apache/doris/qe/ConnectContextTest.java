@@ -21,7 +21,9 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
@@ -54,6 +56,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ConnectContextTest {
     private StmtExecutor executor = Mockito.mock(StmtExecutor.class);
@@ -184,6 +187,44 @@ public class ConnectContextTest {
         Assert.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
         Assert.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, ctx.getState().getErrorCode());
         Assert.assertTrue(ctx.getState().getErrorMessage().contains("reset connection failed"));
+    }
+
+    @Test
+    public void testResetConnectionDropsMultipleTemporaryTables() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(env);
+        ctx.addTempTableToDB("test_db", "test_temp_table1");
+        ctx.addTempTableToDB("test_db", "test_temp_table2");
+
+        Database db = Mockito.mock(Database.class);
+        Table table1 = Mockito.mock(Table.class);
+        Table table2 = Mockito.mock(Table.class);
+        AtomicInteger droppedTableCount = new AtomicInteger();
+
+        Mockito.when(env.isMaster()).thenReturn(true);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(internalCatalog.getDb("test_db")).thenReturn(Optional.of(db));
+        Mockito.when(db.getTable("test_temp_table1")).thenReturn(Optional.of(table1));
+        Mockito.when(db.getTable("test_temp_table2")).thenReturn(Optional.of(table2));
+        Mockito.doAnswer(invocation -> {
+            Table table = invocation.getArgument(1);
+            if (table == table1) {
+                ctx.removeTempTableFromDB("test_db", "test_temp_table1");
+            } else {
+                ctx.removeTempTableFromDB("test_db", "test_temp_table2");
+            }
+            droppedTableCount.incrementAndGet();
+            return null;
+        }).when(internalCatalog).dropTableWithoutCheck(Mockito.eq(db), Mockito.any(Table.class),
+                Mockito.eq(false), Mockito.eq(true));
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            ctx.resetConnection();
+        }
+
+        Assert.assertEquals(2, droppedTableCount.get());
+        Assert.assertTrue(ctx.getDbToTempTableNamesMap().isEmpty());
     }
 
     @Test
