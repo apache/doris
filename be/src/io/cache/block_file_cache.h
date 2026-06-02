@@ -474,6 +474,9 @@ private:
     FileBlocks split_range_into_cells(const UInt128Wrapper& hash, const CacheContext& context,
                                       size_t offset, size_t size, FileBlock::State state,
                                       std::lock_guard<std::mutex>& cache_lock);
+    FileBlocks split_range_into_skip_cache_blocks(const UInt128Wrapper& hash,
+                                                  const CacheContext& context, size_t offset,
+                                                  size_t size);
 
     std::string dump_structure_unlocked(const UInt128Wrapper& hash,
                                         std::lock_guard<std::mutex>& cache_lock);
@@ -485,6 +488,9 @@ private:
                                            const CacheContext& context,
                                            const FileBlock::Range& range,
                                            std::lock_guard<std::mutex>& cache_lock);
+    void fill_holes_with_skip_cache_blocks(FileBlocks& file_blocks, const UInt128Wrapper& hash,
+                                           const CacheContext& context,
+                                           const FileBlock::Range& range);
 
     size_t get_used_cache_size_unlocked(FileCacheType type,
                                         std::lock_guard<std::mutex>& cache_lock) const;
@@ -563,6 +569,8 @@ private:
     bool _disk_resource_limit_mode {false};
     bool _need_evict_cache_in_advance {false};
     bool _is_initialized {false};
+    // Guarded by _mutex. Cache misses skip insertion while sync clear is draining old blocks.
+    bool _clear_file_cache_sync_running {false};
 
     // strategy
     using FileBlocksByOffset = std::map<size_t, FileBlockCell>;

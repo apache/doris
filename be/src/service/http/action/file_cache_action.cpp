@@ -34,6 +34,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
+#include "runtime/thread_context.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
@@ -227,6 +228,7 @@ void FileCacheAction::handle(HttpRequest* req) {
         req->set_cancel_callback(
                 [cancel_token] { cancel_token->cancelled.store(true, std::memory_order_release); });
         std::thread([this, req, cancel_token] {
+            SCOPED_INIT_THREAD_CONTEXT();
             std::string json_metrics;
             Status status = _handle_header(req, &json_metrics, cancel_token, false);
             std::string status_result = status.to_json();

@@ -8499,6 +8499,71 @@ TEST_F(BlockFileCacheTest, clear_file_cache_sync_waits_deleting_block) {
     EXPECT_TRUE(cache.get_blocks_by_key(key).empty());
 }
 
+TEST_F(BlockFileCacheTest, clear_file_cache_sync_skips_new_blocks_during_clear) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.capacity = 90;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; ++i) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    auto old_key = io::BlockFileCache::hash("sync_clear_existing_block");
+    auto new_key = io::BlockFileCache::hash("sync_clear_new_block");
+
+    std::optional<io::FileBlocksHolder> holder;
+    holder.emplace(cache.get_or_set(old_key, 0, 5, context));
+    ASSERT_EQ(holder->file_blocks.size(), 1);
+    auto& block = holder->file_blocks.front();
+    ASSERT_TRUE(block->get_or_set_downloader() == io::FileBlock::get_caller_id());
+    download(block);
+
+    auto sp = SyncPoint::get_instance();
+    std::promise<void> barrier_ready_promise;
+    auto barrier_ready_future = barrier_ready_promise.get_future();
+    SyncPoint::CallbackGuard barrier_ready_guard;
+    sp->set_call_back(
+            "BlockFileCache::clear_file_cache_sync:barrier_ready",
+            [&barrier_ready_promise](auto&&) { barrier_ready_promise.set_value(); },
+            &barrier_ready_guard);
+    sp->enable_processing();
+    Defer defer {[sp] { sp->disable_processing(); }};
+
+    auto future =
+            std::async(std::launch::async, [&cache] { return cache.clear_file_cache_sync(); });
+    ASSERT_EQ(barrier_ready_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    ASSERT_EQ(future.wait_for(std::chrono::milliseconds(100)), std::future_status::timeout);
+
+    auto new_holder = cache.get_or_set(new_key, 0, 5, context);
+    ASSERT_EQ(new_holder.file_blocks.size(), 1);
+    EXPECT_EQ(new_holder.file_blocks.front()->state(), io::FileBlock::State::SKIP_CACHE);
+    EXPECT_TRUE(cache.get_blocks_by_key(new_key).empty());
+
+    holder.reset();
+    auto msg = future.get();
+    EXPECT_NE(msg.find("cancelled=0"), std::string::npos);
+    EXPECT_TRUE(cache.get_blocks_by_key(old_key).empty());
+    EXPECT_TRUE(cache.get_blocks_by_key(new_key).empty());
+}
+
 TEST_F(BlockFileCacheTest, clear_file_cache_sync_cancel_waiting_keeps_async_cleanup_safe) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);

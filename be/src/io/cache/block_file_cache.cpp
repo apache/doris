@@ -845,6 +845,45 @@ std::string BlockFileCache::clear_file_cache_sync(
         BlockFileCache* _cache;
     } ttl_pause_guard(this);
 
+    while (!_async_open_done.load(std::memory_order_acquire)) {
+        if (cancel_token != nullptr && cancel_token->cancelled.load(std::memory_order_acquire)) {
+            result.cancelled = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if (!result.cancelled) {
+        {
+            SCOPED_CACHE_LOCK(_mutex, this);
+            DCHECK(!_clear_file_cache_sync_running);
+            _clear_file_cache_sync_running = true;
+        }
+        TEST_SYNC_POINT_CALLBACK("BlockFileCache::clear_file_cache_sync:barrier_ready");
+    }
+    class ClearInProgressGuard {
+    public:
+        ClearInProgressGuard(BlockFileCache* cache, bool active) : _cache(cache), _active(active) {}
+        ~ClearInProgressGuard() {
+            if (!_active) {
+                return;
+            }
+            SCOPED_CACHE_LOCK(_cache->_mutex, _cache);
+            DCHECK(_cache->_clear_file_cache_sync_running);
+            _cache->_clear_file_cache_sync_running = false;
+        }
+
+    private:
+        BlockFileCache* _cache;
+        bool _active;
+    } clear_in_progress_guard(this, !result.cancelled);
+
+    if (result.cancelled) {
+        result.elapsed_ms = duration_cast<milliseconds>(steady_clock::now() - start).count();
+        auto msg = result.to_string(_cache_base_path, "clear_file_cache_sync");
+        LOG(INFO) << msg;
+        return msg;
+    }
+
     append_clear_result(result, clear_file_cache_async_impl());
 
     while (true) {
@@ -962,6 +1001,36 @@ FileBlocks BlockFileCache::split_range_into_cells(const UInt128Wrapper& hash,
     return file_blocks;
 }
 
+FileBlocks BlockFileCache::split_range_into_skip_cache_blocks(const UInt128Wrapper& hash,
+                                                              const CacheContext& context,
+                                                              size_t offset, size_t size) {
+    DCHECK(size > 0);
+
+    auto current_pos = offset;
+    auto end_pos_non_included = offset + size;
+    size_t remaining_size = size;
+
+    FileBlocks file_blocks;
+    while (current_pos < end_pos_non_included) {
+        size_t current_size = std::min(remaining_size, _max_file_block_size);
+        remaining_size -= current_size;
+
+        FileCacheKey key;
+        key.hash = hash;
+        key.offset = current_pos;
+        key.meta.type = context.cache_type;
+        key.meta.expiration_time = context.expiration_time;
+        key.meta.tablet_id = context.tablet_id;
+        file_blocks.push_back(
+                std::make_shared<FileBlock>(key, current_size, this, FileBlock::State::SKIP_CACHE));
+
+        current_pos += current_size;
+    }
+
+    DCHECK(file_blocks.empty() || offset + size - 1 == file_blocks.back()->range().right);
+    return file_blocks;
+}
+
 void BlockFileCache::fill_holes_with_empty_file_blocks(FileBlocks& file_blocks,
                                                        const UInt128Wrapper& hash,
                                                        const CacheContext& context,
@@ -1027,6 +1096,47 @@ void BlockFileCache::fill_holes_with_empty_file_blocks(FileBlocks& file_blocks,
     }
 }
 
+void BlockFileCache::fill_holes_with_skip_cache_blocks(FileBlocks& file_blocks,
+                                                       const UInt128Wrapper& hash,
+                                                       const CacheContext& context,
+                                                       const FileBlock::Range& range) {
+    auto it = file_blocks.begin();
+    auto block_range = (*it)->range();
+
+    size_t current_pos = 0;
+    if (block_range.left < range.left) {
+        current_pos = block_range.right + 1;
+        ++it;
+    } else {
+        current_pos = range.left;
+    }
+
+    while (current_pos <= range.right && it != file_blocks.end()) {
+        block_range = (*it)->range();
+
+        if (current_pos == block_range.left) {
+            current_pos = block_range.right + 1;
+            ++it;
+            continue;
+        }
+
+        DCHECK(current_pos < block_range.left);
+
+        auto hole_size = block_range.left - current_pos;
+        file_blocks.splice(
+                it, split_range_into_skip_cache_blocks(hash, context, current_pos, hole_size));
+
+        current_pos = block_range.right + 1;
+        ++it;
+    }
+
+    if (current_pos <= range.right) {
+        auto hole_size = range.right - current_pos + 1;
+        file_blocks.splice(file_blocks.end(), split_range_into_skip_cache_blocks(
+                                                      hash, context, current_pos, hole_size));
+    }
+}
+
 FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t offset, size_t size,
                                             CacheContext& context) {
     FileBlock::Range range(offset, offset + size - 1);
@@ -1051,7 +1161,13 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
             file_blocks = get_impl(hash, context, range, cache_lock);
         }
 
-        if (file_blocks.empty()) {
+        if (_clear_file_cache_sync_running && file_blocks.empty()) {
+            SCOPED_RAW_TIMER(&stats->set_timer);
+            file_blocks = split_range_into_skip_cache_blocks(hash, context, offset, size);
+        } else if (_clear_file_cache_sync_running) {
+            SCOPED_RAW_TIMER(&stats->set_timer);
+            fill_holes_with_skip_cache_blocks(file_blocks, hash, context, range);
+        } else if (file_blocks.empty()) {
             SCOPED_RAW_TIMER(&stats->set_timer);
             file_blocks = split_range_into_cells(hash, context, offset, size,
                                                  FileBlock::State::EMPTY, cache_lock);
