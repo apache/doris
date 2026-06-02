@@ -100,9 +100,10 @@ Status EqualityDeletePredicate::execute(VExprContext* context, Block* block,
 
     Block data_key_block;
     for (const auto& child : _children) {
+        Block eval_block = *block;
         int slot = -1;
-        RETURN_IF_ERROR(child->execute(context, block, &slot));
-        const auto& key_column = block->get_by_position(slot);
+        RETURN_IF_ERROR(child->execute(context, &eval_block, &slot));
+        const auto& key_column = eval_block.get_by_position(slot);
         data_key_block.insert({key_column.column, key_column.type, key_column.name});
     }
 

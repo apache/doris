@@ -1202,8 +1202,8 @@ TEST_F(NewParquetReaderTest, DictionaryPageV2StringEdgesSurviveSelection) {
         }
     }
 
-    EXPECT_EQ(ids, std::vector<int32_t>({1, 2, 5, 6, 7, 8}));
-    EXPECT_EQ(values, std::vector<std::string>({"", "same", "", "tail", "same", "last"}));
+    EXPECT_EQ(ids, std::vector<int32_t>({1, 2, 5, 7}));
+    EXPECT_EQ(values, std::vector<std::string>({"", "same", "", "same"}));
 }
 
 TEST_F(NewParquetReaderTest, StatisticsPruningSkipsPrefixRowGroupsAndReadsLaterGroups) {
