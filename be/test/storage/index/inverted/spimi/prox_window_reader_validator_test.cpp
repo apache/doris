@@ -148,7 +148,8 @@ void ExpectForwardScanMatchesEager(const Term& t) {
     MemPostingStore prx_store(prx.data(), prx.size());
     SpimiWindowedTermPositions prx_lazy;
     ASSERT_TRUE(prx_lazy.Open(&prx_store, /*prox_pointer=*/0, frq_lazy));
-    ASSERT_EQ(prx_lazy.windows_total(), frq_lazy.windows_total());
+    // `.prx` is framed independently of `.frq` now; window counts may differ.
+    ASSERT_GE(prx_lazy.windows_total(), 1);
 
     int32_t i = 0;
     while (frq_lazy.next()) {
@@ -313,7 +314,11 @@ TEST(SpimiProxWindowReaderValidatorTest, OnePercentAccessFetchesAboutOneWindow) 
         (void)prx_lazy.PositionsForDoc(wstart + j, frq_lazy);
     }
     const int64_t one_window_bytes = prx_store.bytes_read();
-    EXPECT_EQ(prx_lazy.windows_inflated(), 1) << "1% in-window access inflates exactly one window";
+    // `.prx` is framed independently of `.frq` now (coarser, config-sized windows),
+    // so a sample drawn from one `.frq` window may straddle a `.prx` boundary —
+    // a tight cluster still touches only a window or two.
+    EXPECT_GE(prx_lazy.windows_inflated(), 1);
+    EXPECT_LE(prx_lazy.windows_inflated(), 2) << "1% clustered access inflates few .prx windows";
     EXPECT_GT(one_window_bytes, 0);
     EXPECT_LT(one_window_bytes, static_cast<int64_t>(prx.size()))
             << "1% access must fetch far less than the whole .prx";
@@ -332,7 +337,8 @@ TEST(SpimiProxWindowReaderValidatorTest, OnePercentAccessFetchesAboutOneWindow) 
         (void)prx_lazy_all.PositionsForDoc(p, frq_lazy);
     }
     const int64_t all_bytes = prx_store.bytes_read();
-    EXPECT_EQ(prx_lazy_all.windows_inflated(), nwin) << "full sweep inflates every window once";
+    EXPECT_EQ(prx_lazy_all.windows_inflated(), prx_lazy_all.windows_total())
+            << "full sweep inflates every .prx window once";
     EXPECT_GT(all_bytes, one_window_bytes)
             << "full sweep must fetch strictly more than a single-window 1% access";
 

@@ -131,41 +131,84 @@ bool SpimiWindowedTermPositions::Open(PostingStore* prx_store, int64_t prox_poin
     if (num_windows <= 0) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .prx windowed: num_windows out of range");
     }
-    // 1:1 alignment contract: `.prx` window w covers `.frq` window w. A
-    // mismatch means the two streams desynced (future encoder bug or crafted
-    // segment) — fail loudly rather than slice positions with wrong freqs.
-    if (num_windows != frq_lazy.windows_total()) [[unlikely]] {
-        SPIMI_THROW_CORRUPT("SPIMI .prx windowed: num_windows disagrees with .frq");
+    const int64_t header_bytes = static_cast<int64_t>(hcur.pos());
+
+    // --- (2) Parse the `.prx`-OWN per-window skip table (4 VInts/window):
+    //         [doc_count][byte_offset][min_docid][max_docid - min_docid]. The
+    //         framing is INDEPENDENT of `.frq`; the doc partition is the prefix
+    //         sum of doc_count, validated against the term's .frq doc_freq. ---
+    const int64_t skip_start = prox_pointer + header_bytes;
+    const int64_t skip_max = std::min<int64_t>(static_cast<int64_t>(num_windows) * 4 * 5,
+                                               file_len - skip_start);
+    if (skip_max <= 0) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .prx windowed: skip table past end of file");
+    }
+    std::vector<uint8_t> skip(static_cast<size_t>(skip_max));
+    prx_store->read_at(skip_start, skip.data(), skip.size());
+    ByteStream scur(skip.data(), skip.size());
+
+    _windows.resize(static_cast<size_t>(num_windows));
+    std::vector<int64_t> byte_offset(static_cast<size_t>(num_windows));
+    int32_t doc_acc = 0;
+    for (int32_t w = 0; w < num_windows; ++w) {
+        PrxWinEntry& e = _windows[static_cast<size_t>(w)];
+        e.doc_count = scur.ReadVInt();
+        byte_offset[static_cast<size_t>(w)] = static_cast<uint32_t>(scur.ReadVInt());
+        e.min_docid = scur.ReadVInt();
+        e.max_docid = e.min_docid + scur.ReadVInt();
+        if (e.doc_count <= 0) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .prx windowed: non-positive window doc_count");
+        }
+        e.doc_index_start = doc_acc;
+        doc_acc += e.doc_count;
+    }
+    if (doc_acc != frq_lazy.doc_freq()) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .prx windowed: Sum(doc_count) != .frq doc_freq");
     }
 
-    // --- (2) Self-frame each window payload tuple to fill the byte-offset
-    //         table. The first tuple sits at `payload_base`; each subsequent
-    //         tuple immediately follows the previous (no skip table in .prx),
-    //         so we walk them in order, framing each by its header only. ---
-    const int64_t payload_base = prox_pointer + static_cast<int64_t>(hcur.pos());
+    // --- (3) Payloads follow the skip table contiguously. Locate each window by
+    //         its byte_offset (relative to the first payload); length = next
+    //         offset - this; the last window self-frames by its header. ---
+    const int64_t payload_base = skip_start + static_cast<int64_t>(scur.pos());
     if (payload_base > file_len) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .prx windowed: payload base past end of file");
     }
-    _windows.resize(static_cast<size_t>(num_windows));
-    int64_t cursor = payload_base;
     for (int32_t w = 0; w < num_windows; ++w) {
         PrxWinEntry& e = _windows[static_cast<size_t>(w)];
-        const int64_t remain = file_len - cursor;
-        const int64_t tuple_len = FrameTupleLen(prx_store, cursor, remain);
-        e.payload_pos = cursor;
-        e.payload_len = tuple_len;
-        // Doc partition copied from the aligned `.frq` window (NOT re-derived).
-        e.doc_count = frq_lazy.window_doc_count(w);
-        e.doc_index_start = frq_lazy.window_doc_index_start(w);
-        if (e.doc_count <= 0) [[unlikely]] {
-            SPIMI_THROW_CORRUPT("SPIMI .prx windowed: non-positive .frq window doc_count");
+        const int64_t off = byte_offset[static_cast<size_t>(w)];
+        e.payload_pos = payload_base + off;
+        int64_t plen;
+        if (w + 1 < num_windows) {
+            plen = byte_offset[static_cast<size_t>(w + 1)] - off;
+        } else {
+            plen = FrameTupleLen(prx_store, e.payload_pos, file_len - e.payload_pos);
         }
-        cursor += tuple_len;
-        if (cursor > file_len || cursor < e.payload_pos) [[unlikely]] {
-            SPIMI_THROW_CORRUPT("SPIMI .prx windowed: window payload past end of file");
+        if (off < 0 || plen <= 0 || e.payload_pos < payload_base ||
+            e.payload_pos + plen > file_len) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .prx windowed: window payload span out of bounds");
         }
+        e.payload_len = plen;
     }
     return true;
+}
+
+int32_t SpimiWindowedTermPositions::PrxWindowIndexForDoc(int32_t p) const {
+    // upper_bound on doc_index_start, then step back one (mirror the .frq reader).
+    int32_t lo = 0;
+    int32_t hi = static_cast<int32_t>(_windows.size());
+    while (lo < hi) {
+        const int32_t mid = lo + (hi - lo) / 2;
+        if (_windows[static_cast<size_t>(mid)].doc_index_start <= p) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    const int32_t w = lo - 1;
+    if (w < 0 || static_cast<size_t>(w) >= _windows.size()) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .prx windowed: no window covers doc index");
+    }
+    return w;
 }
 
 void SpimiWindowedTermPositions::DecodeWindow(int32_t w, SpimiWindowedTermDocs& frq_lazy) {
@@ -177,12 +220,21 @@ void SpimiWindowedTermPositions::DecodeWindow(int32_t w, SpimiWindowedTermDocs& 
     }
     const PrxWinEntry& e = _windows[static_cast<size_t>(w)];
 
-    // Pull the per-doc freqs of this window from the `.frq` lazy reader. It
-    // decodes the covering `.frq` window on demand; for phrase queries the
-    // doc cursor already advanced through it, so this is usually a cache hit.
-    const auto& frq_docs = frq_lazy.WindowDocsForDoc(e.doc_index_start);
-    if (static_cast<int32_t>(frq_docs.size()) != e.doc_count) [[unlikely]] {
-        SPIMI_THROW_CORRUPT("SPIMI .prx windowed: .frq window doc_count desync");
+    // Gather this `.prx` window's per-doc freqs over its global doc RANGE
+    // [doc_index_start, doc_index_start+doc_count). Because `.prx` framing is
+    // decoupled, this range may span several `.frq` windows. WindowDocsForDoc(p)
+    // returns the covering `.frq` window's (docid,freq) pairs and caches that
+    // window, so each spanned `.frq` window decodes at most once. Exact per-doc
+    // (no doc is split — both streams cut on whole 256-doc units).
+    std::vector<int32_t> freqs(static_cast<size_t>(e.doc_count));
+    for (int32_t i = 0; i < e.doc_count; ++i) {
+        const int32_t p = e.doc_index_start + i;
+        const auto& fdocs = frq_lazy.WindowDocsForDoc(p);
+        const int32_t flocal = p - frq_lazy.window_doc_index_start(frq_lazy.current_window_index());
+        if (flocal < 0 || static_cast<size_t>(flocal) >= fdocs.size()) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .prx windowed: doc not in covering .frq window");
+        }
+        freqs[static_cast<size_t>(i)] = fdocs[static_cast<size_t>(flocal)].second;
     }
 
     // Range-read EXACTLY this window's framed payload, then inflate it with the
@@ -201,7 +253,7 @@ void SpimiWindowedTermPositions::DecodeWindow(int32_t w, SpimiWindowedTermDocs& 
     const size_t len = inner.size();
     size_t pos = 0;
     for (int32_t i = 0; i < e.doc_count; ++i) {
-        const int32_t freq = frq_docs[static_cast<size_t>(i)].second;
+        const int32_t freq = freqs[static_cast<size_t>(i)];
         if (freq <= 0) [[unlikely]] {
             SPIMI_THROW_CORRUPT("SPIMI .prx windowed: non-positive freq slicing positions");
         }
@@ -229,8 +281,9 @@ const std::vector<int32_t>& SpimiWindowedTermPositions::PositionsForDoc(
     if (p < 0) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .prx windowed: PositionsForDoc negative doc index");
     }
-    // Covering window = same index the `.frq` reader uses (metadata-only lookup).
-    const int32_t w = frq_lazy.WindowIndexForDoc(p);
+    // Covering window via the `.prx`-OWN doc_index_start table (decoupled from
+    // .frq). frq_lazy is consumed only as the freq oracle inside DecodeWindow.
+    const int32_t w = PrxWindowIndexForDoc(p);
     DecodeWindow(w, frq_lazy);
     const PrxWinEntry& e = _windows[static_cast<size_t>(w)];
     const int32_t local = p - e.doc_index_start;

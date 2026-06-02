@@ -1305,12 +1305,24 @@ DEFINE_mInt64(inverted_index_spimi_zstd_min_bytes, "512");
 // today. Rationale: .frq is PFOR-packed integers where ZSTD earns only ~20-27% of
 // the windowed disk saving but costs disproportionate write-CPU (the adaptive-W
 // search compresses every candidate framing); .prx carries 73-81% of the ZSTD disk
-// win. EXPERIMENTAL: flipping this standalone (e.g. huge to disable .frq ZSTD) is
-// NOT yet a net win — the .frq adaptive-W search then picks the finest window and
-// the shared .frq/.prx framing fragments, bloating both streams. It only becomes
-// safe once per-stream .frq/.prx window framing is decoupled (follow-up). Foundation
-// knob; default (-1) changes nothing.
+// win. Disabling .frq ZSTD (set huge) now KEEPS the disk win in .prx: .prx window
+// framing is decoupled (inverted_index_spimi_prx_window_docs) so it no longer
+// fragments into tiny ZSTD-incompressible windows when .frq goes raw. A residual
+// .frq-only effect remains — the .frq adaptive-W search tiebreaks to the finest
+// window on flat raw sizes, inflating .frq skip-table headers — which is a
+// separate .frq-search follow-up. Default (-1) changes nothing.
 DEFINE_mInt64(inverted_index_spimi_frq_zstd_min_bytes, "-1");
+// Target docs per .prx (positions) window, DECOUPLED from the .frq adaptive-W
+// framing. The .prx window step k_prx = clamp(this / 256, 1, num_units), so the
+// .prx window count is a function of df + this knob ALONE — never of the .frq
+// search or the .frq ZSTD gate. This severs the framing coupling that let a raw
+// .frq term fragment .prx into tiny ZSTD-incompressible windows. Larger = fewer,
+// better-compressing .prx windows + fewer S3 GETs, but more .frq-window freq
+// gathers per random-access position lookup (read-amp ~= this/256). 0 = whole-term
+// (one .prx window: best ZSTD/fewest GETs, worst random-access read-amp). Default
+// 1024 (k_prx=4) bounds read-amp to <=4 while keeping windows well above the ZSTD
+// size-gate.
+DEFINE_mInt64(inverted_index_spimi_prx_window_docs, "1024");
 // How often (in rows) add_values runs the EXPENSIVE spill gate (process memory
 // watermarks + reserve). The cheap 256MiB ShouldFlush() latch is still checked
 // every row; this only throttles the per-row watermark/MemoryUsage reads.

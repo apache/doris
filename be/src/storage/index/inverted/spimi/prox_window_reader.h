@@ -36,33 +36,34 @@ namespace doris::segment_v2::inverted_index::spimi {
 // (the `.frq` lazy reader yields candidates window-by-window), that is
 // almost all wasted IO + decode. This reader instead:
 //
-//   - At `Open`, reads ONLY the `.prx` header (mode + W + num_windows) and
-//     then self-frames each window's payload tuple by reading just its
-//     header (win_mode + uncomp[+comp]) — ZERO payload inflation — to build
-//     a per-window absolute byte-offset table. The doc partition for each
-//     window (doc_count / doc_index_start) is COPIED from the aligned `.frq`
-//     lazy reader's window table, not re-derived: `.prx` window w covers
-//     exactly the docs of `.frq` window w (EmitFrq / EmitPrx iterate the
-//     SAME chosen_windows), so `.prx` carries no per-window skip table.
+//   - At `Open`, reads the `.prx` header (mode + W + num_windows) and the
+//     `.prx`-OWN per-window skip table (doc_count, byte_offset, min/max_docid)
+//     — ZERO payload inflation — to build the per-window byte-offset + doc
+//     partition table. `.prx` windows are framed INDEPENDENTLY of `.frq`
+//     (their own W from config), so the doc partition is derived from the
+//     `.prx` skip table (prefix-summed doc_count), NOT copied from `.frq`.
+//     Both streams cut on whole 256-doc units, so each `.prx` window's doc
+//     range is an exact union over whole docs of the `.frq` windows it spans.
 //
-//   - `PositionsForDoc(p, frq_lazy)` finds the window w covering global doc
-//     index p (same upper_bound the `.frq` reader uses), inflates ONLY that
-//     window's payload (range-read via the `PostingStore`), and slices the
-//     window's contiguous VInt position-delta stream into per-doc position
-//     vectors using that window's per-doc FREQS (obtained from the `.frq`
-//     lazy reader's decoded covering window). The result is CACHED keyed by
-//     w, so repeated nextPosition() within a doc and next() within the same
-//     window need no re-inflation.
+//   - `PositionsForDoc(p, frq_lazy)` finds the `.prx` window covering global
+//     doc index p via the reader's OWN doc_index_start table, inflates ONLY
+//     that window's payload (range-read via the `PostingStore`), and slices
+//     the window's contiguous VInt position-delta stream into per-doc position
+//     vectors using the per-doc FREQS gathered over the window's doc RANGE
+//     from the `.frq` lazy reader (which may span several `.frq` windows). The
+//     result is CACHED keyed by w, so repeated nextPosition() within a doc and
+//     next() within the same window need no re-inflation.
 //
 // CORRECTNESS: the position vector for any doc D is byte-identical to
 // `SpimiProxReader::ReadPositions(whole-term .prx, freqs)[doc_index(D)]`,
 // because (a) concatenating all windows' inflated payloads reproduces the
 // whole-term VInt stream (same encoder), (b) the per-doc freqs used to
-// slice are the SAME freqs the encoder used as pos_counts_per_doc, and (c)
-// the per-doc delta accumulator resets to 0 at each doc in both paths.
-// Defence-in-depth: Open asserts `.prx` num_windows == `.frq`
-// windows_total(); after slicing a window, the whole window payload must be
-// consumed exactly (sum of the window's freqs VInts), else SPIMI_THROW_CORRUPT.
+// slice are the SAME freqs the encoder used as pos_counts_per_doc (gathered
+// per-doc, exact since no doc is split across windows), and (c) the per-doc
+// delta accumulator resets to 0 at each doc in both paths.
+// Defence-in-depth: Open validates Sum(.prx doc_count) == .frq doc_freq; after
+// slicing a window, the whole window payload must be consumed exactly (sum of
+// the window's freqs VInts), else SPIMI_THROW_CORRUPT.
 //
 // IO: bytes are pulled through a `PostingStore` (positioned reads). At Open
 // only the header + per-window payload-header probes are fetched (O(num_windows)
@@ -106,14 +107,21 @@ public:
 private:
     struct PrxWinEntry {
         int64_t payload_pos = 0;     // ABSOLUTE PostingStore offset of the payload tuple
-        int64_t payload_len = 0;     // exact byte length of the payload tuple (self-framed)
-        int32_t doc_count = 0;       // docs in this window (copied from .frq)
-        int32_t doc_index_start = 0; // first global doc index of this window (copied from .frq)
+        int64_t payload_len = 0;     // exact byte length of the payload tuple
+        int32_t doc_count = 0;       // docs in this window (from the .prx skip table)
+        int32_t doc_index_start = 0; // first global doc index (.prx-own prefix sum)
+        int32_t min_docid = 0;       // first absolute docid in the window (.prx skip table)
+        int32_t max_docid = 0;       // last absolute docid in the window (.prx skip table)
     };
 
+    // .prx-own binary search: window covering global doc index `p` via the
+    // reader's own doc_index_start table (no .frq dependency). 0 <= p < doc_freq.
+    int32_t PrxWindowIndexForDoc(int32_t p) const;
+
     // Inflates window `w`'s payload and slices it into per-doc position
-    // vectors using that window's freqs from `frq_lazy`. Caches the result
-    // in `_cache_*`. The ONLY place a `.prx` window's payload is fetched.
+    // vectors using the window's per-doc freqs gathered over its doc RANGE from
+    // `frq_lazy`. Caches the result in `_cache_*`. The ONLY place a `.prx`
+    // window's payload is fetched.
     void DecodeWindow(int32_t w, SpimiWindowedTermDocs& frq_lazy);
 
     PostingStore* _prx_store = nullptr;

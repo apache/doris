@@ -90,17 +90,27 @@ namespace doris::segment_v2::inverted_index::spimi {
 // BYTE LAYOUT — `.prx` block (bytes at TermInfo.prox_pointer)
 // -----------------------------------------------------------
 //   byte    kProxWindowed (0x02)
-//   VInt    W
+//   VInt    W                       // .prx-own window width (DECOUPLED from .frq)
 //   VInt    num_windows
+//   per window w:                   // skip table, written BEFORE payloads
+//     VInt  doc_count
+//     VInt  win_byte_offset         // relative to the first payload tuple
+//     VInt  min_docid
+//     VInt  max_docid - min_docid
 //   per window w (in order):
 //     byte  win_mode               // 0 raw, 1 ZSTD
 //     VInt  uncomp_len
 //     VInt  comp_len               // ONLY when win_mode == 1
 //     bytes payload                // window's part-wise VInt position-deltas
 //
-// The decoder threads a single running last_doc across windows (window
-// boundaries are plain doc boundaries — no re-basing), so concatenating the
-// per-window decoded runs materializes the whole term.
+// `.prx` windows are framed INDEPENDENTLY of `.frq` (W/num_windows derive from
+// config inverted_index_spimi_prx_window_docs + df, never from the .frq search),
+// and carry their own skip table so a `.prx` window self-locates without the .frq
+// table. Both streams cut on whole 256-doc units, so every `.prx` window's doc
+// range is an exact union of `.frq` windows. The decoder threads a single running
+// last_doc across windows (window boundaries are plain doc boundaries — no
+// re-basing), so concatenating the per-window decoded runs materializes the whole
+// term; per-doc position counts come from the covering .frq window(s)' freqs.
 class WindowFrameEncoder {
 public:
     // `inner_mode` selector values, written as the second `.frq` byte.

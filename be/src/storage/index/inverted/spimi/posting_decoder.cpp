@@ -244,15 +244,22 @@ void DecodePositions(const uint8_t* prx_data, size_t prx_length, std::vector<Dec
         data = prx_data + 1;
         len = prx_length - 1;
     } else if (mode == FreqProxEncoder::kProxWindowed) {
-        // V4 windowed .prx: byte mode, VInt(W), VInt(num_windows), then
-        // per-window payloads. Concatenating the inflated per-window PART_POS
-        // bytes reproduces the term's whole contiguous VInt position stream, so
-        // we inflate all windows into `decompressed` then decode per-doc below.
+        // V4 windowed .prx: byte mode, VInt(W), VInt(num_windows), a per-window
+        // skip table (4 VInts/window), then per-window payloads. This eager path
+        // is framing-agnostic — concatenating the inflated per-window PART_POS
+        // bytes reproduces the term's whole contiguous VInt position stream — so
+        // it only STEPS OVER the skip table (mirrors the .frq skip-table skip).
         Cursor wc(prx_data + 1, prx_length - 1);
         (void)wc.ReadVInt(); // W
         const int32_t num_windows = wc.ReadVInt();
         if (num_windows <= 0) [[unlikely]] {
             SPIMI_THROW_CORRUPT("PostingDecoder .prx windowed: num_windows out of range");
+        }
+        // Skip the skip table: doc_count, byte_offset, min_docid, max_docid_delta.
+        for (int32_t w = 0; w < num_windows; ++w) {
+            for (int s = 0; s < 4; ++s) {
+                (void)wc.ReadVInt();
+            }
         }
         for (int32_t w = 0; w < num_windows; ++w) {
             const std::vector<uint8_t> inner = ReadWindowPayload(wc);

@@ -112,7 +112,10 @@ void ExpectAllDocsMatchOracle(const Term& t) {
     MemPostingStore prx_store(prx.data(), prx.size());
     SpimiWindowedTermPositions prx_lazy;
     ASSERT_TRUE(prx_lazy.Open(&prx_store, /*prox_pointer=*/0, frq_lazy));
-    EXPECT_EQ(prx_lazy.windows_total(), frq_lazy.windows_total());
+    // `.prx` frames itself now (decoupled from `.frq`), so its window count is
+    // independent of `.frq`'s — just sanity-check Open produced >=1 window. The
+    // position-correctness-vs-eager checks below are the real assertion.
+    EXPECT_GE(prx_lazy.windows_total(), 1);
 
     // Walk forward through the `.frq` reader (mirrors a phrase scan) so the
     // covering `.frq` window is warm when positions are requested.

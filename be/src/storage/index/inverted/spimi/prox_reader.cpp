@@ -151,14 +151,22 @@ std::vector<std::vector<int32_t>> SpimiProxReader::ReadPositions(
         data = prx_data + 1;
         len = prx_length - 1;
     } else if (mode == kProxWindowed) {
-        // V4 windowed .prx: byte mode, VInt(W), VInt(num_windows), then
-        // per-window payloads. The concatenation of inflated per-window
-        // PART_POS bytes is the term's contiguous VInt position stream.
+        // V4 windowed .prx: byte mode, VInt(W), VInt(num_windows), a per-window
+        // skip table (4 VInts/window), then per-window payloads. This eager path
+        // is framing-agnostic — it concatenates the inflated per-window PART_POS
+        // bytes into the term's contiguous VInt position stream and slices by the
+        // caller's whole-term freqs — so it only needs to STEP OVER the skip table.
         size_t hpos = 1;
         (void)ReadVInt(prx_data, prx_length, &hpos); // W
         const int32_t num_windows = ReadVInt(prx_data, prx_length, &hpos);
         if (num_windows <= 0) [[unlikely]] {
             SPIMI_THROW_CORRUPT("SPIMI .prx windowed: num_windows out of range");
+        }
+        // Skip the skip table: doc_count, byte_offset, min_docid, max_docid_delta.
+        for (int32_t w = 0; w < num_windows; ++w) {
+            for (int s = 0; s < 4; ++s) {
+                (void)ReadVInt(prx_data, prx_length, &hpos);
+            }
         }
         for (int32_t w = 0; w < num_windows; ++w) {
             AppendWindowPayload(prx_data, prx_length, &hpos, &decompressed);

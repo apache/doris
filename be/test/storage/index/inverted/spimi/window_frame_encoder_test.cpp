@@ -530,13 +530,17 @@ TEST(WindowFrameEncoderTest, ByteIdentityGolden) {
         Term term;
         bool has_prox;
     };
+    // NOTE: the 5 `prox` digests were regenerated when `.prx` window framing was
+    // DECOUPLED from `.frq` (each `.prx` block now carries its own skip table +
+    // independent window width). The 2 `noprox` digests are UNCHANGED, confirming
+    // the decouple touched only `.prx` — the `.frq` stream is byte-for-byte stable.
     std::vector<Case> cases = {
-            {"prox_df600_s2_f2", 11757591580788661769ULL, MakeTerm(600, 2, 2), true},
-            {"prox_df2050_s1_f1", 6680075812068543558ULL, MakeTerm(2050, 1, 1), true},
-            {"prox_df20000_s1_f2", 3893958715936707005ULL, MakeTerm(20000, 1, 2), true},
+            {"prox_df600_s2_f2", 16379604254638824085ULL, MakeTerm(600, 2, 2), true},
+            {"prox_df2050_s1_f1", 11229711407252124091ULL, MakeTerm(2050, 1, 1), true},
+            {"prox_df20000_s1_f2", 2447887475110899020ULL, MakeTerm(20000, 1, 2), true},
             {"noprox_df2049_s1_f1", 1720537505972114867ULL, MakeTerm(2049, 1, 1), false},
-            {"prox_varfreq700", 4779850024287799460ULL, MakeVariableFreqTerm(), true},
-            {"prox_uniform5000", 3243951643167239521ULL, MakeUniformTerm(5000, true), true},
+            {"prox_varfreq700", 11495599258771451347ULL, MakeVariableFreqTerm(), true},
+            {"prox_uniform5000", 17903490375456135199ULL, MakeUniformTerm(5000, true), true},
             {"noprox_uniform5000", 1153719381930045208ULL, MakeUniformTerm(5000, false), false},
     };
     for (const auto& c : cases) {

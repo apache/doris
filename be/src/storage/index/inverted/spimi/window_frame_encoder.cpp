@@ -313,36 +313,70 @@ void EmitFrqCached(const std::vector<Window>& windows, uint8_t inner_mode, int32
     }
 }
 
-// Writes the windowed `.prx` block for the CHOSEN framing only, slicing each
-// window's PART_POS straight from `pos_parts` (k units per window, same grouping
-// as the frq windows) and compressing it ONCE. Positions are never composed for
-// the rejected candidates — the search only ever needed frq sizes. Byte-for-byte
-// identical to the previous EmitPrx (same per-window position slices, same
-// min(raw, zstd) per-window envelope, no skip table).
+// Writes the windowed `.prx` block for the DECOUPLED .prx framing: `k` is the
+// .prx-own units-per-window (derived from config, NOT the .frq chosen_k), so the
+// .prx window count is independent of the .frq search. Two passes so the block
+// self-locates without the .frq skip table: pass 1 composes + compresses each
+// .prx window ONCE (k units of PART_POS sliced from `pos_parts`) and records its
+// skip entry; pass 2 writes the header, the per-window skip table, then the cached
+// payloads. Layout: [kProxWindowed][VInt W][VInt num_windows] then per window
+// [VInt doc_count][VInt win_byte_offset][VInt min_docid][VInt max_docid-min_docid]
+// (byte-identical shape to the .frq skip table) then payload tuples verbatim.
+// Because both streams cut windows on whole 256-doc units, every .prx window's doc
+// range is an exact union of .frq windows — the reader's cross-window freq gather
+// never splits a doc.
 void EmitPrxForChosen(const std::vector<Unit>& units, int32_t k,
                       const std::vector<uint8_t>& pos_parts, int32_t W, ZSTD_CCtx* cctx,
                       faststring& comp_scratch, ByteOutput* out) {
     DCHECK_GE(k, 1);
     const auto num_units = static_cast<int32_t>(units.size());
     const int32_t num_windows = (num_units + k - 1) / k;
-    out->WriteByte(FreqProxEncoder::kProxWindowed);
-    out->WriteVInt(W);
-    out->WriteVInt(num_windows);
+
+    struct PrxWin {
+        int32_t doc_count = 0;
+        int32_t min_docid = 0;
+        int32_t max_docid = 0;
+        std::vector<uint8_t> payload; // cached emit tuple (win_mode + lens + bytes)
+    };
+    std::vector<PrxWin> wins;
+    wins.reserve(static_cast<size_t>(num_windows));
     std::vector<uint8_t> pos_inner;
     for (int32_t i = 0; i < num_units;) {
         const int32_t take = std::min(k, num_units - i);
+        PrxWin pw;
+        pw.min_docid = units[static_cast<size_t>(i)].min_docid;
+        pw.max_docid = units[static_cast<size_t>(i + take - 1)].max_docid;
         pos_inner.clear();
         for (int32_t j = 0; j < take; ++j) {
             const Unit& u = units[static_cast<size_t>(i + j)];
+            pw.doc_count += u.doc_count;
             pos_inner.insert(
                     pos_inner.end(), pos_parts.begin() + static_cast<std::ptrdiff_t>(u.pos_off),
                     pos_parts.begin() + static_cast<std::ptrdiff_t>(u.pos_off + u.pos_len));
         }
         // .prx keeps the shared (un-split) ZSTD gate — positions carry the bulk
         // of the ZSTD disk win, so they stay compressed even when .frq is raw.
-        (void)EmitWindowPayload(pos_inner, cctx, comp_scratch, out,
+        MemoryByteOutput payload;
+        (void)EmitWindowPayload(pos_inner, cctx, comp_scratch, &payload,
                                 config::inverted_index_spimi_zstd_min_bytes);
+        pw.payload = std::move(payload.mutable_bytes());
+        wins.push_back(std::move(pw));
         i += take;
+    }
+
+    out->WriteByte(FreqProxEncoder::kProxWindowed);
+    out->WriteVInt(W);
+    out->WriteVInt(num_windows);
+    size_t payload_offset = 0;
+    for (const auto& pw : wins) {
+        out->WriteVInt(pw.doc_count);
+        out->WriteVInt(static_cast<int32_t>(payload_offset));
+        out->WriteVInt(pw.min_docid);
+        out->WriteVInt(pw.max_docid - pw.min_docid);
+        payload_offset += pw.payload.size();
+    }
+    for (const auto& pw : wins) {
+        out->WriteBytes(pw.payload.data(), pw.payload.size());
     }
 }
 
@@ -450,13 +484,12 @@ void WindowFrameEncoder::Encode(const std::vector<uint32_t>& doc_deltas,
     // same as before (same size accounting, same +10%-of-baseline budget), so
     // the emitted bytes are unchanged.
     faststring comp_scratch; // reused across all per-window compressions
+    // chosen_W is the .frq framing only; .prx now frames itself (see EmitPrxForChosen).
     int32_t chosen_W = kCandidateW.front();
-    int32_t chosen_k = 1;
     std::vector<Window> chosen_windows;
     if (df < kUnitDocs || num_units == 1) {
         // Single unit ⇒ single window. k clamped to 1.
         chosen_W = kCandidateW.front();
-        chosen_k = 1;
         chosen_windows = ComposeFrqWindows(units, /*k=*/1, frq_parts, has_prox, inner_pfor,
                                            doc_deltas, freqs);
         (void)MeasureAndCacheFrq(chosen_windows, cctx, comp_scratch);
@@ -482,7 +515,6 @@ void WindowFrameEncoder::Encode(const std::vector<uint32_t>& doc_deltas,
             if (sz <= budget) {
                 // Accept the SMALLEST-W candidate within budget (finer locality).
                 chosen_W = W;
-                chosen_k = k;
                 chosen_windows = std::move(cand);
                 picked = true;
                 break;
@@ -491,7 +523,6 @@ void WindowFrameEncoder::Encode(const std::vector<uint32_t>& doc_deltas,
         if (!picked) {
             // No finest-W candidate within +10% — fall back to whole-term framing.
             chosen_W = num_units * kUnitDocs;
-            chosen_k = num_units;
             chosen_windows = std::move(baseline);
         }
     }
@@ -509,7 +540,17 @@ void WindowFrameEncoder::Encode(const std::vector<uint32_t>& doc_deltas,
 
     EmitFrqCached(chosen_windows, inner_mode, chosen_W, frq_out);
     if (has_prox) {
-        EmitPrxForChosen(units, chosen_k, pos_parts, chosen_W, cctx, comp_scratch, prx_out);
+        // DECOUPLED .prx framing: the .prx window step is derived from config +
+        // num_units ONLY — never from the .frq search (chosen_k/chosen_W) or the
+        // .frq ZSTD gate. This makes the framing-explosion bug structurally
+        // impossible: a raw .frq term whose search tiebreaks to W=256 can no longer
+        // drag .prx into tiny ZSTD-incompressible windows. 0 = whole-term.
+        const int64_t prx_docs = config::inverted_index_spimi_prx_window_docs;
+        const int32_t k_prx =
+                prx_docs <= 0 ? num_units
+                              : std::clamp(static_cast<int32_t>(prx_docs / kUnitDocs), 1, num_units);
+        const int32_t W_prx = k_prx * kUnitDocs;
+        EmitPrxForChosen(units, k_prx, pos_parts, W_prx, cctx, comp_scratch, prx_out);
     }
 }
 

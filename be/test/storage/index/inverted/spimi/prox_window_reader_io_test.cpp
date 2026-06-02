@@ -139,8 +139,8 @@ TEST(SpimiProxWindowReaderIoTest, SelectiveAccessFetchesFewerBytesThanWholeBlock
     }
     const int64_t all_bytes = prx_store.bytes_read();
     EXPECT_GT(all_bytes, one_window_bytes) << "full sweep must fetch strictly more than one window";
-    EXPECT_EQ(prx_lazy_all.windows_inflated(), frq_lazy.windows_total())
-            << "full sweep inflates every window exactly once";
+    EXPECT_EQ(prx_lazy_all.windows_inflated(), prx_lazy_all.windows_total())
+            << "full sweep inflates every .prx window exactly once";
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

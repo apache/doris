@@ -93,9 +93,11 @@ public:
     static constexpr uint8_t kProxRaw = 0;  // raw VInt position-deltas follow
     static constexpr uint8_t kProxZstd = 1; // VInt(uncomp) VInt(comp) ZSTD-payload
     // V4 windowed `.prx` outer mode. A V4 term's whole .prx block starts with
-    // this byte, followed by W, num_windows, then per-window payloads (each a
-    // raw or ZSTD blob of that window's VInt position-deltas). Windows align
-    // 1:1 with the .frq windows (same W, same per-window doc counts). See
+    // this byte, followed by W, num_windows, a per-window skip table, then the
+    // per-window payloads (each a raw or ZSTD blob of that window's VInt
+    // position-deltas). `.prx` windows are framed INDEPENDENTLY of the .frq
+    // windows (their own W + skip table); both cut on whole 256-doc units so a
+    // .prx window's doc range is an exact union of .frq windows. See
     // window_frame_encoder.h.
     static constexpr uint8_t kProxWindowed = 0x02;
 
