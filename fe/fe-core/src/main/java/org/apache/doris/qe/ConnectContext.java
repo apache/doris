@@ -114,6 +114,7 @@ public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
 
     private static final String SSL_PROTOCOL = "TLS";
+    private static final int INITIAL_PREPARED_STMT_ID = Integer.MIN_VALUE;
 
     public enum ConnectType {
         MYSQL,
@@ -129,7 +130,7 @@ public class ConnectContext {
     protected volatile TUniqueId loadId;
     protected volatile long backendId;
     // range [Integer.MIN_VALUE, Integer.MAX_VALUE]
-    protected int preparedStmtId = Integer.MIN_VALUE;
+    protected int preparedStmtId = INITIAL_PREPARED_STMT_ID;
     protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId = null;
@@ -374,13 +375,13 @@ public class ConnectContext {
         closeTxnForConnectionReset();
         if (!dbToTempTableNamesMap.isEmpty()) {
             cleanupTemporaryTables(true);
+            dbToTempTableNamesMap.clear();
         }
-        dbToTempTableNamesMap.clear();
         resetSessionVariable();
         userVars = new HashMap<>();
         preparedQuerys.clear();
         preparedStatementContextMap.clear();
-        preparedStmtId = Integer.MIN_VALUE;
+        preparedStmtId = INITIAL_PREPARED_STMT_ID;
         runningQuery = null;
         resetQueryId();
         insertResult = null;
