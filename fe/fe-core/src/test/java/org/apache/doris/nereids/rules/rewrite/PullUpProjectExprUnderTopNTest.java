@@ -527,6 +527,48 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    void testPullUpDoesNotExposeInternalPassThroughSlotInUpperProject() {
+        // This checks the schema boundary restored by the upper Project above TopN.
+        // The same invariant is required even when this Project is not the query root:
+        //
+        // Project(y = x + 1, id)
+        //   TopN(order by id)
+        //     Project(x = a + 1, b, id)
+        //       Scan(a, b, id)
+        //
+        // After pulling up x = a + 1, TopN still needs to carry a internally, but the
+        // upper Project output must stay as the original TopN output [x, b, id] rather
+        // than leaking internal pass-through slot a as [x, a, b, id].
+        LogicalOlapScan scan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of("db"));
+        Slot id = scan.getOutput().get(0);
+        Slot a = scan.getOutput().get(1);
+        Slot b = scan.getOutput().get(3);
+        Alias x = new Alias(new Add(a, new IntegerLiteral((byte) 1)), "x");
+
+        LogicalPlan plan = new LogicalPlanBuilder(scan)
+                .projectExprs(ImmutableList.of(x, b, id))
+                .topN(10, 0, ImmutableList.of(2))
+                .build();
+
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .getPlan();
+
+        LogicalProject<?> upperProject = (LogicalProject<?>) rewritten;
+        Assertions.assertEquals(3, upperProject.getProjects().size());
+        Assertions.assertEquals(x.getExprId(), upperProject.getProjects().get(0).getExprId());
+        Assertions.assertEquals(b.getExprId(), upperProject.getProjects().get(1).getExprId());
+        Assertions.assertEquals(id.getExprId(), upperProject.getProjects().get(2).getExprId());
+        Assertions.assertFalse(upperProject.getProjects().stream()
+                .anyMatch(expr -> expr.getExprId().equals(a.getExprId())));
+
+        LogicalTopN<?> topN = (LogicalTopN<?>) upperProject.child(0);
+        Assertions.assertTrue(topN.getOutput().stream()
+                .anyMatch(slot -> slot.getExprId().equals(a.getExprId())));
+    }
+
+    @Test
     void testRestoreNonPulledSlotsByExprIdAfterPullUp() {
         LogicalOlapScan scan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of("db"));
@@ -549,16 +591,15 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                                                 logicalOlapScan()
                                         )
                                 )
-                        ).when(project -> project.getProjects().size() == 4
+                        ).when(project -> project.getProjects().size() == 3
                                 && project.getProjects().get(0).getExprId().equals(id.getExprId())
                                 && project.getProjects().get(1).getExprId().equals(x.getExprId())
-                                && project.getProjects().get(2).getExprId().equals(a.getExprId())
-                                && project.getProjects().get(3).getExprId().equals(c.getExprId()))
+                                && project.getProjects().get(2).getExprId().equals(c.getExprId()))
                 );
     }
 
     @Test
-    void testDeduplicatedPullUpPassesThroughInputSlots() {
+    void testDeduplicatedPullUpDoesNotExposePassThroughInputSlots() {
         LogicalOlapScan scan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of("db"));
         Slot id = scan.getOutput().get(0);
@@ -580,11 +621,14 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                 .getPlan();
 
         LogicalProject<?> topProject = (LogicalProject<?>) rewritten;
-        Assertions.assertEquals(4, topProject.getProjects().size());
+        Assertions.assertEquals(3, topProject.getProjects().size());
         Assertions.assertEquals(x.getExprId(), topProject.getProjects().get(0).getExprId());
         Assertions.assertEquals(y.getExprId(), topProject.getProjects().get(1).getExprId());
-        Assertions.assertEquals(b.getExprId(), topProject.getProjects().get(2).getExprId());
-        Assertions.assertEquals(id.getExprId(), topProject.getProjects().get(3).getExprId());
+        Assertions.assertEquals(id.getExprId(), topProject.getProjects().get(2).getExprId());
+
+        LogicalTopN<?> topN = (LogicalTopN<?>) topProject.child(0);
+        Assertions.assertTrue(topN.getOutput().stream()
+                .anyMatch(slot -> slot.getExprId().equals(b.getExprId())));
     }
 
     @Test
