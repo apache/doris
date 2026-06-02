@@ -605,10 +605,6 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
     // 真实实现会处理 trivial mapping、safe cast、reader expression fallback 和
     // finalize-only filter。stub 只复制能够直接定位到 file column 的谓词。
     for (const auto& table_filter : table_filters) {
-        if (!table_filter.can_be_localized()) {
-            // TODO: Rewrite table filter to reader_expression_map
-            continue;
-        }
         for (const auto table_column_id : filter_slot_ids(table_filter)) {
             auto* mapping = _find_mapping(table_column_id);
             if (mapping == nullptr || !mapping->field_id.has_value()) {
@@ -623,9 +619,6 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
     // This keeps expression localization independent from filter iteration order.
     const auto table_column_to_file_slot = build_file_slot_rewrite_map(_mappings, *file_request);
     for (const auto& table_filter : table_filters) {
-        if (!table_filter.can_be_localized()) {
-            continue;
-        }
         if (table_filter.conjunct != nullptr) {
             file_request->conjuncts.push_back(
                     VExprContext::create_shared(rewrite_table_expr_to_file_expr(

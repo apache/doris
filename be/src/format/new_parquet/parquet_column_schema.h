@@ -46,6 +46,7 @@ enum class ParquetColumnSchemaKind {
 // 新 Parquet reader 的 file-local schema tree。
 // 它描述 Parquet 逻辑字段到 leaf column ordinal 的关系，不包含 table/global schema 语义。
 struct ParquetColumnSchema {
+    // File column id for top-level columns, or child id for nested columns.
     int field_id = -1;
     std::string name;
     DataTypePtr type = nullptr;

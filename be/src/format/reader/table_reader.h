@@ -83,8 +83,6 @@ struct TableFilter {
     // Table slot ids referenced by conjunct. A single expression filter may depend on multiple
     // columns, while ColumnPredicate pruning still belongs to one concrete column.
     std::vector<int32_t> slot_ids;
-
-    bool can_be_localized() const { return true; }
 };
 
 enum class TableFilterConversion {

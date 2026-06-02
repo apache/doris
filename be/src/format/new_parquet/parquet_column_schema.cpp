@@ -34,6 +34,7 @@ namespace doris::parquet {
 namespace {
 
 struct SchemaBuildContext {
+    // File column id for top-level columns, or child id for nested columns.
     int32_t field_id = -1;
     int32_t parent_schema_node_id = -1;
     int16_t definition_level = 0;
