@@ -26,11 +26,11 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 
@@ -46,100 +46,101 @@ public class AlterUserStmtTest {
         ctx.setThreadLocalInfo();
     }
 
-    private void mockValidateEnv(@Mocked Env env, @Mocked AccessControllerManager accessManager)
-            throws UserException {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                result = env;
-                minTimes = 0;
-
-                env.getAccessManager();
-                result = accessManager;
-                minTimes = 0;
-
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.GRANT);
-                result = true;
-                minTimes = 0;
-            }
-        };
+    private MockedStatic<Env> mockValidateEnv(Env env, AccessControllerManager accessManager) {
+        MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(accessManager.checkGlobalPriv(Mockito.any(ConnectContext.class), Mockito.eq(PrivPredicate.GRANT)))
+                .thenReturn(true);
+        return mockedEnv;
     }
 
     @Test
-    public void testTlsRequireNoneOnly(@Mocked Env env,
-            @Mocked AccessControllerManager accessManager) throws UserException {
-        mockValidateEnv(env, accessManager);
+    public void testTlsRequireNoneOnly() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        try (MockedStatic<Env> ignored = mockValidateEnv(env, accessManager)) {
+            AlterUserInfo info = new AlterUserInfo(false, new UserDesc(new UserIdentity("tls_user", "%")),
+                    PasswordOptions.UNSET_OPTION, null, TlsOptions.requireNone());
+            info.validate();
 
-        AlterUserInfo info = new AlterUserInfo(false, new UserDesc(new UserIdentity("tls_user", "%")),
-                PasswordOptions.UNSET_OPTION, null, TlsOptions.requireNone());
-        info.validate();
-
-        Assert.assertEquals(org.apache.doris.alter.AlterUserOpType.SET_TLS_REQUIRE, info.getOpType());
-        Assert.assertFalse(info.getUserIdent().hasTlsRequirements());
+            Assert.assertEquals(org.apache.doris.alter.AlterUserOpType.SET_TLS_REQUIRE, info.getOpType());
+            Assert.assertFalse(info.getUserIdent().hasTlsRequirements());
+        }
     }
 
     @Test
-    public void testTlsRequireSanOnly(@Mocked Env env,
-            @Mocked AccessControllerManager accessManager) throws UserException {
-        mockValidateEnv(env, accessManager);
+    public void testTlsRequireSanOnly() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        try (MockedStatic<Env> ignored = mockValidateEnv(env, accessManager)) {
+            TlsOptions tlsOptions = TlsOptions.of(Collections.singletonList(Pair.of("SAN", "DNS:example.com")));
+            AlterUserInfo info = new AlterUserInfo(false, new UserDesc(new UserIdentity("tls_user", "%")),
+                    PasswordOptions.UNSET_OPTION, null, tlsOptions);
+            info.validate();
 
-        TlsOptions tlsOptions = TlsOptions.of(Collections.singletonList(Pair.of("SAN", "DNS:example.com")));
-        AlterUserInfo info = new AlterUserInfo(false, new UserDesc(new UserIdentity("tls_user", "%")),
-                PasswordOptions.UNSET_OPTION, null, tlsOptions);
-        info.validate();
-
-        Assert.assertEquals(org.apache.doris.alter.AlterUserOpType.SET_TLS_REQUIRE, info.getOpType());
-        Assert.assertEquals("DNS:example.com", info.getUserIdent().getSan());
+            Assert.assertEquals(org.apache.doris.alter.AlterUserOpType.SET_TLS_REQUIRE, info.getOpType());
+            Assert.assertEquals("DNS:example.com", info.getUserIdent().getSan());
+        }
     }
 
     @Test(expected = AnalysisException.class)
-    public void testTlsWithPasswordChangeNotAllowed(@Mocked Env env,
-            @Mocked AccessControllerManager accessManager) throws UserException {
-        mockValidateEnv(env, accessManager);
-
-        TlsOptions tlsOptions = TlsOptions.of(Collections.singletonList(Pair.of("SAN", "DNS:example.com")));
-        AlterUserInfo info = new AlterUserInfo(false,
-                new UserDesc(new UserIdentity("tls_user", "%"), "passwd", true),
-                PasswordOptions.UNSET_OPTION, null, tlsOptions);
-        info.validate();
+    public void testTlsWithPasswordChangeNotAllowed() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        try (MockedStatic<Env> ignored = mockValidateEnv(env, accessManager)) {
+            TlsOptions tlsOptions = TlsOptions.of(Collections.singletonList(Pair.of("SAN", "DNS:example.com")));
+            AlterUserInfo info = new AlterUserInfo(false,
+                    new UserDesc(new UserIdentity("tls_user", "%"), "passwd", true),
+                    PasswordOptions.UNSET_OPTION, null, tlsOptions);
+            info.validate();
+        }
     }
 
     @Test(expected = AnalysisException.class)
-    public void testTlsRequireSanEmptyValue(@Mocked Env env,
-            @Mocked AccessControllerManager accessManager) throws UserException {
-        mockValidateEnv(env, accessManager);
-        AlterUserInfo info = new AlterUserInfo(false, new UserDesc(new UserIdentity("tls_user", "%")),
-                PasswordOptions.UNSET_OPTION, null,
-                TlsOptions.of(Collections.singletonList(Pair.of("SAN", ""))));
-        info.validate();
+    public void testTlsRequireSanEmptyValue() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        try (MockedStatic<Env> ignored = mockValidateEnv(env, accessManager)) {
+            AlterUserInfo info = new AlterUserInfo(false, new UserDesc(new UserIdentity("tls_user", "%")),
+                    PasswordOptions.UNSET_OPTION, null,
+                    TlsOptions.of(Collections.singletonList(Pair.of("SAN", ""))));
+            info.validate();
+        }
     }
 
     @Test(expected = AnalysisException.class)
-    public void testTlsUnsupportedOption(@Mocked Env env,
-            @Mocked AccessControllerManager accessManager) throws UserException {
-        mockValidateEnv(env, accessManager);
-        AlterUserInfo info = new AlterUserInfo(false, new UserDesc(new UserIdentity("tls_user", "%")),
-                PasswordOptions.UNSET_OPTION, null,
-                TlsOptions.of(Collections.singletonList(Pair.of("ISSUER", "ca"))));
-        info.validate();
+    public void testTlsUnsupportedOption() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        try (MockedStatic<Env> ignored = mockValidateEnv(env, accessManager)) {
+            AlterUserInfo info = new AlterUserInfo(false, new UserDesc(new UserIdentity("tls_user", "%")),
+                    PasswordOptions.UNSET_OPTION, null,
+                    TlsOptions.of(Collections.singletonList(Pair.of("ISSUER", "ca"))));
+            info.validate();
+        }
     }
 
     @Test(expected = AnalysisException.class)
-    public void testMultipleNonTlsOpsAreRejected(@Mocked Env env,
-            @Mocked AccessControllerManager accessManager) throws UserException {
-        mockValidateEnv(env, accessManager);
-        AlterUserInfo info = new AlterUserInfo(false,
-                new UserDesc(new UserIdentity("tls_user", "%"), "passwd", true), PasswordOptions.UNSET_OPTION,
-                "new comment", TlsOptions.notSpecified());
-        info.validate();
+    public void testMultipleNonTlsOpsAreRejected() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        try (MockedStatic<Env> ignored = mockValidateEnv(env, accessManager)) {
+            AlterUserInfo info = new AlterUserInfo(false,
+                    new UserDesc(new UserIdentity("tls_user", "%"), "passwd", true), PasswordOptions.UNSET_OPTION,
+                    "new comment", TlsOptions.notSpecified());
+            info.validate();
+        }
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoOpsAreRejected(@Mocked Env env,
-            @Mocked AccessControllerManager accessManager) throws UserException {
-        mockValidateEnv(env, accessManager);
-        AlterUserInfo info = new AlterUserInfo(false, new UserDesc(new UserIdentity("tls_user", "%")),
-                PasswordOptions.UNSET_OPTION, null, TlsOptions.notSpecified());
-        info.validate();
+    public void testNoOpsAreRejected() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        try (MockedStatic<Env> ignored = mockValidateEnv(env, accessManager)) {
+            AlterUserInfo info = new AlterUserInfo(false, new UserDesc(new UserIdentity("tls_user", "%")),
+                    PasswordOptions.UNSET_OPTION, null, TlsOptions.notSpecified());
+            info.validate();
+        }
     }
 }
