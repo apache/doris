@@ -21,7 +21,6 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -316,9 +315,8 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
             String rowIdSql = "create table " + rowIdTable + " (_row_id bigint)";
             LogicalPlan rowIdPlan = parseStmt(rowIdSql);
             Assertions.assertTrue(rowIdPlan instanceof CreateTableCommand);
-            ((CreateTableCommand) rowIdPlan).getCreateTableInfo().validate(connectContext);
-            Assertions.assertThrows(DdlException.class,
-                    () -> ((CreateTableCommand) rowIdPlan).run(connectContext, null));
+            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> ((CreateTableCommand) rowIdPlan).getCreateTableInfo().validate(connectContext));
             Assertions.assertFalse(catalog.getCatalog().tableExists(TableIdentifier.of(dbName, rowIdTable)));
 
             String formatV2Table = "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");
