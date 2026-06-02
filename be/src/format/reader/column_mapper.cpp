@@ -364,7 +364,7 @@ static Status build_complex_projection(const ColumnMapping& mapping, FieldProjec
         return Status::InvalidArgument("projection is null");
     }
     DORIS_CHECK(mapping.field_id.has_value());
-    projection->file_column_id = *mapping.field_id;
+    projection->field_id = *mapping.field_id;
     projection->project_all_children = mapping.child_mappings.empty();
     projection->children.clear();
     for (const auto& child_mapping : mapping.child_mappings) {
@@ -417,7 +417,7 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
     auto file_column_id = mapping->field_id.value();
     if (scan_columns == &file_request->non_predicate_columns &&
         std::ranges::find_if(file_request->predicate_columns, [&](const FieldProjection& p) {
-            return p.file_column_id == file_column_id;
+            return p.field_id == file_column_id;
         }) != file_request->predicate_columns.end()) {
         return Status::OK();
     }
@@ -428,7 +428,7 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
         file_request->column_positions.emplace(file_column_id,
                                                file_request->column_positions.size());
     }
-    FieldProjection projection {.file_column_id = file_column_id};
+    FieldProjection projection {.field_id = file_column_id};
     if (mapping->has_complex_projection || complex_projection_has_pruned_children(*mapping)) {
         if (!mapping->has_complex_projection) {
             RETURN_IF_ERROR(rebuild_projected_file_type(mapping));
@@ -437,16 +437,15 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
     }
     if (std::ranges::find_if(scan_columns->begin(), scan_columns->end(),
                              [&](const FieldProjection& p) {
-                                 return p.file_column_id == file_column_id;
+                                 return p.field_id == file_column_id;
                              }) == scan_columns->end()) {
         scan_columns->push_back(std::move(projection));
     }
     if (scan_columns == &file_request->predicate_columns) {
         file_request->non_predicate_columns.erase(
-                std::ranges::find_if(file_request->non_predicate_columns,
-                                     [&](const FieldProjection& p) {
-                                         return p.file_column_id == file_column_id;
-                                     }),
+                std::ranges::find_if(
+                        file_request->non_predicate_columns,
+                        [&](const FieldProjection& p) { return p.field_id == file_column_id; }),
                 file_request->non_predicate_columns.end());
     }
     return Status::OK();
@@ -608,7 +607,6 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
     for (const auto& table_filter : table_filters) {
         if (!table_filter.can_be_localized()) {
             // TODO: Rewrite table filter to reader_expression_map
-            // file_request->reader_expression_map.emplace_back(..., table_filter.conjunct);
             continue;
         }
         for (const auto table_column_id : filter_slot_ids(table_filter)) {

@@ -61,7 +61,7 @@ namespace {
 constexpr int64_t ROW_COUNT = 5;
 
 reader::FieldProjection field_projection(reader::ColumnId column_id) {
-    return reader::FieldProjection {.file_column_id = column_id};
+    return reader::FieldProjection {.field_id = column_id};
 }
 
 std::vector<reader::ColumnId> projection_ids(
@@ -69,7 +69,7 @@ std::vector<reader::ColumnId> projection_ids(
     std::vector<reader::ColumnId> ids;
     ids.reserve(projections.size());
     for (const auto& projection : projections) {
-        ids.push_back(projection.file_column_id);
+        ids.push_back(projection.field_id);
     }
     return ids;
 }
@@ -469,10 +469,10 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForStructChildren) {
     EXPECT_EQ(projection_ids(request->non_predicate_columns), std::vector<reader::ColumnId>({0}));
     ASSERT_EQ(request->non_predicate_columns.size(), 1);
     const auto& projection = request->non_predicate_columns[0];
-    EXPECT_EQ(projection.file_column_id, 0);
+    EXPECT_EQ(projection.field_id, 0);
     ASSERT_FALSE(projection.project_all_children);
     ASSERT_EQ(projection.children.size(), 1);
-    EXPECT_EQ(projection.children[0].file_column_id, 1);
+    EXPECT_EQ(projection.children[0].field_id, 1);
 
     ASSERT_EQ(mapper.mappings().size(), 1);
     const auto* projected_type =
@@ -548,14 +548,14 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForMapValueStructChildren) {
     EXPECT_EQ(projection_ids(request->non_predicate_columns), std::vector<reader::ColumnId>({0}));
     ASSERT_EQ(request->non_predicate_columns.size(), 1);
     const auto& projection = request->non_predicate_columns[0];
-    EXPECT_EQ(projection.file_column_id, 0);
+    EXPECT_EQ(projection.field_id, 0);
     ASSERT_FALSE(projection.project_all_children);
     ASSERT_EQ(projection.children.size(), 1);
-    EXPECT_EQ(projection.children[0].file_column_id, 0);
+    EXPECT_EQ(projection.children[0].field_id, 0);
     ASSERT_EQ(projection.children[0].children.size(), 1);
-    EXPECT_EQ(projection.children[0].children[0].file_column_id, 1);
+    EXPECT_EQ(projection.children[0].children[0].field_id, 1);
     ASSERT_EQ(projection.children[0].children[0].children.size(), 1);
-    EXPECT_EQ(projection.children[0].children[0].children[0].file_column_id, 1);
+    EXPECT_EQ(projection.children[0].children[0].children[0].field_id, 1);
 
     ASSERT_EQ(mapper.mappings().size(), 1);
     const auto* projected_type =

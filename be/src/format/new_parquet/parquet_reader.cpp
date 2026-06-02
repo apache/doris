@@ -73,7 +73,7 @@ Status ParquetReader::_fill_projected_schema_field(const ParquetColumnSchema& co
     field->children.clear();
     std::map<int32_t, const reader::FieldProjection*> child_projection_by_idx;
     for (const auto& child_projection : projection->children) {
-        child_projection_by_idx.emplace(child_projection.file_column_id, &child_projection);
+        child_projection_by_idx.emplace(child_projection.field_id, &child_projection);
     }
 
     DataTypes child_types;
@@ -83,7 +83,7 @@ Status ParquetReader::_fill_projected_schema_field(const ParquetColumnSchema& co
         if (it == child_projection_by_idx.end()) {
             continue;
         }
-        if (it->second->file_column_id != column_schema.children[child_idx]->field_id) {
+        if (it->second->field_id != column_schema.children[child_idx]->field_id) {
             return Status::InvalidArgument("Invalid parquet projection field_id for column {}",
                                            column_schema.children[child_idx]->name);
         }
@@ -203,27 +203,27 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
     // `_request->column_positions.empty()` means all columns are needed by table reader
     if (_request->column_positions.empty()) {
         for (const auto& col : _request->predicate_columns) {
-            _request->column_positions.emplace(col.file_column_id, col.file_column_id);
+            _request->column_positions.emplace(col.field_id, col.field_id);
         }
         for (const auto& col : _request->non_predicate_columns) {
-            _request->column_positions.emplace(col.file_column_id, col.file_column_id);
+            _request->column_positions.emplace(col.field_id, col.field_id);
         }
     }
 
     // Column validation for .
     for (const auto& col : _request->predicate_columns) {
-        DORIS_CHECK(_request->column_positions.count(col.file_column_id) > 0);
-        if (col.file_column_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+        DORIS_CHECK(_request->column_positions.count(col.field_id) > 0);
+        if (col.field_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
             continue;
         }
-        DORIS_CHECK(col.file_column_id >= 0 && col.file_column_id < num_fields);
+        DORIS_CHECK(col.field_id >= 0 && col.field_id < num_fields);
     }
     for (const auto& col : _request->non_predicate_columns) {
-        DORIS_CHECK(_request->column_positions.count(col.file_column_id) > 0);
-        if (col.file_column_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+        DORIS_CHECK(_request->column_positions.count(col.field_id) > 0);
+        if (col.field_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
             continue;
         }
-        DORIS_CHECK(col.file_column_id >= 0 && col.file_column_id < num_fields);
+        DORIS_CHECK(col.field_id >= 0 && col.field_id < num_fields);
     }
     // Validation complete
 

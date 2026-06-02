@@ -78,7 +78,7 @@ const reader::FieldProjection* find_child_projection(const reader::FieldProjecti
     }
     auto it = std::find_if(projection->children.begin(), projection->children.end(),
                            [&](const reader::FieldProjection& child_projection) {
-                               return child_projection.file_column_id == child_schema.field_id;
+                               return child_projection.field_id == child_schema.field_id;
                            });
     return it == projection->children.end() ? nullptr : &*it;
 }

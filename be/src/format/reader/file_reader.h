@@ -65,11 +65,9 @@ struct SchemaField {
     ColumnType column_type = ColumnType::DATA_COLUMN;
 };
 
-// File-local nested projection. The top-level scan column is still represented
-// by FileScanRequest::predicate_columns/non_predicate_columns; this tree only
-// describes which child paths are needed inside a complex top-level field.
+// Projection for both scalar type and nested type. `field_id` denotes file_column_id for top-level columns, and child id for nested columns.
 struct FieldProjection {
-    ColumnId file_column_id = -1;
+    ColumnId field_id = -1;
     bool project_all_children = true;
     std::vector<FieldProjection> children {};
 };
@@ -106,6 +104,7 @@ struct FileScanRequest {
     std::vector<FileColumnPredicateFilter> column_predicate_filters;
 };
 
+// TODO: Support nested column
 struct FileAggregateRequest {
     struct Column {
         ColumnId file_column_id = -1;

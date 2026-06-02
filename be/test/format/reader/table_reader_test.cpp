@@ -57,14 +57,14 @@ namespace doris::reader {
 namespace {
 
 FieldProjection field_projection(ColumnId column_id) {
-    return FieldProjection {.file_column_id = column_id};
+    return FieldProjection {.field_id = column_id};
 }
 
 std::vector<ColumnId> projection_ids(const std::vector<FieldProjection>& projections) {
     std::vector<ColumnId> ids;
     ids.reserve(projections.size());
     for (const auto& projection : projections) {
-        ids.push_back(projection.file_column_id);
+        ids.push_back(projection.field_id);
     }
     return ids;
 }

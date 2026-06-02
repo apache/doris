@@ -349,9 +349,8 @@ Status IcebergTableReader::_read_parquet_position_delete_file(
     }
 
     auto request = std::make_unique<reader::FileScanRequest>();
-    request->non_predicate_columns = {
-            reader::FieldProjection {.file_column_id = file_path_field->id},
-            reader::FieldProjection {.file_column_id = pos_field->id}};
+    request->non_predicate_columns = {reader::FieldProjection {.field_id = file_path_field->id},
+                                      reader::FieldProjection {.field_id = pos_field->id}};
     request->column_positions = {
             {file_path_field->id, ICEBERG_FILE_PATH_BLOCK_POSITION},
             {pos_field->id, ICEBERG_ROW_POS_BLOCK_POSITION},
@@ -464,7 +463,7 @@ Status IcebergTableReader::_read_parquet_equality_delete_file(
 
     auto request = std::make_unique<reader::FileScanRequest>();
     for (size_t idx = 0; idx < delete_fields.size(); ++idx) {
-        request->non_predicate_columns.push_back({.file_column_id = delete_fields[idx].id});
+        request->non_predicate_columns.push_back({.field_id = delete_fields[idx].id});
         request->column_positions.emplace(delete_fields[idx].id, idx);
     }
     RETURN_IF_ERROR(reader.open(request));
