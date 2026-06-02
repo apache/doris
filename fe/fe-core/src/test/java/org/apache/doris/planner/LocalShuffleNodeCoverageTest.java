@@ -251,6 +251,21 @@ public class LocalShuffleNodeCoverageTest {
                 "no exchange should be inserted when child already provides GLOBAL hash");
         Assertions.assertSame(buildGlobal, partitionedSatisfied.getChild(1));
 
+        // DORIS-26120: PARTITIONED join with serial source falls back to LOCAL hash
+        // because GLOBAL shuffle_idx_to_instance_idx is incomplete for serial exchange.
+        TrackingScanNode probeSerial = new TrackingScanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        TrackingPlanNode buildSerial = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        HashJoinNode serialPartitioned = new HashJoinNode(nextPlanNodeId(), probeSerial, buildSerial,
+                JoinOperator.INNER_JOIN, eqConjuncts, Collections.emptyList(), null, null, false);
+        serialPartitioned.setDistributionMode(DistributionMode.PARTITIONED);
+        serialPartitioned.fragment = Mockito.mock(PlanFragment.class);
+        Mockito.when(serialPartitioned.fragment.useSerialSource(Mockito.any())).thenReturn(true);
+        Pair<PlanNode, LocalExchangeType> serialPartOutput = serialPartitioned.enforceAndDeriveLocalExchange(
+                ctx, null, LocalExchangeTypeRequire.requireHash());
+        Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, serialPartOutput.second);
+        assertChildLocalExchangeType(serialPartitioned, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+        assertChildLocalExchangeType(serialPartitioned, 1, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+
         TrackingPlanNode probe3 = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
         TrackingPlanNode build3 = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
         HashJoinNode nullAwareJoin = new HashJoinNode(nextPlanNodeId(), probe3, build3,

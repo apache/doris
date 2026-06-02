@@ -365,4 +365,46 @@ suite("test_local_shuffle_global_hash_require") {
     assertEquals(23, ptopn_baseline.size())
     assertEquals(ptopn_baseline, ptopn_fe,
         "DORIS-26103: UNION ALL -> PartitionTopN -> INTERSECT")
+
+    // ============================================================
+    // DORIS-26120: serial exchange + shuffle join → GLOBAL hash
+    // shuffle_idx_to_instance_idx incomplete → Rows mismatched.
+    // Fix: fall back to LOCAL hash when fragment uses serial source.
+    // ============================================================
+    sql "DROP TABLE IF EXISTS ls_serial_fact"
+    sql "DROP TABLE IF EXISTS ls_serial_dim"
+    sql """CREATE TABLE ls_serial_fact (pk INT NOT NULL, g INT NOT NULL)
+           ENGINE=OLAP DUPLICATE KEY(pk,g) DISTRIBUTED BY HASH(pk) BUCKETS 1
+           PROPERTIES ("replication_num"="1")"""
+    sql """CREATE TABLE ls_serial_dim (g INT NOT NULL)
+           ENGINE=OLAP DUPLICATE KEY(g) DISTRIBUTED BY HASH(g) BUCKETS 1
+           PROPERTIES ("replication_num"="1")"""
+    sql "INSERT INTO ls_serial_fact VALUES (1, 1)"
+    sql "INSERT INTO ls_serial_dim VALUES (1)"
+
+    def serial_baseline = sql """SELECT /*+SET_VAR(
+        enable_sql_cache=false,
+        enable_local_shuffle=false,
+        enable_local_shuffle_planner=false,
+        use_serial_exchange=true,
+        parallel_pipeline_task_num=4,
+        ignore_storage_data_distribution=true
+    )*/ a.g AS left_g, b.g AS right_g
+        FROM ls_serial_fact a JOIN [shuffle] ls_serial_dim b ON a.g = b.g
+        ORDER BY left_g, right_g"""
+
+    def serial_fe = sql """SELECT /*+SET_VAR(
+        enable_sql_cache=false,
+        enable_local_shuffle=true,
+        enable_local_shuffle_planner=true,
+        use_serial_exchange=true,
+        parallel_pipeline_task_num=4,
+        ignore_storage_data_distribution=true
+    )*/ a.g AS left_g, b.g AS right_g
+        FROM ls_serial_fact a JOIN [shuffle] ls_serial_dim b ON a.g = b.g
+        ORDER BY left_g, right_g"""
+
+    assertEquals(1, serial_baseline.size())
+    assertEquals(serial_baseline, serial_fe,
+        "DORIS-26120: serial exchange + shuffle join should not error")
 }
