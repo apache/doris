@@ -196,9 +196,8 @@ private:
                                 size_t num_rows, int& column_id);
     Status _process_subcolumns(ColumnVariant* ptr, OlapBlockDataConvertor* converter,
                                size_t num_rows, int& column_id);
-    Status _process_doc_value_as_subcolumns_and_sparse(ColumnVariant* ptr,
-                                                       OlapBlockDataConvertor* converter,
-                                                       size_t num_rows, int& column_id);
+    Status _process_regular_doc_value_staging(ColumnVariant* ptr, OlapBlockDataConvertor* converter,
+                                              size_t num_rows, int& column_id);
     Status _process_doc_value_column(ColumnVariant* ptr, OlapBlockDataConvertor* converter,
                                      size_t num_rows, int& column_id);
 

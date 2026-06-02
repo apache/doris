@@ -2330,6 +2330,93 @@ TEST_F(VariantColumnWriterReaderTest, test_storage_parse_kv_write_materialized_a
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
 }
 
+TEST_F(VariantColumnWriterReaderTest,
+       test_doc_value_staging_root_writer_skips_payload_with_extracted_columns) {
+    constexpr int kRows = 2;
+
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1",
+                     /*variant_max_subcolumns_count=*/2,
+                     /*is_key=*/false,
+                     /*is_nullable=*/false,
+                     /*variant_sparse_hash_shard_count=*/0,
+                     /*variant_enable_doc_mode=*/false);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+
+    TabletColumn parent_column = _tablet_schema->column(0);
+    TabletColumn extracted;
+    extracted.set_name(parent_column.name_lower_case() + ".hot");
+    extracted.set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    extracted.set_parent_unique_id(parent_column.unique_id());
+    extracted.set_path_info(PathInData(parent_column.name_lower_case() + ".hot"));
+    extracted.set_is_nullable(true);
+    _tablet_schema->append_column(extracted);
+
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    _tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
+    tablet_meta->_tablet_id = 33006;
+    _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+    ASSERT_TRUE(_tablet->init().ok());
+    ASSERT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+
+    io::FileWriterPtr file_writer;
+    auto file_path = local_segment_path(_tablet->tablet_path(), "0", 0);
+    auto st = io::global_local_filesystem()->create_file(file_path, &file_writer);
+    ASSERT_TRUE(st.ok()) << st.msg();
+
+    SegmentFooterPB footer;
+    RowsetWriterContext rowset_ctx;
+    rowset_ctx.write_type = DataWriteType::TYPE_DIRECT;
+    rowset_ctx.tablet_schema = _tablet_schema;
+
+    ColumnWriterOptions opts;
+    opts.meta = footer.add_columns();
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.file_writer = file_writer.get();
+    opts.footer = &footer;
+    opts.rowset_ctx = &rowset_ctx;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, parent_column, opts);
+
+    std::unique_ptr<ColumnWriter> writer;
+    ASSERT_TRUE(ColumnWriter::create(opts, &parent_column, file_writer.get(), &writer).ok());
+    ASSERT_TRUE(writer->init().ok());
+
+    auto strings = ColumnString::create();
+    const std::vector<std::string> jsons = {R"({"hot":1,"cold":10})", R"({"hot":2,"cold":20})"};
+    for (const auto& json : jsons) {
+        strings->insert_data(json.data(), json.size());
+    }
+
+    ParseConfig parse_cfg;
+    parse_cfg.deprecated_enable_flatten_nested = false;
+    parse_cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+    auto variant_column =
+            ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+    variant_util::parse_json_to_variant(*variant_column, *strings, parse_cfg);
+    ASSERT_FALSE(variant_column->serialized_doc_value_column_offsets().empty());
+    ASSERT_EQ(variant_column->serialized_doc_value_column_offsets().back(), kRows * 2);
+
+    auto variant_data = std::make_unique<VariantColumnData>();
+    variant_data->column_data = variant_column.get();
+    variant_data->row_pos = 0;
+    const auto* data = reinterpret_cast<const uint8_t*>(variant_data.get());
+    ASSERT_TRUE(writer->append_data(&data, kRows).ok());
+
+    ASSERT_TRUE(writer->finish().ok());
+    ASSERT_TRUE(writer->write_data().ok());
+    ASSERT_TRUE(writer->write_ordinal_index().ok());
+    ASSERT_TRUE(writer->write_zone_map().ok());
+    ASSERT_TRUE(file_writer->close().ok());
+    footer.set_num_rows(kRows);
+
+    EXPECT_EQ(footer.columns_size(), 1);
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+}
+
 TEST_F(VariantColumnWriterReaderTest, test_storage_parse_kv_write_perf) {
 #ifndef NDEBUG
     GTEST_SKIP() << "Variant write perf numbers must be collected from Release builds";
