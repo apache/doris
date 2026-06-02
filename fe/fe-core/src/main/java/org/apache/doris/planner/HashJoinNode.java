@@ -349,8 +349,17 @@ public class HashJoinNode extends JoinNodeBase {
             // instance mapping as the cross-fragment exchange. LOCAL hash has a different
             // modulus (per-BE instance count vs total instance count) and would cause
             // join mismatches (DORIS-26101).
-            buildSideRequire = probeSideRequire
-                    = LocalExchangeTypeRequire.requireGlobalExecutionHash();
+            //
+            // Exception: serial source (use_serial_exchange=true + pooling). The serial
+            // exchange sends to a single BE so shuffle_idx_to_instance_idx has only one
+            // entry — GLOBAL hash would route data to non-existent indices (DORIS-26120).
+            // Fall back to generic requireHash() which resolves to LOCAL, matching BE's
+            // _use_serial_source behavior.
+            boolean serialSource = fragment != null
+                    && fragment.useSerialSource(translatorContext.getConnectContext());
+            buildSideRequire = probeSideRequire = serialSource
+                    ? LocalExchangeTypeRequire.requireHash()
+                    : LocalExchangeTypeRequire.requireGlobalExecutionHash();
             outputType = null; // derived from probeResult.second below
         }
 
