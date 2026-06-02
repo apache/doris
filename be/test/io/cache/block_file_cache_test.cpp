@@ -8042,4 +8042,75 @@ TEST_F(BlockFileCacheTest, add_cell_rejects_oversized_size) {
     }
 }
 
+TEST_F(BlockFileCacheTest, lru_restore_size_mismatch_does_not_underflow_on_clear) {
+    std::string my_cache_path =
+            caches_dir / "lru_restore_size_mismatch_does_not_underflow_on_clear" / "";
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
+    }
+    fs::create_directories(my_cache_path);
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 1_mb;
+    settings.query_queue_elements = 30;
+    settings.capacity = 1_mb;
+    settings.max_file_block_size = 1_mb;
+    settings.max_query_cache_size = 1_mb;
+
+    io::BlockFileCache cache(my_cache_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; ++i) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    auto hash = io::BlockFileCache::hash("lru_restore_size_mismatch_does_not_underflow_on_clear");
+    io::CacheContext ctx;
+    TUniqueId qid;
+    qid.hi = 1;
+    qid.lo = 1;
+    ctx.query_id = qid;
+    ctx.cache_type = io::FileCacheType::NORMAL;
+    ReadStatistics rstats;
+    ctx.stats = &rstats;
+
+    constexpr size_t old_size = 128_kb;
+    constexpr size_t new_size = 64_kb;
+    constexpr size_t offset = 0;
+
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        auto* cell = cache.add_cell(hash, ctx, offset, old_size, io::FileBlock::State::DOWNLOADED,
+                                    cache_lock);
+        ASSERT_NE(cell, nullptr);
+        ASSERT_EQ(cell->file_block->range().size(), old_size);
+        ASSERT_EQ(cache._cur_cache_size, old_size);
+
+        auto* storage = dynamic_cast<io::FSFileCacheStorage*>(cache._storage.get());
+        ASSERT_NE(storage, nullptr);
+        ASSERT_TRUE(storage->handle_already_loaded_block(&cache, hash, offset, new_size,
+                                                         /*tablet_id*/ 0, cache_lock));
+        ASSERT_EQ(cell->file_block->range().size(), new_size);
+        ASSERT_EQ(cell->file_block->range().right, offset + new_size - 1);
+        ASSERT_EQ(cache._cur_cache_size, new_size);
+        ASSERT_EQ(cache.get_queue(io::FileCacheType::NORMAL).get_capacity(cache_lock), new_size);
+    }
+
+    cache.clear_file_cache_async();
+
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        ASSERT_EQ(cache._cur_cache_size, 0);
+        ASSERT_EQ(cache.get_queue(io::FileCacheType::NORMAL).get_capacity(cache_lock), 0);
+        ASSERT_TRUE(cache._files.empty());
+    }
+
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
+    }
+}
+
 } // namespace doris::io
