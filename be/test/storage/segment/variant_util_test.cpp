@@ -66,15 +66,42 @@ static TabletSchema _make_variant_schema(bool enable_doc_mode = false,
     return tablet_schema;
 }
 
-static Block _make_scalar_variant_block(const std::vector<std::string>& jsons) {
-    auto variant = ColumnVariant::create(0, false);
+static TabletColumn _make_subcolumn_template(
+        const std::string& path, PatternTypePB pattern_type = PatternTypePB::MATCH_NAME) {
+    ColumnPB column_pb;
+    column_pb.set_unique_id(-1);
+    column_pb.set_name(path);
+    column_pb.set_type("STRING");
+    column_pb.set_is_nullable(true);
+    column_pb.set_pattern_type(pattern_type);
+
+    TabletColumn column;
+    column.init_from_pb(column_pb);
+    return column;
+}
+
+static void _append_parent_inverted_index(TabletSchema* tablet_schema, int64_t index_id = 10001) {
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(index_id);
+    index_pb.set_index_name("idx_v");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(1);
+
+    TabletIndex tablet_index;
+    tablet_index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(tablet_index));
+}
+
+static Block _make_scalar_variant_block(const std::vector<std::string>& jsons,
+                                        bool enable_doc_mode = false) {
+    auto variant = ColumnVariant::create(0, enable_doc_mode);
     for (const auto& json : jsons) {
         doris::VariantUtil::insert_root_scalar_field(
                 *variant, Field::create_field<TYPE_STRING>(String(json)));
     }
 
     Block block;
-    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0, false), "v"});
+    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0, enable_doc_mode), "v"});
     return block;
 }
 
@@ -496,6 +523,58 @@ TEST(VariantUtilTest, ParseVariantColumns_StorageNonDocScalarJsonToDocValueKv) {
     materialized_a.get(1, f);
     EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
     EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 2);
+}
+
+TEST(VariantUtilTest, ParseVariantColumns_StorageTypedPathUsesSubcolumns) {
+    TabletSchema tablet_schema = _make_variant_schema(false);
+    auto typed_path = _make_subcolumn_template("a");
+    tablet_schema.mutable_column_by_uid(1).add_sub_column(typed_path);
+
+    Block block = _make_scalar_variant_block({R"({"a":"x","b":"y"})"});
+    Status st = parse_and_materialize_variant_columns(block, tablet_schema, {0});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto& out = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
+    EXPECT_NE(out.get_subcolumn(PathInData("a")), nullptr);
+    EXPECT_NE(out.get_subcolumn(PathInData("b")), nullptr);
+    ASSERT_EQ(out.serialized_doc_value_column_offsets().size(), 1);
+    EXPECT_EQ(out.serialized_doc_value_column_offsets().back(), 0);
+}
+
+TEST(VariantUtilTest, ParseVariantColumns_StorageParentIndexUsesSubcolumns) {
+    TabletSchema tablet_schema = _make_variant_schema(false);
+    _append_parent_inverted_index(&tablet_schema);
+
+    Block block = _make_scalar_variant_block({R"({"a":"x","b":"y"})"});
+    Status st = parse_and_materialize_variant_columns(block, tablet_schema, {0});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto& out = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
+    EXPECT_NE(out.get_subcolumn(PathInData("a")), nullptr);
+    EXPECT_NE(out.get_subcolumn(PathInData("b")), nullptr);
+    ASSERT_EQ(out.serialized_doc_value_column_offsets().size(), 1);
+    EXPECT_EQ(out.serialized_doc_value_column_offsets().back(), 0);
+}
+
+TEST(VariantUtilTest, ParseVariantColumns_DocModeKeepsDocValueWithTypedPathAndParentIndex) {
+    TabletSchema tablet_schema = _make_variant_schema(true);
+    auto typed_path = _make_subcolumn_template("a");
+    tablet_schema.mutable_column_by_uid(1).add_sub_column(typed_path);
+    _append_parent_inverted_index(&tablet_schema);
+
+    Block block = _make_scalar_variant_block({R"({"a":"x","b":"y"})"}, true);
+    Status st = parse_and_materialize_variant_columns(block, tablet_schema, {0});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto& out = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
+    EXPECT_EQ(out.get_subcolumn(PathInData("a")), nullptr);
+    EXPECT_EQ(out.get_subcolumn(PathInData("b")), nullptr);
+    ASSERT_EQ(out.serialized_doc_value_column_offsets().size(), 1);
+    EXPECT_EQ(out.serialized_doc_value_column_offsets().back(), 2);
+
+    auto docs_subcolumns = materialize_docs_to_subcolumns_map(out);
+    EXPECT_TRUE(docs_subcolumns.contains("a"));
+    EXPECT_TRUE(docs_subcolumns.contains("b"));
 }
 
 TEST(VariantUtilTest, SparseStorageParseUsesDocValueKvInsteadOfManySubcolumns) {
