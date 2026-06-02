@@ -76,7 +76,7 @@ public class SummaryProfileTest {
         Assertions.assertEquals(20, profile.getNereidsPreloadExternalMetadataTimeMs());
         Assertions.assertEquals("20ms", profile.getPrettyNereidsPreloadExternalMetadataTime());
     }
-      
+
     @Test
     public void testExternalTableMetaSummary() {
         SummaryProfile profile = new SummaryProfile();
