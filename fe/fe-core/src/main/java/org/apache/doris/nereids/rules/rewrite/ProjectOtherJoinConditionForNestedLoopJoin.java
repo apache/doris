@@ -117,9 +117,10 @@ public class ProjectOtherJoinConditionForNestedLoopJoin extends OneRewriteRuleFa
             // A mixed expression like `t1.a + rand() > t2.b` has inputSlots={t1.a}; if we alias
             // it into a child Project, rand()'s evaluation granularity changes from "per join
             // pair" to "per row of that child", which silently changes results. Keep such
-            // expressions inline in otherJoinConjuncts.
+            // expressions inline in otherJoinConjuncts, but still recurse to extract deterministic
+            // child expressions.
             if (expression.containsVolatileExpression()) {
-                return expression;
+                return super.visit(expression, ctx);
             }
             if (ctx.leftSlots.containsAll(input)) {
                 Alias alias = ctx.aliasMap.computeIfAbsent(expression, o -> new Alias(o));
