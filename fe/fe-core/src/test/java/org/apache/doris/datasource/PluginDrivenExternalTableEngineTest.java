@@ -18,10 +18,18 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorTableSchema;
+import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -29,6 +37,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Tests that {@link PluginDrivenExternalTable} returns the correct legacy engine
@@ -37,6 +46,12 @@ import java.util.Map;
  * information_schema.tables, REST API, etc.).
  */
 public class PluginDrivenExternalTableEngineTest {
+
+    @BeforeEach
+    public void setUp() {
+        Config.enable_debug_points = true;
+        DebugPointUtil.clearDebugPoints();
+    }
 
     @Test
     public void testJdbcCatalogReturnsJdbcEngineName() {
@@ -93,6 +108,20 @@ public class PluginDrivenExternalTableEngineTest {
                 "Internal table type should always be PLUGIN_EXTERNAL_TABLE");
     }
 
+    @Test
+    public void testJdbcInitSchemaSleepDebugPoint() {
+        PluginDrivenExternalTable table = createTableWithCatalogType("jdbc");
+        DebugPointUtil.addDebugPointWithParams("PluginDrivenExternalTable.initSchema.sleep",
+                java.util.Collections.singletonMap("sleepMs", "500"));
+
+        long startTime = System.currentTimeMillis();
+        table.initSchema();
+        long elapsedMs = System.currentTimeMillis() - startTime;
+
+        Assertions.assertTrue(elapsedMs >= 400,
+                "JDBC schema init should observe the injected debug-point delay");
+    }
+
     // -------- Helpers --------
 
     private PluginDrivenExternalTable createTableWithCatalogType(String catalogType) {
@@ -147,7 +176,17 @@ public class PluginDrivenExternalTableEngineTest {
         private static Connector mockConnector() {
             Connector c = Mockito.mock(Connector.class);
             ConnectorMetadata meta = Mockito.mock(ConnectorMetadata.class);
+            ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+            ConnectorTableSchema schema = new ConnectorTableSchema("test_table",
+                    Collections.singletonList(new ConnectorColumn(
+                            "id", ConnectorType.of("INT", -1, -1), "", true, null, true)),
+                    null, Collections.emptyMap());
             Mockito.when(c.getMetadata(Mockito.any())).thenReturn(meta);
+            Mockito.when(meta.getTableHandle(Mockito.any(ConnectorSession.class), Mockito.anyString(), Mockito.anyString()))
+                    .thenReturn(Optional.of(handle));
+            Mockito.when(meta.getTableSchema(Mockito.any(ConnectorSession.class), Mockito.eq(handle))).thenReturn(schema);
+            Mockito.when(meta.fromRemoteColumnName(Mockito.any(ConnectorSession.class), Mockito.anyString(),
+                    Mockito.anyString(), Mockito.anyString())).thenAnswer(invocation -> invocation.getArgument(3));
             return c;
         }
     }
