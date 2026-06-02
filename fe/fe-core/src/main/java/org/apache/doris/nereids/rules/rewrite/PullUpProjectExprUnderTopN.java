@@ -392,7 +392,22 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         return result;
     }
 
-    /** Remove pulled-up expressions from project and add their base input slots. */
+    /**
+     * Remove pulled-up expressions from this Project and add the input slots that still need to pass through TopN.
+     *
+     * <p>For example, after pulling up {@code x = a + 1}:
+     *
+     * <pre>
+     * TopN
+     *   Project(id, x)                  -- forwards x from its child
+     *     Project(id, a + 1 as x)
+     *       Scan(id, a)
+     * </pre>
+     *
+     * <p>The lower Project should become {@code Project(id, a)}, because {@code x} is restored above TopN.
+     * The upper Project must also become {@code Project(id, a)} instead of keeping {@code Project(id, x)},
+     * since its child no longer outputs {@code x}.
+     */
     private static LogicalProject<? extends Plan> simplifyProject(
             LogicalProject<? extends Plan> project,
             List<NamedExpression> pulledUpExprs,
