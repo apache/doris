@@ -46,6 +46,7 @@ struct ParquetReaderScanState {
 
 void ParquetReader::_fill_schema_field(const ParquetColumnSchema& column_schema,
                                        reader::SchemaField* field) const {
+    field->id = column_schema.field_id;
     field->name = column_schema.name;
     field->type = column_schema.type;
     field->children.clear();
