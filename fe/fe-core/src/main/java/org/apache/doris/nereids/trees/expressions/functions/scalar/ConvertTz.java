@@ -114,7 +114,13 @@ public class ConvertTz extends ScalarFunction
         }
         LocalDateTime lowerDateTime = toLocalDateTime(lower);
         LocalDateTime upperDateTime = toLocalDateTime(upper);
-        if (lowerDateTime == null || upperDateTime == null || upperDateTime.isBefore(lowerDateTime)) {
+        if (lowerDateTime == null || upperDateTime == null) {
+            return false;
+        }
+        if (lowerDateTime.equals(upperDateTime)) {
+            return true;
+        }
+        if (upperDateTime.isBefore(lowerDateTime)) {
             return false;
         }
         // Partition pruning folds both endpoints as inclusive values, so a transition touching either boundary
@@ -159,7 +165,7 @@ public class ConvertTz extends ScalarFunction
     }
 
     private boolean hasTransitionInLocalRange(ZoneId zoneId, LocalDateTime lower, LocalDateTime upper) {
-        if (zoneId.getRules().isFixedOffset() || !lower.isBefore(upper)) {
+        if (zoneId.getRules().isFixedOffset()) {
             return false;
         }
         ZoneOffsetTransition transition = zoneId.getRules()
