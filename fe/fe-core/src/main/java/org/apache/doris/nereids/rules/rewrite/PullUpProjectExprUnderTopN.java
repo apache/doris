@@ -514,6 +514,8 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             if (pulledUpExpr != null) {
                 upperOutput.add(pulledUpExpr);
                 upperOutputExprIds.add(pulledUpExpr.getExprId());
+                addPassThroughSlots(upperOutput, upperOutputExprIds, passThroughOutputExprIds,
+                        currentOutputByExprId, resolveInputSlots(pulledUpExpr, context, currentOutputExprIds));
             } else {
                 Slot currentSlot = currentOutputByExprId.get(origSlot.getExprId());
                 if (currentSlot != null) {

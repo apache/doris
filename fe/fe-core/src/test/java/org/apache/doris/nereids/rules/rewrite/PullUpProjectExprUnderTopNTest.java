@@ -80,7 +80,8 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                                         )
                                 )
                         )
-                );
+                )
+                .getPlan();
     }
 
     @Test
@@ -102,7 +103,8 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                                         logicalOlapScan()
                                 )
                         )
-                );
+                )
+                .getPlan();
     }
 
     @Test
@@ -152,7 +154,8 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                                         )
                                 )
                         )
-                );
+                )
+                .getPlan();
     }
 
     @Test
@@ -204,7 +207,8 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                                         )
                                 )
                         )
-                );
+                )
+                .getPlan();
     }
 
     @Test
@@ -238,7 +242,8 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                                         )
                                 )
                         )
-                );
+                )
+                .getPlan();
     }
 
     @Test
@@ -332,39 +337,51 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
 
     @Test
     void testBlockedByJoinCondition() {
-        // topn -> project(x, y) -> join on x = scan2.id
+        // topn -> project(id, x, y) -> join on x = scan2.id -> project(id, x, y) -> scan
         // x is referenced by join condition, so it should be blocked.
+        Slot id = scan1.getOutput().get(0);
         Slot a = scan1.getOutput().get(1);
-        Slot b = scan1.getOutput().get(0);
         Alias x = new Alias(new Add(a, new IntegerLiteral((byte) 1)), "x");
-        Alias y = new Alias(new Add(b, new IntegerLiteral((byte) 1)), "y");
+        Alias y = new Alias(new Add(id, new IntegerLiteral((byte) 1)), "y");
 
         EqualTo joinCond = new EqualTo(x.toSlot(), scan2.getOutput().get(0));
+        LogicalProject<LogicalOlapScan> lowerProject = new LogicalProject<>(ImmutableList.of(id, x, y), scan1);
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(
                 JoinType.INNER_JOIN,
                 ImmutableList.of(joinCond),
-                (LogicalPlan) scan1, (LogicalPlan) scan2, null);
+                lowerProject, (LogicalPlan) scan2, null);
 
         LogicalPlan plan = new LogicalPlanBuilder(join)
-                .projectExprs(ImmutableList.of(x, y))
+                .projectExprs(ImmutableList.of(id, x.toSlot(), y.toSlot()))
                 .topN(3, 0, ImmutableList.of(0))
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyCustom(new PullUpProjectExprUnderTopN())
                 // y is pulled up, x stays in the bottom project because it's blocked by join condition
-                .matches(
+                .matchesFromRoot(
                         logicalProject(
                                 logicalTopN(
                                         logicalProject(
                                                 logicalJoin(
-                                                        logicalOlapScan(),
+                                                        logicalProject(logicalOlapScan()),
                                                         logicalOlapScan()
                                                 )
                                         )
                                 )
                         )
-                );
+                )
+                .getPlan();
+
+        LogicalProject<?> topProject = (LogicalProject<?>) rewritten;
+        Assertions.assertEquals(y.getExprId(), topProject.getProjects().get(2).getExprId());
+
+        LogicalTopN<?> topN = (LogicalTopN<?>) topProject.child(0);
+        LogicalProject<?> rewrittenProject = (LogicalProject<?>) topN.child(0);
+        Assertions.assertTrue(rewrittenProject.getProjects().stream()
+                .anyMatch(expr -> expr.getExprId().equals(x.getExprId())));
+        Assertions.assertFalse(rewrittenProject.getProjects().stream()
+                .anyMatch(expr -> expr.getExprId().equals(y.getExprId())));
     }
 
     @Test
@@ -508,10 +525,11 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                                                 logicalOlapScan()
                                         )
                                 )
-                        ).when(project -> project.getProjects().size() == 3
+                        ).when(project -> project.getProjects().size() == 4
                                 && project.getProjects().get(0).getExprId().equals(id.getExprId())
                                 && project.getProjects().get(1).getExprId().equals(x.getExprId())
-                                && project.getProjects().get(2).getExprId().equals(c.getExprId()))
+                                && project.getProjects().get(2).getExprId().equals(a.getExprId())
+                                && project.getProjects().get(3).getExprId().equals(c.getExprId()))
                 );
     }
 
@@ -533,18 +551,16 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                 .topN(3, 0, ImmutableList.of(2))
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyCustom(new PullUpProjectExprUnderTopN())
-                .matches(
-                        logicalProject(
-                                logicalTopN(
-                                        logicalProject(logicalOlapScan())
-                                )
-                        ).when(project -> project.getProjects().size() == 3
-                                && project.getProjects().get(0).getExprId().equals(x.getExprId())
-                                && project.getProjects().get(1).getExprId().equals(b.getExprId())
-                                && project.getProjects().get(2).getExprId().equals(id.getExprId()))
-                );
+                .getPlan();
+
+        LogicalProject<?> topProject = (LogicalProject<?>) rewritten;
+        Assertions.assertEquals(4, topProject.getProjects().size());
+        Assertions.assertEquals(x.getExprId(), topProject.getProjects().get(0).getExprId());
+        Assertions.assertEquals(y.getExprId(), topProject.getProjects().get(1).getExprId());
+        Assertions.assertEquals(b.getExprId(), topProject.getProjects().get(2).getExprId());
+        Assertions.assertEquals(id.getExprId(), topProject.getProjects().get(3).getExprId());
     }
 
     @Test
@@ -664,36 +680,48 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
 
     @Test
     void testBlockedBySort() {
-        // topn -> project(x, y) -> sort(by x) -> scan
+        // topn -> project(id, x, y) -> sort(by x) -> project(id, x, y) -> scan
         // x is used by sort order key, so x is blocked.
         // y is not blocked and should be pulled up.
+        Slot id = scan1.getOutput().get(0);
         Slot a = scan1.getOutput().get(1);
-        Slot b = scan1.getOutput().get(0);
         Alias x = new Alias(new Add(a, new IntegerLiteral((byte) 1)), "x");
-        Alias y = new Alias(new Add(b, new IntegerLiteral((byte) 1)), "y");
+        Alias y = new Alias(new Add(id, new IntegerLiteral((byte) 1)), "y");
 
+        LogicalProject<LogicalOlapScan> lowerProject = new LogicalProject<>(ImmutableList.of(id, x, y), scan1);
         LogicalSort<LogicalPlan> sort = new LogicalSort<>(
                 ImmutableList.of(new OrderKey(x.toSlot(), false, false)),
-                scan1);
+                lowerProject);
         LogicalPlan plan = new LogicalPlanBuilder(sort)
-                .projectExprs(ImmutableList.of(x, y))
+                .projectExprs(ImmutableList.of(id, x.toSlot(), y.toSlot()))
                 .topN(3, 0, ImmutableList.of(0))
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyCustom(new PullUpProjectExprUnderTopN())
                 // y is pulled up, x stays in bottom project due to sort order key
-                .matches(
+                .matchesFromRoot(
                         logicalProject(
                                 logicalTopN(
                                         logicalProject(
                                                 logicalSort(
-                                                        logicalOlapScan()
+                                                        logicalProject(logicalOlapScan())
                                                 )
                                         )
                                 )
                         )
-                );
+                )
+                .getPlan();
+
+        LogicalProject<?> topProject = (LogicalProject<?>) rewritten;
+        Assertions.assertEquals(y.getExprId(), topProject.getProjects().get(2).getExprId());
+
+        LogicalTopN<?> topN = (LogicalTopN<?>) topProject.child(0);
+        LogicalProject<?> rewrittenProject = (LogicalProject<?>) topN.child(0);
+        Assertions.assertTrue(rewrittenProject.getProjects().stream()
+                .anyMatch(expr -> expr.getExprId().equals(x.getExprId())));
+        Assertions.assertFalse(rewrittenProject.getProjects().stream()
+                .anyMatch(expr -> expr.getExprId().equals(y.getExprId())));
     }
 
     @Test
@@ -850,7 +878,7 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                 .matchesFromRoot(
                         logicalTopN(
                                 logicalUnion(
-                                        logicalTopN(logicalProject(logicalOlapScan())),
+                                        logicalProject(logicalTopN(logicalProject(logicalOlapScan()))),
                                         logicalProject(logicalOlapScan())
                                 )
                         )

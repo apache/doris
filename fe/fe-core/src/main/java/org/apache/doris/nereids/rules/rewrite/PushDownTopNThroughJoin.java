@@ -20,19 +20,23 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Push down TopN through Outer Join into left child .....
@@ -53,7 +57,7 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                                 .allMatch(Slot.class::isInstance))
                         .then(topN -> {
                             LogicalJoin<Plan, Plan> join = topN.child();
-                            Plan newJoin = pushLimitThroughJoin(topN, join);
+                            Plan newJoin = pushLimitThroughJoin(topN, join, ImmutableList.of());
                             if (newJoin == null) {
                                 return null;
                             }
@@ -80,7 +84,14 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                                 return null;
                             }
 
-                            Plan newJoin = pushLimitThroughJoin(topN, join);
+                            List<Slot> projectInputSlots = project.getProjects().stream()
+                                    .flatMap(ne -> ne instanceof Slot
+                                            ? Stream.of((Slot) ne) : ne.getInputSlots().stream())
+                                    .collect(Collectors.toList());
+                            if (!join.getOutputSet().containsAll(projectInputSlots)) {
+                                return null;
+                            }
+                            Plan newJoin = pushLimitThroughJoin(topN, join, projectInputSlots);
                             if (newJoin == null) {
                                 return null;
                             }
@@ -89,7 +100,8 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
         );
     }
 
-    private Plan pushLimitThroughJoin(LogicalTopN<? extends Plan> topN, LogicalJoin<Plan, Plan> join) {
+    private Plan pushLimitThroughJoin(LogicalTopN<? extends Plan> topN, LogicalJoin<Plan, Plan> join,
+            List<Slot> requiredOutputSlots) {
         List<Slot> orderbySlots = topN.getOrderKeys().stream().map(OrderKey::getExpr)
                 .flatMap(e -> e.getInputSlots().stream()).collect(Collectors.toList());
         switch (join.getJoinType()) {
@@ -99,8 +111,11 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                     return null;
                 }
                 if (join.left().getOutputSet().containsAll(orderbySlots)) {
+                    if (!canPushToChild(join.left(), requiredOutputSlots)) {
+                        return null;
+                    }
                     return join.withChildren(
-                            topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.left()),
+                            pushTopNToChild(topN, join.left(), orderbySlots, requiredOutputSlots),
                             join.right());
                 }
                 return null;
@@ -110,9 +125,12 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                     return null;
                 }
                 if (join.right().getOutputSet().containsAll(orderbySlots)) {
+                    if (!canPushToChild(join.right(), requiredOutputSlots)) {
+                        return null;
+                    }
                     return join.withChildren(
                             join.left(),
-                            topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.right()));
+                            pushTopNToChild(topN, join.right(), orderbySlots, requiredOutputSlots));
                 }
                 return null;
             case CROSS_JOIN:
@@ -120,16 +138,22 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                     if (join.left() instanceof TopN) {
                         return null;
                     }
+                    if (!canPushToChild(join.left(), requiredOutputSlots)) {
+                        return null;
+                    }
                     return join.withChildren(
-                            topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.left()),
+                            pushTopNToChild(topN, join.left(), orderbySlots, requiredOutputSlots),
                             join.right());
                 } else if (join.right().getOutputSet().containsAll(orderbySlots)) {
                     if (join.right() instanceof TopN) {
                         return null;
                     }
+                    if (!canPushToChild(join.right(), requiredOutputSlots)) {
+                        return null;
+                    }
                     return join.withChildren(
                             join.left(),
-                            topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.right()));
+                            pushTopNToChild(topN, join.right(), orderbySlots, requiredOutputSlots));
                 } else {
                     return null;
                 }
@@ -137,5 +161,24 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                 // don't push limit.
                 return null;
         }
+    }
+
+    private boolean canPushToChild(Plan child, List<Slot> requiredOutputSlots) {
+        return requiredOutputSlots.isEmpty() || child.getOutputSet().containsAll(requiredOutputSlots);
+    }
+
+    private Plan pushTopNToChild(LogicalTopN<? extends Plan> topN, Plan child, List<Slot> orderbySlots,
+            List<Slot> requiredOutputSlots) {
+        if (requiredOutputSlots.isEmpty()) {
+            return topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, child);
+        }
+
+        Set<Slot> requiredSet = new HashSet<>(requiredOutputSlots);
+        requiredSet.addAll(orderbySlots);
+        List<NamedExpression> childOutput = child.getOutput().stream()
+                .filter(requiredSet::contains)
+                .collect(Collectors.toList());
+        Plan topNChild = PlanUtils.projectOrSelf(childOutput, child);
+        return topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, topNChild);
     }
 }
