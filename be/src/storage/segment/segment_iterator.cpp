@@ -484,8 +484,7 @@ Status SegmentIterator::_init_project_schema() {
     return Status::OK();
 }
 
-Status SegmentIterator::_build_project_block(Block* block, uint16_t selected_size,
-                                             Block* project_block) {
+Status SegmentIterator::_build_project_block(Block* block, Block* project_block) {
     project_block->clear();
     DORIS_CHECK(_project_schema != nullptr);
     for (auto cid : _project_schema->column_ids()) {
@@ -498,22 +497,6 @@ Status SegmentIterator::_build_project_block(Block* block, uint16_t selected_siz
             auto type_it = _opts.vir_col_idx_to_type.find(virtual_it->second);
             DORIS_CHECK(type_it != _opts.vir_col_idx_to_type.end());
             type = type_it->second;
-            if (!column || check_and_get_column<const ColumnNothing>(column.get()) ||
-                column->size() != selected_size) {
-                column = ColumnNothing::create(selected_size);
-            }
-        } else {
-            if (!type) {
-                type = Schema::get_data_type_ptr(*_schema->column(cid));
-            }
-            if (!column) {
-                return Status::InternalError(
-                        "project column {} is not materialized before project block build", cid);
-            }
-            if (column->size() != selected_size) {
-                return Status::InternalError("project column {} has {} rows, expected {}", cid,
-                                             column->size(), selected_size);
-            }
         }
         project_block->insert({std::move(column), type, _schema->column(cid)->name()});
     }
@@ -3023,7 +3006,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
         for (auto& [cid, ctx] : _virtual_column_exprs) {
             vir_ctxs.push_back(ctx.get());
         }
-        _output_index_result_column(vir_ctxs, sel_rowid_idx, _selected_size, block);
+        _output_index_result_column(vir_ctxs, sel_rowid_idx, _selected_size);
     }
     RETURN_IF_ERROR(_materialization_of_virtual_column(block));
     if (_opts.read_limit > 0) {
@@ -3114,26 +3097,10 @@ Status SegmentIterator::_process_eof(Block* block) {
 
 Status SegmentIterator::_process_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                              Block* block) {
-    // Here we just use col0 as row_number indicator. when reach here, we will calculate the predicates first.
-    //  then use the result to reduce our data read(that is, expr push down). there's now row in block means the first
-    //  column is not in common expr. so it's safe to replace it temporarily to provide correct `selected_size`.
     VLOG_DEBUG << fmt::format("Execute common expr. block rows {}, selected size {}", block->rows(),
                               _selected_size);
 
-    bool need_mock_col = block->rows() != selected_size;
-    MutableColumnPtr col0;
-    if (need_mock_col) {
-        col0 = std::move(*block->get_by_position(0).column).mutate();
-        block->replace_by_position(
-                0, block->get_by_position(0).type->create_column_const_with_default_value(
-                           _selected_size));
-    }
-
-    RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), _selected_size, block));
-
-    if (need_mock_col) {
-        block->replace_by_position(0, std::move(col0));
-    }
+    RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
 
     VLOG_DEBUG << fmt::format("Execute common expr end. block rows {}, selected size {}",
                               block->rows(), _selected_size);
@@ -3145,25 +3112,26 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     SCOPED_RAW_TIMER(&_opts.stats->expr_filter_ns);
     DCHECK(!_common_expr_ctxs_push_down.empty());
     Block project_block;
-    RETURN_IF_ERROR(_build_project_block(block, selected_size, &project_block));
+    RETURN_IF_ERROR(_build_project_block(block, &project_block));
     std::vector<VExprContext*> common_ctxs;
     common_ctxs.reserve(_common_expr_ctxs_push_down.size());
     for (auto& ctx : _common_expr_ctxs_push_down) {
         common_ctxs.push_back(ctx.get());
     }
-    _output_index_result_column(common_ctxs, sel_rowid_idx, selected_size, &project_block);
+    _output_index_result_column(common_ctxs, sel_rowid_idx, selected_size);
 
-    DCHECK(project_block.rows() != 0);
-    int prev_columns = project_block.columns();
     uint16_t original_size = selected_size;
     _opts.stats->expr_cond_input_rows += original_size;
 
-    IColumn::Filter filter;
-    std::vector<uint32_t> expr_columns_to_filter(prev_columns);
-    std::iota(expr_columns_to_filter.begin(), expr_columns_to_filter.end(), 0);
-    RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-            _common_expr_ctxs_push_down, &project_block, expr_columns_to_filter, prev_columns,
-            filter));
+    IColumn::Filter filter(selected_size, 1);
+    bool can_filter_all = false;
+    for (const auto& ctx : _common_expr_ctxs_push_down) {
+        RETURN_IF_ERROR(ctx->execute_filter(&project_block, filter.data(), selected_size, false,
+                                            &can_filter_all));
+        if (can_filter_all) {
+            break;
+        }
+    }
     RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, _columns_to_filter, filter));
 
     selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
@@ -3214,10 +3182,9 @@ uint16_t SegmentIterator::_evaluate_common_expr_filter(uint16_t* sel_rowid_idx,
 }
 
 void SegmentIterator::_output_index_result_column(const std::vector<VExprContext*>& expr_ctxs,
-                                                  uint16_t* sel_rowid_idx, uint16_t select_size,
-                                                  Block* block) {
+                                                  uint16_t* sel_rowid_idx, uint16_t select_size) {
     SCOPED_RAW_TIMER(&_opts.stats->output_index_result_column_timer);
-    if (block->rows() == 0) {
+    if (select_size == 0) {
         return;
     }
     for (auto* expr_ctx_ptr : expr_ctxs) {
@@ -3231,7 +3198,7 @@ void SegmentIterator::_output_index_result_column(const std::vector<VExprContext
             const auto& index_result_bitmap = result_bitmap.get_data_bitmap();
             auto index_result_column = ColumnUInt8::create();
             ColumnUInt8::Container& vec_match_pred = index_result_column->get_data();
-            vec_match_pred.resize(block->rows());
+            vec_match_pred.resize(select_size);
             std::fill(vec_match_pred.begin(), vec_match_pred.end(), 0);
 
             const auto& null_bitmap = result_bitmap.get_null_bitmap();
@@ -3243,7 +3210,7 @@ void SegmentIterator::_output_index_result_column(const std::vector<VExprContext
             if (has_null_bitmap && expr_returns_nullable) {
                 null_map_column = ColumnUInt8::create();
                 auto& null_map_vec = null_map_column->get_data();
-                null_map_vec.resize(block->rows());
+                null_map_vec.resize(select_size);
                 std::fill(null_map_vec.begin(), null_map_vec.end(), 0);
                 null_map_data = &null_map_column->get_data();
             }
@@ -3260,7 +3227,7 @@ void SegmentIterator::_output_index_result_column(const std::vector<VExprContext
                 }
             }
 
-            DCHECK(block->rows() == vec_match_pred.size());
+            DCHECK(select_size == vec_match_pred.size());
 
             if (null_map_column) {
                 index_ctx->set_index_result_column_for_expr(
@@ -3518,7 +3485,7 @@ void SegmentIterator::_init_virtual_columns(Block* block) {
 Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
     // Some expr can not process empty block, such as function `element_at`.
     // So materialize virtual column in advance to avoid errors.
-    if (block->rows() == 0) {
+    if (_selected_size == 0) {
         for (const auto& pair : _vir_cid_to_idx_in_block) {
             auto idx = _schema_block_id_map[pair.first];
             auto& col_with_type_and_name = block->get_by_position(idx);
@@ -3532,28 +3499,17 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
         auto cid = cid_and_expr.first;
         auto column_expr = cid_and_expr.second;
         auto idx_in_block = _schema_block_id_map[cid];
-        if (block->get_by_position(idx_in_block).column.get() == nullptr) {
-            return Status::InternalError(
-                    "Virtual column index {} is null, block columns {}, virtual columns size {}, "
-                    "virtual column expr {}",
-                    idx_in_block, block->columns(), _vir_cid_to_idx_in_block.size(),
-                    column_expr->root()->debug_string());
-        }
-        if (check_and_get_column<const ColumnNothing>(
-                    block->get_by_position(idx_in_block).column.get())) {
+        auto& column = block->get_by_position(idx_in_block).column;
+        if (check_and_get_column<const ColumnNothing>(column.get())) {
             VLOG_DEBUG << fmt::format("Virtual column is doing materialization, cid {}, col idx {}",
                                       cid, idx_in_block);
             ColumnPtr result_column;
             Block project_block;
-            RETURN_IF_ERROR(
-                    _build_project_block(block, cast_set<uint16_t>(block->rows()), &project_block));
-            RETURN_IF_ERROR(column_expr->execute(&project_block, result_column));
+            RETURN_IF_ERROR(_build_project_block(block, &project_block));
+            RETURN_IF_ERROR(column_expr->root()->execute_column(
+                    column_expr.get(), &project_block, nullptr, _selected_size, result_column));
 
             block->replace_by_position(idx_in_block, std::move(result_column));
-            if (block->get_by_position(idx_in_block).column->size() == 0) {
-                LOG_WARNING("Result of expr column {} is empty. cid {}, idx_in_block {}",
-                            column_expr->root()->debug_string(), cid, idx_in_block);
-            }
         }
     }
     return Status::OK();

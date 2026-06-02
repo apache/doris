@@ -275,10 +275,8 @@ private:
     bool _can_evaluated_by_vectorized(std::shared_ptr<ColumnPredicate> predicate);
 
     [[nodiscard]] Status _init_project_schema();
-    [[nodiscard]] Status _build_project_block(Block* block, uint16_t selected_size,
-                                              Block* project_block);
+    [[nodiscard]] Status _build_project_block(Block* block, Block* project_block);
     [[nodiscard]] Status _extract_common_expr_columns(const VExprSPtr& expr);
-    // same with _extract_common_expr_columns, but only extract columns that can be used for index
     [[nodiscard]] Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                               Block* block);
     Status _process_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size, Block* block);
@@ -295,7 +293,7 @@ private:
     bool _check_apply_by_inverted_index(std::shared_ptr<ColumnPredicate> pred);
 
     void _output_index_result_column(const std::vector<VExprContext*>& expr_ctxs,
-                                     uint16_t* sel_rowid_idx, uint16_t select_size, Block* block);
+                                     uint16_t* sel_rowid_idx, uint16_t select_size);
 
     bool _need_read_data(ColumnId cid);
     bool _prune_column(ColumnId cid, MutableColumnPtr& column, bool fill_defaults,
