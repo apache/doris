@@ -421,7 +421,7 @@ protected:
         }
 
         FileAggregateRequest file_request;
-        _build_file_aggregate_request(_push_down_agg_type, &file_request);
+        RETURN_IF_ERROR(_build_file_aggregate_request(_push_down_agg_type, &file_request));
         FileAggregateResult file_result;
         const auto status = _data_reader.reader->get_aggregate_result(file_request, &file_result);
         if (status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
@@ -453,13 +453,16 @@ protected:
             return true;
         }
         // For MIN/MAX, only support direct file-to-table column mappings. The two emitted rows
-        // must be enough for the upper MIN/MAX aggregate without evaluating projections, default
-        // expressions or virtual columns.
+        // must be enough for the upper MIN/MAX aggregate without evaluating default expressions or
+        // virtual columns.
         for (const auto& mapping : _data_reader.column_mapper.mappings()) {
-            if (!mapping.field_id.has_value() || mapping.has_complex_projection ||
+            if (!mapping.field_id.has_value() ||
                 mapping.virtual_column_type != TableVirtualColumnType::INVALID ||
                 mapping.default_expr != nullptr || mapping.file_type == nullptr ||
                 mapping.table_type == nullptr) {
+                return false;
+            }
+            if (!_can_push_down_minmax_for_mapping(mapping)) {
                 return false;
             }
         }
@@ -678,20 +681,26 @@ protected:
         return Status::OK();
     }
 
-    void _build_file_aggregate_request(TPushAggOp::type agg_type,
-                                       FileAggregateRequest* request) const {
+    Status _build_file_aggregate_request(TPushAggOp::type agg_type,
+                                         FileAggregateRequest* request) const {
         DORIS_CHECK(request != nullptr);
         DORIS_CHECK(_supports_aggregate_pushdown(agg_type));
         request->agg_type = agg_type;
         request->columns.clear();
         if (agg_type == TPushAggOp::type::COUNT) {
-            return;
+            return Status::OK();
         }
         request->columns.reserve(_data_reader.column_mapper.mappings().size());
         for (const auto& mapping : _data_reader.column_mapper.mappings()) {
             DORIS_CHECK(mapping.field_id.has_value());
-            request->columns.push_back({.file_column_id = *mapping.field_id});
+            FileAggregateRequest::Column column;
+            column.projection.field_id = *mapping.field_id;
+            if (!mapping.child_mappings.empty()) {
+                RETURN_IF_ERROR(build_aggregate_projection(mapping, &column.projection));
+            }
+            request->columns.push_back(std::move(column));
         }
+        return Status::OK();
     }
 
     Status _materialize_aggregate_pushdown_rows(TPushAggOp::type agg_type,
@@ -724,20 +733,22 @@ protected:
                 return Status::NotSupported("Missing min/max aggregate result for column {}",
                                             _projected_columns[column_idx].name);
             }
-            const auto& mapping = _data_reader.column_mapper.mappings()[column_idx];
-            DORIS_CHECK(mapping.field_id.has_value());
             bool found_file_column = false;
             for (size_t block_position = 0; block_position < _data_reader.block_schema.size();
                  ++block_position) {
-                if (_data_reader.block_schema[block_position].id == *mapping.field_id) {
+                if (_data_reader.block_schema[block_position].id ==
+                    file_result.columns[column_idx].projection.field_id) {
                     found_file_column = true;
-                    auto column =
-                            file_block.get_by_position(block_position).column->assume_mutable();
-                    if (column->empty()) {
-                        column->insert(result_column.min_value);
-                        column->insert(result_column.max_value);
-                        file_block.replace_by_position(block_position, std::move(column));
-                    }
+                    auto column = file_block.get_by_position(block_position)
+                                          .type->create_column()
+                                          ->assume_mutable();
+                    RETURN_IF_ERROR(_insert_aggregate_projection_value(
+                            file_result.columns[column_idx].projection, result_column.min_value,
+                            column.get()));
+                    RETURN_IF_ERROR(_insert_aggregate_projection_value(
+                            file_result.columns[column_idx].projection, result_column.max_value,
+                            column.get()));
+                    file_block.replace_by_position(block_position, std::move(column));
                     break;
                 }
             }
@@ -793,6 +804,72 @@ private:
             }
         }
         return nullptr;
+    }
+
+    static bool _can_push_down_minmax_for_mapping(const ColumnMapping& mapping) {
+        if (mapping.child_mappings.empty()) {
+            return true;
+        }
+        const auto primitive_type = remove_nullable(mapping.file_type)->get_primitive_type();
+        if (primitive_type != TYPE_STRUCT) {
+            return false;
+        }
+        size_t mapped_children = 0;
+        const ColumnMapping* mapped_child = nullptr;
+        for (const auto& child_mapping : mapping.child_mappings) {
+            if (!child_mapping.field_id.has_value()) {
+                continue;
+            }
+            ++mapped_children;
+            mapped_child = &child_mapping;
+        }
+        return mapped_children == 1 && mapped_child != nullptr &&
+               _can_push_down_minmax_for_mapping(*mapped_child);
+    }
+
+    static Status build_aggregate_projection(const ColumnMapping& mapping,
+                                             FieldProjection* projection) {
+        DORIS_CHECK(projection != nullptr);
+        DORIS_CHECK(mapping.field_id.has_value());
+        projection->field_id = *mapping.field_id;
+        projection->children.clear();
+        projection->project_all_children = true;
+        if (mapping.child_mappings.empty()) {
+            return Status::OK();
+        }
+        projection->project_all_children = false;
+        for (const auto& child_mapping : mapping.child_mappings) {
+            if (!child_mapping.field_id.has_value()) {
+                continue;
+            }
+            FieldProjection child_projection;
+            RETURN_IF_ERROR(build_aggregate_projection(child_mapping, &child_projection));
+            projection->children.push_back(std::move(child_projection));
+        }
+        DORIS_CHECK(projection->children.size() == 1);
+        return Status::OK();
+    }
+
+    static Status _insert_aggregate_projection_value(const FieldProjection& projection,
+                                                     const Field& value, IColumn* column) {
+        DORIS_CHECK(column != nullptr);
+        if (auto* nullable_column = check_and_get_column<ColumnNullable>(*column)) {
+            RETURN_IF_ERROR(_insert_aggregate_projection_value(
+                    projection, value, &nullable_column->get_nested_column()));
+            nullable_column->get_null_map_data().push_back(0);
+            return Status::OK();
+        }
+        if (projection.project_all_children || projection.children.empty()) {
+            column->insert(value);
+            return Status::OK();
+        }
+        auto* struct_column = assert_cast<ColumnStruct*>(column);
+        DORIS_CHECK(projection.children.size() == 1);
+        const auto& child_projection = projection.children[0];
+        DORIS_CHECK(struct_column->get_columns().size() == 1);
+        RETURN_IF_ERROR(_insert_aggregate_projection_value(child_projection, value,
+                                                           &struct_column->get_column(0)));
+        return Status::OK();
     }
 
     static Status _project_schema_field(const SchemaField& field, const FieldProjection& projection,

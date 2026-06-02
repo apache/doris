@@ -44,6 +44,39 @@ struct ParquetReaderScanState {
     ParquetScanScheduler scheduler;
 };
 
+static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schema,
+                                         const reader::FieldProjection& projection,
+                                         const ParquetColumnSchema** leaf_schema) {
+    DORIS_CHECK(leaf_schema != nullptr);
+    if (projection.project_all_children || projection.children.empty()) {
+        if (column_schema.leaf_column_id < 0) {
+            return Status::NotSupported(
+                    "Parquet aggregate pushdown only supports primitive column {}",
+                    column_schema.name);
+        }
+        if (column_schema.max_repetition_level > 0) {
+            return Status::NotSupported(
+                    "Parquet aggregate pushdown does not support repeated column {}",
+                    column_schema.name);
+        }
+        *leaf_schema = &column_schema;
+        return Status::OK();
+    }
+    if (projection.children.size() != 1) {
+        return Status::NotSupported(
+                "Parquet aggregate pushdown only supports a single nested leaf under column {}",
+                column_schema.name);
+    }
+    const auto& child_projection = projection.children[0];
+    for (const auto& child_schema : column_schema.children) {
+        if (child_schema->field_id == child_projection.field_id) {
+            return find_projected_minmax_leaf(*child_schema, child_projection, leaf_schema);
+        }
+    }
+    return Status::InvalidArgument("Invalid parquet aggregate projection field id {} for column {}",
+                                   child_projection.field_id, column_schema.name);
+}
+
 void ParquetReader::_fill_schema_field(const ParquetColumnSchema& column_schema,
                                        reader::SchemaField* field) const {
     field->id = column_schema.field_id;
@@ -303,7 +336,7 @@ Status ParquetReader::get_aggregate_result(const reader::FileAggregateRequest& r
     result->columns.resize(request.columns.size());
     for (size_t request_column_idx = 0; request_column_idx < request.columns.size();
          ++request_column_idx) {
-        const auto file_column_id = request.columns[request_column_idx].file_column_id;
+        const auto file_column_id = request.columns[request_column_idx].projection.field_id;
         if (file_column_id < 0 ||
             file_column_id >= static_cast<int32_t>(_state->file_schema.size())) {
             return Status::InvalidArgument("Invalid parquet aggregate column id {}",
@@ -311,25 +344,24 @@ Status ParquetReader::get_aggregate_result(const reader::FileAggregateRequest& r
         }
         const auto& column_schema = _state->file_schema[file_column_id];
         DORIS_CHECK(column_schema != nullptr);
-        // TODO: Support min/max pushdown for complex column by traversing down to the leaf column readers. This requires supporting complex column statistics in parquet file reader, which is currently not implemented in parquet-cpp.
-        if (column_schema->leaf_column_id < 0) {
-            return Status::NotSupported(
-                    "Parquet aggregate pushdown only supports primitive column {}",
-                    column_schema->name);
-        }
+        const ParquetColumnSchema* leaf_schema = nullptr;
+        RETURN_IF_ERROR(find_projected_minmax_leaf(
+                *column_schema, request.columns[request_column_idx].projection, &leaf_schema));
+        DORIS_CHECK(leaf_schema != nullptr);
 
         auto& aggregate_column = result->columns[request_column_idx];
+        aggregate_column.projection = request.columns[request_column_idx].projection;
         for (const auto& row_group_plan : _state->scan_plan.row_groups) {
             auto row_group_metadata =
                     _state->file_context.metadata->RowGroup(row_group_plan.row_group_id);
             DORIS_CHECK(row_group_metadata != nullptr);
-            auto column_chunk = row_group_metadata->ColumnChunk(column_schema->leaf_column_id);
+            auto column_chunk = row_group_metadata->ColumnChunk(leaf_schema->leaf_column_id);
             DORIS_CHECK(column_chunk != nullptr);
             const auto statistics = ParquetStatisticsUtils::TransformColumnStatistics(
-                    *column_schema, column_chunk->statistics());
+                    *leaf_schema, column_chunk->statistics());
             if (!statistics.has_min_max) {
                 return Status::NotSupported("Missing parquet min/max statistics for column {}",
-                                            column_schema->name);
+                                            leaf_schema->name);
             }
             if (!aggregate_column.has_min || statistics.min_value < aggregate_column.min_value) {
                 aggregate_column.min_value = statistics.min_value;
