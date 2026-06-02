@@ -155,10 +155,10 @@ Status ParquetColumnReaderFactory::create_scalar_column_reader(
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
     }
-    if (column_schema.field_id < 0 ||
-        column_schema.field_id >= static_cast<int>(_record_readers.size())) {
+    if (column_schema.leaf_column_id < 0 ||
+        column_schema.leaf_column_id >= static_cast<int>(_record_readers.size())) {
         return Status::InvalidArgument("Invalid parquet leaf column id {} for column {}",
-                                       column_schema.field_id, column_schema.name);
+                                       column_schema.leaf_column_id, column_schema.name);
     }
     if (!supports_record_reader(column_schema.type_descriptor)) {
         return Status::NotSupported(
@@ -175,7 +175,7 @@ Status ParquetColumnReaderFactory::create_scalar_column_reader(
                 column_schema.name);
     }
     std::shared_ptr<::parquet::internal::RecordReader> record_reader;
-    RETURN_IF_ERROR(get_record_reader(column_schema.field_id, column_schema.descriptor,
+    RETURN_IF_ERROR(get_record_reader(column_schema.leaf_column_id, column_schema.descriptor,
                                       column_schema.name, &record_reader));
     return create_scalar_reader(column_schema, std::move(record_reader), reader);
 }

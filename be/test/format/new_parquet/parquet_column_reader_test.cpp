@@ -2343,7 +2343,7 @@ TEST_F(ParquetColumnReaderTest, BuildComplexSchemaNodeMetadata) {
     ASSERT_EQ(struct_schema.name, "struct_col");
     ASSERT_EQ(struct_schema.children.size(), 2);
     EXPECT_EQ(struct_schema.field_id, static_cast<int32_t>(field_idx));
-    EXPECT_EQ(struct_schema.parent_schema_node_id, 0);
+    EXPECT_EQ(struct_schema.parent_schema_node_id, -1);
     EXPECT_EQ(struct_schema.children[0]->field_id, 0);
     EXPECT_EQ(struct_schema.children[1]->field_id, 1);
     EXPECT_EQ(struct_schema.children[0]->parent_schema_node_id, struct_schema.schema_node_id);
