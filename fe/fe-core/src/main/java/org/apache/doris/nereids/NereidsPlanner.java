@@ -421,7 +421,27 @@ public class NereidsPlanner extends Planner {
         }
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTableCollector(true).collect());
         // Preload external metadata before internal table locks are acquired.
-        statementContext.preloadExternalTablesBeforeLock();
+        long preloadStartTime = TimeUtils.getStartTimeMs();
+        StatementContext.ExternalMetadataPreloadResult preloadResult =
+                statementContext.preloadExternalTablesBeforeLock();
+        long preloadElapsedTime = TimeUtils.getStartTimeMs() - preloadStartTime;
+        // Record preload timing in the query profile as a dedicated planner sub-stage.
+        if (statementContext.getConnectContext().getExecutor() != null && preloadResult.isExecuted()) {
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .addNereidsPreloadExternalMetadataTime(preloadElapsedTime);
+        }
+        // Keep a concise debug summary for the entire preload phase.
+        if (LOG.isDebugEnabled()) {
+            if (preloadResult.isExecuted()) {
+                LOG.debug("{} preloaded external metadata for {} of {} candidate tables in {} ms",
+                        statementContext.getConnectContext().getQueryIdentifier(), preloadResult.getPreloadedTableCount(),
+                        preloadResult.getCandidateTableCount(), preloadElapsedTime);
+            } else {
+                LOG.debug("{} skip external metadata preload before lock: {} [candidateTableCount={}]",
+                        statementContext.getConnectContext().getQueryIdentifier(), preloadResult.getSkipReason(),
+                        preloadResult.getCandidateTableCount());
+            }
+        }
         statementContext.lock();
         cascadesContext.setCteContext(new CTEContext());
         NereidsTracer.logImportantTime("EndCollectAndLockTables");

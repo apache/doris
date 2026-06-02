@@ -30,6 +30,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
@@ -918,13 +919,22 @@ public class StatementContext implements Closeable {
     /**
      * Preload external metadata before internal table locks are acquired to reduce lock holding time.
      */
-    public void preloadExternalTablesBeforeLock() {
-        if (!shouldPreloadExternalTablesBeforeLock()) {
-            return;
+    ExternalMetadataPreloadResult preloadExternalTablesBeforeLock() {
+        Optional<String> skipReason = getExternalMetadataPreloadSkipReason();
+        if (skipReason.isPresent()) {
+            // Emit a lightweight debug log so skipped preload decisions can still be diagnosed.
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("{} skip external metadata preload before lock: {}",
+                        getPreloadQueryIdentifier(), skipReason.get());
+            }
+            return ExternalMetadataPreloadResult.skipped(externalTablePreloadInfos.size(), skipReason.get());
         }
+        int preloadedTableCount = 0;
         for (ExternalTablePreloadInfo preloadInfo : externalTablePreloadInfos.values()) {
             preloadExternalTable(preloadInfo);
+            preloadedTableCount++;
         }
+        return ExternalMetadataPreloadResult.executed(externalTablePreloadInfos.size(), preloadedTableCount);
     }
 
     /** releasePlannerResources */
@@ -1034,18 +1044,20 @@ public class StatementContext implements Closeable {
         snapshots.put(mvccTableInfo, snapshot);
     }
 
-    private boolean shouldPreloadExternalTablesBeforeLock() {
+    private Optional<String> getExternalMetadataPreloadSkipReason() {
         if (connectContext == null || connectContext.getSessionVariable() == null
-                || !connectContext.getSessionVariable()
-                        .isEnablePreloadExternalMetadata()) {
-            return false;
+                || !connectContext.getSessionVariable().isEnablePreloadExternalMetadata()) {
+            return Optional.of("session variable enable_preload_external_metadata is disabled");
         }
         if (externalTablePreloadInfos.isEmpty()) {
-            return false;
+            return Optional.of("no external preload candidates were collected");
         }
-        return containsPlanReadLockTable(tables.values())
+        if (containsPlanReadLockTable(tables.values())
                 || containsPlanReadLockTable(mtmvRelatedTables.values())
-                || containsPlanReadLockTable(insertTargetTables.values());
+                || containsPlanReadLockTable(insertTargetTables.values())) {
+            return Optional.empty();
+        }
+        return Optional.of("no internal tables require plan-time read lock");
     }
 
     private boolean containsPlanReadLockTable(Collection<TableIf> tableIfs) {
@@ -1068,16 +1080,39 @@ public class StatementContext implements Closeable {
     // Preload metadata that is commonly accessed during planning before internal table locks are acquired.
     private void preloadExternalTable(ExternalTablePreloadInfo preloadInfo) {
         ExternalTable table = preloadInfo.table;
+        long preloadStartTime = TimeUtils.getStartTimeMs();
         // Preload the latest snapshot only when every relation uses the latest view of the table.
-        if (preloadInfo.shouldPreloadLatestSnapshot() && supportsLatestSnapshotPreload(table)) {
+        boolean supportsLatestSnapshot = supportsLatestSnapshotPreload(table);
+        boolean preloadLatestSnapshot = preloadInfo.shouldPreloadLatestSnapshot() && supportsLatestSnapshot;
+        if (preloadLatestSnapshot) {
             loadSnapshots(table, Optional.empty(), Optional.empty());
         }
         // Preload schema access while no internal table lock is held.
         table.getBaseSchema();
         // Preload partition metadata only for engines that support internal partition pruning.
-        if (table.supportInternalPartitionPruned()) {
+        boolean preloadPartition = table.supportInternalPartitionPruned();
+        if (preloadPartition) {
             table.initSelectedPartitions(getSnapshot(table));
         }
+        // Log the actual preload path per table to simplify manual verification in debug mode.
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("{} preloaded external metadata for table {} "
+                            + "[supportsLatestSnapshot={}, preloadLatestSnapshot={}, preloadSchema=true, "
+                            + "preloadPartition={}, hasLatestRelation={}, hasNonLatestRelation={}, elapsedMs={}]",
+                    getPreloadQueryIdentifier(), getExternalTableLogName(table), supportsLatestSnapshot,
+                    preloadLatestSnapshot, preloadPartition, preloadInfo.hasLatestOnlyRelation,
+                    preloadInfo.hasNonLatestRelation, TimeUtils.getStartTimeMs() - preloadStartTime);
+        }
+    }
+
+    // Use the query identifier in debug logs so preload events can be correlated with a single statement.
+    private String getPreloadQueryIdentifier() {
+        return connectContext == null ? "stmt[unknown]" : connectContext.getQueryIdentifier();
+    }
+
+    // Build a stable table name for preload debug logs.
+    private String getExternalTableLogName(ExternalTable table) {
+        return table.getCatalog().getName() + "." + table.getDbName() + "." + table.getName();
     }
 
     // Restrict plugin-driven preload to JDBC because other connector types have not been evaluated yet.
@@ -1126,6 +1161,45 @@ public class StatementContext implements Closeable {
 
         private boolean shouldPreloadLatestSnapshot() {
             return hasLatestOnlyRelation && !hasNonLatestRelation;
+        }
+    }
+
+    static class ExternalMetadataPreloadResult {
+        private final boolean executed;
+        private final int candidateTableCount;
+        private final int preloadedTableCount;
+        private final String skipReason;
+
+        private ExternalMetadataPreloadResult(boolean executed, int candidateTableCount,
+                int preloadedTableCount, String skipReason) {
+            this.executed = executed;
+            this.candidateTableCount = candidateTableCount;
+            this.preloadedTableCount = preloadedTableCount;
+            this.skipReason = skipReason;
+        }
+
+        static ExternalMetadataPreloadResult executed(int candidateTableCount, int preloadedTableCount) {
+            return new ExternalMetadataPreloadResult(true, candidateTableCount, preloadedTableCount, "");
+        }
+
+        static ExternalMetadataPreloadResult skipped(int candidateTableCount, String skipReason) {
+            return new ExternalMetadataPreloadResult(false, candidateTableCount, 0, skipReason);
+        }
+
+        boolean isExecuted() {
+            return executed;
+        }
+
+        int getCandidateTableCount() {
+            return candidateTableCount;
+        }
+
+        int getPreloadedTableCount() {
+            return preloadedTableCount;
+        }
+
+        String getSkipReason() {
+            return skipReason;
         }
     }
 
