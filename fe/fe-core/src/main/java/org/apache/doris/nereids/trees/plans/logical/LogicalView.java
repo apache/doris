@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ViewIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -121,16 +122,21 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
         List<Slot> childOutput = child().getOutput();
         ImmutableList.Builder<Slot> currentOutput = ImmutableList.builder();
         List<String> fullQualifiers = this.view.getFullQualifiers();
+        List<Column> fullSchema = view.getFullSchema();
         for (int i = 0; i < childOutput.size(); i++) {
             Slot originSlot = childOutput.get(i);
             Slot qualified;
             // ATTN: because bug intro by #40715, after replace view, full schema will be empty or null.
             //   So, we must just here to avoid NPE or out of bound exception.
-            if (CollectionUtils.isEmpty(view.getFullSchema())) {
+            // Also guard against schema drift: when the underlying external table (e.g. Hive) gains
+            //   new columns after the view was created and REFRESH TABLE is called, childOutput may
+            //   have more slots than fullSchema (which still reflects the schema at view-creation
+            //   time). Fall back to qualifier-only for the extra columns to avoid IndexOutOfBoundsException.
+            if (CollectionUtils.isEmpty(fullSchema) || i >= fullSchema.size()) {
                 qualified = originSlot.withQualifier(fullQualifiers);
             } else {
                 qualified = originSlot
-                        .withOneLevelTableAndColumnAndQualifier(view, view.getFullSchema().get(i), fullQualifiers);
+                        .withOneLevelTableAndColumnAndQualifier(view, fullSchema.get(i), fullQualifiers);
             }
             currentOutput.add(qualified);
         }
