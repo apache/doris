@@ -108,7 +108,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         final Map<LogicalProject<? extends Plan>, List<NamedExpression>> projectToPulledUpExprs
                 = new LinkedHashMap<>();
         final Map<ExprId, List<Slot>> baseSlotsByExpr = new HashMap<>();
-        final Map<ExprId, List<Slot>> passThroughSlotsByDeduplicatedExpr = new HashMap<>();
+        final Map<ExprId, NamedExpression> passThroughExprByDeduplicatedExpr = new HashMap<>();
 
         PullUpInfo(LogicalTopN topN) {
             this.topN = topN;
@@ -121,9 +121,8 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             baseSlotsByExpr.put(expr.getExprId(), ImmutableList.copyOf(expr.getInputSlots()));
         }
 
-        void addPassThroughSlotsForDeduplicatedExpr(NamedExpression expr, CollectorContext context) {
-            passThroughSlotsByDeduplicatedExpr.put(
-                    expr.getExprId(), ImmutableList.copyOf(resolveInputSlots(expr, context)));
+        void addPassThroughExprForDeduplicatedExpr(NamedExpression expr) {
+            passThroughExprByDeduplicatedExpr.put(expr.getExprId(), expr);
         }
     }
 
@@ -328,7 +327,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                 }
             }
             for (NamedExpression expr : toRemove) {
-                info.addPassThroughSlotsForDeduplicatedExpr(expr, context);
+                info.addPassThroughExprForDeduplicatedExpr(expr);
                 info.allPulledUpExprs.remove(expr);
                 for (List<NamedExpression> list : info.projectToPulledUpExprs.values()) {
                     list.removeIf(e -> e == expr);
@@ -372,7 +371,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                 info = context.getPullUpInfo(topN);
             }
             if (info == null || (info.allPulledUpExprs.isEmpty()
-                    && info.passThroughSlotsByDeduplicatedExpr.isEmpty())) {
+                    && info.passThroughExprByDeduplicatedExpr.isEmpty())) {
                 return rewritten;
             }
             return addUpperProject(rewritten, info, context);
@@ -422,7 +421,8 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         for (NamedExpression pulledUpExpr : pulledUpExprs) {
             for (PullUpInfo info : context.topNToPullUpInfo.values()) {
                 if (info.baseSlotsByExpr.get(pulledUpExpr.getExprId()) != null) {
-                    for (Slot baseSlot : resolveInputSlots(pulledUpExpr, context)) {
+                    Set<ExprId> childOutputExprIds = buildOutputExprIds((Plan) project.child(0));
+                    for (Slot baseSlot : resolveInputSlots(pulledUpExpr, context, childOutputExprIds)) {
                         if (!existingExprIds.contains(baseSlot.getExprId())) {
                             simplified.add(baseSlot);
                             existingExprIds.add(baseSlot.getExprId());
@@ -443,8 +443,9 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
     private static LogicalProject<Plan> addUpperProject(LogicalTopN topN, PullUpInfo info,
             CollectorContext context) {
         Map<ExprId, NamedExpression> pulledUpBySlotExprId = new HashMap<>();
+        Set<ExprId> currentOutputExprIds = buildOutputExprIds(topN);
         for (NamedExpression e : info.allPulledUpExprs) {
-            pulledUpBySlotExprId.put(e.toSlot().getExprId(), resolvePulledUpExpr(e, context));
+            pulledUpBySlotExprId.put(e.toSlot().getExprId(), resolvePulledUpExpr(e, context, currentOutputExprIds));
         }
 
         // Use the current (possibly rewritten) TopN's output so that slots
@@ -457,6 +458,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         }
         List<NamedExpression> upperOutput = new ArrayList<>();
         Set<ExprId> upperOutputExprIds = new HashSet<>();
+        Set<ExprId> passThroughOutputExprIds = new HashSet<>();
         for (int i = 0; i < info.originalTopNOutput.size(); i++) {
             Slot origSlot = info.originalTopNOutput.get(i);
             NamedExpression pulledUpExpr = pulledUpBySlotExprId.get(origSlot.getExprId());
@@ -466,13 +468,17 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             } else {
                 Slot currentSlot = currentOutputByExprId.get(origSlot.getExprId());
                 if (currentSlot != null) {
-                    upperOutput.add(currentSlot);
-                    upperOutputExprIds.add(currentSlot.getExprId());
+                    if (!passThroughOutputExprIds.contains(currentSlot.getExprId())) {
+                        upperOutput.add(currentSlot);
+                        upperOutputExprIds.add(currentSlot.getExprId());
+                    }
                 } else {
-                    List<Slot> passThroughSlots = info.passThroughSlotsByDeduplicatedExpr.get(origSlot.getExprId());
-                    Preconditions.checkState(passThroughSlots != null,
+                    NamedExpression passThroughExpr = info.passThroughExprByDeduplicatedExpr.get(origSlot.getExprId());
+                    Preconditions.checkState(passThroughExpr != null,
                             "Original slot %s should be restored or passed through", origSlot);
-                    addPassThroughSlots(upperOutput, upperOutputExprIds, currentOutputByExprId, passThroughSlots);
+                    List<Slot> passThroughSlots = resolveInputSlots(passThroughExpr, context, currentOutputExprIds);
+                    addPassThroughSlots(upperOutput, upperOutputExprIds, passThroughOutputExprIds,
+                            currentOutputByExprId, passThroughSlots);
                 }
             }
         }
@@ -480,29 +486,52 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         return new LogicalProject<>(ImmutableList.copyOf(upperOutput), topN);
     }
 
-    private static NamedExpression resolvePulledUpExpr(NamedExpression expr, CollectorContext context) {
+    private static NamedExpression resolvePulledUpExpr(NamedExpression expr, CollectorContext context,
+            Set<ExprId> availableExprIds) {
         if (!(expr instanceof Alias)) {
             return expr;
         }
-        return new Alias(expr.getExprId(), resolveExpression(expr.child(0), context), expr.getName());
+        return new Alias(expr.getExprId(), resolveExpression(expr.child(0), context, availableExprIds), expr.getName());
     }
 
-    private static List<Slot> resolveInputSlots(NamedExpression expr, CollectorContext context) {
-        return ImmutableList.copyOf(resolveExpression(expr.child(0), context).getInputSlots());
+    private static List<Slot> resolveInputSlots(NamedExpression expr, CollectorContext context,
+            Set<ExprId> availableExprIds) {
+        return ImmutableList.copyOf(resolveExpression(expr.child(0), context, availableExprIds).getInputSlots());
     }
 
-    private static Expression resolveExpression(Expression expression, CollectorContext context) {
-        Expression resolved = ExpressionUtils.replace(expression, context.pullUpExprReplaceMap);
+    private static Expression resolveExpression(Expression expression, CollectorContext context,
+            Set<ExprId> availableExprIds) {
+        Expression resolved = replaceUnavailableSlots(expression, context, availableExprIds);
         while (!resolved.equals(expression)) {
             expression = resolved;
-            resolved = ExpressionUtils.replace(expression, context.pullUpExprReplaceMap);
+            resolved = replaceUnavailableSlots(expression, context, availableExprIds);
         }
         return resolved;
+    }
+
+    private static Expression replaceUnavailableSlots(Expression expression, CollectorContext context,
+            Set<ExprId> availableExprIds) {
+        Map<Slot, Expression> replaceMap = new LinkedHashMap<>();
+        for (Map.Entry<Slot, Expression> entry : context.pullUpExprReplaceMap.entrySet()) {
+            if (!availableExprIds.contains(entry.getKey().getExprId())) {
+                replaceMap.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return ExpressionUtils.replace(expression, replaceMap);
+    }
+
+    private static Set<ExprId> buildOutputExprIds(Plan plan) {
+        Set<ExprId> outputExprIds = new HashSet<>();
+        for (Slot slot : plan.getOutput()) {
+            outputExprIds.add(slot.getExprId());
+        }
+        return outputExprIds;
     }
 
     private static void addPassThroughSlots(
             List<NamedExpression> upperOutput,
             Set<ExprId> upperOutputExprIds,
+            Set<ExprId> passThroughOutputExprIds,
             Map<ExprId, Slot> currentOutputByExprId,
             List<Slot> passThroughSlots) {
         for (Slot passThroughSlot : passThroughSlots) {
@@ -512,6 +541,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             if (upperOutputExprIds.add(currentSlot.getExprId())) {
                 upperOutput.add(currentSlot);
             }
+            passThroughOutputExprIds.add(currentSlot.getExprId());
         }
     }
 }

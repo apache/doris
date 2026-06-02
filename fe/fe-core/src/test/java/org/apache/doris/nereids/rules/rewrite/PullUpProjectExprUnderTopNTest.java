@@ -503,6 +503,48 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    void testDeduplicatedPullUpKeepsInputSlotRestoredByLowerTopN() {
+        LogicalOlapScan scan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of("db"));
+        Slot id = scan.getOutput().get(0);
+        Slot a = scan.getOutput().get(1);
+        Slot b = scan.getOutput().get(3);
+        Alias x = new Alias(new Add(a, b), "x");
+        Alias y = new Alias(new Add(x.toSlot(), new IntegerLiteral((byte) 1)), "y");
+
+        LogicalPlan plan = new LogicalPlanBuilder(scan)
+                .projectExprs(ImmutableList.of(x, id))
+                .topN(30, 0, ImmutableList.of(1))
+                .projectExprs(ImmutableList.of(y, id, x.toSlot()))
+                .topN(20, 0, ImmutableList.of(2))
+                .topN(10, 0, ImmutableList.of(1))
+                .build();
+
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .getPlan();
+
+        LogicalProject<?> topN1UpperProject = (LogicalProject<?>) rewritten;
+        Assertions.assertEquals(y.getExprId(), topN1UpperProject.getProjects().get(0).getExprId());
+        Set<ExprId> topN1InputExprIds = topN1UpperProject.getProjects().get(0).child(0).getInputSlotExprIds();
+        Assertions.assertTrue(topN1InputExprIds.contains(x.getExprId()));
+        Assertions.assertFalse(topN1InputExprIds.contains(a.getExprId()));
+        Assertions.assertFalse(topN1InputExprIds.contains(b.getExprId()));
+
+        LogicalTopN<?> topN1 = (LogicalTopN<?>) topN1UpperProject.child(0);
+        LogicalProject<?> topN2UpperProject = (LogicalProject<?>) topN1.child(0);
+        Assertions.assertEquals(2, topN2UpperProject.getProjects().size());
+        Assertions.assertEquals(x.getExprId(), topN2UpperProject.getProjects().get(0).getExprId());
+        Assertions.assertEquals(id.getExprId(), topN2UpperProject.getProjects().get(1).getExprId());
+
+        LogicalTopN<?> topN2 = (LogicalTopN<?>) topN2UpperProject.child(0);
+        LogicalProject<?> yProject = (LogicalProject<?>) topN2.child(0);
+        Assertions.assertEquals(2, yProject.getProjects().size());
+        Assertions.assertEquals(id.getExprId(), yProject.getProjects().get(0).getExprId());
+        Assertions.assertEquals(x.getExprId(), yProject.getProjects().get(1).getExprId());
+    }
+
+    @Test
     void testNotPullUpNoneMovableFunction() {
         // topn -> project(assert_true(a+1, "msg") as x) -> scan
         // NoneMovableFunction should not be pulled up.
