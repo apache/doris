@@ -48,6 +48,10 @@ using TableColumnPredicates = std::map<int32_t, std::vector<std::shared_ptr<Colu
 enum class TableColumnMappingMode {
     BY_FIELD_ID,
     BY_NAME,
+    // Match top-level columns by file position. This mainly serves Hive1 ORC style files whose
+    // column names are placeholder values such as `_col0` / `_col1`, where position is the only
+    // reliable way to select the correct column.
+    BY_INDEX,
 };
 
 enum TableVirtualColumnType {
@@ -129,6 +133,10 @@ private:
                                   ColumnMapping* mapping) const;
     Status _build_complex_projection(const ColumnMapping& mapping,
                                      FieldProjection* projection) const;
+
+    Status _create_by_index_mapping(const TableColumn& table_column,
+                                    const std::vector<SchemaField>& file_schema,
+                                    ColumnMapping* mapping) const;
 
     ColumnMapping* _find_mapping(int32_t table_column_id) {
         for (auto& mapping : _mappings) {

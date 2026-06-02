@@ -147,7 +147,7 @@ std::shared_ptr<io::FileSystemProperties> create_system_properties(
     return system_properties;
 }
 
-Status TableReader::init(TableReadOptions options) {
+Status TableReader::init(TableReadOptions&& options) {
     _scan_params = options.scan_params;
     _format = options.format;
     _io_ctx = options.io_ctx;
