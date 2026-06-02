@@ -837,7 +837,7 @@ TEST_F(NewParquetReaderTest, ReadMultiPredicateColumnsBeforeExpressionFilter) {
     EXPECT_EQ(scores.get_element(1), 5);
 }
 
-TEST_F(NewParquetReaderTest, ReaderExpressionMapRewritesPredicateColumnBeforeFilter) {
+TEST_F(NewParquetReaderTest, PredicateColumnFiltersBeforeNonPredicateRead) {
     auto reader = create_reader();
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
@@ -849,7 +849,7 @@ TEST_F(NewParquetReaderTest, ReaderExpressionMapRewritesPredicateColumnBeforeFil
     auto request = std::make_unique<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
     request->non_predicate_columns = {field_projection(1)};
-    request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 12));
+    request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
     ASSERT_TRUE(reader->open(request).ok());
 
     size_t rows = 0;
@@ -862,15 +862,15 @@ TEST_F(NewParquetReaderTest, ReaderExpressionMapRewritesPredicateColumnBeforeFil
     const auto& values = assert_cast<const ColumnString&>(*block.get_by_position(1).column);
     ASSERT_EQ(ids.size(), 3);
     ASSERT_EQ(values.size(), 3);
-    EXPECT_EQ(ids.get_element(0), 13);
-    EXPECT_EQ(ids.get_element(1), 14);
-    EXPECT_EQ(ids.get_element(2), 15);
+    EXPECT_EQ(ids.get_element(0), 3);
+    EXPECT_EQ(ids.get_element(1), 4);
+    EXPECT_EQ(ids.get_element(2), 5);
     EXPECT_EQ(values.get_data_at(0).to_string(), "three");
     EXPECT_EQ(values.get_data_at(1).to_string(), "four");
     EXPECT_EQ(values.get_data_at(2).to_string(), "five");
 }
 
-TEST_F(NewParquetReaderTest, ReaderExpressionMapRewritesNonPredicateColumnAfterSelection) {
+TEST_F(NewParquetReaderTest, NonPredicateColumnKeepsSelectionFromPredicateColumn) {
     write_int_pair_parquet_file(_file_path);
     auto reader = create_reader();
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -899,9 +899,9 @@ TEST_F(NewParquetReaderTest, ReaderExpressionMapRewritesNonPredicateColumnAfterS
     EXPECT_EQ(ids.get_element(0), 3);
     EXPECT_EQ(ids.get_element(1), 4);
     EXPECT_EQ(ids.get_element(2), 5);
-    EXPECT_EQ(scores.get_element(0), 13);
-    EXPECT_EQ(scores.get_element(1), 14);
-    EXPECT_EQ(scores.get_element(2), 15);
+    EXPECT_EQ(scores.get_element(0), 3);
+    EXPECT_EQ(scores.get_element(1), 4);
+    EXPECT_EQ(scores.get_element(2), 5);
 }
 
 TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByStatistics) {
