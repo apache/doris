@@ -19,6 +19,8 @@
 
 #include <gen_cpp/data.pb.h>
 
+#include <utility>
+
 #include "core/block/block.h"
 #include "format/native/native_format.h"
 #include "io/file_factory.h"
@@ -36,6 +38,16 @@ NativeReader::NativeReader(RuntimeProfile* profile, const TFileScanRangeParams& 
           _scan_params(params),
           _scan_range(range),
           _io_ctx(io_ctx),
+          _state(state) {}
+
+NativeReader::NativeReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                           const TFileRangeDesc& range,
+                           std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state)
+        : _profile(profile),
+          _scan_params(params),
+          _scan_range(range),
+          _io_ctx(io_ctx_holder ? io_ctx_holder.get() : nullptr),
+          _io_ctx_holder(std::move(io_ctx_holder)),
           _state(state) {}
 
 NativeReader::~NativeReader() {
@@ -127,15 +139,20 @@ Status NativeReader::init_reader() {
 
     io::FileReaderOptions reader_options =
             FileFactory::get_reader_options(_state, file_description);
-    auto reader_res = io::DelegateReader::create_file_reader(
-            _profile, system_properties, file_description, reader_options,
-            io::DelegateReader::AccessMode::RANDOM, _io_ctx);
+    auto reader_res =
+            _io_ctx_holder ? io::DelegateReader::create_file_reader(
+                                     _profile, system_properties, file_description, reader_options,
+                                     io::DelegateReader::AccessMode::RANDOM,
+                                     std::static_pointer_cast<const io::IOContext>(_io_ctx_holder))
+                           : io::DelegateReader::create_file_reader(
+                                     _profile, system_properties, file_description, reader_options,
+                                     io::DelegateReader::AccessMode::RANDOM, _io_ctx);
     if (!reader_res.has_value()) {
         return reader_res.error();
     }
     _file_reader = reader_res.value();
 
-    if (_io_ctx) {
+    if (_io_ctx && _io_ctx->file_reader_stats) {
         _file_reader =
                 std::make_shared<io::TracingFileReader>(_file_reader, _io_ctx->file_reader_stats);
     }
