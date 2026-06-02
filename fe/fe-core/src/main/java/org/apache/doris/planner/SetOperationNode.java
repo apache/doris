@@ -231,8 +231,14 @@ public abstract class SetOperationNode extends PlanNode {
                 // PARTITIONED intersect/except: all children enter via global hash
                 // exchange. Require GLOBAL so any inserted exchange matches the
                 // cross-fragment instance mapping (same fix as HashJoinNode DORIS-26101).
-                requireChild = LocalExchangeTypeRequire.requireGlobalExecutionHash();
-                outputType = LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE;
+                // Exception: serial source → fall back to LOCAL (DORIS-26120).
+                boolean serialSource = fragment != null
+                        && fragment.useSerialSource(translatorContext.getConnectContext());
+                requireChild = serialSource
+                        ? LocalExchangeTypeRequire.requireHash()
+                        : LocalExchangeTypeRequire.requireGlobalExecutionHash();
+                outputType = AddLocalExchange.resolveExchangeType(
+                        requireChild, translatorContext, this, firstChild);
             }
         }
 
