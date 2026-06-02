@@ -32,7 +32,6 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -99,6 +98,8 @@ public class ConnectContextTest {
         ctx.addLastDBOfCatalog("external_catalog", "test_db");
         ctx.addPreparedQuery("1", "select 1");
         ctx.setRunningQuery("select 1");
+        TUniqueId queryId = new TUniqueId(100, 200);
+        ctx.setQueryId(queryId);
         ctx.setCommand(MysqlCommand.COM_QUERY);
         ctx.updateReturnRows(10);
         ctx.setOrUpdateInsertResult(1, "label", "test_db", "test_table", TransactionStatus.VISIBLE, 1, 0);
@@ -120,13 +121,14 @@ public class ConnectContextTest {
         Assert.assertEquals("test_db", ctx.getLastDBOfCatalog("external_catalog"));
         Assert.assertNull(ctx.getPreparedQuery("1"));
         Assert.assertNull(ctx.getRunningQuery());
+        Assert.assertNull(ctx.queryId());
         Assert.assertNull(ctx.getInsertResult());
         Assert.assertEquals(MysqlCommand.COM_SLEEP, ctx.getCommand());
         Assert.assertEquals(0, ctx.getReturnRows());
     }
 
     @Test
-    public void testHandleResetConnectionReturnsAutocommitServerStatus() {
+    public void testHandleResetConnectionDoesNotSetServerStatus() {
         ConnectContext ctx = new ConnectContext();
         ConnectProcessor processor = new ConnectProcessor(ctx) {
         };
@@ -134,7 +136,35 @@ public class ConnectContextTest {
         ctx.getState().reset();
         processor.handleResetConnection();
 
-        Assert.assertEquals(MysqlServerStatusFlag.SERVER_STATUS_AUTOCOMMIT, ctx.getState().serverStatus);
+        Assert.assertEquals(0, ctx.getState().serverStatus);
+    }
+
+    @Test
+    public void testHandleStmtResetReturnsOkForKnownStatement() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.getSessionVariable().enableServeSidePreparedStatement = true;
+        ctx.addPreparedStatementContext("1", new PreparedStatementContext(null, ctx, null, "select 1"));
+        ConnectProcessor processor = new ConnectProcessor(ctx) {
+        };
+
+        ctx.getState().reset();
+        processor.handleStmtResetById(1);
+
+        Assert.assertEquals(MysqlStateType.OK, ctx.getState().getStateType());
+    }
+
+    @Test
+    public void testHandleStmtResetReturnsErrorForUnknownStatement() {
+        ConnectContext ctx = new ConnectContext();
+        ConnectProcessor processor = new ConnectProcessor(ctx) {
+        };
+
+        ctx.getState().reset();
+        processor.handleStmtResetById(1);
+
+        Assert.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+        Assert.assertEquals(ErrorCode.ERR_UNKNOWN_STMT_HANDLER, ctx.getState().getErrorCode());
+        Assert.assertTrue(ctx.getState().getErrorMessage().contains("mysqld_stmt_reset"));
     }
 
     @Test
