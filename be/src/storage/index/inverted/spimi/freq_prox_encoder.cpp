@@ -54,10 +54,19 @@ namespace {
 // segment is hundreds of thousands of malloc/init/free cycles — pure write-CPU
 // burned for no benefit. Reusing one context is the dominant ZSTD CPU saving and
 // produces byte-identical output (level + input fully determine the result).
-inline bool TryCompressBlock(ZSTD_CCtx* cctx, const uint8_t* data, size_t n, faststring* comp) {
+// Resolves the per-stream ZSTD size-gate for the .frq integer stream: the
+// .frq-specific override if set (>=0), else inherit the shared gate.
+inline int64_t ResolveFrqZstdMin() {
+    const int64_t f = config::inverted_index_spimi_frq_zstd_min_bytes;
+    return f < 0 ? config::inverted_index_spimi_zstd_min_bytes : f;
+}
+
+inline bool TryCompressBlock(ZSTD_CCtx* cctx, const uint8_t* data, size_t n, faststring* comp,
+                             int64_t zstd_min) {
     // Below the configured threshold, skip ZSTD's fixed table-build cost — small
     // blocks barely compress. Threshold 0 => always attempt (byte-identical).
-    if (static_cast<int64_t>(n) < config::inverted_index_spimi_zstd_min_bytes) {
+    // `zstd_min` is the per-stream gate (.frq may differ from .prx).
+    if (static_cast<int64_t>(n) < zstd_min) {
         return false;
     }
     const size_t bound = ZSTD_compressBound(n);
@@ -426,7 +435,7 @@ void FreqProxEncoder::FlushFrqBlock() {
     const auto& buf = _frq_term_buf.bytes();
     const size_t n = buf.size();
     faststring comp;
-    if (n >= kProxCompressMin && TryCompressBlock(_cctx, buf.data(), n, &comp)) {
+    if (n >= kProxCompressMin && TryCompressBlock(_cctx, buf.data(), n, &comp, ResolveFrqZstdMin())) {
         // A single term's .frq stays far below 2 GB (arena byte cap), so the
         // VInt length casts below never lose bits.
         DCHECK_LE(n, static_cast<size_t>(INT32_MAX));
@@ -451,7 +460,11 @@ void FreqProxEncoder::FlushProxBlock() {
     faststring comp;
     // Only keep the compressed form if it actually wins after the mode-byte + two
     // VInt length headers (~≤10 B) — TryCompressBlock enforces that margin.
-    if (n >= kProxCompressMin && TryCompressBlock(_cctx, _prox_raw.data(), n, &comp)) {
+    // .prx keeps the shared (un-split) ZSTD gate — positions carry the bulk of
+    // the ZSTD disk win, so they stay compressed even when .frq is raw.
+    if (n >= kProxCompressMin &&
+        TryCompressBlock(_cctx, _prox_raw.data(), n, &comp,
+                         config::inverted_index_spimi_zstd_min_bytes)) {
         DCHECK_LE(n, static_cast<size_t>(INT32_MAX)); // single-term .prx << 2 GB
         _prx_sink->WriteByte(kProxZstd);
         _prx_sink->WriteVInt(static_cast<int32_t>(n));

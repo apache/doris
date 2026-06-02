@@ -212,15 +212,15 @@ std::vector<Window> ComposeFrqWindows(const std::vector<Unit>& units, int32_t k,
 // window's ZSTD output buffer is not freshly allocated. The emitted bytes are
 // min(raw, zstd) — byte-for-byte identical to the previous EmitWindowPayload.
 size_t EmitWindowPayload(const std::vector<uint8_t>& inner, ZSTD_CCtx* cctx,
-                         faststring& comp_scratch, ByteOutput* out) {
+                         faststring& comp_scratch, ByteOutput* out, int64_t zstd_min) {
     const int64_t start = out->FilePointer();
     const size_t raw = inner.size();
     // Skip the ZSTD attempt (and its fixed Huffman/FSE table-build cost) for
     // windows below the configured threshold — they barely compress, so the
     // table-build is pure write-CPU waste. Threshold 0 => always attempt
-    // (byte-identical to the pre-gate output).
-    if (cctx != nullptr && raw > 0 &&
-        static_cast<int64_t>(raw) >= config::inverted_index_spimi_zstd_min_bytes) {
+    // (byte-identical to the pre-gate output). `zstd_min` is the per-stream gate
+    // (.frq may differ from .prx), resolved by the caller.
+    if (cctx != nullptr && raw > 0 && static_cast<int64_t>(raw) >= zstd_min) {
         const size_t bound = ZSTD_compressBound(raw);
         comp_scratch.resize(bound);
         const size_t csize =
@@ -255,13 +255,21 @@ size_t EmitWindowPayload(const std::vector<uint8_t>& inner, ZSTD_CCtx* cctx,
 // scratch-sizing pass. The size accounting matches the previous FrqEmittedSize
 // exactly (EmitWindowPayload's chosen tuple length == FrqEmittedSize's min(raw,
 // zstd) best), so the chosen W — and thus every emitted byte — is unchanged.
+// Resolves the per-stream ZSTD size-gate for the .frq integer stream: the
+// .frq-specific override if set (>=0), else inherit the shared gate.
+inline int64_t ResolveFrqZstdMin() {
+    const int64_t f = config::inverted_index_spimi_frq_zstd_min_bytes;
+    return f < 0 ? config::inverted_index_spimi_zstd_min_bytes : f;
+}
+
 size_t MeasureAndCacheFrq(std::vector<Window>& windows, ZSTD_CCtx* cctx, faststring& comp_scratch) {
+    const int64_t frq_min = ResolveFrqZstdMin();
     size_t total = 2 + VIntLen(static_cast<uint32_t>(kCandidateW.back())) +
                    VIntLen(static_cast<uint32_t>(windows.size()));
     for (auto& w : windows) {
         if (!w.cached) {
             MemoryByteOutput payload;
-            (void)EmitWindowPayload(w.frq_inner, cctx, comp_scratch, &payload);
+            (void)EmitWindowPayload(w.frq_inner, cctx, comp_scratch, &payload, frq_min);
             w.frq_payload = std::move(payload.mutable_bytes());
             w.frq_inner.clear();
             w.frq_inner.shrink_to_fit();
@@ -330,7 +338,10 @@ void EmitPrxForChosen(const std::vector<Unit>& units, int32_t k,
                     pos_inner.end(), pos_parts.begin() + static_cast<std::ptrdiff_t>(u.pos_off),
                     pos_parts.begin() + static_cast<std::ptrdiff_t>(u.pos_off + u.pos_len));
         }
-        (void)EmitWindowPayload(pos_inner, cctx, comp_scratch, out);
+        // .prx keeps the shared (un-split) ZSTD gate — positions carry the bulk
+        // of the ZSTD disk win, so they stay compressed even when .frq is raw.
+        (void)EmitWindowPayload(pos_inner, cctx, comp_scratch, out,
+                                config::inverted_index_spimi_zstd_min_bytes);
         i += take;
     }
 }

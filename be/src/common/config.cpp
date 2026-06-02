@@ -1299,6 +1299,18 @@ DEFINE_mInt64(inverted_index_spimi_reserve_granule_mb, "16");
 // gating it trades a tiny .idx increase for a large write-CPU saving. 0 disables
 // the gate (always attempt ZSTD = byte-identical to pre-gate output).
 DEFINE_mInt64(inverted_index_spimi_zstd_min_bytes, "512");
+// Per-stream ZSTD size-gate override for the .frq (doc-delta/freq integer) stream,
+// separate from .prx (positions). -1 (default) = inherit
+// inverted_index_spimi_zstd_min_bytes, so the default build is BYTE-IDENTICAL to
+// today. Rationale: .frq is PFOR-packed integers where ZSTD earns only ~20-27% of
+// the windowed disk saving but costs disproportionate write-CPU (the adaptive-W
+// search compresses every candidate framing); .prx carries 73-81% of the ZSTD disk
+// win. EXPERIMENTAL: flipping this standalone (e.g. huge to disable .frq ZSTD) is
+// NOT yet a net win — the .frq adaptive-W search then picks the finest window and
+// the shared .frq/.prx framing fragments, bloating both streams. It only becomes
+// safe once per-stream .frq/.prx window framing is decoupled (follow-up). Foundation
+// knob; default (-1) changes nothing.
+DEFINE_mInt64(inverted_index_spimi_frq_zstd_min_bytes, "-1");
 // How often (in rows) add_values runs the EXPENSIVE spill gate (process memory
 // watermarks + reserve). The cheap 256MiB ShouldFlush() latch is still checked
 // every row; this only throttles the per-row watermark/MemoryUsage reads.

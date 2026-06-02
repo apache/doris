@@ -1333,6 +1333,7 @@ DECLARE_String(inverted_index_spimi_spill_path);
 DECLARE_mInt64(inverted_index_spimi_min_spill_mem_mb);
 DECLARE_mInt64(inverted_index_spimi_reserve_granule_mb);
 DECLARE_mInt64(inverted_index_spimi_zstd_min_bytes);
+DECLARE_mInt64(inverted_index_spimi_frq_zstd_min_bytes);
 DECLARE_mInt64(inverted_index_spimi_spill_check_interval_rows);
 // tree depth for bkd index
 DECLARE_Int32(max_depth_in_bkd_tree);
