@@ -170,36 +170,6 @@ private:
     const std::string _expr_name = "StringInExpr";
 };
 
-class Int32AddExpr final : public VExpr {
-public:
-    Int32AddExpr(int column_id, int32_t value)
-            : VExpr(std::make_shared<DataTypeInt32>(), false),
-              _column_id(column_id),
-              _value(value) {}
-
-    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
-                               size_t count, ColumnPtr& result_column) const override {
-        const auto& input =
-                assert_cast<const ColumnInt32&>(*block->get_by_position(_column_id).column);
-        auto result = ColumnInt32::create();
-        auto& result_data = result->get_data();
-        result_data.resize(count);
-        for (size_t row = 0; row < count; ++row) {
-            const size_t input_row = selector == nullptr ? row : (*selector)[row];
-            result_data[row] = input.get_element(input_row) + _value;
-        }
-        result_column = std::move(result);
-        return Status::OK();
-    }
-
-    const std::string& expr_name() const override { return _expr_name; }
-
-private:
-    const int _column_id;
-    const int32_t _value;
-    const std::string _expr_name = "Int32AddExpr";
-};
-
 VExprContextSPtr create_int32_greater_than_conjunct(int column_id, int32_t value) {
     auto ctx =
             VExprContext::create_shared(std::make_shared<Int32GreaterThanExpr>(column_id, value));
@@ -220,13 +190,6 @@ VExprContextSPtr create_int32_sum_greater_than_conjunct(int left_column_id, int 
 VExprContextSPtr create_string_in_conjunct(int column_id, std::vector<std::string> values) {
     auto ctx = VExprContext::create_shared(
             std::make_shared<StringInExpr>(column_id, std::move(values)));
-    ctx->_prepared = true;
-    ctx->_opened = true;
-    return ctx;
-}
-
-VExprContextSPtr create_int32_add_expression(int column_id, int32_t value) {
-    auto ctx = VExprContext::create_shared(std::make_shared<Int32AddExpr>(column_id, value));
     ctx->_prepared = true;
     ctx->_opened = true;
     return ctx;
