@@ -43,6 +43,7 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
+import org.apache.doris.thrift.TPartitionKeyValue;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -111,23 +112,75 @@ public abstract class FileScanNode extends ExternalScanNode {
     }
 
     public static String buildPartitionName(List<String> partitionKeys, List<String> partitionValues) {
-        if (partitionKeys == null || partitionValues == null) {
+        List<TPartitionKeyValue> partitionKeyValues = buildPartitionKeyValues(partitionKeys, partitionValues);
+        if (partitionKeyValues.isEmpty()) {
             return "";
+        }
+        return buildPartitionName(partitionKeyValues);
+    }
+
+    public static List<TPartitionKeyValue> buildPartitionKeyValues(
+            List<String> partitionKeys, List<String> partitionValues) {
+        if (partitionKeys == null || partitionValues == null) {
+            return Collections.emptyList();
         }
         if (partitionKeys.isEmpty() || partitionKeys.size() != partitionValues.size()) {
+            return Collections.emptyList();
+        }
+        List<TPartitionKeyValue> partitionKeyValues = Lists.newArrayListWithCapacity(partitionKeys.size());
+        for (int i = 0; i < partitionKeys.size(); i++) {
+            partitionKeyValues.add(new TPartitionKeyValue(partitionKeys.get(i), partitionValues.get(i)));
+        }
+        return partitionKeyValues;
+    }
+
+    public static List<TPartitionKeyValue> buildPartitionKeyValues(Map<String, String> partitionValues) {
+        if (partitionValues == null || partitionValues.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return partitionValues.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> {
+                    TPartitionKeyValue keyValue = new TPartitionKeyValue();
+                    keyValue.setKey(entry.getKey());
+                    if (entry.getValue() == null) {
+                        keyValue.setValue("");
+                        keyValue.setIsNull(true);
+                    } else {
+                        keyValue.setValue(entry.getValue());
+                    }
+                    return keyValue;
+                })
+                .collect(Collectors.toList());
+    }
+
+    public static String buildPartitionName(List<TPartitionKeyValue> partitionKeyValues) {
+        if (partitionKeyValues == null || partitionKeyValues.isEmpty()) {
             return "";
         }
-        int count = partitionKeys.size();
         StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < count; i++) {
+        for (int i = 0; i < partitionKeyValues.size(); i++) {
+            TPartitionKeyValue keyValue = partitionKeyValues.get(i);
             if (i > 0) {
                 builder.append("/");
             }
-            builder.append(partitionKeys.get(i));
+            builder.append(keyValue.getKey());
             builder.append("=");
-            builder.append(partitionValues.get(i));
+            builder.append(keyValue.isSetValue() ? keyValue.getValue() : "");
         }
         return builder.toString();
+    }
+
+    public static void fillTablePartitionContext(
+            TFileRangeDesc range, TableIf table, List<TPartitionKeyValue> partitionKeyValues) {
+        if (range == null || partitionKeyValues == null || partitionKeyValues.isEmpty()) {
+            return;
+        }
+        range.setPartitionValues(partitionKeyValues);
+        String partitionName = buildPartitionName(partitionKeyValues);
+        if (!partitionName.isEmpty()) {
+            range.setPartitionName(partitionName);
+        }
     }
 
     protected void setPushDownCount(long count) {

@@ -1625,7 +1625,6 @@ Status FileScanner::prepare_for_read_lines(const TFileRangeDesc& range) {
     _file_read_time_counter = ADD_TIMER_WITH_LEVEL(_profile, FileReadTimeProfile, 1);
 
     RETURN_IF_ERROR(_init_io_ctx());
-    _update_io_context_from_range();
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->file_reader_stats = _file_reader_stats.get();
     _default_val_row_desc.reset(new RowDescriptor((TupleDescriptor*)_real_tuple_desc));
@@ -2078,13 +2077,6 @@ void FileScanner::_update_io_context_from_range() {
     if (!_io_ctx) {
         return;
     }
-    if (_local_state) {
-        auto& local_state = _local_state->cast<FileScanLocalState>();
-        _io_ctx->table_name = local_state.table_name();
-    } else {
-        _io_ctx->table_name.clear();
-    }
-
     if (_current_range.__isset.partition_name) {
         _io_ctx->partition_name = _current_range.partition_name;
     } else {
@@ -2093,24 +2085,19 @@ void FileScanner::_update_io_context_from_range() {
 }
 
 std::string FileScanner::_build_partition_name(const TFileRangeDesc& range) const {
-    if (!range.__isset.columns_from_path_keys || !range.__isset.columns_from_path) {
-        return "";
-    }
-    const auto& keys = range.columns_from_path_keys;
-    const auto& values = range.columns_from_path;
-    const size_t count = std::min(keys.size(), values.size());
-    if (count == 0) {
+    if (!range.__isset.partition_values || range.partition_values.empty()) {
         return "";
     }
     std::string result;
     result.reserve(64);
-    for (size_t i = 0; i < count; ++i) {
+    for (size_t i = 0; i < range.partition_values.size(); ++i) {
+        const auto& partition_value = range.partition_values[i];
         if (i > 0) {
             result.append("/");
         }
-        result.append(keys[i]);
+        result.append(partition_value.key);
         result.append("=");
-        result.append(values[i]);
+        result.append(partition_value.value);
     }
     return result;
 }

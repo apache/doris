@@ -318,6 +318,9 @@ private:
 
     Status _init_io_ctx() {
         _io_ctx = create_file_scan_io_context(_state);
+        if (_local_state) {
+            _io_ctx->table_name = _local_state->cast<FileScanLocalState>().table_name();
+        }
         return Status::OK();
     };
 

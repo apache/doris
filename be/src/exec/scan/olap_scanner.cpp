@@ -479,7 +479,7 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.profile = _local_state->custom_profile();
     _tablet_reader_params.runtime_state = _state;
     {
-        auto* olap_scan_local_state = static_cast<OlapScanLocalState*>(_local_state);
+        auto* olap_scan_local_state = &_local_state->cast<OlapScanLocalState>();
         TOlapScanNode& olap_scan_node = olap_scan_local_state->olap_scan_node();
         if (_tablet_reader_params.table_name.empty() && olap_scan_node.__isset.table_name) {
             _tablet_reader_params.table_name = olap_scan_node.table_name;
@@ -607,7 +607,7 @@ Status OlapScanner::_init_tablet_reader_params(
     DBUG_EXECUTE_IF("NewOlapScanner::_init_tablet_reader_params.block", DBUG_BLOCK);
 
     if (!_state->skip_storage_engine_merge()) {
-        auto* olap_scan_local_state = static_cast<OlapScanLocalState*>(_local_state);
+        auto* olap_scan_local_state = &_local_state->cast<OlapScanLocalState>();
         TOlapScanNode& olap_scan_node = olap_scan_local_state->olap_scan_node();
 
         // Set MOR value predicate pushdown flag
@@ -935,7 +935,7 @@ void OlapScanner::_collect_profile_before_close() {
     // Update counters for OlapScanner
     // Update counters from tablet reader's stats
     auto& stats = _tablet_reader->stats();
-    auto* local_state = static_cast<OlapScanLocalState*>(_local_state);
+    auto* local_state = &_local_state->cast<OlapScanLocalState>();
     COUNTER_UPDATE(local_state->_io_timer, stats.io_ns);
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
     COUNTER_UPDATE(local_state->_scan_bytes, stats.uncompressed_bytes_read);

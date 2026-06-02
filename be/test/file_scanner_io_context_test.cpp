@@ -99,10 +99,13 @@ TEST_F(FileScannerIOContextTest, BuildsPartitionNameFromPathWhenRangePartitionMi
     scanner._local_state = local_state.get();
 
     TFileRangeDesc range;
-    range.columns_from_path_keys = {"country", "dt"};
-    range.__isset.columns_from_path_keys = true;
-    range.columns_from_path = {"cn", "20260319"};
-    range.__isset.columns_from_path = true;
+    TPartitionKeyValue country;
+    country.__set_key("country");
+    country.__set_value("cn");
+    TPartitionKeyValue dt;
+    dt.__set_key("dt");
+    dt.__set_value("20260319");
+    range.__set_partition_values({country, dt});
 
     scanner._current_range = range;
     ASSERT_TRUE(scanner._init_io_ctx().ok());

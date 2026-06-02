@@ -567,6 +567,12 @@ struct TFileScanRangeParams {
     34: optional i32 iceberg_scan_semantics_version
 }
 
+struct TPartitionKeyValue {
+    1: required string key
+    2: required string value
+    3: optional bool is_null
+}
+
 struct TFileRangeDesc {
     // If load_id is set, this is for stream/routine load.
     // If path is set, this is for bulk load.
@@ -598,6 +604,7 @@ struct TFileRangeDesc {
     15: optional list<bool> columns_from_path_is_null;
     16: optional bool file_cache_admission;
     17: optional string partition_name;
+    18: optional list<TPartitionKeyValue> partition_values;
 }
 
 struct TSplitSource {

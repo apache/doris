@@ -57,6 +57,7 @@ import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPartitionKeyValue;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -576,8 +577,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
             rangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());
         }
         rangeDesc.setModificationTime(fileSplit.getModificationTime());
-        String partitionName = FileScanNode.buildPartitionName(columnsFromPathKeys, columnsFromPath);
-        FileScanNode.fillTablePartitionContext(rangeDesc, desc.getTable(), partitionName);
+        List<TPartitionKeyValue> partitionKeyValues =
+                FileScanNode.buildPartitionKeyValues(columnsFromPathKeys, columnsFromPath);
+        FileScanNode.fillTablePartitionContext(rangeDesc, desc.getTable(), partitionKeyValues);
         return rangeDesc;
     }
 

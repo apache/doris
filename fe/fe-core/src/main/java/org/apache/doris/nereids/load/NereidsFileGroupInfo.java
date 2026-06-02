@@ -40,6 +40,7 @@ import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPartitionKeyValue;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -447,10 +448,11 @@ public class NereidsFileGroupInfo {
             rangeDesc.setFileSize(fileStatus.size);
         }
         rangeDesc.setModificationTime(fileStatus.getModificationTime());
-        String partitionName = org.apache.doris.datasource.FileScanNode.buildPartitionName(
-                columnsFromPathKeys, columnsFromPath);
+        List<TPartitionKeyValue> partitionKeyValues =
+                org.apache.doris.datasource.FileScanNode.buildPartitionKeyValues(
+                        columnsFromPathKeys, columnsFromPath);
         org.apache.doris.datasource.FileScanNode.fillTablePartitionContext(
-                rangeDesc, targetTable, partitionName);
+                rangeDesc, targetTable, partitionKeyValues);
         return rangeDesc;
     }
 }

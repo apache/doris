@@ -20,9 +20,9 @@ package org.apache.doris.datasource;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * A {@link FileSplit} that wraps a {@link ConnectorScanRange} from the SPI layer.
@@ -72,6 +72,9 @@ public class PluginDrivenSplit extends FileSplit {
         if (partValues == null || partValues.isEmpty()) {
             return null;
         }
-        return new ArrayList<>(partValues.values());
+        return partValues.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(Map.Entry::getValue)
+                .collect(Collectors.toList());
     }
 }

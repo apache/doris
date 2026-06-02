@@ -32,6 +32,7 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
+import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.credentials.CredentialUtils;
@@ -64,6 +65,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
+import org.apache.doris.thrift.TPartitionKeyValue;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
@@ -128,6 +130,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 public class IcebergScanNode extends FileQueryScanNode {
 
@@ -383,25 +386,37 @@ public class IcebergScanNode extends FileQueryScanNode {
         Map<String, String> partitionValues = icebergSplit.getIcebergPartitionValues();
         List<String> orderedPartitionKeys = getOrderedPathPartitionKeys();
         if (partitionValues != null && !orderedPartitionKeys.isEmpty()) {
-            List<String> fromPathKeys = new ArrayList<>();
-            List<String> fromPathValues = new ArrayList<>();
-            List<Boolean> fromPathIsNull = new ArrayList<>();
-            for (String partitionKey : orderedPartitionKeys) {
-                if (!partitionValues.containsKey(partitionKey)) {
-                    continue;
-                }
-                String partitionValue = partitionValues.get(partitionKey);
-                fromPathKeys.add(partitionKey);
-                fromPathValues.add(partitionValue != null ? partitionValue : "");
-                fromPathIsNull.add(partitionValue == null);
-            }
-            if (!fromPathKeys.isEmpty()) {
-                rangeDesc.setColumnsFromPathKeys(fromPathKeys);
-                rangeDesc.setColumnsFromPath(fromPathValues);
-                rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
-            }
+            fillPartitionContextFromMap(rangeDesc, partitionValues, orderedPartitionKeys);
         }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
+    }
+
+    private void fillPartitionContextFromMap(
+            TFileRangeDesc rangeDesc, Map<String, String> partitionValues, List<String> orderedPartitionKeys) {
+        List<String> fromPathKeys = new ArrayList<>();
+        List<String> fromPathValues = new ArrayList<>();
+        for (String partitionKey : orderedPartitionKeys) {
+            if (!partitionValues.containsKey(partitionKey)) {
+                continue;
+            }
+            fromPathKeys.add(partitionKey);
+            fromPathValues.add(partitionValues.get(partitionKey));
+        }
+        List<TPartitionKeyValue> partitionKeyValues =
+                FileScanNode.buildPartitionKeyValues(fromPathKeys, fromPathValues);
+        if (partitionKeyValues.isEmpty()) {
+            return;
+        }
+        rangeDesc.setColumnsFromPathKeys(partitionKeyValues.stream()
+                .map(TPartitionKeyValue::getKey)
+                .collect(Collectors.toList()));
+        rangeDesc.setColumnsFromPath(partitionKeyValues.stream()
+                .map(TPartitionKeyValue::getValue)
+                .collect(Collectors.toList()));
+        rangeDesc.setColumnsFromPathIsNull(partitionKeyValues.stream()
+                .map(TPartitionKeyValue::isIsNull)
+                .collect(Collectors.toList()));
+        FileScanNode.fillTablePartitionContext(rangeDesc, desc.getTable(), partitionKeyValues);
     }
 
     private void setIcebergPositionDeleteSysTableParams(TFileRangeDesc rangeDesc, IcebergSplit icebergSplit,
