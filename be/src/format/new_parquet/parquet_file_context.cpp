@@ -127,6 +127,7 @@ Status arrow_status_to_doris_status(const arrow::Status& status) {
 Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx) {
     arrow_file = std::make_shared<DorisRandomAccessFile>(std::move(input_file_reader), io_ctx);
     try {
+        // TODO: Cache parquet metadata in file system layer to avoid repeated metadata read for same file.
         this->file_reader = ::parquet::ParquetFileReader::Open(
                 arrow_file, ::parquet::default_reader_properties());
         metadata = this->file_reader->metadata();

@@ -281,12 +281,9 @@ Status IcebergTableReader::_append_equality_delete_predicates(reader::FileScanRe
         DCHECK_EQ(filter.field_ids.size(), filter.key_types.size());
         for (size_t idx = 0; idx < filter.field_ids.size(); ++idx) {
             const int field_id = filter.field_ids[idx];
-            auto field_it =
-                    std::find_if(_data_reader.file_schema.begin(), _data_reader.file_schema.end(),
-                                 [field_id](const reader::SchemaField& field) {
-                                     return !field.field_id_path.empty() &&
-                                            field.field_id_path.back() == field_id;
-                                 });
+            auto field_it = std::ranges::find_if(
+                    _data_reader.file_schema,
+                    [field_id](const reader::SchemaField& field) { return field.id == field_id; });
             if (field_it == _data_reader.file_schema.end()) {
                 return Status::InternalError(
                         "Can not find equality delete column field id {} in data file schema",
@@ -352,7 +349,8 @@ Status IcebergTableReader::_read_parquet_position_delete_file(
     }
 
     auto request = std::make_unique<reader::FileScanRequest>();
-    request->non_predicate_columns = {file_path_field->id, pos_field->id};
+    request->non_predicate_columns = {reader::FieldProjection {.field_id = file_path_field->id},
+                                      reader::FieldProjection {.field_id = pos_field->id}};
     request->column_positions = {
             {file_path_field->id, ICEBERG_FILE_PATH_BLOCK_POSITION},
             {pos_field->id, ICEBERG_ROW_POS_BLOCK_POSITION},
@@ -448,9 +446,8 @@ Status IcebergTableReader::_read_parquet_equality_delete_file(
     std::vector<DataTypePtr> delete_key_types;
     for (const auto field_id : delete_file.field_ids) {
         auto field_it = std::find_if(
-                schema.begin(), schema.end(), [field_id](const reader::SchemaField& field) {
-                    return !field.field_id_path.empty() && field.field_id_path.back() == field_id;
-                });
+                schema.begin(), schema.end(),
+                [field_id](const reader::SchemaField& field) { return field_id == field.id; });
         if (field_it == schema.end()) {
             return Status::InternalError("Can not find field id {} in equality delete file {}",
                                          field_id, delete_file.path);
@@ -466,7 +463,7 @@ Status IcebergTableReader::_read_parquet_equality_delete_file(
 
     auto request = std::make_unique<reader::FileScanRequest>();
     for (size_t idx = 0; idx < delete_fields.size(); ++idx) {
-        request->non_predicate_columns.push_back(delete_fields[idx].id);
+        request->non_predicate_columns.push_back({.field_id = delete_fields[idx].id});
         request->column_positions.emplace(delete_fields[idx].id, idx);
     }
     RETURN_IF_ERROR(reader.open(request));

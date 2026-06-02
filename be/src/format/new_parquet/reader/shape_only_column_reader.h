@@ -59,8 +59,6 @@ public:
 private:
     int64_t _row_group_first_row = 0;
     int64_t _next_row_position = 0;
-    DataTypePtr _type;
-    std::string _name;
 };
 
 } // namespace doris::parquet

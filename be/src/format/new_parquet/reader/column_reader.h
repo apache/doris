@@ -55,18 +55,18 @@ class ParquetColumnReader {
 public:
     virtual ~ParquetColumnReader() = default;
 
-    // FileReader 暴露给上层 scan request 的 file-local column id。
-    // 对 top-level primitive 列，它通常等于 Parquet leaf column id；对 struct/list/map
-    // 这类复杂列，它表示 file schema tree 中的逻辑字段 id。
-    virtual int file_column_id() const = 0;
+    // file-local column id. Only top-level columns have valid file column ids; nested columns return -1.
+    // For example, for a nested column like `a.b.c`, only `a` has a valid file column id that can be used to access ColumnDescriptor and column chunk metadata; `b` and `c` return -1.
+    virtual int file_column_id() const { return _field_id; }
 
-    // Parquet 文件内部的 leaf column id，用于访问 RowGroupReader::RecordReader、
-    // ColumnChunk metadata、statistics/page index 等 Parquet 物理列结构。
-    // 只有 primitive leaf reader 有有效值；复杂列 reader 没有单一 leaf column，返回 -1。
-    virtual int parquet_leaf_column_id() const = 0;
+    // Parquet leaf column id. This is the column id of the leaf column in the Parquet file schema, and can be used to access ColumnDescriptor, RecordReader, column chunk metadata and statistics.
+    // For example, for a map column as `a: map<int, string>`, `a` is the top-level column with `parquet_leaf_column_id` = `file_column_id`. `a.key` is the first child of `a` so `parquet_leaf_column_id` = 0.
+    virtual int parquet_leaf_column_id() const { return _leaf_column_id; }
+    int16_t nullable_definition_level() const { return _nullable_definition_level; }
+    int16_t repeated_repetition_level() const { return _repeated_repetition_level; }
 
-    virtual const DataTypePtr& type() const = 0;
-    virtual const std::string& name() const = 0;
+    virtual const DataTypePtr& type() const { return _type; }
+    virtual const std::string& name() const { return _name; }
 
     // 读取一个 file-local column batch。
     virtual Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) = 0;
@@ -78,6 +78,17 @@ public:
     // 该方法只允许通过 skip + read 推进 reader 游标，不允许退化为整批 read + filter。
     virtual Status select(const SelectionVector& sel, uint16_t selected_rows, int64_t batch_rows,
                           MutableColumnPtr& column);
+
+protected:
+    ParquetColumnReader(const ParquetColumnSchema& schema, const DataTypePtr type);
+    ParquetColumnReader() = default;
+
+    const int _field_id = -1;
+    const int _leaf_column_id = -1;
+    const int16_t _nullable_definition_level = 0;
+    const int16_t _repeated_repetition_level = 0;
+    const DataTypePtr _type;
+    const std::string _name;
 };
 
 // Parquet column reader 工厂。
@@ -132,10 +143,7 @@ private:
                              const std::string& name,
                              std::shared_ptr<::parquet::internal::RecordReader>* reader) const;
 
-    Status create_scalar_reader(int parquet_leaf_column_id,
-                                const ParquetTypeDescriptor& type_descriptor,
-                                const ::parquet::ColumnDescriptor* descriptor, DataTypePtr type,
-                                std::string name,
+    Status create_scalar_reader(const ParquetColumnSchema& column_schema,
                                 std::shared_ptr<::parquet::internal::RecordReader> record_reader,
                                 std::unique_ptr<ParquetColumnReader>* reader) const;
 

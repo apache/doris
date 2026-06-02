@@ -32,30 +32,13 @@ class ListColumnReader final : public ParquetColumnReader {
 public:
     ListColumnReader(const ParquetColumnSchema& schema, DataTypePtr type,
                      std::unique_ptr<ParquetColumnReader> element_reader)
-            : _field_id(schema.top_level_field_id),
-              _nullable_definition_level(schema.nullable_definition_level),
-              _repeated_repetition_level(schema.repeated_repetition_level),
-              _type(std::move(type)),
-              _name(schema.name),
-              _element_reader(std::move(element_reader)) {}
-
-    int file_column_id() const override { return _field_id; }
-    int parquet_leaf_column_id() const override { return -1; }
-    const DataTypePtr& type() const override { return _type; }
-    const std::string& name() const override { return _name; }
+            : ParquetColumnReader(schema, type), _element_reader(std::move(element_reader)) {}
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
-
-    int16_t nullable_definition_level() const { return _nullable_definition_level; }
-    int16_t repeated_repetition_level() const { return _repeated_repetition_level; }
     ParquetColumnReader* element_reader() const { return _element_reader.get(); }
 
-    int _field_id = -1;
-    int16_t _nullable_definition_level = 0;
-    int16_t _repeated_repetition_level = 0;
-    DataTypePtr _type;
-    std::string _name;
+private:
     std::unique_ptr<ParquetColumnReader> _element_reader;
     NestedScalarOverflow _element_overflow;
     NestedStructOverflow _struct_element_overflow;

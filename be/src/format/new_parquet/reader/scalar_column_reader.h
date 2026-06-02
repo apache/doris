@@ -36,14 +36,8 @@ namespace doris::parquet {
 
 class ScalarColumnReader final : public ParquetColumnReader {
 public:
-    ScalarColumnReader(int parquet_leaf_column_id, const ::parquet::ColumnDescriptor* descriptor,
-                       ParquetTypeDescriptor type_descriptor, DataTypePtr type, std::string name,
+    ScalarColumnReader(const ParquetColumnSchema& column_schema,
                        std::shared_ptr<::parquet::internal::RecordReader> record_reader);
-
-    int file_column_id() const override { return _file_column_id; }
-    int parquet_leaf_column_id() const override { return _parquet_leaf_column_id; }
-    const DataTypePtr& type() const override { return _type; }
-    const std::string& name() const override { return _name; }
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
@@ -55,12 +49,8 @@ public:
     }
 
 private:
-    int _file_column_id = -1;
-    int _parquet_leaf_column_id = -1;
     const ::parquet::ColumnDescriptor* _descriptor = nullptr;
     ParquetTypeDescriptor _type_descriptor;
-    DataTypePtr _type;
-    std::string _name;
     std::shared_ptr<::parquet::internal::RecordReader> _record_reader;
 };
 

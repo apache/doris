@@ -46,20 +46,17 @@ enum class ParquetColumnSchemaKind {
 // 新 Parquet reader 的 file-local schema tree。
 // 它描述 Parquet 逻辑字段到 leaf column ordinal 的关系，不包含 table/global schema 语义。
 struct ParquetColumnSchema {
+    // File column id for top-level columns, or child id for nested columns.
     int field_id = -1;
-    int top_level_field_id = -1;
+    std::string name;
+    DataTypePtr type = nullptr;
     // Parquet schema 中的 primitive leaf column ordinal。
     // 该 id 用于访问 ColumnDescriptor、RowGroupReader::RecordReader、ColumnChunk
     // metadata 和 statistics。复杂类型节点本身没有单一 leaf column，因此为 -1。
     int leaf_column_id = -1;
     int schema_node_id = -1;
     int parent_schema_node_id = -1;
-    std::vector<int32_t> file_path;
-    std::vector<int32_t> field_id_path;
-    std::vector<std::string> name_path;
-    std::string name;
-    DataTypePtr type;
-    ParquetTypeDescriptor type_descriptor;
+    ParquetTypeDescriptor type_descriptor {};
     ParquetColumnSchemaKind kind = ParquetColumnSchemaKind::PRIMITIVE;
     const ::parquet::schema::Node* node = nullptr;
     const ::parquet::ColumnDescriptor* descriptor = nullptr;
@@ -67,7 +64,7 @@ struct ParquetColumnSchema {
     int16_t max_repetition_level = 0;
     int16_t nullable_definition_level = 0;
     int16_t repeated_repetition_level = 0;
-    std::vector<std::unique_ptr<ParquetColumnSchema>> children;
+    std::vector<std::unique_ptr<ParquetColumnSchema>> children {};
 };
 
 // 从 Arrow Parquet core schema 构造 file-local schema tree。

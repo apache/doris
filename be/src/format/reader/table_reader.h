@@ -83,8 +83,6 @@ struct TableFilter {
     // Table slot ids referenced by conjunct. A single expression filter may depend on multiple
     // columns, while ColumnPredicate pruning still belongs to one concrete column.
     std::vector<int32_t> slot_ids;
-
-    bool can_be_localized() const { return true; }
 };
 
 enum class TableFilterConversion {
@@ -277,12 +275,26 @@ protected:
             DORIS_CHECK(block_position < _data_reader.block_schema.size());
             const auto* field = _find_schema_field(_data_reader.file_schema, file_column_id);
             DORIS_CHECK(field != nullptr);
-            auto projection_it = file_request->complex_projections.find(file_column_id);
-            if (projection_it == file_request->complex_projections.end()) {
-                _data_reader.block_schema[block_position] = *field;
-            } else {
-                RETURN_IF_ERROR(_project_schema_field(*field, projection_it->second,
-                                                      &_data_reader.block_schema[block_position]));
+
+            {
+                auto it = std::find_if(
+                        file_request->non_predicate_columns.begin(),
+                        file_request->non_predicate_columns.end(),
+                        [&](const FieldProjection& p) { return p.field_id == file_column_id; });
+                if (it != file_request->non_predicate_columns.end()) {
+                    RETURN_IF_ERROR(_project_schema_field(
+                            *field, *it, &_data_reader.block_schema[block_position]));
+                }
+            }
+            {
+                auto it = std::find_if(
+                        file_request->predicate_columns.begin(),
+                        file_request->predicate_columns.end(),
+                        [&](const FieldProjection& p) { return p.field_id == file_column_id; });
+                if (it != file_request->predicate_columns.end()) {
+                    RETURN_IF_ERROR(_project_schema_field(
+                            *field, *it, &_data_reader.block_schema[block_position]));
+                }
             }
         }
 
@@ -313,26 +325,29 @@ protected:
     }
 
     void _append_file_scan_column(FileScanRequest* request, ColumnId column_id,
-                                  std::vector<ColumnId>* scan_columns) {
+                                  std::vector<FieldProjection>* scan_columns) {
         DORIS_CHECK(request != nullptr);
         DORIS_CHECK(scan_columns != nullptr);
         if (scan_columns == &request->non_predicate_columns &&
-            std::find(request->predicate_columns.begin(), request->predicate_columns.end(),
-                      column_id) != request->predicate_columns.end()) {
+            std::ranges::find_if(request->predicate_columns, [&](const FieldProjection& p) {
+                return p.field_id == column_id;
+            }) != request->predicate_columns.end()) {
+            // The column is already added as a predicate column, no need to add it again as a non-predicate column because predicate columns are also returned in the file reader block and can be used for materialization and filtering.
             return;
         }
-        const bool newly_added = request->column_positions.count(column_id) == 0;
-        if (newly_added) {
+        if (!request->column_positions.contains(column_id)) {
             request->column_positions.emplace(column_id, _next_block_position(*request));
-            scan_columns->push_back(column_id);
-        } else if (std::find(scan_columns->begin(), scan_columns->end(), column_id) ==
-                   scan_columns->end()) {
-            scan_columns->push_back(column_id);
+            scan_columns->push_back({.field_id = column_id});
+        } else if (std::ranges::find_if(*scan_columns, [&](const FieldProjection& p) {
+                       return p.field_id == column_id;
+                   }) == scan_columns->end()) {
+            scan_columns->push_back({.field_id = column_id});
         }
         if (scan_columns == &request->predicate_columns) {
             request->non_predicate_columns.erase(
-                    std::remove(request->non_predicate_columns.begin(),
-                                request->non_predicate_columns.end(), column_id),
+                    std::ranges::find_if(
+                            request->non_predicate_columns,
+                            [&](const FieldProjection& p) { return p.field_id == column_id; }),
                     request->non_predicate_columns.end());
         }
         if (column_id == doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID &&
@@ -441,7 +456,7 @@ protected:
         // must be enough for the upper MIN/MAX aggregate without evaluating projections, default
         // expressions or virtual columns.
         for (const auto& mapping : _data_reader.column_mapper.mappings()) {
-            if (!mapping.file_column_id.has_value() || mapping.has_complex_projection ||
+            if (!mapping.field_id.has_value() || mapping.has_complex_projection ||
                 mapping.virtual_column_type != TableVirtualColumnType::INVALID ||
                 mapping.default_expr != nullptr || mapping.file_type == nullptr ||
                 mapping.table_type == nullptr) {
@@ -453,7 +468,7 @@ protected:
 
     Status _materialize_mapping_column(const ColumnMapping& mapping, Block* current_block,
                                        const size_t rows, ColumnPtr* column) {
-        if (mapping.has_complex_projection && mapping.file_column_id.has_value() &&
+        if (mapping.has_complex_projection && mapping.field_id.has_value() &&
             !mapping.child_mappings.empty()) {
             int res_id;
             RETURN_IF_ERROR(mapping.projection->execute(current_block, &res_id));
@@ -539,7 +554,7 @@ protected:
         child_columns.reserve(mapping.child_mappings.size());
         size_t file_child_idx = 0;
         for (const auto& child_mapping : mapping.child_mappings) {
-            if (!child_mapping.file_column_id.has_value()) {
+            if (!child_mapping.field_id.has_value()) {
                 child_columns.push_back(
                         child_mapping.table_type->create_column_const_with_default_value(rows)
                                 ->convert_to_full_column_if_const());
@@ -674,8 +689,8 @@ protected:
         }
         request->columns.reserve(_data_reader.column_mapper.mappings().size());
         for (const auto& mapping : _data_reader.column_mapper.mappings()) {
-            DORIS_CHECK(mapping.file_column_id.has_value());
-            request->columns.push_back({*mapping.file_column_id});
+            DORIS_CHECK(mapping.field_id.has_value());
+            request->columns.push_back({.file_column_id = *mapping.field_id});
         }
     }
 
@@ -710,11 +725,11 @@ protected:
                                             _projected_columns[column_idx].name);
             }
             const auto& mapping = _data_reader.column_mapper.mappings()[column_idx];
-            DORIS_CHECK(mapping.file_column_id.has_value());
+            DORIS_CHECK(mapping.field_id.has_value());
             bool found_file_column = false;
             for (size_t block_position = 0; block_position < _data_reader.block_schema.size();
                  ++block_position) {
-                if (_data_reader.block_schema[block_position].id == *mapping.file_column_id) {
+                if (_data_reader.block_schema[block_position].id == *mapping.field_id) {
                     found_file_column = true;
                     auto column =
                             file_block.get_by_position(block_position).column->assume_mutable();
@@ -791,15 +806,15 @@ private:
         }
         projected_field->children.clear();
         for (const auto& child_projection : projection.children) {
-            if (child_projection.file_path.empty()) {
+            if (child_projection.field_id == -1) {
                 return Status::InvalidArgument("Empty projection path for field {}", field.name);
             }
-            const int32_t child_idx = child_projection.file_path.back();
+            const int32_t child_idx = child_projection.field_id;
             if (child_idx < 0 || child_idx >= static_cast<int32_t>(field.children.size())) {
                 return Status::InvalidArgument("Invalid projection child index {} for field {}",
                                                child_idx, field.name);
             }
-            if (child_projection.file_path != field.children[child_idx].file_path) {
+            if (child_projection.field_id != field.children[child_idx].id) {
                 return Status::InvalidArgument("Invalid projection path for field {}",
                                                field.children[child_idx].name);
             }

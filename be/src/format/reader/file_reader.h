@@ -57,24 +57,19 @@ enum ColumnType {
 // schema 语义。Iceberg field id、name mapping、default/generated/partition 列都不在
 // FileReader 内部解释。
 struct SchemaField {
+    // Column ID for top-level fields. For nested fields, column_id is the index of children.
     int32_t id = -1;
     std::string name;
     DataTypePtr type;
     std::vector<SchemaField> children;
-    std::vector<int32_t> file_path;
-    std::vector<int32_t> field_id_path;
-    std::vector<std::string> name_path;
     ColumnType column_type = ColumnType::DATA_COLUMN;
 };
 
-// File-local nested projection. The top-level scan column is still represented
-// by FileScanRequest::predicate_columns/non_predicate_columns; this tree only
-// describes which child paths are needed inside a complex top-level field.
+// Projection for both scalar type and nested type. `field_id` denotes file_column_id for top-level columns, and child id for nested columns.
 struct FieldProjection {
-    ColumnId file_column_id = -1;
-    std::vector<int32_t> file_path;
+    ColumnId field_id = -1;
     bool project_all_children = true;
-    std::vector<FieldProjection> children;
+    std::vector<FieldProjection> children {};
 };
 
 // File-local single-column predicates for file-layer pruning, such as min/max, page index,
@@ -97,10 +92,9 @@ enum class FileFormat {
 struct FileScanRequest {
     virtual ~FileScanRequest() = default;
 
-    std::vector<ColumnId> predicate_columns;
-    std::vector<ColumnId> non_predicate_columns;
+    std::vector<FieldProjection> predicate_columns;
+    std::vector<FieldProjection> non_predicate_columns;
     std::map<ColumnId, size_t> column_positions; // file_column_id -> file-local block position
-    std::map<ColumnId, FieldProjection> complex_projections;
     // Row-level filters converted to file-local expressions from table-level predicates.
     VExprContextSPtrs conjuncts;
     // Delete predicates converted to file-local expressions.
@@ -108,10 +102,9 @@ struct FileScanRequest {
     // Single-column predicates used only for file-layer pruning, such as statistics, page index,
     // dictionary and bloom filter. They must not be used for batch row-level filtering.
     std::vector<FileColumnPredicateFilter> column_predicate_filters;
-    // fallback path if filters cannot be localized to file-local predicates. The expression can reference projected_file_columns and partition columns.
-    std::vector<std::pair<ColumnId, VExprContextSPtr>> reader_expression_map;
 };
 
+// TODO: Support nested column
 struct FileAggregateRequest {
     struct Column {
         ColumnId file_column_id = -1;

@@ -46,12 +46,9 @@ struct ParquetReaderScanState {
 
 void ParquetReader::_fill_schema_field(const ParquetColumnSchema& column_schema,
                                        reader::SchemaField* field) const {
-    field->id = column_schema.top_level_field_id;
+    field->id = column_schema.field_id;
     field->name = column_schema.name;
     field->type = column_schema.type;
-    field->file_path = column_schema.file_path;
-    field->field_id_path = column_schema.field_id_path;
-    field->name_path = column_schema.name_path;
     field->children.clear();
     field->children.reserve(column_schema.children.size());
     for (const auto& child : column_schema.children) {
@@ -76,11 +73,7 @@ Status ParquetReader::_fill_projected_schema_field(const ParquetColumnSchema& co
     field->children.clear();
     std::map<int32_t, const reader::FieldProjection*> child_projection_by_idx;
     for (const auto& child_projection : projection->children) {
-        if (child_projection.file_path.empty()) {
-            return Status::InvalidArgument("Empty parquet projection path for column {}",
-                                           column_schema.name);
-        }
-        child_projection_by_idx.emplace(child_projection.file_path.back(), &child_projection);
+        child_projection_by_idx.emplace(child_projection.field_id, &child_projection);
     }
 
     DataTypes child_types;
@@ -90,8 +83,8 @@ Status ParquetReader::_fill_projected_schema_field(const ParquetColumnSchema& co
         if (it == child_projection_by_idx.end()) {
             continue;
         }
-        if (it->second->file_path != column_schema.children[child_idx]->file_path) {
-            return Status::InvalidArgument("Invalid parquet projection path for column {}",
+        if (it->second->field_id != column_schema.children[child_idx]->field_id) {
+            return Status::InvalidArgument("Invalid parquet projection field_id for column {}",
                                            column_schema.children[child_idx]->name);
         }
         reader::SchemaField child_field;
@@ -165,6 +158,7 @@ ParquetReader::~ParquetReader() = default;
 Status ParquetReader::init(RuntimeState* state) {
     RETURN_IF_ERROR(reader::FileReader::init(state));
     _state = std::make_unique<ParquetReaderScanState>();
+    // Open parquet file and parse metadata and file schema.
     RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get()));
     RETURN_IF_ERROR(
             build_parquet_column_schema(*_state->file_context.schema, &_state->file_schema));
@@ -205,76 +199,40 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
                                            file_column_id);
         }
     }
-    for (const auto& [file_column_id, _] : _request->reader_expression_map) {
-        if (file_column_id < 0 || file_column_id >= num_fields) {
-            return Status::InvalidArgument("Invalid parquet reader expression field id {}",
-                                           file_column_id);
-        }
-        if (std::find(_request->predicate_columns.begin(), _request->predicate_columns.end(),
-                      file_column_id) != _request->predicate_columns.end()) {
-            continue;
-        }
-        if (std::find(_request->non_predicate_columns.begin(),
-                      _request->non_predicate_columns.end(),
-                      file_column_id) != _request->non_predicate_columns.end()) {
-            continue;
-        }
-        _request->non_predicate_columns.push_back(file_column_id);
-    }
 
     // `_request->column_positions.empty()` means all columns are needed by table reader
     if (_request->column_positions.empty()) {
-        for (const auto file_column_id : _request->predicate_columns) {
-            _request->column_positions.emplace(file_column_id, file_column_id);
+        for (const auto& col : _request->predicate_columns) {
+            _request->column_positions.emplace(col.field_id, col.field_id);
         }
-        for (const auto file_column_id : _request->non_predicate_columns) {
-            _request->column_positions.emplace(file_column_id, file_column_id);
+        for (const auto& col : _request->non_predicate_columns) {
+            _request->column_positions.emplace(col.field_id, col.field_id);
         }
     }
 
-    for (const auto file_column_id : _request->predicate_columns) {
-        DORIS_CHECK(_request->column_positions.count(file_column_id) > 0);
-        if (file_column_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+    // Column validation for .
+    for (const auto& col : _request->predicate_columns) {
+        DORIS_CHECK(_request->column_positions.count(col.field_id) > 0);
+        if (col.field_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
             continue;
         }
-        DORIS_CHECK(file_column_id >= 0 && file_column_id < num_fields);
+        DORIS_CHECK(col.field_id >= 0 && col.field_id < num_fields);
     }
-    for (const auto file_column_id : _request->non_predicate_columns) {
-        DORIS_CHECK(_request->column_positions.count(file_column_id) > 0);
-        if (file_column_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+    for (const auto& col : _request->non_predicate_columns) {
+        DORIS_CHECK(_request->column_positions.count(col.field_id) > 0);
+        if (col.field_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
             continue;
         }
-        DORIS_CHECK(file_column_id >= 0 && file_column_id < num_fields);
+        DORIS_CHECK(col.field_id >= 0 && col.field_id < num_fields);
     }
-    for (const auto& [file_column_id, _] : _request->reader_expression_map) {
-        if (_request->column_positions.count(file_column_id) == 0) {
-            return Status::InvalidArgument(
-                    "Parquet reader expression field id {} is not materialized in output block",
-                    file_column_id);
-        }
-    }
-    for (const auto& [file_column_id, projection] : _request->complex_projections) {
-        if (file_column_id < 0 || file_column_id >= num_fields) {
-            return Status::InvalidArgument("Invalid parquet projection top-level field id {}",
-                                           file_column_id);
-        }
-        if (projection.file_column_id != file_column_id) {
-            return Status::InvalidArgument(
-                    "Parquet projection column id mismatch: key={}, value={}", file_column_id,
-                    projection.file_column_id);
-        }
-        if (!projection.file_path.empty() && projection.file_path.front() != file_column_id) {
-            return Status::InvalidArgument("Invalid parquet projection root path for column {}",
-                                           file_column_id);
-        }
-        reader::SchemaField projected_field;
-        RETURN_IF_ERROR(_get_projected_schema_field(file_column_id, &projection, &projected_field));
-    }
+    // Validation complete
+
     RowGroupScanPlan row_group_plan;
     ParquetScanRange scan_range;
     scan_range.start_offset = _file_description->range_start_offset;
     scan_range.size = _file_description->range_size;
     scan_range.file_size = _file_description->file_size;
+    // Get selected ranges in row groups according to metadata (Row-Group level index and Page Index including Zonemap, Dictionary, Bloom Filter).
     RETURN_IF_ERROR(plan_parquet_row_groups(
             *_state->file_context.metadata, _state->file_context.file_reader.get(),
             _state->file_schema, *_request, scan_range, &row_group_plan));

@@ -34,15 +34,13 @@ namespace doris::parquet {
 namespace {
 
 struct SchemaBuildContext {
-    int32_t top_level_field_id = -1;
+    // File column id for top-level columns, or child id for nested columns.
+    int32_t field_id = -1;
     int32_t parent_schema_node_id = -1;
     int16_t definition_level = 0;
     int16_t repetition_level = 0;
     int16_t nullable_definition_level = 0;
     int16_t repeated_repetition_level = 0;
-    std::vector<int32_t> file_path;
-    std::vector<int32_t> field_id_path;
-    std::vector<std::string> name_path;
     int* next_schema_node_id = nullptr;
 };
 
@@ -68,13 +66,9 @@ void inherit_common_schema_state(const ::parquet::schema::Node& node,
                                  ParquetColumnSchema* column_schema) {
     DORIS_CHECK(column_schema != nullptr);
     DORIS_CHECK(context.next_schema_node_id != nullptr);
-    column_schema->field_id = node.field_id();
-    column_schema->top_level_field_id = context.top_level_field_id;
+    column_schema->field_id = context.field_id;
     column_schema->schema_node_id = (*context.next_schema_node_id)++;
     column_schema->parent_schema_node_id = context.parent_schema_node_id;
-    column_schema->file_path = context.file_path;
-    column_schema->field_id_path = context.field_id_path;
-    column_schema->name_path = context.name_path;
     column_schema->name = node.name();
     column_schema->node = &node;
     column_schema->max_definition_level = context.definition_level;
@@ -87,10 +81,8 @@ SchemaBuildContext child_context(const SchemaBuildContext& parent,
                                  const ::parquet::schema::Node& child_node, int32_t child_idx,
                                  int32_t parent_schema_node_id) {
     SchemaBuildContext result = parent;
+    result.field_id = child_idx;
     result.parent_schema_node_id = parent_schema_node_id;
-    result.file_path.push_back(child_idx);
-    result.field_id_path.push_back(child_node.field_id());
-    result.name_path.push_back(child_node.name());
     if (child_node.repetition() != ::parquet::Repetition::REQUIRED) {
         result.definition_level++;
         result.nullable_definition_level = result.definition_level;
@@ -283,7 +275,6 @@ Status build_parquet_column_schema(const ::parquet::SchemaDescriptor& schema,
     for (int field_idx = 0; field_idx < root->field_count(); ++field_idx) {
         std::unique_ptr<ParquetColumnSchema> field;
         SchemaBuildContext context;
-        context.top_level_field_id = field_idx;
         context.next_schema_node_id = &next_schema_node_id;
         RETURN_IF_ERROR(build_node_schema(
                 schema, *root->field(field_idx),

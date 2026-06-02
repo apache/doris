@@ -115,7 +115,7 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
         RepeatedMapListValueSink<NestedScalarValueAppender> sink;
         sink.column_name = &_name;
         sink.map_type = &_type;
-        sink.list_type = &list_value_reader->_type;
+        sink.list_type = &list_value_reader->type();
         sink.map_nullable_definition_level = _nullable_definition_level;
         sink.list_nullable_definition_level = list_value_reader->nullable_definition_level();
         sink.list_repeated_repetition_level = list_value_reader->repeated_repetition_level();

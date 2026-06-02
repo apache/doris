@@ -33,27 +33,13 @@ public:
     MapColumnReader(const ParquetColumnSchema& schema, DataTypePtr type,
                     std::unique_ptr<ParquetColumnReader> key_reader,
                     std::unique_ptr<ParquetColumnReader> value_reader)
-            : _field_id(schema.top_level_field_id),
-              _nullable_definition_level(schema.nullable_definition_level),
-              _repeated_repetition_level(schema.repeated_repetition_level),
-              _type(std::move(type)),
-              _name(schema.name),
+            : ParquetColumnReader(schema, type),
               _key_reader(std::move(key_reader)),
               _value_reader(std::move(value_reader)) {}
-
-    int file_column_id() const override { return _field_id; }
-    int parquet_leaf_column_id() const override { return -1; }
-    const DataTypePtr& type() const override { return _type; }
-    const std::string& name() const override { return _name; }
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
 
-    int _field_id = -1;
-    int16_t _nullable_definition_level = 0;
-    int16_t _repeated_repetition_level = 0;
-    DataTypePtr _type;
-    std::string _name;
     std::unique_ptr<ParquetColumnReader> _key_reader;
     std::unique_ptr<ParquetColumnReader> _value_reader;
     NestedScalarOverflow _key_overflow;

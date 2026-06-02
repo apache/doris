@@ -78,7 +78,7 @@ const reader::FieldProjection* find_child_projection(const reader::FieldProjecti
     }
     auto it = std::find_if(projection->children.begin(), projection->children.end(),
                            [&](const reader::FieldProjection& child_projection) {
-                               return child_projection.file_path == child_schema.file_path;
+                               return child_projection.field_id == child_schema.field_id;
                            });
     return it == projection->children.end() ? nullptr : &*it;
 }
@@ -139,20 +139,13 @@ std::unique_ptr<ParquetColumnReader> ParquetColumnReaderFactory::create_row_posi
 }
 
 Status ParquetColumnReaderFactory::create_scalar_reader(
-        int parquet_leaf_column_id, const ParquetTypeDescriptor& type_descriptor,
-        const ::parquet::ColumnDescriptor* descriptor, DataTypePtr type, std::string name,
+        const ParquetColumnSchema& column_schema,
         std::shared_ptr<::parquet::internal::RecordReader> record_reader,
         std::unique_ptr<ParquetColumnReader>* reader) const {
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
     }
-    if (descriptor == nullptr || type == nullptr || record_reader == nullptr) {
-        return Status::InvalidArgument("Invalid parquet column reader arguments for column {}",
-                                       name);
-    }
-    *reader = std::make_unique<ScalarColumnReader>(parquet_leaf_column_id, descriptor,
-                                                   type_descriptor, std::move(type),
-                                                   std::move(name), std::move(record_reader));
+    *reader = std::make_unique<ScalarColumnReader>(column_schema, std::move(record_reader));
     return Status::OK();
 }
 
@@ -184,11 +177,10 @@ Status ParquetColumnReaderFactory::create_scalar_column_reader(
     std::shared_ptr<::parquet::internal::RecordReader> record_reader;
     RETURN_IF_ERROR(get_record_reader(column_schema.leaf_column_id, column_schema.descriptor,
                                       column_schema.name, &record_reader));
-    return create_scalar_reader(column_schema.leaf_column_id, column_schema.type_descriptor,
-                                column_schema.descriptor, column_schema.type, column_schema.name,
-                                std::move(record_reader), reader);
+    return create_scalar_reader(column_schema, std::move(record_reader), reader);
 }
 
+// TODO: Unify with `create_scalar_column_reader`
 Status ParquetColumnReaderFactory::create_nested_scalar_column_reader(
         const ParquetColumnSchema& column_schema,
         std::unique_ptr<ParquetColumnReader>* reader) const {
@@ -212,9 +204,7 @@ Status ParquetColumnReaderFactory::create_nested_scalar_column_reader(
     std::shared_ptr<::parquet::internal::RecordReader> record_reader;
     RETURN_IF_ERROR(get_record_reader(column_schema.leaf_column_id, column_schema.descriptor,
                                       column_schema.name, &record_reader));
-    return create_scalar_reader(column_schema.leaf_column_id, column_schema.type_descriptor,
-                                column_schema.descriptor, column_schema.type, column_schema.name,
-                                std::move(record_reader), reader);
+    return create_scalar_reader(column_schema, std::move(record_reader), reader);
 }
 
 Status ParquetColumnReaderFactory::get_record_reader(
@@ -422,5 +412,13 @@ Status ParquetColumnReaderFactory::create(const ParquetColumnSchema& column_sche
     return Status::NotSupported("Unsupported parquet column schema kind for column {}",
                                 column_schema.name);
 }
+
+ParquetColumnReader::ParquetColumnReader(const ParquetColumnSchema& schema, const DataTypePtr type)
+        : _field_id(schema.field_id),
+          _leaf_column_id(schema.leaf_column_id),
+          _nullable_definition_level(schema.nullable_definition_level),
+          _repeated_repetition_level(schema.repeated_repetition_level),
+          _type(std::move(type)),
+          _name(schema.name) {}
 
 } // namespace doris::parquet

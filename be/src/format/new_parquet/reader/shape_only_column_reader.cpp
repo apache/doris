@@ -23,6 +23,7 @@
 #include "core/assert_cast.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
+#include "format/new_parquet/parquet_column_schema.h"
 
 namespace doris::parquet {
 
@@ -75,9 +76,11 @@ Status ShapeOnlyColumnReader::select(const SelectionVector& sel, uint16_t select
 }
 
 RowPositionColumnReader::RowPositionColumnReader(int64_t row_group_first_row)
-        : _row_group_first_row(row_group_first_row),
-          _type(std::make_shared<DataTypeInt64>()),
-          _name(ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME) {}
+        : ParquetColumnReader(
+                  ParquetColumnSchema {
+                          .name = ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME},
+                  std::make_shared<DataTypeInt64>()),
+          _row_group_first_row(row_group_first_row) {}
 
 int RowPositionColumnReader::file_column_id() const {
     return ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
