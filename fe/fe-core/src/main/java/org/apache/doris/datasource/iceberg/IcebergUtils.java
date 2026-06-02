@@ -1128,9 +1128,12 @@ public class IcebergUtils {
         }
         String dataLocation = properties.get(TableProperties.WRITE_DATA_LOCATION);
         if (dataLocation == null) {
-            dataLocation = properties.get(TableProperties.WRITE_FOLDER_STORAGE_LOCATION);
+            dataLocation = properties.get(TableProperties.OBJECT_STORE_PATH);
             if (dataLocation == null) {
-                dataLocation = String.format("%s/data", LocationUtil.stripTrailingSlash(table.location()));
+                dataLocation = properties.get(TableProperties.WRITE_FOLDER_STORAGE_LOCATION);
+                if (dataLocation == null) {
+                    dataLocation = String.format("%s/data", LocationUtil.stripTrailingSlash(table.location()));
+                }
             }
         }
         return dataLocation;

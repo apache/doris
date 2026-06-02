@@ -37,6 +37,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.UnboundPredicate;
@@ -104,6 +105,26 @@ public class IcebergUtilsTest {
         Field declaredField = hiveCatalog.getClass().getDeclaredField("listAllTables");
         declaredField.setAccessible(true);
         return declaredField.getBoolean(hiveCatalog);
+    }
+
+    @Test
+    public void testDataLocationUsesLegacyObjectStorePath() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(
+                TableProperties.OBJECT_STORE_PATH, "s3://bucket/legacy-object-store",
+                TableProperties.WRITE_FOLDER_STORAGE_LOCATION, "s3://bucket/folder-storage"));
+
+        Assert.assertEquals("s3://bucket/legacy-object-store", IcebergUtils.dataLocation(table));
+    }
+
+    @Test
+    public void testDataLocationPrefersWriteDataPathOverLegacyObjectStorePath() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(
+                TableProperties.WRITE_DATA_LOCATION, "s3://bucket/data-path",
+                TableProperties.OBJECT_STORE_PATH, "s3://bucket/legacy-object-store"));
+
+        Assert.assertEquals("s3://bucket/data-path", IcebergUtils.dataLocation(table));
     }
 
     @Test
