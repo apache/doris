@@ -17,6 +17,8 @@
 
 #include "format/new_parquet/reader/nested_column_reader.h"
 
+#include <parquet/api/schema.h>
+
 #include <cstdint>
 #include <string_view>
 #include <utility>

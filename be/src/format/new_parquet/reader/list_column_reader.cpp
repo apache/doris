@@ -17,6 +17,8 @@
 
 #include "format/new_parquet/reader/list_column_reader.h"
 
+#include <parquet/api/schema.h>
+
 #include <cstdint>
 #include <utility>
 #include <vector>
