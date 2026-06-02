@@ -77,7 +77,7 @@ ParquetReader facade
 | Reader facade | `parquet_reader.*` | 已收敛为 file-local reader 入口，负责 init/open/get_schema/get_block/profile 聚合 |
 | FileContext | `parquet_file_context.*` | 已独立，封装 Doris file reader 到 Arrow `RandomAccessFile`、`ParquetFileReader` 和 footer metadata |
 | File-local schema/type | `parquet_column_schema.*`, `parquet_type.*` | 已独立，描述 Parquet 文件内部 schema/type，不处理 table schema evolution |
-| Pruning / row range planning | `parquet_statistics.*`, `parquet_scan.*` | statistics、dictionary、page index 已接入；bloom filter 仅有 profile/支持判断入口 |
+| Pruning / row range planning | `parquet_statistics.*`, `parquet_scan.*` | statistics、dictionary、bloom filter、page index 已接入 |
 | Scan scheduler / batch selection | `parquet_scan.*`, `selection_vector.h` | 已按 selected row ranges 扫描，predicate columns 先读，non-predicate columns lazy materialize |
 | Column reader factory | `reader/column_reader.*` | 已集中创建 reader tree 和 Arrow `RecordReader` cache |
 | Column reader tree | `reader/scalar_column_reader.*`, `reader/shape_only_column_reader.*`, `reader/struct_column_reader.*`, `reader/list_column_reader.*`, `reader/map_column_reader.*` | scalar、shape-only、row-position、struct、list、map reader 已拆分 |
@@ -169,15 +169,15 @@ ParquetReader facade
 - 基于 scan range 选择当前 reader 拥有的 row group。
 - 基于 row group statistics 做 row group keep/drop。
 - 基于 dictionary page 做 row group keep/drop。
+- 基于 bloom filter 做 row group keep/drop。
 - 基于 page index 做 row group-local row range selection。
-- 后续基于 bloom filter 做 row group keep/drop。
 - 输出 `RowGroupScanPlan`，而不是直接读取 output columns。
 - 只消费 `FileScanRequest::column_predicate_filters` 作为 pruning hint；这些 `ColumnPredicate`
   不要求对应列 materialize 到 scan block，也不能决定 batch 内某一行是否返回。
 
 当前边界：
 
-- `parquet_statistics.*` 承载 statistics、dictionary、page index 和 pruning stats。
+- `parquet_statistics.*` 承载 statistics、dictionary、bloom filter、page index 和 pruning stats。
 - `parquet_scan.*` 承载 row group plan 的 orchestration。
 - 这两个组件的职责可以后续再拆细，但不应把 pruning 逻辑放回 `ParquetReader`。
 
@@ -185,6 +185,8 @@ ParquetReader facade
 
 - 先把 Parquet metadata 转换成统一的本地统计表达，再交给 predicate/filter 判断。
 - 裁剪判断必须是 proof-based：能证明不匹配才 skip。
+- bloom filter 只处理常量等值类 predicate；当前支持 `EQ` / `IN_LIST`，跳过 null-accepting predicate、null-only predicate、复杂类型和非 primitive leaf。
+- bloom filter 底层读取复用 Arrow `BloomFilterReader`，Doris 侧只做 predicate value 到 Parquet hash 语义的 adapter。
 - page index 是 metadata pruning，输出 row ranges；是否进一步自研 page decoder 是后续 adapter 层决策。
 
 ### 5. Scan Scheduler / Batch Selection
@@ -401,6 +403,7 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 - filtered page rows。
 - selected row ranges。
 - page index read calls 和相关耗时 counter。
+- bloom filter filtered row groups 和 read time counter。
 - lazy read filtered rows counter。
 
 仍需补齐：
@@ -410,7 +413,7 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 - reader read/skip/select rows。
 - nested overflow 次数和 tail rows。
 - Arrow adapter read/decode/materialization 细分耗时。
-- bloom filter read/check 统计。
+- bloom filter check time 细分统计。
 
 ## 功能矩阵
 
@@ -427,7 +430,7 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 | Row group statistics pruning | 已实现 | Pruning | min/max/null count 转 Doris statistics 后判断 |
 | Dictionary row group pruning | 已实现 | Pruning | 当前覆盖 string-like dictionary predicate |
 | Page index pruning | 已实现 | Pruning / Scheduler | Arrow page index 转 row group-local row ranges |
-| Bloom filter pruning | 未完成 | Pruning | 有 profile/支持判断入口，未形成完整 helper |
+| Bloom filter pruning | 已实现 | Pruning | 复用 Arrow bloom reader，支持 primitive `BOOLEAN`、`INT`、`BIGINT`、`FLOAT`、`DOUBLE`、`STRING` 的 `EQ` / `IN_LIST` 保守裁剪 |
 | Batch predicate filter | 已实现 | Scheduler / Selection | 输出 `SelectionVector` |
 | Lazy materialization | 已实现 | Scheduler / Selection | predicate columns 先读，non-predicate columns 按 selection 读 |
 | Selected row range scan | 已实现 | Scheduler | range gap 通过 row-level `skip()` 推进 |
@@ -447,27 +450,7 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 
 ## 后续实现计划
 
-### P1：补 Bloom Filter Pruning
-
-目标：
-
-- 在 pruning 层补完整 bloom filter row group pruning。
-- 与 statistics/dictionary/page index 一样输出 proof-based keep/drop 结论和 profile stats。
-
-建议步骤：
-
-1. 在 `parquet_statistics.*` 内先实现 bloom helper，必要时后续再拆独立组件。
-2. 复用 `ParquetColumnSchema` 做类型支持判断。
-3. 只对能安全判断的 predicate 启用 bloom pruning。
-4. 接入 `ParquetPruningStats` 和 `ParquetReader::ParquetProfile`。
-5. 添加 positive/negative/unsupported type 测试。
-
-验收标准：
-
-- bloom filter 不能证明不匹配时保留 row group。
-- statistics、dictionary、page index、bloom 的 pruning stats 不互相覆盖。
-
-### P2：补 Observability
+### P1：补 Observability
 
 目标：
 
@@ -485,7 +468,7 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 - 能从 profile 判断 page index pruning 是否真正减少 decode/materialization。
 - 能定位复杂类型 read-ahead overflow 的开销。
 
-### P3：补复杂类型剩余覆盖
+### P2：补复杂类型剩余覆盖
 
 目标：
 
@@ -507,7 +490,7 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 - 所有复杂 child 组合使用统一 shape/value stream。
 - 列裁剪不会破坏未投影 child 的 row-level cursor。
 
-### P4：Schema Change 接入准备
+### P3：Schema Change 接入准备
 
 目标：
 
@@ -525,7 +508,7 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 - file-local reader 不知道 table/global schema。
 - schema evolution 不需要改 nested assembler 主循环。
 
-### P5：评估 Page-level Decoder
+### P4：评估 Page-level Decoder
 
 目标：
 
@@ -564,6 +547,6 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 - 现在已经有 repeated assembler、overflow state、shape/value stream 和统一 sink，但 complex child 组合还没有全部覆盖。
 - list/map 对已支持路径复用统一 sink；新增 nested MAP、struct deep complex child 仍需要补 value appender/shape-only reader 组合。
 - schema change 还停留在边界预留阶段。
-- bloom filter pruning 和 observability 还没补完整。
+- observability 还没补完整；bloom filter 已接入 row group pruning，但 check time 还没有单独拆分。
 
-后续优先级应先补 Bloom Filter pruning，再补 observability 和剩余 complex child 组合。新增复杂类型 case 必须继续落在 nested assembler 的 value stream/appender/sink 结构上，避免 list/map reader 重新变厚。
+后续优先级应先补 observability，再补剩余 complex child 组合。新增复杂类型 case 必须继续落在 nested assembler 的 value stream/appender/sink 结构上，避免 list/map reader 重新变厚。
