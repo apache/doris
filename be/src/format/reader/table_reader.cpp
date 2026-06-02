@@ -182,11 +182,6 @@ Status TableReader::_open_local_filter_exprs(const FileScanRequest& file_request
         RETURN_IF_ERROR(delete_conjunct->prepare(_runtime_state, row_desc));
         RETURN_IF_ERROR(delete_conjunct->open(_runtime_state));
     }
-    for (const auto& [_, expression] : file_request.reader_expression_map) {
-        DORIS_CHECK(expression != nullptr);
-        RETURN_IF_ERROR(expression->prepare(_runtime_state, row_desc));
-        RETURN_IF_ERROR(expression->open(_runtime_state));
-    }
     return Status::OK();
 }
 

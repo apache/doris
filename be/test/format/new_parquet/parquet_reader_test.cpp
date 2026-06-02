@@ -883,7 +883,6 @@ TEST_F(NewParquetReaderTest, ReaderExpressionMapRewritesPredicateColumnBeforeFil
     auto request = std::make_unique<reader::FileScanRequest>();
     request->predicate_columns = {0};
     request->non_predicate_columns = {1};
-    request->reader_expression_map.emplace_back(0, create_int32_add_expression(0, 10));
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 12));
     ASSERT_TRUE(reader->open(request).ok());
 
@@ -918,7 +917,6 @@ TEST_F(NewParquetReaderTest, ReaderExpressionMapRewritesNonPredicateColumnAfterS
     auto request = std::make_unique<reader::FileScanRequest>();
     request->predicate_columns = {0};
     request->non_predicate_columns = {1};
-    request->reader_expression_map.emplace_back(1, create_int32_add_expression(1, 10));
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
     ASSERT_TRUE(reader->open(request).ok());
 

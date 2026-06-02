@@ -118,7 +118,7 @@ public:
     // 下推的表达式应通过 reader_expression_map 或 table-level finalize/filter fallback 处理。
     virtual Status localize_filters(const std::vector<TableFilter>& table_filters,
                                     const TableColumnPredicates& table_column_predicates,
-                                    FileScanRequest* file_request) const;
+                                    FileScanRequest* file_request);
     void clear() { _mappings.clear(); }
     const std::vector<ColumnMapping>& mappings() const { return _mappings; }
 
@@ -127,8 +127,6 @@ private:
                                         const std::vector<SchemaField>& file_schema) const;
     Status _create_direct_mapping(const TableColumn& table_column, const SchemaField& file_field,
                                   ColumnMapping* mapping) const;
-    Status _build_complex_projection(const ColumnMapping& mapping,
-                                     FieldProjection* projection) const;
 
     ColumnMapping* _find_mapping(int32_t table_column_id) {
         for (auto& mapping : _mappings) {

@@ -75,9 +75,6 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
 IColumn::Filter selection_to_filter(const SelectionVector& selection, uint16_t selected_rows,
                                     int64_t batch_rows);
 
-Status execute_reader_expression_map(const reader::FileScanRequest& request, Block* file_block,
-                                     const std::vector<reader::ColumnId>& target_columns);
-
 Status execute_batch_filters(const reader::FileScanRequest& request, int64_t batch_rows,
                              Block* file_block, SelectionVector* selection,
                              uint16_t* selected_rows);

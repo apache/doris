@@ -208,32 +208,6 @@ IColumn::Filter selection_to_filter(const SelectionVector& selection, uint16_t s
     return filter;
 }
 
-Status execute_reader_expression_map(const reader::FileScanRequest& request, Block* file_block,
-                                     const std::vector<reader::ColumnId>& target_columns) {
-    if (target_columns.empty()) {
-        return Status::OK();
-    }
-    for (const auto& [file_column_id, expression] : request.reader_expression_map) {
-        if (std::find(target_columns.begin(), target_columns.end(), file_column_id) ==
-            target_columns.end()) {
-            continue;
-        }
-        DORIS_CHECK(expression != nullptr);
-        auto position_it = request.column_positions.find(file_column_id);
-        DORIS_CHECK(position_it != request.column_positions.end());
-        const auto block_position = position_it->second;
-        int result_column_id = -1;
-        RETURN_IF_ERROR(expression->execute(file_block, &result_column_id));
-        DORIS_CHECK(result_column_id >= 0 &&
-                    result_column_id < static_cast<int>(file_block->columns()));
-        auto result_column = file_block->get_by_position(result_column_id);
-        file_block->replace_by_position(block_position, std::move(result_column.column));
-        file_block->erase(result_column_id);
-        file_block->get_by_position(block_position).type = std::move(result_column.type);
-    }
-    return Status::OK();
-}
-
 Status execute_batch_filters(const reader::FileScanRequest& request, int64_t batch_rows,
                              Block* file_block, SelectionVector* selection,
                              uint16_t* selected_rows) {
@@ -249,7 +223,7 @@ Status execute_batch_filters(const reader::FileScanRequest& request, int64_t bat
 }
 
 namespace {
-
+// TODO: batch size in SessionVariable
 constexpr int64_t DEFAULT_PARQUET_READ_BATCH_SIZE = 4096;
 
 } // namespace
@@ -310,38 +284,28 @@ Status ParquetScanScheduler::open_next_row_group(
 
         ParquetColumnReaderFactory column_reader_factory(_current_row_group,
                                                          file_context.schema->num_columns());
-        for (const auto file_column_id : request.predicate_columns) {
-            if (file_column_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+        for (const auto& col : request.predicate_columns) {
+            if (col.file_column_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
                 _current_predicate_columns.push_back(
                         column_reader_factory.create_row_position_column_reader(
                                 _current_row_group_first_row));
                 continue;
             }
-            const auto& column_schema = file_schema[file_column_id];
-            const auto projection_it = request.complex_projections.find(file_column_id);
-            const auto* projection = projection_it == request.complex_projections.end()
-                                             ? nullptr
-                                             : &projection_it->second;
+            const auto& column_schema = file_schema[col.file_column_id];
             std::unique_ptr<ParquetColumnReader> column_reader;
-            RETURN_IF_ERROR(
-                    column_reader_factory.create(*column_schema, projection, &column_reader));
+            RETURN_IF_ERROR(column_reader_factory.create(*column_schema, &col, &column_reader));
             _current_predicate_columns.push_back(std::move(column_reader));
         }
-        for (const auto file_column_id : request.non_predicate_columns) {
-            if (file_column_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+        for (const auto& col : request.non_predicate_columns) {
+            if (col.file_column_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
                 _current_non_predicate_columns.push_back(
                         column_reader_factory.create_row_position_column_reader(
                                 _current_row_group_first_row));
                 continue;
             }
-            const auto& column_schema = file_schema[file_column_id];
-            const auto projection_it = request.complex_projections.find(file_column_id);
-            const auto* projection = projection_it == request.complex_projections.end()
-                                             ? nullptr
-                                             : &projection_it->second;
+            const auto& column_schema = file_schema[col.file_column_id];
             std::unique_ptr<ParquetColumnReader> column_reader;
-            RETURN_IF_ERROR(
-                    column_reader_factory.create(*column_schema, projection, &column_reader));
+            RETURN_IF_ERROR(column_reader_factory.create(*column_schema, &col, &column_reader));
             _current_non_predicate_columns.push_back(std::move(column_reader));
         }
         *has_row_group = true;
@@ -373,7 +337,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         selection->resize(static_cast<size_t>(batch_rows));
     }
     for (size_t filter_idx = 0; filter_idx < request.predicate_columns.size(); ++filter_idx) {
-        const int file_field_id = request.predicate_columns[filter_idx];
+        const auto& file_field_id = request.predicate_columns[filter_idx].file_column_id;
         auto& column_reader = _current_predicate_columns[filter_idx];
         auto position_it = request.column_positions.find(file_field_id);
         DORIS_CHECK(position_it != request.column_positions.end());
@@ -389,7 +353,6 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         }
         file_block->replace_by_position(block_position, std::move(column));
     }
-    RETURN_IF_ERROR(execute_reader_expression_map(request, file_block, request.predicate_columns));
     return execute_batch_filters(request, batch_rows, file_block, selection, selected_rows);
 }
 
@@ -409,8 +372,8 @@ Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
     const bool need_filter_output = selected_rows != batch_rows;
     if (need_filter_output) {
         IColumn::Filter output_filter = selection_to_filter(selection, selected_rows, batch_rows);
-        for (const auto file_field_id : request.predicate_columns) {
-            auto position_it = request.column_positions.find(file_field_id);
+        for (const auto& col : request.predicate_columns) {
+            auto position_it = request.column_positions.find(col.file_column_id);
             DORIS_CHECK(position_it != request.column_positions.end());
             const auto block_position = position_it->second;
             RETURN_IF_CATCH_EXCEPTION(file_block->replace_by_position(
@@ -421,7 +384,8 @@ Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
 
     for (size_t output_idx = 0; output_idx < _current_non_predicate_columns.size(); ++output_idx) {
         auto& column_reader = _current_non_predicate_columns[output_idx];
-        auto position_it = request.column_positions.find(request.non_predicate_columns[output_idx]);
+        auto position_it = request.column_positions.find(
+                request.non_predicate_columns[output_idx].file_column_id);
         DORIS_CHECK(position_it != request.column_positions.end());
         const auto block_position = position_it->second;
         auto col = file_block->get_columns()[block_position]->assume_mutable();
@@ -445,9 +409,6 @@ Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
             }
         }
     }
-    RETURN_IF_ERROR(
-            execute_reader_expression_map(request, file_block, request.non_predicate_columns));
-
     *rows = static_cast<size_t>(selected_rows);
     return Status::OK();
 }

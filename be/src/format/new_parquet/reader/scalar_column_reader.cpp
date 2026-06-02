@@ -23,19 +23,16 @@
 #include <utility>
 
 #include "core/column/column.h"
+#include "format/new_parquet/parquet_column_schema.h"
 
 namespace doris::parquet {
 
 ScalarColumnReader::ScalarColumnReader(
-        int parquet_leaf_column_id, const ::parquet::ColumnDescriptor* descriptor,
-        ParquetTypeDescriptor type_descriptor, DataTypePtr type, std::string name,
+        const ParquetColumnSchema& column_schema,
         std::shared_ptr<::parquet::internal::RecordReader> record_reader)
-        : _file_column_id(parquet_leaf_column_id),
-          _parquet_leaf_column_id(parquet_leaf_column_id),
-          _descriptor(descriptor),
-          _type_descriptor(std::move(type_descriptor)),
-          _type(std::move(type)),
-          _name(std::move(name)),
+        : ParquetColumnReader(column_schema, column_schema.type),
+          _descriptor(column_schema.descriptor),
+          _type_descriptor(column_schema.type_descriptor),
           _record_reader(std::move(record_reader)) {}
 
 Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
