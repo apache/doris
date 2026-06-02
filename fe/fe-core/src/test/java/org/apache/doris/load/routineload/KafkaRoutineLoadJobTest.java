@@ -198,6 +198,46 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
+    public void testUpdateLagRebuildsConvertedPropertiesAfterReplay() throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "customKafkaPartitions", Lists.newArrayList(1));
+
+        Map<String, String> customProperties = Maps.newHashMap();
+        customProperties.put("security.protocol", "SASL_PLAINTEXT");
+        customProperties.put("sasl.mechanism", "PLAIN");
+        Deencapsulation.setField(routineLoadJob, "customProperties", customProperties);
+        Deencapsulation.setField(routineLoadJob, "convertedCustomProperties", Maps.newHashMap());
+
+        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+        partitionIdToOffset.put(1, 10L);
+        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
+
+        Env env = Mockito.mock(Env.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<KafkaUtil> kafkaUtilStatic = Mockito.mockStatic(KafkaUtil.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            kafkaUtilStatic.when(() -> KafkaUtil.getLatestOffsets(Mockito.eq(1L), Mockito.any(UUID.class),
+                    Mockito.eq("127.0.0.1:9020"), Mockito.eq("topic1"),
+                    Mockito.<Map<String, String>>argThat(properties ->
+                            "SASL_PLAINTEXT".equals(properties.get("security.protocol"))
+                                    && "PLAIN".equals(properties.get("sasl.mechanism"))),
+                    Mockito.argThat(partitions -> partitions.size() == 1 && partitions.contains(1))))
+                    .thenReturn(Lists.newArrayList(Pair.of(1, 15L)));
+
+            routineLoadJob.updateLag();
+
+            Assert.assertEquals(5L, routineLoadJob.totalLag().longValue());
+            kafkaUtilStatic.verify(() -> KafkaUtil.getLatestOffsets(Mockito.eq(1L), Mockito.any(UUID.class),
+                    Mockito.eq("127.0.0.1:9020"), Mockito.eq("topic1"),
+                    Mockito.<Map<String, String>>argThat(properties ->
+                            "SASL_PLAINTEXT".equals(properties.get("security.protocol"))
+                                    && "PLAIN".equals(properties.get("sasl.mechanism"))),
+                    Mockito.argThat(partitions -> partitions.size() == 1 && partitions.contains(1))));
+        }
+    }
+
+    @Test
     public void testUpdateProgressWarnsWhenReadCommittedTaskHasZeroRowsAndLag() throws UserException {
         KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                 1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);

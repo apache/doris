@@ -888,7 +888,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     // check if given partitions has more data to consume.
     // 'partitionIdToOffset' to the offset to be consumed.
     public boolean hasMoreDataToConsume(UUID taskId, Map<Integer, Long> partitionIdToOffset) throws UserException {
-        convertCustomProperties(false);
         boolean needUpdateCache = false;
         // it is need check all partitions, for some partitions offset may be out of time
         for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
@@ -919,13 +918,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             String brokerListSnapshot;
             String topicSnapshot;
             Map<String, String> customPropertiesSnapshot;
-            readLock();
+            writeLock();
             try {
+                convertCustomProperties(false);
                 brokerListSnapshot = brokerList;
                 topicSnapshot = topic;
                 customPropertiesSnapshot = Maps.newHashMap(convertedCustomProperties);
             } finally {
-                readUnlock();
+                writeUnlock();
             }
             List<Pair<Integer, Long>> tmp = KafkaUtil.getLatestOffsets(id, taskId, brokerListSnapshot,
                     topicSnapshot, customPropertiesSnapshot, Lists.newArrayList(partitionIdToOffset.keySet()));
@@ -977,8 +977,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         String brokerListSnapshot;
         String topicSnapshot;
         Map<String, String> customPropertiesSnapshot;
-        readLock();
+        writeLock();
         try {
+            convertCustomProperties(false);
             partitionIds = Lists.newArrayList(((KafkaProgress) progress).getOffsetByPartition().keySet());
             if (partitionIds.isEmpty()) {
                 return;
@@ -987,7 +988,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             topicSnapshot = topic;
             customPropertiesSnapshot = Maps.newHashMap(convertedCustomProperties);
         } finally {
-            readUnlock();
+            writeUnlock();
         }
         UUID taskId = UUID.randomUUID();
         List<Pair<Integer, Long>> latestOffsets = KafkaUtil.getLatestOffsets(id, taskId, brokerListSnapshot,
