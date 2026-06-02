@@ -297,9 +297,8 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     protected void onFail(Throwable t) {
         errMsg = t.getMessage() == null ? "unknown reason" : t.getMessage();
         String queryId = DebugUtil.printId(ctx.queryId());
-        // Abort only when the transaction has not been committed yet.
         LOG.warn("insert [{}] with query id {} failed", labelName, queryId, t);
-        if (txnId != INVALID_TXN_ID && txnStatus != TransactionStatus.COMMITTED) {
+        if (txnId != INVALID_TXN_ID) {
             try {
                 abortTransactionOnFail();
             } catch (Exception abortTxnException) {
@@ -308,10 +307,6 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 LOG.warn("insert [{}] with query id {} abort txn {} failed",
                         labelName, queryId, txnId, abortTxnException);
             }
-        }
-        if (txnStatus == TransactionStatus.COMMITTED) {
-            // Preserve the committed-side insert result even if a later step raises an exception.
-            recordInsertResult();
         }
         // retry insert into from select when meet "need re-plan error" in cloud
         if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(t.getMessage())) {
@@ -376,7 +371,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         sb.append("}");
 
         ctx.getState().setOk(loadedRows, filteredRows, sb.toString());
-        recordInsertResult();
+        // Save the actual insert status in the connection context before any client-facing state rewrite.
+        ctx.setOrUpdateInsertResult(txnId, labelName, database.getFullName(), table.getName(),
+                txnStatus, loadedRows, filteredRows);
+        ctx.updateReturnRows((int) loadedRows);
         if (publishTimedOutAfterCommit && ctx.getSessionVariable().isInsertVisibleTimeoutReturnError()) {
             // Log the committed timeout branch explicitly so operators can distinguish it from real failures.
             LOG.warn("insert [{}] with txn id {} committed but return error because {}={}",
@@ -385,13 +383,6 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             // Convert the final client response to ERR after all committed-side bookkeeping has finished.
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, INSERT_VISIBLE_TIMEOUT_ERROR_MSG);
         }
-    }
-
-    private void recordInsertResult() {
-        // Save the actual insert status in the connection context before any client-facing state rewrite.
-        ctx.setOrUpdateInsertResult(txnId, labelName, database.getFullName(), table.getName(),
-                txnStatus, loadedRows, filteredRows);
-        ctx.updateReturnRows((int) loadedRows);
     }
 
     public long getTimeout() {
