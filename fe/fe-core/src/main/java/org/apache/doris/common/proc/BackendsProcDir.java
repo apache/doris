@@ -50,8 +50,8 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("LastStartTime").add("LastHeartbeat").add("Alive").add("SystemDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("TrashUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
             .add("MaxDiskUsedPct").add("RemoteUsedCapacity").add("Tag").add("ErrMsg").add("Version").add("Status")
-            .add("HeartbeatFailureCounter").add("NodeRole").add("CpuCores").add("Memory")
-            .add("RunningTasks").build();
+            .add("HeartbeatFailureCounter").add("CpuCores").add("Memory")
+            .add("RunningTasks").add("NodeRole").build();
 
     public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("BackendId").add("Host").add("RootPath").add("DirType").add("DiskState")

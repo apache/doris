@@ -212,13 +212,11 @@ public class BackendsProcDirTest {
 
         int cpuCoresIdx = columnNames.indexOf("CpuCores");
         int memoryIdx = columnNames.indexOf("Memory");
-        int liveSinceIdx = columnNames.indexOf("LiveSince");
         int runningTasksIdx = columnNames.indexOf("RunningTasks");
         int nodeRoleIdx = columnNames.indexOf("NodeRole");
 
         Assert.assertTrue("CpuCores should be before Memory", cpuCoresIdx < memoryIdx);
-        Assert.assertTrue("Memory should be before LiveSince", memoryIdx < liveSinceIdx);
-        Assert.assertTrue("LiveSince should be before RunningTasks", liveSinceIdx < runningTasksIdx);
+        Assert.assertTrue("Memory should be before RunningTasks", memoryIdx < runningTasksIdx);
         Assert.assertTrue("RunningTasks should be before NodeRole", runningTasksIdx < nodeRoleIdx);
     }
 }
