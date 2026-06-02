@@ -730,11 +730,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "signbit")
     public static Expression signbit(DoubleLiteral first) {
-        if (first.getValue() < 0) {
-            return BooleanLiteral.of(true);
-        } else {
-            return BooleanLiteral.of(false);
-        }
+        return BooleanLiteral.of(Double.doubleToRawLongBits(first.getValue()) < 0);
     }
 
     /**
