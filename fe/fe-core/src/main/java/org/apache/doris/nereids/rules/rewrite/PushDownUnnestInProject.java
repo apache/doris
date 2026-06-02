@@ -27,7 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.types.DataType;
@@ -81,7 +81,7 @@ public class PushDownUnnestInProject extends OneRewriteRuleFactory {
                         toBePushedDown.size(), fields.size()));
                 for (int i = 0; i < fields.size(); ++i) {
                     Slot remainExpr = slotTripletMap.get(toBePushedDown.get(i)).remainExpr;
-                    newProjects.add(new Alias(remainExpr.getExprId(), new StructElement(
+                    newProjects.add(new Alias(remainExpr.getExprId(), new ElementAt(
                             outputSlot, new StringLiteral(fields.get(i).getName())), remainExpr.getName()));
                 }
             } else {

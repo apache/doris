@@ -34,7 +34,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -891,7 +891,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                                 ).when(p -> {
                                     Assertions.assertEquals(2, p.getProjects().size());
                                     Assertions.assertTrue(p.getProjects().stream()
-                                            .anyMatch(o -> o instanceof Alias && o.child(0) instanceof StructElement));
+                                            .anyMatch(o -> o instanceof Alias && o.child(0) instanceof ElementAt));
                                     return true;
                                 }),
                                 logicalOneRowRelation()
@@ -947,7 +947,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                                 ).when(p -> {
                                     Assertions.assertEquals(2, p.getProjects().size());
                                     Assertions.assertTrue(p.getProjects().stream()
-                                            .anyMatch(o -> o instanceof Alias && o.child(0) instanceof StructElement));
+                                            .anyMatch(o -> o instanceof Alias && o.child(0) instanceof ElementAt));
                                     return true;
                                 })
                             )
@@ -978,7 +978,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                                             ).when(p -> {
                                                 Assertions.assertEquals(2, p.getProjects().size());
                                                 Assertions.assertTrue(p.getProjects().stream()
-                                                        .anyMatch(o -> o instanceof Alias && o.child(0) instanceof StructElement));
+                                                        .anyMatch(o -> o instanceof Alias && o.child(0) instanceof ElementAt));
                                                 return true;
                                             })
                                         )
@@ -1007,7 +1007,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                                 logicalOlapScan()
                             ).when(p -> {
                                 Assertions.assertEquals(1, p.getProjects().size());
-                                Assertions.assertInstanceOf(StructElement.class, p.getProjects().get(0).child(0));
+                                Assertions.assertInstanceOf(ElementAt.class, p.getProjects().get(0).child(0));
                                 return true;
                             })
                         ).when(u -> {
