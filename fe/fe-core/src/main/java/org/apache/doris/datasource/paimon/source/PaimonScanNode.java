@@ -46,10 +46,10 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
-import org.apache.doris.thrift.TPartitionKeyValue;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TPaimonReaderType;
+import org.apache.doris.thrift.TPartitionKeyValue;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
