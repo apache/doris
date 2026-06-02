@@ -21,7 +21,32 @@ PhysicalResultSink
 
 -- !join_other_unique_4 --
 PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=(((cast(id as DOUBLE) + random()) > 0.5))
+----PhysicalOlapScan[t1]
+----PhysicalOlapScan[t2]
+
+-- !join_other_unique_5 --
+PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----PhysicalOlapScan[t2]
-----filter(((cast(id as DOUBLE) + random()) > 0.5))
-------PhysicalOlapScan[t1]
+----PhysicalProject[t1.id, t1.msg]
+------filter(((cast(id as DOUBLE) + $_random_5_$) <= 0.5) and ((cast(id as DOUBLE) + $_random_5_$) >= 0.1))
+--------PhysicalProject[random() AS `$_random_5_$`, t1.id, t1.msg]
+----------PhysicalOlapScan[t1]
+-- !join_other_unique_6 --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----PhysicalOlapScan[t1]
+----PhysicalProject[t2.id, t2.msg]
+------filter(((cast(id as DOUBLE) + $_random_5_$) <= 0.5) and ((cast(id as DOUBLE) + $_random_5_$) >= 0.1))
+--------PhysicalProject[random() AS `$_random_5_$`, t2.id, t2.msg]
+----------PhysicalOlapScan[t2]
+
+-- !join_other_unique_7 --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----PhysicalOlapScan[t2]
+----PhysicalProject[t1.id, t1.msg]
+------filter(($_random_5_$ <= 0.5) and ($_random_5_$ >= 0.1))
+--------PhysicalProject[random() AS `$_random_5_$`, t1.id, t1.msg]
+----------PhysicalOlapScan[t1]

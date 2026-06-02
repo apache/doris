@@ -75,14 +75,11 @@ public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
                     Set<Expression> rightConjuncts = Sets.newHashSet();
 
                     for (Expression otherConjunct : otherJoinConjuncts) {
-                        // Keep slot-free volatile predicates in otherJoinConjuncts. Otherwise
-                        // `allCoveredBy(..., child.getOutputSet())` would arbitrarily push
-                        // `rand() > 0.5` into one side because empty slots are covered by both
-                        // children. Side-specific volatile predicates are still pushed down for
-                        // performance, matching PostgreSQL's treatment of single-relation INNER
-                        // JOIN ON quals as base restrictions.
-                        if (otherConjunct.containsVolatileExpression()
-                                && otherConjunct.getInputSlots().isEmpty()) {
+                        // Keep volatile ON predicates in otherJoinConjuncts. Pushing them into a
+                        // child changes their evaluation granularity from per joined row to per
+                        // input row. Repeated volatile occurrences are materialized later by
+                        // AddProjectForVolatileExpression.
+                        if (otherConjunct.containsVolatileExpression()) {
                             remainingOther.add(otherConjunct);
                         } else if (PUSH_DOWN_LEFT_VALID_TYPE.contains(join.getJoinType())
                                 && allCoveredBy(otherConjunct, join.left().getOutputSet())) {

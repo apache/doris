@@ -43,11 +43,30 @@ suite('push_down_join_other_condition_with_unique_function') {
         select * from t1 left join t2 on t1.id = t2.id and uuid() is not null
     '''
 
-    // Side-specific volatile ON predicates are still pushed down for performance,
-    // matching PostgreSQL's treatment of single-relation INNER JOIN ON quals as
-    // base restrictions.
+    // Side-specific volatile ON predicates stay in the join because pushing them
+    // into a child changes their evaluation granularity.
     qt_join_other_unique_4 '''
         explain shape plan
         select * from t1 join t2 on t1.id = t2.id and t1.id + rand() > 0.5
+    '''
+
+    // Repeated volatile expressions from BETWEEN expansion are materialized once
+    // on the left side when they reference only left slots.
+    qt_join_other_unique_5 '''
+        explain shape plan
+        select * from t1 join t2 on t1.id = t2.id and t1.id + rand() between 0.1 and 0.5
+    '''
+
+    // Repeated volatile expressions that reference only right slots are materialized
+    // on the right side.
+    qt_join_other_unique_6 '''
+        explain shape plan
+        select * from t1 join t2 on t1.id = t2.id and t2.id + rand() between 0.1 and 0.5
+    '''
+
+    // Slot-free repeated volatile expressions default to the left side.
+    qt_join_other_unique_7 '''
+        explain shape plan
+        select * from t1 join t2 on t1.id = t2.id and rand() between 0.1 and 0.5
     '''
 }
