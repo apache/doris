@@ -155,24 +155,29 @@ Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
                                         node.name());
         }
         const auto& repeated_node = *group.field(0);
-        if (!repeated_node.is_repeated() || repeated_node.is_primitive()) {
+        if (!repeated_node.is_repeated()) {
             return Status::NotSupported("Unsupported parquet LIST encoding for column {}",
-                                        node.name());
-        }
-        const auto& repeated_group =
-                static_cast<const ::parquet::schema::GroupNode&>(repeated_node);
-        if (repeated_group.field_count() != 1) {
-            return Status::NotSupported("Unsupported parquet LIST element layout for column {}",
                                         node.name());
         }
         auto repeated_context =
                 child_context(context, repeated_node, 0, column_schema->schema_node_id);
         column_schema->repeated_repetition_level = repeated_context.repeated_repetition_level;
         std::unique_ptr<ParquetColumnSchema> child;
-        RETURN_IF_ERROR(build_node_schema(schema, *repeated_group.field(0),
+        if (repeated_node.is_primitive()) {
+            RETURN_IF_ERROR(build_node_schema(schema, repeated_node, repeated_context, &child));
+        } else {
+            const auto& repeated_group =
+                    static_cast<const ::parquet::schema::GroupNode&>(repeated_node);
+            if (repeated_group.field_count() == 1) {
+                RETURN_IF_ERROR(
+                        build_node_schema(schema, *repeated_group.field(0),
                                           child_context(repeated_context, *repeated_group.field(0),
                                                         0, column_schema->schema_node_id),
                                           &child));
+            } else {
+                RETURN_IF_ERROR(build_node_schema(schema, repeated_node, repeated_context, &child));
+            }
+        }
         column_schema->type =
                 nullable_if_needed(std::make_shared<DataTypeArray>(child->type), node);
         column_schema->children.push_back(std::move(child));

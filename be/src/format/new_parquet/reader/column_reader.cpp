@@ -336,6 +336,9 @@ Status ParquetColumnReaderFactory::create_list_column_reader(
     } else if (element_schema.kind == ParquetColumnSchemaKind::LIST) {
         RETURN_IF_ERROR(
                 create_list_column_reader(element_schema, element_projection, &element_reader));
+    } else if (element_schema.kind == ParquetColumnSchemaKind::MAP) {
+        RETURN_IF_ERROR(
+                create_map_column_reader(element_schema, element_projection, &element_reader));
     } else {
         return Status::NotSupported(
                 "Current parquet LIST reader does not support nested complex element column {}",

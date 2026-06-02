@@ -272,8 +272,14 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 - scalar flat read/skip/select 已实现。
 - shape-only reader 用于未投影 child 的 shape 推进。
 - row-position reader 支持 file-local row position 输出。
-- struct 支持 nullable parent、nullable child、projection 和部分 complex child。
-- list/map 支持 null parent、empty parent、nullable scalar child/value、overflow、skip/select，并支持部分 nested complex child。
+- struct 支持 nullable parent、nullable scalar child、child projection，以及 list/map child 的
+  read/skip/select 推进；当 struct 位于 repeated parent 内时，仍要求 struct 至少有一个 scalar
+  child 作为 shape driver。
+- list 支持 scalar element、scalar-child struct element、nested list scalar element、scalar map
+  element 的
+  null/empty/nullable child、overflow、skip/select。
+- map 支持 scalar key，以及 scalar value、scalar-child struct value、list scalar value 的
+  null/empty/nullable value、overflow、skip/select。
 
 ### 8. Nested Shape / Value Assembler
 
@@ -313,16 +319,26 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 当前状态：
 
 - scalar 和 struct batch 已适配到统一 shape view。
+- `NestedScalarBatch` 支持 levels-only batch；未投影 scalar child 可以只复制 def/rep levels，
+  不再 materialize Doris-owned temporary value column。
 - MAP scalar/struct value 已通过 `NestedValueStream` 统一 read、alignment 和 overflow tail。
 - MAP LIST value 的 key stream 已通过 `NestedScalarSlotStream` 统一按 value driver 消费 key slot。
 - LIST scalar element、LIST struct element、nested LIST scalar element 已通过统一 repeated sink 写入。
+- LIST MAP scalar value element 已通过 key shape driver 和 aligned value stream 写入。
 - MAP scalar value、MAP struct value、MAP LIST scalar element value 已通过统一 repeated sink 写入。
+- struct 中未投影 complex child 可以通过 shape-only reader 推进 cursor，已投影 list/map child
+  通过 `advance_non_scalar_struct_children(...)` 逐 parent row 推进。
 
 剩余不足：
 
 - reader factory 仍需要按 child reader 类型选择合适的 value stream/appender。
-- nested MAP value、struct 内更深层 complex child 的组合覆盖还不完整。
-- struct value append 中非 scalar child 的推进仍依赖 `StructColumnReader` 当前接口。
+- nested MAP value 仅覆盖 `Array(Map<K, scalar V>)`；`Map<K, Map<K2,V2>>` 尚无 value
+  appender/sink。
+- nested list 目前只覆盖 scalar inner element；`Array(Array(Struct))`、`Array(Array(Map))`
+  等更深组合未覆盖。
+- repeated struct batch 仍以 scalar child 作为 shape driver；纯 complex-child struct、以及
+  repeated struct 内更深 complex child 的 shape-only/value stream 还未统一。
+- struct value append 中非 scalar child 的推进仍依赖 `StructColumnReader` 当前接口逐行 read/skip。
 
 后续目标：
 
@@ -422,8 +438,8 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 | Primitive scalar skip/select | 已实现 | Column reader | `select()` 走 `skip + read` |
 | Row position column | 已实现 | Column reader | 使用 row group `first_file_row` |
 | Top-level projection | 已实现 | Scheduler / Factory | 按 file-local column id 创建 reader |
-| Struct projection | 已实现 | Factory / Struct reader | 支持 child projection 和 nullable child |
-| List/Map nested projection | 部分实现 | Factory / Nested assembler | 已支持部分 complex child，shape/value stream 和 repeated sink 已统一，组合覆盖仍需补齐 |
+| Struct projection | 已实现 | Factory / Struct reader | 支持 scalar child 裁剪；未投影 complex child 用 shape-only 推进 |
+| List/Map nested projection | 部分实现 | Factory / Nested assembler | 支持 struct child 裁剪和部分 list/map child；深层组合仍需补齐 |
 | Row group statistics pruning | 已实现 | Pruning | min/max/null count 转 Doris statistics 后判断 |
 | Dictionary row group pruning | 已实现 | Pruning | 当前覆盖 string-like dictionary predicate |
 | Page index pruning | 已实现 | Pruning / Scheduler | Arrow page index 转 row group-local row ranges |
@@ -431,15 +447,21 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 | Batch predicate filter | 已实现 | Scheduler / Selection | 输出 `SelectionVector` |
 | Lazy materialization | 已实现 | Scheduler / Selection | predicate columns 先读，non-predicate columns 按 selection 读 |
 | Selected row range scan | 已实现 | Scheduler | range gap 通过 row-level `skip()` 推进 |
-| Nullable STRUCT | 已实现 | Struct reader / Nested assembler | 对齐 child shape/null map |
-| STRUCT complex child | 部分实现 | Struct reader / Nested assembler | 支持部分 list/map child，仍需收敛分支 |
-| LIST scalar element | 已实现 | List reader / Nested assembler | 支持 null/empty/nullable scalar/overflow |
-| LIST struct element | 部分实现 | List reader / Nested assembler | 已有 struct batch/overflow，接口仍未统一 |
-| Nested LIST | 部分实现 | List reader / Nested assembler | 支持 scalar nested list，复用统一 repeated sink |
-| MAP scalar value | 已实现 | Map reader / Nested assembler | key required，value 支持 nullable scalar |
-| MAP struct/list value | 部分实现 | Map reader / Nested assembler | scalar/struct value stream、LIST value key slot stream 和 repeated sink 已收敛，组合覆盖仍需补齐 |
-| MAP nested map value | 未完成 | Map reader / Nested assembler | 后续在统一 shape/value stream 上补 value appender |
-| Required/nullability corruption check | 部分实现 | Column reader / Nested assembler | list/map scalar 路径较完整，complex child 需继续统一 |
+| Nullable STRUCT | 已实现 | Struct reader / Nested assembler | scalar child shape/null map 对齐；struct 可整体 nullable |
+| STRUCT scalar children | 已实现 | Struct reader / Nested assembler | 支持 nullable child、projection、skip/select |
+| STRUCT list/map child | 部分实现 | Struct reader / Nested assembler | 已支持 read/skip/select 和 projection 的主路径；repeated struct 内仍依赖 scalar child driver |
+| STRUCT only complex children | 部分实现 | Struct reader | non-nullable top-level 可逐 child 推进；nullable 或 repeated 场景仍缺 shape driver |
+| LIST scalar element | 已实现 | List reader / Nested assembler | 支持 null list、empty list、nullable element、overflow、skip/select |
+| LIST struct element | 部分实现 | List reader / Nested assembler | 支持 scalar-child struct element、projection、overflow；struct 内深层 complex child 未完全统一 |
+| LIST list scalar element | 已实现 | List reader / Nested assembler | 支持 `Array(Array(T))` 中 inner scalar element 的 null/empty/overflow、skip/select |
+| LIST map scalar value element | 已实现 | List reader / Nested assembler | 支持 `Array(Map<K,V>)` 中 scalar key/value 的 null/empty/overflow、skip/select |
+| LIST map complex value element | 未完成 | List reader / Nested assembler | `Array(Map<K, Struct/List/Map>)` 尚未覆盖 |
+| MAP scalar value | 已实现 | Map reader / Nested assembler | key required，value 支持 nullable scalar、null/empty map、overflow、skip/select |
+| MAP struct value | 部分实现 | Map reader / Nested assembler | 支持 scalar-child struct value、projection、overflow；struct 内深层 complex child 未完全统一 |
+| MAP list scalar value | 已实现 | Map reader / Nested assembler | 支持 `Map<K, Array(T)>` 中 list scalar value 的 null/empty/overflow、skip/select |
+| MAP nested map value | 未完成 | Map reader / Factory | factory 当前不创建 nested MAP value reader |
+| Legacy LIST schema | 部分实现 | Schema parser | 支持 LIST annotated repeated primitive、repeated multi-field group；top-level unannotated repeated 尚未归一化 |
+| Required/nullability corruption check | 部分实现 | Column reader / Nested assembler | list/map scalar 路径较完整；complex child 和纯 complex struct 需继续统一 |
 | Schema change / schema evolution | 未实现 | 上层映射 + Factory | 当前只保留 file-local 边界 |
 | Page-level decoder | 未实现 | Adapter | 当前不替代 Arrow `RecordReader` |
 | Profile/metrics | 部分实现 | Observability | pruning 较完整，scheduler/adapter/nested 仍需补齐 |
@@ -447,25 +469,26 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 
 ## 后续实现计划
 
-### P1：补 Bloom Filter Pruning
+### P1：补复杂类型剩余覆盖
 
 目标：
 
-- 在 pruning 层补完整 bloom filter row group pruning。
-- 与 statistics/dictionary/page index 一样输出 proof-based keep/drop 结论和 profile stats。
+- 在统一 assembler 之上补齐 nested projection 和 nested complex combinations。
 
-建议步骤：
+建议覆盖：
 
-1. 在 `parquet_statistics.*` 内先实现 bloom helper，必要时后续再拆独立组件。
-2. 复用 `ParquetColumnSchema` 做类型支持判断。
-3. 只对能安全判断的 predicate 启用 bloom pruning。
-4. 接入 `ParquetPruningStats` 和 `ParquetReader::ParquetProfile`。
-5. 添加 positive/negative/unsupported type 测试。
+- `Array(Map<K, Struct/List/Map>)`
+- `Array(Struct(...complex child...))`
+- `Map<K, Map<K2,V2>>`
+- `Map<K, Struct(...complex child...)>`
+- pure-complex struct：`Struct<Array<T>, Map<K,V>>`
+- struct 内 list/map projection 与未投影 child levels-only 推进
+- required/nullable 组合的 corruption check
 
 验收标准：
 
-- bloom filter 不能证明不匹配时保留 row group。
-- statistics、dictionary、page index、bloom 的 pruning stats 不互相覆盖。
+- 所有复杂 child 组合使用统一 shape/value stream。
+- 列裁剪不会破坏未投影 child 的 row-level cursor。
 
 ### P2：补 Observability
 
@@ -485,27 +508,25 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 - 能从 profile 判断 page index pruning 是否真正减少 decode/materialization。
 - 能定位复杂类型 read-ahead overflow 的开销。
 
-### P3：补复杂类型剩余覆盖
+### P3：补 Bloom Filter Pruning
 
 目标：
 
-- 在统一 assembler 之上补齐 nested projection 和 nested complex combinations。
+- 在 pruning 层补完整 bloom filter row group pruning。
+- 与 statistics/dictionary/page index 一样输出 proof-based keep/drop 结论和 profile stats。
 
-建议覆盖：
+建议步骤：
 
-- `Array(Array(T))`
-- `Array(Map<K,V>)`
-- `Array(Struct(...complex child...))`
-- `Map<K, Array(T)>`
-- `Map<K, Map<K2,V2>>`
-- `Map<K, Struct(...complex child...)>`
-- struct 内 list/map projection 与未投影 child shape-only 推进
-- required/nullable 组合的 corruption check
+1. 在 `parquet_statistics.*` 内先实现 bloom helper，必要时后续再拆独立组件。
+2. 复用 `ParquetColumnSchema` 做类型支持判断。
+3. 只对能安全判断的 predicate 启用 bloom pruning。
+4. 接入 `ParquetPruningStats` 和 `ParquetReader::ParquetProfile`。
+5. 添加 positive/negative/unsupported type 测试。
 
 验收标准：
 
-- 所有复杂 child 组合使用统一 shape/value stream。
-- 列裁剪不会破坏未投影 child 的 row-level cursor。
+- bloom filter 不能证明不匹配时保留 row group。
+- statistics、dictionary、page index、bloom 的 pruning stats 不互相覆盖。
 
 ### P4：Schema Change 接入准备
 
@@ -566,4 +587,4 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 - schema change 还停留在边界预留阶段。
 - bloom filter pruning 和 observability 还没补完整。
 
-后续优先级应先补 Bloom Filter pruning，再补 observability 和剩余 complex child 组合。新增复杂类型 case 必须继续落在 nested assembler 的 value stream/appender/sink 结构上，避免 list/map reader 重新变厚。
+后续优先级应先补剩余 complex child 组合和 pure-complex struct 的 shape/value stream，再补 observability 与 Bloom Filter pruning。新增复杂类型 case 必须继续落在 nested assembler 的 value stream/appender/sink 结构上，避免 list/map reader 重新变厚。

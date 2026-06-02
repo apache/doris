@@ -143,13 +143,16 @@ inline void move_nested_scalar_tail(const NestedScalarBatch& src, int64_t start_
     dst.def_levels.assign(src.def_levels.begin() + start_level, src.def_levels.end());
     dst.rep_levels.assign(src.rep_levels.begin() + start_level, src.rep_levels.end());
     dst.value_indices.resize(static_cast<size_t>(dst.levels_written), -1);
-    dst.values_column = src.values_column->clone_empty();
+    if (src.values_column.get() != nullptr) {
+        dst.values_column = src.values_column->clone_empty();
+    }
 
     for (int64_t level_idx = start_level; level_idx < src.levels_written; ++level_idx) {
         const int64_t value_idx = src.value_indices[level_idx];
         if (value_idx < 0) {
             continue;
         }
+        DORIS_CHECK(dst.values_column.get() != nullptr);
         dst.value_indices[static_cast<size_t>(level_idx - start_level)] = dst.values_written;
         dst.values_column->insert_from(*src.values_column, static_cast<size_t>(value_idx));
         dst.values_written++;
@@ -286,7 +289,8 @@ Status assemble_repeated_levels(const std::string& column_name, int16_t repeated
 Status read_nested_scalar_batch(
         ScalarColumnReader& column_reader, int64_t batch_rows, int16_t value_slot_definition_level,
         NestedScalarBatch* batch,
-        int16_t value_slot_repetition_level = std::numeric_limits<int16_t>::max());
+        int16_t value_slot_repetition_level = std::numeric_limits<int16_t>::max(),
+        bool materialize_values = true);
 
 Status append_scalar_batch_value(const ScalarColumnReader& column_reader,
                                  const NestedScalarBatch& batch, int64_t level_idx,

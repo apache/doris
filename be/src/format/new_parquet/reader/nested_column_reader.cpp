@@ -32,9 +32,10 @@ namespace doris::parquet {
 
 Status read_nested_scalar_batch(ScalarColumnReader& column_reader, int64_t batch_rows,
                                 int16_t value_slot_definition_level, NestedScalarBatch* batch,
-                                int16_t value_slot_repetition_level) {
+                                int16_t value_slot_repetition_level, bool materialize_values) {
     return read_nested_leaf_batch(column_reader.leaf_context(), batch_rows,
-                                  value_slot_definition_level, batch, value_slot_repetition_level);
+                                  value_slot_definition_level, batch, value_slot_repetition_level,
+                                  materialize_values);
 }
 
 Status append_scalar_batch_value(const ScalarColumnReader& column_reader,
@@ -45,6 +46,7 @@ Status append_scalar_batch_value(const ScalarColumnReader& column_reader,
         return Status::Corruption("Nested parquet value is absent for column {}",
                                   column_reader.name());
     }
+    DORIS_CHECK(batch.values_column.get() != nullptr);
     column->insert_from(*batch.values_column, static_cast<size_t>(value_idx));
     return Status::OK();
 }

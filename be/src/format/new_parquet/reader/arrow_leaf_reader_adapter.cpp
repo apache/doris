@@ -209,7 +209,7 @@ Status append_leaf_values(const ArrowLeafReaderContext& context,
 
 Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t batch_rows,
                               int16_t value_slot_definition_level, NestedScalarBatch* batch,
-                              int16_t value_slot_repetition_level) {
+                              int16_t value_slot_repetition_level, bool materialize_values) {
     if (batch == nullptr) {
         return Status::InvalidArgument("Nested scalar batch is null for column {}",
                                        context.column_name());
@@ -275,6 +275,11 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
     }
 
     batch->value_indices.resize(static_cast<size_t>(batch->levels_written), -1);
+    if (!materialize_values) {
+        batch->values_written = 0;
+        return Status::OK();
+    }
+
     int64_t value_idx = 0;
     const int16_t max_definition_level = context.descriptor->max_definition_level();
     NullMap value_null_map;

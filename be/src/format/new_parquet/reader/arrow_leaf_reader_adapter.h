@@ -64,6 +64,7 @@ Status append_leaf_values(const ArrowLeafReaderContext& context,
 Status read_nested_leaf_batch(
         const ArrowLeafReaderContext& context, int64_t batch_rows,
         int16_t value_slot_definition_level, NestedScalarBatch* batch,
-        int16_t value_slot_repetition_level = std::numeric_limits<int16_t>::max());
+        int16_t value_slot_repetition_level = std::numeric_limits<int16_t>::max(),
+        bool materialize_values = true);
 
 } // namespace doris::parquet

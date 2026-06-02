@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -65,9 +66,11 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
         std::vector<NestedScalarBatch> child_batches(scalar_children.size());
         int64_t expected_rows = -1;
         for (size_t child_idx = 0; child_idx < scalar_children.size(); ++child_idx) {
-            RETURN_IF_ERROR(read_nested_scalar_batch(*scalar_children[child_idx], rows,
-                                                     _nullable_definition_level,
-                                                     &child_batches[child_idx]));
+            const int output_idx = _child_output_indices[scalar_child_indices[child_idx]];
+            RETURN_IF_ERROR(
+                    read_nested_scalar_batch(*scalar_children[child_idx], rows,
+                                             _nullable_definition_level, &child_batches[child_idx],
+                                             std::numeric_limits<int16_t>::max(), output_idx >= 0));
             if (expected_rows < 0) {
                 expected_rows = child_batches[child_idx].records_read;
             } else if (child_batches[child_idx].records_read != expected_rows) {
@@ -153,9 +156,10 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
         std::vector<NestedScalarBatch> child_batches(scalar_children.size());
         int64_t expected_rows = -1;
         for (size_t scalar_idx = 0; scalar_idx < scalar_children.size(); ++scalar_idx) {
+            const int output_idx = _child_output_indices[scalar_child_indices[scalar_idx]];
             RETURN_IF_ERROR(read_nested_scalar_batch(
                     *scalar_children[scalar_idx], rows, _nullable_definition_level,
-                    &child_batches[scalar_idx], _repeated_repetition_level));
+                    &child_batches[scalar_idx], _repeated_repetition_level, output_idx >= 0));
             int64_t child_rows = 0;
             for (int64_t level_idx = 0; level_idx < child_batches[scalar_idx].levels_written;
                  ++level_idx) {
