@@ -205,11 +205,9 @@ public class DemoMultiBackendsTest {
                 "{\"lastSuccessReportTabletsTime\":\"N/A\",\"lastStreamLoadTime\":-1,\"isQueryDisabled\":false,"
                         + "\"isLoadDisabled\":false,\"isActive\":true,\"isShutdown\":false,\"currentFragmentNum\":0,"
                         + "\"lastFragmentUpdateTime\":0}",
-<<<<<<< HEAD
                 result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 6));
         Assert.assertEquals("0", result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 5));
         Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 1));
-    }
     }
 
     private static void updateReplicaPathHash() {
