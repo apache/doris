@@ -1406,12 +1406,10 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedStructChildren) {
     ASSERT_EQ(struct_schema.children.size(), 2);
 
     reader::FieldProjection projection;
-    projection.file_column_id = struct_schema.top_level_field_id;
-    projection.file_path = struct_schema.file_path;
+    projection.file_column_id = struct_schema.field_id;
     projection.project_all_children = false;
     reader::FieldProjection child_projection;
-    child_projection.file_column_id = struct_schema.top_level_field_id;
-    child_projection.file_path = struct_schema.children[1]->file_path;
+    child_projection.file_column_id = struct_schema.children[1]->field_id;
     projection.children.push_back(std::move(child_projection));
 
     ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
@@ -1444,12 +1442,10 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedNullableStructChildren) {
     ASSERT_EQ(struct_schema.children.size(), 2);
 
     reader::FieldProjection projection;
-    projection.file_column_id = struct_schema.top_level_field_id;
-    projection.file_path = struct_schema.file_path;
+    projection.file_column_id = struct_schema.field_id;
     projection.project_all_children = false;
     reader::FieldProjection child_projection;
-    child_projection.file_column_id = struct_schema.top_level_field_id;
-    child_projection.file_path = struct_schema.children[1]->file_path;
+    child_projection.file_column_id = struct_schema.children[1]->field_id;
     projection.children.push_back(std::move(child_projection));
 
     ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
@@ -1496,16 +1492,13 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedListStructElementChildren) {
     ASSERT_EQ(element_schema.children.size(), 2);
 
     reader::FieldProjection projection;
-    projection.file_column_id = list_schema.top_level_field_id;
-    projection.file_path = list_schema.file_path;
+    projection.file_column_id = list_schema.field_id;
     projection.project_all_children = false;
     reader::FieldProjection element_projection;
-    element_projection.file_column_id = list_schema.top_level_field_id;
-    element_projection.file_path = element_schema.file_path;
+    element_projection.file_column_id = element_schema.field_id;
     element_projection.project_all_children = false;
     reader::FieldProjection child_projection;
-    child_projection.file_column_id = list_schema.top_level_field_id;
-    child_projection.file_path = element_schema.children[1]->file_path;
+    child_projection.file_column_id = element_schema.children[1]->field_id;
     element_projection.children.push_back(std::move(child_projection));
     projection.children.push_back(std::move(element_projection));
 
@@ -1554,20 +1547,16 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedMapStructValueChildren) {
     ASSERT_EQ(value_schema.children.size(), 2);
 
     reader::FieldProjection projection;
-    projection.file_column_id = map_schema.top_level_field_id;
-    projection.file_path = map_schema.file_path;
+    projection.file_column_id = map_schema.field_id;
     projection.project_all_children = false;
     reader::FieldProjection entry_projection;
-    entry_projection.file_column_id = map_schema.top_level_field_id;
-    entry_projection.file_path = key_value_schema.file_path;
+    entry_projection.file_column_id = key_value_schema.field_id;
     entry_projection.project_all_children = false;
     reader::FieldProjection value_projection;
-    value_projection.file_column_id = map_schema.top_level_field_id;
-    value_projection.file_path = value_schema.file_path;
+    value_projection.file_column_id = value_schema.field_id;
     value_projection.project_all_children = false;
     reader::FieldProjection child_projection;
-    child_projection.file_column_id = map_schema.top_level_field_id;
-    child_projection.file_path = value_schema.children[1]->file_path;
+    child_projection.file_column_id = value_schema.children[1]->field_id;
     value_projection.children.push_back(std::move(child_projection));
     entry_projection.children.push_back(std::move(value_projection));
     projection.children.push_back(std::move(entry_projection));
@@ -1617,12 +1606,10 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedStructListChildOnly) {
     ASSERT_EQ(struct_schema.children.size(), 2);
 
     reader::FieldProjection projection;
-    projection.file_column_id = struct_schema.top_level_field_id;
-    projection.file_path = struct_schema.file_path;
+    projection.file_column_id = struct_schema.field_id;
     projection.project_all_children = false;
     reader::FieldProjection child_projection;
-    child_projection.file_column_id = struct_schema.top_level_field_id;
-    child_projection.file_path = struct_schema.children[1]->file_path;
+    child_projection.file_column_id = struct_schema.children[1]->field_id;
     projection.children.push_back(std::move(child_projection));
 
     ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
@@ -1685,12 +1672,10 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedStructMapChildOnly) {
     ASSERT_EQ(struct_schema.children.size(), 2);
 
     reader::FieldProjection projection;
-    projection.file_column_id = struct_schema.top_level_field_id;
-    projection.file_path = struct_schema.file_path;
+    projection.file_column_id = struct_schema.field_id;
     projection.project_all_children = false;
     reader::FieldProjection child_projection;
-    child_projection.file_column_id = struct_schema.top_level_field_id;
-    child_projection.file_path = struct_schema.children[1]->file_path;
+    child_projection.file_column_id = struct_schema.children[1]->field_id;
     projection.children.push_back(std::move(child_projection));
 
     ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
@@ -2351,20 +2336,20 @@ TEST_F(ParquetColumnReaderTest, SelectMapListWithOverflow) {
     EXPECT_EQ(list_offsets[4], 5);
 }
 
-TEST_F(ParquetColumnReaderTest, BuildComplexSchemaPathMetadata) {
+TEST_F(ParquetColumnReaderTest, BuildComplexSchemaNodeMetadata) {
     const auto field_idx = find_field_idx("struct_col");
     ASSERT_LT(field_idx, _fields.size());
     const auto& struct_schema = *_fields[field_idx];
     ASSERT_EQ(struct_schema.name, "struct_col");
     ASSERT_EQ(struct_schema.children.size(), 2);
-    EXPECT_EQ(struct_schema.file_path, std::vector<int32_t>({static_cast<int32_t>(field_idx)}));
-    EXPECT_EQ(struct_schema.name_path, std::vector<std::string>({"struct_col"}));
-    EXPECT_EQ(struct_schema.children[0]->file_path,
-              std::vector<int32_t>({static_cast<int32_t>(field_idx), 0}));
-    EXPECT_EQ(struct_schema.children[1]->file_path,
-              std::vector<int32_t>({static_cast<int32_t>(field_idx), 1}));
-    EXPECT_EQ(struct_schema.children[0]->name_path, std::vector<std::string>({"struct_col", "a"}));
-    EXPECT_EQ(struct_schema.children[1]->name_path, std::vector<std::string>({"struct_col", "b"}));
+    EXPECT_EQ(struct_schema.field_id, static_cast<int32_t>(field_idx));
+    EXPECT_EQ(struct_schema.parent_schema_node_id, 0);
+    EXPECT_EQ(struct_schema.children[0]->field_id, 0);
+    EXPECT_EQ(struct_schema.children[1]->field_id, 1);
+    EXPECT_EQ(struct_schema.children[0]->parent_schema_node_id, struct_schema.schema_node_id);
+    EXPECT_EQ(struct_schema.children[1]->parent_schema_node_id, struct_schema.schema_node_id);
+    EXPECT_EQ(struct_schema.children[0]->name, "a");
+    EXPECT_EQ(struct_schema.children[1]->name, "b");
     EXPECT_EQ(struct_schema.max_definition_level, 0);
     EXPECT_EQ(struct_schema.max_repetition_level, 0);
 }

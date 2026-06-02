@@ -56,6 +56,19 @@
 namespace doris::reader {
 namespace {
 
+FieldProjection field_projection(ColumnId column_id) {
+    return FieldProjection {.file_column_id = column_id};
+}
+
+std::vector<ColumnId> projection_ids(const std::vector<FieldProjection>& projections) {
+    std::vector<ColumnId> ids;
+    ids.reserve(projections.size());
+    for (const auto& projection : projections) {
+        ids.push_back(projection.file_column_id);
+    }
+    return ids;
+}
+
 class TableInt32GreaterThanExpr final : public VExpr {
 public:
     TableInt32GreaterThanExpr(int slot_id, int column_id, int32_t value)
@@ -1178,37 +1191,13 @@ TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
             make_table_column(3, "value", std::make_shared<DataTypeString>()),
     };
     const std::vector<SchemaField> file_schema = {
-            {.id = 0,
-             .name = "a",
-             .type = int_type,
-             .children = {},
-             .file_path = {0},
-             .field_id_path = {0},
-             .name_path = {"a"},
-             .column_type = DATA_COLUMN},
-            {.id = 1,
-             .name = "b",
-             .type = int_type,
-             .children = {},
-             .file_path = {1},
-             .field_id_path = {1},
-             .name_path = {"b"},
-             .column_type = DATA_COLUMN},
-            {.id = 2,
-             .name = "c",
-             .type = int_type,
-             .children = {},
-             .file_path = {2},
-             .field_id_path = {2},
-             .name_path = {"c"},
-             .column_type = DATA_COLUMN},
+            {.id = 0, .name = "a", .type = int_type, .children = {}, .column_type = DATA_COLUMN},
+            {.id = 1, .name = "b", .type = int_type, .children = {}, .column_type = DATA_COLUMN},
+            {.id = 2, .name = "c", .type = int_type, .children = {}, .column_type = DATA_COLUMN},
             {.id = 3,
              .name = "value",
              .type = std::make_shared<DataTypeString>(),
              .children = {},
-             .file_path = {3},
-             .field_id_path = {3},
-             .name_path = {"value"},
              .column_type = DATA_COLUMN},
     };
 
@@ -1233,17 +1222,18 @@ TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
 
     // Both filters reference column a. It must still be read once as a predicate column, and a
     // predicate column must not be repeated as a non-predicate column.
-    EXPECT_EQ(file_request.predicate_columns, std::vector<ColumnId>({0, 1, 2}));
-    EXPECT_EQ(file_request.non_predicate_columns, std::vector<ColumnId>({3}));
+    EXPECT_EQ(projection_ids(file_request.predicate_columns), std::vector<ColumnId>({0, 1, 2}));
+    EXPECT_EQ(projection_ids(file_request.non_predicate_columns), std::vector<ColumnId>({3}));
     ASSERT_EQ(file_request.column_positions.size(), 4);
     EXPECT_EQ(file_request.column_positions.at(3), 0);
     EXPECT_EQ(file_request.column_positions.at(0), 1);
     EXPECT_EQ(file_request.column_positions.at(1), 2);
     EXPECT_EQ(file_request.column_positions.at(2), 3);
-    for (const auto predicate_column : file_request.predicate_columns) {
-        EXPECT_TRUE(std::find(file_request.non_predicate_columns.begin(),
-                              file_request.non_predicate_columns.end(),
-                              predicate_column) == file_request.non_predicate_columns.end());
+    const auto predicate_column_ids = projection_ids(file_request.predicate_columns);
+    const auto non_predicate_column_ids = projection_ids(file_request.non_predicate_columns);
+    for (const auto predicate_column_id : predicate_column_ids) {
+        EXPECT_TRUE(std::find(non_predicate_column_ids.begin(), non_predicate_column_ids.end(),
+                              predicate_column_id) == non_predicate_column_ids.end());
     }
 }
 
@@ -1254,21 +1244,11 @@ TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn)
             make_table_column(1, "score", int_type),
     };
     const std::vector<SchemaField> file_schema = {
-            {.id = 0,
-             .name = "id",
-             .type = int_type,
-             .children = {},
-             .file_path = {0},
-             .field_id_path = {0},
-             .name_path = {"id"},
-             .column_type = DATA_COLUMN},
+            {.id = 0, .name = "id", .type = int_type, .children = {}, .column_type = DATA_COLUMN},
             {.id = 1,
              .name = "score",
              .type = int_type,
              .children = {},
-             .file_path = {1},
-             .field_id_path = {1},
-             .name_path = {"score"},
              .column_type = DATA_COLUMN},
     };
 
@@ -1285,8 +1265,8 @@ TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn)
     ASSERT_TRUE(
             mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
 
-    EXPECT_EQ(file_request.predicate_columns, std::vector<ColumnId>({0}));
-    EXPECT_EQ(file_request.non_predicate_columns, std::vector<ColumnId>({1}));
+    EXPECT_EQ(projection_ids(file_request.predicate_columns), std::vector<ColumnId>({0}));
+    EXPECT_EQ(projection_ids(file_request.non_predicate_columns), std::vector<ColumnId>({1}));
     ASSERT_EQ(file_request.column_positions.size(), 2);
     EXPECT_EQ(file_request.column_positions.at(0), 1);
     EXPECT_EQ(file_request.column_positions.at(1), 0);
@@ -2284,13 +2264,14 @@ TEST(TableReaderTest, RowPositionDeletePredicateColumnIsNotRepeatedAsOutputColum
     ASSERT_TRUE(reader.init_for_scan_request_test(projected_columns).ok());
 
     FileScanRequest request;
-    request.non_predicate_columns.push_back(0);
+    request.non_predicate_columns.push_back(field_projection(0));
     request.column_positions.emplace(0, 0);
 
     ASSERT_TRUE(reader.customize_request(&request).ok());
 
-    EXPECT_EQ(request.predicate_columns, std::vector<ColumnId>({row_position_column_id}));
-    EXPECT_EQ(request.non_predicate_columns, std::vector<ColumnId>({0}));
+    EXPECT_EQ(projection_ids(request.predicate_columns),
+              std::vector<ColumnId>({row_position_column_id}));
+    EXPECT_EQ(projection_ids(request.non_predicate_columns), std::vector<ColumnId>({0}));
     ASSERT_TRUE(request.column_positions.contains(row_position_column_id));
     EXPECT_EQ(request.column_positions.at(row_position_column_id), 1);
     ASSERT_TRUE(request.conjuncts.empty());

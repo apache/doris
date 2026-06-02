@@ -42,6 +42,23 @@
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
+namespace {
+
+reader::FieldProjection field_projection(reader::ColumnId column_id) {
+    return reader::FieldProjection {.file_column_id = column_id};
+}
+
+std::vector<reader::ColumnId> projection_ids(
+        const std::vector<reader::FieldProjection>& projections) {
+    std::vector<reader::ColumnId> ids;
+    ids.reserve(projections.size());
+    for (const auto& projection : projections) {
+        ids.push_back(projection.file_column_id);
+    }
+    return ids;
+}
+
+} // namespace
 
 class CastTest : public testing::Test {
 protected:
@@ -328,7 +345,7 @@ TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
     ASSERT_TRUE(
             mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
-    ASSERT_EQ(file_request.predicate_columns, std::vector<reader::ColumnId>({0}));
+    ASSERT_EQ(projection_ids(file_request.predicate_columns), std::vector<reader::ColumnId>({0}));
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 1);
     const auto& localized_child = localized_expr->children()[0];
@@ -388,7 +405,7 @@ TEST_F(CastTest, ColumnMapperCastsLiteralForSlotLiteralPredicateTypeMismatch) {
     ASSERT_TRUE(
             mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
-    ASSERT_EQ(file_request.predicate_columns, std::vector<reader::ColumnId>({0}));
+    ASSERT_EQ(projection_ids(file_request.predicate_columns), std::vector<reader::ColumnId>({0}));
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 2);
     const auto* localized_slot =
@@ -752,7 +769,7 @@ TEST_F(CastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionChanges) {
     reader::FileScanRequest second_request;
     second_request.column_positions.emplace(9, 0);
     second_request.column_positions.emplace(10, 1);
-    second_request.non_predicate_columns.push_back(9);
+    second_request.non_predicate_columns.push_back(field_projection(9));
     ASSERT_TRUE(mapper.localize_filters({table_filter}, {}, &second_request).ok());
     ASSERT_EQ(second_request.conjuncts.size(), 1);
     const auto* second_slot = assert_cast<const TableSlotRef*>(
