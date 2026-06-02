@@ -1042,6 +1042,23 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
                     // IndexWriter held it). Close the dir so the
                     // SPIMI outputs are durably flushed.
                     FINALLY_CLOSE(_dir);
+                    if (!error_context.eptr) {
+                        // Success: the directory's files must survive until
+                        // IndexFileWriter packs them into the combined .idx (it
+                        // keeps its own reference via _indices_dirs). Drop OUR
+                        // reference WITHOUT deleting, so the success path no
+                        // longer satisfies ~InvertedIndexColumnWriter()'s
+                        // `_is_v4 && _dir != nullptr` guard and therefore does
+                        // NOT call close_on_error()->_dir->deleteDirectory(),
+                        // which would wipe the temp dir before it is packed.
+                        // Mirrors the V1/V2/V3 `_index_writer.reset()` success
+                        // signal. Only observable with an on-disk
+                        // DorisFSDirectory (inverted_index_ram_dir_enable=false);
+                        // with the RAM dir deleteDirectory() is a no-op, which is
+                        // why this was hidden. On the error path _dir is kept so
+                        // the destructor still cleans up the partial temp files.
+                        _dir.reset();
+                    }
                 } else {
                     FINALLY_CLOSE(_index_writer);
                     // After closing the _index_writer, it needs to be reset to null to prevent issues of not closing it or closing it multiple times.
