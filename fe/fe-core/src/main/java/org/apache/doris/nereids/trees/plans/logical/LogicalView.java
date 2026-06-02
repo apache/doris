@@ -123,16 +123,19 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
         ImmutableList.Builder<Slot> currentOutput = ImmutableList.builder();
         List<String> fullQualifiers = this.view.getFullQualifiers();
         List<Column> fullSchema = view.getFullSchema();
-        for (int i = 0; i < childOutput.size(); i++) {
+        // ATTN: because bug intro by #40715, after replace view, full schema will be empty or null.
+        //   So, we must guard here to avoid NPE or out of bound exception.
+        // When fullSchema is present it defines the view's output contract (built from
+        //   CreateViewInfo.finalCols). Use Math.min() as the loop bound to handle both
+        //   directions of schema drift without leaking undeclared columns:
+        //   - child has MORE slots (base table gained columns after view creation): truncate
+        //   - child has FEWER slots (base table lost columns): stop at child size
+        boolean hasSchema = !CollectionUtils.isEmpty(fullSchema);
+        int limit = hasSchema ? Math.min(childOutput.size(), fullSchema.size()) : childOutput.size();
+        for (int i = 0; i < limit; i++) {
             Slot originSlot = childOutput.get(i);
             Slot qualified;
-            // ATTN: because bug intro by #40715, after replace view, full schema will be empty or null.
-            //   So, we must just here to avoid NPE or out of bound exception.
-            // Also guard against schema drift: when the underlying external table (e.g. Hive) gains
-            //   new columns after the view was created and REFRESH TABLE is called, childOutput may
-            //   have more slots than fullSchema (which still reflects the schema at view-creation
-            //   time). Fall back to qualifier-only for the extra columns to avoid IndexOutOfBoundsException.
-            if (CollectionUtils.isEmpty(fullSchema) || i >= fullSchema.size()) {
+            if (!hasSchema) {
                 qualified = originSlot.withQualifier(fullQualifiers);
             } else {
                 qualified = originSlot

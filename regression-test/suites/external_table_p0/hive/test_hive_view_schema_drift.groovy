@@ -16,16 +16,21 @@
 // under the License.
 
 // Regression test for: LogicalView.computeOutput() IndexOutOfBoundsException when
-// an underlying Hive table gains new columns (schema drift) after the view was created.
+// an underlying Hive table gains new columns (schema drift) after the Hive view was created.
 //
 // Repro:
-//   1. Create Hive table with N columns; create a Doris view (SELECT *) on it.
-//   2. ADD COLUMN to the Hive table.
-//   3. REFRESH TABLE base_table in Doris (view schema not refreshed yet).
-//   4. Query the view → used to crash with "Index 3 out of bounds for length 3"
-//      because LogicalView.computeOutput() iterated childOutput (4 slots from
-//      re-analyzed view body) but called view.getFullSchema().get(i) on a
-//      3-element list (view's schema at creation time).
+//   1. Create a Hive base table (3 cols) and a native Hive VIEW on it.
+//   2. In Doris, register the Hive catalog and query the external view — OK (3 cols).
+//   3. ADD COLUMN to the Hive base table via hive_docker.
+//   4. REFRESH TABLE <base_table> in Doris (view HMS schema NOT refreshed).
+//   5. Query the external view again — used to crash:
+//        errCode = 2, detailMessage = Index 3 out of bounds for length 3
+//      because LogicalView.computeOutput() iterated childOutput (4 slots from the
+//      re-analyzed view body) but called view.getFullSchema().get(i) on a 3-element
+//      list (the Hive view's HMS schema at creation time).
+//
+// The fix: use Math.min(childOutput.size(), fullSchema.size()) as the loop bound,
+// preserving the view's declared output contract while preventing the crash.
 
 suite("test_hive_view_schema_drift", "p0,external,hive_docker") {
 
@@ -42,10 +47,10 @@ suite("test_hive_view_schema_drift", "p0,external,hive_docker") {
         String catalog_name = "test_${hivePrefix}_view_schema_drift"
         String db = "test_view_schema_drift_db"
         String base_table = "test_view_schema_drift_base"
-        String view_name = "test_view_schema_drift_view"
+        String hive_view = "test_view_schema_drift_view"
 
         try {
-            // ---- Setup Hive catalog ----
+            // ---- Register Hive catalog in Doris ----
             sql """drop catalog if exists ${catalog_name}"""
             sql """CREATE CATALOG ${catalog_name} PROPERTIES (
                 'type'='hms',
@@ -53,7 +58,9 @@ suite("test_hive_view_schema_drift", "p0,external,hive_docker") {
                 'hadoop.username' = 'hive'
             )"""
 
-            // ---- Create Hive database and base table with 3 columns ----
+            // ---- Create Hive database, base table (3 cols), and a native Hive VIEW ----
+            // The view is created through hive_docker so it is a native Hive view
+            // (ExternalView in Doris). Its HMS schema records exactly 3 columns.
             hive_docker """drop database if exists ${db} cascade"""
             hive_docker """create database ${db}"""
             hive_docker """
@@ -65,36 +72,40 @@ suite("test_hive_view_schema_drift", "p0,external,hive_docker") {
                 partitioned by (dt string)
                 stored as parquet
             """
+            hive_docker """
+                create view ${db}.${hive_view} as
+                    select id, name, age from ${db}.${base_table}
+            """
 
-            // ---- Create Doris view on the Hive table ----
             sql """switch ${catalog_name}"""
             sql """use ${db}"""
-            sql """create view ${view_name} as select * from ${base_table} where 1=1"""
 
-            // ---- Baseline: view query must succeed (3 non-partition columns) ----
-            def beforeDrift = sql """select * from ${view_name} where 1=0"""
-            assertTrue(beforeDrift.isEmpty())
+            // ---- Baseline: query the Hive view (3 columns) ----
+            def beforeDrift = sql """select * from ${hive_view} where 1=0"""
+            assertTrue(beforeDrift.isEmpty(), "Expected empty result before schema drift")
 
             // ---- Schema drift: add a column to the Hive base table ----
             hive_docker """alter table ${db}.${base_table} add columns (score string comment 'new col')"""
 
-            // ---- Refresh the base table metadata in Doris (view schema NOT refreshed) ----
+            // ---- Refresh only the base table (view HMS schema is NOT refreshed) ----
+            // After this, Doris re-analyzes the view body against the 4-column base table,
+            // producing childOutput with 4 slots, while ExternalView.getFullSchema() still
+            // returns 3 columns from the Hive metastore → IndexOutOfBoundsException before fix.
             sql """refresh table ${base_table}"""
 
-            // ---- Base table now has 4 columns ----
+            // ---- Base table now exposes 4 columns ----
             def descBase = sql """desc ${base_table}"""
-            assertEquals(4, descBase.size())
+            assertEquals(4, descBase.size(),
+                    "Base table should have 4 columns after ADD COLUMN + REFRESH")
 
-            // ---- Querying the view must NOT throw IndexOutOfBoundsException ----
-            // Before the fix: errCode = 2, detailMessage = Index 3 out of bounds for length 3
-            def afterDrift = sql """select * from ${view_name} where 1=0"""
-            assertTrue(afterDrift.isEmpty())
+            // ---- Querying the external Hive view must NOT throw IndexOutOfBoundsException ----
+            // The view's HMS schema still has 3 cols (view not refreshed), so the output
+            // is truncated to the view's declared width (3 cols) — the new 'score' column
+            // is not visible until the view itself is refreshed.
+            def afterDrift = sql """select * from ${hive_view} where 1=0"""
+            assertTrue(afterDrift.isEmpty(), "Expected empty result after schema drift (WHERE 1=0)")
 
         } finally {
-            try {
-                sql """switch ${catalog_name}"""
-                sql """drop view if exists ${catalog_name}.${db}.${view_name}"""
-            } catch (Exception ignored) {}
             try {
                 hive_docker """drop database if exists ${db} cascade"""
             } catch (Exception ignored) {}

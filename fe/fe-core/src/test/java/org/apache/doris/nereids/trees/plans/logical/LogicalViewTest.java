@@ -107,7 +107,10 @@ public class LogicalViewTest {
      * <p>This is the regression test for the IndexOutOfBoundsException bug:
      * after {@code ALTER TABLE ADD COLUMNS} + {@code REFRESH TABLE} on the base table,
      * {@code childOutput.size()} grows beyond {@code view.getFullSchema().size()}.
-     * The extra slot(s) must NOT crash and must be returned with the qualifier applied.
+     *
+     * <p>The fix truncates output to the view's declared schema width so that:
+     * (1) no IndexOutOfBoundsException is thrown, and
+     * (2) the view's output contract (as seen in {@code DESC view}) is preserved.
      */
     @Test
     public void testComputeOutputSchemaDrift_moreColumnsThanSchema() {
@@ -124,14 +127,13 @@ public class LogicalViewTest {
         List<Slot> output = Assertions.assertDoesNotThrow(logicalView::computeOutput,
                 "computeOutput() must not throw when fullSchema is shorter than childOutput");
 
-        Assertions.assertEquals(4, output.size(),
-                "Output size should equal child output size (all columns exposed)");
-        // First 3 slots: resolved via stored schema
-        Assertions.assertEquals("id",    output.get(0).getName());
-        Assertions.assertEquals("name",  output.get(1).getName());
-        Assertions.assertEquals("age",   output.get(2).getName());
-        // 4th slot: added after view creation – falls back to withQualifier() path
-        Assertions.assertEquals("score", output.get(3).getName());
+        // Output is truncated to the view's declared schema width (3), not the child width (4).
+        // The new 'score' column is not visible until the view itself is refreshed.
+        Assertions.assertEquals(3, output.size(),
+                "Output size should be truncated to fullSchema size to preserve view contract");
+        Assertions.assertEquals("id",   output.get(0).getName());
+        Assertions.assertEquals("name", output.get(1).getName());
+        Assertions.assertEquals("age",  output.get(2).getName());
     }
 
     /**
@@ -196,11 +198,11 @@ public class LogicalViewTest {
 
     /**
      * Single new column added (minimal drift). Verifies the exact boundary condition
-     * at index {@code fullSchema.size()}.
+     * at index {@code fullSchema.size()}: output is truncated to schema width (1).
      */
     @Test
     public void testComputeOutputSchemaDrift_singleColumnAdded() {
-        // 1-column schema, child returns 2 slots
+        // 1-column schema, child returns 2 slots after schema drift
         List<Column> schema = ImmutableList.of(col("id"));
         List<Slot> childSlots = ImmutableList.of(slot(0, "id"), slot(1, "extra"));
 
@@ -209,9 +211,9 @@ public class LogicalViewTest {
 
         List<Slot> output = Assertions.assertDoesNotThrow(logicalView::computeOutput);
 
-        Assertions.assertEquals(2, output.size());
-        Assertions.assertEquals("id",    output.get(0).getName());
-        Assertions.assertEquals("extra", output.get(1).getName());
+        // Truncated to schema width; the new 'extra' column is not exposed.
+        Assertions.assertEquals(1, output.size());
+        Assertions.assertEquals("id", output.get(0).getName());
     }
 
     /**
