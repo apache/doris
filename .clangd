@@ -18,6 +18,12 @@
 Diagnostics:
   UnusedIncludes: Strict
 
+# Default CDB for be/src etc. (the If-only fragment below does not apply there.)
+---
+CompileFlags:
+  CompilationDatabase: be/build_debug
+
+---
 If:
   PathMatch: be/test/.*
 

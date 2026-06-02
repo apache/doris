@@ -25,6 +25,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.AggregateExpressionRewriteContext.ExpressionRewriteMode;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PatternCheckResult;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -34,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Map;
@@ -80,19 +80,21 @@ public class MaterializedViewAggregateOnNoneAggregateRule extends AbstractMateri
     @Override
     protected boolean checkMaterializationPattern(StructInfo structInfo, CascadesContext cascadesContext) {
         // any check result of join or scan is true, then return true
-        PlanCheckContext joinCheckContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
-        boolean joinCheckResult = structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, joinCheckContext)
+        PatternCheckResult joinCheckResult = structInfo.getPlanPatternCheckResult(SUPPORTED_JOIN_TYPE_SET);
+        PlanCheckContext joinCheckContext = joinCheckResult.getCheckContext();
+        boolean joinAccepted = joinCheckResult.isAccepted()
                 && !joinCheckContext.isContainsTopAggregate()
                 && !joinCheckContext.isContainsTopLimit() && !joinCheckContext.isContainsTopTopN()
                 && !joinCheckContext.isContainsTopWindow();
-        if (joinCheckResult) {
+        if (joinAccepted) {
             return true;
         }
-        PlanCheckContext scanCheckContext = PlanCheckContext.of(ImmutableSet.of());
-        return structInfo.getTopPlan().accept(StructInfo.SCAN_PLAN_PATTERN_CHECKER, scanCheckContext)
+        PatternCheckResult scanCheckResult = structInfo.getScanPatternCheckResult();
+        PlanCheckContext scanCheckContext = scanCheckResult.getCheckContext();
+        return scanCheckResult.isAccepted()
                 && !scanCheckContext.isContainsTopAggregate()
-                && !joinCheckContext.isContainsTopLimit() && !joinCheckContext.isContainsTopTopN()
-                && !joinCheckContext.isContainsTopWindow();
+                && !scanCheckContext.isContainsTopLimit() && !scanCheckContext.isContainsTopTopN()
+                && !scanCheckContext.isContainsTopWindow();
     }
 
     @Override

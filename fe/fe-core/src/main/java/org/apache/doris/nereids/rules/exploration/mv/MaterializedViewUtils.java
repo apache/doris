@@ -252,61 +252,17 @@ public class MaterializedViewUtils {
         return analyzedPlan.accept(TableQueryOperatorChecker.INSTANCE, null);
     }
 
-    /**
-     * Transform to common table id, this is used by get query struct info, maybe little err when same table occur
-     * more than once, this is not a problem because the process of query rewrite by mv would consider more
-     */
-    public static BitSet transformToCommonTableId(BitSet relationIdSet, Map<Integer, Integer> relationIdToTableIdMap) {
-        BitSet transformedBitset = new BitSet();
-        for (int i = relationIdSet.nextSetBit(0); i >= 0; i = relationIdSet.nextSetBit(i + 1)) {
-            Integer commonTableId = relationIdToTableIdMap.get(i);
-            if (commonTableId != null) {
-                transformedBitset.set(commonTableId);
-            }
-        }
-        return transformedBitset;
-    }
-
-    /**
-     * Extract struct info from plan, support to get struct info from logical plan or plan in group.
-     * @param plan maybe remove unnecessary plan node, and the logical output maybe wrong
-     * @param originalPlan original plan, the output is right
-     * @param cascadesContext the cascadesContext when extractStructInfo
-     * @param targetTableIdSet the target relation id set which used to filter struct info,
-     *                            empty means no struct info match
-     */
+    /** Fuzzily collect StructInfo candidates under the current plan/group that may hit mvBaseTableIdSet. */
     public static List<StructInfo> extractStructInfoFuzzy(Plan plan, Plan originalPlan,
-                                                          CascadesContext cascadesContext, BitSet targetTableIdSet) {
-        // If plan belong to some group, construct it with group struct info
+            CascadesContext cascadesContext, BitSet mvBaseTableIdSet) {
         if (plan.getGroupExpression().isPresent()) {
             Group ownerGroup = plan.getGroupExpression().get().getOwnerGroup();
             StructInfoMap structInfoMap = ownerGroup.getStructInfoMap();
-            // Refresh struct info in current level plan from top to bottom
-            SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
-            int memoVersion = StructInfoMap.getMemoVersion(targetTableIdSet,
-                    cascadesContext.getMemo().getRefreshVersion());
-            structInfoMap.refresh(ownerGroup, cascadesContext, targetTableIdSet, new HashSet<>(),
-                    sessionVariable.isEnableMaterializedViewNestRewrite(), memoVersion, true);
-            structInfoMap.setRefreshVersion(targetTableIdSet, cascadesContext.getMemo().getRefreshVersion());
-            Set<BitSet> queryTableIdSets = structInfoMap.getTableMaps(true);
-            ImmutableList.Builder<StructInfo> structInfosBuilder = ImmutableList.builder();
-            if (!queryTableIdSets.isEmpty()) {
-                for (BitSet queryTableIdSet : queryTableIdSets) {
-                    // compare relation id corresponding table id
-                    if (!containsAll(targetTableIdSet, queryTableIdSet)) {
-                        continue;
-                    }
-                    StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext, queryTableIdSet, ownerGroup,
-                            originalPlan, sessionVariable.isEnableMaterializedViewNestRewrite(), true);
-                    if (structInfo != null) {
-                        structInfosBuilder.add(structInfo);
-                    }
-                }
-            }
-            return structInfosBuilder.build();
+            return structInfoMap.collectStructInfosByMvBaseTableId(cascadesContext, mvBaseTableIdSet,
+                    originalPlan);
         }
-        // if plan doesn't belong to any group, construct it directly
-        return ImmutableList.of(StructInfo.of(plan, originalPlan, cascadesContext));
+        StructInfo structInfo = StructInfo.of(plan, originalPlan, cascadesContext);
+        return ImmutableList.of(structInfo);
     }
 
     /**

@@ -84,7 +84,7 @@ public class Group {
     private List<PhysicalProperties> chosenEnforcerPropertiesList = new ArrayList<>();
     private List<Integer> chosenEnforcerIdList = new ArrayList<>();
 
-    private StructInfoMap structInfoMap = new StructInfoMap();
+    private final StructInfoMap structInfoMap;
 
     /**
      * Constructor for Group.
@@ -93,6 +93,7 @@ public class Group {
      */
     public Group(GroupId groupId, GroupExpression groupExpression, LogicalProperties logicalProperties) {
         this.groupId = groupId;
+        this.structInfoMap = new StructInfoMap(this);
         addGroupExpression(groupExpression);
         this.logicalProperties = logicalProperties;
         this.groupPlan = new GroupPlan(this);
@@ -105,6 +106,7 @@ public class Group {
      */
     public Group(GroupId groupId, LogicalProperties logicalProperties) {
         this.groupId = groupId;
+        this.structInfoMap = new StructInfoMap(this);
         this.logicalProperties = logicalProperties;
         this.groupPlan = new GroupPlan(this);
     }

@@ -22,8 +22,8 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -33,8 +33,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.BitSet;
-import java.util.HashSet;
-import java.util.Set;
 
 /**
  * Test that point query should not rewrite to materialized view.
@@ -70,16 +68,14 @@ public class PointQueryShouldNotMvRewriteTest extends SqlTestBase {
         // set ShortCircuitQuery to true, consider is point query
         c1.getStatementContext().setShortCircuitQuery(true);
 
-        PlanChecker.from(c1)
+        boolean containsMtmvScan = PlanChecker.from(c1)
                 .analyze()
                 .rewrite()
                 .optimize()
-                .printlnBestPlanTree();
-        Group root = c1.getMemo().getRoot();
-        root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(), false, 0,
-                false);
-        Set<BitSet> tableMaps = root.getStructInfoMap().getTableMaps(false);
-        Assertions.assertEquals(1, tableMaps.size());
+                .getBestPlanTree()
+                .<CatalogRelation>collect(CatalogRelation.class::isInstance).stream()
+                .anyMatch(relation -> relation.getTable() instanceof MTMV);
+        Assertions.assertFalse(containsMtmvScan);
         dropMvByNereids("drop materialized view mv1");
     }
 }

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.exploration.mv.mapping;
 
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -28,7 +27,6 @@ import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableBiMap.Builder;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,13 +37,9 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Relation mapping
- * such as query pattern is a1 left join a2 left join b
- * view pattern is a1 left join a2 left join b. the mapping will be
- * [{a1:a1, a2:a2, b:b}, {a1:a2, a2:a1, b:b}]
+ * One-to-one mapping set between query relations and view relations.
  */
 public class RelationMapping extends Mapping {
-
     private static final Logger LOG = LogManager.getLogger(RelationMapping.class);
     private final ImmutableBiMap<MappedRelation, MappedRelation> mappedRelationMap;
 
@@ -62,66 +56,57 @@ public class RelationMapping extends Mapping {
     }
 
     /**
-     * Generate mapping according to source and target relation
+     * Generate all possible RelationMappings by source and target relations.
+     *
+     * Every source relation must be mapped. The target side may have more same-table relations
+     * for query-partial rewrite.
      */
     public static List<RelationMapping> generate(List<CatalogRelation> sources, List<CatalogRelation> targets,
-            int relationMappingMaxCount) {
-        // Construct tmp map, key is the table qualifier, value is the corresponding catalog relations
-        HashMultimap<TableIdentifier, MappedRelation> sourceTableRelationIdMap = HashMultimap.create();
+            int maxMappingCount) {
+        HashMultimap<TableIdentifier, MappedRelation> sourceBuckets = HashMultimap.create();
         for (CatalogRelation relation : sources) {
-            sourceTableRelationIdMap.put(getTableIdentifier(relation.getTable()),
+            sourceBuckets.put(new TableIdentifier(relation.getTable()),
                     MappedRelation.of(relation.getRelationId(), relation));
         }
-        HashMultimap<TableIdentifier, MappedRelation> targetTableRelationIdMap = HashMultimap.create();
+        HashMultimap<TableIdentifier, MappedRelation> targetBuckets = HashMultimap.create();
         for (CatalogRelation relation : targets) {
-            targetTableRelationIdMap.put(getTableIdentifier(relation.getTable()),
+            targetBuckets.put(new TableIdentifier(relation.getTable()),
                     MappedRelation.of(relation.getRelationId(), relation));
         }
-        Set<TableIdentifier> sourceTableKeySet = sourceTableRelationIdMap.keySet();
         List<List<BiMap<MappedRelation, MappedRelation>>> mappedRelations = new ArrayList<>();
 
-        for (TableIdentifier tableIdentifier : sourceTableKeySet) {
-            Set<MappedRelation> sourceMappedRelations = sourceTableRelationIdMap.get(tableIdentifier);
-            Set<MappedRelation> targetMappedRelations = targetTableRelationIdMap.get(tableIdentifier);
-            if (targetMappedRelations.isEmpty()) {
-                continue;
+        for (TableIdentifier relationIdentity : sourceBuckets.keySet()) {
+            Set<MappedRelation> sourceMappedRelations = sourceBuckets.get(relationIdentity);
+            Set<MappedRelation> targetMappedRelations = targetBuckets.get(relationIdentity);
+            if (sourceMappedRelations.size() > targetMappedRelations.size()) {
+                return ImmutableList.of();
             }
-            // if source and target relation appear once, just map them
             if (targetMappedRelations.size() == 1 && sourceMappedRelations.size() == 1) {
+                MappedRelation sourceRelation = sourceMappedRelations.iterator().next();
+                MappedRelation targetRelation = targetMappedRelations.iterator().next();
                 ImmutableBiMap.Builder<MappedRelation, MappedRelation> biMapBuilder = ImmutableBiMap.builder();
                 mappedRelations.add(ImmutableList.of(
-                        biMapBuilder.put(sourceMappedRelations.iterator().next(),
-                                targetMappedRelations.iterator().next()).build()));
+                        biMapBuilder.put(sourceRelation, targetRelation).build()));
                 continue;
             }
-            // relation appear more than once, should cartesian them and power set to correct combination
-            // if query is select * from tableA0, tableA1, materialized view is select * from tableA2, tableA3,
-            // the relationMappingPowerList in relationMappingPowerList should be bi-direction
-            // [
-            //    {tableA0 -> tableA2, tableA1 -> tableA3}
-            //    {tableA0 -> tableA3, tableA1 -> tableA2}
-            // ]
-            // query is select * from tableA0, tableA1, tableA4
             List<BiMap<MappedRelation, MappedRelation>> relationMappingPowerList = new ArrayList<>();
             List<Pair<MappedRelation[], MappedRelation[]>> combinations = getUniquePermutation(
                     sourceMappedRelations.toArray(new MappedRelation[0]),
-                    targetMappedRelations.toArray(new MappedRelation[0]), relationMappingMaxCount);
+                    targetMappedRelations.toArray(new MappedRelation[0]), maxMappingCount);
             for (Pair<MappedRelation[], MappedRelation[]> combination : combinations) {
                 BiMap<MappedRelation, MappedRelation> combinationBiMap = HashBiMap.create();
                 MappedRelation[] key = combination.key();
                 MappedRelation[] value = combination.value();
-                int length = Math.min(key.length, value.length);
-                for (int i = 0; i < length; i++) {
+                for (int i = 0; i < key.length; i++) {
                     combinationBiMap.put(key[i], value[i]);
                 }
                 relationMappingPowerList.add(combinationBiMap);
             }
             mappedRelations.add(relationMappingPowerList);
         }
-        // mappedRelations product and merge into each relationMapping
-        return Lists.cartesianProduct(mappedRelations).stream()
-                .map(RelationMapping::merge)
-                .collect(ImmutableList.toImmutableList());
+        List<RelationMapping> relationMappings = new ArrayList<>();
+        buildRelationMappings(mappedRelations, 0, new ArrayList<>(), relationMappings, maxMappingCount);
+        return ImmutableList.copyOf(relationMappings);
     }
 
     public static RelationMapping merge(List<BiMap<MappedRelation, MappedRelation>> relationMappings) {
@@ -132,8 +117,49 @@ public class RelationMapping extends Mapping {
         return RelationMapping.of(mappingBuilder.build());
     }
 
-    private static TableIdentifier getTableIdentifier(TableIf tableIf) {
-        return new TableIdentifier(tableIf);
+    /**
+     * Build full RelationMappings by taking the cartesian product of per-bucket local mappings.
+     *
+     * Example:
+     * mappedRelations =
+     * [
+     *   [{q1 -> v1, q2 -> v2}, {q1 -> v2, q2 -> v1}],
+     *   [{q3 -> v3}, {q3 -> v4}]
+     * ]
+     *
+     * The backtracking process does:
+     * 1. Pick one local mapping from bucket 0.
+     * 2. Pick one local mapping from bucket 1.
+     * 3. After all buckets are chosen, merge the current path into one complete RelationMapping.
+     *
+     * The example above produces four final mappings:
+     * - {q1 -> v1, q2 -> v2, q3 -> v3}
+     * - {q1 -> v1, q2 -> v2, q3 -> v4}
+     * - {q1 -> v2, q2 -> v1, q3 -> v3}
+     * - {q1 -> v2, q2 -> v1, q3 -> v4}
+     */
+    private static void buildRelationMappings(List<List<BiMap<MappedRelation, MappedRelation>>> mappedRelations,
+            int offset, List<BiMap<MappedRelation, MappedRelation>> currentMappings,
+            List<RelationMapping> relationMappings, int maxMappingCount) {
+        if (relationMappings.size() >= maxMappingCount) {
+            return;
+        }
+        if (offset >= mappedRelations.size()) {
+            // The current path already contains one local mapping from each bucket.
+            relationMappings.add(merge(currentMappings));
+            return;
+        }
+        for (BiMap<MappedRelation, MappedRelation> mappedRelation : mappedRelations.get(offset)) {
+            // Choose one local mapping from the current bucket and continue with the next bucket.
+            currentMappings.add(mappedRelation);
+            buildRelationMappings(mappedRelations, offset + 1, currentMappings, relationMappings,
+                    maxMappingCount);
+            // Backtrack and try the next local mapping in the same bucket.
+            currentMappings.remove(currentMappings.size() - 1);
+            if (relationMappings.size() >= maxMappingCount) {
+                return;
+            }
+        }
     }
 
     @Override
@@ -195,6 +221,7 @@ public class RelationMapping extends Mapping {
         return results;
     }
 
+    /** Pure permutation backtracking; compatibility is filtered by the caller. */
     private static void backtrack(MappedRelation[] left, MappedRelation[] right, int index,
             boolean[] used, MappedRelation[] current, List<Pair<MappedRelation[], MappedRelation[]>> results,
             int maxMappingCount) {

@@ -17,377 +17,275 @@
 
 package org.apache.doris.nereids.memo;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Pair;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 
-import com.google.common.collect.Sets;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.common.collect.Multimap;
 
 import java.util.ArrayList;
 import java.util.BitSet;
-import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedList;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
 
 /**
- * Representation for group in cascades optimizer.
+ * Search StructInfo candidates for a memo group.
+ *
+ * <p>MV definitions use statement-scope table ids, while memo alternatives use relation ids. This class expands
+ * MV table ids to currently visible relation ids before searching candidates.
  */
 public class StructInfoMap {
+    private final Group ownerGroup;
+    // Outer key: relation-id search space expanded from one MV definition.
+    // Inner key: exact relation-id set contained by one candidate plan tree.
+    private final Map<BitSet, Map<BitSet, StructInfoCandidate>> candidatesByTargetRelationIdSet =
+            new LinkedHashMap<>();
 
-    public static final Logger LOG = LogManager.getLogger(StructInfoMap.class);
-    // 2166136261
-    private static final int FNV32_OFFSET_BASIS = 0x811C9DC5;
-    // 16777619
-    private static final int FNV32_PRIME = 0x01000193;
+    StructInfoMap(Group ownerGroup) {
+        this.ownerGroup = ownerGroup;
+    }
+
     /**
-     * Strategy for table ID mode
+     * Get the StructInfo whose exact relation-id set matches the given key in the current owner group.
      */
-    private static final IdModeStrategy TABLE_ID_STRATEGY = new IdModeStrategy() {
-        @Override
-        public Map<BitSet, Pair<GroupExpression, List<BitSet>>> getGroupExpressionMap(StructInfoMap structInfoMap) {
-            return structInfoMap.groupExpressionMapByTableId;
+    public @Nullable StructInfo getStructInfoByRelationIdSet(CascadesContext cascadesContext, BitSet relationIdSet,
+            @Nullable Plan originPlan) {
+        boolean skipMaterializedViewLeaf = !cascadesContext.getConnectContext().getSessionVariable()
+                .isEnableMaterializedViewNestRewrite();
+        StructInfoCandidate candidate = getCandidatesByRelationIdSet(relationIdSet, skipMaterializedViewLeaf)
+                .get(relationIdSet);
+        if (candidate == null) {
+            return null;
         }
+        return candidate.toStructInfo(originPlan, cascadesContext);
+    }
 
-        @Override
-        public Map<BitSet, StructInfo> getInfoMap(StructInfoMap structInfoMap) {
-            return structInfoMap.infoMapByTableId;
+    /**
+     * Collect query StructInfo candidates that may match the MV base table ids.
+     */
+    public List<StructInfo> collectStructInfosByMvBaseTableId(CascadesContext cascadesContext,
+            BitSet mvBaseTableIdSet, @Nullable Plan originPlan) {
+        BitSet targetRelationIdSet = createTargetRelationIdSet(mvBaseTableIdSet, cascadesContext);
+        boolean skipMaterializedViewLeaf = !cascadesContext.getConnectContext().getSessionVariable()
+                .isEnableMaterializedViewNestRewrite();
+        Map<BitSet, StructInfoCandidate> candidates = getCandidatesByRelationIdSet(
+                targetRelationIdSet, skipMaterializedViewLeaf);
+        List<StructInfo> structInfos = new ArrayList<>(candidates.size());
+        for (StructInfoCandidate candidate : candidates.values()) {
+            structInfos.add(candidate.toStructInfo(originPlan, cascadesContext));
         }
+        return structInfos;
+    }
 
-        @Override
-        public BitSet constructLeaf(GroupExpression groupExpression, CascadesContext cascadesContext,
-                                    boolean forceRefresh) {
-            Plan plan = groupExpression.getPlan();
-            BitSet tableMap = new BitSet();
-            if (plan instanceof LogicalCatalogRelation) {
-                LogicalCatalogRelation relation = (LogicalCatalogRelation) plan;
-                TableIf table = relation.getTable();
-                if (!forceRefresh && cascadesContext.getStatementContext()
-                        .getMaterializationRewrittenSuccessSet().contains(table.getFullQualifiers())) {
-                    return tableMap;
+    private Map<BitSet, StructInfoCandidate> getCandidatesByRelationIdSet(BitSet targetRelationIdSet,
+            boolean skipMaterializedViewLeaf) {
+        Map<BitSet, StructInfoCandidate> candidates =
+                candidatesByTargetRelationIdSet.get(targetRelationIdSet);
+        if (candidates != null) {
+            return candidates;
+        }
+        candidates = collectStructInfoCandidates(targetRelationIdSet, skipMaterializedViewLeaf);
+        candidatesByTargetRelationIdSet.put((BitSet) targetRelationIdSet.clone(), candidates);
+        return candidates;
+    }
+
+    void clearCandidateCache() {
+        candidatesByTargetRelationIdSet.clear();
+    }
+
+    private Map<BitSet, StructInfoCandidate> collectStructInfoCandidates(BitSet targetRelationIdSet,
+            boolean skipMaterializedViewLeaf) {
+        Map<BitSet, StructInfoCandidate> collectedCandidates = new LinkedHashMap<>();
+        for (GroupExpression groupExpression : ownerGroup.getLogicalExpressions()) {
+            if (groupExpression.children().isEmpty()) {
+                Plan leafPlan = groupExpression.getPlan();
+                if (!(leafPlan instanceof LogicalRelation)) {
+                    continue;
                 }
-                tableMap.set(cascadesContext.getStatementContext().getTableId(table).asInt());
-            }
-            return tableMap;
-        }
-
-        @Override
-        public int computeMemoVersion(BitSet targetIdMap, CascadesContext cascadesContext) {
-            return getMemoVersion(targetIdMap, cascadesContext.getMemo().getRefreshVersion());
-        }
-    };
-
-    /**
-     * Strategy for relation ID mode
-     */
-    private static final IdModeStrategy RELATION_ID_STRATEGY = new IdModeStrategy() {
-        @Override
-        public Map<BitSet, Pair<GroupExpression, List<BitSet>>> getGroupExpressionMap(StructInfoMap structInfoMap) {
-            return structInfoMap.groupExpressionMapByRelationId;
-        }
-
-        @Override
-        public Map<BitSet, StructInfo> getInfoMap(StructInfoMap structInfoMap) {
-            return structInfoMap.infoMapByRelationId;
-        }
-
-        @Override
-        public BitSet constructLeaf(GroupExpression groupExpression, CascadesContext cascadesContext,
-                                    boolean forceRefresh) {
-            Plan plan = groupExpression.getPlan();
-            BitSet tableMap = new BitSet();
-            if (plan instanceof LogicalCatalogRelation) {
-                LogicalCatalogRelation relation = (LogicalCatalogRelation) plan;
-                TableIf table = relation.getTable();
-                if (!forceRefresh && cascadesContext.getStatementContext()
-                        .getMaterializationRewrittenSuccessSet().contains(table.getFullQualifiers())) {
-                    return tableMap;
+                BitSet leafRelationIdSet = new BitSet();
+                leafRelationIdSet.set(((LogicalRelation) leafPlan).getRelationId().asInt());
+                if (!MaterializedViewUtils.containsAll(targetRelationIdSet, leafRelationIdSet)) {
+                    continue;
                 }
-                tableMap.set(relation.getRelationId().asInt());
+                // Without nested MV rewrite, rewritten MV scan leaves must not become query candidates.
+                if (skipMaterializedViewLeaf
+                        && leafPlan instanceof CatalogRelation
+                        && ((CatalogRelation) leafPlan).getTable() instanceof MTMV) {
+                    continue;
+                }
+                collectedCandidates.putIfAbsent((BitSet) leafRelationIdSet.clone(),
+                        StructInfoCandidate.ofLeaf(leafPlan.withGroupExpression(Optional.empty())));
+                continue;
             }
-            if (plan instanceof LogicalCTEConsumer || plan instanceof LogicalEmptyRelation
-                    || plan instanceof LogicalOneRowRelation) {
-                tableMap.set(((LogicalRelation) plan).getRelationId().asInt());
+            List<Map<BitSet, StructInfoCandidate>> childCandidatesByChild = new ArrayList<>();
+            boolean hasEmptyChild = false;
+            for (Group child : groupExpression.children()) {
+                Map<BitSet, StructInfoCandidate> childCandidates =
+                        child.getStructInfoMap().getCandidatesByRelationIdSet(
+                                targetRelationIdSet, skipMaterializedViewLeaf);
+                if (childCandidates.isEmpty()) {
+                    hasEmptyChild = true;
+                    break;
+                }
+                childCandidatesByChild.add(childCandidates);
             }
-            return tableMap;
+            if (hasEmptyChild) {
+                continue;
+            }
+            enumerateChildCandidateCombinations(groupExpression, childCandidatesByChild, 0, new BitSet(),
+                    new ArrayList<>(childCandidatesByChild.size()), new HashMap<>(), collectedCandidates,
+                    targetRelationIdSet);
         }
+        return collectedCandidates;
+    }
 
-        @Override
-        public int computeMemoVersion(BitSet targetIdMap, CascadesContext cascadesContext) {
-            return getMemoVersion(targetIdMap, cascadesContext.getMemo().getRefreshVersion());
+    /*
+     * Enumerate child candidate combinations for one group expression. Each combination produces a union of
+     * relation ids; only unions contained by targetRelationIdSet can become composite candidates.
+     */
+    private void enumerateChildCandidateCombinations(GroupExpression groupExpression,
+            List<Map<BitSet, StructInfoCandidate>> childCandidatesByChild, int childOffset,
+            BitSet currentRelationIdUnion, List<StructInfoCandidate> currentChildren,
+            Map<Integer, Set<BitSet>> visitedRelationIdUnionsByOffset,
+            Map<BitSet, StructInfoCandidate> candidates, BitSet targetRelationIdSet) {
+        // Same relation-id union at the same child offset is equivalent for later matching.
+        Set<BitSet> visitedRelationIdUnions = visitedRelationIdUnionsByOffset.computeIfAbsent(
+                childOffset, ignored -> new HashSet<>());
+        if (!visitedRelationIdUnions.add(currentRelationIdUnion)) {
+            return;
         }
-    };
-    /**
-     * The map key is the relation id bit set to get corresponding plan accurately
-     */
-    private final Map<BitSet, Pair<GroupExpression, List<BitSet>>> groupExpressionMapByRelationId = new HashMap<>();
-    /**
-     * The map key is the relation id bit set to get corresponding plan accurately
-     */
-    private final Map<BitSet, StructInfo> infoMapByRelationId = new HashMap<>();
-
-    /**
-     * The map key is the common table id bit set to get corresponding plan accurately
-     */
-    private final Map<BitSet, Pair<GroupExpression, List<BitSet>>> groupExpressionMapByTableId = new HashMap<>();
-    /**
-     * The map key is the common table id bit set to get corresponding plan accurately
-     */
-    private final Map<BitSet, StructInfo> infoMapByTableId = new HashMap<>();
-
-    // The key is the tableIds query used, the value is the refresh version when last refresh
-    private final Map<BitSet, Integer> refreshVersion = new HashMap<>();
-
-    /**
-     * get struct info according to table map
-     *
-     * @param targetIdMap the original table map
-     * @param group the group that the mv matched
-     * @return struct info or null if not found
-     */
-    public @Nullable StructInfo getStructInfo(CascadesContext cascadesContext, BitSet targetIdMap, Group group,
-            Plan originPlan, boolean forceRefresh, boolean tableIdMode) {
-        IdModeStrategy strategy = getStrategy(tableIdMode);
-        Map<BitSet, StructInfo> infoMap = strategy.getInfoMap(this);
-        Map<BitSet, Pair<GroupExpression, List<BitSet>>> groupExprMap = strategy.getGroupExpressionMap(this);
-
-        StructInfo structInfo = infoMap.get(targetIdMap);
-        if (structInfo != null) {
-            return structInfo;
+        if (childOffset >= childCandidatesByChild.size()) {
+            candidates.putIfAbsent(currentRelationIdUnion,
+                    StructInfoCandidate.ofComposite(groupExpression, currentChildren));
+            return;
         }
-        if (groupExprMap.isEmpty() || !groupExprMap.containsKey(targetIdMap)) {
-            int memoVersion = strategy.computeMemoVersion(targetIdMap, cascadesContext);
-            refresh(group, cascadesContext, targetIdMap, new HashSet<>(), forceRefresh, memoVersion, tableIdMode);
-            group.getStructInfoMap().setRefreshVersion(targetIdMap, cascadesContext.getMemo().getRefreshVersion());
+        for (Map.Entry<BitSet, StructInfoCandidate> childCandidate
+                : childCandidatesByChild.get(childOffset).entrySet()) {
+            BitSet nextRelationIdUnion = (BitSet) currentRelationIdUnion.clone();
+            nextRelationIdUnion.or(childCandidate.getKey());
+            if (!MaterializedViewUtils.containsAll(targetRelationIdSet, nextRelationIdUnion)) {
+                continue;
+            }
+            currentChildren.add(childCandidate.getValue());
+            enumerateChildCandidateCombinations(groupExpression, childCandidatesByChild, childOffset + 1,
+                    nextRelationIdUnion, currentChildren, visitedRelationIdUnionsByOffset, candidates,
+                    targetRelationIdSet);
+            currentChildren.remove(currentChildren.size() - 1);
         }
-        if (groupExprMap.containsKey(targetIdMap)) {
-            Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair =
-                    getGroupExpressionWithChildren(targetIdMap, tableIdMode);
-            // NOTICE: During the transition from physicalAggregate to logical aggregation,
-            // the original function signature needs to remain unchanged because the constructor
-            // of LogicalAggregation will recalculate the signature of the aggregation function.
-            // When the calculated signature is inconsistent with the original signature
-            // (e.g. due to the influence of the session variable enable_decimal256),
-            // a problem will arise where the output type of the rewritten plan is inconsistent with
-            // the output type of the upper-level operator.
-            structInfo = MoreFieldsThread.keepFunctionSignature(() ->
-                    constructStructInfo(groupExpressionBitSetPair.first, groupExpressionBitSetPair.second,
-                            originPlan, cascadesContext, tableIdMode));
-            infoMap.put(targetIdMap, structInfo);
-        }
-        return structInfo;
     }
 
-    public Set<BitSet> getTableMaps(boolean tableIdMode) {
-        return getStrategy(tableIdMode).getGroupExpressionMap(this).keySet();
-    }
-
-    public Pair<GroupExpression, List<BitSet>> getGroupExpressionWithChildren(BitSet tableMap, boolean tableIdMode) {
-        return getStrategy(tableIdMode).getGroupExpressionMap(this).get(tableMap);
-    }
-
-    // Set the refresh version for the given targetIdSet
-    public void setRefreshVersion(BitSet targetIdSet, Map<Integer, AtomicInteger> memoRefreshVersionMap) {
-        this.refreshVersion.put(targetIdSet, getMemoVersion(targetIdSet, memoRefreshVersionMap));
-    }
-
-    // Set the refresh version for the given targetIdSet
-    public void setRefreshVersion(BitSet targetIdSet, int memoRefreshVersion) {
-        this.refreshVersion.put(targetIdSet, memoRefreshVersion);
-    }
-
-    // Get the refresh version for the given targetIdSet, if not exist, return 0
-    public long getRefreshVersion(BitSet targetIdSet) {
-        return refreshVersion.computeIfAbsent(targetIdSet, k -> 0);
-    }
-
-    /**
-     * Compute a compact "version fingerprint" for the given relation id set.
-     * Algorithm:
-     * - Uses a 32-bit FNV-1a-style hash. Start from FNV32_OFFSET_BASIS and multiply by FNV32_PRIME.
-     * - Iterate each set bit (target id) in the BitSet:
-     *   - Fetch its current refresh version from memoRefreshVersionMap (default 0 if absent).
-     *   - Mix the version into the hash by XOR, then diffuse by multiplying the FNV prime.
-     * - Returns the final hash as the memo version for this set of relations.
-     * Benefits:
-     * - Stable fingerprint: any change in any relation's version produces a different hash, enabling
-     *   fast cache invalidation checks without scanning all versions every time.
-     * - Order-independent: relies on set iteration; the same set yields the same hash regardless of order.
-     * - Low memory and CPU overhead: compresses multiple integers into a single 32-bit value efficiently.
-     * - Incremental-friendly: new relations/versions can be incorporated by re-running on the changed set.
-     * - Good diffusion: XOR + prime multiplication reduces collisions compared to simple sums.
-     * Notes:
-     * - The Integer.MAX_VALUE guard prevents potential overflow edge cases in BitSet iteration.
-     */
-    public static int getMemoVersion(BitSet targetIdSet, Map<Integer, AtomicInteger> memoRefreshVersionMap) {
-        int hash = FNV32_OFFSET_BASIS;
-        for (int id = targetIdSet.nextSetBit(0);
-                id >= 0; id = targetIdSet.nextSetBit(id + 1)) {
-            AtomicInteger ver = memoRefreshVersionMap.get(id);
-            int tmpVer = ver == null ? 0 : ver.get();
-            hash ^= tmpVer;
-            hash *= FNV32_PRIME;
-            if (id == Integer.MAX_VALUE) {
+    private BitSet createTargetRelationIdSet(BitSet mvBaseTableIdSet, CascadesContext cascadesContext) {
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        Multimap<Integer, Integer> tableIdToRelationIds = statementContext.getTableIdToRelationIds();
+        BitSet targetRelationIdSet = new BitSet();
+        // Include original query relations and nested MV scan relations that have been copied into the memo.
+        for (int tableId = mvBaseTableIdSet.nextSetBit(0);
+                tableId >= 0; tableId = mvBaseTableIdSet.nextSetBit(tableId + 1)) {
+            for (Integer relationId : tableIdToRelationIds.get(tableId)) {
+                targetRelationIdSet.set(relationId);
+            }
+            if (tableId == Integer.MAX_VALUE) {
                 break;
             }
         }
-        return hash;
+        return targetRelationIdSet;
     }
 
-    private StructInfo constructStructInfo(GroupExpression groupExpression, List<BitSet> children,
-            Plan originPlan, CascadesContext cascadesContext, boolean tableIdMode) {
-        // this plan is not origin plan, should record origin plan in struct info
-        Plan plan = constructPlan(groupExpression, children, tableIdMode);
-        return originPlan == null ? StructInfo.of(plan, cascadesContext)
-                : StructInfo.of(plan, originPlan, cascadesContext);
-    }
-
-    private Plan constructPlan(GroupExpression groupExpression, List<BitSet> children, boolean tableIdMode) {
-        List<Plan> childrenPlan = new ArrayList<>();
-        for (int i = 0; i < children.size(); i++) {
-            StructInfoMap structInfoMap = groupExpression.child(i).getStructInfoMap();
-            BitSet childMap = children.get(i);
-            Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair
-                    = structInfoMap.getGroupExpressionWithChildren(childMap, tableIdMode);
-            childrenPlan.add(
-                    constructPlan(groupExpressionBitSetPair.first, groupExpressionBitSetPair.second, tableIdMode));
-        }
-        // need to clear current group expression info by using withGroupExpression
-        // this plan would copy into memo, if with group expression, would cause err
-        return groupExpression.getPlan().withChildren(childrenPlan).withGroupExpression(Optional.empty());
-    }
-
-    /**
-     * refresh group expression map
-     *
-     * @param group the root group
-     * @param targetBitSet refreshed group expression table bitset must intersect with the targetBitSet
+    /*
+     * Lightweight representative of one candidate plan tree. The relation-id set is kept as the map key outside
+     * this object; StructInfo and rebuilt Plan are created lazily after relation-level filtering.
      */
-    public void refresh(Group group, CascadesContext cascadesContext,
-            BitSet targetBitSet, Set<Integer> refreshedGroup,
-            boolean forceRefresh, int memoVersion, boolean tableIdMode) {
-        IdModeStrategy strategy = getStrategy(tableIdMode);
-        Map<BitSet, Pair<GroupExpression, List<BitSet>>> groupExprMap = strategy.getGroupExpressionMap(this);
-        StructInfoMap structInfoMap = group.getStructInfoMap();
-        refreshedGroup.add(group.getGroupId().asInt());
-        if (!structInfoMap.getTableMaps(tableIdMode).isEmpty()
-                && memoVersion == structInfoMap.getRefreshVersion(targetBitSet)) {
-            return;
+    private static final class StructInfoCandidate {
+        private final GroupExpression groupExpression;
+        private final List<StructInfoCandidate> children;
+        private final Map<Plan, StructInfo> structInfosByOriginPlan = new IdentityHashMap<>();
+        private List<CatalogRelation> relations;
+        private Plan materializedPlan;
+
+        private StructInfoCandidate(Plan materializedPlan, GroupExpression groupExpression,
+                List<StructInfoCandidate> children,
+                List<CatalogRelation> relations) {
+            this.materializedPlan = materializedPlan;
+            this.groupExpression = groupExpression;
+            this.children = children;
+            this.relations = relations;
         }
-        for (GroupExpression groupExpression : group.getLogicalExpressions()) {
-            List<Set<BitSet>> childrenTableMap = new LinkedList<>();
-            if (groupExpression.children().isEmpty()) {
-                BitSet leaf = strategy.constructLeaf(groupExpression, cascadesContext, forceRefresh);
-                if (leaf.isEmpty()) {
-                    break;
-                }
-                groupExprMap.put(leaf, Pair.of(groupExpression, new LinkedList<>()));
-                continue;
+
+        private static StructInfoCandidate ofLeaf(Plan plan) {
+            List<CatalogRelation> relations = new ArrayList<>();
+            if (plan instanceof CatalogRelation) {
+                relations.add((CatalogRelation) plan);
             }
-            // this is used for filter group expression whose children's table map all not in targetBitSet
-            BitSet filteredTableMaps = new BitSet();
-            // groupExpression self could be pruned
-            for (Group child : groupExpression.children()) {
-                // group in expression should all be reserved
-                StructInfoMap childStructInfoMap = child.getStructInfoMap();
-                if (!refreshedGroup.contains(child.getGroupId().asInt())) {
-                    childStructInfoMap.refresh(child, cascadesContext, targetBitSet,
-                            refreshedGroup, forceRefresh, memoVersion, tableIdMode);
-                    childStructInfoMap.setRefreshVersion(targetBitSet, memoVersion);
-                }
-                Set<BitSet> groupTableSet = new HashSet<>();
-                for (BitSet tableMaps : child.getStructInfoMap().getTableMaps(tableIdMode)) {
-                    groupTableSet.add(tableMaps);
-                    filteredTableMaps.or(tableMaps);
-                }
-                if (!filteredTableMaps.isEmpty()) {
-                    childrenTableMap.add(groupTableSet);
-                }
-            }
-            // filter the tableSet that used intersects with targetBitSet, make sure the at least constructed
-            if (!structInfoMap.getTableMaps(tableIdMode).isEmpty() && !targetBitSet.isEmpty()
-                    && !filteredTableMaps.isEmpty() && !filteredTableMaps.intersects(targetBitSet)) {
-                continue;
-            }
-            if (childrenTableMap.isEmpty()) {
-                continue;
-            }
-            // if groupExpression which has the same table set have refreshed, continue
-            BitSet eachGroupExpressionTableSet = new BitSet();
-            for (Set<BitSet> groupExpressionBitSet : childrenTableMap) {
-                for (BitSet bitSet : groupExpressionBitSet) {
-                    eachGroupExpressionTableSet.or(bitSet);
-                }
-            }
-            if (groupExprMap.containsKey(eachGroupExpressionTableSet)) {
-                // for the group expressions of group, only need to refresh any of the group expression
-                // when they have the same group expression table set
-                continue;
-            }
-            // if cumulative child table map is different from current
-            // or current group expression map is empty, should update the groupExpressionMap currently
-            Collection<Pair<BitSet, List<BitSet>>> bitSetWithChildren = cartesianProduct(childrenTableMap);
-            for (Pair<BitSet, List<BitSet>> bitSetWithChild : bitSetWithChildren) {
-                groupExprMap.putIfAbsent(bitSetWithChild.first,
-                        Pair.of(groupExpression, bitSetWithChild.second));
-            }
+            return new StructInfoCandidate(plan, null, Collections.emptyList(), relations);
         }
-    }
 
-    private Collection<Pair<BitSet, List<BitSet>>> cartesianProduct(List<Set<BitSet>> childrenTableMap) {
-        Set<List<BitSet>> cartesianLists = Sets.cartesianProduct(childrenTableMap);
-        List<Pair<BitSet, List<BitSet>>> resultPairSet = new LinkedList<>();
-        for (List<BitSet> bitSetList : cartesianLists) {
-            BitSet bitSet = new BitSet();
-            for (BitSet b : bitSetList) {
-                bitSet.or(b);
-            }
-            resultPairSet.add(Pair.of(bitSet, bitSetList));
+        private static StructInfoCandidate ofComposite(GroupExpression groupExpression,
+                List<StructInfoCandidate> children) {
+            List<StructInfoCandidate> copiedChildren = new ArrayList<>(children);
+            return new StructInfoCandidate(null, groupExpression, copiedChildren, null);
         }
-        return resultPairSet;
-    }
 
-    /**
-     * Strategy interface to handle different ID modes (tableId vs relationId)
-     */
-    private interface IdModeStrategy {
-        Map<BitSet, Pair<GroupExpression, List<BitSet>>> getGroupExpressionMap(StructInfoMap structInfoMap);
+        private List<CatalogRelation> getRelations() {
+            if (relations != null) {
+                return relations;
+            }
+            relations = new ArrayList<>();
+            for (StructInfoCandidate child : children) {
+                relations.addAll(child.getRelations());
+            }
+            return relations;
+        }
 
-        Map<BitSet, StructInfo> getInfoMap(StructInfoMap structInfoMap);
+        private StructInfo toStructInfo(@Nullable Plan originPlan, CascadesContext cascadesContext) {
+            StructInfo structInfo = structInfosByOriginPlan.get(originPlan);
+            if (structInfo != null) {
+                return structInfo;
+            }
+            // Rebuilt candidates drop memo group expressions, but aggregate function signatures must keep the
+            // original resolved signature. Recomputing them here can change output types under session variables.
+            structInfo = MoreFieldsThread.keepFunctionSignature(() -> {
+                Plan plan = toPlan();
+                return originPlan == null ? StructInfo.of(plan, cascadesContext)
+                        : StructInfo.of(plan, originPlan, cascadesContext);
+            });
+            structInfosByOriginPlan.put(originPlan, structInfo);
+            return structInfo;
+        }
 
-        BitSet constructLeaf(GroupExpression groupExpression, CascadesContext cascadesContext, boolean forceRefresh);
-
-        int computeMemoVersion(BitSet targetIdMap, CascadesContext cascadesContext);
-    }
-
-    private static IdModeStrategy getStrategy(boolean tableIdMode) {
-        return tableIdMode ? TABLE_ID_STRATEGY : RELATION_ID_STRATEGY;
+        private Plan toPlan() {
+            if (materializedPlan != null) {
+                return materializedPlan;
+            }
+            List<Plan> childrenPlans = new ArrayList<>(children.size());
+            for (StructInfoCandidate child : children) {
+                childrenPlans.add(child.toPlan());
+            }
+            // Rebuild an equivalent plain plan tree without keeping the original memo binding.
+            materializedPlan = groupExpression.getPlan()
+                    .withChildren(childrenPlans)
+                    .withGroupExpression(Optional.empty());
+            return materializedPlan;
+        }
     }
 
     @Override
     public String toString() {
         return "StructInfoMap{"
-                + " groupExpressionMapByRelationId=" + groupExpressionMapByRelationId.keySet()
-                + ", infoMapByRelationId=" + infoMapByRelationId.keySet()
-                + ", groupExpressionMapByTableId=" + groupExpressionMapByTableId.keySet()
-                + ", infoMapByTableId=" + infoMapByTableId.keySet()
-                + ", refreshVersion=" + refreshVersion
+                + "ownerGroup=" + ownerGroup.getGroupId()
                 + '}';
     }
 }

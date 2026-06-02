@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PatternCheckResult;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -29,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Optional;
@@ -64,9 +64,9 @@ public class MaterializedViewTopNScanRule extends AbstractMaterializedViewScanRu
 
     @Override
     protected boolean checkQueryPattern(StructInfo structInfo, CascadesContext cascadesContext) {
-        PlanCheckContext checkContext = PlanCheckContext.of(ImmutableSet.of());
-        Boolean accept = structInfo.getTopPlan().accept(StructInfo.SCAN_PLAN_PATTERN_CHECKER, checkContext);
-        return accept
+        PatternCheckResult checkResult = structInfo.getScanPatternCheckResult();
+        PlanCheckContext checkContext = checkResult.getCheckContext();
+        return checkResult.isAccepted()
                 && !checkContext.isContainsTopAggregate()
                 && !checkContext.isContainsTopLimit()
                 && !checkContext.isContainsTopWindow()
