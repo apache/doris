@@ -24,6 +24,7 @@
 // isolates exactly what it affects. Deterministic (fixed seeds); prints a table
 // and asserts the patch never enlarges output.
 
+#include <gtest/gtest.h>
 #include <zstd.h>
 
 #include <algorithm>
@@ -33,8 +34,6 @@
 #include <random>
 #include <string>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 #include "storage/index/inverted/spimi/pfor_encoder.h"
 
@@ -86,12 +85,12 @@ void measure(const std::string& name, const std::vector<uint32_t>& freqs) {
     std::vector<uint8_t> plain_concat, patched_concat;
     size_t patched_blocks = 0, ignored = 0;
     const size_t plain = encode_run_bytes(freqs, /*allow_patch=*/false, &plain_concat, &ignored);
-    const size_t patched = encode_run_bytes(freqs, /*allow_patch=*/true, &patched_concat,
-                                            &patched_blocks);
+    const size_t patched =
+            encode_run_bytes(freqs, /*allow_patch=*/true, &patched_concat, &patched_blocks);
     const size_t zplain = zstd1(plain_concat);
     const size_t zpatched = zstd1(patched_concat);
-    const size_t blocks = (freqs.size() + SpimiPforEncoder::kBlockSize - 1) /
-                          SpimiPforEncoder::kBlockSize;
+    const size_t blocks =
+            (freqs.size() + SpimiPforEncoder::kBlockSize - 1) / SpimiPforEncoder::kBlockSize;
 
     // The patch is opt-in per block on a strict byte win, so it must never grow
     // the raw output.
@@ -171,9 +170,10 @@ TEST(PforPatchDiskMeasurement, FreqStreamSizeAcrossDistributions) {
     measure("log_spikes", log_spikes(0xF00D0002));
     measure("bimodal", bimodal(0xF00D0003));
     measure("uniform_low", uniform_low(0xF00D0004));
-    std::puts("(raw = pre-ZSTD PFOR freq bytes; zstd-1 = the whole-term envelope FlushFrqBlock"
-              " applies. Negative % would be a regression; the patch is opt-in per block so raw"
-              " is always <= plain.)");
+    std::puts(
+            "(raw = pre-ZSTD PFOR freq bytes; zstd-1 = the whole-term envelope FlushFrqBlock"
+            " applies. Negative % would be a regression; the patch is opt-in per block so raw"
+            " is always <= plain.)");
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

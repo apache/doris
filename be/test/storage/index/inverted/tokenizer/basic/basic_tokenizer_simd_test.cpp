@@ -18,7 +18,6 @@
 #include "storage/index/inverted/tokenizer/basic/basic_tokenizer_simd.h"
 
 #include <gtest/gtest.h>
-
 #include <unicode/utf8.h>
 
 #include <cstdint>
@@ -213,9 +212,9 @@ TEST(BasicTokenizerLowercaseTest, LowercaseFalsePreservesCase) {
 namespace {
 
 #define REF_IN_RANGE(c, lo, hi) ((uint32_t)((c) - (lo)) <= ((hi) - (lo)))
-#define REF_IS_CHINESE(c)                                                         \
-    (REF_IN_RANGE(c, 0x4E00, 0x9FFF) || REF_IN_RANGE(c, 0x3400, 0x4DBF) ||        \
-     REF_IN_RANGE(c, 0x20000, 0x2A6DF) || REF_IN_RANGE(c, 0x2A700, 0x2EBEF) ||    \
+#define REF_IS_CHINESE(c)                                                      \
+    (REF_IN_RANGE(c, 0x4E00, 0x9FFF) || REF_IN_RANGE(c, 0x3400, 0x4DBF) ||     \
+     REF_IN_RANGE(c, 0x20000, 0x2A6DF) || REF_IN_RANGE(c, 0x2A700, 0x2EBEF) || \
      REF_IN_RANGE(c, 0x30000, 0x3134A))
 
 // Pure-scalar reference implementation of BasicTokenizer::cut (no extra chars).
@@ -316,8 +315,8 @@ TEST(BasicTokenizerDifferentialTest, RandomizedAsciiAndDelimiters) {
 // malformed-sequence handling (c < 0 -> skip) in addition to clean UTF-8.
 TEST(BasicTokenizerDifferentialTest, RandomizedWithRawHighBitBytes) {
     std::mt19937 rng(0xBADF00DU);
-    const std::string cjk = "\xE4\xBD\xA0";              // 你 (3-byte CJK)
-    const std::string acc = "\xC3\xA9";                  // é (2-byte non-CJK)
+    const std::string cjk = "\xE4\xBD\xA0"; // 你 (3-byte CJK)
+    const std::string acc = "\xC3\xA9";     // é (2-byte non-CJK)
     std::uniform_int_distribution<int> kind(0, 6);
     std::uniform_int_distribution<int> raw(0x80, 0xFF); // high-bit-only bytes
     std::uniform_int_distribution<int> ascii('!', '~');
@@ -368,9 +367,9 @@ struct RefSpan {
 };
 
 #define REF_IN_RANGE(c, lo, hi) ((uint32_t)((c) - (lo)) <= ((hi) - (lo)))
-#define REF_IS_CHINESE(c)                                                         \
-    (REF_IN_RANGE(c, 0x4E00, 0x9FFF) || REF_IN_RANGE(c, 0x3400, 0x4DBF) ||        \
-     REF_IN_RANGE(c, 0x20000, 0x2A6DF) || REF_IN_RANGE(c, 0x2A700, 0x2EBEF) ||    \
+#define REF_IS_CHINESE(c)                                                      \
+    (REF_IN_RANGE(c, 0x4E00, 0x9FFF) || REF_IN_RANGE(c, 0x3400, 0x4DBF) ||     \
+     REF_IN_RANGE(c, 0x20000, 0x2A6DF) || REF_IN_RANGE(c, 0x2A700, 0x2EBEF) || \
      REF_IN_RANGE(c, 0x30000, 0x3134A))
 
 // Same control flow as ref_tokenize but records source byte spans instead of

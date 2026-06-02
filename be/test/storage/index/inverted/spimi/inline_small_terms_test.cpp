@@ -450,8 +450,8 @@ TEST(InlineSmallTermsTest, MixedWindowedAndLegacyTermsRoundTrip) {
         const auto b = reference.Query(term);
         ASSERT_EQ(a.size(), b.size()) << term;
         for (size_t i = 0; i < a.size(); ++i) {
-            EXPECT_TRUE(a[i] == b[i]) << "mixed-format mismatch for term " << term << " at doc-index "
-                                      << i;
+            EXPECT_TRUE(a[i] == b[i])
+                    << "mixed-format mismatch for term " << term << " at doc-index " << i;
         }
     }
 }

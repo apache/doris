@@ -565,9 +565,9 @@ void WindowFrameEncoder::Encode(const std::vector<uint32_t>& doc_deltas,
         // impossible: a raw .frq term whose search tiebreaks to W=256 can no longer
         // drag .prx into tiny ZSTD-incompressible windows. 0 = whole-term.
         const int64_t prx_docs = config::inverted_index_spimi_prx_window_docs;
-        const int32_t k_prx =
-                prx_docs <= 0 ? num_units
-                              : std::clamp(static_cast<int32_t>(prx_docs / kUnitDocs), 1, num_units);
+        const int32_t k_prx = prx_docs <= 0 ? num_units
+                                            : std::clamp(static_cast<int32_t>(prx_docs / kUnitDocs),
+                                                         1, num_units);
         const int32_t W_prx = k_prx * kUnitDocs;
         EmitPrxForChosen(units, k_prx, pos_parts, W_prx, cctx, comp_scratch, prx_out);
     }

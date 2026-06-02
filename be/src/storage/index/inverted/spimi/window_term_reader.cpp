@@ -103,16 +103,16 @@ bool SpimiWindowedTermDocs::Open(PostingStore* store, int64_t term_base, int32_t
     // probe never OOB-reads — it just triggers this exact-size re-read.
     {
         const size_t header_consumed = cur.pos();
-        const size_t worst_case = header_consumed +
-                                  static_cast<size_t>(num_windows) * kMaxSkipEntryBytes;
+        const size_t worst_case =
+                header_consumed + static_cast<size_t>(num_windows) * kMaxSkipEntryBytes;
         if (worst_case > prefix.size() && static_cast<int64_t>(prefix.size()) < avail) {
             prefix = fetch_prefix(worst_case);
             cur = ByteStream(prefix.data(), prefix.size());
             // Re-skip the header so the cursor sits at the skip table again.
-            (void)cur.ReadByte();                              // outer mode
-            (void)cur.ReadByte();                              // inner mode
-            (void)cur.ReadVInt();                              // W
-            const int32_t nw2 = cur.ReadVInt();                // num_windows (must match)
+            (void)cur.ReadByte();               // outer mode
+            (void)cur.ReadByte();               // inner mode
+            (void)cur.ReadVInt();               // W
+            const int32_t nw2 = cur.ReadVInt(); // num_windows (must match)
             if (nw2 != num_windows) [[unlikely]] {
                 SPIMI_THROW_CORRUPT("SPIMI .frq windowed: num_windows changed on re-read");
             }
@@ -243,7 +243,7 @@ int64_t SpimiWindowedTermDocs::WindowFrameLen(int64_t payload_pos, int64_t max_l
     if (win_mode == 0 /*raw*/) {
         body = static_cast<uint32_t>(cur.ReadVInt());
     } else if (win_mode == 1 /*zstd*/) {
-        (void)cur.ReadVInt(); // uncomp
+        (void)cur.ReadVInt();                         // uncomp
         body = static_cast<uint32_t>(cur.ReadVInt()); // comp
     } else {
         SPIMI_THROW_CORRUPT("SPIMI .frq windowed: unknown win_mode in self-frame");

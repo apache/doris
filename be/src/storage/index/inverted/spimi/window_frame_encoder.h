@@ -137,8 +137,7 @@ public:
     //   frq_out    : receives the whole windowed `.frq` block.
     //   prx_out    : receives the whole windowed `.prx` block (only touched
     //                when has_prox).
-    static void Encode(const std::vector<uint32_t>& doc_deltas,
-                       const std::vector<uint32_t>& freqs,
+    static void Encode(const std::vector<uint32_t>& doc_deltas, const std::vector<uint32_t>& freqs,
                        const std::vector<uint8_t>& pos_vint,
                        const std::vector<uint32_t>& pos_counts_per_doc, bool has_prox,
                        ZSTD_CCtx* cctx, ByteOutput* frq_out, ByteOutput* prx_out);

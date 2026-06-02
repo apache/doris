@@ -302,10 +302,12 @@ TEST(SpimiProxWindowReaderValidatorTest, FreqDocStableAfterPositionsForDoc) {
         const int32_t before_freq = frq_lazy.freq();
         const auto& pos = prx_lazy.PositionsForDoc(frq_lazy.doc_index(), frq_lazy);
         // The gather inside PositionsForDoc must NOT corrupt the .frq cursor's view.
-        EXPECT_EQ(frq_lazy.doc(), before_doc) << "doc() drifted after PositionsForDoc at index " << i;
+        EXPECT_EQ(frq_lazy.doc(), before_doc)
+                << "doc() drifted after PositionsForDoc at index " << i;
         EXPECT_EQ(frq_lazy.freq(), before_freq)
                 << "freq() drifted after PositionsForDoc at index " << i;
-        EXPECT_EQ(pos.size(), static_cast<size_t>(before_freq)) << "freq != #positions at index " << i;
+        EXPECT_EQ(pos.size(), static_cast<size_t>(before_freq))
+                << "freq != #positions at index " << i;
         ++i;
     }
     EXPECT_EQ(i, df);

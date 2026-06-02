@@ -142,8 +142,8 @@ bool SpimiWindowedTermPositions::Open(PostingStore* prx_store, int64_t prox_poin
     //         framing is INDEPENDENT of `.frq`; the doc partition is the prefix
     //         sum of doc_count, validated against the term's .frq doc_freq. ---
     const int64_t skip_start = prox_pointer + header_bytes;
-    const int64_t skip_max = std::min<int64_t>(static_cast<int64_t>(num_windows) * 4 * 5,
-                                               file_len - skip_start);
+    const int64_t skip_max =
+            std::min<int64_t>(static_cast<int64_t>(num_windows) * 4 * 5, file_len - skip_start);
     if (skip_max <= 0) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .prx windowed: skip table past end of file");
     }
@@ -192,8 +192,8 @@ bool SpimiWindowedTermPositions::Open(PostingStore* prx_store, int64_t prox_poin
         } else {
             plen = FrameTupleLen(prx_store, e.payload_pos, file_len - e.payload_pos);
         }
-        if (off < 0 || plen <= 0 || e.payload_pos < payload_base ||
-            e.payload_pos + plen > file_len) [[unlikely]] {
+        if (off < 0 || plen <= 0 || e.payload_pos < payload_base || e.payload_pos + plen > file_len)
+                [[unlikely]] {
             SPIMI_THROW_CORRUPT("SPIMI .prx windowed: window payload span out of bounds");
         }
         e.payload_len = plen;

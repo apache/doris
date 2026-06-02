@@ -38,8 +38,6 @@
 //   - fuzz patterns: all-zero, all-max (2^width - 1), ascending ramp,
 //     and width-masked random
 
-#include "storage/index/inverted/spimi/pfor_encoder.h"
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -47,6 +45,7 @@
 #include <vector>
 
 #include "storage/index/inverted/spimi/byte_output.h"
+#include "storage/index/inverted/spimi/pfor_encoder.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 

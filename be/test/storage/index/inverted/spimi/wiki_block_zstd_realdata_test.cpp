@@ -149,7 +149,7 @@ bool extract_weibo_text(const std::string& line, std::string* out) {
             return true;
         }
         ++field;
-        ++i;                                 // closing quote
+        ++i; // closing quote
         while (i < line.size() && line[i] != '"') {
             ++i; // skip the comma
         }
@@ -336,27 +336,31 @@ void run_corpus(const Corpus& cz) {
     auto pc = [](size_t a, size_t b) {
         return b ? 100.0 * (static_cast<double>(a) / static_cast<double>(b) - 1.0) : 0.0;
     };
-    std::printf("\n[corpus][%-10s] docs=%u tokens=%zu terms=%zu large(df>=512)=%zu\n", cz.name.c_str(),
-                doc, total_tokens, post.size(), n_large);
-    std::printf("  FRQ whole=%zuB | W512 %+.1f%% W1024 %+.1f%% W2048 %+.1f%% | ADAPTIVE %zuB %+.1f%%\n",
-                frq_whole, pc(frq_fixed[512], frq_whole), pc(frq_fixed[1024], frq_whole),
-                pc(frq_fixed[2048], frq_whole), frq_adaptive, pc(frq_adaptive, frq_whole));
-    std::printf("  PRX whole=%zuB | W512 %+.1f%% W1024 %+.1f%% W2048 %+.1f%% | ADAPTIVE %zuB %+.1f%%\n",
-                prx_whole, pc(prx_fixed[512], prx_whole), pc(prx_fixed[1024], prx_whole),
-                pc(prx_fixed[2048], prx_whole), prx_adaptive, pc(prx_adaptive, prx_whole));
+    std::printf("\n[corpus][%-10s] docs=%u tokens=%zu terms=%zu large(df>=512)=%zu\n",
+                cz.name.c_str(), doc, total_tokens, post.size(), n_large);
+    std::printf(
+            "  FRQ whole=%zuB | W512 %+.1f%% W1024 %+.1f%% W2048 %+.1f%% | ADAPTIVE %zuB %+.1f%%\n",
+            frq_whole, pc(frq_fixed[512], frq_whole), pc(frq_fixed[1024], frq_whole),
+            pc(frq_fixed[2048], frq_whole), frq_adaptive, pc(frq_adaptive, frq_whole));
+    std::printf(
+            "  PRX whole=%zuB | W512 %+.1f%% W1024 %+.1f%% W2048 %+.1f%% | ADAPTIVE %zuB %+.1f%%\n",
+            prx_whole, pc(prx_fixed[512], prx_whole), pc(prx_fixed[1024], prx_whole),
+            pc(prx_fixed[2048], prx_whole), prx_adaptive, pc(prx_adaptive, prx_whole));
     std::printf("  ADAPTIVE granularity (terms): kept-whole=%zu W512=%zu W1024=%zu W2048=%zu\n",
                 adapt_hist[0], adapt_hist[512], adapt_hist[1024], adapt_hist[2048]);
-    std::printf("  S3 selective(~1%% docs of large terms): whole=%zuB adaptive=%zuB (%.1fx less)\n",
-                s3_whole, s3_adaptive,
-                s3_adaptive ? static_cast<double>(s3_whole) / static_cast<double>(s3_adaptive) : 0.0);
+    std::printf(
+            "  S3 selective(~1%% docs of large terms): whole=%zuB adaptive=%zuB (%.1fx less)\n",
+            s3_whole, s3_adaptive,
+            s3_adaptive ? static_cast<double>(s3_whole) / static_cast<double>(s3_adaptive) : 0.0);
 }
 
 } // namespace
 
 TEST(CorpusBlockZstdRealData, AdaptiveVsFixedVsWholeTerm) {
     std::puts("\n===== REAL corpora: block ZSTD granularity (whole vs fixed-W vs ADAPTIVE) =====");
-    std::puts("(release build recommended; +% = per-window vs whole-term; adaptive picks finest"
-              " block within +10% of whole-term)");
+    std::puts(
+            "(release build recommended; +% = per-window vs whole-term; adaptive picks finest"
+            " block within +10% of whole-term)");
     const std::vector<Corpus> corpora = {
             {"httplogs", "/mnt/disk1/jiangkai/httplogs/data/documents-171998.json", "request"},
             {"wikipedia", "/mnt/disk1/jiangkai/workspace/bin/test/wikipedia/data/part_1.json",

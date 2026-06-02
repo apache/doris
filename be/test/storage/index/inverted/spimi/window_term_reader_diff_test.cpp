@@ -93,7 +93,7 @@ Encoded EncodeWindowed(const Term& t, bool has_prox) {
         enc.FinishDoc();
     }
     (void)enc.FinishTerm();
-    return Encoded{frq_out.bytes(), prx_out.bytes()};
+    return Encoded {frq_out.bytes(), prx_out.bytes()};
 }
 
 using Oracle = std::vector<SpimiTermDocsReader::DocFreq>;
@@ -164,9 +164,7 @@ struct SkipTable {
         const size_t end = (w + 1 < num_windows) ? (payload_base + byte_offset[w + 1]) : total_len;
         return static_cast<int32_t>(end - (payload_base + byte_offset[w]));
     }
-    int32_t total_payload_bytes() const {
-        return static_cast<int32_t>(total_len - payload_base);
-    }
+    int32_t total_payload_bytes() const { return static_cast<int32_t>(total_len - payload_base); }
 };
 
 int32_t ReadVIntAt(const std::vector<uint8_t>& b, size_t& pos) {
@@ -188,7 +186,7 @@ SkipTable ParseSkipTable(const std::vector<uint8_t>& frq) {
     st.total_len = frq.size();
     size_t pos = 0;
     EXPECT_EQ(frq[pos++], FreqProxEncoder::kCodeModeSpimiWindowed);
-    ++pos; // inner mode
+    ++pos;                      // inner mode
     (void)ReadVIntAt(frq, pos); // W
     st.num_windows = ReadVIntAt(frq, pos);
     for (int32_t w = 0; w < st.num_windows; ++w) {
@@ -464,8 +462,8 @@ TEST(WindowTermReaderDiffTest, S3AccessProxyDecodeWork) {
     ASSERT_GE(cover_w, 0);
     const int32_t lazy_bytes = st.window_bytes(cover_w);
 
-    const double win_ratio = 100.0 * static_cast<double>(lazy_windows) /
-                             static_cast<double>(whole_windows);
+    const double win_ratio =
+            100.0 * static_cast<double>(lazy_windows) / static_cast<double>(whole_windows);
     const double byte_ratio =
             100.0 * static_cast<double>(lazy_bytes) / static_cast<double>(whole_bytes);
 
@@ -475,9 +473,9 @@ TEST(WindowTermReaderDiffTest, S3AccessProxyDecodeWork) {
             "[S3 PROXY]   WINDOWS decoded: lazy=%d  vs  whole-term=%d  (%.2f%%)\n"
             "[S3 PROXY]   BYTES   touched: lazy=%d  vs  whole-term=%d  (%.2f%%)\n"
             "[S3 PROXY]   => lazy avoids %d/%d windows and %d/%d payload bytes for this seek\n\n",
-            df, whole_windows, whole_bytes, target_idx, target, cover_w, lazy_windows, whole_windows,
-            win_ratio, lazy_bytes, whole_bytes, byte_ratio, whole_windows - lazy_windows,
-            whole_windows, whole_bytes - lazy_bytes, whole_bytes);
+            df, whole_windows, whole_bytes, target_idx, target, cover_w, lazy_windows,
+            whole_windows, win_ratio, lazy_bytes, whole_bytes, byte_ratio,
+            whole_windows - lazy_windows, whole_windows, whole_bytes - lazy_bytes, whole_bytes);
 
     // The win must be real: far fewer windows and bytes than whole-term.
     EXPECT_LT(lazy_windows, whole_windows);

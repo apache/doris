@@ -682,8 +682,8 @@ private:
     // showed up as a separate ~1.4 % per-token call frame on the flame graph).
     [[gnu::always_inline]] inline uint32_t GetOrAssignTermIdHot(uint32_t text_ref) const {
         if (_last_intern_slot != static_cast<size_t>(-1) &&
-            _last_intern_slot < _slot_term_ids.size() &&
-            _slots[_last_intern_slot] == text_ref) [[likely]] {
+            _last_intern_slot < _slot_term_ids.size() && _slots[_last_intern_slot] == text_ref)
+                [[likely]] {
             return _slot_term_ids[_last_intern_slot]; // kInvalidTermId on first sight
         }
         return kInvalidTermId;

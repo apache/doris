@@ -84,8 +84,9 @@ void IndexInputPostingStore::read_at(int64_t offset, uint8_t* dst, size_t len) {
         // brace in `e.what()` is not misread as a format placeholder.
         const std::string msg =
                 fmt::format("SPIMI PostingStore: IndexInput read failed: {}", e.what());
-        throw ::doris::Exception(::doris::Status::Error<
-                                 ::doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(msg));
+        throw ::doris::Exception(
+                ::doris::Status::Error< ::doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        msg));
     }
 }
 

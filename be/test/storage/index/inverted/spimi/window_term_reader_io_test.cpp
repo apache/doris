@@ -117,7 +117,8 @@ Term MakeMultiWindowTerm(int32_t df, bool has_prox, uint32_t seed) {
 TEST(WindowTermReaderIoTest, DecodeCorrectnessFullScanAndSkip) {
     for (int32_t df : {1, 256, 512, 1024, 3000, 20000}) {
         for (bool has_prox : {true, false}) {
-            const Term t = MakeMultiWindowTerm(df, has_prox, /*seed=*/1000 + df + (has_prox ? 1 : 0));
+            const Term t =
+                    MakeMultiWindowTerm(df, has_prox, /*seed=*/1000 + df + (has_prox ? 1 : 0));
             const std::vector<uint8_t> frq = EncodeWindowedFrq(t, has_prox);
             ASSERT_EQ(frq[0], FreqProxEncoder::kCodeModeSpimiWindowed);
             const Oracle oracle = SpimiTermDocsReader::ReadTerm(frq, df, has_prox);
@@ -232,9 +233,8 @@ TEST(WindowTermReaderIoTest, FullScanFetchesEachWindowOnce) {
     // the self-frame adds ONE extra header-probe read, so allow +1.)
     const int64_t payload_reads = store.read_count() - open_reads;
     EXPECT_GE(payload_reads, windows_total);
-    EXPECT_LE(payload_reads, windows_total + 1)
-            << "windows were re-fetched: " << payload_reads << " reads for " << windows_total
-            << " windows";
+    EXPECT_LE(payload_reads, windows_total + 1) << "windows were re-fetched: " << payload_reads
+                                                << " reads for " << windows_total << " windows";
 
     // No two payload reads cover the SAME offset (no double-fetch). The first
     // `open_reads` log entries are the header prefix; the rest are payloads.
