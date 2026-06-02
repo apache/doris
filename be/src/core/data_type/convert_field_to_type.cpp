@@ -49,6 +49,43 @@
 
 namespace doris {
 
+namespace {
+
+int int_byte_size(PrimitiveType type) {
+    switch (type) {
+    case TYPE_TINYINT:
+        return 1;
+    case TYPE_SMALLINT:
+        return 2;
+    case TYPE_INT:
+        return 4;
+    case TYPE_BIGINT:
+        return 8;
+    case TYPE_LARGEINT:
+        return 16;
+    default:
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Unexpected non-integer type {}",
+                        type_to_string(type));
+    }
+}
+
+bool is_lossless_int_widen(PrimitiveType storage_type, PrimitiveType query_type) {
+    if (!is_int(storage_type) || !is_int(query_type)) {
+        return false;
+    }
+    return int_byte_size(storage_type) < int_byte_size(query_type);
+}
+
+bool is_lossless_float_widen(PrimitiveType storage_type, PrimitiveType query_type) {
+    return storage_type == TYPE_FLOAT && query_type == TYPE_DOUBLE;
+}
+
+bool is_int_to_decimal_cast(PrimitiveType storage_type, PrimitiveType query_type) {
+    return is_int(storage_type) && is_decimal(query_type);
+}
+
+} // namespace
+
 template <typename F> /// Field template parameter may be const or non-const Field.
 void dispatch(F&& f, const Field& field) {
     switch (field.get_type()) {
@@ -827,5 +864,12 @@ void convert_field_to_type(const Field& from_value, const IDataType& to_type, Fi
     } else {
         return convert_field_to_typeImpl(from_value, to_type, from_type_hint, to);
     }
+}
+
+bool is_cast_compatible_for_field_conversion(PrimitiveType storage_type, PrimitiveType query_type) {
+    return is_lossless_int_widen(storage_type, query_type) ||
+           is_lossless_float_widen(storage_type, query_type) ||
+           is_int_to_decimal_cast(storage_type, query_type) ||
+           (is_string_type(storage_type) && is_string_type(query_type));
 }
 } // namespace doris

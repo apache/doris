@@ -47,6 +47,7 @@
 #include "exprs/function_context.h"
 #include "exprs/hybrid_set.h"
 #include "storage/index/index_reader_helper.h"
+#include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris {
 
@@ -154,11 +155,6 @@ public:
             //NOT support in list when parser is FULLTEXT for expr inverted index evaluate.
             return Status::OK();
         }
-        if (iter->has_null()) {
-            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-            RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
-            null_bitmap = null_bitmap_cache_handle.get_bitmap();
-        }
         for (const auto& arg : arguments) {
             Field param_value;
             arg.column->get(0, param_value);
@@ -167,14 +163,25 @@ public:
                 if (negative) {
                     return Status::OK();
                 }
+                RETURN_IF_ERROR(segment_v2::inverted_index_query_param::read_null_bitmap(
+                        iter, &null_bitmap));
                 *roaring |= *null_bitmap;
                 continue;
             }
+            Field query_value;
+            auto convert_status = segment_v2::inverted_index_query_param::convert_to_storage_value(
+                    arg.type, param_value, data_type_with_name.second, &query_value, !negative);
+            if (convert_status.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED) {
+                // The literal cannot map to any storage value that would round-trip to it, so it
+                // contributes no hits to the positive IN union.
+                continue;
+            }
+            RETURN_IF_ERROR(convert_status);
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             segment_v2::InvertedIndexParam param;
             param.column_name = data_type_with_name.first;
             param.column_type = data_type_with_name.second;
-            param.query_value = param_value;
+            param.query_value = query_value;
             param.query_type = query_type;
             param.num_rows = num_rows;
             param.roaring = std::make_shared<roaring::Roaring>();
@@ -182,9 +189,8 @@ public:
             RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));
             *roaring |= *param.roaring;
         }
-        segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
-        bitmap_result = result;
-        bitmap_result.mask_out_null();
+        RETURN_IF_ERROR(segment_v2::inverted_index_query_param::build_result_bitmap(
+                iter, roaring, &bitmap_result));
         if constexpr (negative) {
             roaring::Roaring full_result;
             full_result.addRange(0, num_rows);

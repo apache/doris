@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/data_type/data_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
 #include "io/fs/file_system.h"
@@ -395,6 +396,23 @@ private:
     FieldType _type = FieldType::OLAP_FIELD_TYPE_NONE;
     const KeyCoder* _value_key_coder {};
 };
+
+namespace inverted_index_query_param {
+
+Status convert_to_storage_value(const DataTypePtr& query_type, const Field& query_value,
+                                const DataTypePtr& storage_type, Field* storage_value,
+                                bool allow_int_cross_width = false);
+
+Status convert_to_storage_value(PrimitiveType query_type, const Field& query_value,
+                                const DataTypePtr& storage_type, Field* storage_value,
+                                bool allow_int_cross_width = false);
+
+Status read_null_bitmap(IndexIterator* iter, std::shared_ptr<roaring::Roaring>* null_bitmap);
+
+Status build_result_bitmap(IndexIterator* iter, std::shared_ptr<roaring::Roaring> data_bitmap,
+                           InvertedIndexResultBitmap* result);
+
+} // namespace inverted_index_query_param
 
 } // namespace segment_v2
 } // namespace doris

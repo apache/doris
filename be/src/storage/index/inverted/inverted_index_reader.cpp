@@ -39,6 +39,9 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "core/data_type/convert_field_to_type.h"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/primitive_type.h"
 #include "core/string_ref.h"
 #include "core/type_limit.h"
@@ -150,6 +153,105 @@ static doris::Status encode_bkd_max_ascending(doris::FieldType ft, const doris::
 } // anonymous namespace
 
 namespace doris::segment_v2 {
+
+// Normalize the query literal to the segment storage type before index probing.
+// The convert + round-trip check prevents cross-width/type mismatches from being
+// treated as valid index hits when original predicates may be pruned afterwards.
+namespace inverted_index_query_param {
+
+Status convert_to_storage_value(const DataTypePtr& query_type, const Field& query_value,
+                                const DataTypePtr& storage_type, Field* storage_value,
+                                bool allow_int_cross_width) {
+    DORIS_CHECK(storage_value != nullptr);
+    DORIS_CHECK(query_type != nullptr);
+    DORIS_CHECK(storage_type != nullptr);
+    DataTypePtr normalized_query_type = remove_nullable(query_type);
+    DataTypePtr normalized_storage_type = remove_nullable(storage_type);
+    PrimitiveType query_primitive_type = normalized_query_type->get_primitive_type();
+    PrimitiveType storage_primitive_type = normalized_storage_type->get_primitive_type();
+    // Reaching this path with the same primitive type means either column predicate construction
+    // from the same column DataType, or expr cast pushdown peeled a cast only because the storage
+    // and target DataTypes are identical modulo nullable wrappers. Cross-primitive peeling falls
+    // through to the conversion branch below.
+    if (storage_primitive_type == query_primitive_type) {
+        *storage_value = query_value;
+        return Status::OK();
+    }
+    const bool int_cross_width =
+            allow_int_cross_width && is_int(storage_primitive_type) && is_int(query_primitive_type);
+    if (!is_cast_compatible_for_field_conversion(storage_primitive_type, query_primitive_type) &&
+        !int_cross_width) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                "Inverted index evaluate skipped, incompatible cast from storage type {} to query "
+                "type {}",
+                type_to_string(storage_primitive_type), type_to_string(query_primitive_type));
+    }
+
+    try {
+        convert_field_to_type(query_value, *normalized_storage_type, storage_value);
+        if (storage_value->is_null()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, query value cannot be represented by "
+                    "storage type {}",
+                    normalized_storage_type->get_name());
+        }
+
+        // A successful conversion is not sufficient. Every cross-primitive value must round-trip
+        // bit-exactly to the original literal before probing the index. This is what makes
+        // FLOAT/DOUBLE widening, integer cross-width conversion, and overflow-to-NULL casts safe:
+        // if cast(storage_value AS query_type) can equal the literal, the round-trip proves the
+        // storage value is unique and index matches are identical to the original cast results.
+        Field roundtrip_value;
+        convert_field_to_type(*storage_value, *normalized_query_type, &roundtrip_value);
+        if (roundtrip_value.is_null() || !(roundtrip_value == query_value)) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, query value cannot round-trip between "
+                    "query type {} and storage type {}",
+                    normalized_query_type->get_name(), normalized_storage_type->get_name());
+        }
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                "Inverted index evaluate skipped, failed to convert query value to storage type: "
+                "{}",
+                e.what());
+    }
+
+    return Status::OK();
+}
+
+Status convert_to_storage_value(PrimitiveType query_type, const Field& query_value,
+                                const DataTypePtr& storage_type, Field* storage_value,
+                                bool allow_int_cross_width) {
+    auto query_data_type =
+            DataTypeFactory::instance().create_data_type(query_type, false /* is_nullable */);
+    return convert_to_storage_value(query_data_type, query_value, storage_type, storage_value,
+                                    allow_int_cross_width);
+}
+
+Status read_null_bitmap(IndexIterator* iter, std::shared_ptr<roaring::Roaring>* null_bitmap) {
+    DORIS_CHECK(iter != nullptr);
+    DORIS_CHECK(null_bitmap != nullptr);
+    *null_bitmap = std::make_shared<roaring::Roaring>();
+    if (iter->has_null()) {
+        InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+        RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
+        *null_bitmap = null_bitmap_cache_handle.get_bitmap();
+    }
+    return Status::OK();
+}
+
+Status build_result_bitmap(IndexIterator* iter, std::shared_ptr<roaring::Roaring> data_bitmap,
+                           InvertedIndexResultBitmap* result) {
+    DORIS_CHECK(data_bitmap != nullptr);
+    DORIS_CHECK(result != nullptr);
+    std::shared_ptr<roaring::Roaring> null_bitmap;
+    RETURN_IF_ERROR(read_null_bitmap(iter, &null_bitmap));
+    *result = InvertedIndexResultBitmap(data_bitmap, null_bitmap);
+    result->mask_out_null();
+    return Status::OK();
+}
+
+} // namespace inverted_index_query_param
 
 std::string InvertedIndexReader::get_index_file_path() {
     return _index_file_reader->get_index_file_path(&_index_meta);

@@ -20,6 +20,7 @@
 
 #pragma once
 #include "common/status.h"
+#include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 
 namespace doris {
@@ -35,5 +36,10 @@ class IDataType;
 
 void convert_field_to_type(const Field& from_value, const IDataType& to_type, Field* field,
                            const IDataType* from_type_hint = nullptr);
+
+// Return whether this storage/query primitive-type pair is eligible for cross-type
+// Field conversion in index-pushdown paths. Exact safety is still enforced by the
+// caller's value-level convert + round-trip checks.
+bool is_cast_compatible_for_field_conversion(PrimitiveType storage_type, PrimitiveType query_type);
 
 } // namespace doris

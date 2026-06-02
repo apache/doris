@@ -22,6 +22,7 @@
 
 #include "common/compare.h"
 #include "core/column/column_dictionary.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/field.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/inverted/inverted_index_cache.h" // IWYU pragma: keep
@@ -93,10 +94,14 @@ public:
             return Status::InvalidArgument("invalid comparison predicate type {}", PT);
         }
 
+        Field field_value = Field::create_field<Type>(_value);
+        Field query_value;
+        RETURN_IF_ERROR(inverted_index_query_param::convert_to_storage_value(
+                Type, field_value, name_with_type.second, &query_value));
         InvertedIndexParam param;
         param.column_name = name_with_type.first;
         param.column_type = name_with_type.second;
-        param.query_value = Field::create_field<Type>(_value);
+        param.query_value = query_value;
         param.query_type = query_type;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();

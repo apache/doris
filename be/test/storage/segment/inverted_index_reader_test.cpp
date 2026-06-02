@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 
+#include "core/data_type/data_type_factory.hpp"
 #include "core/field.h"
 #include "core/value/vdatetime_value.h"
 #include "runtime/runtime_state.h"
@@ -4129,6 +4130,72 @@ TEST_F(InvertedIndexReaderTest, BkdRangeIPv4RangeQuery) {
 }
 TEST_F(InvertedIndexReaderTest, BkdRangeIPv6RangeQuery) {
     test_bkd_range_ipv6();
+}
+
+TEST(InvertedIndexQueryParamTest, ConvertToStorageValue) {
+    auto make_type = [](PrimitiveType type) {
+        return DataTypeFactory::instance().create_data_type(type, false);
+    };
+    auto make_type_with_scale = [](PrimitiveType type, int precision, int scale) {
+        return DataTypeFactory::instance().create_data_type(type, false, precision, scale);
+    };
+    auto expect_skipped_with_type = [](const DataTypePtr& query_type, const Field& query_value,
+                                       const DataTypePtr& storage_type,
+                                       bool allow_int_cross_width = false) {
+        Field storage_value;
+        auto status = inverted_index_query_param::convert_to_storage_value(
+                query_type, query_value, storage_type, &storage_value, allow_int_cross_width);
+        ASSERT_FALSE(status.ok());
+        EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED);
+    };
+    auto expect_ok_with_type = [](const DataTypePtr& query_type, const Field& query_value,
+                                  const DataTypePtr& storage_type, const Field& expected_value,
+                                  bool allow_int_cross_width = true) {
+        Field storage_value;
+        auto status = inverted_index_query_param::convert_to_storage_value(
+                query_type, query_value, storage_type, &storage_value, allow_int_cross_width);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(storage_value, expected_value);
+    };
+
+    auto storage_type_bigint = make_type(TYPE_BIGINT);
+    auto storage_type_tinyint = make_type(TYPE_TINYINT);
+    auto storage_type_float = make_type(TYPE_FLOAT);
+    auto storage_type_int = make_type(TYPE_INT);
+    auto storage_type_string = make_type(TYPE_STRING);
+
+    // Positive IN/equality call-sites can normalize integer query literals to the segment
+    // storage type when the value round-trips exactly.
+    expect_ok_with_type(make_type(TYPE_TINYINT), Field::create_field<TYPE_TINYINT>(13),
+                        storage_type_bigint, Field::create_field<TYPE_BIGINT>(13));
+    expect_ok_with_type(make_type(TYPE_INT), Field::create_field<TYPE_INT>(13),
+                        storage_type_tinyint, Field::create_field<TYPE_TINYINT>(13));
+
+    // The default path remains conservative, and out-of-range values are skipped even for
+    // positive IN/equality call-sites.
+    expect_skipped_with_type(make_type(TYPE_TINYINT), Field::create_field<TYPE_TINYINT>(13),
+                             storage_type_bigint);
+    expect_skipped_with_type(make_type(TYPE_INT), Field::create_field<TYPE_INT>(128),
+                             storage_type_tinyint, true);
+    expect_skipped_with_type(make_type(TYPE_BIGINT), Field::create_field<TYPE_BIGINT>(1000),
+                             storage_type_tinyint);
+
+    // The same round-trip check also gates non-integer cross-primitive conversions.
+    expect_ok_with_type(make_type(TYPE_DOUBLE), Field::create_field<TYPE_DOUBLE>(0.5),
+                        storage_type_float, Field::create_field<TYPE_FLOAT>(0.5F), false);
+    expect_skipped_with_type(make_type(TYPE_DOUBLE), Field::create_field<TYPE_DOUBLE>(0.1),
+                             storage_type_float);
+
+    expect_ok_with_type(make_type_with_scale(TYPE_DECIMAL128I, 38, 0),
+                        Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(13)), storage_type_int,
+                        Field::create_field<TYPE_INT>(13), false);
+    expect_ok_with_type(make_type(TYPE_VARCHAR),
+                        Field::create_field<TYPE_STRING>(std::string("abc")), storage_type_string,
+                        Field::create_field<TYPE_STRING>(std::string("abc")), false);
+
+    // BOOLEAN casts are not treated as integer cross-width conversions.
+    expect_skipped_with_type(make_type(TYPE_BOOLEAN), Field::create_field<TYPE_BOOLEAN>(true),
+                             storage_type_int, true);
 }
 
 // Verifies that KeyCoder<OLAP_FIELD_TYPE_DATETIME> produces byte-identical

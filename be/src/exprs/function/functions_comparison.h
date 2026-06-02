@@ -41,6 +41,7 @@
 #include "exprs/function/function_helpers.h"
 #include "exprs/function/functions_logical.h"
 #include "storage/index/index_reader_helper.h"
+#include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris {
 
@@ -487,24 +488,22 @@ public:
         if (param_value.is_null()) {
             return Status::OK();
         }
+        Field query_value;
+        const bool allow_int_cross_width = name_view == NameEquals::name;
+        RETURN_IF_ERROR(segment_v2::inverted_index_query_param::convert_to_storage_value(
+                arguments[0].type, param_value, data_type_with_name.second, &query_value,
+                allow_int_cross_width));
         segment_v2::InvertedIndexParam param;
         param.column_name = data_type_with_name.first;
         param.column_type = data_type_with_name.second;
-        param.query_value = param_value;
+        param.query_value = query_value;
         param.query_type = query_type;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
         param.analyzer_ctx = analyzer_ctx;
         RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));
-        std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-        if (iter->has_null()) {
-            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-            RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
-            null_bitmap = null_bitmap_cache_handle.get_bitmap();
-        }
-        segment_v2::InvertedIndexResultBitmap result(param.roaring, null_bitmap);
-        bitmap_result = result;
-        bitmap_result.mask_out_null();
+        RETURN_IF_ERROR(segment_v2::inverted_index_query_param::build_result_bitmap(
+                iter, param.roaring, &bitmap_result));
 
         if (name_view == NameNotEquals::name) {
             roaring::Roaring full_result;

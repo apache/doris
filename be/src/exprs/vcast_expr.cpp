@@ -37,7 +37,10 @@
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
 #include "runtime/runtime_state.h"
+#include "storage/index/index_reader_helper.h"
+#include "storage/index/inverted/inverted_index_iterator.h"
 
 namespace doris {
 class RowDescriptor;
@@ -124,6 +127,57 @@ Status VCastExpr::execute_column_impl(VExprContext* context, const Block* block,
 
     result_column = temp_block.get_by_position(1).column;
     DCHECK_EQ(result_column->size(), count);
+    return Status::OK();
+}
+
+Status VCastExpr::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+    auto target_type = remove_nullable(get_target_type());
+    if (target_type->get_primitive_type() != TYPE_BOOLEAN) {
+        return Status::OK();
+    }
+    DCHECK_EQ(get_num_children(), 1);
+    if (!get_child(0)->is_slot_ref()) {
+        return Status::OK();
+    }
+
+    auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+    auto column_id = column_slot_ref->column_id();
+    auto index_context = context->get_index_context();
+    auto* iter = index_context->get_inverted_index_iterator_by_column_id(column_id);
+    if (iter == nullptr) {
+        return Status::OK();
+    }
+    if (!segment_v2::IndexReaderHelper::has_string_or_bkd_index(iter)) {
+        return Status::OK();
+    }
+
+    const auto* storage_name_type =
+            index_context->get_storage_name_and_type_by_column_id(column_id);
+    if (storage_name_type == nullptr) {
+        return Status::OK();
+    }
+
+    Field query_value;
+    RETURN_IF_ERROR(segment_v2::inverted_index_query_param::convert_to_storage_value(
+            get_target_type(), Field::create_field<TYPE_BOOLEAN>(1), storage_name_type->second,
+            &query_value));
+
+    segment_v2::InvertedIndexParam param;
+    param.column_name = storage_name_type->first;
+    param.column_type = storage_name_type->second;
+    param.query_value = query_value;
+    param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
+    param.num_rows = segment_num_rows;
+    param.roaring = std::make_shared<roaring::Roaring>();
+    RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));
+
+    segment_v2::InvertedIndexResultBitmap result;
+    RETURN_IF_ERROR(segment_v2::inverted_index_query_param::build_result_bitmap(iter, param.roaring,
+                                                                                &result));
+    if (!result.is_empty()) {
+        index_context->set_index_result_for_expr(this, result);
+        index_context->set_true_for_index_status(this, column_id);
+    }
     return Status::OK();
 }
 

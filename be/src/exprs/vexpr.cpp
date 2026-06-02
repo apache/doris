@@ -36,6 +36,7 @@
 #include "common/status.h"
 #include "core/column/column_nothing.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/convert_field_to_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_factory.hpp"
@@ -885,10 +886,20 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                         continue;
                     }
                 }
+                const bool string_to_string = is_string_type(origin_primitive_type) &&
+                                              is_string_type(target_primitive_type);
+                const auto& function_name = function->get_name();
+                // This only decides whether peeling the cast is worth trying. The converted
+                // literal still has to pass convert_to_storage_value() and its round-trip check.
+                const bool int_cross_width_for_equal_or_in =
+                        (function_name == "eq" || function_name == "in") &&
+                        is_int(origin_primitive_type) && is_int(target_primitive_type);
                 if (origin_primitive_type != TYPE_VARIANT &&
-                    (storage_type->equals(*target_type) ||
-                     (is_string_type(target_primitive_type) &&
-                      is_string_type(origin_primitive_type)))) {
+                    (storage_type->equals(*target_type) || string_to_string ||
+                     (!is_complex_type(storage_type->get_primitive_type()) &&
+                      (is_cast_compatible_for_field_conversion(origin_primitive_type,
+                                                               target_primitive_type) ||
+                       int_cross_width_for_equal_or_in)))) {
                     children_exprs.emplace_back(expr_without_cast(child));
                 }
             } else {

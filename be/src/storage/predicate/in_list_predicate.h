@@ -24,6 +24,7 @@
 #include "common/exception.h"
 #include "core/column/column_dictionary.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/decimal12.h"
@@ -171,11 +172,20 @@ public:
                 const T* value = (const T*)(iter->get_value());
                 field_value = Field::create_field<Type>(*value);
             }
+            Field query_value;
+            auto convert_status = inverted_index_query_param::convert_to_storage_value(
+                    Type, field_value, name_with_type.second, &query_value,
+                    PT == PredicateType::IN_LIST);
+            if (convert_status.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED) {
+                iter->next();
+                continue;
+            }
+            RETURN_IF_ERROR(convert_status);
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             InvertedIndexParam param;
             param.column_name = name_with_type.first;
             param.column_type = name_with_type.second;
-            param.query_value = field_value;
+            param.query_value = query_value;
             param.query_type = query_type;
             param.num_rows = num_rows;
             param.roaring = std::make_shared<roaring::Roaring>();
