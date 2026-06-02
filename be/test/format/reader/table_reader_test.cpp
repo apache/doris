@@ -2483,17 +2483,17 @@ TEST(TableColumnMapperByIndexTest, MapsTopLevelColumnsByPositionIgnoringFileName
     const auto& mappings = mapper.mappings();
     ASSERT_EQ(mappings.size(), 3);
 
-    ASSERT_TRUE(mappings[0].file_column_id.has_value());
-    EXPECT_EQ(*mappings[0].file_column_id, 0);
+    ASSERT_TRUE(mappings[0].field_id.has_value());
+    EXPECT_EQ(*mappings[0].field_id, 0);
     EXPECT_EQ(mappings[0].file_column_name, "_col0");
     EXPECT_FALSE(mappings[0].is_constant);
 
-    ASSERT_TRUE(mappings[1].file_column_id.has_value());
-    EXPECT_EQ(*mappings[1].file_column_id, 1);
+    ASSERT_TRUE(mappings[1].field_id.has_value());
+    EXPECT_EQ(*mappings[1].field_id, 1);
     EXPECT_EQ(mappings[1].file_column_name, "_col1");
 
-    ASSERT_TRUE(mappings[2].file_column_id.has_value());
-    EXPECT_EQ(*mappings[2].file_column_id, 2);
+    ASSERT_TRUE(mappings[2].field_id.has_value());
+    EXPECT_EQ(*mappings[2].field_id, 2);
     EXPECT_EQ(mappings[2].file_column_name, "_col2");
 }
 
@@ -2519,12 +2519,12 @@ TEST(TableColumnMapperByIndexTest, SparseProjectionMapsByExplicitFileIndex) {
 
     const auto& mappings = mapper.mappings();
     ASSERT_EQ(mappings.size(), 2);
-    ASSERT_TRUE(mappings[0].file_column_id.has_value());
-    EXPECT_EQ(*mappings[0].file_column_id, 2);
+    ASSERT_TRUE(mappings[0].field_id.has_value());
+    EXPECT_EQ(*mappings[0].field_id, 2);
     EXPECT_EQ(mappings[0].file_column_name, "_col2");
 
-    ASSERT_TRUE(mappings[1].file_column_id.has_value());
-    EXPECT_EQ(*mappings[1].file_column_id, 4);
+    ASSERT_TRUE(mappings[1].field_id.has_value());
+    EXPECT_EQ(*mappings[1].field_id, 4);
     EXPECT_EQ(mappings[1].file_column_name, "_col4");
 }
 
@@ -2559,15 +2559,15 @@ TEST(TableColumnMapperByIndexTest, PartitionColumnsTakeConstantAndDoNotConsumeFi
     ASSERT_EQ(mappings.size(), 3);
 
     EXPECT_TRUE(mappings[0].is_constant);
-    EXPECT_FALSE(mappings[0].file_column_id.has_value());
+    EXPECT_FALSE(mappings[0].field_id.has_value());
     EXPECT_NE(mappings[0].default_expr, nullptr);
 
-    ASSERT_TRUE(mappings[1].file_column_id.has_value());
-    EXPECT_EQ(*mappings[1].file_column_id, 0);
+    ASSERT_TRUE(mappings[1].field_id.has_value());
+    EXPECT_EQ(*mappings[1].field_id, 0);
     EXPECT_EQ(mappings[1].file_column_name, "_col0");
 
-    ASSERT_TRUE(mappings[2].file_column_id.has_value());
-    EXPECT_EQ(*mappings[2].file_column_id, 1);
+    ASSERT_TRUE(mappings[2].field_id.has_value());
+    EXPECT_EQ(*mappings[2].field_id, 1);
     EXPECT_EQ(mappings[2].file_column_name, "_col1");
 }
 
@@ -2601,14 +2601,14 @@ TEST(TableColumnMapperByIndexTest, FileIndexOutOfRangeFallsBackToDefaultOrMissin
     const auto& mappings = mapper.mappings();
     ASSERT_EQ(mappings.size(), 3);
 
-    ASSERT_TRUE(mappings[0].file_column_id.has_value());
-    EXPECT_EQ(*mappings[0].file_column_id, 0);
+    ASSERT_TRUE(mappings[0].field_id.has_value());
+    EXPECT_EQ(*mappings[0].field_id, 0);
 
-    EXPECT_FALSE(mappings[1].file_column_id.has_value());
+    EXPECT_FALSE(mappings[1].field_id.has_value());
     EXPECT_TRUE(mappings[1].is_constant);
     EXPECT_EQ(mappings[1].default_expr, literal_expr);
 
-    EXPECT_FALSE(mappings[2].file_column_id.has_value());
+    EXPECT_FALSE(mappings[2].field_id.has_value());
     EXPECT_FALSE(mappings[2].is_constant);
     EXPECT_EQ(mappings[2].default_expr, nullptr);
 }
@@ -2652,8 +2652,8 @@ TEST(TableColumnMapperByIndexTest, ExtraFileColumnsAreSimplyIgnored) {
 
     const auto& mappings = mapper.mappings();
     ASSERT_EQ(mappings.size(), 1);
-    ASSERT_TRUE(mappings[0].file_column_id.has_value());
-    EXPECT_EQ(*mappings[0].file_column_id, 0);
+    ASSERT_TRUE(mappings[0].field_id.has_value());
+    EXPECT_EQ(*mappings[0].field_id, 0);
 }
 
 TEST(TableColumnMapperByIndexTest, IgnoresFileColumnNames) {
@@ -2678,8 +2678,8 @@ TEST(TableColumnMapperByIndexTest, IgnoresFileColumnNames) {
 
     const auto& mappings = mapper.mappings();
     ASSERT_EQ(mappings.size(), 1);
-    ASSERT_TRUE(mappings[0].file_column_id.has_value());
-    EXPECT_EQ(*mappings[0].file_column_id, 20);
+    ASSERT_TRUE(mappings[0].field_id.has_value());
+    EXPECT_EQ(*mappings[0].field_id, 20);
     EXPECT_EQ(mappings[0].file_column_name, "b");
 }
 
