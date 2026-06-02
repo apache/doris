@@ -25,6 +25,10 @@ on:
   workflow_dispatch:
   issue_comment:
     types: [ created ]
+
+permissions:
+  contents: read
+
 jobs:
   clang-format:
     name: "Clang Formatter"
