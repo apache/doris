@@ -70,7 +70,8 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
                                ::parquet::ParquetFileReader* file_reader,
                                const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
                                const reader::FileScanRequest& request,
-                               const ParquetScanRange& scan_range, RowGroupScanPlan* plan);
+                               const ParquetScanRange& scan_range, bool enable_bloom_filter,
+                               RowGroupScanPlan* plan);
 
 IColumn::Filter selection_to_filter(const SelectionVector& selection, uint16_t selected_rows,
                                     int64_t batch_rows);

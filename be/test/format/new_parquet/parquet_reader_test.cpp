@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 #include <parquet/api/reader.h>
 #include <parquet/arrow/writer.h>
+#include <parquet/bloom_filter.h>
 #include <parquet/page_index.h>
 
 #include <filesystem>
@@ -53,6 +54,7 @@
 #include "gen_cpp/Types_types.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
+#include "storage/predicate/accept_null_predicate.h"
 #include "storage/predicate/predicate_creator.h"
 
 namespace doris {
@@ -333,6 +335,45 @@ void write_page_index_filter_parquet_file(const std::string& file_path) {
                                                       ids.size(), builder.build()));
 }
 
+parquet::ParquetColumnSchema primitive_bloom_schema(const DataTypePtr& type) {
+    parquet::ParquetColumnSchema schema;
+    schema.field_id = 0;
+    schema.name = "c0";
+    schema.type = type;
+    schema.leaf_column_id = 0;
+    schema.kind = parquet::ParquetColumnSchemaKind::PRIMITIVE;
+    return schema;
+}
+
+reader::FileColumnPredicateFilter bloom_filter_with_predicate(
+        const std::shared_ptr<ColumnPredicate>& predicate) {
+    reader::FileColumnPredicateFilter filter;
+    filter.file_column_id = 0;
+    filter.predicates.push_back(predicate);
+    return filter;
+}
+
+::parquet::BlockSplitBloomFilter bloom_filter_for_int32_values(const std::vector<int32_t>& values) {
+    ::parquet::BlockSplitBloomFilter bloom_filter;
+    bloom_filter.Init(::parquet::BlockSplitBloomFilter::kMinimumBloomFilterBytes);
+    for (const auto value : values) {
+        bloom_filter.InsertHash(bloom_filter.Hash(value));
+    }
+    return bloom_filter;
+}
+
+::parquet::BlockSplitBloomFilter bloom_filter_for_string_values(
+        const std::vector<std::string>& values) {
+    ::parquet::BlockSplitBloomFilter bloom_filter;
+    bloom_filter.Init(::parquet::BlockSplitBloomFilter::kMinimumBloomFilterBytes);
+    for (const auto& value : values) {
+        ::parquet::ByteArray byte_array(static_cast<uint32_t>(value.size()),
+                                        reinterpret_cast<const uint8_t*>(value.data()));
+        bloom_filter.InsertHash(bloom_filter.Hash(&byte_array));
+    }
+    return bloom_filter;
+}
+
 Block build_file_block(const std::vector<reader::SchemaField>& schema) {
     Block block;
     for (const auto& field : schema) {
@@ -606,6 +647,97 @@ TEST(TableColumnMapperTest, ColumnPredicatesDoNotForcePredicateMaterialization) 
               std::vector<reader::ColumnId>({0, 1}));
     ASSERT_EQ(request->column_predicate_filters.size(), 1);
     EXPECT_EQ(request->column_predicate_filters[0].file_column_id, 0);
+}
+
+TEST(ParquetBloomFilterPruningTest, EqPredicateUsesArrowHashAndPrunesAbsentIntValue) {
+    auto schema = primitive_bloom_schema(std::make_shared<DataTypeInt32>());
+    auto bloom_filter = bloom_filter_for_int32_values({1, 3});
+    auto absent_filter = bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
+            0, "c0", schema.type, Field::create_field<TYPE_INT>(2), false));
+    auto present_filter =
+            bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
+                    0, "c0", schema.type, Field::create_field<TYPE_INT>(3), false));
+
+    EXPECT_TRUE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, absent_filter,
+                                                                     bloom_filter));
+    EXPECT_FALSE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, present_filter,
+                                                                      bloom_filter));
+}
+
+TEST(ParquetBloomFilterPruningTest, InPredicatePrunesOnlyWhenAllValuesAreAbsent) {
+    auto schema = primitive_bloom_schema(std::make_shared<DataTypeInt32>());
+    auto bloom_filter = bloom_filter_for_int32_values({1, 3});
+
+    auto absent_set = build_set<TYPE_INT>();
+    int32_t absent_first = 2;
+    int32_t absent_second = 4;
+    absent_set->insert(&absent_first);
+    absent_set->insert(&absent_second);
+    auto absent_filter =
+            bloom_filter_with_predicate(create_in_list_predicate<PredicateType::IN_LIST>(
+                    0, "c0", schema.type, absent_set, false));
+
+    auto present_set = build_set<TYPE_INT>();
+    int32_t present_first = 2;
+    int32_t present_second = 3;
+    present_set->insert(&present_first);
+    present_set->insert(&present_second);
+    auto present_filter =
+            bloom_filter_with_predicate(create_in_list_predicate<PredicateType::IN_LIST>(
+                    0, "c0", schema.type, present_set, false));
+
+    EXPECT_TRUE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, absent_filter,
+                                                                     bloom_filter));
+    EXPECT_FALSE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, present_filter,
+                                                                      bloom_filter));
+}
+
+TEST(ParquetBloomFilterPruningTest, BooleanPredicateHashesAsParquetInt32) {
+    auto schema = primitive_bloom_schema(std::make_shared<DataTypeBool>());
+    auto bloom_filter = bloom_filter_for_int32_values({1});
+    auto false_filter = bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
+            0, "c0", schema.type, Field::create_field<TYPE_BOOLEAN>(false), false));
+    auto true_filter = bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
+            0, "c0", schema.type, Field::create_field<TYPE_BOOLEAN>(true), false));
+
+    EXPECT_TRUE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, false_filter,
+                                                                     bloom_filter));
+    EXPECT_FALSE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, true_filter,
+                                                                      bloom_filter));
+}
+
+TEST(ParquetBloomFilterPruningTest, StringPredicateUsesArrowByteArrayHash) {
+    auto schema = primitive_bloom_schema(std::make_shared<DataTypeString>());
+    auto bloom_filter = bloom_filter_for_string_values({"alpha", "omega"});
+    auto absent_filter = bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
+            0, "c0", schema.type, Field::create_field<TYPE_STRING>("beta"), false));
+    auto present_filter =
+            bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
+                    0, "c0", schema.type, Field::create_field<TYPE_STRING>("alpha"), false));
+
+    EXPECT_TRUE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, absent_filter,
+                                                                     bloom_filter));
+    EXPECT_FALSE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, present_filter,
+                                                                      bloom_filter));
+}
+
+TEST(ParquetBloomFilterPruningTest, NullableAcceptingAndUnsupportedPredicatesKeepRowGroup) {
+    auto schema = primitive_bloom_schema(std::make_shared<DataTypeInt32>());
+    auto bloom_filter = bloom_filter_for_int32_values({1});
+    auto nested_predicate = create_comparison_predicate<PredicateType::EQ>(
+            0, "c0", schema.type, Field::create_field<TYPE_INT>(2), false);
+    auto accept_null_filter =
+            bloom_filter_with_predicate(std::make_shared<AcceptNullPredicate>(nested_predicate));
+    EXPECT_FALSE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, accept_null_filter,
+                                                                      bloom_filter));
+
+    auto unsupported_schema = primitive_bloom_schema(std::make_shared<DataTypeInt16>());
+    auto unsupported_filter =
+            bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
+                    0, "c0", unsupported_schema.type, Field::create_field<TYPE_SMALLINT>(2),
+                    false));
+    EXPECT_FALSE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(
+            unsupported_schema, unsupported_filter, bloom_filter));
 }
 
 class NewParquetReaderTest : public testing::Test {
@@ -981,7 +1113,7 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
     parquet::ParquetScanRange scan_range;
     ASSERT_TRUE(parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
                                                  parquet_file_reader.get(), file_schema,
-                                                 plan_request, scan_range, &plan)
+                                                 plan_request, scan_range, false, &plan)
                         .ok());
     EXPECT_EQ(plan.pruning_stats.total_row_groups, 6);
     EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
@@ -1059,7 +1191,7 @@ TEST_F(NewParquetReaderTest, PlannerNarrowsRowRangesByPageIndex) {
     parquet::ParquetScanRange scan_range;
     ASSERT_TRUE(parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
                                                  parquet_file_reader.get(), file_schema, request,
-                                                 scan_range, &plan)
+                                                 scan_range, false, &plan)
                         .ok());
     ASSERT_EQ(plan.row_groups.size(), 1);
     ASSERT_FALSE(plan.row_groups[0].selected_ranges.empty());

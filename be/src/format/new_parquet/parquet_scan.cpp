@@ -79,7 +79,8 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
                                ::parquet::ParquetFileReader* file_reader,
                                const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
                                const reader::FileScanRequest& request,
-                               const ParquetScanRange& scan_range, RowGroupScanPlan* plan) {
+                               const ParquetScanRange& scan_range, bool enable_bloom_filter,
+                               RowGroupScanPlan* plan) {
     DORIS_CHECK(plan != nullptr);
     plan->row_groups.clear();
     plan->pruning_stats = ParquetPruningStats {};
@@ -87,7 +88,7 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
     std::vector<int> statistics_selected_row_groups;
     RETURN_IF_ERROR(select_row_groups_by_statistics(metadata, file_reader, file_schema, request,
                                                     &statistics_selected_row_groups,
-                                                    &plan->pruning_stats));
+                                                    enable_bloom_filter, &plan->pruning_stats));
 
     std::vector<int64_t> row_group_first_rows(metadata.num_row_groups());
     int64_t next_row_group_first_row = 0;
