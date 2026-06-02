@@ -206,16 +206,14 @@ PhysicalResultSink
 
 -- !test_random_nest_predicate --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t1.d_datetimev2 = t2.d_datetimev2)) otherCondition=()
-----filter((dayofmonth(hours_add(convert_tz(d_datetimev2, 'Asia/Shanghai', 'Europe/Paris'), cast(random(1, 10) as INT))) > 10))
-------PhysicalOlapScan[extend_infer_t1(t1)]
+--hashJoin[INNER_JOIN] hashCondition=((t1.d_datetimev2 = t2.d_datetimev2)) otherCondition=((dayofmonth(hours_add(convert_tz(d_datetimev2, 'Asia/Shanghai', 'Europe/Paris'), cast(random(1, 10) as INT))) > 10))
+----PhysicalOlapScan[extend_infer_t1(t1)]
 ----PhysicalOlapScan[extend_infer_t2(t2)]
 
 -- !test_random_predicate --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
-----filter((cast(a as DOUBLE) > random(10)))
-------PhysicalOlapScan[extend_infer_t3(t1)]
+--hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=((cast(a as DOUBLE) > random(10)))
+----PhysicalOlapScan[extend_infer_t3(t1)]
 ----PhysicalOlapScan[extend_infer_t4(t2)]
 
 -- !test_predicate_map --
