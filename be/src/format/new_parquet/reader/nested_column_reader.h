@@ -748,6 +748,109 @@ struct RepeatedMapListValueSink {
     }
 };
 
+template <typename ValueBatch, typename ValueOverflow, typename ValueReader, typename ValueAppender>
+struct RepeatedMapMapValueSink {
+    const std::string* column_name = nullptr;
+    const DataTypePtr* map_type = nullptr;
+    const DataTypePtr* inner_map_type = nullptr;
+    int16_t map_nullable_definition_level = 0;
+    int16_t inner_map_nullable_definition_level = 0;
+    int16_t inner_map_repeated_repetition_level = 0;
+    ScalarColumnReader* key_reader = nullptr;
+    ScalarColumnReader* inner_key_reader = nullptr;
+    MutableColumnPtr* key_column = nullptr;
+    MutableColumnPtr* inner_key_column = nullptr;
+    MutableColumnPtr* inner_value_column = nullptr;
+    RepeatedParentSinkState map_state;
+    RepeatedChildSinkState inner_map_state;
+    int16_t key_max_definition_level = 0;
+    int16_t inner_key_max_definition_level = 0;
+    NestedScalarSlotStream key_stream;
+    NestedValueStream<ValueBatch, ValueOverflow, ValueReader> value_stream;
+    ValueAppender value_appender;
+
+    Status start_batch(const NestedScalarBatch& inner_key_batch) {
+        DORIS_CHECK(column_name != nullptr);
+        RETURN_IF_ERROR(key_stream.read_records(*column_name, inner_key_batch.records_read, ""));
+        return value_stream.read_aligned_to_driver(*column_name, inner_key_batch, "");
+    }
+
+    Status start_parent(const NestedScalarBatch& inner_key_batch, int64_t level_idx) {
+        DORIS_CHECK(column_name != nullptr);
+        DORIS_CHECK(map_type != nullptr);
+        const int16_t def_level = inner_key_batch.def_levels[level_idx];
+        if (def_level < map_nullable_definition_level) {
+            RETURN_IF_ERROR(consume_key_slot(inner_key_batch, level_idx, false));
+            RETURN_IF_ERROR(value_appender.skip_shape_only_slot());
+            return map_state.append_null_parent(*column_name, "MAP", *map_type);
+        }
+        map_state.append_present_parent();
+        if (def_level == map_nullable_definition_level) {
+            RETURN_IF_ERROR(consume_key_slot(inner_key_batch, level_idx, false));
+            return value_appender.skip_shape_only_slot();
+        }
+        return append_entry(inner_key_batch, level_idx);
+    }
+
+    Status append_repeated(const NestedScalarBatch& inner_key_batch, int64_t level_idx) {
+        if (inner_key_batch.rep_levels[level_idx] < inner_map_repeated_repetition_level) {
+            return append_entry(inner_key_batch, level_idx);
+        }
+        return append_inner_entry(inner_key_batch, level_idx);
+    }
+
+    Status append_entry(const NestedScalarBatch& inner_key_batch, int64_t level_idx) {
+        DORIS_CHECK(column_name != nullptr);
+        DORIS_CHECK(key_reader != nullptr);
+        DORIS_CHECK(key_column != nullptr);
+        DORIS_CHECK(inner_map_type != nullptr);
+        RETURN_IF_ERROR(consume_key_slot(inner_key_batch, level_idx, true));
+        RETURN_IF_ERROR(append_scalar_batch_value(*key_reader, key_stream.batch,
+                                                  key_stream.level_idx - 1, *key_column));
+        RETURN_IF_ERROR(map_state.add_entry(*column_name));
+        const int16_t def_level = inner_key_batch.def_levels[level_idx];
+        if (def_level < inner_map_nullable_definition_level) {
+            RETURN_IF_ERROR(value_appender.skip_shape_only_slot());
+            return inner_map_state.append_null_child(*column_name, "MAP", "nested MAP value",
+                                                     *inner_map_type);
+        }
+        inner_map_state.append_present_child();
+        if (def_level == inner_map_nullable_definition_level) {
+            return value_appender.skip_shape_only_slot();
+        }
+        return append_inner_entry(inner_key_batch, level_idx);
+    }
+
+    Status consume_key_slot(const NestedScalarBatch& inner_key_batch, int64_t inner_key_level_idx,
+                            bool require_defined_key) {
+        DORIS_CHECK(column_name != nullptr);
+        RETURN_IF_ERROR(key_stream.consume_aligned_slot(*column_name, inner_key_batch,
+                                                        inner_key_level_idx, ""));
+        if (require_defined_key) {
+            RETURN_IF_ERROR(key_stream.require_last_slot_defined(
+                    *column_name, key_max_definition_level, "map key"));
+        }
+        return Status::OK();
+    }
+
+    Status append_inner_entry(const NestedScalarBatch& inner_key_batch, int64_t level_idx) {
+        DORIS_CHECK(column_name != nullptr);
+        DORIS_CHECK(inner_key_reader != nullptr);
+        DORIS_CHECK(inner_key_column != nullptr);
+        DORIS_CHECK(inner_value_column != nullptr);
+        RETURN_IF_ERROR(inner_map_state.require_child(*column_name, "nested MAP value"));
+        if (inner_key_batch.def_levels[level_idx] != inner_key_max_definition_level) {
+            return Status::Corruption("Parquet MAP column {} contains null nested map key",
+                                      *column_name);
+        }
+        RETURN_IF_ERROR(append_scalar_batch_value(*inner_key_reader, inner_key_batch, level_idx,
+                                                  *inner_key_column));
+        RETURN_IF_ERROR(value_appender.append(*column_name, value_stream.batch, level_idx,
+                                              *inner_value_column));
+        return inner_map_state.add_entry(*column_name, "nested MAP value");
+    }
+};
+
 template <typename ValueBatch, typename ValueOverflow, typename ValueReader>
 struct RepeatedAlignedValueSkipSink {
     const std::string* column_name = nullptr;

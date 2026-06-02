@@ -459,7 +459,7 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 | MAP scalar value | 已实现 | Map reader / Nested assembler | key required，value 支持 nullable scalar、null/empty map、overflow、skip/select |
 | MAP struct value | 部分实现 | Map reader / Nested assembler | 支持 scalar-child struct value、projection、overflow；struct 内深层 complex child 未完全统一 |
 | MAP list scalar value | 已实现 | Map reader / Nested assembler | 支持 `Map<K, Array(T)>` 中 list scalar value 的 null/empty/overflow、skip/select |
-| MAP nested map value | 未完成 | Map reader / Factory | factory 当前不创建 nested MAP value reader |
+| MAP nested map scalar value | 已实现 | Map reader / Nested assembler | 支持 `Map<K, Map<K2,V2>>` 中 scalar key/value 的 null/empty/overflow、skip/select |
 | Legacy LIST schema | 部分实现 | Schema parser | 支持 LIST annotated repeated primitive、repeated multi-field group；top-level unannotated repeated 尚未归一化 |
 | Required/nullability corruption check | 部分实现 | Column reader / Nested assembler | list/map scalar 路径较完整；complex child 和纯 complex struct 需继续统一 |
 | Schema change / schema evolution | 未实现 | 上层映射 + Factory | 当前只保留 file-local 边界 |
@@ -479,7 +479,6 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 
 - `Array(Map<K, Struct/List/Map>)`
 - `Array(Struct(...complex child...))`
-- `Map<K, Map<K2,V2>>`
 - `Map<K, Struct(...complex child...)>`
 - pure-complex struct：`Struct<Array<T>, Map<K,V>>`
 - struct 内 list/map projection 与未投影 child levels-only 推进

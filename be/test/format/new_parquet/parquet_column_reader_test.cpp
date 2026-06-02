@@ -547,6 +547,49 @@ protected:
         return finish_array(&builder);
     }
 
+    std::shared_ptr<arrow::Array> build_nullable_int_map_map_array() {
+        auto outer_key_builder = std::make_shared<arrow::Int32Builder>();
+        auto inner_key_builder = std::make_shared<arrow::Int32Builder>();
+        auto inner_value_builder = std::make_shared<arrow::StringBuilder>();
+        auto inner_map_type =
+                arrow::map(arrow::int32(), arrow::field("value", arrow::utf8(), true));
+        auto inner_map_builder =
+                std::make_shared<arrow::MapBuilder>(arrow::default_memory_pool(), inner_key_builder,
+                                                    inner_value_builder, inner_map_type);
+        auto outer_map_type =
+                arrow::map(arrow::int32(), arrow::field("value", inner_map_type, true));
+        arrow::MapBuilder builder(arrow::default_memory_pool(), outer_key_builder,
+                                  inner_map_builder, outer_map_type);
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(outer_key_builder->Append(301).ok());
+        EXPECT_TRUE(inner_map_builder->Append().ok());
+        EXPECT_TRUE(inner_key_builder->Append(1).ok());
+        EXPECT_TRUE(inner_value_builder->Append("a").ok());
+        EXPECT_TRUE(inner_key_builder->Append(2).ok());
+        EXPECT_TRUE(inner_value_builder->AppendNull().ok());
+        EXPECT_TRUE(outer_key_builder->Append(302).ok());
+        EXPECT_TRUE(inner_map_builder->AppendEmptyValue().ok());
+
+        EXPECT_TRUE(builder.AppendNull().ok());
+        EXPECT_TRUE(builder.AppendEmptyValue().ok());
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(outer_key_builder->Append(303).ok());
+        EXPECT_TRUE(inner_map_builder->AppendNull().ok());
+        EXPECT_TRUE(outer_key_builder->Append(304).ok());
+        EXPECT_TRUE(inner_map_builder->Append().ok());
+        EXPECT_TRUE(inner_key_builder->Append(3).ok());
+        EXPECT_TRUE(inner_value_builder->Append("c").ok());
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(outer_key_builder->Append(305).ok());
+        EXPECT_TRUE(inner_map_builder->Append().ok());
+        EXPECT_TRUE(inner_key_builder->Append(4).ok());
+        EXPECT_TRUE(inner_value_builder->AppendNull().ok());
+        return finish_array(&builder);
+    }
+
     std::shared_ptr<arrow::Array> build_time32_array(const std::shared_ptr<arrow::DataType>& type,
                                                      const std::vector<int32_t>& values) {
         arrow::Time32Builder builder(type, arrow::default_memory_pool());
@@ -1370,6 +1413,78 @@ protected:
                     EXPECT_TRUE(elements.is_null_at(2));
                     EXPECT_EQ(element_values.get_element(3), 3);
                     EXPECT_EQ(element_values.get_element(4), 4);
+                });
+        auto inner_map_type =
+                arrow::map(arrow::int32(), arrow::field("value", arrow::utf8(), true));
+        add_field(
+                arrow::field(
+                        "nullable_map_int_map_col",
+                        arrow::map(arrow::int32(), arrow::field("value", inner_map_type, true)),
+                        true),
+                build_nullable_int_map_map_array(),
+                [](const ParquetColumnSchema& schema, const IColumn& column) {
+                    EXPECT_TRUE(schema.type->is_nullable());
+                    const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+                    ASSERT_EQ(nullable_column.size(), ROW_COUNT);
+                    EXPECT_FALSE(nullable_column.is_null_at(0));
+                    EXPECT_TRUE(nullable_column.is_null_at(1));
+                    EXPECT_FALSE(nullable_column.is_null_at(2));
+                    EXPECT_FALSE(nullable_column.is_null_at(3));
+                    EXPECT_FALSE(nullable_column.is_null_at(4));
+
+                    const auto& outer_map =
+                            assert_cast<const ColumnMap&>(nullable_column.get_nested_column());
+                    const auto& outer_offsets = outer_map.get_offsets();
+                    ASSERT_EQ(outer_offsets.size(), ROW_COUNT);
+                    EXPECT_EQ(outer_offsets[0], 2);
+                    EXPECT_EQ(outer_offsets[1], 2);
+                    EXPECT_EQ(outer_offsets[2], 2);
+                    EXPECT_EQ(outer_offsets[3], 4);
+                    EXPECT_EQ(outer_offsets[4], 5);
+
+                    const auto& outer_keys = assert_cast<const ColumnInt32&>(outer_map.get_keys());
+                    ASSERT_EQ(outer_keys.size(), 5);
+                    EXPECT_EQ(outer_keys.get_element(0), 301);
+                    EXPECT_EQ(outer_keys.get_element(1), 302);
+                    EXPECT_EQ(outer_keys.get_element(2), 303);
+                    EXPECT_EQ(outer_keys.get_element(3), 304);
+                    EXPECT_EQ(outer_keys.get_element(4), 305);
+
+                    const auto& inner_nullable =
+                            assert_cast<const ColumnNullable&>(outer_map.get_values());
+                    ASSERT_EQ(inner_nullable.size(), 5);
+                    EXPECT_FALSE(inner_nullable.is_null_at(0));
+                    EXPECT_FALSE(inner_nullable.is_null_at(1));
+                    EXPECT_TRUE(inner_nullable.is_null_at(2));
+                    EXPECT_FALSE(inner_nullable.is_null_at(3));
+                    EXPECT_FALSE(inner_nullable.is_null_at(4));
+
+                    const auto& inner_map =
+                            assert_cast<const ColumnMap&>(inner_nullable.get_nested_column());
+                    const auto& inner_offsets = inner_map.get_offsets();
+                    ASSERT_EQ(inner_offsets.size(), 5);
+                    EXPECT_EQ(inner_offsets[0], 2);
+                    EXPECT_EQ(inner_offsets[1], 2);
+                    EXPECT_EQ(inner_offsets[2], 2);
+                    EXPECT_EQ(inner_offsets[3], 3);
+                    EXPECT_EQ(inner_offsets[4], 4);
+
+                    const auto& inner_keys = assert_cast<const ColumnInt32&>(inner_map.get_keys());
+                    ASSERT_EQ(inner_keys.size(), 4);
+                    EXPECT_EQ(inner_keys.get_element(0), 1);
+                    EXPECT_EQ(inner_keys.get_element(1), 2);
+                    EXPECT_EQ(inner_keys.get_element(2), 3);
+                    EXPECT_EQ(inner_keys.get_element(3), 4);
+
+                    const auto& inner_values =
+                            assert_cast<const ColumnNullable&>(inner_map.get_values());
+                    const auto& value_data =
+                            assert_cast<const ColumnString&>(inner_values.get_nested_column());
+                    ASSERT_EQ(inner_values.size(), 4);
+                    EXPECT_EQ(value_data.get_data_at(0).to_string(), "a");
+                    EXPECT_TRUE(inner_values.is_null_at(1));
+                    EXPECT_EQ(value_data.get_data_at(2).to_string(), "c");
+                    EXPECT_TRUE(inner_values.is_null_at(3));
                 });
 
         auto schema = arrow::schema(_arrow_fields);
@@ -2382,6 +2497,94 @@ TEST_F(ParquetColumnReaderTest, SelectMapWithOverflow) {
     EXPECT_EQ(offsets[0], 2);
     EXPECT_EQ(offsets[1], 3);
     EXPECT_EQ(offsets[2], 4);
+}
+
+TEST_F(ParquetColumnReaderTest, ReadMapMapWithOverflowAcrossChunks) {
+    const auto field_idx = find_field_idx("nullable_map_int_map_col");
+    auto reader = create_reader(field_idx);
+    MutableColumnPtr column = reader->type()->create_column();
+
+    int64_t rows_read = 0;
+    auto st = reader->read(2, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 2);
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    _expected_by_field[field_idx](*_fields[field_idx], *column);
+}
+
+TEST_F(ParquetColumnReaderTest, SkipMapMapWithOverflowThenRead) {
+    const auto field_idx = find_field_idx("nullable_map_int_map_col");
+    auto reader = create_reader(field_idx);
+    auto st = reader->skip(1);
+    ASSERT_TRUE(st.ok()) << st;
+
+    MutableColumnPtr column = reader->type()->create_column();
+    int64_t rows_read = 0;
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), 3);
+    EXPECT_TRUE(nullable_column.is_null_at(0));
+    EXPECT_FALSE(nullable_column.is_null_at(1));
+    EXPECT_FALSE(nullable_column.is_null_at(2));
+    const auto& outer_map = assert_cast<const ColumnMap&>(nullable_column.get_nested_column());
+    const auto& outer_offsets = outer_map.get_offsets();
+    ASSERT_EQ(outer_offsets.size(), 3);
+    EXPECT_EQ(outer_offsets[0], 0);
+    EXPECT_EQ(outer_offsets[1], 0);
+    EXPECT_EQ(outer_offsets[2], 2);
+
+    const auto& inner_nullable = assert_cast<const ColumnNullable&>(outer_map.get_values());
+    ASSERT_EQ(inner_nullable.size(), 2);
+    EXPECT_TRUE(inner_nullable.is_null_at(0));
+    EXPECT_FALSE(inner_nullable.is_null_at(1));
+    const auto& inner_map = assert_cast<const ColumnMap&>(inner_nullable.get_nested_column());
+    const auto& inner_offsets = inner_map.get_offsets();
+    ASSERT_EQ(inner_offsets.size(), 2);
+    EXPECT_EQ(inner_offsets[0], 0);
+    EXPECT_EQ(inner_offsets[1], 1);
+}
+
+TEST_F(ParquetColumnReaderTest, SelectMapMapWithOverflow) {
+    const auto field_idx = find_field_idx("nullable_map_int_map_col");
+    auto reader = create_reader(field_idx);
+    SelectionVector selection(3);
+    selection.set_index(0, 0);
+    selection.set_index(1, 3);
+    selection.set_index(2, 4);
+
+    MutableColumnPtr column = reader->type()->create_column();
+    auto st = reader->select(selection, 3, ROW_COUNT, column);
+    ASSERT_TRUE(st.ok()) << st;
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), 3);
+    EXPECT_FALSE(nullable_column.is_null_at(0));
+    EXPECT_FALSE(nullable_column.is_null_at(1));
+    EXPECT_FALSE(nullable_column.is_null_at(2));
+    const auto& outer_map = assert_cast<const ColumnMap&>(nullable_column.get_nested_column());
+    const auto& outer_offsets = outer_map.get_offsets();
+    ASSERT_EQ(outer_offsets.size(), 3);
+    EXPECT_EQ(outer_offsets[0], 2);
+    EXPECT_EQ(outer_offsets[1], 4);
+    EXPECT_EQ(outer_offsets[2], 5);
+
+    const auto& inner_nullable = assert_cast<const ColumnNullable&>(outer_map.get_values());
+    ASSERT_EQ(inner_nullable.size(), 5);
+    EXPECT_TRUE(inner_nullable.is_null_at(2));
+    const auto& inner_map = assert_cast<const ColumnMap&>(inner_nullable.get_nested_column());
+    const auto& inner_offsets = inner_map.get_offsets();
+    ASSERT_EQ(inner_offsets.size(), 5);
+    EXPECT_EQ(inner_offsets[0], 2);
+    EXPECT_EQ(inner_offsets[1], 2);
+    EXPECT_EQ(inner_offsets[2], 2);
+    EXPECT_EQ(inner_offsets[3], 3);
+    EXPECT_EQ(inner_offsets[4], 4);
 }
 
 TEST_F(ParquetColumnReaderTest, ReadMapStructWithOverflowAcrossChunks) {

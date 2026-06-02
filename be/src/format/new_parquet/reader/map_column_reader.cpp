@@ -43,11 +43,12 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
     auto* value_reader = dynamic_cast<ScalarColumnReader*>(_value_reader.get());
     auto* struct_value_reader = dynamic_cast<StructColumnReader*>(_value_reader.get());
     auto* list_value_reader = dynamic_cast<ListColumnReader*>(_value_reader.get());
+    auto* map_value_reader = dynamic_cast<MapColumnReader*>(_value_reader.get());
     if (key_reader == nullptr || (value_reader == nullptr && struct_value_reader == nullptr &&
-                                  list_value_reader == nullptr)) {
+                                  list_value_reader == nullptr && map_value_reader == nullptr)) {
         return Status::NotSupported(
                 "Current parquet MAP reader only supports scalar key with scalar, scalar-child "
-                "STRUCT, or scalar LIST value for column {}",
+                "STRUCT, scalar LIST, or scalar MAP value for column {}",
                 _name);
     }
 
@@ -146,6 +147,74 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
         return Status::OK();
     }
 
+    if (map_value_reader != nullptr) {
+        auto* inner_key_reader =
+                dynamic_cast<ScalarColumnReader*>(map_value_reader->_key_reader.get());
+        auto* inner_value_reader =
+                dynamic_cast<ScalarColumnReader*>(map_value_reader->_value_reader.get());
+        if (inner_key_reader == nullptr || inner_value_reader == nullptr) {
+            return Status::NotSupported(
+                    "Current parquet MAP nested MAP value reader only supports scalar key/value "
+                    "for column {}",
+                    _name);
+        }
+
+        auto* inner_map_column = map_column_from_output(value_column);
+        DORIS_CHECK(inner_map_column != nullptr);
+        auto* inner_map_null_map = null_map_from_nullable_output(value_column);
+        auto inner_key_column = inner_map_column->get_keys_ptr()->assume_mutable();
+        auto inner_value_column = inner_map_column->get_values_ptr()->assume_mutable();
+        std::vector<uint64_t> inner_entry_counts;
+        NullMap inner_parent_nulls;
+        const int16_t inner_entry_definition_level =
+                map_value_reader->_nullable_definition_level + 1;
+        const int16_t inner_key_max_definition_level =
+                inner_key_reader->descriptor()->max_definition_level();
+        const int16_t inner_value_max_definition_level =
+                inner_value_reader->descriptor()->max_definition_level();
+
+        RepeatedMapMapValueSink<NestedScalarBatch, NestedScalarOverflow, ScalarColumnReader,
+                                NestedScalarValueAppender>
+                sink;
+        sink.column_name = &_name;
+        sink.map_type = &_type;
+        sink.inner_map_type = &map_value_reader->_type;
+        sink.map_nullable_definition_level = _nullable_definition_level;
+        sink.inner_map_nullable_definition_level = map_value_reader->_nullable_definition_level;
+        sink.inner_map_repeated_repetition_level = map_value_reader->_repeated_repetition_level;
+        sink.key_reader = key_reader;
+        sink.inner_key_reader = inner_key_reader;
+        sink.key_column = &key_column;
+        sink.inner_key_column = &inner_key_column;
+        sink.inner_value_column = &inner_value_column;
+        sink.map_state = {&entry_counts, &parent_nulls};
+        sink.inner_map_state = {&inner_entry_counts, &inner_parent_nulls};
+        sink.key_max_definition_level = key_max_definition_level;
+        sink.inner_key_max_definition_level = inner_key_max_definition_level;
+        sink.key_stream = {key_reader, &_key_overflow, entry_definition_level, "key"};
+        sink.value_stream = {inner_value_reader, &map_value_reader->_value_overflow,
+                             inner_entry_definition_level, "value"};
+        sink.value_appender = {inner_value_reader, "MAP", "nested MAP value",
+                               inner_value_max_definition_level};
+        RETURN_IF_ERROR(assemble_repeated_levels(
+                *inner_key_reader, _repeated_repetition_level, inner_entry_definition_level, rows,
+                &map_value_reader->_key_overflow, sink, rows_read));
+        if (!map_value_reader->_key_overflow.empty()) {
+            sink.key_stream.move_tail_to_overflow();
+        }
+        sink.value_stream.move_tail_from_driver_overflow(map_value_reader->_key_overflow);
+
+        inner_map_column->get_keys_ptr() = std::move(inner_key_column);
+        inner_map_column->get_values_ptr() = std::move(inner_value_column);
+        append_offsets(inner_map_column->get_offsets(), inner_entry_counts);
+        append_parent_nulls(inner_map_null_map, inner_parent_nulls);
+        map_column->get_keys_ptr() = std::move(key_column);
+        map_column->get_values_ptr() = std::move(value_column);
+        append_offsets(map_column->get_offsets(), entry_counts);
+        append_parent_nulls(parent_null_map, parent_nulls);
+        return Status::OK();
+    }
+
     RepeatedMapValueSink<NestedStructBatch, NestedStructOverflow, StructColumnReader,
                          NestedStructValueAppender>
             sink;
@@ -182,11 +251,12 @@ Status MapColumnReader::skip(int64_t rows) {
     auto* value_reader = dynamic_cast<ScalarColumnReader*>(_value_reader.get());
     auto* struct_value_reader = dynamic_cast<StructColumnReader*>(_value_reader.get());
     auto* list_value_reader = dynamic_cast<ListColumnReader*>(_value_reader.get());
+    auto* map_value_reader = dynamic_cast<MapColumnReader*>(_value_reader.get());
     if (key_reader == nullptr || (value_reader == nullptr && struct_value_reader == nullptr &&
-                                  list_value_reader == nullptr)) {
+                                  list_value_reader == nullptr && map_value_reader == nullptr)) {
         return Status::NotSupported(
                 "Current parquet MAP reader only supports scalar key with scalar, scalar-child "
-                "STRUCT, or scalar LIST value for column {}",
+                "STRUCT, scalar LIST, or scalar MAP value for column {}",
                 _name);
     }
 
@@ -211,7 +281,7 @@ Status MapColumnReader::skip(int64_t rows) {
                                                  _nullable_definition_level + 1, rows,
                                                  &_key_overflow, sink, &rows_read));
         sink.value_stream.move_tail_from_driver_overflow(_key_overflow);
-    } else {
+    } else if (list_value_reader != nullptr) {
         auto* scalar_list_value_reader =
                 dynamic_cast<ScalarColumnReader*>(list_value_reader->element_reader());
         if (scalar_list_value_reader == nullptr) {
@@ -260,6 +330,64 @@ Status MapColumnReader::skip(int64_t rows) {
         if (!_value_overflow.empty()) {
             sink.key_stream.move_tail_to_overflow();
         }
+    } else if (map_value_reader != nullptr) {
+        auto* inner_key_reader =
+                dynamic_cast<ScalarColumnReader*>(map_value_reader->_key_reader.get());
+        auto* inner_value_reader =
+                dynamic_cast<ScalarColumnReader*>(map_value_reader->_value_reader.get());
+        if (inner_key_reader == nullptr || inner_value_reader == nullptr) {
+            return Status::NotSupported(
+                    "Current parquet MAP nested MAP value skip only supports scalar key/value for "
+                    "column {}",
+                    _name);
+        }
+        struct MapSkipSink {
+            MapColumnReader* self = nullptr;
+            MapColumnReader* value_reader = nullptr;
+            NestedScalarSlotStream key_stream;
+            NestedValueStream<NestedScalarBatch, NestedScalarOverflow, ScalarColumnReader>
+                    value_stream;
+
+            Status start_batch(const NestedScalarBatch& inner_key_batch) {
+                RETURN_IF_ERROR(key_stream.read_records(self->_name, inner_key_batch.records_read,
+                                                        " while skipping"));
+                return value_stream.read_aligned_to_driver(self->_name, inner_key_batch,
+                                                           " while skipping");
+            }
+
+            Status start_parent(const NestedScalarBatch& inner_key_batch, int64_t level_idx) {
+                return consume_key_slot(inner_key_batch, level_idx);
+            }
+
+            Status append_repeated(const NestedScalarBatch& inner_key_batch, int64_t level_idx) {
+                if (inner_key_batch.rep_levels[level_idx] <
+                    value_reader->_repeated_repetition_level) {
+                    return consume_key_slot(inner_key_batch, level_idx);
+                }
+                return Status::OK();
+            }
+
+            Status consume_key_slot(const NestedScalarBatch& inner_key_batch, int64_t level_idx) {
+                return key_stream.consume_aligned_slot(self->_name, inner_key_batch, level_idx,
+                                                       " while skipping");
+            }
+        };
+        MapSkipSink sink;
+        sink.self = this;
+        sink.value_reader = map_value_reader;
+        sink.key_stream = {key_reader, &_key_overflow,
+                           static_cast<int16_t>(_nullable_definition_level + 1), "key"};
+        sink.value_stream = {inner_value_reader, &map_value_reader->_value_overflow,
+                             static_cast<int16_t>(map_value_reader->_nullable_definition_level + 1),
+                             "value"};
+        RETURN_IF_ERROR(assemble_repeated_levels(
+                *inner_key_reader, _repeated_repetition_level,
+                static_cast<int16_t>(map_value_reader->_nullable_definition_level + 1), rows,
+                &map_value_reader->_key_overflow, sink, &rows_read));
+        if (!map_value_reader->_key_overflow.empty()) {
+            sink.key_stream.move_tail_to_overflow();
+        }
+        sink.value_stream.move_tail_from_driver_overflow(map_value_reader->_key_overflow);
     }
     if (rows_read != rows) {
         return Status::Corruption("Failed to skip parquet MAP column {}: skipped {} of {} rows",

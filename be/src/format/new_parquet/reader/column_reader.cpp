@@ -389,6 +389,8 @@ Status ParquetColumnReaderFactory::create_map_column_reader(
         RETURN_IF_ERROR(create_struct_column_reader(value_schema, value_projection, &value_reader));
     } else if (value_schema.kind == ParquetColumnSchemaKind::LIST) {
         RETURN_IF_ERROR(create_list_column_reader(value_schema, value_projection, &value_reader));
+    } else if (value_schema.kind == ParquetColumnSchemaKind::MAP) {
+        RETURN_IF_ERROR(create_map_column_reader(value_schema, value_projection, &value_reader));
     } else {
         return Status::NotSupported(
                 "Current parquet MAP reader does not support nested complex value column {}",
