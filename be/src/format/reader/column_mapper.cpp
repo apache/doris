@@ -517,11 +517,14 @@ Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& project
         ColumnMapping mapping;
         mapping.table_column_id = table_column.id;
         mapping.table_type = table_column.type;
-        if (table_column.is_partition_key && partition_values.count(table_column.name) > 0) {
+        if (table_column.is_partition_key && partition_values.contains(table_column.name)) {
             // 1. Partition column, use partition value as a constant mapping. Note that partition column may also have default expression, but partition value should take precedence if it exists.
             mapping.is_constant = true;
             mapping.default_expr = VExprContext::create_shared(TableLiteral::create_shared(
                     mapping.table_type, partition_values.at(table_column.name)));
+        } else if (_options.mode == TableColumnMappingMode::BY_INDEX &&
+                   !table_column.is_partition_key) {
+            RETURN_IF_ERROR(_create_by_index_mapping(table_column, file_schema, &mapping));
         } else if (const auto* file_field = _find_file_field(table_column, file_schema)) {
             // 2. Table column has a matching file column, use it as a direct mapping.
             RETURN_IF_ERROR(_create_direct_mapping(table_column, *file_field, &mapping));
@@ -548,6 +551,51 @@ Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& project
         }
         _mappings.push_back(std::move(mapping));
     }
+    return Status::OK();
+}
+
+Status TableColumnMapper::_create_by_index_mapping(const TableColumn& table_column,
+                                                   const std::vector<SchemaField>& file_schema,
+                                                   ColumnMapping* mapping) const {
+    DORIS_CHECK(mapping != nullptr);
+    DORIS_CHECK(!table_column.is_partition_key);
+
+    // Key contract: in BY_INDEX mode, `TableColumn::id` is explicitly reinterpreted as the
+    // 0-based position of this column inside `file_schema`. FE writes the physical file position
+    // of each non-partition projected column into that field. This interpretation allows:
+    //   - sparse projection: read only a subset of file columns (for example only `_col2`
+    //     and `_col4`);
+    //   - column reordering: table column order differs from file column order;
+    //   - no many-to-one mapping: FE must guarantee that each file position is referenced by at
+    //     most one table column.
+    const auto file_index = table_column.id;
+
+    // Case A: file_index is in range, so build a direct positional mapping.
+    // The file column name (for example `_col0`) is intentionally ignored here.
+    if (file_index >= 0 && static_cast<size_t>(file_index) < file_schema.size()) {
+        return _create_direct_mapping(table_column, file_schema[static_cast<size_t>(file_index)],
+                                      mapping);
+    }
+
+    // Case B: file_index is out of range, which means the file does not contain this column.
+    // Route it through the missing-column path used by schema evolution.
+    //   B1: the table column carries a default_expr injected by FE, so use the constant branch and
+    //       materialize that value for every row.
+    if (table_column.default_expr != nullptr) {
+        mapping->is_constant = true;
+        mapping->default_expr = table_column.default_expr;
+        return Status::OK();
+    }
+    //   B2: if missing columns are not allowed, fail explicitly instead of silently producing
+    //       NULLs and hiding the issue.
+    if (!_options.allow_missing_columns) {
+        return Status::InvalidArgument(
+                "Table column '{}' (file_index={}) is out of range for file schema of size {}",
+                table_column.name, file_index, file_schema.size());
+    }
+    //   B3: if missing columns are allowed, keep the mapping empty
+    //       (`file_column_id` remains `nullopt`) and let the upper finalize stage fill
+    //       NULL/default values.
     return Status::OK();
 }
 

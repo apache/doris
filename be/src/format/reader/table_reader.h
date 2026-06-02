@@ -151,7 +151,7 @@ public:
 
     // 初始化 table reader 的通用运行参数。
     // 子类可以在自己的 init(options) 中调用该方法；这里不接收具体表格式 schema/task。
-    virtual Status init(TableReadOptions options);
+    virtual Status init(TableReadOptions&& options);
 
     // Prepare for reading a new split/task.
     // 1. Pass a new split/task to reader, which will be used in subsequent open_reader() to initialize the underlying file reader.

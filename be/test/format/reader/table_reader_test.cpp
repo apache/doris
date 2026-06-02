@@ -583,6 +583,14 @@ TableColumn make_table_column(ColumnId id, const std::string& name, const DataTy
     return column;
 }
 
+SchemaField make_schema_field(ColumnId id, const std::string& name, const DataTypePtr& type) {
+    SchemaField field;
+    field.id = id;
+    field.name = name;
+    field.type = type;
+    return field;
+}
+
 TEST(TableReaderTest, ReopenSplitAfterClose) {
     const auto test_dir = std::filesystem::temp_directory_path() / "doris_table_reader_test";
     std::filesystem::remove_all(test_dir);
@@ -2429,6 +2437,250 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismat
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
+}
+
+// ---------------------------------------------------------------------------
+// BY_INDEX (Hive1 / hive_*_use_column_names=false) column mapping tests.
+// These cases exercise `TableColumnMapper::create_mapping` directly to verify top-level
+// file-position matching semantics, where `TableColumn::id` is interpreted as the 0-based file
+// column position in this mode.
+// They do not depend on any real file reads.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// In BY_INDEX mode, `TableColumn::id` directly represents the position of the column in
+// `file_schema`. This helper packages `file_index + display name` into one TableColumn.
+TableColumn make_index_table_column(int32_t file_index, const std::string& name,
+                                    const DataTypePtr& type) {
+    return make_table_column(file_index, name, type);
+}
+
+} // namespace
+
+TEST(TableColumnMapperByIndexTest, MapsTopLevelColumnsByPositionIgnoringFileNames) {
+    // Simulate Hive1 ORC: all file schema names are placeholder values such as `_col0` / `_col1`
+    // / `_col2`, so table columns must match by position instead of name. The table projects all
+    // three file columns in order.
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto str_type = std::make_shared<DataTypeString>();
+    const std::vector<TableColumn> projected_columns = {
+            make_index_table_column(0, "user_id", int_type),
+            make_index_table_column(1, "user_name", str_type),
+            make_index_table_column(2, "age", int_type),
+    };
+    const std::vector<SchemaField> file_schema = {
+            make_schema_field(0, "_col0", int_type),
+            make_schema_field(1, "_col1", str_type),
+            make_schema_field(2, "_col2", int_type),
+    };
+
+    TableColumnMapperOptions options;
+    options.mode = TableColumnMappingMode::BY_INDEX;
+    TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    const auto& mappings = mapper.mappings();
+    ASSERT_EQ(mappings.size(), 3);
+
+    ASSERT_TRUE(mappings[0].file_column_id.has_value());
+    EXPECT_EQ(*mappings[0].file_column_id, 0);
+    EXPECT_EQ(mappings[0].file_column_name, "_col0");
+    EXPECT_FALSE(mappings[0].is_constant);
+
+    ASSERT_TRUE(mappings[1].file_column_id.has_value());
+    EXPECT_EQ(*mappings[1].file_column_id, 1);
+    EXPECT_EQ(mappings[1].file_column_name, "_col1");
+
+    ASSERT_TRUE(mappings[2].file_column_id.has_value());
+    EXPECT_EQ(*mappings[2].file_column_id, 2);
+    EXPECT_EQ(mappings[2].file_column_name, "_col2");
+}
+
+TEST(TableColumnMapperByIndexTest, SparseProjectionMapsByExplicitFileIndex) {
+    // Only project the 2nd and 4th table columns (mapped to `_col2` and `_col4` in the file).
+    // BY_INDEX must support sparse projection: file position is determined only by
+    // `table_column.id`, independent of the relative order inside `projected_columns`.
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const std::vector<TableColumn> projected_columns = {
+            make_index_table_column(2, "age", int_type),
+            make_index_table_column(4, "score", int_type),
+    };
+    const std::vector<SchemaField> file_schema = {
+            make_schema_field(0, "_col0", int_type), make_schema_field(1, "_col1", int_type),
+            make_schema_field(2, "_col2", int_type), make_schema_field(3, "_col3", int_type),
+            make_schema_field(4, "_col4", int_type),
+    };
+
+    TableColumnMapperOptions options;
+    options.mode = TableColumnMappingMode::BY_INDEX;
+    TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    const auto& mappings = mapper.mappings();
+    ASSERT_EQ(mappings.size(), 2);
+    ASSERT_TRUE(mappings[0].file_column_id.has_value());
+    EXPECT_EQ(*mappings[0].file_column_id, 2);
+    EXPECT_EQ(mappings[0].file_column_name, "_col2");
+
+    ASSERT_TRUE(mappings[1].file_column_id.has_value());
+    EXPECT_EQ(*mappings[1].file_column_id, 4);
+    EXPECT_EQ(mappings[1].file_column_name, "_col4");
+}
+
+TEST(TableColumnMapperByIndexTest, PartitionColumnsTakeConstantAndDoNotConsumeFileIndex) {
+    // In BY_INDEX mode, partition columns should take the constant branch using
+    // `partition_values` and stay completely independent from file schema. Data columns still
+    // index into file positions through `table_column.id`.
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto str_type = std::make_shared<DataTypeString>();
+
+    auto pt_col = make_table_column(/*id=*/-1, "dt", str_type);
+    pt_col.is_partition_key = true;
+    const std::vector<TableColumn> projected_columns = {
+            pt_col, // partition column first
+            make_index_table_column(0, "user_id", int_type),
+            make_index_table_column(1, "score", int_type),
+    };
+    const std::vector<SchemaField> file_schema = {
+            make_schema_field(0, "_col0", int_type),
+            make_schema_field(1, "_col1", int_type),
+    };
+
+    std::map<std::string, Field> partition_values;
+    partition_values.emplace("dt", Field::create_field<TYPE_STRING>("2025-06-01"));
+
+    TableColumnMapperOptions options;
+    options.mode = TableColumnMappingMode::BY_INDEX;
+    TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, partition_values, file_schema).ok());
+
+    const auto& mappings = mapper.mappings();
+    ASSERT_EQ(mappings.size(), 3);
+
+    EXPECT_TRUE(mappings[0].is_constant);
+    EXPECT_FALSE(mappings[0].file_column_id.has_value());
+    EXPECT_NE(mappings[0].default_expr, nullptr);
+
+    ASSERT_TRUE(mappings[1].file_column_id.has_value());
+    EXPECT_EQ(*mappings[1].file_column_id, 0);
+    EXPECT_EQ(mappings[1].file_column_name, "_col0");
+
+    ASSERT_TRUE(mappings[2].file_column_id.has_value());
+    EXPECT_EQ(*mappings[2].file_column_id, 1);
+    EXPECT_EQ(mappings[2].file_column_name, "_col1");
+}
+
+TEST(TableColumnMapperByIndexTest, FileIndexOutOfRangeFallsBackToDefaultOrMissing) {
+    // The declared file_index is outside file schema bounds. With `default_expr`, the mapping
+    // takes the constant branch. Without a default and with `allow_missing_columns=true`, it
+    // falls back to the missing-column branch without error and without a file mapping.
+    const auto int_type = std::make_shared<DataTypeInt32>();
+
+    auto with_default = make_index_table_column(5, "extra_default", int_type);
+    auto literal_expr = VExprContext::create_shared(
+            TableLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(42)));
+    with_default.default_expr = literal_expr;
+
+    const std::vector<TableColumn> projected_columns = {
+            make_index_table_column(0, "a", int_type),
+            with_default, // out-of-range file_index + default
+            make_index_table_column(99, "extra_missing", int_type), // out-of-range without default
+    };
+    const std::vector<SchemaField> file_schema = {
+            make_schema_field(0, "_col0", int_type),
+            make_schema_field(1, "_col1", int_type),
+    };
+
+    TableColumnMapperOptions options;
+    options.mode = TableColumnMappingMode::BY_INDEX;
+    options.allow_missing_columns = true;
+    TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    const auto& mappings = mapper.mappings();
+    ASSERT_EQ(mappings.size(), 3);
+
+    ASSERT_TRUE(mappings[0].file_column_id.has_value());
+    EXPECT_EQ(*mappings[0].file_column_id, 0);
+
+    EXPECT_FALSE(mappings[1].file_column_id.has_value());
+    EXPECT_TRUE(mappings[1].is_constant);
+    EXPECT_EQ(mappings[1].default_expr, literal_expr);
+
+    EXPECT_FALSE(mappings[2].file_column_id.has_value());
+    EXPECT_FALSE(mappings[2].is_constant);
+    EXPECT_EQ(mappings[2].default_expr, nullptr);
+}
+
+TEST(TableColumnMapperByIndexTest, FileIndexOutOfRangeRejectedWhenAllowMissingFalse) {
+    // When allow_missing_columns=false, an out-of-range file_index without a default must fail.
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const std::vector<TableColumn> projected_columns = {
+            make_index_table_column(0, "a", int_type),
+            make_index_table_column(5, "b", int_type), // out of range and no default
+    };
+    const std::vector<SchemaField> file_schema = {
+            make_schema_field(0, "_col0", int_type),
+    };
+
+    TableColumnMapperOptions options;
+    options.mode = TableColumnMappingMode::BY_INDEX;
+    options.allow_missing_columns = false;
+    TableColumnMapper mapper(options);
+    const auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    EXPECT_FALSE(status.ok());
+}
+
+TEST(TableColumnMapperByIndexTest, ExtraFileColumnsAreSimplyIgnored) {
+    // The file may contain more columns than the table projects. Any file column that is not
+    // referenced by a table column should simply be ignored without affecting the mapping.
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const std::vector<TableColumn> projected_columns = {
+            make_index_table_column(0, "a", int_type),
+    };
+    const std::vector<SchemaField> file_schema = {
+            make_schema_field(0, "_col0", int_type),
+            make_schema_field(1, "_col1", int_type),
+            make_schema_field(2, "_col2", int_type),
+    };
+
+    TableColumnMapperOptions options;
+    options.mode = TableColumnMappingMode::BY_INDEX;
+    TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    const auto& mappings = mapper.mappings();
+    ASSERT_EQ(mappings.size(), 1);
+    ASSERT_TRUE(mappings[0].file_column_id.has_value());
+    EXPECT_EQ(*mappings[0].file_column_id, 0);
+}
+
+TEST(TableColumnMapperByIndexTest, IgnoresFileColumnNames) {
+    // BY_INDEX ignores file column names completely. Even if a file column name appears to match a
+    // table column name, the mapping must still follow the position specified by
+    // `table_column.id`.
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const std::vector<TableColumn> projected_columns = {
+            // The table wants column "a", but file_index=1 means it should map to file column 1
+            // (named "b"), not file column 0 that happens to be named "a".
+            make_index_table_column(1, "a", int_type),
+    };
+    const std::vector<SchemaField> file_schema = {
+            make_schema_field(10, "a", int_type),
+            make_schema_field(20, "b", int_type),
+    };
+
+    TableColumnMapperOptions options;
+    options.mode = TableColumnMappingMode::BY_INDEX;
+    TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    const auto& mappings = mapper.mappings();
+    ASSERT_EQ(mappings.size(), 1);
+    ASSERT_TRUE(mappings[0].file_column_id.has_value());
+    EXPECT_EQ(*mappings[0].file_column_id, 20);
+    EXPECT_EQ(mappings[0].file_column_name, "b");
 }
 
 } // namespace
