@@ -522,7 +522,7 @@ TEST(VariantUtilTest, ParseVariantColumns_StorageNonDocScalarJsonToDocValueKv) {
     EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 2);
 }
 
-TEST(VariantUtilTest, ParseVariantColumns_StorageTypedPathUsesSubcolumns) {
+TEST(VariantUtilTest, ParseVariantColumns_StorageTypedPathUsesDocValueKv) {
     TabletSchema tablet_schema = _make_variant_schema(false);
     auto typed_path = _make_subcolumn_template("a");
     tablet_schema.mutable_column_by_uid(1).add_sub_column(typed_path);
@@ -532,13 +532,17 @@ TEST(VariantUtilTest, ParseVariantColumns_StorageTypedPathUsesSubcolumns) {
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     const auto& out = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
-    EXPECT_NE(out.get_subcolumn(PathInData("a")), nullptr);
-    EXPECT_NE(out.get_subcolumn(PathInData("b")), nullptr);
+    EXPECT_EQ(out.get_subcolumn(PathInData("a")), nullptr);
+    EXPECT_EQ(out.get_subcolumn(PathInData("b")), nullptr);
     ASSERT_EQ(out.serialized_doc_value_column_offsets().size(), 1);
-    EXPECT_EQ(out.serialized_doc_value_column_offsets().back(), 0);
+    EXPECT_EQ(out.serialized_doc_value_column_offsets().back(), 2);
+
+    auto docs_subcolumns = materialize_docs_to_subcolumns_map(out);
+    EXPECT_TRUE(docs_subcolumns.contains("a"));
+    EXPECT_TRUE(docs_subcolumns.contains("b"));
 }
 
-TEST(VariantUtilTest, ParseVariantColumns_StorageParentIndexUsesSubcolumns) {
+TEST(VariantUtilTest, ParseVariantColumns_StorageParentIndexUsesDocValueKv) {
     TabletSchema tablet_schema = _make_variant_schema(false);
     _append_parent_inverted_index(&tablet_schema);
 
@@ -547,10 +551,14 @@ TEST(VariantUtilTest, ParseVariantColumns_StorageParentIndexUsesSubcolumns) {
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     const auto& out = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
-    EXPECT_NE(out.get_subcolumn(PathInData("a")), nullptr);
-    EXPECT_NE(out.get_subcolumn(PathInData("b")), nullptr);
+    EXPECT_EQ(out.get_subcolumn(PathInData("a")), nullptr);
+    EXPECT_EQ(out.get_subcolumn(PathInData("b")), nullptr);
     ASSERT_EQ(out.serialized_doc_value_column_offsets().size(), 1);
-    EXPECT_EQ(out.serialized_doc_value_column_offsets().back(), 0);
+    EXPECT_EQ(out.serialized_doc_value_column_offsets().back(), 2);
+
+    auto docs_subcolumns = materialize_docs_to_subcolumns_map(out);
+    EXPECT_TRUE(docs_subcolumns.contains("a"));
+    EXPECT_TRUE(docs_subcolumns.contains("b"));
 }
 
 TEST(VariantUtilTest, ParseVariantColumns_DocModeKeepsDocValueWithTypedPathAndParentIndex) {
