@@ -22,6 +22,7 @@ import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.backup.SnapshotInfo;
 import org.apache.doris.backup.Status;
+import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
@@ -35,6 +36,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -154,6 +156,36 @@ public class CloudRestoreJob extends RestoreJob {
             super.run();
         } catch (UserException e) {
             LOG.error("failed to run cloud restore job", e);
+        }
+    }
+
+    @Override
+    protected void updateOlapTablesVersion(Database db, boolean isReplay) {
+        super.updateOlapTablesVersion(db, isReplay);
+        if (isReplay) {
+            return;
+        }
+        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
+            Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
+            if (tbl == null || tbl.getType() != TableType.OLAP) {
+                continue;
+            }
+            OlapTable olapTable = (OlapTable) tbl;
+
+            // sync version
+            List<Pair<OlapTable, Long>> tableVersionMap = Lists.newArrayList(
+                    Pair.of(olapTable, olapTable.getCachedTableVersion()));
+            Map<CloudPartition, Pair<Long, Long>> partitionVersionMap = new HashMap<>(olapTable.getPartitions().size());
+            for (Partition partition : olapTable.getPartitions()) {
+                CloudPartition cloudPartition = (CloudPartition) partition;
+                long version = cloudPartition.getCachedVisibleVersion();
+                partitionVersionMap.put(cloudPartition, Pair.of(version, partition.getVisibleVersionTime()));
+            }
+            ((CloudEnv) env).getCloudFEVersionSynchronizer()
+                    .pushVersionAsync(dbId, tableVersionMap, partitionVersionMap);
+
+            // add active tablets to get stats
+            CloudTabletStatMgr.getInstance().addActiveTablets(olapTable.getAllTabletIds());
         }
     }
 
@@ -462,6 +494,13 @@ public class CloudRestoreJob extends RestoreJob {
                 partitions.forEach(partition -> {
                     visibleVersions.add(partition.getCachedVisibleVersion());
                     partitionIds.add(partition.getId());
+                    if (partition instanceof CloudPartition) {
+                        ((CloudPartition) partition).setCachedVisibleVersion(partition.getVisibleVersion(),
+                                System.currentTimeMillis());
+                        LOG.info("set cloud partition: {}, version: {}, versionTime: {}",
+                                partition.getId(), partition.getCachedVisibleVersion(),
+                                partition.getVisibleVersionTime());
+                    }
                 });
                 preparePartitions(olapTable, partitionIds, visibleVersions);
                 break;
@@ -503,8 +542,12 @@ public class CloudRestoreJob extends RestoreJob {
 
     private void commitPartitions(OlapTable olapTable, List<Long> partitionIds) throws DdlException {
         try {
-            ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).commitPartition(
+            long tableVersion = ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).commitPartition(
                     dbId, olapTable.getId(), partitionIds, olapTable.getIndexIdList());
+            if (tableVersion > 0) {
+                olapTable.setCachedTableVersion(tableVersion);
+                LOG.info("set cloud table: {}, version: {}", olapTable.getId(), tableVersion);
+            }
         } catch (Exception e) {
             String errMsg = String.format("cloud restore job failed to commit partitions, table=%s, "
                     + "partitions=%s, errMsg: %s", olapTable.getName(), partitionIds, e.getMessage());
