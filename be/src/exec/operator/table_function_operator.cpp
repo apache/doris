@@ -27,10 +27,12 @@
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/custom_allocator.h"
+#include "core/data_type/data_type_number.h"
 #include "exec/operator/operator.h"
 #include "exprs/table_function/table_function_factory.h"
 #include "util/simd/bits.h"
@@ -273,6 +275,29 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
     const bool is_posexplode = _block_fast_path_ctx.generate_row_index;
     auto& out_col = columns[p._child_slots.size()];
 
+    // Whether any non-table-function (child) output column needs replicating. When false
+    // (e.g. `SELECT COUNT(*)` where the child slots are pruned), skip building seg_row_ids
+    // entirely instead of pushing one entry per produced row.
+    const bool need_row_ids = !p._output_slot_indexs.empty();
+    // Whether the table function output value is read downstream. _slot_need_copy() takes an
+    // index into _output_slots (not a thrift SlotId); the single TF output slot immediately
+    // follows the child slots because the fast path requires _fn_num == 1. When the value is
+    // pruned away (e.g. COUNT(*)), insert defaults instead of copying the nested values.
+    // posexplode always materializes its struct output.
+    const bool materialize_values =
+            is_posexplode || p._slot_need_copy(cast_set<SlotId>(p._child_slots.size()));
+
+    // When the table function output value is pruned downstream (e.g. `SELECT t.id FROM t,
+    // unnest(t.arr)` where the unnest value is not referenced), its content is never read; only the
+    // produced row count matters. Instead of growing it with insert_many_defaults() over every
+    // produced row (which memsets the full nullable column), leave it untouched during the walk and
+    // size it once after the loop with an O(1) ColumnConst placeholder (mock_column_size). Guarded
+    // by has_output_row_desc() so the const lives only in the internal `_origin_block` consumed by
+    // do_projections() and never propagates downstream (same invariant as the pruned useless child
+    // columns). posexplode always materializes its struct output, so it never takes this path.
+    const bool tf_value_as_const = !materialize_values && p.has_output_row_desc();
+    const size_t tf_value_start_size = out_col->size();
+
     // Decompose posexplode struct output column if needed
     ColumnStruct* struct_col_ptr = nullptr;
     ColumnUInt8* outer_struct_nullmap_ptr = nullptr;
@@ -302,7 +327,9 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
                 0; // number of nested rows in this segment (can be > child row count due to multiple elements per row)
     };
     ExpandSegmentContext segment_ctx;
-    segment_ctx.seg_row_ids.reserve(remaining_capacity);
+    if (need_row_ids) {
+        segment_ctx.seg_row_ids.reserve(remaining_capacity);
+    }
     if (is_posexplode) {
         segment_ctx.seg_positions.reserve(remaining_capacity);
     }
@@ -358,6 +385,13 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
             if (outer_struct_nullmap_ptr) {
                 outer_struct_nullmap_ptr->insert_many_defaults(segment_ctx.seg_nested_count);
             }
+        } else if (!materialize_values) {
+            // The output value is pruned away downstream; only the produced row count matters,
+            // so skip copying the nested values. When it can be represented as a ColumnConst
+            // (tf_value_as_const) skip growing it here too; it is sized once after the loop.
+            if (!tf_value_as_const) {
+                out_col->insert_many_defaults(segment_ctx.seg_nested_count);
+            }
         } else if (out_col->is_nullable()) {
             auto* out_nullable = assert_cast<ColumnNullable*>(out_col.get());
             out_nullable->get_nested_column_ptr()->insert_range_from(
@@ -388,7 +422,9 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
             auto src_column = _child_block->get_by_position(index).column;
             columns[index]->insert_from(*src_column, cr);
         }
-        out_col->insert_default();
+        if (!tf_value_as_const) {
+            out_col->insert_default();
+        }
     };
     // Walk through child rows, accumulating contiguous segments into the output,
     // then when hitting a null/empty row or reaching the end,
@@ -438,9 +474,12 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
 
         // Map each produced output row back to its source child row for copying non-table-function
         // columns via insert_indices_from().
-        for (int j = 0; j < take_count; ++j) {
-            segment_ctx.seg_row_ids.push_back(cast_set<uint32_t>(child_row));
-            if (is_posexplode) {
+        if (need_row_ids) {
+            segment_ctx.seg_row_ids.insert(segment_ctx.seg_row_ids.end(), take_count,
+                                           cast_set<uint32_t>(child_row));
+        }
+        if (is_posexplode) {
+            for (int j = 0; j < take_count; ++j) {
                 segment_ctx.seg_positions.push_back(cast_set<int32_t>(in_row_offset + j));
             }
         }
@@ -456,6 +495,16 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
 
     // Flush any remaining segment
     flush_segment();
+
+    if (tf_value_as_const) {
+        // The pruned table-function value column was not grown during the walk; size it once with
+        // an O(1) ColumnConst carrying the produced row count. The column occupies a fixed block
+        // position that downstream projection indexing relies on and must match the other columns'
+        // row count, so it still has to be sized here (just cheaply). tf_value_start_size is
+        // expected to be 0 (the block is cleared between batches before reuse).
+        DCHECK(is_column_const(*out_col) || out_col->size() == tf_value_start_size);
+        mock_column_size(out_col, tf_value_start_size + produced_rows);
+    }
 
     _block_fast_path_row = child_row;
     _block_fast_path_in_row_offset = in_row_offset;
@@ -482,10 +531,42 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state, Block* o
     }
 
     auto& p = _parent->cast<TableFunctionOperatorX>();
+
+    if (p._output_no_columns_eligible) {
+        // Decide once, when the first non-empty child block arrives, whether the cheap
+        // count-only path (single table function exposing array offsets) is usable. The
+        // decision is stable for the whole query, so the placeholder block schema is fixed.
+        if (_no_columns_mode == -1) {
+            if (_cur_child_offset == -1 || _child_block->rows() == 0) {
+                // No data yet; don't commit to a block schema.
+                *eos = _child_eos && _cur_child_offset == -1;
+                return Status::OK();
+            }
+            _no_columns_mode = _fns[0]->support_block_fast_path() ? 1 : 0;
+        }
+        if (_no_columns_mode == 1) {
+            return _get_expanded_block_no_columns(state, output_block, eos);
+        }
+    }
+
     auto scoped_mutable_block =
             VectorizedUtils::build_scoped_mutable_mem_reuse_block(output_block, p._output_slots);
     auto& m_block = scoped_mutable_block.mutable_block();
     MutableColumns& columns = m_block.mutable_columns();
+
+    // A previous batch's fast path may have left a pruned table-function output column as an O(1)
+    // ColumnConst placeholder in the reused block (see tf_value_as_const in
+    // _get_expanded_block_block_fast_path). Both the slow path (which writes the column directly via
+    // get_value()) and the set_nullable check below require a real mutable column, and the fast path
+    // re-derives the const each batch, so normalize any such const back to an empty mutable column
+    // before processing this batch. Reassigning into `columns` propagates back through the scoped
+    // block on restore().
+    for (int i = 0; i < p._fn_num; i++) {
+        auto& tf_col = columns[i + p._child_slots.size()];
+        if (is_column_const(*tf_col)) {
+            tf_col = p._output_slots[i + p._child_slots.size()]->get_empty_mutable_column();
+        }
+    }
 
     for (int i = 0; i < p._fn_num; i++) {
         if (columns[i + p._child_slots.size()]->is_nullable()) {
@@ -555,8 +636,23 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state, Block* o
     _copy_output_slots(columns, p);
 
     size_t row_size = columns[p._child_slots.size()]->size();
-    for (auto index : p._useless_slot_indexs) {
-        columns[index]->insert_many_defaults(row_size - columns[index]->size());
+    if (p.has_output_row_desc()) {
+        // Child columns that are not referenced downstream (e.g. the lateral-view input `arr` in
+        // `SELECT COUNT(unnest) FROM t, unnest(t.arr)`) still need to occupy their block slot so
+        // the downstream projection can index the kept columns by position, but their values are
+        // never read. Represent them with an O(1) ColumnConst (mock_column_size, the same canonical
+        // pattern hash join uses for un-output intermediate slots) instead of growing the
+        // full-width column with insert_many_defaults(), which would allocate/memset large buffers
+        // (e.g. array offsets) only to be discarded by the projection. Guarded by
+        // has_output_row_desc(): the const lives only in the internal `_origin_block` consumed by
+        // do_projections() and never propagates downstream.
+        for (auto index : p._useless_slot_indexs) {
+            mock_column_size(columns[index], row_size);
+        }
+    } else {
+        for (auto index : p._useless_slot_indexs) {
+            columns[index]->insert_many_defaults(row_size - columns[index]->size());
+        }
     }
     scoped_mutable_block.restore();
 
@@ -569,6 +665,92 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state, Block* o
     }
 
     *eos = _child_eos && _cur_child_offset == -1;
+    return Status::OK();
+}
+
+Status TableFunctionLocalState::_get_expanded_block_no_columns(RuntimeState* state,
+                                                               Block* output_block, bool* eos) {
+    // The node emits no real output columns; downstream only needs the expanded row count.
+    // Carry it with a single lightweight placeholder column instead of materializing the full
+    // `_output_slots` block (which would allocate/memset wide columns just to be discarded by
+    // the constant projection).
+    if (!output_block->mem_reuse()) {
+        output_block->insert(
+                {ColumnUInt8::create(), std::make_shared<DataTypeUInt8>(), "__tf_count__"});
+    }
+    if (_cur_child_offset != -1 && _child_block->rows() > 0) {
+        ScopedMutableBlock scoped_mutable_block(output_block);
+        RETURN_IF_CANCELLED(state);
+        RETURN_IF_ERROR(_count_only_fast_path(state, scoped_mutable_block.mutable_columns()[0]));
+        scoped_mutable_block.restore();
+    }
+    *eos = _child_eos && _cur_child_offset == -1;
+    return Status::OK();
+}
+
+Status TableFunctionLocalState::_count_only_fast_path(RuntimeState* state,
+                                                      MutableColumnPtr& placeholder) {
+    RETURN_IF_ERROR(_prepare_block_fast_path(state));
+
+    const auto& offsets = *_block_fast_path_ctx.offsets_ptr;
+    const auto child_rows = cast_set<int64_t>(offsets.size());
+    const int remaining = state->batch_size() - cast_set<int>(placeholder->size());
+    if (remaining <= 0) {
+        return Status::OK();
+    }
+
+    int64_t child_row = _block_fast_path_row;
+    uint64_t in_row_offset = _block_fast_path_in_row_offset;
+    const bool is_outer = _fns[0]->is_outer();
+    int produced_rows = 0;
+
+    // Walk child rows accumulating the number of expanded output rows, mirroring the block fast
+    // path's row walk but without materializing any value/child columns. Counting is independent
+    // of nested contiguity, so it works regardless of `_block_fast_path_enabled`.
+    while (produced_rows < remaining && child_row < child_rows) {
+        const bool is_null_row = _block_fast_path_ctx.array_nullmap_data &&
+                                 _block_fast_path_ctx.array_nullmap_data[child_row];
+        const uint64_t prev_off = child_row == 0 ? 0 : offsets[child_row - 1];
+        const uint64_t cur_off = is_null_row ? prev_off : offsets[child_row];
+        const uint64_t nested_len = cur_off - prev_off;
+
+        if (is_null_row || in_row_offset >= nested_len) {
+            // for outer functions, emit one null row for NULL or empty array rows
+            if (is_outer && in_row_offset == 0 && (is_null_row || nested_len == 0)) {
+                produced_rows++;
+            }
+            child_row++;
+            in_row_offset = 0;
+            continue;
+        }
+
+        const uint64_t remaining_in_row = nested_len - in_row_offset;
+        const int take_count =
+                std::min<int>(remaining - produced_rows, cast_set<int>(remaining_in_row));
+        produced_rows += take_count;
+        in_row_offset += take_count;
+        if (in_row_offset >= nested_len) {
+            child_row++;
+            in_row_offset = 0;
+        }
+    }
+
+    placeholder->insert_many_defaults(produced_rows);
+
+    _block_fast_path_row = child_row;
+    _block_fast_path_in_row_offset = in_row_offset;
+    _cur_child_offset = child_row >= child_rows ? -1 : child_row;
+
+    if (child_row >= child_rows) {
+        for (TableFunction* fn : _fns) {
+            fn->process_close();
+        }
+        _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
+                                                ._child->row_desc()
+                                                .num_materialized_slots());
+        _reset_block_fast_path_state();
+    }
+
     return Status::OK();
 }
 
@@ -884,6 +1066,30 @@ Status TableFunctionOperatorX::prepare(doris::RuntimeState* state) {
             _useless_slot_indexs.push_back(i);
         }
     }
+
+    // Detect the case where the node emits no real output columns and downstream only needs the
+    // expanded row count (e.g. `SELECT COUNT(*)`): every output slot is pruned and the only
+    // consumer is a constant projection (FE adds `final projections: 1`). In this case the
+    // runtime can skip building/materializing the full output block and emit a single
+    // lightweight placeholder column carrying the row count instead.
+    bool tf_value_pruned = true;
+    for (size_t i = _child_slots.size(); i < _output_slots.size(); i++) {
+        if (_slot_need_copy(cast_set<SlotId>(i))) {
+            tf_value_pruned = false;
+            break;
+        }
+    }
+    bool projections_constant = !projections().empty();
+    for (const auto& ctx : projections()) {
+        if (!ctx->root()->is_constant()) {
+            projections_constant = false;
+            break;
+        }
+    }
+    _output_no_columns_eligible = projections_constant &&
+                                  _intermediate_output_row_descriptor.empty() &&
+                                  conjuncts().empty() && _expand_conjuncts_ctxs.empty() &&
+                                  _output_slot_indexs.empty() && tf_value_pruned && _fn_num == 1;
 
     RETURN_IF_ERROR(VExpr::open(_expand_conjuncts_ctxs, state));
     return VExpr::open(_vfn_ctxs, state);

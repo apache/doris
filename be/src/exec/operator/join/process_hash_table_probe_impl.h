@@ -54,16 +54,6 @@ static void insert_with_indexs(auto& dst, const auto& src, const auto& indexs, b
     }
 }
 
-static void mock_column_size(auto& col, size_t size) {
-    if (!is_column_const(*col)) {
-        DCHECK(col->empty());
-        col->insert_default();
-        col = ColumnConst::create(std::move(col), size);
-    } else {
-        col->resize(size);
-    }
-}
-
 template <int JoinOpType>
 ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState* parent,
                                                          int batch_size)

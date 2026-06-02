@@ -333,6 +333,22 @@ public:
     void replace_float_special_values() override;
 };
 
+// Make a block column occupy its position with the right logical row count using an O(1)
+// ColumnConst placeholder, instead of materializing real per-row data. Used where a column slot
+// must exist (so downstream operators can index columns by position) but its values are never read
+// downstream, e.g. pruned hash-join intermediate slots or pruned table-function output slots.
+// `col` must be either an empty mutable column or an already-built ColumnConst (reused across
+// batches); in the latter case it is just resized.
+void mock_column_size(auto& col, size_t size) {
+    if (!is_column_const(*col)) {
+        DCHECK(col->empty());
+        col->insert_default();
+        col = ColumnConst::create(std::move(col), size);
+    } else {
+        col->resize(size);
+    }
+}
+
 // For example, DataType may not correspond to a type and const,
 // so it is necessary to make a special judgment of ColumnConst.
 template <typename Type>
