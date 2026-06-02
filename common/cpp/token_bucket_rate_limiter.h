@@ -32,11 +32,15 @@ enum class S3RateLimitType : int {
 extern std::string to_string(S3RateLimitType type);
 extern S3RateLimitType string_to_s3_rate_limit_type(std::string_view value);
 
-inline auto metric_func_factory(bvar::Adder<int64_t>& ns_bvar, bvar::Adder<int64_t>& req_num_bvar) {
-    return [&](int64_t ns) {
+inline auto metric_func_factory(bvar::Adder<int64_t>& sleep_ns_bvar,
+                                bvar::Adder<int64_t>& sleep_count_bvar,
+                                bvar::Adder<int64_t>* rejected_count_bvar = nullptr) {
+    return [&, rejected_count_bvar](int64_t ns) {
         if (ns > 0) {
-            ns_bvar << ns;
-            req_num_bvar << 1;
+            sleep_ns_bvar << ns;
+            sleep_count_bvar << 1;
+        } else if (ns < 0 && rejected_count_bvar != nullptr) {
+            *rejected_count_bvar << 1;
         }
     };
 }

@@ -43,6 +43,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/obj_retry_strategy.h"
 #include "io/fs/obj_storage_client.h"
 #include "util/bvar_helper.h"
 #include "util/coding.h"
@@ -74,7 +75,7 @@ auto s3_rate_limit(doris::S3RateLimitType op, Func callback) -> decltype(callbac
     if (!doris::config::enable_s3_rate_limiter) {
         return callback();
     }
-    auto sleep_duration = doris::S3ClientFactory::instance().rate_limiter(op)->add(1);
+    auto sleep_duration = doris::apply_s3_rate_limit(op);
     if (sleep_duration < 0) {
         throw std::runtime_error("Azure exceeds request limit");
     }
@@ -124,6 +125,7 @@ ObjectStorageResponse do_azure_client_call(Func f, const ObjectStoragePathOption
     try {
         f();
     } catch (Azure::Core::RequestFailedException& e) {
+        doris::record_object_request_failed(static_cast<int>(e.StatusCode));
         auto tls_debug_suffix = build_azure_tls_debug_suffix(
                 fmt::format("{} {}", e.what(), e.Message), tls_debug_context);
         auto msg = fmt::format(

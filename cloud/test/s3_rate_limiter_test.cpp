@@ -107,18 +107,27 @@ TEST(S3RateLimiterTest, ExceedLimit) {
 }
 
 TEST(S3RateLimiterHolderTest, BvarMetric) {
-    bvar::Adder<int64_t> rate_limit_ns("rate_limit_ns");
-    bvar::Adder<int64_t> rate_limit_exceed_req_num("rate_limit_exceed_req_num");
+    bvar::Adder<int64_t> rate_limit_sleep_ns("rate_limit_sleep_ns");
+    bvar::Adder<int64_t> rate_limit_sleep_count("rate_limit_sleep_count");
+    bvar::Adder<int64_t> rate_limit_rejected_count("rate_limit_rejected_count");
 
     auto rate_limiter_holder = doris::S3RateLimiterHolder(
-            125, 250, 500, doris::metric_func_factory(rate_limit_ns, rate_limit_exceed_req_num));
+            125, 250, 251,
+            doris::metric_func_factory(rate_limit_sleep_ns, rate_limit_sleep_count,
+                                       &rate_limit_rejected_count));
     int64_t sleep_time = rate_limiter_holder.add(250);
     EXPECT_EQ(sleep_time, 0);
-    EXPECT_EQ(rate_limit_ns.get_value(), 0);
-    EXPECT_EQ(rate_limit_exceed_req_num.get_value(), 0);
+    EXPECT_EQ(rate_limit_sleep_ns.get_value(), 0);
+    EXPECT_EQ(rate_limit_sleep_count.get_value(), 0);
+    EXPECT_EQ(rate_limit_rejected_count.get_value(), 0);
 
     sleep_time = rate_limiter_holder.add(1);
-    EXPECT_GT(rate_limit_ns.get_value(), 0);
-    EXPECT_EQ(rate_limit_exceed_req_num.get_value(), 1);
     EXPECT_GT(sleep_time, 0);
+    EXPECT_GT(rate_limit_sleep_ns.get_value(), 0);
+    EXPECT_EQ(rate_limit_sleep_count.get_value(), 1);
+    EXPECT_EQ(rate_limit_rejected_count.get_value(), 0);
+
+    sleep_time = rate_limiter_holder.add(1);
+    EXPECT_EQ(sleep_time, -1);
+    EXPECT_EQ(rate_limit_rejected_count.get_value(), 1);
 }

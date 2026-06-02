@@ -64,6 +64,7 @@ extern bvar::LatencyRecorder s3_copy_object_latency;
 
 std::string hide_access_key(const std::string& ak);
 int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit);
+int64_t apply_s3_rate_limit(S3RateLimitType type);
 
 class S3URI;
 struct S3ClientConf {

@@ -25,6 +25,8 @@
 #endif
 
 namespace doris {
+void record_object_request_failed(int http_code);
+
 class S3CustomRetryStrategy final : public Aws::Client::DefaultRetryStrategy {
 public:
     S3CustomRetryStrategy(int maxRetries);
