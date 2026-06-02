@@ -39,8 +39,8 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
-import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -493,7 +493,13 @@ public class StatementContext implements Closeable {
         usedAIResourceNames.add(resourceName);
     }
 
-    // Register external relations that may be preloaded before internal table locks are acquired.
+    /**
+     * Register an external relation that may preload metadata before internal table locks are acquired.
+     *
+     * @param table external table referenced by the relation
+     * @param tableSnapshot optional explicit snapshot specification on the relation
+     * @param scanParams optional relation scan parameters such as branch or tag
+     */
     public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
         if (!(table instanceof ExternalTable) || !supportsExternalMetadataPreload(table)) {
@@ -909,7 +915,9 @@ public class StatementContext implements Closeable {
         }
     }
 
-    // Preload external metadata before internal table locks are acquired to reduce lock holding time.
+    /**
+     * Preload external metadata before internal table locks are acquired to reduce lock holding time.
+     */
     public void preloadExternalTablesBeforeLock() {
         if (!shouldPreloadExternalTablesBeforeLock()) {
             return;
