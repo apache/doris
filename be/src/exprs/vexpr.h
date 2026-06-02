@@ -80,6 +80,15 @@ struct AnnRangeSearchRuntime;
 
 using Selector = IColumn::Selector;
 
+struct AnnRangeSearchEvaluationResult {
+    // Indicates whether the expr row_bitmap has been updated.
+    bool executed = false;
+    // Indicates whether the virtual column is fulfilled.
+    // NOTE, if there is no virtual column in the expr tree, and expr
+    // is evaluated by ann index, this flag is still true.
+    bool dist_fulfilled = false;
+};
+
 class VExpr {
 public:
     // resize inserted param column to make sure column size equal to block.rows() and return param column index
@@ -343,7 +352,8 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats);
+            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
+            AnnRangeSearchEvaluationResult& result);
 
     // Prepare the runtime for ANN range search.
     // AnnRangeSearchRuntime is used to store the runtime information of ann range search.
@@ -352,10 +362,6 @@ public:
     virtual void prepare_ann_range_search(const doris::VectorSearchUserParams& params,
                                           segment_v2::AnnRangeSearchRuntime& range_search_runtime,
                                           bool& suitable_for_ann_index);
-
-    bool ann_range_search_executedd();
-
-    bool ann_dist_is_fulfilled() const;
 
     virtual uint64_t get_digest(uint64_t seed) const;
 
@@ -439,13 +445,6 @@ protected:
     // ensuring uniqueness during index traversal
     uint32_t _index_unique_id = 0;
     bool _enable_inverted_index_query = true;
-
-    // Indicates whether the expr row_bitmap has been updated.
-    bool _has_been_executed = false;
-    // Indicates whether the virtual column is fulfilled.
-    // NOTE, if there is no virtual column in the expr tree, and expr
-    // is evaluated by ann index, this flag is still true.
-    bool _virtual_column_is_fulfilled = false;
 };
 
 // NOLINTBEGIN(readability-function-size)

@@ -1017,7 +1017,9 @@ Status VExpr::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-        roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats) {
+        roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats,
+        AnnRangeSearchEvaluationResult& result) {
+    result = {};
     return Status::OK();
 }
 
@@ -1033,14 +1035,6 @@ void VExpr::prepare_ann_range_search(const doris::VectorSearchUserParams& params
             return;
         }
     }
-}
-
-bool VExpr::ann_range_search_executedd() {
-    return _has_been_executed;
-}
-
-bool VExpr::ann_dist_is_fulfilled() const {
-    return _virtual_column_is_fulfilled;
 }
 
 Status VExpr::execute_filter(VExprContext* context, const Block* block,
