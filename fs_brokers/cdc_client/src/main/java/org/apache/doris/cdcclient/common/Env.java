@@ -79,6 +79,31 @@ public class Env {
         return context == null ? null : context.reader;
     }
 
+    /** Record the task currently driving this job's reader (claims ownership). */
+    public void setReaderOwner(String jobId, String taskId) {
+        JobContext context = jobContexts.get(jobId);
+        if (context != null) {
+            context.ownerTaskId = taskId;
+        }
+    }
+
+    /** Return the reader only if {@code taskId} still owns it, else null (stale release -> no-op). */
+    public SourceReader getReaderIfOwner(String jobId, String taskId) {
+        JobContext context = jobContexts.get(jobId);
+        if (context == null) {
+            return null;
+        }
+        if (!Objects.equals(context.ownerTaskId, taskId)) {
+            LOG.info(
+                    "Stale release for job {} task {} (current owner {}), skip",
+                    jobId,
+                    taskId,
+                    context.ownerTaskId);
+            return null;
+        }
+        return context.reader;
+    }
+
     private DataSource resolveDataSource(String source) {
         if (source == null || source.trim().isEmpty()) {
             throw new IllegalArgumentException("Missing dataSource");
@@ -137,6 +162,7 @@ public class Env {
     private static final class JobContext {
         private final String jobId;
         private volatile SourceReader reader;
+        private volatile String ownerTaskId;
         private volatile Map<String, String> config;
         private volatile DataSource dataSource;
 

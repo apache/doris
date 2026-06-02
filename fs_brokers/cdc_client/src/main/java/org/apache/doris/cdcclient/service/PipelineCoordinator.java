@@ -443,6 +443,9 @@ public class PipelineCoordinator {
                 ConfigUtil.parseAllTargetTableMappings(writeRecordRequest.getConfig());
 
         SourceReader sourceReader = Env.getCurrentEnv().getReader(writeRecordRequest);
+        // Claim reader ownership before the engine starts, so a stale releaseReader RPC is a no-op.
+        Env.getCurrentEnv()
+                .setReaderOwner(writeRecordRequest.getJobId(), writeRecordRequest.getTaskId());
         DorisBatchStreamLoad batchStreamLoad = null;
         long scannedRows = 0L;
         int heartbeatCount = 0;

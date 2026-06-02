@@ -28,4 +28,17 @@ class EnvTest {
         // An off-target releaseReader RPC must be a no-op, never create a reader -> peek returns null.
         assertNull(Env.getCurrentEnv().getReaderIfPresent("no-such-job-id"));
     }
+
+    @Test
+    void getReaderIfOwnerReturnsNullForUnknownJob() {
+        // Stale release for an unknown job must be a no-op.
+        assertNull(Env.getCurrentEnv().getReaderIfOwner("no-such-job-id", "t1"));
+    }
+
+    @Test
+    void setReaderOwnerOnUnknownJobIsNoop() {
+        // Claiming ownership before a reader exists must not throw.
+        Env.getCurrentEnv().setReaderOwner("no-such-job-id", "t1");
+        assertNull(Env.getCurrentEnv().getReaderIfOwner("no-such-job-id", "t1"));
+    }
 }

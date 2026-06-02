@@ -344,7 +344,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             JobBaseConfig releaseParams = new JobBaseConfig(
                     String.valueOf(getJobId()), dataSourceType.name(), sourceProperties, getFrontendAddress());
             InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
-                    .setApi("/api/releaseReader")
+                    .setApi("/api/releaseReader/" + getTaskId())
                     .setParams(new Gson().toJson(releaseParams)).build();
             TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
             // Fire-and-forget: this runs under the job write lock, so never block on the result.

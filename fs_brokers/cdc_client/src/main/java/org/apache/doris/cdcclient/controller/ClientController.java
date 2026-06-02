@@ -139,13 +139,15 @@ public class ClientController {
     }
 
     /** Release a job's reader on this backend: stop engine, keep the replication slot. */
-    @RequestMapping(path = "/api/releaseReader", method = RequestMethod.POST)
-    public Object releaseReader(@RequestBody JobBaseConfig jobConfig) {
-        LOG.info("Releasing reader (keep slot) for job {}", jobConfig.getJobId());
+    @RequestMapping(path = "/api/releaseReader/{taskId}", method = RequestMethod.POST)
+    public Object releaseReader(
+            @PathVariable("taskId") String taskId, @RequestBody JobBaseConfig jobConfig) {
+        LOG.info("Releasing reader (keep slot) for job {} task {}", jobConfig.getJobId(), taskId);
         Env env = Env.getCurrentEnv();
-        SourceReader reader = env.getReaderIfPresent(jobConfig.getJobId());
+        // Only the owning task may release; a stale RPC must not interrupt the replacement task.
+        SourceReader reader = env.getReaderIfOwner(jobConfig.getJobId(), taskId);
         if (reader == null) {
-            LOG.info("No reader present for job {}, skip release", jobConfig.getJobId());
+            LOG.info("No owned reader for job {} task {}, skip release", jobConfig.getJobId(), taskId);
             return RestResponse.success(true);
         }
         reader.release(jobConfig);
