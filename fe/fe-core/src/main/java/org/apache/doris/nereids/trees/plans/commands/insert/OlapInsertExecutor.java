@@ -297,6 +297,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     protected void onFail(Throwable t) {
         errMsg = t.getMessage() == null ? "unknown reason" : t.getMessage();
         String queryId = DebugUtil.printId(ctx.queryId());
+        // if any throwable being thrown during insert operation, first we should abort this txn
         LOG.warn("insert [{}] with query id {} failed", labelName, queryId, t);
         if (txnId != INVALID_TXN_ID) {
             try {
@@ -371,9 +372,11 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         sb.append("}");
 
         ctx.getState().setOk(loadedRows, filteredRows, sb.toString());
-        // Save the actual insert status in the connection context before any client-facing state rewrite.
+        // set insert result in connection context,
+        // so that user can use `show insert result` to get info of the last insert operation.
         ctx.setOrUpdateInsertResult(txnId, labelName, database.getFullName(), table.getName(),
                 txnStatus, loadedRows, filteredRows);
+        // update it, so that user can get loaded rows in fe.audit.log
         ctx.updateReturnRows((int) loadedRows);
         if (publishTimedOutAfterCommit && ctx.getSessionVariable().isInsertVisibleTimeoutReturnError()) {
             // Log the committed timeout branch explicitly so operators can distinguish it from real failures.
