@@ -696,6 +696,49 @@ struct TParquetMetadataParams {
   6: optional string bloom_literal
 }
 
+// Partition boundary descriptor for BE-side runtime filter partition pruning.
+// FE sends only partitions that are candidates for pruning; partitions FE does
+// not want pruned (e.g. default catch-all partitions) are simply omitted.
+//
+// Partition type is inferred from which optional fields are set:
+//   - range_start / range_end set  →  Range partition
+//   - list_values set              →  List partition
+//
+// For Range partitions:
+//   - range_start absent  →  no lower-bound constraint (negative infinity)
+//   - range_end   absent  →  no upper-bound constraint (MAXVALUE / positive infinity)
+struct TPartitionBoundary {
+  1: optional Types.TPartitionId partition_id
+  // slot_id of the partition column
+  2: optional Types.TSlotId slot_id
+
+  // Range partition: closed lower bound; absent means unbounded below
+  3: optional Exprs.TExprNode range_start
+  // Range partition: upper bound. By default (range_end_inclusive=false) the
+  // bound is OPEN, i.e. the column range is [range_start, range_end), which
+  // matches Doris RANGE partition's `VALUES [..., ...)` syntax for the
+  // single-column case. Absent means unbounded above (MAXVALUE).
+  4: optional Exprs.TExprNode range_end
+
+  // List partition: set of concrete values in this partition. A NULL_LITERAL
+  // entry indicates the partition logically contains NULL rows for this column;
+  // the BE pruner translates that into ColumnValueRange::set_contain_null(true)
+  // rather than treating it as an ordinary fixed value.
+  5: optional list<Exprs.TExprNode> list_values
+
+  // When true, treat `range_end` as a CLOSED upper bound, i.e. the projected
+  // column range is [range_start, range_end]. Used when projecting a
+  // multi-column RANGE partition onto its first column: a partition like
+  // [(L1, L2, ...), (U1, U2, ...)) projects to the first column as
+  // [L1, U1] (both ends closed) — for the L1 == U1 case the projection is the
+  // singleton {L1}, and for L1 < U1 the value U1 is reachable via inner-tuple
+  // values of the second+ column. The original half-open form [L1, U1) would
+  // be a strict UNDER-approximation and could wrongly prune the partition.
+  // The single-column case keeps the default open form to preserve exact
+  // Doris partition semantics.
+  6: optional bool range_end_inclusive = false
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params // deprecated
@@ -949,6 +992,10 @@ struct TOlapScanNode {
   25: optional bool read_mor_as_dup
   // Read row binlog index instead of base index
   26: optional bool read_row_binlog
+  // Partition boundary descriptors for BE-side runtime filter partition pruning.
+  // Only partitions that are candidates for pruning are included; partitions FE
+  // does not want pruned (e.g. default catch-all) are omitted from this list.
+  27: optional list<TPartitionBoundary> partition_boundaries
 }
 
 struct TEqJoinCondition {
@@ -1436,6 +1483,20 @@ enum TMinMaxRuntimeFilterType {
   MIN_MAX = 4
 }
 
+// Monotonicity of a runtime filter's target expression on one partition range,
+// used by BE-side partition pruning. FE sends this per partition so BE can
+// project each boundary with the direction proven for that exact range.
+enum TTargetExprMonotonicity {
+  NON_MONOTONIC = 0,
+  MONOTONIC_INCREASING = 1,
+  MONOTONIC_DECREASING = 2
+}
+
+struct TPartitionTargetExprMonotonicity {
+  1: optional Types.TPartitionId partition_id
+  2: optional TTargetExprMonotonicity monotonicity
+}
+
 struct TTopnFilterDesc {
   // topn node id
   1: required i32 source_node_id 
@@ -1506,6 +1567,16 @@ struct TRuntimeFilterDesc {
   // Per-filter wait time in ms. When set, overrides query-level runtime_filter_wait_time_ms.
   // 0 means non-blocking (don't wait for this filter).
   18: optional i32 wait_time_ms;
+
+  // Deprecated compatibility field. Current RF partition pruning uses
+  // planId_to_partition_target_monotonicity for both direct SlotRef targets and
+  // expression targets, so BE can make one per-partition decision path.
+  19: optional map<Types.TPlanNodeId, TTargetExprMonotonicity> planId_to_target_monotonicity;
+
+  // Per-target, per-partition monotonicity. BE must apply the target RF only to
+  // the listed partitions with the listed direction; absent partitions are
+  // unsafe for this RF target and must not be pruned by it.
+  20: optional map<Types.TPlanNodeId, list<TPartitionTargetExprMonotonicity>> planId_to_partition_target_monotonicity;
 }
 
 

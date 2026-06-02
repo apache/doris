@@ -38,6 +38,11 @@ public class RowBinlogTableWrapper extends OlapTableWrapper {
         return rowBinlogMeta.getIndexId();
     }
 
+    public static boolean isRowBinlogSyntheticColumn(Column column) {
+        return column.getName().equals(Column.BINLOG_LSN_COL)
+                || column.getName().equals(Column.BINLOG_TIMESTAMP_COL);
+    }
+
     @Override
     public MaterializedIndex getPartitionIndex(Partition partition, long indexId) {
         MaterializedIndex index = partition.getIndex(indexId);

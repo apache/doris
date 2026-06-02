@@ -22,6 +22,7 @@
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <shared_mutex>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -33,6 +34,7 @@
 #include "exec/scan/olap_scanner.h"
 #include "exec/scan/parallel_scanner_builder.h"
 #include "exprs/function/in.h"
+#include "exprs/hybrid_set.h"
 #include "exprs/score_runtime.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
@@ -93,6 +95,9 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
     RETURN_IF_ERROR(Base::init(state, info));
     RETURN_IF_ERROR(_sync_cloud_tablets(state));
+
+    _attach_partition_boundaries();
+
     return Status::OK();
 }
 
@@ -123,6 +128,8 @@ Status OlapScanLocalState::_init_profile() {
     // Rows read from storage.
     // Include the rows read from doris page cache.
     _scan_rows = ADD_COUNTER(custom_profile(), "ScanRows", TUnit::UNIT);
+    _tablets_pruned_by_rf_counter =
+            ADD_COUNTER(custom_profile(), "TabletsPrunedByRuntimeFilter", TUnit::UNIT);
 
     // 1. init segment profile
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
@@ -597,6 +604,50 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     // key range to the tablet reader.
     if (_cond_ranges.empty()) {
         _cond_ranges.emplace_back(new doris::OlapScanRange());
+    }
+
+    // Filter out tablets whose partitions have been pruned by runtime filters.
+    //
+    // TODO(rf-partition-prune): this happens after OlapScanLocalState::init()
+    // has already executed _sync_cloud_tablets() (in cloud mode that performs
+    // get_tablet() and waits for sync_rowsets() on every scan range) and after
+    // capture_read_source() has been called for every tablet. RFs that are
+    // ready at start therefore still pay the full per-tablet metadata / read
+    // source setup cost for partitions that are immediately dropped here, so
+    // the current feature only saves scanner construction and scan IO, not
+    // the expensive setup work that partition pruning was originally intended
+    // to avoid. To fix this we need to (a) add partition_id onto
+    // TPaloScanRange so BE knows the partition without first materializing
+    // the tablet, (b) acquire ready-at-start RFs before _sync_cloud_tablets()
+    // and run partition pruning there to filter _scan_ranges by partition_id
+    // so the heavy per-tablet work is skipped for pruned partitions.
+    if (_rf_partition_pruner.pruned_partition_count() > 0) {
+        DCHECK_EQ(_tablets.size(), _scan_ranges.size());
+        DCHECK_EQ(_tablets.size(), _read_sources.size());
+        size_t write_idx = 0;
+        for (size_t read_idx = 0; read_idx < _tablets.size(); ++read_idx) {
+            int64_t pid = _tablets[read_idx].tablet->partition_id();
+            if (!_rf_partition_pruner.is_partition_pruned(pid)) {
+                if (write_idx != read_idx) {
+                    _tablets[write_idx] = std::move(_tablets[read_idx]);
+                    _scan_ranges[write_idx] = std::move(_scan_ranges[read_idx]);
+                    _read_sources[write_idx] = std::move(_read_sources[read_idx]);
+                }
+                ++write_idx;
+            }
+        }
+        if (write_idx < _tablets.size()) {
+            COUNTER_SET(_tablets_pruned_by_rf_counter,
+                        static_cast<int64_t>(_tablets.size() - write_idx));
+            _tablets.resize(write_idx);
+            _scan_ranges.resize(write_idx);
+            _read_sources.resize(write_idx);
+        }
+        if (_tablets.empty()) {
+            _eos = true;
+            _scan_dependency->set_ready();
+            return Status::OK();
+        }
     }
 
     bool enable_parallel_scan = state()->enable_parallel_scan();
@@ -1200,6 +1251,33 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
             _tablet_schema->update_indexes_from_thrift(_olap_scan_node.indexes_desc);
         }
     }
+}
+
+// ======== Runtime Filter Partition Pruning ========
+
+Status OlapScanOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(ScanOperatorX<OlapScanLocalState>::prepare(state));
+    // Parse partition boundaries once per fragment-on-host. Cost (VLiteral
+    // construction + ColumnPtr materialization + ColumnValueRange build per
+    // boundary literal) is plan-time-static, so doing it here -- rather than
+    // in per-instance LocalState::init -- avoids paying it parallel_tasks
+    // times. The parsed result lives on the generic ScanOperatorX base and is
+    // read by every per-instance pruner via OperatorXBase::parsed_partition_boundaries().
+    if (state->query_options().enable_runtime_filter_partition_prune &&
+        _olap_scan_node.__isset.partition_boundaries &&
+        !_olap_scan_node.partition_boundaries.empty()) {
+        RETURN_IF_ERROR(_parsed_partition_boundaries.parse(_olap_scan_node.partition_boundaries,
+                                                           _slot_id_to_slot_desc));
+    }
+    return Status::OK();
+}
+
+void OlapScanLocalState::_attach_partition_boundaries() {
+    const auto* parsed = _parent->parsed_partition_boundaries();
+    if (parsed == nullptr || parsed->empty()) {
+        return;
+    }
+    COUNTER_SET(_total_partitions_rf_counter, parsed->total_partitions());
 }
 
 } // namespace doris

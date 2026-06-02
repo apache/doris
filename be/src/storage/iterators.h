@@ -121,6 +121,9 @@ public:
     int topn_filter_target_node_id = -1;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
+    // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
+    // For example, use lower rowset version / segment id first.
+    bool use_insert_order_when_same = false;
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     io::IOContext io_ctx;
