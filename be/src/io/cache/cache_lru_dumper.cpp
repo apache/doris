@@ -363,9 +363,8 @@ Status CacheLRUDumper::do_dump_queue(const std::vector<LruDumpEntry>& elements,
             RETURN_IF_ERROR(
                     finalize_dump(out, elements.size(), tmp_filename, final_filename, file_size));
         } else {
-            std::string warn_msg =
-                    fmt::format("open lru dump file failed, file={} failed to create",
-                                tmp_filename);
+            std::string warn_msg = fmt::format(
+                    "open lru dump file failed, file={} failed to create", tmp_filename);
             LOG(WARNING) << warn_msg;
             return Status::InternalError<false>(warn_msg);
         }

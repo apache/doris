@@ -19,9 +19,9 @@
 
 #include <filesystem>
 
+#include "common/config.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "common/config.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"

@@ -41,8 +41,8 @@ size_t LRUQueueRecorder::replay_queue_event(FileCacheType type, size_t max_event
     return replay_queue_event_locked(type, max_events, lru_log_lock);
 }
 
-size_t LRUQueueRecorder::replay_queue_event_locked(
-        FileCacheType type, size_t max_events, std::lock_guard<std::mutex>& lru_log_lock) {
+size_t LRUQueueRecorder::replay_queue_event_locked(FileCacheType type, size_t max_events,
+                                                   std::lock_guard<std::mutex>& lru_log_lock) {
     // we don't need the real cache lock for the shadow queue, but we do need a lock to prevent read/write contension
     CacheLRULogQueue& log_queue = get_lru_log_queue(type);
     LRUQueue& shadow_queue = get_shadow_queue(type);
