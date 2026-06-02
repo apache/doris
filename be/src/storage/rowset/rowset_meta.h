@@ -34,6 +34,7 @@
 #include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "storage/compaction/binlog_compaction_policy.h"
 #include "storage/metadata_adder.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_fwd.h"
@@ -93,6 +94,14 @@ public:
     int64_t tablet_id() const { return _rowset_meta_pb.tablet_id(); }
 
     void set_tablet_id(int64_t tablet_id) { _rowset_meta_pb.set_tablet_id(tablet_id); }
+
+    int64_t db_id() const { return _rowset_meta_pb.db_id(); }
+
+    void set_db_id(int64_t db_id) { _rowset_meta_pb.set_db_id(db_id); }
+
+    int64_t table_id() const { return _rowset_meta_pb.table_id(); }
+
+    void set_table_id(int64_t table_id) { _rowset_meta_pb.set_table_id(table_id); }
 
     int64_t index_id() const { return _rowset_meta_pb.index_id(); }
 
@@ -312,6 +321,14 @@ public:
     // if segments are overlapping, the score equals to the number of segments,
     // otherwise, score is 1.
     uint32_t get_compaction_score() const {
+        // Row binlog LMax Base([0-x]) only performs meta-only merge, so treat it as score 1.
+        if (is_row_binlog() &&
+            _rowset_meta_pb.compaction_level() ==
+                    BinlogCompactionPolicy::kBinlogCompactionMaxLevel - 1 &&
+            start_version() == 0) {
+            return 1;
+        }
+
         uint32_t score = 0;
         if (!is_segments_overlapping()) {
             score = 1;
@@ -478,9 +495,20 @@ public:
                 [algorithm]() -> Result<EncryptionAlgorithmPB> { return algorithm; });
     }
 
-    int64_t commit_tso() const { return _rowset_meta_pb.commit_tso(); }
+    TsoRange commit_tso() const {
+        const auto& commit_tso_pb = _rowset_meta_pb.commit_tso();
+        return {commit_tso_pb.start_tso(), commit_tso_pb.end_tso()};
+    }
 
-    void set_commit_tso(int64_t commit_tso) { _rowset_meta_pb.set_commit_tso(commit_tso); }
+    bool has_commit_tso() const { return _rowset_meta_pb.has_commit_tso(); }
+
+    void set_commit_tso(const TsoRange& commit_tso) {
+        auto* commit_tso_pb = _rowset_meta_pb.mutable_commit_tso();
+        commit_tso_pb->set_start_tso(commit_tso.start_tso());
+        commit_tso_pb->set_end_tso(commit_tso.end_tso());
+    }
+
+    void set_commit_tso(int64_t commit_tso) { set_commit_tso({commit_tso, commit_tso}); }
 
     void set_cloud_fields_after_visible(int64_t visible_version, int64_t version_update_time_ms) {
         // Update rowset meta with correct version and visible_ts

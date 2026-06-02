@@ -64,7 +64,7 @@ class LiteralTest {
         for (int i = 0; i < elementsArray.length; ++i) {
             elementsArray[i] = i;
         }
-        DataType arrayType = ArrayType.of(IntegerType.INSTANCE, true);
+        DataType arrayType = ArrayType.of(IntegerType.INSTANCE);
         PGenericType.Builder childTypeBuilder = PGenericType.newBuilder();
         childTypeBuilder.setId(TypeId.INT32);
         PGenericType.Builder typeBuilder = PGenericType.newBuilder();
@@ -94,8 +94,8 @@ class LiteralTest {
         for (int i = 0; i < elementsArray.length; ++i) {
             elementsArray[i] = i;
         }
-        DataType nestedArrayType = ArrayType.of(IntegerType.INSTANCE, true);
-        DataType outArrayType = ArrayType.of(nestedArrayType, true);
+        DataType nestedArrayType = ArrayType.of(IntegerType.INSTANCE);
+        DataType outArrayType = ArrayType.of(nestedArrayType);
         PGenericType.Builder childTypeBuilder = PGenericType.newBuilder();
         childTypeBuilder.setId(TypeId.INT32);
         PGenericType.Builder typeBuilder = PGenericType.newBuilder();
@@ -134,8 +134,8 @@ class LiteralTest {
         for (int i = 0; i < elementsArray.length; ++i) {
             elementsArray[i] = i;
         }
-        DataType nestedArrayType = ArrayType.of(IntegerType.INSTANCE, true);
-        DataType outArrayType = ArrayType.of(nestedArrayType, true);
+        DataType nestedArrayType = ArrayType.of(IntegerType.INSTANCE);
+        DataType outArrayType = ArrayType.of(nestedArrayType);
         PGenericType.Builder childTypeBuilder = PGenericType.newBuilder();
         childTypeBuilder.setId(TypeId.INT32);
         PGenericType.Builder typeBuilder = PGenericType.newBuilder();
@@ -182,7 +182,7 @@ class LiteralTest {
             elementsArray[i] = i;
             nullMap[i] = (i % 2 == 1);
         }
-        DataType arrayType = ArrayType.of(IntegerType.INSTANCE, true);
+        DataType arrayType = ArrayType.of(IntegerType.INSTANCE);
         PGenericType.Builder childTypeBuilder = PGenericType.newBuilder();
         childTypeBuilder.setId(TypeId.INT32);
         PGenericType.Builder typeBuilder = PGenericType.newBuilder();

@@ -30,6 +30,7 @@ import org.apache.kafka.connect.source.SourceRecord;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -88,6 +89,16 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
         return out;
     }
 
+    private static final Map<Class<?>, Function<String, Object>> BOUND_PARSERS =
+            Map.of(
+                    java.sql.Date.class, java.sql.Date::valueOf,
+                    java.sql.Timestamp.class, java.sql.Timestamp::valueOf,
+                    java.sql.Time.class, java.sql.Time::valueOf,
+                    java.time.LocalDateTime.class, java.time.LocalDateTime::parse,
+                    java.time.LocalDate.class, java.time.LocalDate::parse,
+                    java.time.LocalTime.class, java.time.LocalTime::parse,
+                    java.time.OffsetDateTime.class, java.time.OffsetDateTime::parse);
+
     private static Object convertBound(Object v, Class<?> target, ObjectMapper mapper) {
         if (v == null) {
             return null;
@@ -95,15 +106,9 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
         if (target.isInstance(v)) {
             return v;
         }
-        String s = v.toString();
-        if (target == java.sql.Date.class) {
-            return java.sql.Date.valueOf(s);
-        }
-        if (target == java.sql.Timestamp.class) {
-            return java.sql.Timestamp.valueOf(s);
-        }
-        if (target == java.sql.Time.class) {
-            return java.sql.Time.valueOf(s);
+        Function<String, Object> parser = BOUND_PARSERS.get(target);
+        if (parser != null) {
+            return parser.apply(v.toString());
         }
         return mapper.convertValue(v, target);
     }

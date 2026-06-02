@@ -16,9 +16,10 @@
 // under the License.
 
 #include "common/exception.h"
-#include "storage/field.h"
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/types.h"
 
 namespace doris::segment_v2 {
 
@@ -45,33 +46,33 @@ bool IndexColumnWriter::check_support_ann_index(const TabletColumn& column) {
 }
 
 // create index writer
-Status IndexColumnWriter::create(const StorageField* field, std::unique_ptr<IndexColumnWriter>* res,
+Status IndexColumnWriter::create(const TabletColumn* column,
+                                 std::unique_ptr<IndexColumnWriter>* res,
                                  IndexFileWriter* index_file_writer,
                                  const TabletIndex* index_meta) {
-    FieldType type = field->type();
+    FieldType type = column->type();
     std::string field_name;
     auto storage_format = index_file_writer->get_storage_format();
     if (storage_format == InvertedIndexStorageFormatPB::V1) {
-        field_name = field->name();
+        field_name = column->name();
     } else {
-        if (field->is_extracted_column()) {
+        if (column->is_extracted_column()) {
             // variant sub col
             // field_name format: parent_unique_id.sub_col_name
-            field_name = std::to_string(field->parent_unique_id()) + "." + field->name();
+            field_name = std::to_string(column->parent_unique_id()) + "." + column->name();
         } else {
-            field_name = std::to_string(field->unique_id());
+            field_name = std::to_string(column->unique_id());
         }
     }
 
     if (index_meta->is_inverted_index()) {
         bool single_field = true;
         if (type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-            const auto& column = field->get_desc();
-            bool has_item_subcolumn = column.get_subtype_count() > 0;
+            bool has_item_subcolumn = column->get_subtype_count() > 0;
             DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_array_typeinfo_is_nullptr",
                             { has_item_subcolumn = false; })
             if (has_item_subcolumn) {
-                type = column.get_sub_column(0).type();
+                type = column->get_sub_column(0).type();
                 single_field = false;
             } else {
                 return Status::NotSupported("unsupported array type for inverted index: " +

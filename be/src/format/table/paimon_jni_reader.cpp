@@ -105,11 +105,11 @@ Status PaimonJniReader::_do_get_next_block(Block* block, size_t* read_rows, bool
         auto rows = std::min(_remaining_table_level_row_count,
                              (int64_t)_state->query_options().batch_size);
         _remaining_table_level_row_count -= rows;
-        auto mutate_columns = block->mutate_columns();
+        auto mutable_columns_guard = block->mutate_columns_scoped();
+        auto& mutate_columns = mutable_columns_guard.mutable_columns();
         for (auto& col : mutate_columns) {
             col->resize(rows);
         }
-        block->set_columns(std::move(mutate_columns));
         *read_rows = rows;
         if (_remaining_table_level_row_count == 0) {
             *eof = true;

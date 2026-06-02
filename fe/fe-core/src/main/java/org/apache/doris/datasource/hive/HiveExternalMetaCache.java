@@ -394,13 +394,13 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
 
         FileSystemCache.FileSystemCacheKey fileSystemCacheKey = new FileSystemCache.FileSystemCacheKey(
                 path.getFsIdentifier(), path.getStorageProperties());
-        FileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache()
-                .getFileSystem(fileSystemCacheKey);
-        result.setSplittable(HiveUtil.isSplittable(fs, inputFormat, path.getNormalizedLocation()));
 
         boolean isRecursiveDirectories = Boolean.valueOf(
                 catalog.getProperties().getOrDefault("hive.recursive_directories", "true"));
-        try {
+        try (FileSystemCache.FileSystemLease fileSystemLease = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache()
+                .getFileSystem(fileSystemCacheKey)) {
+            FileSystem fs = fileSystemLease.fileSystem();
+            result.setSplittable(HiveUtil.isSplittable(fs, inputFormat, path.getNormalizedLocation()));
             RemoteIterator<FileEntry> iterator = directoryLister.listFiles(fs, isRecursiveDirectories,
                     table, path.getNormalizedLocation());
             boolean isLzoInputFormat = HiveUtil.isLzoInputFormat(inputFormat);
@@ -824,22 +824,24 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 HMSExternalCatalog catalog = hmsCatalog(partition.getNameMapping().getCtlId());
                 LocationPath locationPath = LocationPath.of(partition.getPath(),
                         catalog.getCatalogProperty().getStoragePropertiesMap());
-                FileSystem fileSystem = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache()
-                        .getFileSystem(new FileSystemCache.FileSystemCacheKey(
-                                locationPath.getNormalizedLocation(),
-                                locationPath.getStorageProperties()));
+                FileSystemCache.FileSystemCacheKey fileSystemCacheKey = new FileSystemCache.FileSystemCacheKey(
+                        locationPath.getNormalizedLocation(), locationPath.getStorageProperties());
                 AuthenticationConfig authenticationConfig = AuthenticationConfig
                         .getKerberosConfig(locationPath.getStorageProperties().getBackendConfigProperties());
                 HadoopAuthenticator hadoopAuthenticator =
                         HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
 
-                fileCacheValues.add(
-                        hadoopAuthenticator.doAs(() -> AcidUtil.getAcidState(
-                                fileSystem,
-                                partition,
-                                txnValidIds,
-                                catalog.getCatalogProperty().getStoragePropertiesMap(),
-                                isFullAcid)));
+                try (FileSystemCache.FileSystemLease fileSystemLease =
+                        Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getFileSystem(fileSystemCacheKey)) {
+                    FileSystem fileSystem = fileSystemLease.fileSystem();
+                    fileCacheValues.add(
+                            hadoopAuthenticator.doAs(() -> AcidUtil.getAcidState(
+                                    fileSystem,
+                                    partition,
+                                    txnValidIds,
+                                    catalog.getCatalogProperty().getStoragePropertiesMap(),
+                                    isFullAcid)));
+                }
             }
         } catch (Exception e) {
             throw new CacheException("Failed to get input splits %s", e, txnValidIds.toString());

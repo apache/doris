@@ -15,8 +15,8 @@ Vectorized columns (`IColumn`) use intrusive-reference-counted copy-on-write.
 ### Checkpoints
 
 - [ ] Exclusive ownership guaranteed before `mutate()` on hot paths? Shared ownership triggers deep copy
-- [ ] `assume_mutable_ref()` used only when exclusive ownership is already guaranteed?
-- [ ] After `Block::mutate_columns()`, columns put back with `set_columns()`?
+- [ ] `assert_mutable()` used only when exclusive ownership is already guaranteed?
+- [ ] If you need to modify the data within a `Block`, have you correctly used `ScopedMutableBlock`?
 - [ ] `convert_to_full_column_if_const()` materializes only `ColumnConst`; ordinary columns may return shared storage?
 
 ## Type System and Serialization

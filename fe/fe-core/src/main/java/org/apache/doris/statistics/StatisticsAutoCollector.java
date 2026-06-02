@@ -258,6 +258,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setPartitionNames(Collections.emptySet())
                 .setSampleRows(analysisMethod.equals(AnalysisMethod.SAMPLE)
                     ? StatisticsUtil.getHugeTableSampleRows() : -1)
+                .setCollectHotValue(analysisMethod.equals(AnalysisMethod.SAMPLE))
                 .setScheduleType(ScheduleType.AUTOMATIC)
                 .setState(AnalysisState.PENDING)
                 .setTaskIds(new ArrayList<>())

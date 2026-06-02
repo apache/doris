@@ -37,6 +37,7 @@
 #include "exec/runtime_filter/runtime_filter_consumer_helper.h"
 #include "exec/scan/scanner_context.h"
 #include "exprs/function/in.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vcast_expr.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
@@ -44,7 +45,6 @@
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vin_predicate.h"
 #include "exprs/virtual_slot_ref.h"
-#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vslot_ref.h"
 #include "exprs/vtopn_pred.h"
 #include "runtime/descriptors.h"
@@ -386,7 +386,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
                     {
                         Defer attach_defer = [&]() {
                             if (pdt != PushDownType::UNACCEPTABLE && root->is_rf_wrapper()) {
-                                auto* rf_expr = assert_cast<VRuntimeFilterWrapper*>(root.get());
+                                auto* rf_expr = assert_cast<RuntimeFilterExpr*>(root.get());
                                 _slot_id_to_predicates[slot->id()].back()->attach_profile_counter(
                                         rf_expr->filter_id(),
                                         rf_expr->predicate_filtered_rows_counter(),
@@ -1250,11 +1250,6 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
         _slot_id_to_slot_desc[slot->id()] = slot;
     }
     for (auto id : _topn_filter_source_node_ids) {
-        if (!state->get_query_ctx()->has_runtime_predicate(id)) {
-            // compatible with older versions fe
-            continue;
-        }
-
         int cid = -1;
         if (state->get_query_ctx()->get_runtime_predicate(id).target_is_slot(node_id())) {
             auto s = _slot_id_to_slot_desc[state->get_query_ctx()

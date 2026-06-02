@@ -53,3 +53,19 @@ IPv6_Nullable	text	Yes	true	\N
 -- !select_all_types_multi_block --
 4100
 
+-- !order_show_db --
+db_accessadmin
+db_backupoperator
+db_datareader
+db_datawriter
+db_ddladmin
+db_denydatareader
+db_denydatawriter
+db_owner
+db_securityadmin
+dbo
+guest
+information_schema
+mysql
+sys
+

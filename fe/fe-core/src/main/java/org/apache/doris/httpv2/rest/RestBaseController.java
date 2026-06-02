@@ -88,36 +88,49 @@ public class RestBaseController extends BaseController {
         return authInfo;
     }
 
-    public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr) {
-        RedirectView redirectView = new RedirectView(getRedirectUrL(request, addr));
-        redirectView.setContentType("text/html;charset=utf-8");
-        redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
-        return redirectView;
+    protected String buildRedirectUrl(HttpServletRequest request, TNetworkAddress addr) {
+        return buildRedirectUrl(request, addr, request.getRequestURI(), request.getQueryString());
     }
 
-    public String getRedirectUrL(HttpServletRequest request, TNetworkAddress addr) {
-        URI urlObj = null;
-        URI resultUriObj = null;
-        String urlStr = request.getRequestURI();
+    protected String buildRedirectUrl(HttpServletRequest request, TNetworkAddress addr, String requestPath,
+            String queryString) {
         String userInfo = null;
         if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
             userInfo = authInfo.fullUserName + ":" + authInfo.password;
         }
         try {
-            urlObj = new URI(urlStr);
-            resultUriObj = new URI(request.getScheme(), userInfo, addr.getHostname(),
-                    addr.getPort(), urlObj.getPath(), "", null);
+            // Preserve the original request path to avoid re-encoding an already encoded URI path.
+            URI authorityUri = new URI(request.getScheme(), userInfo, addr.getHostname(),
+                    addr.getPort(), null, null, null);
+            String redirectUrl = authorityUri.toASCIIString() + requestPath;
+            if (!Strings.isNullOrEmpty(queryString)) {
+                redirectUrl += "?" + queryString;
+            }
+            LOG.info("Redirect url: {}", request.getScheme() + "://" + addr.getHostname() + ":"
+                    + addr.getPort() + requestPath);
+            return redirectUrl;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-        String redirectUrl = resultUriObj.toASCIIString();
-        if (!Strings.isNullOrEmpty(request.getQueryString())) {
-            redirectUrl += request.getQueryString();
-        }
-        LOG.info("Redirect url: {}", request.getScheme() + "://" + addr.getHostname() + ":"
-                + addr.getPort() + urlObj.getPath());
-        return redirectUrl;
+    }
+
+    protected void writeTemporaryRedirect(HttpServletResponse response, String redirectUrl) throws IOException {
+        response.setContentType("text/html;charset=utf-8");
+        response.setStatus(HttpStatus.TEMPORARY_REDIRECT.value());
+        response.setHeader("Location", redirectUrl);
+        response.flushBuffer();
+    }
+
+    public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr) {
+        RedirectView redirectView = new RedirectView(buildRedirectUrl(request, addr));
+        redirectView.setContentType("text/html;charset=utf-8");
+        redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
+        return redirectView;
+    }
+
+    public String getRedirectUrL(HttpServletRequest request, TNetworkAddress addr) {
+        return buildRedirectUrl(request, addr);
     }
 
     public RedirectView redirectToObj(String sign) throws URISyntaxException {

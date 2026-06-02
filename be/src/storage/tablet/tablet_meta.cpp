@@ -264,21 +264,11 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     case TStorageFormat::V1:
         break;
     case TStorageFormat::V3:
-        schema_pb_for_data->set_is_external_segment_column_meta_used(true);
-        _schema->set_external_segment_meta_used_default(true);
-
-        schema_pb_for_data->set_integer_type_default_use_plain_encoding(true);
-        _schema->set_integer_type_default_use_plain_encoding(true);
-        schema_pb_for_data->set_binary_plain_encoding_default_impl(
-                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
-        _schema->set_binary_plain_encoding_default_impl(
-                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
-
+        schema_pb_for_data->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
+        _schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
         if (schema_pb_for_row_binlog != nullptr) {
-            schema_pb_for_row_binlog->set_is_external_segment_column_meta_used(true);
-            schema_pb_for_row_binlog->set_integer_type_default_use_plain_encoding(true);
-            schema_pb_for_row_binlog->set_binary_plain_encoding_default_impl(
-                    BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
+            schema_pb_for_row_binlog->set_storage_format(
+                    TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
         }
         break;
     default:
@@ -1199,6 +1189,17 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
     _check_mow_rowset_cache_version_size(rowset_cache_version_size);
 }
 
+void TabletMeta::modify_row_binlog_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
+                                            const std::vector<RowsetMetaSharedPtr>& to_delete) {
+    for (const auto& rs_to_del : to_delete) {
+        _row_binlog_rs_metas.erase(rs_to_del->version());
+    }
+
+    for (const auto& rs_to_add : to_add) {
+        _row_binlog_rs_metas.emplace(rs_to_add->version(), rs_to_add);
+    }
+}
+
 // Use the passing "rs_metas" to replace the rs meta in this tablet meta
 // Also clear the _stale_rs_metas because this tablet meta maybe copyied from
 // an existing tablet before. Add after revise, only the passing "rs_metas"
@@ -1214,6 +1215,14 @@ void TabletMeta::revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
     }
     if (_enable_unique_key_merge_on_write) {
         _delete_bitmap->clear_rowset_cache_version();
+    }
+}
+
+void TabletMeta::revise_row_binlog_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
+    std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+    _row_binlog_rs_metas.clear();
+    for (auto& rs_meta : rs_metas) {
+        _row_binlog_rs_metas.emplace(rs_meta->version(), rs_meta);
     }
 }
 
@@ -1238,6 +1247,16 @@ void TabletMeta::revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap
     }
 }
 
+void TabletMeta::revise_binlog_delvec_unlocked(const DeleteBitmap& binlog_delvec) {
+    _binlog_delvec = std::make_unique<DeleteBitmap>(tablet_id());
+    for (const auto& [_, rs] : _row_binlog_rs_metas) {
+        DeleteBitmap rs_bm(tablet_id());
+        binlog_delvec.subset({rs->rowset_id(), 0, 0}, {rs->rowset_id(), UINT32_MAX, INT64_MAX},
+                             &rs_bm);
+        _binlog_delvec->merge(rs_bm);
+    }
+}
+
 void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
     _stale_rs_metas.erase(version);
 }
@@ -1251,6 +1270,14 @@ RowsetMetaSharedPtr TabletMeta::acquire_rs_meta_by_version(const Version& versio
 
 RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& version) const {
     if (auto it = _stale_rs_metas.find(version); it != _stale_rs_metas.end()) {
+        return it->second;
+    }
+    return nullptr;
+}
+
+RowsetMetaSharedPtr TabletMeta::acquire_row_binlog_rs_meta_by_version(
+        const Version& version) const {
+    if (auto it = _row_binlog_rs_metas.find(version); it != _row_binlog_rs_metas.end()) {
         return it->second;
     }
     return nullptr;
@@ -1541,6 +1568,13 @@ bool DeleteBitmap::contains(const BitmapKey& bmk, uint32_t row_id) const {
     std::shared_lock l(lock);
     auto it = delete_bitmap.find(bmk);
     return it != delete_bitmap.end() && it->second.contains(row_id);
+}
+
+bool DeleteBitmap::contain_rowsets(const RowsetIdUnorderedSet& rowset_ids) const {
+    std::shared_lock l(lock);
+    return std::any_of(delete_bitmap.begin(), delete_bitmap.end(), [&](const auto& entry) {
+        return rowset_ids.contains(std::get<0>(entry.first));
+    });
 }
 
 bool DeleteBitmap::contains_agg(const BitmapKey& bmk, uint32_t row_id) const {

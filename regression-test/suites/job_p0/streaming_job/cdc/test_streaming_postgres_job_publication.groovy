@@ -20,11 +20,15 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-// Verify per-resource ownership of PG replication slot and publication:
+// Verify per-resource ownership of PG replication slot and publication, plus
+// the fail-fast validation paths in PostgresResourceValidator:
 //   Test 1: auto-generated slot & publication — created on job start, cleaned up on drop
 //   Test 2: user-provided slot & publication — Doris uses but never drops them
 //   Test 3: mixed (user publication + auto slot) — only auto slot is dropped on job deletion
 //   Test 4: slot_name / publication_name are immutable via ALTER JOB
+//   Test 5: user-provided slot_name that does not exist → actionable error
+//   Test 6: user-provided publication_name that does not exist → actionable error
+//   Test 7: user-provided publication exists but is missing required tables → actionable error
 suite("test_streaming_postgres_job_publication", "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
     def jobName = "test_pg_pub_job"
     def currentDb = (sql "select database()")[0][0]
@@ -400,6 +404,124 @@ suite("test_streaming_postgres_job_publication", "p0,external,pg,external_docker
         }
 
         sql """DROP JOB IF EXISTS where jobname = '${alterJob}'"""
+
+        // PostgresResourceValidator fail-fast paths: every CREATE JOB goes through
+        // the validator, and operators most often hit it via three misconfigurations
+        // below. Each error must be actionable (mention the missing resource by name
+        // and hint at the fix) so support can read the SQL error and move on.
+        def validatorJob = "test_pg_pub_validator_job"
+        sql """DROP JOB IF EXISTS where jobname = '${validatorJob}'"""
+        // Recreate the PG tables — Test 4 left them present but the alterJob is gone.
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${table1}"""
+            sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${table2}"""
+            sql """CREATE TABLE ${pgDB}.${pgSchema}.${table1} (
+                  "id" int PRIMARY KEY,
+                  "name" varchar(200)
+                )"""
+            sql """CREATE TABLE ${pgDB}.${pgSchema}.${table2} (
+                  "id" int PRIMARY KEY,
+                  "name" varchar(200)
+                )"""
+        }
+
+        // ========== Test 5: user-provided slot_name does not exist ==========
+        // Pre-create a valid publication so the only fail-fast path is the slot.
+        def goodPub5 = "test_pg_pub_validator_pub_5"
+        def missingSlot5 = "test_pg_pub_validator_missing_slot_5"
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """DROP PUBLICATION IF EXISTS ${goodPub5}"""
+            sql """CREATE PUBLICATION ${goodPub5} FOR TABLE ${pgDB}.${pgSchema}.${table1}"""
+            def existing = sql """SELECT COUNT(1) FROM pg_replication_slots WHERE slot_name = '${missingSlot5}'"""
+            if (existing[0][0] != 0) {
+                sql """SELECT pg_drop_replication_slot('${missingSlot5}')"""
+            }
+        }
+        test {
+            sql """CREATE JOB ${validatorJob}
+                    ON STREAMING
+                    FROM POSTGRES (
+                        "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
+                        "driver_url" = "${driver_url}",
+                        "driver_class" = "org.postgresql.Driver",
+                        "user" = "${pgUser}",
+                        "password" = "${pgPassword}",
+                        "database" = "${pgDB}",
+                        "schema" = "${pgSchema}",
+                        "include_tables" = "${table1}",
+                        "slot_name" = "${missingSlot5}",
+                        "publication_name" = "${goodPub5}",
+                        "offset" = "initial"
+                    )
+                    TO DATABASE ${currentDb} (
+                      "table.create.properties.replication_num" = "1"
+                    )
+                """
+            exception "replication slot does not exist"
+        }
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """DROP PUBLICATION IF EXISTS ${goodPub5}"""
+        }
+
+        // ========== Test 6: user-provided publication_name does not exist ==========
+        def missingPub6 = "test_pg_pub_validator_missing_pub_6"
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """DROP PUBLICATION IF EXISTS ${missingPub6}"""
+        }
+        test {
+            sql """CREATE JOB ${validatorJob}
+                    ON STREAMING
+                    FROM POSTGRES (
+                        "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
+                        "driver_url" = "${driver_url}",
+                        "driver_class" = "org.postgresql.Driver",
+                        "user" = "${pgUser}",
+                        "password" = "${pgPassword}",
+                        "database" = "${pgDB}",
+                        "schema" = "${pgSchema}",
+                        "include_tables" = "${table1}",
+                        "publication_name" = "${missingPub6}",
+                        "offset" = "initial"
+                    )
+                    TO DATABASE ${currentDb} (
+                      "table.create.properties.replication_num" = "1"
+                    )
+                """
+            exception "publication does not exist"
+        }
+
+        // ========== Test 7: user pub exists but does not include the requested tables ==========
+        // Publication covers ${table2} only, but the job asks for ${table1} → validator
+        // must reject with the actionable "ALTER PUBLICATION ... ADD TABLE" hint.
+        def partialPub7 = "test_pg_pub_validator_partial_pub_7"
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """DROP PUBLICATION IF EXISTS ${partialPub7}"""
+            sql """CREATE PUBLICATION ${partialPub7} FOR TABLE ${pgDB}.${pgSchema}.${table2}"""
+        }
+        test {
+            sql """CREATE JOB ${validatorJob}
+                    ON STREAMING
+                    FROM POSTGRES (
+                        "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
+                        "driver_url" = "${driver_url}",
+                        "driver_class" = "org.postgresql.Driver",
+                        "user" = "${pgUser}",
+                        "password" = "${pgPassword}",
+                        "database" = "${pgDB}",
+                        "schema" = "${pgSchema}",
+                        "include_tables" = "${table1}",
+                        "publication_name" = "${partialPub7}",
+                        "offset" = "initial"
+                    )
+                    TO DATABASE ${currentDb} (
+                      "table.create.properties.replication_num" = "1"
+                    )
+                """
+            exception "missing required tables"
+        }
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """DROP PUBLICATION IF EXISTS ${partialPub7}"""
+        }
 
         // Cleanup PG tables
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {

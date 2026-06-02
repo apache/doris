@@ -47,19 +47,19 @@ enum class DatelikeFastParseResult : uint8_t {
     DATE_TIME,
 };
 
-inline PURE bool is_fixed_two_digit_ascii(const char* ptr) {
+inline bool is_fixed_two_digit_ascii(const char* ptr) {
     return static_cast<unsigned>(ptr[0] - '0') < 10 && static_cast<unsigned>(ptr[1] - '0') < 10;
 }
 
-inline PURE bool is_fixed_four_digit_ascii(const char* ptr) {
+inline bool is_fixed_four_digit_ascii(const char* ptr) {
     return is_fixed_two_digit_ascii(ptr) && is_fixed_two_digit_ascii(ptr + 2);
 }
 
-inline PURE uint32_t parse_fixed_two_digit_ascii(const char* ptr) {
+inline uint32_t parse_fixed_two_digit_ascii(const char* ptr) {
     return (ptr[0] - '0') * 10 + (ptr[1] - '0');
 }
 
-inline PURE uint32_t parse_fixed_four_digit_ascii(const char* ptr) {
+inline uint32_t parse_fixed_four_digit_ascii(const char* ptr) {
     return parse_fixed_two_digit_ascii(ptr) * 100 + parse_fixed_two_digit_ascii(ptr + 2);
 }
 
@@ -117,7 +117,7 @@ inline DatelikeFastParseResult try_parse_fixed_canonical_datelike_prefix(const c
     return DatelikeFastParseResult::DATE_TIME;
 }
 
-inline PURE uint32_t complete_4digit_year(uint32_t year) {
+inline uint32_t complete_4digit_year(uint32_t year) {
     if (year < 70) {
         return year + 2000; // 00-69 -> 2000-2069
     } else {

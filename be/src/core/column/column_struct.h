@@ -51,7 +51,7 @@ class ColumnStruct final : public COWHelper<IColumn, ColumnStruct> {
 private:
     friend class COWHelper<IColumn, ColumnStruct>;
 
-    using TupleColumns = std::vector<WrappedPtr>;
+    using TupleColumns = std::vector<IColumn::WrappedPtr>;
     TupleColumns columns;
 
     template <bool positive>
@@ -149,8 +149,6 @@ public:
     MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
-
-    void shrink_padding_chars() override;
 
     void reserve(size_t n) override;
     void resize(size_t n) override;

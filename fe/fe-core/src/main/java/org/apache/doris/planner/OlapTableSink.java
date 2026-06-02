@@ -236,7 +236,7 @@ public class OlapTableSink extends DataSink {
                 partition.setTabletVersionGapBackends(gapBackends);
             }
         }
-        tOlapTableLocationParams = createLocation(tSink.getDbId(), dstTable);
+        tOlapTableLocationParams = initLocationParams(tSink);
 
         tSink.setTableId(dstTable.getId());
         tSink.setTupleId(tupleDescriptor.getId().asInt());
@@ -294,7 +294,7 @@ public class OlapTableSink extends DataSink {
                 partition.setTabletVersionGapBackends(gapBackends);
             }
         }
-        tOlapTableLocationParams = createLocation(tSink.getDbId(), dstTable);
+        tOlapTableLocationParams = initLocationParams(tSink);
 
         tSink.setTableId(dstTable.getId());
         tSink.setTupleId(tupleDescriptor.getId().asInt());
@@ -436,6 +436,7 @@ public class OlapTableSink extends DataSink {
             }
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
                     indexMeta.getSchemaHash());
+            indexSchema.setRowBinlogId(indexMeta.getRowBinlogIndexId());
             Expr whereClause = indexMeta.getWhereClause();
             if (whereClause != null) {
                 Expr expr = syncMvWhereClauses.getOrDefault(pair.getKey(), null);
@@ -449,6 +450,22 @@ public class OlapTableSink extends DataSink {
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
         }
+
+        if (table.needRowBinlog()) {
+            MaterializedIndexMeta rowBinlogMeta = table.getRowBinlogMeta();
+            List<String> binlogColumns = Lists.newArrayList();
+            List<TColumn> binlogColumnsDesc = Lists.newArrayList();
+            for (Column column : rowBinlogMeta.getSchema(true)) {
+                TColumn tColumn = ColumnToThrift.toThrift(column);
+                binlogColumnsDesc.add(tColumn);
+                binlogColumns.add(column.getName());
+            }
+            TOlapTableIndexSchema rowBinlogIndexSchema = new TOlapTableIndexSchema(
+                    rowBinlogMeta.getIndexId(), binlogColumns, rowBinlogMeta.getSchemaHash());
+            rowBinlogIndexSchema.setColumnsDesc(binlogColumnsDesc);
+            schemaParam.setRowBinlogIndexSchema(rowBinlogIndexSchema);
+        }
+
         setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
         schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
         return schemaParam;
@@ -718,6 +735,15 @@ public class OlapTableSink extends DataSink {
                 tPartition.setIsDefaultPartition(partitionItem.isDefaultPartition());
             }
         }
+    }
+
+    // Hook for subclasses to control how the tablet location params are populated.
+    // Default behavior computes the full tablet -> backend mapping via createLocation,
+    // which under high-concurrency stream load on large tables is the dominant FE CPU
+    // cost. Subclasses whose BE counterpart does not consume TOlapTableSink.location
+    // (e.g. GroupCommitBlockSink) can override this hook to skip that work.
+    protected List<TOlapTableLocationParam> initLocationParams(TOlapTableSink tSink) throws UserException {
+        return createLocation(tSink.getDbId(), dstTable);
     }
 
     public List<TOlapTableLocationParam> createDummyLocation(OlapTable table) throws UserException {

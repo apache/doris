@@ -47,13 +47,8 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
           _data_page_builder(nullptr),
           _dict_builder(nullptr),
           _encoding_type(DICT_ENCODING),
-          _dict_word_page_encoding_type(
-                  options.encoding_preference.binary_plain_encoding_default_impl ==
-                                  BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
-                          ? PLAIN_ENCODING_V2
-                          : PLAIN_ENCODING),
-          _fallback_binary_encoding_type(
-                  options.encoding_preference.binary_plain_encoding_default_impl ==
+          _binary_plain_encoding_type(
+                  options.dict_binary_plain_encoding ==
                                   BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
                           ? PLAIN_ENCODING_V2
                           : PLAIN_ENCODING) {}
@@ -74,7 +69,7 @@ Status BinaryDictPageBuilder::init() {
 
     const EncodingInfo* encoding_info;
     RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                      _dict_word_page_encoding_type, {}, &encoding_info));
+                                      _binary_plain_encoding_type, &encoding_info));
     RETURN_IF_ERROR(encoding_info->create_page_builder(dict_builder_options, _dict_builder));
     return reset();
 }
@@ -183,13 +178,11 @@ Status BinaryDictPageBuilder::reset() {
         _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
 
         if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
-            DCHECK(_fallback_binary_encoding_type == PLAIN_ENCODING ||
-                   _fallback_binary_encoding_type == PLAIN_ENCODING_V2);
             const EncodingInfo* encoding_info;
             RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                              _fallback_binary_encoding_type, {}, &encoding_info));
+                                              _binary_plain_encoding_type, &encoding_info));
             RETURN_IF_ERROR(encoding_info->create_page_builder(_options, _data_page_builder));
-            _encoding_type = _fallback_binary_encoding_type;
+            _encoding_type = _binary_plain_encoding_type;
         } else {
             RETURN_IF_ERROR(_data_page_builder->reset());
         }
@@ -210,7 +203,7 @@ Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page_encoding(EncodingTypePB* encoding) const {
-    *encoding = _dict_word_page_encoding_type;
+    *encoding = _binary_plain_encoding_type;
     return Status::OK();
 }
 
@@ -290,6 +283,10 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, MutableColumnPtr& dst) {
     if (_options.only_read_offsets) {
         // OFFSET_ONLY mode: resolve dict codes to get real string lengths
         // without copying actual char data. This allows length() to work.
+        // ColumnDictI32 does not implement insert_offsets_from_lengths, so convert
+        // it to a predicate column (ColumnString) first. This is a no-op for
+        // non-dictionary columns and for ColumnNullable it converts the nested column.
+        dst = dst->convert_to_predicate_column_if_dictionary();
         const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
         size_t start_index = _bit_shuffle_ptr->_cur_index;
         // Reuse _buffer (int32_t vector) to store uint32_t lengths.
@@ -334,6 +331,9 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     if (_options.only_read_offsets) {
         // OFFSET_ONLY mode: resolve dict codes to get real string lengths
         // without copying actual char data. This allows length() to work correctly.
+        // ColumnDictI32 does not implement insert_offsets_from_lengths, so convert
+        // it to a predicate column (ColumnString) first.
+        dst = dst->convert_to_predicate_column_if_dictionary();
         const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
         size_t read_count = 0;
         _buffer.resize(total);
