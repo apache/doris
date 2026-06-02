@@ -42,8 +42,8 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/types.h"
-#include "format/new_parquet/column_reader.h"
 #include "format/new_parquet/parquet_column_schema.h"
+#include "format/new_parquet/reader/column_reader.h"
 #include "format/new_parquet/selection_vector.h"
 #include "format/reader/file_reader.h"
 
@@ -175,6 +175,87 @@ protected:
         return finish_array(&builder);
     }
 
+    std::shared_ptr<arrow::Array> build_nullable_struct_with_list_array() {
+        auto list_type = arrow::list(arrow::field("element", arrow::int32(), true));
+        auto struct_type = arrow::struct_(
+                {arrow::field("a", arrow::int32(), false), arrow::field("xs", list_type, true)});
+        std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders;
+        auto a_array_builder = std::make_unique<arrow::Int32Builder>();
+        field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(a_array_builder)));
+        auto value_builder = std::make_shared<arrow::Int32Builder>();
+        auto list_builder = std::make_shared<arrow::ListBuilder>(arrow::default_memory_pool(),
+                                                                 value_builder, list_type);
+        field_builders.push_back(list_builder);
+        arrow::StructBuilder builder(struct_type, arrow::default_memory_pool(),
+                                     std::move(field_builders));
+        auto* a_builder = assert_cast<arrow::Int32Builder*>(builder.field_builder(0));
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(a_builder->Append(301).ok());
+        EXPECT_TRUE(list_builder->Append().ok());
+        EXPECT_TRUE(value_builder->Append(1).ok());
+        EXPECT_TRUE(value_builder->Append(2).ok());
+
+        EXPECT_TRUE(builder.AppendNull().ok());
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(a_builder->Append(303).ok());
+        EXPECT_TRUE(list_builder->AppendEmptyValue().ok());
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(a_builder->Append(304).ok());
+        EXPECT_TRUE(list_builder->AppendNull().ok());
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(a_builder->Append(305).ok());
+        EXPECT_TRUE(list_builder->Append().ok());
+        EXPECT_TRUE(value_builder->AppendNull().ok());
+        EXPECT_TRUE(value_builder->Append(5).ok());
+        return finish_array(&builder);
+    }
+
+    std::shared_ptr<arrow::Array> build_nullable_struct_with_map_array() {
+        auto map_type = arrow::map(arrow::int32(), arrow::field("value", arrow::utf8(), true));
+        auto struct_type = arrow::struct_(
+                {arrow::field("a", arrow::int32(), false), arrow::field("kv", map_type, true)});
+        std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders;
+        auto a_array_builder = std::make_unique<arrow::Int32Builder>();
+        field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(a_array_builder)));
+        auto key_builder = std::make_shared<arrow::Int32Builder>();
+        auto value_builder = std::make_shared<arrow::StringBuilder>();
+        auto map_builder = std::make_shared<arrow::MapBuilder>(
+                arrow::default_memory_pool(), key_builder, value_builder, map_type);
+        field_builders.push_back(map_builder);
+        arrow::StructBuilder builder(struct_type, arrow::default_memory_pool(),
+                                     std::move(field_builders));
+        auto* a_builder = assert_cast<arrow::Int32Builder*>(builder.field_builder(0));
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(a_builder->Append(401).ok());
+        EXPECT_TRUE(map_builder->Append().ok());
+        EXPECT_TRUE(key_builder->Append(1).ok());
+        EXPECT_TRUE(value_builder->Append("one").ok());
+        EXPECT_TRUE(key_builder->Append(2).ok());
+        EXPECT_TRUE(value_builder->AppendNull().ok());
+
+        EXPECT_TRUE(builder.AppendNull().ok());
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(a_builder->Append(403).ok());
+        EXPECT_TRUE(map_builder->AppendEmptyValue().ok());
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(a_builder->Append(404).ok());
+        EXPECT_TRUE(map_builder->AppendNull().ok());
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(a_builder->Append(405).ok());
+        EXPECT_TRUE(map_builder->Append().ok());
+        EXPECT_TRUE(key_builder->Append(5).ok());
+        EXPECT_TRUE(value_builder->Append("five").ok());
+        return finish_array(&builder);
+    }
+
     std::shared_ptr<arrow::Array> build_required_int_list_array() {
         auto value_builder = std::make_shared<arrow::Int32Builder>();
         arrow::ListBuilder builder(arrow::default_memory_pool(), value_builder,
@@ -222,6 +303,75 @@ protected:
         EXPECT_TRUE(value_builder->Append(130).ok());
         EXPECT_TRUE(value_builder->AppendNull().ok());
         EXPECT_TRUE(builder.Append().ok());
+        return finish_array(&builder);
+    }
+
+    std::shared_ptr<arrow::Array> build_nullable_struct_list_array() {
+        auto struct_type = arrow::struct_(
+                {arrow::field("a", arrow::int32(), false), arrow::field("b", arrow::utf8(), true)});
+        std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders;
+        auto a_array_builder = std::make_unique<arrow::Int32Builder>();
+        field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(a_array_builder)));
+        auto b_array_builder = std::make_unique<arrow::StringBuilder>();
+        field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(b_array_builder)));
+        auto struct_builder = std::make_shared<arrow::StructBuilder>(
+                struct_type, arrow::default_memory_pool(), std::move(field_builders));
+        arrow::ListBuilder builder(arrow::default_memory_pool(), struct_builder,
+                                   arrow::list(arrow::field("element", struct_type, true)));
+        auto* a_builder = assert_cast<arrow::Int32Builder*>(struct_builder->field_builder(0));
+        auto* b_builder = assert_cast<arrow::StringBuilder*>(struct_builder->field_builder(1));
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(struct_builder->Append().ok());
+        EXPECT_TRUE(a_builder->Append(11).ok());
+        EXPECT_TRUE(b_builder->Append("la").ok());
+        EXPECT_TRUE(struct_builder->Append().ok());
+        EXPECT_TRUE(a_builder->Append(12).ok());
+        EXPECT_TRUE(b_builder->AppendNull().ok());
+        EXPECT_TRUE(builder.AppendNull().ok());
+        EXPECT_TRUE(builder.AppendEmptyValue().ok());
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(struct_builder->AppendNull().ok());
+        EXPECT_TRUE(struct_builder->Append().ok());
+        EXPECT_TRUE(a_builder->Append(13).ok());
+        EXPECT_TRUE(b_builder->Append("ld").ok());
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(struct_builder->Append().ok());
+        EXPECT_TRUE(a_builder->Append(14).ok());
+        EXPECT_TRUE(b_builder->Append("le").ok());
+        return finish_array(&builder);
+    }
+
+    std::shared_ptr<arrow::Array> build_nullable_list_list_int_array() {
+        auto value_builder = std::make_shared<arrow::Int32Builder>();
+        auto inner_list_type = arrow::list(arrow::field("element", arrow::int32(), true));
+        auto inner_list_builder = std::make_shared<arrow::ListBuilder>(
+                arrow::default_memory_pool(), value_builder, inner_list_type);
+        arrow::ListBuilder builder(arrow::default_memory_pool(), inner_list_builder,
+                                   arrow::list(arrow::field("element", inner_list_type, true)));
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(inner_list_builder->Append().ok());
+        EXPECT_TRUE(value_builder->Append(1).ok());
+        EXPECT_TRUE(value_builder->Append(2).ok());
+        EXPECT_TRUE(inner_list_builder->AppendEmptyValue().ok());
+        EXPECT_TRUE(inner_list_builder->AppendNull().ok());
+        EXPECT_TRUE(inner_list_builder->Append().ok());
+        EXPECT_TRUE(value_builder->AppendNull().ok());
+        EXPECT_TRUE(value_builder->Append(3).ok());
+
+        EXPECT_TRUE(builder.AppendNull().ok());
+        EXPECT_TRUE(builder.AppendEmptyValue().ok());
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(inner_list_builder->Append().ok());
+        EXPECT_TRUE(value_builder->Append(4).ok());
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(inner_list_builder->AppendEmptyValue().ok());
+        EXPECT_TRUE(inner_list_builder->Append().ok());
+        EXPECT_TRUE(value_builder->Append(5).ok());
+        EXPECT_TRUE(value_builder->AppendNull().ok());
         return finish_array(&builder);
     }
 
@@ -286,6 +436,81 @@ protected:
         EXPECT_TRUE(builder.Append().ok());
         EXPECT_TRUE(key_builder->Append(104).ok());
         EXPECT_TRUE(value_builder->AppendNull().ok());
+        return finish_array(&builder);
+    }
+
+    std::shared_ptr<arrow::Array> build_nullable_int_struct_map_array() {
+        auto key_builder = std::make_shared<arrow::Int32Builder>();
+        auto struct_type = arrow::struct_(
+                {arrow::field("a", arrow::int32(), false), arrow::field("b", arrow::utf8(), true)});
+        std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders;
+        auto a_array_builder = std::make_unique<arrow::Int32Builder>();
+        field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(a_array_builder)));
+        auto b_array_builder = std::make_unique<arrow::StringBuilder>();
+        field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(b_array_builder)));
+        auto value_builder = std::make_shared<arrow::StructBuilder>(
+                struct_type, arrow::default_memory_pool(), std::move(field_builders));
+        auto map_type = arrow::map(arrow::int32(), arrow::field("value", struct_type, true));
+        arrow::MapBuilder builder(arrow::default_memory_pool(), key_builder, value_builder,
+                                  map_type);
+        auto* a_builder = assert_cast<arrow::Int32Builder*>(value_builder->field_builder(0));
+        auto* b_builder = assert_cast<arrow::StringBuilder*>(value_builder->field_builder(1));
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(key_builder->Append(101).ok());
+        EXPECT_TRUE(value_builder->Append().ok());
+        EXPECT_TRUE(a_builder->Append(21).ok());
+        EXPECT_TRUE(b_builder->Append("ma").ok());
+        EXPECT_TRUE(key_builder->Append(102).ok());
+        EXPECT_TRUE(value_builder->Append().ok());
+        EXPECT_TRUE(a_builder->Append(22).ok());
+        EXPECT_TRUE(b_builder->AppendNull().ok());
+        EXPECT_TRUE(builder.AppendNull().ok());
+        EXPECT_TRUE(builder.AppendEmptyValue().ok());
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(key_builder->Append(103).ok());
+        EXPECT_TRUE(value_builder->AppendNull().ok());
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(key_builder->Append(104).ok());
+        EXPECT_TRUE(value_builder->Append().ok());
+        EXPECT_TRUE(a_builder->Append(24).ok());
+        EXPECT_TRUE(b_builder->Append("me").ok());
+        return finish_array(&builder);
+    }
+
+    std::shared_ptr<arrow::Array> build_nullable_int_list_map_array() {
+        auto key_builder = std::make_shared<arrow::Int32Builder>();
+        auto value_builder = std::make_shared<arrow::Int32Builder>();
+        auto list_type = arrow::list(arrow::field("element", arrow::int32(), true));
+        auto list_builder = std::make_shared<arrow::ListBuilder>(arrow::default_memory_pool(),
+                                                                 value_builder, list_type);
+        auto map_type = arrow::map(arrow::int32(), arrow::field("value", list_type, true));
+        arrow::MapBuilder builder(arrow::default_memory_pool(), key_builder, list_builder,
+                                  map_type);
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(key_builder->Append(201).ok());
+        EXPECT_TRUE(list_builder->Append().ok());
+        EXPECT_TRUE(value_builder->Append(1).ok());
+        EXPECT_TRUE(value_builder->Append(2).ok());
+        EXPECT_TRUE(key_builder->Append(202).ok());
+        EXPECT_TRUE(list_builder->AppendEmptyValue().ok());
+
+        EXPECT_TRUE(builder.AppendNull().ok());
+        EXPECT_TRUE(builder.AppendEmptyValue().ok());
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(key_builder->Append(203).ok());
+        EXPECT_TRUE(list_builder->AppendNull().ok());
+        EXPECT_TRUE(key_builder->Append(204).ok());
+        EXPECT_TRUE(list_builder->Append().ok());
+        EXPECT_TRUE(value_builder->AppendNull().ok());
+        EXPECT_TRUE(value_builder->Append(3).ok());
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(key_builder->Append(205).ok());
+        EXPECT_TRUE(list_builder->Append().ok());
+        EXPECT_TRUE(value_builder->Append(4).ok());
         return finish_array(&builder);
     }
 
@@ -545,6 +770,119 @@ protected:
                       EXPECT_EQ(b_nested.get_data_at(0).to_string(), "nsa");
                       EXPECT_EQ(b_nested.get_data_at(3).to_string(), "nsd");
                   });
+        auto struct_list_type = arrow::struct_({
+                arrow::field("a", arrow::int32(), false),
+                arrow::field("xs", arrow::list(arrow::field("element", arrow::int32(), true)),
+                             true),
+        });
+        add_field(arrow::field("nullable_struct_list_col", struct_list_type, true),
+                  build_nullable_struct_with_list_array(),
+                  [](const ParquetColumnSchema& schema, const IColumn& column) {
+                      EXPECT_TRUE(schema.type->is_nullable());
+                      const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+                      ASSERT_EQ(nullable_column.size(), ROW_COUNT);
+                      EXPECT_FALSE(nullable_column.is_null_at(0));
+                      EXPECT_TRUE(nullable_column.is_null_at(1));
+                      EXPECT_FALSE(nullable_column.is_null_at(2));
+                      EXPECT_FALSE(nullable_column.is_null_at(3));
+                      EXPECT_FALSE(nullable_column.is_null_at(4));
+
+                      const auto& struct_column =
+                              assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
+                      ASSERT_EQ(struct_column.get_columns().size(), 2);
+                      const auto& a_values =
+                              assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+                      EXPECT_EQ(a_values.get_element(0), 301);
+                      EXPECT_EQ(a_values.get_element(2), 303);
+                      EXPECT_EQ(a_values.get_element(3), 304);
+                      EXPECT_EQ(a_values.get_element(4), 305);
+
+                      const auto& xs_nullable =
+                              assert_cast<const ColumnNullable&>(struct_column.get_column(1));
+                      ASSERT_EQ(xs_nullable.size(), ROW_COUNT);
+                      EXPECT_FALSE(xs_nullable.is_null_at(0));
+                      EXPECT_FALSE(xs_nullable.is_null_at(2));
+                      EXPECT_TRUE(xs_nullable.is_null_at(3));
+                      EXPECT_FALSE(xs_nullable.is_null_at(4));
+                      const auto& xs_array =
+                              assert_cast<const ColumnArray&>(xs_nullable.get_nested_column());
+                      const auto& offsets = xs_array.get_offsets();
+                      ASSERT_EQ(offsets.size(), ROW_COUNT);
+                      EXPECT_EQ(offsets[0], 2);
+                      EXPECT_EQ(offsets[1], 2);
+                      EXPECT_EQ(offsets[2], 2);
+                      EXPECT_EQ(offsets[3], 2);
+                      EXPECT_EQ(offsets[4], 4);
+                      const auto& elements =
+                              assert_cast<const ColumnNullable&>(xs_array.get_data());
+                      ASSERT_EQ(elements.size(), 4);
+                      EXPECT_FALSE(elements.is_null_at(0));
+                      EXPECT_FALSE(elements.is_null_at(1));
+                      EXPECT_TRUE(elements.is_null_at(2));
+                      EXPECT_FALSE(elements.is_null_at(3));
+                      const auto& values =
+                              assert_cast<const ColumnInt32&>(elements.get_nested_column());
+                      EXPECT_EQ(values.get_element(0), 1);
+                      EXPECT_EQ(values.get_element(1), 2);
+                      EXPECT_EQ(values.get_element(3), 5);
+                  });
+        auto struct_map_type = arrow::struct_({
+                arrow::field("a", arrow::int32(), false),
+                arrow::field("kv",
+                             arrow::map(arrow::int32(), arrow::field("value", arrow::utf8(), true)),
+                             true),
+        });
+        add_field(arrow::field("nullable_struct_map_col", struct_map_type, true),
+                  build_nullable_struct_with_map_array(),
+                  [](const ParquetColumnSchema& schema, const IColumn& column) {
+                      EXPECT_TRUE(schema.type->is_nullable());
+                      const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+                      ASSERT_EQ(nullable_column.size(), ROW_COUNT);
+                      EXPECT_FALSE(nullable_column.is_null_at(0));
+                      EXPECT_TRUE(nullable_column.is_null_at(1));
+                      EXPECT_FALSE(nullable_column.is_null_at(2));
+                      EXPECT_FALSE(nullable_column.is_null_at(3));
+                      EXPECT_FALSE(nullable_column.is_null_at(4));
+
+                      const auto& struct_column =
+                              assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
+                      ASSERT_EQ(struct_column.get_columns().size(), 2);
+                      const auto& a_values =
+                              assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+                      EXPECT_EQ(a_values.get_element(0), 401);
+                      EXPECT_EQ(a_values.get_element(2), 403);
+                      EXPECT_EQ(a_values.get_element(3), 404);
+                      EXPECT_EQ(a_values.get_element(4), 405);
+
+                      const auto& kv_nullable =
+                              assert_cast<const ColumnNullable&>(struct_column.get_column(1));
+                      ASSERT_EQ(kv_nullable.size(), ROW_COUNT);
+                      EXPECT_FALSE(kv_nullable.is_null_at(0));
+                      EXPECT_FALSE(kv_nullable.is_null_at(2));
+                      EXPECT_TRUE(kv_nullable.is_null_at(3));
+                      EXPECT_FALSE(kv_nullable.is_null_at(4));
+                      const auto& kv_map =
+                              assert_cast<const ColumnMap&>(kv_nullable.get_nested_column());
+                      const auto& offsets = kv_map.get_offsets();
+                      ASSERT_EQ(offsets.size(), ROW_COUNT);
+                      EXPECT_EQ(offsets[0], 2);
+                      EXPECT_EQ(offsets[1], 2);
+                      EXPECT_EQ(offsets[2], 2);
+                      EXPECT_EQ(offsets[3], 2);
+                      EXPECT_EQ(offsets[4], 3);
+                      const auto& keys = assert_cast<const ColumnInt32&>(kv_map.get_keys());
+                      const auto& values = assert_cast<const ColumnNullable&>(kv_map.get_values());
+                      const auto& value_data =
+                              assert_cast<const ColumnString&>(values.get_nested_column());
+                      ASSERT_EQ(keys.size(), 3);
+                      ASSERT_EQ(values.size(), 3);
+                      EXPECT_EQ(keys.get_element(0), 1);
+                      EXPECT_EQ(keys.get_element(1), 2);
+                      EXPECT_EQ(keys.get_element(2), 5);
+                      EXPECT_EQ(value_data.get_data_at(0).to_string(), "one");
+                      EXPECT_TRUE(values.is_null_at(1));
+                      EXPECT_EQ(value_data.get_data_at(2).to_string(), "five");
+                  });
         add_field(arrow::field("list_int_col",
                                arrow::list(arrow::field("element", arrow::int32(), false)), false),
                   build_required_int_list_array(),
@@ -621,6 +959,115 @@ protected:
                       EXPECT_TRUE(elements.is_null_at(0));
                       EXPECT_FALSE(elements.is_null_at(1));
                       EXPECT_TRUE(elements.is_null_at(4));
+                  });
+        auto list_struct_type = arrow::struct_({
+                arrow::field("a", arrow::int32(), false),
+                arrow::field("b", arrow::utf8(), true),
+        });
+        add_field(arrow::field("nullable_list_struct_col",
+                               arrow::list(arrow::field("element", list_struct_type, true)), true),
+                  build_nullable_struct_list_array(),
+                  [](const ParquetColumnSchema& schema, const IColumn& column) {
+                      EXPECT_TRUE(schema.type->is_nullable());
+                      const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+                      ASSERT_EQ(nullable_column.size(), ROW_COUNT);
+                      EXPECT_FALSE(nullable_column.is_null_at(0));
+                      EXPECT_TRUE(nullable_column.is_null_at(1));
+                      EXPECT_FALSE(nullable_column.is_null_at(2));
+                      EXPECT_FALSE(nullable_column.is_null_at(3));
+                      EXPECT_FALSE(nullable_column.is_null_at(4));
+
+                      const auto& array_column =
+                              assert_cast<const ColumnArray&>(nullable_column.get_nested_column());
+                      const auto& offsets = array_column.get_offsets();
+                      ASSERT_EQ(offsets.size(), ROW_COUNT);
+                      EXPECT_EQ(offsets[0], 2);
+                      EXPECT_EQ(offsets[1], 2);
+                      EXPECT_EQ(offsets[2], 2);
+                      EXPECT_EQ(offsets[3], 4);
+                      EXPECT_EQ(offsets[4], 5);
+
+                      const auto& elements =
+                              assert_cast<const ColumnNullable&>(array_column.get_data());
+                      const auto& struct_column =
+                              assert_cast<const ColumnStruct&>(elements.get_nested_column());
+                      const auto& a_values =
+                              assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+                      const auto& b_values =
+                              assert_cast<const ColumnNullable&>(struct_column.get_column(1));
+                      const auto& b_data =
+                              assert_cast<const ColumnString&>(b_values.get_nested_column());
+                      ASSERT_EQ(elements.size(), 5);
+                      EXPECT_FALSE(elements.is_null_at(0));
+                      EXPECT_FALSE(elements.is_null_at(1));
+                      EXPECT_TRUE(elements.is_null_at(2));
+                      EXPECT_FALSE(elements.is_null_at(3));
+                      EXPECT_EQ(a_values.get_element(0), 11);
+                      EXPECT_EQ(a_values.get_element(1), 12);
+                      EXPECT_EQ(a_values.get_element(3), 13);
+                      EXPECT_EQ(a_values.get_element(4), 14);
+                      EXPECT_EQ(b_data.get_data_at(0).to_string(), "la");
+                      EXPECT_TRUE(b_values.is_null_at(1));
+                      EXPECT_EQ(b_data.get_data_at(3).to_string(), "ld");
+                      EXPECT_EQ(b_data.get_data_at(4).to_string(), "le");
+                  });
+        auto nested_list_type = arrow::list(arrow::field("element", arrow::int32(), true));
+        add_field(arrow::field("nullable_list_list_int_col",
+                               arrow::list(arrow::field("element", nested_list_type, true)), true),
+                  build_nullable_list_list_int_array(),
+                  [](const ParquetColumnSchema& schema, const IColumn& column) {
+                      EXPECT_TRUE(schema.type->is_nullable());
+                      const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+                      ASSERT_EQ(nullable_column.size(), ROW_COUNT);
+                      EXPECT_FALSE(nullable_column.is_null_at(0));
+                      EXPECT_TRUE(nullable_column.is_null_at(1));
+                      EXPECT_FALSE(nullable_column.is_null_at(2));
+                      EXPECT_FALSE(nullable_column.is_null_at(3));
+                      EXPECT_FALSE(nullable_column.is_null_at(4));
+
+                      const auto& outer_array =
+                              assert_cast<const ColumnArray&>(nullable_column.get_nested_column());
+                      const auto& outer_offsets = outer_array.get_offsets();
+                      ASSERT_EQ(outer_offsets.size(), ROW_COUNT);
+                      EXPECT_EQ(outer_offsets[0], 4);
+                      EXPECT_EQ(outer_offsets[1], 4);
+                      EXPECT_EQ(outer_offsets[2], 4);
+                      EXPECT_EQ(outer_offsets[3], 5);
+                      EXPECT_EQ(outer_offsets[4], 7);
+
+                      const auto& inner_nullable =
+                              assert_cast<const ColumnNullable&>(outer_array.get_data());
+                      ASSERT_EQ(inner_nullable.size(), 7);
+                      EXPECT_FALSE(inner_nullable.is_null_at(0));
+                      EXPECT_FALSE(inner_nullable.is_null_at(1));
+                      EXPECT_TRUE(inner_nullable.is_null_at(2));
+                      EXPECT_FALSE(inner_nullable.is_null_at(3));
+                      EXPECT_FALSE(inner_nullable.is_null_at(6));
+
+                      const auto& inner_array =
+                              assert_cast<const ColumnArray&>(inner_nullable.get_nested_column());
+                      const auto& inner_offsets = inner_array.get_offsets();
+                      ASSERT_EQ(inner_offsets.size(), 7);
+                      EXPECT_EQ(inner_offsets[0], 2);
+                      EXPECT_EQ(inner_offsets[1], 2);
+                      EXPECT_EQ(inner_offsets[2], 2);
+                      EXPECT_EQ(inner_offsets[3], 4);
+                      EXPECT_EQ(inner_offsets[4], 5);
+                      EXPECT_EQ(inner_offsets[5], 5);
+                      EXPECT_EQ(inner_offsets[6], 7);
+
+                      const auto& elements =
+                              assert_cast<const ColumnNullable&>(inner_array.get_data());
+                      const auto& values =
+                              assert_cast<const ColumnInt32&>(elements.get_nested_column());
+                      ASSERT_EQ(elements.size(), 7);
+                      EXPECT_EQ(values.get_element(0), 1);
+                      EXPECT_EQ(values.get_element(1), 2);
+                      EXPECT_TRUE(elements.is_null_at(2));
+                      EXPECT_EQ(values.get_element(3), 3);
+                      EXPECT_EQ(values.get_element(4), 4);
+                      EXPECT_EQ(values.get_element(5), 5);
+                      EXPECT_TRUE(elements.is_null_at(6));
                   });
         add_field(arrow::field(
                           "map_int_string_col",
@@ -714,6 +1161,126 @@ protected:
                     EXPECT_FALSE(values.is_null_at(1));
                     EXPECT_TRUE(values.is_null_at(3));
                 });
+        auto map_struct_type = arrow::struct_({
+                arrow::field("a", arrow::int32(), false),
+                arrow::field("b", arrow::utf8(), true),
+        });
+        add_field(arrow::field(
+                          "nullable_map_int_struct_col",
+                          arrow::map(arrow::int32(), arrow::field("value", map_struct_type, true)),
+                          true),
+                  build_nullable_int_struct_map_array(),
+                  [](const ParquetColumnSchema& schema, const IColumn& column) {
+                      EXPECT_TRUE(schema.type->is_nullable());
+                      const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+                      ASSERT_EQ(nullable_column.size(), ROW_COUNT);
+                      EXPECT_FALSE(nullable_column.is_null_at(0));
+                      EXPECT_TRUE(nullable_column.is_null_at(1));
+                      EXPECT_FALSE(nullable_column.is_null_at(2));
+                      EXPECT_FALSE(nullable_column.is_null_at(3));
+                      EXPECT_FALSE(nullable_column.is_null_at(4));
+
+                      const auto& map_column =
+                              assert_cast<const ColumnMap&>(nullable_column.get_nested_column());
+                      const auto& offsets = map_column.get_offsets();
+                      ASSERT_EQ(offsets.size(), ROW_COUNT);
+                      EXPECT_EQ(offsets[0], 2);
+                      EXPECT_EQ(offsets[1], 2);
+                      EXPECT_EQ(offsets[2], 2);
+                      EXPECT_EQ(offsets[3], 3);
+                      EXPECT_EQ(offsets[4], 4);
+
+                      const auto& keys = assert_cast<const ColumnInt32&>(map_column.get_keys());
+                      const auto& values =
+                              assert_cast<const ColumnNullable&>(map_column.get_values());
+                      const auto& struct_column =
+                              assert_cast<const ColumnStruct&>(values.get_nested_column());
+                      const auto& a_values =
+                              assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+                      const auto& b_values =
+                              assert_cast<const ColumnNullable&>(struct_column.get_column(1));
+                      const auto& b_data =
+                              assert_cast<const ColumnString&>(b_values.get_nested_column());
+                      ASSERT_EQ(keys.size(), 4);
+                      ASSERT_EQ(values.size(), 4);
+                      EXPECT_EQ(keys.get_element(0), 101);
+                      EXPECT_EQ(keys.get_element(1), 102);
+                      EXPECT_EQ(keys.get_element(3), 104);
+                      EXPECT_FALSE(values.is_null_at(0));
+                      EXPECT_FALSE(values.is_null_at(1));
+                      EXPECT_TRUE(values.is_null_at(2));
+                      EXPECT_FALSE(values.is_null_at(3));
+                      EXPECT_EQ(a_values.get_element(0), 21);
+                      EXPECT_EQ(a_values.get_element(1), 22);
+                      EXPECT_EQ(a_values.get_element(3), 24);
+                      EXPECT_EQ(b_data.get_data_at(0).to_string(), "ma");
+                      EXPECT_TRUE(b_values.is_null_at(1));
+                      EXPECT_EQ(b_data.get_data_at(3).to_string(), "me");
+                  });
+        auto map_list_type = arrow::list(arrow::field("element", arrow::int32(), true));
+        add_field(
+                arrow::field("nullable_map_int_list_col",
+                             arrow::map(arrow::int32(), arrow::field("value", map_list_type, true)),
+                             true),
+                build_nullable_int_list_map_array(),
+                [](const ParquetColumnSchema& schema, const IColumn& column) {
+                    EXPECT_TRUE(schema.type->is_nullable());
+                    const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+                    ASSERT_EQ(nullable_column.size(), ROW_COUNT);
+                    EXPECT_FALSE(nullable_column.is_null_at(0));
+                    EXPECT_TRUE(nullable_column.is_null_at(1));
+                    EXPECT_FALSE(nullable_column.is_null_at(2));
+                    EXPECT_FALSE(nullable_column.is_null_at(3));
+                    EXPECT_FALSE(nullable_column.is_null_at(4));
+
+                    const auto& map_column =
+                            assert_cast<const ColumnMap&>(nullable_column.get_nested_column());
+                    const auto& map_offsets = map_column.get_offsets();
+                    ASSERT_EQ(map_offsets.size(), ROW_COUNT);
+                    EXPECT_EQ(map_offsets[0], 2);
+                    EXPECT_EQ(map_offsets[1], 2);
+                    EXPECT_EQ(map_offsets[2], 2);
+                    EXPECT_EQ(map_offsets[3], 4);
+                    EXPECT_EQ(map_offsets[4], 5);
+
+                    const auto& keys = assert_cast<const ColumnInt32&>(map_column.get_keys());
+                    ASSERT_EQ(keys.size(), 5);
+                    EXPECT_EQ(keys.get_element(0), 201);
+                    EXPECT_EQ(keys.get_element(1), 202);
+                    EXPECT_EQ(keys.get_element(2), 203);
+                    EXPECT_EQ(keys.get_element(3), 204);
+                    EXPECT_EQ(keys.get_element(4), 205);
+
+                    const auto& values =
+                            assert_cast<const ColumnNullable&>(map_column.get_values());
+                    ASSERT_EQ(values.size(), 5);
+                    EXPECT_FALSE(values.is_null_at(0));
+                    EXPECT_FALSE(values.is_null_at(1));
+                    EXPECT_TRUE(values.is_null_at(2));
+                    EXPECT_FALSE(values.is_null_at(3));
+                    EXPECT_FALSE(values.is_null_at(4));
+
+                    const auto& list_column =
+                            assert_cast<const ColumnArray&>(values.get_nested_column());
+                    const auto& list_offsets = list_column.get_offsets();
+                    ASSERT_EQ(list_offsets.size(), 5);
+                    EXPECT_EQ(list_offsets[0], 2);
+                    EXPECT_EQ(list_offsets[1], 2);
+                    EXPECT_EQ(list_offsets[2], 2);
+                    EXPECT_EQ(list_offsets[3], 4);
+                    EXPECT_EQ(list_offsets[4], 5);
+
+                    const auto& elements =
+                            assert_cast<const ColumnNullable&>(list_column.get_data());
+                    const auto& element_values =
+                            assert_cast<const ColumnInt32&>(elements.get_nested_column());
+                    ASSERT_EQ(elements.size(), 5);
+                    EXPECT_EQ(element_values.get_element(0), 1);
+                    EXPECT_EQ(element_values.get_element(1), 2);
+                    EXPECT_TRUE(elements.is_null_at(2));
+                    EXPECT_EQ(element_values.get_element(3), 3);
+                    EXPECT_EQ(element_values.get_element(4), 4);
+                });
 
         auto schema = arrow::schema(_arrow_fields);
         auto table = arrow::Table::Make(schema, _arrays);
@@ -787,9 +1354,13 @@ TEST_F(ParquetColumnReaderTest, ReadSupportedComplexTypes) {
     read_and_validate(find_field_idx("list_int_col"));
     read_and_validate(find_field_idx("nullable_list_int_col"));
     read_and_validate(find_field_idx("required_nullable_list_int_col"));
+    read_and_validate(find_field_idx("nullable_list_struct_col"));
+    read_and_validate(find_field_idx("nullable_list_list_int_col"));
     read_and_validate(find_field_idx("map_int_string_col"));
     read_and_validate(find_field_idx("nullable_map_int_string_col"));
     read_and_validate(find_field_idx("required_nullable_map_int_string_col"));
+    read_and_validate(find_field_idx("nullable_map_int_struct_col"));
+    read_and_validate(find_field_idx("nullable_map_int_list_col"));
 }
 
 TEST_F(ParquetColumnReaderTest, SkipThenRead) {
@@ -915,6 +1486,268 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedNullableStructChildren) {
     EXPECT_EQ(nested_values.get_data_at(3).to_string(), "nsd");
 }
 
+TEST_F(ParquetColumnReaderTest, ReadProjectedListStructElementChildren) {
+    const auto field_idx = find_field_idx("nullable_list_struct_col");
+    ASSERT_LT(field_idx, _fields.size());
+    const auto& list_schema = *_fields[field_idx];
+    ASSERT_EQ(list_schema.name, "nullable_list_struct_col");
+    ASSERT_EQ(list_schema.children.size(), 1);
+    const auto& element_schema = *list_schema.children[0];
+    ASSERT_EQ(element_schema.children.size(), 2);
+
+    reader::FieldProjection projection;
+    projection.file_column_id = list_schema.top_level_field_id;
+    projection.file_path = list_schema.file_path;
+    projection.project_all_children = false;
+    reader::FieldProjection element_projection;
+    element_projection.file_column_id = list_schema.top_level_field_id;
+    element_projection.file_path = element_schema.file_path;
+    element_projection.project_all_children = false;
+    reader::FieldProjection child_projection;
+    child_projection.file_column_id = list_schema.top_level_field_id;
+    child_projection.file_path = element_schema.children[1]->file_path;
+    element_projection.children.push_back(std::move(child_projection));
+    projection.children.push_back(std::move(element_projection));
+
+    ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
+    std::unique_ptr<ParquetColumnReader> reader;
+    auto st = factory.create(list_schema, &projection, &reader);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_TRUE(reader->type()->is_nullable());
+    const auto* array_type =
+            assert_cast<const DataTypeArray*>(remove_nullable(reader->type()).get());
+    const auto* element_type = assert_cast<const DataTypeStruct*>(
+            remove_nullable(array_type->get_nested_type()).get());
+    ASSERT_EQ(element_type->get_elements().size(), 1);
+    EXPECT_EQ(element_type->get_element_name(0), "b");
+
+    MutableColumnPtr column = reader->type()->create_column();
+    int64_t rows_read = 0;
+    st = reader->read(ROW_COUNT, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, ROW_COUNT);
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    const auto& array_column = assert_cast<const ColumnArray&>(nullable_column.get_nested_column());
+    const auto& elements = assert_cast<const ColumnNullable&>(array_column.get_data());
+    const auto& struct_column = assert_cast<const ColumnStruct&>(elements.get_nested_column());
+    ASSERT_EQ(struct_column.get_columns().size(), 1);
+    const auto& b_values = assert_cast<const ColumnNullable&>(struct_column.get_column(0));
+    const auto& b_data = assert_cast<const ColumnString&>(b_values.get_nested_column());
+    ASSERT_EQ(elements.size(), 5);
+    EXPECT_EQ(b_data.get_data_at(0).to_string(), "la");
+    EXPECT_TRUE(b_values.is_null_at(1));
+    EXPECT_TRUE(elements.is_null_at(2));
+    EXPECT_EQ(b_data.get_data_at(3).to_string(), "ld");
+    EXPECT_EQ(b_data.get_data_at(4).to_string(), "le");
+}
+
+TEST_F(ParquetColumnReaderTest, ReadProjectedMapStructValueChildren) {
+    const auto field_idx = find_field_idx("nullable_map_int_struct_col");
+    ASSERT_LT(field_idx, _fields.size());
+    const auto& map_schema = *_fields[field_idx];
+    ASSERT_EQ(map_schema.name, "nullable_map_int_struct_col");
+    ASSERT_EQ(map_schema.children.size(), 1);
+    const auto& key_value_schema = *map_schema.children[0];
+    ASSERT_EQ(key_value_schema.children.size(), 2);
+    const auto& value_schema = *key_value_schema.children[1];
+    ASSERT_EQ(value_schema.children.size(), 2);
+
+    reader::FieldProjection projection;
+    projection.file_column_id = map_schema.top_level_field_id;
+    projection.file_path = map_schema.file_path;
+    projection.project_all_children = false;
+    reader::FieldProjection entry_projection;
+    entry_projection.file_column_id = map_schema.top_level_field_id;
+    entry_projection.file_path = key_value_schema.file_path;
+    entry_projection.project_all_children = false;
+    reader::FieldProjection value_projection;
+    value_projection.file_column_id = map_schema.top_level_field_id;
+    value_projection.file_path = value_schema.file_path;
+    value_projection.project_all_children = false;
+    reader::FieldProjection child_projection;
+    child_projection.file_column_id = map_schema.top_level_field_id;
+    child_projection.file_path = value_schema.children[1]->file_path;
+    value_projection.children.push_back(std::move(child_projection));
+    entry_projection.children.push_back(std::move(value_projection));
+    projection.children.push_back(std::move(entry_projection));
+
+    ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
+    std::unique_ptr<ParquetColumnReader> reader;
+    auto st = factory.create(map_schema, &projection, &reader);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_TRUE(reader->type()->is_nullable());
+    const auto* map_type = assert_cast<const DataTypeMap*>(remove_nullable(reader->type()).get());
+    EXPECT_EQ(remove_nullable(map_type->get_key_type())->get_primitive_type(), TYPE_INT);
+    const auto* value_type =
+            assert_cast<const DataTypeStruct*>(remove_nullable(map_type->get_value_type()).get());
+    ASSERT_EQ(value_type->get_elements().size(), 1);
+    EXPECT_EQ(value_type->get_element_name(0), "b");
+
+    MutableColumnPtr column = reader->type()->create_column();
+    int64_t rows_read = 0;
+    st = reader->read(ROW_COUNT, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, ROW_COUNT);
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    const auto& map_column = assert_cast<const ColumnMap&>(nullable_column.get_nested_column());
+    const auto& keys = assert_cast<const ColumnInt32&>(map_column.get_keys());
+    const auto& values = assert_cast<const ColumnNullable&>(map_column.get_values());
+    const auto& struct_column = assert_cast<const ColumnStruct&>(values.get_nested_column());
+    ASSERT_EQ(struct_column.get_columns().size(), 1);
+    const auto& b_values = assert_cast<const ColumnNullable&>(struct_column.get_column(0));
+    const auto& b_data = assert_cast<const ColumnString&>(b_values.get_nested_column());
+    ASSERT_EQ(keys.size(), 4);
+    ASSERT_EQ(values.size(), 4);
+    EXPECT_EQ(keys.get_element(0), 101);
+    EXPECT_EQ(keys.get_element(1), 102);
+    EXPECT_EQ(keys.get_element(3), 104);
+    EXPECT_EQ(b_data.get_data_at(0).to_string(), "ma");
+    EXPECT_TRUE(b_values.is_null_at(1));
+    EXPECT_TRUE(values.is_null_at(2));
+    EXPECT_EQ(b_data.get_data_at(3).to_string(), "me");
+}
+
+TEST_F(ParquetColumnReaderTest, ReadProjectedStructListChildOnly) {
+    const auto field_idx = find_field_idx("nullable_struct_list_col");
+    ASSERT_LT(field_idx, _fields.size());
+    const auto& struct_schema = *_fields[field_idx];
+    ASSERT_EQ(struct_schema.name, "nullable_struct_list_col");
+    ASSERT_EQ(struct_schema.children.size(), 2);
+
+    reader::FieldProjection projection;
+    projection.file_column_id = struct_schema.top_level_field_id;
+    projection.file_path = struct_schema.file_path;
+    projection.project_all_children = false;
+    reader::FieldProjection child_projection;
+    child_projection.file_column_id = struct_schema.top_level_field_id;
+    child_projection.file_path = struct_schema.children[1]->file_path;
+    projection.children.push_back(std::move(child_projection));
+
+    ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
+    std::unique_ptr<ParquetColumnReader> reader;
+    auto st = factory.create(struct_schema, &projection, &reader);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_TRUE(reader->type()->is_nullable());
+    const auto* projected_type =
+            assert_cast<const DataTypeStruct*>(remove_nullable(reader->type()).get());
+    ASSERT_EQ(projected_type->get_elements().size(), 1);
+    EXPECT_EQ(projected_type->get_element_name(0), "xs");
+
+    MutableColumnPtr column = reader->type()->create_column();
+    int64_t rows_read = 0;
+    st = reader->read(2, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 2);
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), ROW_COUNT);
+    EXPECT_FALSE(nullable_column.is_null_at(0));
+    EXPECT_TRUE(nullable_column.is_null_at(1));
+    EXPECT_FALSE(nullable_column.is_null_at(2));
+    EXPECT_FALSE(nullable_column.is_null_at(3));
+    EXPECT_FALSE(nullable_column.is_null_at(4));
+    const auto& struct_column =
+            assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
+    ASSERT_EQ(struct_column.get_columns().size(), 1);
+    const auto& xs_nullable = assert_cast<const ColumnNullable&>(struct_column.get_column(0));
+    ASSERT_EQ(xs_nullable.size(), ROW_COUNT);
+    EXPECT_FALSE(xs_nullable.is_null_at(0));
+    EXPECT_FALSE(xs_nullable.is_null_at(2));
+    EXPECT_TRUE(xs_nullable.is_null_at(3));
+    EXPECT_FALSE(xs_nullable.is_null_at(4));
+    const auto& xs_array = assert_cast<const ColumnArray&>(xs_nullable.get_nested_column());
+    const auto& offsets = xs_array.get_offsets();
+    ASSERT_EQ(offsets.size(), ROW_COUNT);
+    EXPECT_EQ(offsets[0], 2);
+    EXPECT_EQ(offsets[1], 2);
+    EXPECT_EQ(offsets[2], 2);
+    EXPECT_EQ(offsets[3], 2);
+    EXPECT_EQ(offsets[4], 4);
+    const auto& elements = assert_cast<const ColumnNullable&>(xs_array.get_data());
+    const auto& values = assert_cast<const ColumnInt32&>(elements.get_nested_column());
+    ASSERT_EQ(elements.size(), 4);
+    EXPECT_EQ(values.get_element(0), 1);
+    EXPECT_EQ(values.get_element(1), 2);
+    EXPECT_TRUE(elements.is_null_at(2));
+    EXPECT_EQ(values.get_element(3), 5);
+}
+
+TEST_F(ParquetColumnReaderTest, ReadProjectedStructMapChildOnly) {
+    const auto field_idx = find_field_idx("nullable_struct_map_col");
+    ASSERT_LT(field_idx, _fields.size());
+    const auto& struct_schema = *_fields[field_idx];
+    ASSERT_EQ(struct_schema.name, "nullable_struct_map_col");
+    ASSERT_EQ(struct_schema.children.size(), 2);
+
+    reader::FieldProjection projection;
+    projection.file_column_id = struct_schema.top_level_field_id;
+    projection.file_path = struct_schema.file_path;
+    projection.project_all_children = false;
+    reader::FieldProjection child_projection;
+    child_projection.file_column_id = struct_schema.top_level_field_id;
+    child_projection.file_path = struct_schema.children[1]->file_path;
+    projection.children.push_back(std::move(child_projection));
+
+    ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
+    std::unique_ptr<ParquetColumnReader> reader;
+    auto st = factory.create(struct_schema, &projection, &reader);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_TRUE(reader->type()->is_nullable());
+    const auto* projected_type =
+            assert_cast<const DataTypeStruct*>(remove_nullable(reader->type()).get());
+    ASSERT_EQ(projected_type->get_elements().size(), 1);
+    EXPECT_EQ(projected_type->get_element_name(0), "kv");
+
+    MutableColumnPtr column = reader->type()->create_column();
+    int64_t rows_read = 0;
+    st = reader->read(2, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 2);
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), ROW_COUNT);
+    EXPECT_FALSE(nullable_column.is_null_at(0));
+    EXPECT_TRUE(nullable_column.is_null_at(1));
+    EXPECT_FALSE(nullable_column.is_null_at(2));
+    EXPECT_FALSE(nullable_column.is_null_at(3));
+    EXPECT_FALSE(nullable_column.is_null_at(4));
+    const auto& struct_column =
+            assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
+    ASSERT_EQ(struct_column.get_columns().size(), 1);
+    const auto& kv_nullable = assert_cast<const ColumnNullable&>(struct_column.get_column(0));
+    ASSERT_EQ(kv_nullable.size(), ROW_COUNT);
+    EXPECT_FALSE(kv_nullable.is_null_at(0));
+    EXPECT_FALSE(kv_nullable.is_null_at(2));
+    EXPECT_TRUE(kv_nullable.is_null_at(3));
+    EXPECT_FALSE(kv_nullable.is_null_at(4));
+    const auto& kv_map = assert_cast<const ColumnMap&>(kv_nullable.get_nested_column());
+    const auto& offsets = kv_map.get_offsets();
+    ASSERT_EQ(offsets.size(), ROW_COUNT);
+    EXPECT_EQ(offsets[0], 2);
+    EXPECT_EQ(offsets[1], 2);
+    EXPECT_EQ(offsets[2], 2);
+    EXPECT_EQ(offsets[3], 2);
+    EXPECT_EQ(offsets[4], 3);
+    const auto& keys = assert_cast<const ColumnInt32&>(kv_map.get_keys());
+    const auto& values = assert_cast<const ColumnNullable&>(kv_map.get_values());
+    const auto& value_data = assert_cast<const ColumnString&>(values.get_nested_column());
+    ASSERT_EQ(keys.size(), 3);
+    EXPECT_EQ(keys.get_element(0), 1);
+    EXPECT_EQ(keys.get_element(1), 2);
+    EXPECT_EQ(keys.get_element(2), 5);
+    EXPECT_EQ(value_data.get_data_at(0).to_string(), "one");
+    EXPECT_TRUE(values.is_null_at(1));
+    EXPECT_EQ(value_data.get_data_at(2).to_string(), "five");
+}
+
 TEST_F(ParquetColumnReaderTest, ReadListWithOverflowAcrossChunks) {
     const auto field_idx = find_field_idx("nullable_list_int_col");
     auto reader = create_reader(field_idx);
@@ -979,6 +1812,329 @@ TEST_F(ParquetColumnReaderTest, SelectListWithOverflow) {
     EXPECT_EQ(offsets[2], 5);
 }
 
+TEST_F(ParquetColumnReaderTest, ReadStructListWithOverflowAcrossChunks) {
+    const auto field_idx = find_field_idx("nullable_struct_list_col");
+    auto reader = create_reader(field_idx);
+    MutableColumnPtr column = reader->type()->create_column();
+
+    int64_t rows_read = 0;
+    auto st = reader->read(2, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 2);
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    _expected_by_field[field_idx](*_fields[field_idx], *column);
+}
+
+TEST_F(ParquetColumnReaderTest, SkipStructListWithOverflowThenRead) {
+    const auto field_idx = find_field_idx("nullable_struct_list_col");
+    auto reader = create_reader(field_idx);
+    auto st = reader->skip(1);
+    ASSERT_TRUE(st.ok()) << st;
+
+    MutableColumnPtr column = reader->type()->create_column();
+    int64_t rows_read = 0;
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), 3);
+    EXPECT_TRUE(nullable_column.is_null_at(0));
+    EXPECT_FALSE(nullable_column.is_null_at(1));
+    EXPECT_FALSE(nullable_column.is_null_at(2));
+    const auto& struct_column =
+            assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
+    const auto& xs_nullable = assert_cast<const ColumnNullable&>(struct_column.get_column(1));
+    ASSERT_EQ(xs_nullable.size(), 3);
+    EXPECT_FALSE(xs_nullable.is_null_at(1));
+    EXPECT_TRUE(xs_nullable.is_null_at(2));
+    const auto& xs_array = assert_cast<const ColumnArray&>(xs_nullable.get_nested_column());
+    const auto& offsets = xs_array.get_offsets();
+    ASSERT_EQ(offsets.size(), 3);
+    EXPECT_EQ(offsets[0], 0);
+    EXPECT_EQ(offsets[1], 0);
+    EXPECT_EQ(offsets[2], 0);
+}
+
+TEST_F(ParquetColumnReaderTest, SelectStructListWithOverflow) {
+    const auto field_idx = find_field_idx("nullable_struct_list_col");
+    auto reader = create_reader(field_idx);
+    SelectionVector selection(3);
+    selection.set_index(0, 0);
+    selection.set_index(1, 3);
+    selection.set_index(2, 4);
+
+    MutableColumnPtr column = reader->type()->create_column();
+    auto st = reader->select(selection, 3, ROW_COUNT, column);
+    ASSERT_TRUE(st.ok()) << st;
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), 3);
+    EXPECT_FALSE(nullable_column.is_null_at(0));
+    EXPECT_FALSE(nullable_column.is_null_at(1));
+    EXPECT_FALSE(nullable_column.is_null_at(2));
+    const auto& struct_column =
+            assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
+    const auto& a_values = assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+    EXPECT_EQ(a_values.get_element(0), 301);
+    EXPECT_EQ(a_values.get_element(1), 304);
+    EXPECT_EQ(a_values.get_element(2), 305);
+    const auto& xs_nullable = assert_cast<const ColumnNullable&>(struct_column.get_column(1));
+    ASSERT_EQ(xs_nullable.size(), 3);
+    EXPECT_FALSE(xs_nullable.is_null_at(0));
+    EXPECT_TRUE(xs_nullable.is_null_at(1));
+    EXPECT_FALSE(xs_nullable.is_null_at(2));
+    const auto& xs_array = assert_cast<const ColumnArray&>(xs_nullable.get_nested_column());
+    const auto& offsets = xs_array.get_offsets();
+    ASSERT_EQ(offsets.size(), 3);
+    EXPECT_EQ(offsets[0], 2);
+    EXPECT_EQ(offsets[1], 2);
+    EXPECT_EQ(offsets[2], 4);
+}
+
+TEST_F(ParquetColumnReaderTest, ReadStructMapWithOverflowAcrossChunks) {
+    const auto field_idx = find_field_idx("nullable_struct_map_col");
+    auto reader = create_reader(field_idx);
+    MutableColumnPtr column = reader->type()->create_column();
+
+    int64_t rows_read = 0;
+    auto st = reader->read(2, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 2);
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    _expected_by_field[field_idx](*_fields[field_idx], *column);
+}
+
+TEST_F(ParquetColumnReaderTest, SkipStructMapWithOverflowThenRead) {
+    const auto field_idx = find_field_idx("nullable_struct_map_col");
+    auto reader = create_reader(field_idx);
+    auto st = reader->skip(1);
+    ASSERT_TRUE(st.ok()) << st;
+
+    MutableColumnPtr column = reader->type()->create_column();
+    int64_t rows_read = 0;
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), 3);
+    EXPECT_TRUE(nullable_column.is_null_at(0));
+    EXPECT_FALSE(nullable_column.is_null_at(1));
+    EXPECT_FALSE(nullable_column.is_null_at(2));
+    const auto& struct_column =
+            assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
+    const auto& kv_nullable = assert_cast<const ColumnNullable&>(struct_column.get_column(1));
+    ASSERT_EQ(kv_nullable.size(), 3);
+    EXPECT_FALSE(kv_nullable.is_null_at(1));
+    EXPECT_TRUE(kv_nullable.is_null_at(2));
+    const auto& kv_map = assert_cast<const ColumnMap&>(kv_nullable.get_nested_column());
+    const auto& offsets = kv_map.get_offsets();
+    ASSERT_EQ(offsets.size(), 3);
+    EXPECT_EQ(offsets[0], 0);
+    EXPECT_EQ(offsets[1], 0);
+    EXPECT_EQ(offsets[2], 0);
+}
+
+TEST_F(ParquetColumnReaderTest, SelectStructMapWithOverflow) {
+    const auto field_idx = find_field_idx("nullable_struct_map_col");
+    auto reader = create_reader(field_idx);
+    SelectionVector selection(3);
+    selection.set_index(0, 0);
+    selection.set_index(1, 3);
+    selection.set_index(2, 4);
+
+    MutableColumnPtr column = reader->type()->create_column();
+    auto st = reader->select(selection, 3, ROW_COUNT, column);
+    ASSERT_TRUE(st.ok()) << st;
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), 3);
+    EXPECT_FALSE(nullable_column.is_null_at(0));
+    EXPECT_FALSE(nullable_column.is_null_at(1));
+    EXPECT_FALSE(nullable_column.is_null_at(2));
+    const auto& struct_column =
+            assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
+    const auto& a_values = assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+    EXPECT_EQ(a_values.get_element(0), 401);
+    EXPECT_EQ(a_values.get_element(1), 404);
+    EXPECT_EQ(a_values.get_element(2), 405);
+    const auto& kv_nullable = assert_cast<const ColumnNullable&>(struct_column.get_column(1));
+    ASSERT_EQ(kv_nullable.size(), 3);
+    EXPECT_FALSE(kv_nullable.is_null_at(0));
+    EXPECT_TRUE(kv_nullable.is_null_at(1));
+    EXPECT_FALSE(kv_nullable.is_null_at(2));
+    const auto& kv_map = assert_cast<const ColumnMap&>(kv_nullable.get_nested_column());
+    const auto& offsets = kv_map.get_offsets();
+    ASSERT_EQ(offsets.size(), 3);
+    EXPECT_EQ(offsets[0], 2);
+    EXPECT_EQ(offsets[1], 2);
+    EXPECT_EQ(offsets[2], 3);
+    const auto& keys = assert_cast<const ColumnInt32&>(kv_map.get_keys());
+    const auto& values = assert_cast<const ColumnNullable&>(kv_map.get_values());
+    const auto& value_data = assert_cast<const ColumnString&>(values.get_nested_column());
+    ASSERT_EQ(keys.size(), 3);
+    EXPECT_EQ(keys.get_element(0), 1);
+    EXPECT_EQ(keys.get_element(1), 2);
+    EXPECT_EQ(keys.get_element(2), 5);
+    EXPECT_EQ(value_data.get_data_at(0).to_string(), "one");
+    EXPECT_TRUE(values.is_null_at(1));
+    EXPECT_EQ(value_data.get_data_at(2).to_string(), "five");
+}
+
+TEST_F(ParquetColumnReaderTest, ReadListStructWithOverflowAcrossChunks) {
+    const auto field_idx = find_field_idx("nullable_list_struct_col");
+    auto reader = create_reader(field_idx);
+    MutableColumnPtr column = reader->type()->create_column();
+
+    int64_t rows_read = 0;
+    auto st = reader->read(2, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 2);
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    _expected_by_field[field_idx](*_fields[field_idx], *column);
+}
+
+TEST_F(ParquetColumnReaderTest, SkipListStructWithOverflowThenRead) {
+    const auto field_idx = find_field_idx("nullable_list_struct_col");
+    auto reader = create_reader(field_idx);
+    auto st = reader->skip(1);
+    ASSERT_TRUE(st.ok()) << st;
+
+    MutableColumnPtr column = reader->type()->create_column();
+    int64_t rows_read = 0;
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), 3);
+    EXPECT_TRUE(nullable_column.is_null_at(0));
+    const auto& array_column = assert_cast<const ColumnArray&>(nullable_column.get_nested_column());
+    const auto& offsets = array_column.get_offsets();
+    ASSERT_EQ(offsets.size(), 3);
+    EXPECT_EQ(offsets[0], 0);
+    EXPECT_EQ(offsets[1], 0);
+    EXPECT_EQ(offsets[2], 2);
+}
+
+TEST_F(ParquetColumnReaderTest, SelectListStructWithOverflow) {
+    const auto field_idx = find_field_idx("nullable_list_struct_col");
+    auto reader = create_reader(field_idx);
+    SelectionVector selection(3);
+    selection.set_index(0, 0);
+    selection.set_index(1, 3);
+    selection.set_index(2, 4);
+
+    MutableColumnPtr column = reader->type()->create_column();
+    auto st = reader->select(selection, 3, ROW_COUNT, column);
+    ASSERT_TRUE(st.ok()) << st;
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), 3);
+    EXPECT_FALSE(nullable_column.is_null_at(0));
+    EXPECT_FALSE(nullable_column.is_null_at(1));
+    EXPECT_FALSE(nullable_column.is_null_at(2));
+    const auto& array_column = assert_cast<const ColumnArray&>(nullable_column.get_nested_column());
+    const auto& offsets = array_column.get_offsets();
+    ASSERT_EQ(offsets.size(), 3);
+    EXPECT_EQ(offsets[0], 2);
+    EXPECT_EQ(offsets[1], 4);
+    EXPECT_EQ(offsets[2], 5);
+}
+
+TEST_F(ParquetColumnReaderTest, ReadListListWithOverflowAcrossChunks) {
+    const auto field_idx = find_field_idx("nullable_list_list_int_col");
+    auto reader = create_reader(field_idx);
+    MutableColumnPtr column = reader->type()->create_column();
+
+    int64_t rows_read = 0;
+    auto st = reader->read(2, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 2);
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    _expected_by_field[field_idx](*_fields[field_idx], *column);
+}
+
+TEST_F(ParquetColumnReaderTest, SkipListListWithOverflowThenRead) {
+    const auto field_idx = find_field_idx("nullable_list_list_int_col");
+    auto reader = create_reader(field_idx);
+    auto st = reader->skip(1);
+    ASSERT_TRUE(st.ok()) << st;
+
+    MutableColumnPtr column = reader->type()->create_column();
+    int64_t rows_read = 0;
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), 3);
+    EXPECT_TRUE(nullable_column.is_null_at(0));
+    const auto& outer_array = assert_cast<const ColumnArray&>(nullable_column.get_nested_column());
+    const auto& outer_offsets = outer_array.get_offsets();
+    ASSERT_EQ(outer_offsets.size(), 3);
+    EXPECT_EQ(outer_offsets[0], 0);
+    EXPECT_EQ(outer_offsets[1], 0);
+    EXPECT_EQ(outer_offsets[2], 1);
+
+    const auto& inner_nullable = assert_cast<const ColumnNullable&>(outer_array.get_data());
+    ASSERT_EQ(inner_nullable.size(), 1);
+    EXPECT_FALSE(inner_nullable.is_null_at(0));
+    const auto& inner_array = assert_cast<const ColumnArray&>(inner_nullable.get_nested_column());
+    const auto& inner_offsets = inner_array.get_offsets();
+    ASSERT_EQ(inner_offsets.size(), 1);
+    EXPECT_EQ(inner_offsets[0], 1);
+}
+
+TEST_F(ParquetColumnReaderTest, SelectListListWithOverflow) {
+    const auto field_idx = find_field_idx("nullable_list_list_int_col");
+    auto reader = create_reader(field_idx);
+    SelectionVector selection(3);
+    selection.set_index(0, 0);
+    selection.set_index(1, 3);
+    selection.set_index(2, 4);
+
+    MutableColumnPtr column = reader->type()->create_column();
+    auto st = reader->select(selection, 3, ROW_COUNT, column);
+    ASSERT_TRUE(st.ok()) << st;
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), 3);
+    EXPECT_FALSE(nullable_column.is_null_at(0));
+    EXPECT_FALSE(nullable_column.is_null_at(1));
+    EXPECT_FALSE(nullable_column.is_null_at(2));
+    const auto& outer_array = assert_cast<const ColumnArray&>(nullable_column.get_nested_column());
+    const auto& outer_offsets = outer_array.get_offsets();
+    ASSERT_EQ(outer_offsets.size(), 3);
+    EXPECT_EQ(outer_offsets[0], 4);
+    EXPECT_EQ(outer_offsets[1], 5);
+    EXPECT_EQ(outer_offsets[2], 7);
+
+    const auto& inner_nullable = assert_cast<const ColumnNullable&>(outer_array.get_data());
+    ASSERT_EQ(inner_nullable.size(), 7);
+    EXPECT_TRUE(inner_nullable.is_null_at(2));
+    const auto& inner_array = assert_cast<const ColumnArray&>(inner_nullable.get_nested_column());
+    const auto& inner_offsets = inner_array.get_offsets();
+    ASSERT_EQ(inner_offsets.size(), 7);
+    EXPECT_EQ(inner_offsets[0], 2);
+    EXPECT_EQ(inner_offsets[3], 4);
+    EXPECT_EQ(inner_offsets[4], 5);
+    EXPECT_EQ(inner_offsets[6], 7);
+}
+
 TEST_F(ParquetColumnReaderTest, ReadMapWithOverflowAcrossChunks) {
     const auto field_idx = find_field_idx("nullable_map_int_string_col");
     auto reader = create_reader(field_idx);
@@ -1041,6 +2197,158 @@ TEST_F(ParquetColumnReaderTest, SelectMapWithOverflow) {
     EXPECT_EQ(offsets[0], 2);
     EXPECT_EQ(offsets[1], 3);
     EXPECT_EQ(offsets[2], 4);
+}
+
+TEST_F(ParquetColumnReaderTest, ReadMapStructWithOverflowAcrossChunks) {
+    const auto field_idx = find_field_idx("nullable_map_int_struct_col");
+    auto reader = create_reader(field_idx);
+    MutableColumnPtr column = reader->type()->create_column();
+
+    int64_t rows_read = 0;
+    auto st = reader->read(2, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 2);
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    _expected_by_field[field_idx](*_fields[field_idx], *column);
+}
+
+TEST_F(ParquetColumnReaderTest, SkipMapStructWithOverflowThenRead) {
+    const auto field_idx = find_field_idx("nullable_map_int_struct_col");
+    auto reader = create_reader(field_idx);
+    auto st = reader->skip(1);
+    ASSERT_TRUE(st.ok()) << st;
+
+    MutableColumnPtr column = reader->type()->create_column();
+    int64_t rows_read = 0;
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), 3);
+    EXPECT_TRUE(nullable_column.is_null_at(0));
+    const auto& map_column = assert_cast<const ColumnMap&>(nullable_column.get_nested_column());
+    const auto& offsets = map_column.get_offsets();
+    ASSERT_EQ(offsets.size(), 3);
+    EXPECT_EQ(offsets[0], 0);
+    EXPECT_EQ(offsets[1], 0);
+    EXPECT_EQ(offsets[2], 1);
+}
+
+TEST_F(ParquetColumnReaderTest, SelectMapStructWithOverflow) {
+    const auto field_idx = find_field_idx("nullable_map_int_struct_col");
+    auto reader = create_reader(field_idx);
+    SelectionVector selection(3);
+    selection.set_index(0, 0);
+    selection.set_index(1, 3);
+    selection.set_index(2, 4);
+
+    MutableColumnPtr column = reader->type()->create_column();
+    auto st = reader->select(selection, 3, ROW_COUNT, column);
+    ASSERT_TRUE(st.ok()) << st;
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), 3);
+    EXPECT_FALSE(nullable_column.is_null_at(0));
+    EXPECT_FALSE(nullable_column.is_null_at(1));
+    EXPECT_FALSE(nullable_column.is_null_at(2));
+    const auto& map_column = assert_cast<const ColumnMap&>(nullable_column.get_nested_column());
+    const auto& offsets = map_column.get_offsets();
+    ASSERT_EQ(offsets.size(), 3);
+    EXPECT_EQ(offsets[0], 2);
+    EXPECT_EQ(offsets[1], 3);
+    EXPECT_EQ(offsets[2], 4);
+}
+
+TEST_F(ParquetColumnReaderTest, ReadMapListWithOverflowAcrossChunks) {
+    const auto field_idx = find_field_idx("nullable_map_int_list_col");
+    auto reader = create_reader(field_idx);
+    MutableColumnPtr column = reader->type()->create_column();
+
+    int64_t rows_read = 0;
+    auto st = reader->read(2, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 2);
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    _expected_by_field[field_idx](*_fields[field_idx], *column);
+}
+
+TEST_F(ParquetColumnReaderTest, SkipMapListWithOverflowThenRead) {
+    const auto field_idx = find_field_idx("nullable_map_int_list_col");
+    auto reader = create_reader(field_idx);
+    auto st = reader->skip(1);
+    ASSERT_TRUE(st.ok()) << st;
+
+    MutableColumnPtr column = reader->type()->create_column();
+    int64_t rows_read = 0;
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), 3);
+    EXPECT_TRUE(nullable_column.is_null_at(0));
+    const auto& map_column = assert_cast<const ColumnMap&>(nullable_column.get_nested_column());
+    const auto& map_offsets = map_column.get_offsets();
+    ASSERT_EQ(map_offsets.size(), 3);
+    EXPECT_EQ(map_offsets[0], 0);
+    EXPECT_EQ(map_offsets[1], 0);
+    EXPECT_EQ(map_offsets[2], 2);
+
+    const auto& values = assert_cast<const ColumnNullable&>(map_column.get_values());
+    ASSERT_EQ(values.size(), 2);
+    EXPECT_TRUE(values.is_null_at(0));
+    EXPECT_FALSE(values.is_null_at(1));
+    const auto& list_column = assert_cast<const ColumnArray&>(values.get_nested_column());
+    const auto& list_offsets = list_column.get_offsets();
+    ASSERT_EQ(list_offsets.size(), 2);
+    EXPECT_EQ(list_offsets[0], 0);
+    EXPECT_EQ(list_offsets[1], 2);
+}
+
+TEST_F(ParquetColumnReaderTest, SelectMapListWithOverflow) {
+    const auto field_idx = find_field_idx("nullable_map_int_list_col");
+    auto reader = create_reader(field_idx);
+    SelectionVector selection(3);
+    selection.set_index(0, 0);
+    selection.set_index(1, 3);
+    selection.set_index(2, 4);
+
+    MutableColumnPtr column = reader->type()->create_column();
+    auto st = reader->select(selection, 3, ROW_COUNT, column);
+    ASSERT_TRUE(st.ok()) << st;
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), 3);
+    EXPECT_FALSE(nullable_column.is_null_at(0));
+    EXPECT_FALSE(nullable_column.is_null_at(1));
+    EXPECT_FALSE(nullable_column.is_null_at(2));
+    const auto& map_column = assert_cast<const ColumnMap&>(nullable_column.get_nested_column());
+    const auto& map_offsets = map_column.get_offsets();
+    ASSERT_EQ(map_offsets.size(), 3);
+    EXPECT_EQ(map_offsets[0], 2);
+    EXPECT_EQ(map_offsets[1], 4);
+    EXPECT_EQ(map_offsets[2], 5);
+
+    const auto& values = assert_cast<const ColumnNullable&>(map_column.get_values());
+    ASSERT_EQ(values.size(), 5);
+    EXPECT_FALSE(values.is_null_at(0));
+    EXPECT_TRUE(values.is_null_at(2));
+    EXPECT_FALSE(values.is_null_at(4));
+    const auto& list_column = assert_cast<const ColumnArray&>(values.get_nested_column());
+    const auto& list_offsets = list_column.get_offsets();
+    ASSERT_EQ(list_offsets.size(), 5);
+    EXPECT_EQ(list_offsets[0], 2);
+    EXPECT_EQ(list_offsets[1], 2);
+    EXPECT_EQ(list_offsets[2], 2);
+    EXPECT_EQ(list_offsets[3], 4);
+    EXPECT_EQ(list_offsets[4], 5);
 }
 
 TEST_F(ParquetColumnReaderTest, BuildComplexSchemaPathMetadata) {

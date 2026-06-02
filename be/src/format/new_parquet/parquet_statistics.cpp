@@ -21,9 +21,11 @@
 #include <parquet/api/schema.h>
 #include <parquet/column_page.h>
 #include <parquet/encoding.h>
+#include <parquet/page_index.h>
 #include <parquet/statistics.h>
 #include <parquet/types.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <exception>
 #include <memory>
@@ -31,6 +33,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/primitive_type.h"
@@ -40,6 +43,7 @@
 #include "storage/predicate/column_predicate.h"
 
 namespace doris::parquet {
+
 namespace {
 
 PrimitiveType physical_filter_type(const ParquetColumnSchema& column_schema) {
@@ -361,55 +365,67 @@ bool ParquetStatisticsUtils::CheckStatistics(const reader::FileColumnPredicateFi
     return false;
 }
 
-bool ParquetStatisticsUtils::RowGroupExcludes(
+ParquetRowGroupPruneReason ParquetStatisticsUtils::RowGroupPruneReason(
         const ::parquet::RowGroupMetaData& row_group, ::parquet::ParquetFileReader* file_reader,
         int row_group_idx, const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
         const reader::FileColumnPredicateFilter& column_filter) {
     if (column_filter.predicates.empty()) {
-        return false;
+        return ParquetRowGroupPruneReason::NONE;
     }
     DCHECK_LT(column_filter.file_column_id, schema.size());
     const auto& column_schema = *schema[column_filter.file_column_id];
     if (column_schema.kind != ParquetColumnSchemaKind::PRIMITIVE ||
         column_schema.leaf_column_id < 0) {
-        return false;
+        return ParquetRowGroupPruneReason::NONE;
     }
     DCHECK_LT(column_schema.leaf_column_id, row_group.num_columns());
     auto column_chunk = row_group.ColumnChunk(column_schema.leaf_column_id);
     if (column_chunk == nullptr) {
-        return false;
+        return ParquetRowGroupPruneReason::NONE;
     }
     if (CheckStatistics(column_filter,
                         TransformColumnStatistics(column_schema, column_chunk->statistics()))) {
-        return true;
+        return ParquetRowGroupPruneReason::STATISTICS;
     }
     if (!supports_dictionary_pruning(column_schema, *column_chunk, column_filter) ||
         !is_dictionary_encoded_chunk(*column_chunk)) {
-        return false;
+        return ParquetRowGroupPruneReason::NONE;
     }
     OwnedDictionaryWords dict_words;
     if (!read_dictionary_words(file_reader, row_group_idx, column_schema.leaf_column_id,
                                column_schema, &dict_words)) {
-        return false;
+        return ParquetRowGroupPruneReason::NONE;
     }
     for (const auto& column_predicate : column_filter.predicates) {
         if (!column_predicate->evaluate_and(dict_words.refs.data(), dict_words.refs.size())) {
-            return true;
+            return ParquetRowGroupPruneReason::DICTIONARY;
         }
     }
-    return false;
+    return ParquetRowGroupPruneReason::NONE;
+}
+
+bool ParquetStatisticsUtils::RowGroupExcludes(
+        const ::parquet::RowGroupMetaData& row_group, ::parquet::ParquetFileReader* file_reader,
+        int row_group_idx, const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
+        const reader::FileColumnPredicateFilter& column_filter) {
+    return RowGroupPruneReason(row_group, file_reader, row_group_idx, schema, column_filter) !=
+           ParquetRowGroupPruneReason::NONE;
 }
 
 Status ParquetStatisticsUtils::SelectRowGroups(
         const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const reader::FileScanRequest& request, std::vector<int>* selected_row_groups) {
+        const reader::FileScanRequest& request, std::vector<int>* selected_row_groups,
+        ParquetPruningStats* pruning_stats) {
     if (selected_row_groups == nullptr) {
         return Status::InvalidArgument("selected_row_groups is null");
     }
     selected_row_groups->clear();
 
     const int num_row_groups = metadata.num_row_groups();
+    if (pruning_stats != nullptr) {
+        pruning_stats->total_row_groups = num_row_groups;
+    }
     selected_row_groups->reserve(num_row_groups);
     for (int row_group_idx = 0; row_group_idx < num_row_groups; ++row_group_idx) {
         auto row_group = metadata.RowGroup(row_group_idx);
@@ -419,11 +435,22 @@ Status ParquetStatisticsUtils::SelectRowGroups(
         }
         bool drop = false;
         for (const auto& column_filter : request.column_predicate_filters) {
-            if (RowGroupExcludes(*row_group, file_reader, row_group_idx, file_schema,
-                                 column_filter)) {
-                drop = true;
+            const auto prune_reason = RowGroupPruneReason(*row_group, file_reader, row_group_idx,
+                                                          file_schema, column_filter);
+            if (prune_reason == ParquetRowGroupPruneReason::NONE) {
+                continue;
+            }
+            drop = true;
+            if (pruning_stats != nullptr) {
+                pruning_stats->filtered_group_rows += row_group->num_rows();
+                if (prune_reason == ParquetRowGroupPruneReason::STATISTICS) {
+                    ++pruning_stats->filtered_row_groups_by_statistics;
+                } else if (prune_reason == ParquetRowGroupPruneReason::DICTIONARY) {
+                    ++pruning_stats->filtered_row_groups_by_dictionary;
+                }
                 break;
             }
+            break;
         }
         if (drop) {
             continue;
@@ -450,9 +477,283 @@ bool ParquetStatisticsUtils::BloomFilterSupported(const ParquetColumnSchema& col
 Status select_row_groups_by_statistics(
         const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const reader::FileScanRequest& request, std::vector<int>* selected_row_groups) {
+        const reader::FileScanRequest& request, std::vector<int>* selected_row_groups,
+        ParquetPruningStats* pruning_stats) {
     return ParquetStatisticsUtils::SelectRowGroups(metadata, file_reader, file_schema, request,
-                                                   selected_row_groups);
+                                                   selected_row_groups, pruning_stats);
+}
+
+namespace {
+
+template <typename ParquetDType, PrimitiveType DorisType, typename ConvertFn>
+bool set_page_typed_min_max(const std::shared_ptr<::parquet::ColumnIndex>& column_index,
+                            size_t page_idx, ConvertFn convert,
+                            ParquetColumnStatistics* page_statistics) {
+    const auto typed_index =
+            std::static_pointer_cast<::parquet::TypedColumnIndex<ParquetDType>>(column_index);
+    if (page_idx >= typed_index->min_values().size() ||
+        page_idx >= typed_index->max_values().size()) {
+        return false;
+    }
+    page_statistics->min_value =
+            Field::create_field<DorisType>(convert(typed_index->min_values()[page_idx]));
+    page_statistics->max_value =
+            Field::create_field<DorisType>(convert(typed_index->max_values()[page_idx]));
+    page_statistics->has_min_max = true;
+    return true;
+}
+
+bool set_page_string_min_max(const std::shared_ptr<::parquet::ColumnIndex>& column_index,
+                             const ParquetColumnSchema& column_schema, size_t page_idx,
+                             ParquetColumnStatistics* page_statistics) {
+    switch (column_schema.descriptor->physical_type()) {
+    case ::parquet::Type::BYTE_ARRAY: {
+        const auto typed_index =
+                std::static_pointer_cast<::parquet::ByteArrayColumnIndex>(column_index);
+        if (page_idx >= typed_index->min_values().size() ||
+            page_idx >= typed_index->max_values().size()) {
+            return false;
+        }
+        page_statistics->min_value = Field::create_field<TYPE_STRING>(
+                ::parquet::ByteArrayToString(typed_index->min_values()[page_idx]));
+        page_statistics->max_value = Field::create_field<TYPE_STRING>(
+                ::parquet::ByteArrayToString(typed_index->max_values()[page_idx]));
+        page_statistics->has_min_max = true;
+        return true;
+    }
+    case ::parquet::Type::FIXED_LEN_BYTE_ARRAY: {
+        const int type_length = column_schema.descriptor->type_length();
+        if (type_length <= 0) {
+            return false;
+        }
+        const auto typed_index = std::static_pointer_cast<::parquet::FLBAColumnIndex>(column_index);
+        if (page_idx >= typed_index->min_values().size() ||
+            page_idx >= typed_index->max_values().size()) {
+            return false;
+        }
+        page_statistics->min_value = Field::create_field<TYPE_STRING>(
+                std::string(reinterpret_cast<const char*>(typed_index->min_values()[page_idx].ptr),
+                            type_length));
+        page_statistics->max_value = Field::create_field<TYPE_STRING>(
+                std::string(reinterpret_cast<const char*>(typed_index->max_values()[page_idx].ptr),
+                            type_length));
+        page_statistics->has_min_max = true;
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+bool set_page_min_max(const std::shared_ptr<::parquet::ColumnIndex>& column_index,
+                      const ParquetColumnSchema& column_schema, size_t page_idx,
+                      ParquetColumnStatistics* page_statistics) {
+    switch (column_schema.descriptor->physical_type()) {
+    case ::parquet::Type::BOOLEAN:
+        return set_page_typed_min_max<::parquet::BooleanType, TYPE_BOOLEAN>(
+                column_index, page_idx, [](bool value) { return static_cast<UInt8>(value); },
+                page_statistics);
+    case ::parquet::Type::INT32:
+        return set_page_typed_min_max<::parquet::Int32Type, TYPE_INT>(
+                column_index, page_idx, [](int32_t value) { return value; }, page_statistics);
+    case ::parquet::Type::INT64:
+        return set_page_typed_min_max<::parquet::Int64Type, TYPE_BIGINT>(
+                column_index, page_idx, [](int64_t value) { return value; }, page_statistics);
+    case ::parquet::Type::FLOAT:
+        return set_page_typed_min_max<::parquet::FloatType, TYPE_FLOAT>(
+                column_index, page_idx, [](float value) { return value; }, page_statistics);
+    case ::parquet::Type::DOUBLE:
+        return set_page_typed_min_max<::parquet::DoubleType, TYPE_DOUBLE>(
+                column_index, page_idx, [](double value) { return value; }, page_statistics);
+    case ::parquet::Type::BYTE_ARRAY:
+    case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
+        return set_page_string_min_max(column_index, column_schema, page_idx, page_statistics);
+    default:
+        return false;
+    }
+}
+
+bool build_page_statistics(const std::shared_ptr<::parquet::ColumnIndex>& column_index,
+                           const ParquetColumnSchema& column_schema, size_t page_idx,
+                           ParquetColumnStatistics* page_statistics) {
+    DORIS_CHECK(page_statistics != nullptr);
+    *page_statistics = ParquetColumnStatistics {};
+
+    const auto& null_pages = column_index->null_pages();
+    if (!column_index->has_null_counts() || page_idx >= null_pages.size() ||
+        page_idx >= column_index->null_counts().size()) {
+        return false;
+    }
+
+    page_statistics->has_null_count = true;
+    page_statistics->has_null = column_index->null_counts()[page_idx] > 0;
+    page_statistics->has_not_null = !null_pages[page_idx];
+    if (!page_statistics->has_not_null) {
+        return true;
+    }
+    return set_page_min_max(column_index, column_schema, page_idx, page_statistics);
+}
+
+std::vector<RowRange> intersect_ranges(const std::vector<RowRange>& left,
+                                       const std::vector<RowRange>& right) {
+    std::vector<RowRange> result;
+    size_t left_idx = 0;
+    size_t right_idx = 0;
+    while (left_idx < left.size() && right_idx < right.size()) {
+        const int64_t left_start = left[left_idx].start;
+        const int64_t left_end = left_start + left[left_idx].length;
+        const int64_t right_start = right[right_idx].start;
+        const int64_t right_end = right_start + right[right_idx].length;
+        const int64_t start = std::max(left_start, right_start);
+        const int64_t end = std::min(left_end, right_end);
+        if (start < end) {
+            result.push_back(RowRange {start, end - start});
+        }
+        if (left_end < right_end) {
+            ++left_idx;
+        } else {
+            ++right_idx;
+        }
+    }
+    return result;
+}
+
+int64_t count_range_rows(const std::vector<RowRange>& ranges) {
+    int64_t rows = 0;
+    for (const auto& range : ranges) {
+        rows += range.length;
+    }
+    return rows;
+}
+
+void append_page_range(const ::parquet::OffsetIndex& offset_index, size_t page_idx,
+                       int64_t row_group_rows, std::vector<RowRange>* ranges) {
+    const auto& page_locations = offset_index.page_locations();
+    const int64_t start = page_locations[page_idx].first_row_index;
+    const int64_t end = page_idx + 1 == page_locations.size()
+                                ? row_group_rows
+                                : page_locations[page_idx + 1].first_row_index;
+    DORIS_CHECK(start >= 0);
+    DORIS_CHECK(end >= start);
+    DORIS_CHECK(end <= row_group_rows);
+    if (start == end) {
+        return;
+    }
+    if (!ranges->empty()) {
+        auto& previous = ranges->back();
+        if (previous.start + previous.length == start) {
+            previous.length += end - start;
+            return;
+        }
+    }
+    ranges->push_back(RowRange {start, end - start});
+}
+
+bool select_ranges_for_filter(const std::shared_ptr<::parquet::RowGroupPageIndexReader>& row_group,
+                              const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+                              const reader::FileColumnPredicateFilter& column_filter,
+                              int64_t row_group_rows, std::vector<RowRange>* ranges) {
+    if (column_filter.predicates.empty()) {
+        return false;
+    }
+    DORIS_CHECK(column_filter.file_column_id >= 0);
+    DORIS_CHECK(column_filter.file_column_id < static_cast<int>(file_schema.size()));
+    const auto& column_schema = *file_schema[column_filter.file_column_id];
+    if (column_schema.kind != ParquetColumnSchemaKind::PRIMITIVE ||
+        column_schema.descriptor == nullptr || column_schema.leaf_column_id < 0) {
+        return false;
+    }
+
+    std::shared_ptr<::parquet::ColumnIndex> column_index;
+    std::shared_ptr<::parquet::OffsetIndex> offset_index;
+    try {
+        column_index = row_group->GetColumnIndex(column_schema.leaf_column_id);
+        offset_index = row_group->GetOffsetIndex(column_schema.leaf_column_id);
+    } catch (const ::parquet::ParquetException&) {
+        return false;
+    } catch (const std::exception&) {
+        return false;
+    }
+    if (column_index == nullptr || offset_index == nullptr ||
+        column_index->null_pages().size() != offset_index->page_locations().size()) {
+        return false;
+    }
+
+    ranges->clear();
+    const auto page_count = offset_index->page_locations().size();
+    for (size_t page_idx = 0; page_idx < page_count; ++page_idx) {
+        ParquetColumnStatistics page_statistics;
+        if (!build_page_statistics(column_index, column_schema, page_idx, &page_statistics)) {
+            ranges->clear();
+            return false;
+        }
+        if (ParquetStatisticsUtils::CheckStatistics(column_filter, page_statistics)) {
+            continue;
+        }
+        append_page_range(*offset_index, page_idx, row_group_rows, ranges);
+    }
+    return true;
+}
+
+} // namespace
+
+Status select_row_group_ranges_by_page_index(
+        ::parquet::ParquetFileReader* file_reader,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const reader::FileScanRequest& request, int row_group_idx, int64_t row_group_rows,
+        std::vector<RowRange>* selected_ranges, ParquetPruningStats* pruning_stats) {
+    DORIS_CHECK(selected_ranges != nullptr);
+    selected_ranges->clear();
+    if (row_group_rows <= 0) {
+        return Status::OK();
+    }
+    selected_ranges->push_back(RowRange {0, row_group_rows});
+    if (!config::enable_parquet_page_index || request.column_predicate_filters.empty() ||
+        file_reader == nullptr) {
+        return Status::OK();
+    }
+
+    std::shared_ptr<::parquet::PageIndexReader> page_index_reader;
+    std::shared_ptr<::parquet::RowGroupPageIndexReader> row_group_index_reader;
+    try {
+        if (pruning_stats != nullptr) {
+            ++pruning_stats->page_index_read_calls;
+        }
+        page_index_reader = file_reader->GetPageIndexReader();
+        if (page_index_reader == nullptr) {
+            return Status::OK();
+        }
+        row_group_index_reader = page_index_reader->RowGroup(row_group_idx);
+    } catch (const ::parquet::ParquetException&) {
+        return Status::OK();
+    } catch (const std::exception&) {
+        return Status::OK();
+    }
+    if (row_group_index_reader == nullptr) {
+        return Status::OK();
+    }
+
+    for (const auto& column_filter : request.column_predicate_filters) {
+        std::vector<RowRange> filter_ranges;
+        if (!select_ranges_for_filter(row_group_index_reader, file_schema, column_filter,
+                                      row_group_rows, &filter_ranges)) {
+            continue;
+        }
+        *selected_ranges = intersect_ranges(*selected_ranges, filter_ranges);
+        if (selected_ranges->empty()) {
+            if (pruning_stats != nullptr) {
+                pruning_stats->filtered_page_rows += row_group_rows;
+                ++pruning_stats->filtered_row_groups_by_page_index;
+            }
+            return Status::OK();
+        }
+    }
+    if (pruning_stats != nullptr) {
+        const int64_t selected_rows = count_range_rows(*selected_ranges);
+        DORIS_CHECK(selected_rows <= row_group_rows);
+        pruning_stats->filtered_page_rows += row_group_rows - selected_rows;
+    }
+    return Status::OK();
 }
 
 } // namespace doris::parquet

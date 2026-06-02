@@ -30,6 +30,12 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_array.h"
+#include "core/column/column_const.h"
+#include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_struct.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
@@ -39,7 +45,7 @@
 #include "core/field.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
-#include "format/new_parquet/column_reader.h"
+#include "format/new_parquet/reader/column_reader.h"
 #include "format/reader/column_mapper.h"
 #include "format/reader/expr/delete_predicate.h"
 #include "format/reader/expr/slot_ref.h"
@@ -68,8 +74,8 @@ struct TableColumn {
     bool is_partition_key = false;
 };
 
-// All complex predicates on table/global schema, which cannot be directly localized to file
-// schema. They will be evaluated at table level and may depend on multiple columns.
+// Row-level predicates on table/global schema. They are rewritten to file-local expressions when
+// possible, and remain the source of row-level filtering after localization.
 struct TableFilter {
     // 表达式过滤，适合表达 cast、复杂表达式、复杂列提取等语义。
     VExprContextSPtr conjunct;
@@ -253,8 +259,10 @@ protected:
         // 2. Build table filters based on conjuncts and column predicates.
         RETURN_IF_ERROR(_build_table_filters_from_conjuncts());
 
-        // 3. Create file scan request based on column mapping and table filters, then open file reader with the request.
-        // file scan request is the main carrier of file-level pruning information, including column mapping, column-level filters and expression filters. The file reader will evaluate the filters and only return rows that satisfy the filters to table reader.
+        // 3. Create file scan request based on column mapping and table filters, then open file
+        // reader with the request. File scan request carries row-level expression filters and
+        // file-level pruning hints. Only expression filters decide returned rows; column predicates
+        // are pruning hints.
         auto file_request = std::make_unique<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper.create_scan_request(
                 _table_filters, _table_column_predicates, _projected_columns, file_request.get()));
@@ -445,6 +453,14 @@ protected:
 
     Status _materialize_mapping_column(const ColumnMapping& mapping, Block* current_block,
                                        const size_t rows, ColumnPtr* column) {
+        if (mapping.has_complex_projection && mapping.file_column_id.has_value() &&
+            !mapping.child_mappings.empty()) {
+            int res_id;
+            RETURN_IF_ERROR(mapping.projection->execute(current_block, &res_id));
+            RETURN_IF_ERROR(_materialize_complex_mapping_column(
+                    mapping, current_block->get_columns()[res_id], rows, column));
+            return Status::OK();
+        }
         if (mapping.projection != nullptr) {
             int res_id;
             RETURN_IF_ERROR(mapping.projection->execute(current_block, &res_id));
@@ -468,6 +484,167 @@ protected:
             return Status::OK();
         }
         *column = mapping.table_type->create_column_const_with_default_value(rows);
+        return Status::OK();
+    }
+
+    Status _materialize_complex_mapping_column(const ColumnMapping& mapping,
+                                               const ColumnPtr& file_column, const size_t rows,
+                                               ColumnPtr* column) {
+        DORIS_CHECK(mapping.table_type != nullptr);
+        DORIS_CHECK(file_column.get() != nullptr);
+        const auto table_type = remove_nullable(mapping.table_type);
+        switch (table_type->get_primitive_type()) {
+        case TYPE_STRUCT:
+            RETURN_IF_ERROR(_materialize_struct_mapping_column(mapping, file_column, rows, column));
+            break;
+        case TYPE_ARRAY:
+            RETURN_IF_ERROR(_materialize_array_mapping_column(mapping, file_column, rows, column));
+            break;
+        case TYPE_MAP:
+            RETURN_IF_ERROR(_materialize_map_mapping_column(mapping, file_column, rows, column));
+            break;
+        default:
+            *column = file_column;
+            break;
+        }
+        return Status::OK();
+    }
+
+    static const IColumn* _nested_column_if_nullable(const ColumnPtr& column,
+                                                     const NullMap** null_map) {
+        DORIS_CHECK(column.get() != nullptr);
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*column)) {
+            if (null_map != nullptr) {
+                *null_map = &nullable_column->get_null_map_data();
+            }
+            return &nullable_column->get_nested_column();
+        }
+        return column.get();
+    }
+
+    Status _materialize_struct_mapping_column(const ColumnMapping& mapping,
+                                              const ColumnPtr& file_column, const size_t rows,
+                                              ColumnPtr* column) {
+        DORIS_CHECK(mapping.table_type != nullptr);
+        const auto* table_type =
+                assert_cast<const DataTypeStruct*>(remove_nullable(mapping.table_type).get());
+        const auto full_file_column = file_column->convert_to_full_column_if_const();
+        const NullMap* parent_null_map = nullptr;
+        const auto* nested_file_column =
+                _nested_column_if_nullable(full_file_column, &parent_null_map);
+        const auto* file_struct = assert_cast<const ColumnStruct*>(nested_file_column);
+        DORIS_CHECK(table_type->get_elements().size() == mapping.child_mappings.size());
+
+        Columns child_columns;
+        child_columns.reserve(mapping.child_mappings.size());
+        size_t file_child_idx = 0;
+        for (const auto& child_mapping : mapping.child_mappings) {
+            if (!child_mapping.file_column_id.has_value()) {
+                child_columns.push_back(
+                        child_mapping.table_type->create_column_const_with_default_value(rows)
+                                ->convert_to_full_column_if_const());
+                continue;
+            }
+            DORIS_CHECK(file_child_idx < file_struct->get_columns().size());
+            ColumnPtr child_column = file_struct->get_column_ptr(file_child_idx);
+            if (child_mapping.has_complex_projection && !child_mapping.child_mappings.empty()) {
+                RETURN_IF_ERROR(_materialize_complex_mapping_column(child_mapping, child_column,
+                                                                    rows, &child_column));
+            }
+            child_columns.push_back(std::move(child_column));
+            ++file_child_idx;
+        }
+        MutableColumns mutable_child_columns;
+        mutable_child_columns.reserve(child_columns.size());
+        for (auto& child_column : child_columns) {
+            mutable_child_columns.push_back(child_column->assume_mutable());
+        }
+        auto result = ColumnStruct::create(std::move(mutable_child_columns));
+        if (mapping.table_type->is_nullable()) {
+            auto null_map = ColumnUInt8::create();
+            auto& null_map_data = null_map->get_data();
+            null_map_data.resize(rows);
+            if (parent_null_map != nullptr) {
+                DORIS_CHECK(parent_null_map->size() == rows);
+                null_map_data.assign(parent_null_map->begin(), parent_null_map->end());
+            }
+            *column = ColumnNullable::create(std::move(result), std::move(null_map));
+        } else {
+            *column = std::move(result);
+        }
+        return Status::OK();
+    }
+
+    Status _materialize_array_mapping_column(const ColumnMapping& mapping,
+                                             const ColumnPtr& file_column, const size_t rows,
+                                             ColumnPtr* column) {
+        DORIS_CHECK(mapping.child_mappings.size() == 1);
+        const auto full_file_column = file_column->convert_to_full_column_if_const();
+        const NullMap* parent_null_map = nullptr;
+        const auto* nested_file_column =
+                _nested_column_if_nullable(full_file_column, &parent_null_map);
+        const auto* file_array = assert_cast<const ColumnArray*>(nested_file_column);
+        ColumnPtr nested_column = file_array->get_data_ptr();
+        const auto& element_mapping = mapping.child_mappings[0];
+        if (element_mapping.has_complex_projection && !element_mapping.child_mappings.empty()) {
+            RETURN_IF_ERROR(_materialize_complex_mapping_column(
+                    element_mapping, nested_column, nested_column->size(), &nested_column));
+        }
+        auto offsets_column = file_array->get_offsets_ptr()->convert_to_full_column_if_const();
+        auto result = ColumnArray::create(nested_column->assume_mutable(),
+                                          offsets_column->assume_mutable());
+        if (mapping.table_type->is_nullable()) {
+            auto null_map = ColumnUInt8::create();
+            auto& null_map_data = null_map->get_data();
+            null_map_data.resize(rows);
+            if (parent_null_map != nullptr) {
+                DORIS_CHECK(parent_null_map->size() == rows);
+                null_map_data.assign(parent_null_map->begin(), parent_null_map->end());
+            }
+            *column = ColumnNullable::create(std::move(result), std::move(null_map));
+        } else {
+            *column = std::move(result);
+        }
+        return Status::OK();
+    }
+
+    Status _materialize_map_mapping_column(const ColumnMapping& mapping,
+                                           const ColumnPtr& file_column, const size_t rows,
+                                           ColumnPtr* column) {
+        DORIS_CHECK(mapping.child_mappings.size() == 1);
+        const auto& entry_mapping = mapping.child_mappings[0];
+        DORIS_CHECK(entry_mapping.child_mappings.size() == 1 ||
+                    entry_mapping.child_mappings.size() == 2);
+
+        const auto full_file_column = file_column->convert_to_full_column_if_const();
+        const NullMap* parent_null_map = nullptr;
+        const auto* nested_file_column =
+                _nested_column_if_nullable(full_file_column, &parent_null_map);
+        const auto* file_map = assert_cast<const ColumnMap*>(nested_file_column);
+        ColumnPtr key_column = file_map->get_keys_ptr();
+        ColumnPtr value_column = file_map->get_values_ptr();
+
+        const auto& value_mapping = entry_mapping.child_mappings.back();
+        if (value_mapping.has_complex_projection && !value_mapping.child_mappings.empty()) {
+            RETURN_IF_ERROR(_materialize_complex_mapping_column(
+                    value_mapping, value_column, value_column->size(), &value_column));
+        }
+        auto offsets_column = file_map->get_offsets_ptr()->convert_to_full_column_if_const();
+        auto result =
+                ColumnMap::create(key_column->assume_mutable(), value_column->assume_mutable(),
+                                  offsets_column->assume_mutable());
+        if (mapping.table_type->is_nullable()) {
+            auto null_map = ColumnUInt8::create();
+            auto& null_map_data = null_map->get_data();
+            null_map_data.resize(rows);
+            if (parent_null_map != nullptr) {
+                DORIS_CHECK(parent_null_map->size() == rows);
+                null_map_data.assign(parent_null_map->begin(), parent_null_map->end());
+            }
+            *column = ColumnNullable::create(std::move(result), std::move(null_map));
+        } else {
+            *column = std::move(result);
+        }
         return Status::OK();
     }
 
@@ -666,12 +843,17 @@ private:
         case TYPE_MAP:
             DORIS_CHECK(child_types.size() == 1);
             DORIS_CHECK(remove_nullable(child_types[0])->get_primitive_type() == TYPE_STRUCT);
+            DORIS_CHECK(remove_nullable(original_type)->get_primitive_type() == TYPE_MAP);
             {
                 const auto* entry_type =
                         assert_cast<const DataTypeStruct*>(remove_nullable(child_types[0]).get());
-                DORIS_CHECK(entry_type->get_elements().size() == 2);
-                projected_type = std::make_shared<DataTypeMap>(entry_type->get_element(0),
-                                                               entry_type->get_element(1));
+                DORIS_CHECK(entry_type->get_elements().size() == 1 ||
+                            entry_type->get_elements().size() == 2);
+                const auto value_idx = entry_type->get_elements().size() == 1 ? 0 : 1;
+                projected_type = std::make_shared<DataTypeMap>(
+                        assert_cast<const DataTypeMap*>(remove_nullable(original_type).get())
+                                ->get_key_type(),
+                        entry_type->get_element(value_idx));
             }
             break;
         default:

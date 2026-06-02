@@ -34,10 +34,12 @@
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "exec/common/endian.h"
 #include "exprs/vexpr.h"
 #include "format/format_common.h"
@@ -308,6 +310,32 @@ void write_iceberg_equality_delete_bigint_parquet_file(const std::string& file_p
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
                                                       builder.build()));
+}
+
+void write_struct_parquet_file(const std::string& file_path, int32_t id) {
+    auto struct_type = arrow::struct_({arrow::field("id", arrow::int32(), false)});
+    arrow::StructBuilder builder(
+            struct_type, arrow::default_memory_pool(),
+            {std::make_shared<arrow::Int32Builder>(arrow::default_memory_pool())});
+    auto* id_builder = assert_cast<arrow::Int32Builder*>(builder.field_builder(0));
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(id_builder->Append(id).ok());
+
+    auto schema = arrow::schema({
+            arrow::field("s", struct_type, false),
+    });
+    auto table = arrow::Table::Make(schema, {finish_array(&builder)});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder writer_builder;
+    writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
+                                                      writer_builder.build()));
 }
 
 void write_int_pair_parquet_file(const std::string& file_path, const std::vector<int32_t>& ids,
@@ -1402,6 +1430,60 @@ TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatchWhenMissingColu
     const auto status = reader.get_block(&block, &eos);
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("does not have a matching file column"), std::string::npos);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, ProjectedStructFillsMissingChildWithDefault) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_struct_missing_child_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_struct_parquet_file(file_path, 7);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    auto id_child = make_table_column(0, "id", int_type);
+    auto missing_child = make_table_column(99, "missing_child", string_type);
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type},
+                                                        Strings {"id", "missing_child"});
+    auto struct_column = make_table_column(100, "s", struct_type);
+    struct_column.children = {id_child, missing_child};
+    const std::vector<TableColumn> projected_columns = {struct_column};
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    const auto& struct_result = assert_cast<const ColumnStruct&>(*block.get_by_position(0).column);
+    ASSERT_EQ(struct_result.get_columns().size(), 2);
+    const auto& ids = assert_cast<const ColumnInt32&>(struct_result.get_column(0));
+    const auto& missing_values = assert_cast<const ColumnString&>(struct_result.get_column(1));
+    ASSERT_EQ(struct_result.size(), 1);
+    EXPECT_EQ(ids.get_element(0), 7);
+    EXPECT_EQ(missing_values.get_data_at(0).to_string(), "");
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

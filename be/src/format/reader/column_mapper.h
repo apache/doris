@@ -77,6 +77,7 @@ struct ColumnMapping {
     std::vector<ColumnMapping> child_mappings;
     bool is_trivial = false;
     bool is_constant = false;
+    bool is_missing = false;
     bool has_complex_projection = false;
     TableVirtualColumnType virtual_column_type = TableVirtualColumnType::INVALID;
     VExprContextSPtr default_expr;
@@ -104,10 +105,9 @@ public:
                                   const std::map<std::string, Field>& partition_values,
                                   const std::vector<SchemaField>& file_schema);
 
-    // 把 table-level scan 请求转换成 file-local scan 请求。
-    // table_request 使用 table/global schema；file_request 只包含 FileReader 能理解的
-    // projected_file_columns、conjuncts、delete_conjuncts、column_predicate_filters 和
-    // reader_expression_map。
+    // 把 table-level scan 请求转换成 file-local scan 请求。table_filters 保留 row-level
+    // 过滤语义并转换成 file-local conjuncts；table_column_predicates 只转换成 file-layer
+    // pruning hints，不参与 batch row filtering。
     virtual Status create_scan_request(const std::vector<TableFilter>& table_filters,
                                        const TableColumnPredicates& table_column_predicates,
                                        const std::vector<TableColumn>& projected_columns,

@@ -23,17 +23,12 @@
 #include "common/status.h"
 #include "format/reader/file_reader.h"
 #include "parquet_column_schema.h"
-#include "selection_vector.h"
 
 namespace doris {
 namespace io {
 struct IOContext;
 } // namespace io
 } // namespace doris
-
-namespace parquet {
-class ColumnChunkMetaData;
-} // namespace parquet
 
 namespace doris::parquet {
 
@@ -81,9 +76,11 @@ private:
     struct ParquetProfile {
         RuntimeProfile::Counter* filtered_row_groups = nullptr;
         RuntimeProfile::Counter* filtered_row_groups_by_min_max = nullptr;
+        RuntimeProfile::Counter* filtered_row_groups_by_dictionary = nullptr;
         RuntimeProfile::Counter* filtered_row_groups_by_bloom_filter = nullptr;
         RuntimeProfile::Counter* to_read_row_groups = nullptr;
         RuntimeProfile::Counter* total_row_groups = nullptr;
+        RuntimeProfile::Counter* selected_row_ranges = nullptr;
         RuntimeProfile::Counter* filtered_group_rows = nullptr;
         RuntimeProfile::Counter* filtered_page_rows = nullptr;
         RuntimeProfile::Counter* lazy_read_filtered_rows = nullptr;
@@ -124,8 +121,6 @@ private:
         RuntimeProfile::Counter* convert_time = nullptr;
         RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
     };
-    Status _reset_reader_position();
-    void _reset_current_row_group();
     void _fill_schema_field(const ParquetColumnSchema& column_schema,
                             reader::SchemaField* field) const;
     Status _fill_projected_schema_field(const ParquetColumnSchema& column_schema,
@@ -134,18 +129,6 @@ private:
     Status _get_projected_schema_field(reader::ColumnId file_column_id,
                                        const reader::FieldProjection* projection,
                                        reader::SchemaField* field) const;
-    Status _read_filter_columns(int64_t batch_rows, Block* file_block, SelectionVector* selection,
-                                uint16_t* selected_rows);
-    Status _execute_filter_conjuncts(int64_t batch_rows, Block* file_block,
-                                     SelectionVector* selection, uint16_t* selected_rows);
-    IColumn::Filter _selection_to_filter(const SelectionVector& selection, uint16_t selected_rows,
-                                         int64_t batch_rows);
-    uint16_t _apply_filter_to_selection(const IColumn::Filter& filter, SelectionVector* selection,
-                                        uint16_t selected_rows);
-    Status _open_next_row_group(bool* has_row_group);
-    Status _read_current_row_group_batch(int64_t batch_rows, Block* file_block, size_t* rows);
-    bool _is_row_group_outside_range(int row_group_idx) const;
-    int64_t _column_start_offset(const ::parquet::ColumnChunkMetaData& column_metadata) const;
 
     std::unique_ptr<ParquetReaderScanState> _state;
     ParquetProfile _parquet_profile;
