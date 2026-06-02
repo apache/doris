@@ -87,13 +87,14 @@ suite("test_jdbc_preload_profile", "p0,external,nonConcurrent") {
         return totalMs
     }
 
+    // Point the catalog to the prebuilt JDBC source used by the existing external JDBC suites.
     def createJdbcCatalog = { String catalogName ->
         sql """drop catalog if exists ${catalogName}"""
         sql """create catalog if not exists ${catalogName} properties(
             "type"="jdbc",
             "user"="root",
             "password"="123456",
-            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysqlPort}/doris_test?useSSL=false",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysqlPort}/${externalDbName}?useSSL=false",
             "driver_url" = "${driverUrl}",
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
@@ -113,7 +114,8 @@ suite("test_jdbc_preload_profile", "p0,external,nonConcurrent") {
                 order by i.id
                 limit 1"""
         sql sqlText
-        String queryId = sql """select last_query_id()"""[0][0]
+        def queryIdResult = sql """select last_query_id()"""
+        String queryId = queryIdResult[0][0]
         String profileText = getProfileText(queryId)
         String preloadTime = extractProfileValue(profileText, "Nereids Preload External Metadata Time")
         String analysisTime = extractProfileValue(profileText, "Nereids Analysis Time")

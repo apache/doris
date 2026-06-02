@@ -434,7 +434,8 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             if (preloadResult.isExecuted()) {
                 LOG.debug("{} preloaded external metadata for {} of {} candidate tables in {} ms",
-                        statementContext.getConnectContext().getQueryIdentifier(), preloadResult.getPreloadedTableCount(),
+                        statementContext.getConnectContext().getQueryIdentifier(),
+                        preloadResult.getPreloadedTableCount(),
                         preloadResult.getCandidateTableCount(), preloadElapsedTime);
             } else {
                 LOG.debug("{} skip external metadata preload before lock: {} [candidateTableCount={}]",
