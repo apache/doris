@@ -20,9 +20,9 @@ package org.apache.doris.datasource;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * A {@link FileSplit} that wraps a {@link ConnectorScanRange} from the SPI layer.
@@ -43,7 +43,7 @@ public class PluginDrivenSplit extends FileSplit {
                 scanRange.getFileSize(),
                 scanRange.getModificationTime(),
                 scanRange.getHosts().toArray(new String[0]),
-                buildPartitionValues(scanRange));
+                null);
         this.connectorScanRange = scanRange;
     }
 
@@ -67,14 +67,18 @@ public class PluginDrivenSplit extends FileSplit {
         return LocationPath.of(pathStr);
     }
 
-    private static List<String> buildPartitionValues(ConnectorScanRange scanRange) {
-        Map<String, String> partValues = scanRange.getPartitionValues();
-        if (partValues == null || partValues.isEmpty()) {
+    List<String> getPartitionValuesInKeyOrder(List<String> partitionKeys) {
+        Map<String, String> partValues = connectorScanRange.getPartitionValues();
+        if (partValues == null || partValues.isEmpty() || partitionKeys == null || partitionKeys.isEmpty()) {
             return null;
         }
-        return partValues.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey())
-                .map(Map.Entry::getValue)
-                .collect(Collectors.toList());
+        List<String> partitionValues = new ArrayList<>(partitionKeys.size());
+        for (String partitionKey : partitionKeys) {
+            if (!partValues.containsKey(partitionKey)) {
+                return null;
+            }
+            partitionValues.add(partValues.get(partitionKey));
+        }
+        return partitionValues;
     }
 }

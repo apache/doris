@@ -472,10 +472,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             isACID = hiveSplit.isACID();
         }
         FilePartitionUtils.ParsedColumnsFromPath partitionValuesFromPath =
-                fileSplit.getPartitionValues() == null
-                        ? FilePartitionUtils.parseColumnsFromPathWithNullInfo(
-                                fileSplit.getPathString(), pathPartitionKeys, false, isACID)
-                        : FilePartitionUtils.normalizeColumnsFromPath(fileSplit.getPartitionValues());
+                getPartitionValuesFromSplit(fileSplit, pathPartitionKeys, isACID);
 
         TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath.getValues(),
                 pathPartitionKeys, partitionValuesFromPath.getIsNull());
@@ -494,6 +491,21 @@ public abstract class FileQueryScanNode extends FileScanNode {
         location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
         curLocations.addToLocations(location);
         return curLocations;
+    }
+
+    private FilePartitionUtils.ParsedColumnsFromPath getPartitionValuesFromSplit(
+            FileSplit fileSplit, List<String> pathPartitionKeys, boolean isACID) throws UserException {
+        if (fileSplit instanceof PluginDrivenSplit) {
+            PluginDrivenSplit pluginDrivenSplit = (PluginDrivenSplit) fileSplit;
+            List<String> partitionValues = pluginDrivenSplit.getPartitionValuesInKeyOrder(pathPartitionKeys);
+            if (partitionValues != null) {
+                return FilePartitionUtils.normalizeColumnsFromPath(partitionValues);
+            }
+        }
+        return fileSplit.getPartitionValues() == null
+                ? FilePartitionUtils.parseColumnsFromPathWithNullInfo(
+                        fileSplit.getPathString(), pathPartitionKeys, false, isACID)
+                : FilePartitionUtils.normalizeColumnsFromPath(fileSplit.getPartitionValues());
     }
 
     private void setLocationPropertiesIfNecessary(Backend selectedBackend, TFileType locationType,

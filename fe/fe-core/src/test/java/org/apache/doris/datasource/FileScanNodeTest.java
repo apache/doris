@@ -18,6 +18,8 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TPartitionKeyValue;
 
@@ -102,5 +104,45 @@ public class FileScanNodeTest {
         Assert.assertTrue(partitionKeyValues.get(0).isIsNull());
         Assert.assertEquals("country", partitionKeyValues.get(1).getKey());
         Assert.assertEquals("dt", partitionKeyValues.get(2).getKey());
+    }
+
+    @Test
+    public void testPluginDrivenSplitPreservesPathPartitionKeyOrder() {
+        Map<String, String> partitionValues = new LinkedHashMap<>();
+        partitionValues.put("country", "cn");
+        partitionValues.put("dt", "20260319");
+        PluginDrivenSplit split = new PluginDrivenSplit(new TestConnectorScanRange(partitionValues));
+
+        List<TPartitionKeyValue> partitionKeyValues = FileScanNode.buildPartitionKeyValues(
+                Arrays.asList("dt", "country"),
+                split.getPartitionValuesInKeyOrder(Arrays.asList("dt", "country")));
+
+        Assert.assertEquals("dt", partitionKeyValues.get(0).getKey());
+        Assert.assertEquals("20260319", partitionKeyValues.get(0).getValue());
+        Assert.assertEquals("country", partitionKeyValues.get(1).getKey());
+        Assert.assertEquals("cn", partitionKeyValues.get(1).getValue());
+    }
+
+    private static class TestConnectorScanRange implements ConnectorScanRange {
+        private final Map<String, String> partitionValues;
+
+        private TestConnectorScanRange(Map<String, String> partitionValues) {
+            this.partitionValues = partitionValues;
+        }
+
+        @Override
+        public ConnectorScanRangeType getRangeType() {
+            return ConnectorScanRangeType.FILE_SCAN;
+        }
+
+        @Override
+        public Map<String, String> getProperties() {
+            return Collections.emptyMap();
+        }
+
+        @Override
+        public Map<String, String> getPartitionValues() {
+            return partitionValues;
+        }
     }
 }
