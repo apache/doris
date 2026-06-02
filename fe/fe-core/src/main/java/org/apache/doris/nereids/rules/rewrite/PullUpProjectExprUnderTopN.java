@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -280,9 +279,6 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             return false;
         }
         if (ne.anyMatch(e -> e instanceof Score)) {
-            return false;
-        }
-        if (ne.anyMatch(e -> e instanceof SlotReference && ((SlotReference) e).getDataType().isVariantType())) {
             return false;
         }
         return true;
