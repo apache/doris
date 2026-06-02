@@ -212,24 +212,31 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     protected void doInitialize() throws UserException {
-        icebergTable = source.getIcebergTable();
-        partitionMapInfos = new HashMap<>();
-        isPartitionedTable = icebergTable.spec().isPartitioned();
-        // Metadata tables (system tables) are not BaseTable instances, so we need to handle this case
-        if (icebergTable instanceof BaseTable) {
-            formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
-        } else {
-            // For metadata tables (e.g., snapshots, history), use a default format version
-            // These tables are always readable regardless of format version
-            formatVersion = MIN_DELETE_FILE_SUPPORT_VERSION;
+        long startTime = System.currentTimeMillis();
+        try {
+            icebergTable = source.getIcebergTable();
+            partitionMapInfos = new HashMap<>();
+            isPartitionedTable = icebergTable.spec().isPartitioned();
+            // Metadata tables (system tables) are not BaseTable instances, so we need to handle this case
+            if (icebergTable instanceof BaseTable) {
+                formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
+            } else {
+                // For metadata tables (e.g., snapshots, history), use a default format version
+                // These tables are always readable regardless of format version
+                formatVersion = MIN_DELETE_FILE_SUPPORT_VERSION;
+            }
+            preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
+            storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                    source.getCatalog().getCatalogProperty().getMetastoreProperties(),
+                    source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
+                    icebergTable
+            );
+            backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
+        } finally {
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
+            }
         }
-        preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
-        storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
-                source.getCatalog().getCatalogProperty().getMetastoreProperties(),
-                source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
-                icebergTable
-        );
-        backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
         super.doInitialize();
     }
 
@@ -515,15 +522,23 @@ public class IcebergScanNode extends FileQueryScanNode {
             try {
                 preExecutionAuthenticator.execute(
                         () -> {
-                            CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan);
-                            taskRef.set(fileScanTasks);
-
-                            CloseableIterator<FileScanTask> iterator = fileScanTasks.iterator();
-                            while (splitAssignment.needMoreSplit() && iterator.hasNext()) {
-                                try {
-                                    splitAssignment.addToQueue(Lists.newArrayList(createIcebergSplit(iterator.next())));
-                                } catch (UserException e) {
-                                    throw new RuntimeException(e);
+                            long startTime = System.currentTimeMillis();
+                            try {
+                                CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan);
+                                taskRef.set(fileScanTasks);
+                                CloseableIterator<FileScanTask> iterator = fileScanTasks.iterator();
+                                while (splitAssignment.needMoreSplit() && iterator.hasNext()) {
+                                    try {
+                                        splitAssignment.addToQueue(
+                                                Lists.newArrayList(createIcebergSplit(iterator.next())));
+                                    } catch (UserException e) {
+                                        throw new RuntimeException(e);
+                                    }
+                                }
+                            } finally {
+                                if (getSummaryProfile() != null) {
+                                    getSummaryProfile().addExternalTableGetFileScanTasksTime(
+                                            System.currentTimeMillis() - startTime);
                                 }
                             }
                         }
@@ -916,10 +931,12 @@ public class IcebergScanNode extends FileQueryScanNode {
         // Normal table scan planning
         TableScan scan = createTableScan();
 
+        long startTime = System.currentTimeMillis();
         try (CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan)) {
             if (tableLevelPushDownCount) {
                 int needSplitCnt = countFromSnapshot < COUNT_WITH_PARALLEL_SPLITS
-                        ? 1 : sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName()) * numBackends;
+                        ? 1 : sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName())
+                                * numBackends;
                 for (FileScanTask next : fileScanTasks) {
                     splits.add(createIcebergSplit(next));
                     if (splits.size() >= needSplitCnt) {
@@ -935,6 +952,10 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         } catch (IOException e) {
             throw new UserException(e.getMessage(), e.getCause());
+        } finally {
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
+            }
         }
 
         selectedPartitionNum = partitionMapInfos.size();
@@ -945,10 +966,15 @@ public class IcebergScanNode extends FileQueryScanNode {
     private List<Split> doGetSystemTableSplits() throws UserException {
         List<Split> splits = new ArrayList<>();
         TableScan scan = createTableScan();
+        long startTime = System.currentTimeMillis();
         try (CloseableIterable<FileScanTask> fileScanTasks = scan.planFiles()) {
             fileScanTasks.forEach(task -> splits.add(createIcebergSysSplit(task)));
         } catch (IOException e) {
             throw new UserException(e.getMessage(), e);
+        } finally {
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
+            }
         }
         selectedPartitionNum = 0;
         return splits;
