@@ -21,6 +21,8 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
@@ -115,7 +117,7 @@ public class StatementContextTest {
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.setEnablePreloadExternalMetadata(true);
 
-        // Mark one relation as latest and another relation as explicit snapshot, then skip preload for safety.
+        // Mark one relation as latest and another relation as explicit snapshot, then skip latest snapshot preload.
         Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
         Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
         Mockito.when(hmsExternalTable.getId()).thenReturn(12L);
@@ -135,7 +137,70 @@ public class StatementContextTest {
 
             statementContext.preloadExternalTablesBeforeLock();
 
-            Mockito.verify(hmsExternalTable, Mockito.never()).getBaseSchema();
+            Mockito.verify(hmsExternalTable, Mockito.never())
+                    .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
+            Mockito.verify(hmsExternalTable, Mockito.times(1)).getBaseSchema();
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testPreloadJdbcExternalTablesBeforeLock() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenExternalCatalog jdbcCatalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        PluginDrivenExternalTable jdbcExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnablePreloadExternalMetadata(true);
+
+        // Route preload through the JDBC plugin catalog and keep it schema-only.
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(jdbcExternalTable.getId()).thenReturn(13L);
+        Mockito.when(jdbcExternalTable.getCatalog()).thenReturn(jdbcCatalog);
+        Mockito.when(jdbcCatalog.getType()).thenReturn("jdbc");
+        Mockito.when(jdbcExternalTable.getBaseSchema()).thenReturn(Collections.emptyList());
+        Mockito.when(jdbcExternalTable.supportInternalPartitionPruned()).thenReturn(false);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(jdbcExternalTable, Optional.empty(), Optional.empty());
+
+            statementContext.preloadExternalTablesBeforeLock();
+
+            Mockito.verify(jdbcExternalTable, Mockito.times(1)).getBaseSchema();
+            Mockito.verify(jdbcExternalTable, Mockito.never()).initSelectedPartitions(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testSkipPreloadForNonJdbcPluginExternalTable() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenExternalCatalog esCatalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        PluginDrivenExternalTable pluginExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnablePreloadExternalMetadata(true);
+
+        // Keep non-JDBC plugin catalogs outside the preload whitelist.
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(pluginExternalTable.getId()).thenReturn(14L);
+        Mockito.when(pluginExternalTable.getCatalog()).thenReturn(esCatalog);
+        Mockito.when(esCatalog.getType()).thenReturn("es");
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(pluginExternalTable, Optional.empty(), Optional.empty());
+
+            statementContext.preloadExternalTablesBeforeLock();
+
+            Mockito.verify(pluginExternalTable, Mockito.never()).getBaseSchema();
         } finally {
             statementContext.close();
         }

@@ -2022,8 +2022,8 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_PRELOAD_EXTERNAL_METADATA,
             needForward = true, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
-                "是否在获取内表规划期读锁前预加载 Hive/Hudi/Iceberg/Paimon 外表元数据",
-                "Whether to preload Hive/Hudi/Iceberg/Paimon external table metadata before internal table "
+                "是否在获取内表规划期读锁前预加载 Hive/Hudi/Iceberg/Paimon/JDBC 外表元数据",
+                "Whether to preload Hive/Hudi/Iceberg/Paimon/JDBC external table metadata before internal table "
                         + "plan-time read locks are acquired"
             })
     private boolean enablePreloadExternalMetadata = false;
