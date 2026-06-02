@@ -233,8 +233,12 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
     for (int i = 0; i < mutable_columns.size(); ++i) {
         ColumnPtr column_ptr;
         RETURN_IF_ERROR(_projections[i]->execute(&input_block, column_ptr));
-        column_ptr = column_ptr->convert_to_full_column_if_const();
-        if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
+        if (column_ptr->size() != rows) {
+            return Status::InternalError(
+                    "projection result column size {} not equal input rows {}, expr: {}",
+                    column_ptr->size(), rows, _projections[i]->root()->debug_string());
+        }
+        if (mutable_columns[i]->is_nullable() != column_ptr->is_concrete_nullable()) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
         }
         mutable_columns[i] = IColumn::mutate(std::move(column_ptr));
