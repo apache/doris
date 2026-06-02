@@ -167,7 +167,7 @@ public class ShowFunctionsCommandTest extends TestWithFeService {
     void testBuildProperties_udafEmitsVolatility() {
         ShowFunctionsCommand sf = new ShowFunctionsCommand("test", true, null);
         AggregateFunction fn = AggregateFunction.AggregateFunctionBuilder.createUdfBuilder()
-                .binaryType(Function.BinaryType.PYTHON_UDF)
+                .binaryType(TFunctionBinaryType.PYTHON_UDF)
                 .name(new FunctionName("test", "py_agg_fn"))
                 .argsType(new Type[] {Type.INT})
                 .retType(Type.INT)
