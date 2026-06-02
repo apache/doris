@@ -65,6 +65,43 @@ void FileCacheMetrics::update_metrics_callback() {
             stats->num_io_bytes_read_from_peer);
 }
 
+FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& current,
+                                               const FileCacheStatistics& previous) {
+    FileCacheStatistics diff;
+#define SUBTRACT_FIELD(field) diff.field = current.field - previous.field
+    SUBTRACT_FIELD(num_local_io_total);
+    SUBTRACT_FIELD(num_remote_io_total);
+    SUBTRACT_FIELD(num_peer_io_total);
+    SUBTRACT_FIELD(local_io_timer);
+    SUBTRACT_FIELD(bytes_read_from_local);
+    SUBTRACT_FIELD(bytes_read_from_remote);
+    SUBTRACT_FIELD(bytes_read_from_peer);
+    SUBTRACT_FIELD(remote_io_timer);
+    SUBTRACT_FIELD(peer_io_timer);
+    SUBTRACT_FIELD(remote_wait_timer);
+    SUBTRACT_FIELD(write_cache_io_timer);
+    SUBTRACT_FIELD(bytes_write_into_cache);
+    SUBTRACT_FIELD(num_skip_cache_io_total);
+    SUBTRACT_FIELD(read_cache_file_directly_timer);
+    SUBTRACT_FIELD(cache_get_or_set_timer);
+    SUBTRACT_FIELD(lock_wait_timer);
+    SUBTRACT_FIELD(get_timer);
+    SUBTRACT_FIELD(set_timer);
+
+    SUBTRACT_FIELD(inverted_index_num_local_io_total);
+    SUBTRACT_FIELD(inverted_index_num_remote_io_total);
+    SUBTRACT_FIELD(inverted_index_num_peer_io_total);
+    SUBTRACT_FIELD(inverted_index_bytes_read_from_local);
+    SUBTRACT_FIELD(inverted_index_bytes_read_from_remote);
+    SUBTRACT_FIELD(inverted_index_bytes_read_from_peer);
+    SUBTRACT_FIELD(inverted_index_local_io_timer);
+    SUBTRACT_FIELD(inverted_index_remote_io_timer);
+    SUBTRACT_FIELD(inverted_index_peer_io_timer);
+    SUBTRACT_FIELD(inverted_index_io_timer);
+#undef SUBTRACT_FIELD
+    return diff;
+}
+
 FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) {
     static const char* cache_profile = "FileCache";
     ADD_TIMER_WITH_LEVEL(profile, cache_profile, 2);
