@@ -26,6 +26,7 @@
 #include "benchmark_fastunion.hpp"
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_hybrid_set.hpp"
+#include "benchmark_multi_search_all_positions.hpp"
 #include "benchmark_string.hpp"
 #include "benchmark_string_replace.hpp"
 #include "benchmark_zone_map_index.hpp"
