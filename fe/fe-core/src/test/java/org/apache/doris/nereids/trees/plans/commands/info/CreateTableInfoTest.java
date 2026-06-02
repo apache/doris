@@ -17,13 +17,27 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
+import org.apache.doris.analysis.MultiPartitionDesc;
+import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.types.CharType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -46,11 +60,16 @@ public class CreateTableInfoTest {
         List<Expression> partitionFields = new ArrayList<>();
         partitionFields.add(unboundFunction);
         PartitionTableInfo partitionTableInfo1 = new PartitionTableInfo(false, null, new ArrayList<>(), partitionFields);
-        CreateTableInfo createTableInfo = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo1, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
-        Assertions.assertThrows(AnalysisException.class, () -> createTableInfo.checkLegalityOfPartitionExprs(partitionTableInfo1),
+        CreateTableInfo createTableInfo = new CreateTableInfo(false, false, false, "test_ctl", "test_db",
+                "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null,
+                partitionTableInfo1, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(),
+                new ArrayList<>());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> createTableInfo.checkLegalityOfPartitionExprs(partitionTableInfo1),
                 "only Auto Range Partition support UnboundFunction");
 
-        PartitionTableInfo partitionTableInfo2 = new PartitionTableInfo(true, "RANGE", new ArrayList<>(), partitionFields);
+        PartitionTableInfo partitionTableInfo2 = new PartitionTableInfo(true, "RANGE", new ArrayList<>(),
+                partitionFields);
         CreateTableInfo createTableInfo2 = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo2, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertThrows(AnalysisException.class, () -> createTableInfo2.checkLegalityOfPartitionExprs(partitionTableInfo2),
                 "partition expression test_func has unrecognized parameter in slot 0");
@@ -286,5 +305,288 @@ public class CreateTableInfoTest {
         CreateTableInfo createTableInfo2 = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo2, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertThrows(AnalysisException.class, () -> createTableInfo2.checkPartitionNullity(columnDefs2, partitionTableInfo2),
                 "Can't have null partition is for NOT NULL partition column in partition expr's index 0");
+    }
+
+    @Test
+    public void testLessThanPartitionRejectsExtraBoundaryValuesDuringTranslation() {
+        LessThanPartition lessThanPartition = new LessThanPartition(false, "p1",
+                Lists.newArrayList(new StringLiteral("1"), new StringLiteral("2")));
+        lessThanPartition.setPartitionTypes(Lists.newArrayList(IntegerType.INSTANCE));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                lessThanPartition::translateToCatalogStyle);
+        Assertions.assertTrue(exception.getMessage().contains(
+                "Partition values number is more than partition column number"));
+    }
+
+    @Test
+    public void testInPartitionRejectsOversizedTupleDuringTranslation() {
+        List<Expression> tuple = new ArrayList<>();
+        tuple.add(new StringLiteral("1"));
+        tuple.add(new StringLiteral("2"));
+        List<List<Expression>> tuples = new ArrayList<>();
+        tuples.add(tuple);
+        InPartition inPartition = new InPartition(false, "p1",
+                tuples);
+        inPartition.setPartitionTypes(Lists.newArrayList(IntegerType.INSTANCE));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                inPartition::translateToCatalogStyle);
+        Assertions.assertTrue(exception.getMessage().contains(
+                "partition key desc list size[2] is not equal to partition column size[1]"));
+    }
+
+    @Test
+    public void testInPartitionValidateWithoutPartitionTypesFailsFast() {
+        List<Expression> tuple = new ArrayList<>();
+        tuple.add(new StringLiteral("1"));
+        List<List<Expression>> tuples = new ArrayList<>();
+        tuples.add(tuple);
+        InPartition inPartition = new InPartition(false, "p1", tuples);
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> inPartition.validate(new HashMap<>()));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "partitionTypes should be initialized before validating partition definition"));
+    }
+
+    @Test
+    public void testInPartitionRejectsInvalidIntegerLiteralBeforeCasting() {
+        List<Expression> tuple = new ArrayList<>();
+        tuple.add(new StringLiteral("20.1"));
+        List<List<Expression>> tuples = new ArrayList<>();
+        tuples.add(tuple);
+        InPartition inPartition = new InPartition(false, "p1", tuples);
+        inPartition.setPartitionTypes(Lists.newArrayList(IntegerType.INSTANCE));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                inPartition::translateToCatalogStyle);
+        Assertions.assertTrue(exception.getMessage().contains("Invalid number format: 20.1"));
+    }
+
+    @Test
+    public void testStrictTypedPartitionExpressionMatchesLegacyIntegerParsing() throws Exception {
+        LiteralExpr legacyLiteral = LiteralExprUtils.createLiteral("20", IntegerType.INSTANCE.toCatalogDataType());
+        Literal expected = Literal.fromLegacyLiteral(legacyLiteral, legacyLiteral.getType());
+
+        Expression actual = PartitionDefinition.strictTypedPartitionExpression(
+                new StringLiteral("20"), IntegerType.INSTANCE);
+
+        Assertions.assertInstanceOf(Literal.class, actual);
+        Assertions.assertEquals(expected.getClass(), actual.getClass());
+        Assertions.assertEquals(expected.getStringValue(), ((Literal) actual).getStringValue());
+        Assertions.assertEquals(expected.toLegacyLiteral().getStringValue(), ((Literal) actual).toLegacyLiteral().getStringValue());
+    }
+
+    @Test
+    public void testStrictTypedPartitionExpressionAllowsDateLiteralForDateTimeColumn() {
+        Expression actual = PartitionDefinition.strictTypedPartitionExpression(
+                new StringLiteral("2021-01-01"), DateTimeType.INSTANCE);
+
+        Assertions.assertInstanceOf(Literal.class, actual);
+        Assertions.assertEquals("2021-01-01 00:00:00", ((Literal) actual).getStringValue());
+        Assertions.assertEquals("2021-01-01 00:00:00",
+                ((Literal) actual).toLegacyLiteral().getStringValue());
+    }
+
+    @Test
+    public void testStrictTypedPartitionExpressionAlignsDateLiteralWithDateTimeV2TargetType() {
+        Expression actual = PartitionDefinition.strictTypedPartitionExpression(
+                new StringLiteral("2021-01-01"), DateTimeV2Type.of(3));
+
+        Assertions.assertInstanceOf(Literal.class, actual);
+        Assertions.assertEquals(DateTimeV2Type.of(3), actual.getDataType());
+        Assertions.assertEquals("2021-01-01 00:00:00.000", ((Literal) actual).getStringValue());
+        Assertions.assertEquals("2021-01-01 00:00:00.000",
+                ((Literal) actual).toLegacyLiteral().getStringValue());
+    }
+
+    @Test
+    public void testStrictTypedPartitionExpressionMatchesLegacyTimestampTzParsing() throws Exception {
+        boolean originalRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("America/New_York");
+
+            LiteralExpr legacyLiteral = LiteralExprUtils.createLiteral(
+                    "2024-01-15 13:00:00", TimeStampTzType.of(6).toCatalogDataType());
+            Literal expected = Literal.fromLegacyLiteral(legacyLiteral, legacyLiteral.getType());
+            Expression actual = PartitionDefinition.strictTypedPartitionExpression(
+                    new StringLiteral("2024-01-15 13:00:00"), TimeStampTzType.of(6));
+
+            Assertions.assertInstanceOf(Literal.class, actual);
+            Assertions.assertEquals(expected.getClass(), actual.getClass());
+            Assertions.assertEquals(expected.getStringValue(), ((Literal) actual).getStringValue());
+            Assertions.assertEquals(expected.toLegacyLiteral().getStringValue(),
+                    ((Literal) actual).toLegacyLiteral().getStringValue());
+        } finally {
+            ConnectContext.remove();
+            FeConstants.runningUnitTest = originalRunningUnitTest;
+        }
+    }
+
+    @Test
+    public void testStrictTypedPartitionExpressionRejectsSameInvalidIntegerAsLegacy() {
+        org.apache.doris.common.AnalysisException legacyException = Assertions.assertThrows(
+                org.apache.doris.common.AnalysisException.class,
+                () -> LiteralExprUtils.createLiteral("20.1", IntegerType.INSTANCE.toCatalogDataType()));
+
+        AnalysisException newException = Assertions.assertThrows(AnalysisException.class,
+                () -> PartitionDefinition.strictTypedPartitionExpression(
+                        new StringLiteral("20.1"), IntegerType.INSTANCE));
+
+        Assertions.assertNotNull(legacyException.getMessage());
+        Assertions.assertNotNull(newException.getMessage());
+    }
+
+    @Test
+    public void testStrictTypedPartitionExpressionRejectsTooLongCharLiteral() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PartitionDefinition.strictTypedPartitionExpression(
+                        new StringLiteral("abcd"), CharType.createCharType(3)));
+
+        Assertions.assertTrue(exception.getMessage().contains("length"));
+    }
+
+    @Test
+    public void testStrictTypedPartitionExpressionRejectsTooLongVarcharLiteral() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PartitionDefinition.strictTypedPartitionExpression(
+                        new StringLiteral("abcd"), VarcharType.createVarcharType(3)));
+
+        Assertions.assertTrue(exception.getMessage().contains("length"));
+    }
+
+    @Test
+    public void testLessThanPartitionAllowsDateLiteralForDateTimeColumn() {
+        LessThanPartition lessThanPartition = new LessThanPartition(false, "p1",
+                Lists.newArrayList(new StringLiteral("2021-01-01")));
+        lessThanPartition.setPartitionTypes(Lists.newArrayList(DateTimeV2Type.of(3)));
+
+        SinglePartitionDesc partitionDesc = (SinglePartitionDesc) lessThanPartition.translateToCatalogStyle();
+
+        Assertions.assertEquals("2021-01-01 00:00:00.000",
+                partitionDesc.getPartitionKeyDesc().getUpperValues().get(0).getStringValue());
+        Assertions.assertEquals("2021-01-01 00:00:00.000",
+                partitionDesc.getPartitionKeyDesc().getUpperValues().get(0).getValue().getStringValue());
+    }
+
+    @Test
+    public void testStepPartitionRejectsExtraBoundaryValuesBeforeCasting() {
+        StepPartition stepPartition = new StepPartition(false, "p1",
+                Lists.newArrayList(new StringLiteral("1"), new StringLiteral("2")),
+                Lists.newArrayList(new StringLiteral("3"), new StringLiteral("4")),
+                1, "DAY");
+        stepPartition.setPartitionTypes(Lists.newArrayList(IntegerType.INSTANCE));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                stepPartition::translateToCatalogStyle);
+        Assertions.assertTrue(exception.getMessage().contains(
+                "partition column number in multi partition clause must be one but start column size is 2, end column size is 2."));
+    }
+
+    @Test
+    public void testAlterMultiPartitionRejectsExtraBoundaryValuesBeforeCasting() {
+        AlterMultiPartitionOp alterMultiPartitionOp = new AlterMultiPartitionOp(
+                Lists.newArrayList(new StringLiteral("1"), new StringLiteral("2")),
+                Lists.newArrayList(new StringLiteral("3"), new StringLiteral("4")),
+                1, "DAY", new HashMap<>(), false);
+        alterMultiPartitionOp.setPartitionTypes(Lists.newArrayList(IntegerType.INSTANCE));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                alterMultiPartitionOp::getPartitionKeyDesc);
+        Assertions.assertTrue(exception.getMessage().contains(
+                "partition column number in multi partition clause must be one but start column size is 2, end column size is 2."));
+    }
+
+    @Test
+    public void testAlterMultiPartitionRejectsInvalidIntegerLiteralBeforeCasting() {
+        AlterMultiPartitionOp alterMultiPartitionOp = new AlterMultiPartitionOp(
+                Lists.newArrayList(new StringLiteral("20.1")),
+                Lists.newArrayList(new StringLiteral("21")),
+                1, "DAY", new HashMap<>(), false);
+        alterMultiPartitionOp.setPartitionTypes(Lists.newArrayList(IntegerType.INSTANCE));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                alterMultiPartitionOp::getPartitionKeyDesc);
+        Assertions.assertTrue(exception.getMessage().contains("Invalid number format: 20.1"));
+    }
+
+    @Test
+    public void testStepPartitionUsesCanonicalTimestampTzTextForMultiPartitionTranslation() throws Exception {
+        boolean originalRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("America/New_York");
+
+            StepPartition stepPartition = new StepPartition(false, "p",
+                    Lists.newArrayList(new StringLiteral("2024-01-15 13:00:00")),
+                    Lists.newArrayList(new StringLiteral("2024-01-17 13:00:00")),
+                    1, "DAY");
+            stepPartition.setPartitionTypes(Lists.newArrayList(TimeStampTzType.of(6)));
+
+            MultiPartitionDesc multiPartitionDesc = Assertions.assertDoesNotThrow(stepPartition::translateToCatalogStyle);
+            List<SinglePartitionDesc> singlePartitionDescs = Assertions.assertDoesNotThrow(
+                    multiPartitionDesc::getSinglePartitionDescList);
+
+            Assertions.assertEquals(2, singlePartitionDescs.size());
+            Assertions.assertEquals("2024-01-16 18:00:00.000000+00:00",
+                    singlePartitionDescs.get(0).getPartitionKeyDesc().getUpperValues().get(0).getStringValue());
+            Assertions.assertEquals("2024-01-17 18:00:00.000000+00:00",
+                    singlePartitionDescs.get(1).getPartitionKeyDesc().getUpperValues().get(0).getStringValue());
+        } finally {
+            ConnectContext.remove();
+            FeConstants.runningUnitTest = originalRunningUnitTest;
+        }
+    }
+
+    @Test
+    public void testStepPartitionKeepsFractionalSecondTextForMultiPartitionTranslation() throws Exception {
+        StepPartition stepPartition = new StepPartition(false, "p",
+                Lists.newArrayList(new StringLiteral("2024-01-15 13:00:00.123")),
+                Lists.newArrayList(new StringLiteral("2024-01-17 13:00:00.123")),
+                1, "DAY");
+        stepPartition.setPartitionTypes(Lists.newArrayList(DateTimeV2Type.of(3)));
+
+        MultiPartitionDesc multiPartitionDesc = Assertions.assertDoesNotThrow(stepPartition::translateToCatalogStyle);
+        List<SinglePartitionDesc> singlePartitionDescs = Assertions.assertDoesNotThrow(
+                multiPartitionDesc::getSinglePartitionDescList);
+
+        Assertions.assertEquals(2, singlePartitionDescs.size());
+        Assertions.assertEquals("2024-01-16 13:00:00.123",
+                singlePartitionDescs.get(0).getPartitionKeyDesc().getUpperValues().get(0).getStringValue());
+        Assertions.assertEquals("2024-01-17 13:00:00.123",
+                singlePartitionDescs.get(1).getPartitionKeyDesc().getUpperValues().get(0).getStringValue());
+    }
+
+    @Test
+    public void testInPartitionUsesCanonicalTimestampTzStringValue() throws Exception {
+        boolean originalRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("America/New_York");
+
+            List<Expression> tuple = new ArrayList<>();
+            tuple.add(new StringLiteral("2024-01-15 13:00:00"));
+            List<List<Expression>> tuples = new ArrayList<>();
+            tuples.add(tuple);
+            InPartition inPartition = new InPartition(false, "p", tuples);
+            inPartition.setPartitionTypes(Lists.newArrayList(TimeStampTzType.of(6)));
+
+            SinglePartitionDesc singlePartitionDesc = (SinglePartitionDesc) inPartition.translateToCatalogStyle();
+            PartitionValue partitionValue = singlePartitionDesc.getPartitionKeyDesc().getInValues().get(0).get(0);
+
+            Assertions.assertEquals("2024-01-15 18:00:00.000000+00:00", partitionValue.getStringValue());
+            Assertions.assertEquals(partitionValue.getValue().getStringValue(), partitionValue.getStringValue());
+        } finally {
+            ConnectContext.remove();
+            FeConstants.runningUnitTest = originalRunningUnitTest;
+        }
     }
 }

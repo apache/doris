@@ -27,6 +27,6 @@ suite("test_add_partition_exception") {
 
 	test{
 		sql """ alter table test_add_partition_exception_tbl add partition p0 values in (("1"))"""
-		exception "Alter table [test_add_partition_exception_tbl] failed. Not a partitioned table"
+		exception "can't add a partition for none partitioned table"
 	}
 }

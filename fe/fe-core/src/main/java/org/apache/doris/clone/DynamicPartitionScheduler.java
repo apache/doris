@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.HashDistributionDesc;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.RandomDistributionDesc;
@@ -298,16 +299,23 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 nowPartitionPrevBorder, dynamicPartitionProperty.getTimeUnit());
 
         for (; idx <= dynamicPartitionProperty.getEnd(); idx++) {
-            String prevBorder = DynamicPartitionUtil.getPartitionRangeString(
-                    dynamicPartitionProperty, now, idx, partitionFormat);
-            String nextBorder = DynamicPartitionUtil.getPartitionRangeString(
-                    dynamicPartitionProperty, now, idx + 1, partitionFormat);
-            PartitionValue lowerValue = new PartitionValue(prevBorder);
-            PartitionValue upperValue = new PartitionValue(nextBorder);
-
             boolean isPartitionExists = false;
             Range<PartitionKey> addPartitionKeyRange;
+            PartitionValue lowerValue;
+            PartitionValue upperValue;
+            String prevBorder;
+            String nextBorder;
             try {
+                prevBorder = DynamicPartitionUtil.getPartitionRangeString(
+                        dynamicPartitionProperty, now, idx, partitionFormat);
+                prevBorder = LiteralExprUtils.normalizePartitionValueString(prevBorder, partitionColumn.getType());
+                nextBorder = DynamicPartitionUtil.getPartitionRangeString(
+                        dynamicPartitionProperty, now, idx + 1, partitionFormat);
+                nextBorder = LiteralExprUtils.normalizePartitionValueString(nextBorder, partitionColumn.getType());
+                lowerValue = new PartitionValue(
+                    LiteralExprUtils.createLiteral(prevBorder, partitionColumn.getType()));
+                upperValue = new PartitionValue(
+                    LiteralExprUtils.createLiteral(nextBorder, partitionColumn.getType()));
                 PartitionKey lowerBound = PartitionKey.createPartitionKey(Collections.singletonList(lowerValue),
                         Collections.singletonList(partitionColumn));
                 PartitionKey upperBound = PartitionKey.createPartitionKey(Collections.singletonList(upperValue),
@@ -486,9 +494,17 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     private Range<PartitionKey> getClosedRange(Database db, OlapTable olapTable, Column partitionColumn,
             String partitionFormat, String lowerBorderOfReservedHistory, String upperBorderOfReservedHistory) {
         Range<PartitionKey> reservedHistoryPartitionKeyRange = null;
-        PartitionValue lowerBorderPartitionValue = new PartitionValue(lowerBorderOfReservedHistory);
-        PartitionValue upperBorderPartitionValue = new PartitionValue(upperBorderOfReservedHistory);
         try {
+            lowerBorderOfReservedHistory = LiteralExprUtils.normalizePartitionValueString(
+                    lowerBorderOfReservedHistory,
+                    partitionColumn.getType());
+            upperBorderOfReservedHistory = LiteralExprUtils.normalizePartitionValueString(
+                    upperBorderOfReservedHistory,
+                    partitionColumn.getType());
+            PartitionValue lowerBorderPartitionValue = new PartitionValue(
+                    LiteralExprUtils.createLiteral(lowerBorderOfReservedHistory, partitionColumn.getType()));
+            PartitionValue upperBorderPartitionValue = new PartitionValue(
+                    LiteralExprUtils.createLiteral(upperBorderOfReservedHistory, partitionColumn.getType()));
             PartitionKey lowerBorderBound = PartitionKey.createPartitionKey(
                     Collections.singletonList(lowerBorderPartitionValue), Collections.singletonList(partitionColumn));
             PartitionKey upperBorderBound = PartitionKey.createPartitionKey(
@@ -526,11 +542,17 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 now, realStart, partitionFormat);
         String limitBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
                 now, 0, partitionFormat);
-        PartitionValue lowerPartitionValue = new PartitionValue(lowerBorder);
-        PartitionValue limitPartitionValue = new PartitionValue(limitBorder);
         List<Range<PartitionKey>> reservedHistoryPartitionKeyRangeList = new ArrayList<Range<PartitionKey>>();
         Range<PartitionKey> reservePartitionKeyRange;
         try {
+            lowerBorder = LiteralExprUtils.normalizePartitionValueString(lowerBorder,
+                    partitionColumn.getType());
+            limitBorder = LiteralExprUtils.normalizePartitionValueString(limitBorder,
+                    partitionColumn.getType());
+            PartitionValue lowerPartitionValue = new PartitionValue(
+                    LiteralExprUtils.createLiteral(lowerBorder, partitionColumn.getType()));
+            PartitionValue limitPartitionValue = new PartitionValue(
+                    LiteralExprUtils.createLiteral(limitBorder, partitionColumn.getType()));
             PartitionKey lowerBound = PartitionKey.createPartitionKey(Collections.singletonList(lowerPartitionValue),
                     Collections.singletonList(partitionColumn));
             PartitionKey limitBound = PartitionKey.createPartitionKey(Collections.singletonList(limitPartitionValue),
@@ -625,9 +647,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         String partitionFormat = DynamicPartitionUtil.getPartitionFormat(partitionColumn);
         String currentTimeStr = DateTimeFormatter.ofPattern(partitionFormat).format(now);
 
-        PartitionValue currentTimeValue = new PartitionValue(currentTimeStr);
         PartitionKey currentTimeKey;
         try {
+            currentTimeStr = LiteralExprUtils.normalizePartitionValueString(currentTimeStr,
+                    partitionColumn.getType());
+            PartitionValue currentTimeValue = new PartitionValue(
+                    LiteralExprUtils.createLiteral(currentTimeStr, partitionColumn.getType()));
             currentTimeKey = PartitionKey.createPartitionKey(
                     Collections.singletonList(currentTimeValue),
                     Collections.singletonList(partitionColumn));

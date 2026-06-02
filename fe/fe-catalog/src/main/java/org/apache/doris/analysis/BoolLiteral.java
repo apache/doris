@@ -94,6 +94,9 @@ public class BoolLiteral extends LiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
+        if (!(expr instanceof BoolLiteral) || !type.equals(expr.type)) {
+            return -1;
+        }
         return Long.signum(getLongValue() - expr.getLongValue());
     }
 

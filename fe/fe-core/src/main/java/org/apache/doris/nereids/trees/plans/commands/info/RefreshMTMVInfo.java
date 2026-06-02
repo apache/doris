@@ -100,10 +100,10 @@ public class RefreshMTMVInfo {
             List<AllPartitionDesc> partitionDescs = MTMVPartitionUtil.getPartitionDescsByRelatedTable(
                     mtmv.getTableProperty().getProperties(), mtmv.getMvPartitionInfo(), mtmv.getMvProperties(),
                     mtmv.getPartitionColumns());
-            Set<String> shouldExistPartitionNames = Sets.newHashSetWithExpectedSize(partitionDescs.size());
-            partitionDescs.stream().forEach(desc -> {
-                shouldExistPartitionNames.add(((SinglePartitionDesc) desc).getPartitionName());
-            });
+            Set<String> shouldExistPartitionNames = Sets.newHashSet();
+            for (AllPartitionDesc partitionDesc : partitionDescs) {
+                shouldExistPartitionNames.add(((SinglePartitionDesc) partitionDesc).getPartitionName());
+            }
             for (String partition : partitions) {
                 if (!shouldExistPartitionNames.contains(partition)) {
                     throw new org.apache.doris.common.AnalysisException("partition not exist: " + partition);

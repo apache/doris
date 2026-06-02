@@ -24,13 +24,14 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MaxLiteral;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * AlterMultiPartitionOp
@@ -42,6 +43,7 @@ public class AlterMultiPartitionOp extends AlterTableOp {
     private final String unitString;
     private Map<String, String> properties;
     private boolean isTempPartition;
+    private List<DataType> partitionTypes;
 
     /**
      * AlterMultiPartitionOp
@@ -89,16 +91,25 @@ public class AlterMultiPartitionOp extends AlterTableOp {
      * getPartitionKeyDesc
      */
     public PartitionKeyDesc getPartitionKeyDesc() {
-        List<PartitionValue> fromValues = fromExpression.stream()
-                .map(this::toLegacyPartitionValue)
-                .collect(Collectors.toList());
-        List<PartitionValue> toValues = toExpression.stream()
-                .map(this::toLegacyPartitionValue)
-                .collect(Collectors.toList());
+        validateBoundaryValueCount();
+        List<PartitionValue> fromValues = new ArrayList<>();
+        for (int i = 0; i < fromExpression.size(); i++) {
+            Expression typedFrom = typedExpression(fromExpression.get(i), i);
+            fromValues.add(toLegacyPartitionValue(typedFrom));
+        }
+        List<PartitionValue> toValues = new ArrayList<>();
+        for (int i = 0; i < toExpression.size(); i++) {
+            Expression typedTo = typedExpression(toExpression.get(i), i);
+            toValues.add(toLegacyPartitionValue(typedTo));
+        }
         PartitionKeyDesc partitionKeyDesc = (unitString == null
                 ? PartitionKeyDesc.createMultiFixed(fromValues, toValues, unit)
                 : PartitionKeyDesc.createMultiFixed(fromValues, toValues, unit, unitString));
         return partitionKeyDesc;
+    }
+
+    public void setPartitionTypes(List<DataType> partitionTypes) {
+        this.partitionTypes = partitionTypes;
     }
 
     public boolean isTempPartition() {
@@ -117,12 +128,33 @@ public class AlterMultiPartitionOp extends AlterTableOp {
         return sb.toString();
     }
 
-    private PartitionValue toLegacyPartitionValue(Expression e) {
-        if (e.isLiteral()) {
-            return new PartitionValue(((Literal) e).getStringValue(), e.isNullLiteral());
-        } else if (e instanceof PartitionDefinition.MaxValue) {
+    private PartitionValue toLegacyPartitionValue(Expression typedExpression) {
+        if (typedExpression.isLiteral()) {
+            return new PartitionValue(((Literal) typedExpression).toLegacyLiteral(), typedExpression.isNullLiteral(),
+                    typedExpression.isNullLiteral() ? null : ((Literal) typedExpression).getStringValue());
+        } else if (typedExpression instanceof PartitionDefinition.MaxValue) {
             return PartitionValue.MAX_VALUE;
         }
         throw new AnalysisException("Unsupported partition value");
+    }
+
+    private void ensurePartitionTypesInitialized() {
+        if (partitionTypes == null) {
+            throw new AnalysisException("partitionTypes should be initialized before validating partition definition");
+        }
+    }
+
+    private Expression typedExpression(Expression expression, int index) {
+        ensurePartitionTypesInitialized();
+        return PartitionDefinition.strictTypedPartitionExpression(expression, partitionTypes.get(index));
+    }
+
+    private void validateBoundaryValueCount() {
+        ensurePartitionTypesInitialized();
+        if (fromExpression.size() > partitionTypes.size() || toExpression.size() > partitionTypes.size()) {
+            throw new AnalysisException("partition column number in multi partition clause must be one but start "
+                    + "column size is " + fromExpression.size() + ", end column size is " + toExpression.size()
+                    + ".");
+        }
     }
 }

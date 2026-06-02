@@ -3,7 +3,7 @@
 id	int	Yes	true	\N	
 name	text	Yes	true	\N	
 age	int	Yes	true	\N	
-address	text	Yes	true	\N	
+address	varchar(65533)	Yes	true	\N	
 
 -- !add_partition_2 --
 1	Alice	30	\N

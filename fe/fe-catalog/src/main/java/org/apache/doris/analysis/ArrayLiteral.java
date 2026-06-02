@@ -52,6 +52,18 @@ public class ArrayLiteral extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
+        if (expr instanceof NullLiteral) {
+            return 1;
+        }
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
+        }
+        if (!(expr instanceof ArrayLiteral) || !type.equals(expr.type)) {
+            return -1;
+        }
         int size = Math.min(expr.getChildren().size(), this.children.size());
         for (int i = 0; i < size; i++) {
             if (((LiteralExpr) (this.getChild(i))).compareTo((LiteralExpr) (expr.getChild(i))) != 0) {

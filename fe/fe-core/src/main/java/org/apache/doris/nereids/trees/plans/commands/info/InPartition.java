@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * represent in partition
@@ -49,6 +48,12 @@ public class InPartition extends PartitionDefinition {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
+        for (List<Expression> partitionExpressions : values) {
+            validateTupleSize(partitionExpressions);
+            for (int i = 0; i < partitionExpressions.size(); i++) {
+                typedPartitionExpression(partitionExpressions.get(i), i);
+            }
+        }
     }
 
     @Override
@@ -62,9 +67,16 @@ public class InPartition extends PartitionDefinition {
             // add a empty list for default value process
             values.add(new ArrayList<>());
         }
-        List<List<PartitionValue>> catalogValues = values.stream().map(l -> l.stream()
-                .map(this::toLegacyPartitionValueStmt)
-                .collect(Collectors.toList())).collect(Collectors.toList());
+        List<List<PartitionValue>> catalogValues = new ArrayList<>();
+        for (List<Expression> partitionExpressions : values) {
+            validateTupleSize(partitionExpressions);
+            List<PartitionValue> partitionValues = new ArrayList<>();
+            for (int i = 0; i < partitionExpressions.size(); i++) {
+                Expression typedExpression = typedPartitionExpression(partitionExpressions.get(i), i);
+                partitionValues.add(toLegacyPartitionValueStmt(typedExpression));
+            }
+            catalogValues.add(partitionValues);
+        }
         return new SinglePartitionDesc(ifNotExists, partitionName,
                 PartitionKeyDesc.createIn(catalogValues), replicaAllocation, properties,
                 partitionDataProperty, isInMemory, tabletType, versionInfo, storagePolicy,
@@ -73,5 +85,18 @@ public class InPartition extends PartitionDefinition {
 
     public List<List<Expression>> getValues() {
         return values;
+    }
+
+    private void validateTupleSize(List<Expression> partitionExpressions) {
+        if (partitionExpressions.isEmpty()) {
+            return;
+        }
+        if (partitionTypes.isEmpty()) {
+            throw new AnalysisException("can't add a partition for none partitioned table");
+        }
+        if (partitionExpressions.size() != partitionTypes.size()) {
+            throw new AnalysisException("partition key desc list size[" + partitionExpressions.size()
+                    + "] is not equal to partition column size[" + partitionTypes.size() + "]");
+        }
     }
 }

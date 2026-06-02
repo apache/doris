@@ -240,7 +240,7 @@ test_decimal	decimal(10,2)	Yes	true	\N
 
 -- !partition_init_1 --
 id	int	Yes	true	\N		
-name	text	Yes	true	\N		
+name	varchar(65533)	Yes	true	\N		
 age	int	Yes	true	\N		
 score	double	Yes	true	\N		
 
@@ -251,7 +251,7 @@ score	double	Yes	true	\N
 
 -- !partition_add_1 --
 id	int	Yes	true	\N		
-name	text	Yes	true	\N		
+name	varchar(65533)	Yes	true	\N		
 age	int	Yes	true	\N		
 score	double	Yes	true	\N		
 email	text	Yes	true	\N		
@@ -263,7 +263,7 @@ age	int	Yes	true	\N
 email	text	Yes	true	\N		
 phone	text	Yes	true	\N		User phone number
 score	double	Yes	true	\N		
-name	text	Yes	true	\N		
+name	varchar(65533)	Yes	true	\N		
 
 -- !partition_reorder_2 --
 1	25	\N	\N	95.5	Alice
@@ -276,7 +276,7 @@ age	int	Yes	true	\N
 email	text	Yes	true	\N		
 phone	text	Yes	true	\N		User phone number
 score	double	Yes	true	\N		
-name	text	Yes	true	\N		
+name	varchar(65533)	Yes	true	\N		
 
 -- !partition_alter --
 id	int	Yes	true	\N		
@@ -284,10 +284,10 @@ age	int	Yes	true	\N
 email	text	Yes	true	\N		
 phone	text	Yes	true	\N		User phone number
 score	double	Yes	true	\N		
-name	text	Yes	true	\N		
+name	varchar(65533)	Yes	true	\N		
 
 -- !reorder_partition_col --
-name	text	Yes	true	\N		
+name	varchar(65533)	Yes	true	\N		
 id	int	Yes	true	\N		
 age	int	Yes	true	\N		
 email	text	Yes	true	\N		
@@ -295,7 +295,7 @@ phone	text	Yes	true	\N		User phone number
 score	double	Yes	true	\N		
 
 -- !comment_partition_col --
-name	text	Yes	true	\N		Updated partition column comment
+name	varchar(65533)	Yes	true	\N		Updated partition column comment
 id	int	Yes	true	\N		
 age	int	Yes	true	\N		
 email	text	Yes	true	\N		

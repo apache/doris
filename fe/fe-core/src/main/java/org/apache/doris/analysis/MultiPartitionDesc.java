@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -48,6 +49,12 @@ public class MultiPartitionDesc implements AllPartitionDesc {
     public static final String MONTH_FORMAT = "yyyy-MM";
     public static final String YEAR_FORMAT = "yyyy";
     public static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
+    public static final String DATETIME_FORMAT_1S = "yyyy-MM-dd HH:mm:ss.S";
+    public static final String DATETIME_FORMAT_2S = "yyyy-MM-dd HH:mm:ss.SS";
+    public static final String DATETIME_FORMAT_3S = "yyyy-MM-dd HH:mm:ss.SSS";
+    public static final String DATETIME_FORMAT_4S = "yyyy-MM-dd HH:mm:ss.SSSS";
+    public static final String DATETIME_FORMAT_5S = "yyyy-MM-dd HH:mm:ss.SSSSS";
+    public static final String DATETIME_FORMAT_6S = "yyyy-MM-dd HH:mm:ss.SSSSSS";
 
 
     private LocalDateTime startTime;
@@ -133,22 +140,22 @@ public class MultiPartitionDesc implements AllPartitionDesc {
 
         while (beginNum < endNum) {
             String partitionName = partitionPrefix + beginNum;
-            PartitionValue lowerPartitionValue = new PartitionValue(beginNum);
+            PartitionValue lowerPartitionValue = new PartitionValue(LiteralExprUtils.createLiteral(
+                    Long.toString(beginNum), partitionKeyDesc.getLowerValues().get(0).getValue().getType()));
             beginNum += interval;
             Long currentEnd = Math.min(beginNum, endNum);
-            PartitionValue upperPartitionValue = new PartitionValue(currentEnd);
+            PartitionValue upperPartitionValue = new PartitionValue(LiteralExprUtils.createLiteral(
+                    Long.toString(currentEnd), partitionKeyDesc.getUpperValues().get(0).getValue().getType()));
             partitionName = partitionName + "_" + currentEnd;
             PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(
                     Lists.newArrayList(lowerPartitionValue),
-                    Lists.newArrayList(upperPartitionValue)
-            );
+                    Lists.newArrayList(upperPartitionValue));
             singlePartitionDescList.add(
                     new SinglePartitionDesc(
                             false,
                             partitionName,
                             partitionKeyDesc,
-                            properties)
-            );
+                            properties));
             countNum++;
             if (countNum > maxAllowedLimit) {
                 throw new AnalysisException("The number of Multi partitions too much, should not exceed:"
@@ -199,9 +206,12 @@ public class MultiPartitionDesc implements AllPartitionDesc {
         }
         WeekFields weekFields = WeekFields.of(DayOfWeek.of(startDayOfWeek), 1);
         while (startTime.isBefore(this.endTime)) {
+            String literalValue = formatPartitionDateTime(startTime,
+                        partitionKeyDesc.getLowerValues().get(0).getStringValue());
+            Type dataType = partitionKeyDesc.getLowerValues().get(0).getValue().getType();
+            literalValue = LiteralExprUtils.normalizePartitionValueString(literalValue, dataType);
             PartitionValue lowerPartitionValue = new PartitionValue(
-                    startTime.format(dateTypeFormat(partitionKeyDesc.getLowerValues().get(0).getStringValue()))
-            );
+                    LiteralExprUtils.createLiteral(literalValue, dataType));
             switch (this.timeUnitType) {
                 case HOUR:
                     partitionName = partitionPrefix + startTime.format(DateTimeFormatter.ofPattern(HOURS_FORMAT));
@@ -237,9 +247,12 @@ public class MultiPartitionDesc implements AllPartitionDesc {
             if (this.timeUnitType != TimeUnit.DAY && startTime.isAfter(this.endTime)) {
                 startTime = this.endTime;
             }
+            literalValue = formatPartitionDateTime(startTime,
+                            partitionKeyDesc.getUpperValues().get(0).getStringValue());
+            dataType = partitionKeyDesc.getUpperValues().get(0).getValue().getType();
+            literalValue = LiteralExprUtils.normalizePartitionValueString(literalValue, dataType);
             PartitionValue upperPartitionValue = new PartitionValue(
-                    startTime.format(dateTypeFormat(partitionKeyDesc.getUpperValues().get(0).getStringValue()))
-            );
+                    LiteralExprUtils.createLiteral(literalValue, dataType));
             PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(
                     Lists.newArrayList(lowerPartitionValue),
                     Lists.newArrayList(upperPartitionValue)
@@ -330,8 +343,10 @@ public class MultiPartitionDesc implements AllPartitionDesc {
                     res = DateTimeFormatter.ofPattern(HOURS_FORMAT);
                 } else if (dateTimeStr.length() == 13) {
                     res = DateTimeFormatter.ofPattern(HOUR_FORMAT);
-                } else if (dateTimeStr.length() == 19) {
-                    res = DateTimeFormatter.ofPattern(DATETIME_FORMAT);
+                } else if (isTimestampTzFormat(dateTimeStr)) {
+                    res = timestampTzFormatter(dateTimeStr);
+                } else if (isDateTimeFormat(dateTimeStr)) {
+                    res = dateTimeFormatter(dateTimeStr);
                 } else {
                     throw new AnalysisException("can not probe datetime(hour) format:" + dateTimeStr);
                 }
@@ -341,8 +356,10 @@ public class MultiPartitionDesc implements AllPartitionDesc {
                     res = DateTimeFormatter.ofPattern(DATES_FORMAT);
                 } else if (dateTimeStr.length() == 10) {
                     res = DateTimeFormatter.ofPattern(DATE_FORMAT);
-                } else if (dateTimeStr.length() == 19) {
-                    res = DateTimeFormatter.ofPattern(DATETIME_FORMAT);
+                } else if (isTimestampTzFormat(dateTimeStr)) {
+                    res = timestampTzFormatter(dateTimeStr);
+                } else if (isDateTimeFormat(dateTimeStr)) {
+                    res = dateTimeFormatter(dateTimeStr);
                 } else {
                     throw new AnalysisException("can not probe datetime(day or week) format:" + dateTimeStr);
                 }
@@ -354,8 +371,10 @@ public class MultiPartitionDesc implements AllPartitionDesc {
                     res = DateTimeFormatter.ofPattern(MONTH_FORMAT);
                 } else if (dateTimeStr.length() == 10) {
                     res = DateTimeFormatter.ofPattern(DATE_FORMAT);
-                } else if (dateTimeStr.length() == 19) {
-                    res = DateTimeFormatter.ofPattern(DATETIME_FORMAT);
+                } else if (isTimestampTzFormat(dateTimeStr)) {
+                    res = timestampTzFormatter(dateTimeStr);
+                } else if (isDateTimeFormat(dateTimeStr)) {
+                    res = dateTimeFormatter(dateTimeStr);
                 } else {
                     throw new AnalysisException("can not probe datetime(month) format:" + dateTimeStr);
                 }
@@ -367,8 +386,10 @@ public class MultiPartitionDesc implements AllPartitionDesc {
                     res = DateTimeFormatter.ofPattern(DATES_FORMAT);
                 } else if (dateTimeStr.length() == 10) {
                     res = DateTimeFormatter.ofPattern(DATE_FORMAT);
-                } else if (dateTimeStr.length() == 19) {
-                    res = DateTimeFormatter.ofPattern(DATETIME_FORMAT);
+                } else if (isTimestampTzFormat(dateTimeStr)) {
+                    res = timestampTzFormatter(dateTimeStr);
+                } else if (isDateTimeFormat(dateTimeStr)) {
+                    res = dateTimeFormatter(dateTimeStr);
                 } else {
                     throw new AnalysisException("can not probe datetime(year) format:" + dateTimeStr);
                 }
@@ -381,11 +402,74 @@ public class MultiPartitionDesc implements AllPartitionDesc {
     }
 
     private DateTimeFormatter dateTypeFormat(String dateTimeStr) {
-        String s = DATE_FORMAT;
-        if (this.timeUnitType.equals(TimeUnit.HOUR) || dateTimeStr.length() == 19) {
-            s = DATETIME_FORMAT;
+        if (isTimestampTzFormat(dateTimeStr)) {
+            return dateTimeFormatter(stripTimeZone(dateTimeStr));
         }
-        return DateTimeFormatter.ofPattern(s);
+        if (this.timeUnitType.equals(TimeUnit.HOUR) || isDateTimeFormat(dateTimeStr)) {
+            return dateTimeFormatter(dateTimeStr);
+        }
+        return DateTimeFormatter.ofPattern(DATE_FORMAT);
+    }
+
+    private String formatPartitionDateTime(LocalDateTime dateTime, String originalDateTimeStr) {
+        if (isTimestampTzFormat(originalDateTimeStr)) {
+            return dateTime.format(dateTypeFormat(originalDateTimeStr)) + timeZoneSuffix(originalDateTimeStr);
+        }
+        return dateTime.format(dateTypeFormat(originalDateTimeStr));
+    }
+
+    private static boolean isDateTimeFormat(String dateTimeStr) {
+        int length = dateTimeStr.length();
+        return length == 19 || (length >= 21 && length <= 26);
+    }
+
+    private static boolean isTimestampTzFormat(String dateTimeStr) {
+        int length = dateTimeStr.length();
+        return (length == 25 || (length >= 27 && length <= 32)) && hasTimeZoneSuffix(dateTimeStr);
+    }
+
+    private static boolean hasTimeZoneSuffix(String dateTimeStr) {
+        return dateTimeStr.length() >= 6
+                && (dateTimeStr.charAt(dateTimeStr.length() - 6) == '+'
+                        || dateTimeStr.charAt(dateTimeStr.length() - 6) == '-')
+                && dateTimeStr.charAt(dateTimeStr.length() - 3) == ':';
+    }
+
+    private static DateTimeFormatter timestampTzFormatter(String dateTimeStr) {
+        return DateTimeFormatter.ofPattern(dateTimePattern(stripTimeZone(dateTimeStr)) + "XXX");
+    }
+
+    private static DateTimeFormatter dateTimeFormatter(String dateTimeStr) {
+        return DateTimeFormatter.ofPattern(dateTimePattern(dateTimeStr));
+    }
+
+    private static String dateTimePattern(String dateTimeStr) {
+        switch (dateTimeStr.length()) {
+            case 19:
+                return DATETIME_FORMAT;
+            case 21:
+                return DATETIME_FORMAT_1S;
+            case 22:
+                return DATETIME_FORMAT_2S;
+            case 23:
+                return DATETIME_FORMAT_3S;
+            case 24:
+                return DATETIME_FORMAT_4S;
+            case 25:
+                return DATETIME_FORMAT_5S;
+            case 26:
+                return DATETIME_FORMAT_6S;
+            default:
+                throw new IllegalArgumentException("unsupported datetime format length: " + dateTimeStr.length());
+        }
+    }
+
+    private static String stripTimeZone(String dateTimeStr) {
+        return dateTimeStr.substring(0, dateTimeStr.length() - 6);
+    }
+
+    private static String timeZoneSuffix(String dateTimeStr) {
+        return dateTimeStr.substring(dateTimeStr.length() - 6);
     }
 
 }

@@ -401,7 +401,7 @@ public class CreateTableTest extends TestWithFeService {
         // single partition column with multi keys
         ExceptionChecker
                         .expectThrowsWithMsg(AnalysisException.class,
-                                        "partition item's size out of partition columns: Index 1 out of bounds for length 1",
+                                        "partition key desc list size[2] is not equal to partition column size[1]",
                                         () -> createTable("create table test.tbl10\n"
                                                         + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
                                                         + "partition by list(k1)\n" + "(\n"
@@ -413,7 +413,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // multi partition columns with single key
         ExceptionChecker
-                .expectThrowsWithMsg(IllegalArgumentException.class, "partition key desc list size[1] is not equal to partition column size[2]",
+                .expectThrowsWithMsg(AnalysisException.class, "partition key desc list size[1] is not equal to partition column size[2]",
                         () -> createTable("create table test.tbl11\n"
                                 + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
                                 + "partition by list(k1, k2)\n"
@@ -426,7 +426,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // multi partition columns with multi keys
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "partition item's size out of partition columns: Index 2 out of bounds for length 2",
+                .expectThrowsWithMsg(AnalysisException.class, "partition key desc list size[3] is not equal to partition column size[2]",
                         () -> createTable("create table test.tbl12\n"
                                 + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
                                 + "partition by list(k1, k2)\n"
@@ -513,7 +513,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // range: partition content != partition key type
         ExceptionChecker
-                .expectThrowsWithMsg(DdlException.class, "Invalid number format: beijing",
+                .expectThrowsWithMsg(AnalysisException.class, "Invalid number format: beijing",
                         () -> createTable("CREATE TABLE test.tbl17 (\n"
                                 + "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n"
                                 + ")\n"
@@ -527,7 +527,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // list: partition content != partition key type
         ExceptionChecker
-                .expectThrowsWithMsg(DdlException.class, "Invalid number format: beijing",
+                .expectThrowsWithMsg(AnalysisException.class, "Invalid number format: beijing",
                         () -> createTable("CREATE TABLE test.tbl18 (\n"
                                 + "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n"
                                 + ")\n"

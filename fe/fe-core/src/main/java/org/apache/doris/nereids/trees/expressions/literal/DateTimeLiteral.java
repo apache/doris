@@ -30,7 +30,6 @@ import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.nereids.util.StandardDateFormat;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -203,8 +202,13 @@ public class DateTimeLiteral extends DateLiteral {
         this.microSecond = Math.round(this.microSecond / factor) * (int) factor;
 
         if (this.microSecond >= 1000000) {
-            LocalDateTime localDateTime = DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND,
-                    getStringValue()).plusSeconds(1);
+            LocalDateTime localDateTime = LocalDateTime.of(
+                    (int) this.year,
+                    (int) this.month,
+                    (int) this.day,
+                    (int) this.hour,
+                    (int) this.minute,
+                    (int) this.second).plusSeconds(1);
             this.year = localDateTime.getYear();
             this.month = localDateTime.getMonthValue();
             this.day = localDateTime.getDayOfMonth();

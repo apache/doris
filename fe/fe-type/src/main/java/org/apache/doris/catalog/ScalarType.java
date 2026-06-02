@@ -967,10 +967,10 @@ public class ScalarType extends Type {
             return false;
         }
         if (type == PrimitiveType.CHAR) {
-            return len == other.len;
+            return len == other.len || (isWildcardChar() && other.isWildcardChar());
         }
         if (type == PrimitiveType.VARCHAR) {
-            return len == other.len;
+            return len == other.len || (isWildcardVarchar() && other.isWildcardVarchar());
         }
         if (type.isDecimalV3Type() || type.isDecimalV2Type()) {
             return precision == other.precision && scale == other.scale;

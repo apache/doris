@@ -213,8 +213,8 @@ public class IntLiteral extends NumericLiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
-        if (expr instanceof StringLiteral) {
-            return - ((StringLiteral) expr).compareLiteral(this);
+        if (!(expr instanceof IntLiteral) || !type.equals(expr.type)) {
+            return -1;
         }
         return Long.compare(value, expr.getLongValue());
     }

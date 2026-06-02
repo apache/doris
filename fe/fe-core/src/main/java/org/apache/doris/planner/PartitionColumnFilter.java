@@ -99,9 +99,9 @@ public class PartitionColumnFilter {
             // cmy mod, catch AnalysisException
             try {
                 lowerKey = PartitionKey.createPartitionKey(
-                        Lists.newArrayList(new PartitionValue(lowerBound.getStringValue())), columns);
+                        Lists.newArrayList(new PartitionValue(lowerBound)), columns);
                 upperKey = PartitionKey.createPartitionKey(
-                        Lists.newArrayList(new PartitionValue(upperBound.getStringValue())), columns);
+                        Lists.newArrayList(new PartitionValue(upperBound)), columns);
             } catch (AnalysisException e) {
                 LOG.warn(e.getMessage());
                 return null;

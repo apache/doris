@@ -170,11 +170,13 @@ public class PartitionExprUtil {
             } else if (partitionType == PartitionType.LIST) {
                 List<List<PartitionValue>> listValues = new ArrayList<>();
                 List<PartitionValue> inValues = new ArrayList<>();
-                for (String value : curPartitionValues) {
+                for (int i = 0; i < curPartitionValues.size(); i++) {
+                    String value = curPartitionValues.get(i);
                     if (value == null) {
-                        inValues.add(new PartitionValue("", true));
+                        inValues.add(new PartitionValue(NullLiteral.create(partitionColumn.get(i).getType()), true));
                     } else {
-                        inValues.add(new PartitionValue(value));
+                        inValues.add(new PartitionValue(
+                                LiteralExprUtils.createLiteral(value, partitionColumn.get(i).getType())));
                     }
                 }
                 listValues.add(inValues);
@@ -266,7 +268,7 @@ public class PartitionExprUtil {
                     "not support range partition with column type : " + partitionColumnType.toString());
         }
 
-        return new PartitionValue(timeString);
+        return new PartitionValue(LiteralExprUtils.createLiteral(timeString, partitionColumnType));
     }
 
     private static String getFormatPartitionValue(String value) {

@@ -17,6 +17,7 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.binlog.BinlogTestUtils;
 import org.apache.doris.catalog.AggregateType;
@@ -107,7 +108,7 @@ public class AgentTaskTest {
 
         PartitionKey pk1 = PartitionKey.createInfinityPartitionKey(Arrays.asList(columns.get(0)), false);
         PartitionKey pk2 = PartitionKey.createPartitionKey(
-                Arrays.asList(new PartitionValue("10")), Arrays.asList(columns.get(0)));
+                Arrays.asList(new PartitionValue(new IntLiteral(10L), false, "10")), Arrays.asList(columns.get(0)));
         range1 = Range.closedOpen(pk1, pk2);
 
         PartitionKey pk3 = PartitionKey.createInfinityPartitionKey(Arrays.asList(columns.get(0)), true);

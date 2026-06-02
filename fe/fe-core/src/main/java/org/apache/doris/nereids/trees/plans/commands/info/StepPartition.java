@@ -23,9 +23,9 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * represent step partition
@@ -48,9 +48,16 @@ public class StepPartition extends PartitionDefinition {
     @Override
     public void validate(Map<String, String> properties) {
         super.validate(properties);
-        if (fromExpression.stream().anyMatch(MaxValue.class::isInstance)
-                || toExpression.stream().anyMatch(MaxValue.class::isInstance)) {
-            throw new AnalysisException("MAXVALUE cannot be used in step partition");
+        validateBoundaryValueCount();
+        for (Expression expression : fromExpression) {
+            if (expression instanceof MaxValue) {
+                throw new AnalysisException("MAXVALUE cannot be used in step partition");
+            }
+        }
+        for (Expression expression : toExpression) {
+            if (expression instanceof MaxValue) {
+                throw new AnalysisException("MAXVALUE cannot be used in step partition");
+            }
         }
     }
 
@@ -58,12 +65,17 @@ public class StepPartition extends PartitionDefinition {
      * translate to catalog objects.
      */
     public MultiPartitionDesc translateToCatalogStyle() {
-        List<PartitionValue> fromValues = fromExpression.stream()
-                .map(this::toLegacyPartitionValueStmt)
-                .collect(Collectors.toList());
-        List<PartitionValue> toValues = toExpression.stream()
-                .map(this::toLegacyPartitionValueStmt)
-                .collect(Collectors.toList());
+        validateBoundaryValueCount();
+        List<PartitionValue> fromValues = new ArrayList<>();
+        for (int i = 0; i < fromExpression.size(); i++) {
+            Expression typedFrom = typedPartitionExpression(fromExpression.get(i), i);
+            fromValues.add(toLegacyPartitionValueStmt(typedFrom));
+        }
+        List<PartitionValue> toValues = new ArrayList<>();
+        for (int i = 0; i < toExpression.size(); i++) {
+            Expression typedTo = typedPartitionExpression(toExpression.get(i), i);
+            toValues.add(toLegacyPartitionValueStmt(typedTo));
+        }
         try {
             if (unitString == null) {
                 return new MultiPartitionDesc(PartitionKeyDesc.createMultiFixed(fromValues, toValues, unit),
@@ -82,5 +94,13 @@ public class StepPartition extends PartitionDefinition {
 
     public List<Expression> getToExpression() {
         return toExpression;
+    }
+
+    private void validateBoundaryValueCount() {
+        if (fromExpression.size() > partitionTypes.size() || toExpression.size() > partitionTypes.size()) {
+            throw new AnalysisException("partition column number in multi partition clause must be one but start "
+                    + "column size is " + fromExpression.size() + ", end column size is " + toExpression.size()
+                    + ".");
+        }
     }
 }

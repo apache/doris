@@ -66,6 +66,11 @@ class LiteralExprCompareLiteralTest {
             Assertions.assertEquals(0, self.compareLiteral(new PlaceHolderExpr(new BoolLiteral(true))));
             Assertions.assertTrue(self.compareLiteral(new PlaceHolderExpr(new BoolLiteral(false))) > 0);
         }
+
+        @Test
+        void crossTypeReturnsMinusOne() {
+            Assertions.assertEquals(-1, new BoolLiteral(true).compareLiteral(new IntLiteral(1)));
+        }
     }
 
     @Nested
@@ -95,6 +100,17 @@ class LiteralExprCompareLiteralTest {
         void vsPlaceHolderDelegatesToInner() {
             Assertions.assertEquals(0, new IntLiteral(7).compareLiteral(new PlaceHolderExpr(new IntLiteral(7))));
         }
+
+        @Test
+        void crossTypeReturnsMinusOne() {
+            Assertions.assertEquals(-1, new IntLiteral(1).compareLiteral(new StringLiteral("1")));
+        }
+
+        @Test
+        void differentIntegralTypesReturnMinusOne() throws AnalysisException {
+            Assertions.assertEquals(-1,
+                    new IntLiteral("1", Type.TINYINT).compareLiteral(new IntLiteral("1", Type.BIGINT)));
+        }
     }
 
     @Nested
@@ -118,6 +134,11 @@ class LiteralExprCompareLiteralTest {
         @Test
         void vsMaxLiteralReturnsMinusOne() {
             Assertions.assertEquals(-1, new FloatLiteral(1.0).compareLiteral(MaxLiteral.MAX_VALUE));
+        }
+
+        @Test
+        void crossTypeReturnsMinusOne() {
+            Assertions.assertEquals(-1, new FloatLiteral(1.0).compareLiteral(new IntLiteral(1)));
         }
     }
 
@@ -150,6 +171,12 @@ class LiteralExprCompareLiteralTest {
             DecimalLiteral d = new DecimalLiteral(BigDecimal.ZERO, ScalarType.createDecimalV3Type(10, 2));
             Assertions.assertEquals(-1, d.compareLiteral(MaxLiteral.MAX_VALUE));
         }
+
+        @Test
+        void crossTypeReturnsMinusOne() {
+            DecimalLiteral d = new DecimalLiteral(BigDecimal.ONE, ScalarType.createDecimalV3Type(10, 2));
+            Assertions.assertEquals(-1, d.compareLiteral(new IntLiteral(1)));
+        }
     }
 
     @Nested
@@ -176,6 +203,11 @@ class LiteralExprCompareLiteralTest {
         @Test
         void vsMaxLiteralReturnsMinusOne() {
             Assertions.assertEquals(-1, new LargeIntLiteral(BigInteger.ZERO).compareLiteral(MaxLiteral.MAX_VALUE));
+        }
+
+        @Test
+        void crossTypeReturnsMinusOne() {
+            Assertions.assertEquals(-1, new LargeIntLiteral(BigInteger.ONE).compareLiteral(new IntLiteral(1)));
         }
     }
 
@@ -204,6 +236,17 @@ class LiteralExprCompareLiteralTest {
         void vsMaxLiteralReturnsMinusOne() {
             Assertions.assertEquals(-1, new DateLiteral(2026, 5, 21).compareLiteral(MaxLiteral.MAX_VALUE));
         }
+
+        @Test
+        void crossTypeReturnsMinusOne() {
+            Assertions.assertEquals(-1, new DateLiteral(2026, 5, 21).compareLiteral(new StringLiteral("2026-05-21")));
+        }
+
+        @Test
+        void differentDateTypesReturnMinusOne() {
+            Assertions.assertEquals(-1,
+                    new DateLiteral(2026, 5, 21, Type.DATE).compareLiteral(new DateLiteral(2026, 5, 21, Type.DATEV2)));
+        }
     }
 
     @Nested
@@ -227,6 +270,20 @@ class LiteralExprCompareLiteralTest {
         @Test
         void vsMaxLiteralReturnsMinusOne() {
             Assertions.assertEquals(-1, new StringLiteral("zzz").compareLiteral(MaxLiteral.MAX_VALUE));
+        }
+
+        @Test
+        void crossTypeReturnsMinusOne() {
+            Assertions.assertEquals(-1, new StringLiteral("1").compareLiteral(new IntLiteral(1)));
+        }
+
+        @Test
+        void differentStringTypesReturnMinusOne() {
+            StringLiteral charLiteral = new StringLiteral("x");
+            charLiteral.setType(Type.CHAR);
+            StringLiteral varcharLiteral = new StringLiteral("x");
+            varcharLiteral.setType(Type.VARCHAR);
+            Assertions.assertEquals(-1, charLiteral.compareLiteral(varcharLiteral));
         }
     }
 
@@ -261,9 +318,8 @@ class LiteralExprCompareLiteralTest {
         }
 
         @Test
-        void crossTypeThrows() throws AnalysisException {
-            Assertions.assertThrows(RuntimeException.class,
-                    () -> new IPv4Literal("1.1.1.1").compareLiteral(new IntLiteral(1)));
+        void crossTypeReturnsMinusOne() throws AnalysisException {
+            Assertions.assertEquals(-1, new IPv4Literal("1.1.1.1").compareLiteral(new IntLiteral(1)));
         }
     }
 
@@ -299,9 +355,8 @@ class LiteralExprCompareLiteralTest {
         }
 
         @Test
-        void crossTypeThrows() throws AnalysisException {
-            Assertions.assertThrows(RuntimeException.class,
-                    () -> new IPv6Literal("::1").compareLiteral(new StringLiteral("::1")));
+        void crossTypeReturnsMinusOne() throws AnalysisException {
+            Assertions.assertEquals(-1, new IPv6Literal("::1").compareLiteral(new StringLiteral("::1")));
         }
 
         @Test
@@ -344,6 +399,12 @@ class LiteralExprCompareLiteralTest {
             Assertions.assertTrue(shorter.compareLiteral(longer) < 0);
             Assertions.assertTrue(longer.compareLiteral(shorter) > 0);
         }
+
+        @Test
+        void crossTypeReturnsMinusOne() {
+            ArrayLiteral array = new ArrayLiteral(intArray, new IntLiteral(1));
+            Assertions.assertEquals(-1, array.compareLiteral(new IntLiteral(1)));
+        }
     }
 
     @Nested
@@ -362,6 +423,12 @@ class LiteralExprCompareLiteralTest {
             VarBinaryLiteral big = new VarBinaryLiteral(new byte[]{(byte) 0xFF});
             Assertions.assertTrue(small.compareLiteral(big) < 0);
             Assertions.assertTrue(big.compareLiteral(small) > 0);
+        }
+
+        @Test
+        void crossTypeReturnsMinusOne() throws AnalysisException {
+            VarBinaryLiteral value = new VarBinaryLiteral(new byte[]{0x01});
+            Assertions.assertEquals(-1, value.compareLiteral(new StringLiteral("a")));
         }
     }
 

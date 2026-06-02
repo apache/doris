@@ -178,16 +178,10 @@ public class DecimalLiteral extends NumericLiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
-        if (expr instanceof DecimalLiteral) {
+        if (expr instanceof DecimalLiteral && type.equals(expr.type)) {
             return this.value.compareTo(((DecimalLiteral) expr).value);
-        } else {
-            try {
-                BigDecimal otherValue = new BigDecimal(expr.getStringValue());
-                return this.value.compareTo(otherValue);
-            } catch (NumberFormatException e) {
-                throw new ClassCastException("Those two values cannot be compared: " + value + " and " + expr);
-            }
         }
+        return -1;
     }
 
     @Override

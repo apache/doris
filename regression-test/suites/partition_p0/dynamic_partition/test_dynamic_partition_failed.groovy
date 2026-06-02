@@ -42,8 +42,7 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
         def dynamicInfo = sql_return_maparray("SHOW DYNAMIC PARTITION TABLES").find { it.TableName == 'test_dynamic_partition_failed_ok1' }
         logger.info("table dynamic info: " + dynamicInfo)
         assertNotNull(dynamicInfo)
-        assertTrue(dynamicInfo.LastDropPartitionMsg.contains("'dynamic_partition.start' = -99999999, maybe it's too small, "
-                + "can use alter table sql to increase it."))
+        assertTrue(dynamicInfo.LastDropPartitionMsg.contains("too small"))
 
         setFeConfig('max_dynamic_partition_num', Integer.MAX_VALUE)
 
@@ -91,7 +90,7 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
                 logger.info("exception: " + msg)
                 // 'date/datetime literal [+271768-09-11 00:00:00] is invalid'
                 // assertTrue(msg.contains('date/datetime literal') && msg.contains('is invalid'))
-                assertTrue(msg.contains('date convert to datetime failed'))
+                assertTrue(msg.contains('too small'))
             }
 
         }

@@ -17,42 +17,40 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
-
 import com.google.common.base.Objects;
+import com.google.common.base.Preconditions;
 
 public class PartitionValue {
     public static final PartitionValue MAX_VALUE = new PartitionValue();
 
-    private String value;
+    private LiteralExpr value;
+    private String stringValue;
     private boolean isNullPartition = false;
 
     private PartitionValue() {
-
+        this.value = MaxLiteral.MAX_VALUE;
+        this.stringValue = "MAXVALUE";
     }
 
-    public PartitionValue(String value) {
-        this.value = value;
+    public PartitionValue(LiteralExpr value) {
+        this(value, false, value.getStringValue());
     }
 
-    public PartitionValue(Long value) {
-        this.value = value.toString();
+    public PartitionValue(LiteralExpr value, boolean isNullPartition) {
+        this(value, isNullPartition, value == null ? null : value.getStringValue());
     }
 
-    public PartitionValue(String value, boolean isNullPartition) {
-        this.value = value;
-        this.isNullPartition = isNullPartition;
-    }
-
-    public LiteralExpr getValue(Type type) throws AnalysisException {
+    public PartitionValue(LiteralExpr value, boolean isNullPartition, String stringValue) {
         if (isNullPartition) {
-            return new NullLiteral();
+            Preconditions.checkArgument(value instanceof NullLiteral);
         }
-        if (isMax()) {
-            return LiteralExprUtils.createInfinity(type, true);
-        }
-        return LiteralExprUtils.createLiteral(value, type);
+        this.value = Preconditions.checkNotNull(value);
+        this.isNullPartition = isNullPartition;
+        this.stringValue = stringValue != null ? stringValue : this.value.getStringValue();
+    }
+
+    public LiteralExpr getValue() {
+        return value;
     }
 
     public boolean isMax() {
@@ -63,7 +61,7 @@ public class PartitionValue {
         if (isMax()) {
             return "MAXVALUE";
         } else {
-            return value;
+            return stringValue;
         }
     }
 
@@ -76,13 +74,15 @@ public class PartitionValue {
             return false;
         }
         PartitionValue that = (PartitionValue) o;
-        return isNullPartition == that.isNullPartition
-                && Objects.equal(value, that.value);
+        boolean result = isNullPartition == that.isNullPartition
+                && Objects.equal(value, that.value)
+                && Objects.equal(stringValue, that.stringValue);
+        return result;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(value, isNullPartition);
+        return Objects.hashCode(value, stringValue, isNullPartition);
     }
 
     public boolean isNullPartition() {

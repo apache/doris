@@ -126,6 +126,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateStreamInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -1489,6 +1490,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 && (isCreateTable && generatedPartitionId == 0) || (!isCreateTable && generatedPartitionId != 0)) {
             throw new DdlException("not impossible");
         }
+        OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
+        addPartitionOp.initPartitionTypes(olapTable);
+
         SinglePartitionDesc singlePartitionDesc = addPartitionOp.getSingeRangePartitionDesc();
         DistributionDesc distributionDesc = addPartitionOp.getDistributionDesc();
         boolean isTempPartition = addPartitionOp.isTempPartition();
@@ -1500,7 +1504,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         BinlogConfig binlogConfig;
 
         // check
-        OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
         olapTable.readLock();
         try {
             olapTable.checkNormalStateForAlter();
@@ -1878,6 +1881,12 @@ public class InternalCatalog implements CatalogIf<Database> {
             throws DdlException {
         List<SinglePartitionDesc> singlePartitionDescs;
         try {
+            OlapTable olapTable = (OlapTable) db.getTableOrDdlException(tableName);
+            List<DataType> partitionTypes = new ArrayList<>();
+            for (Column column : olapTable.getPartitionColumns()) {
+                partitionTypes.add(DataType.fromCatalogType(column.getType()));
+            }
+            multiPartitionOp.setPartitionTypes(partitionTypes);
             MultiPartitionDesc multiPartitionDesc = new MultiPartitionDesc(multiPartitionOp.getPartitionKeyDesc(),
                     multiPartitionOp.getProperties());
             singlePartitionDescs = multiPartitionDesc.getSinglePartitionDescList();

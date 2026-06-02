@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.analysis.LiteralExprUtils;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -312,11 +314,23 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 ERR_CACHE_INCONSISTENCY + partitionName + " vs. " + types);
 
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
-        for (String partitionValue : partitionValues) {
-            values.add(new PartitionValue(partitionValue, HIVE_DEFAULT_PARTITION.equals(partitionValue)));
+        for (int i = 0; i < partitionValues.size(); i++) {
+            String partitionValue = partitionValues.get(i);
+            if (HIVE_DEFAULT_PARTITION.equals(partitionValue)) {
+                values.add(new PartitionValue(NullLiteral.create(types.get(i)), true, partitionValue));
+            } else {
+                try {
+                    partitionValue = LiteralExprUtils.normalizePartitionValueString(partitionValue, types.get(i));
+                    values.add(new PartitionValue(LiteralExprUtils.createLiteral(partitionValue, types.get(i))));
+                } catch (AnalysisException e) {
+                    throw new CacheException("failed to create partition %s to list partition in catalog %s",
+                            e, partitionValue, catalogName);
+                }
+            }
         }
         try {
-            PartitionKey partitionKey = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
+            PartitionKey partitionKey = PartitionKey.createListPartitionKeyWithTypes(
+                    values, types, true, partitionValues);
             return new ListPartitionItem(Lists.newArrayList(partitionKey));
         } catch (AnalysisException e) {
             throw new CacheException("failed to convert hive partition %s to list partition in catalog %s",

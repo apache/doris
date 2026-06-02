@@ -18,16 +18,25 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AllPartitionDesc;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.Origin;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MaxLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Joiner;
@@ -36,6 +45,7 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * abstract class for partition definition
@@ -107,6 +117,7 @@ public abstract class PartitionDefinition {
      */
     public void validate(Map<String, String> otherProperties) {
         try {
+            ensurePartitionTypesInitialized();
             if (PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(otherProperties)) {
                 String storagePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
                 if (!storagePolicy.isEmpty()) {
@@ -189,12 +200,73 @@ public abstract class PartitionDefinition {
         this.partitionTypes = partitionTypes;
     }
 
+    protected void ensurePartitionTypesInitialized() {
+        if (partitionTypes == null) {
+            throw new AnalysisException("partitionTypes should be initialized before validating partition definition");
+        }
+    }
+
+    protected Expression typedPartitionExpression(Expression expression, int index) {
+        ensurePartitionTypesInitialized();
+        return strictTypedPartitionExpression(expression, partitionTypes.get(index));
+    }
+
+    static Expression strictTypedPartitionExpression(Expression expression, DataType targetType) {
+        if (expression instanceof MaxValue || expression instanceof MaxLiteral) {
+            return expression;
+        }
+        if (expression.isNullLiteral()) {
+            return expression.checkedCastTo(targetType);
+        }
+        if (!expression.isLiteral()) {
+            throw new AnalysisException("Partition value must be literal: " + expression.toSql());
+        }
+        String value = ((Literal) expression).getStringValue();
+        try {
+            if (targetType.isDateTimeType() || targetType.isDateTimeV2Type() || targetType.isTimeStampTzType()) {
+                return convertPartitionLiteral(value, targetType).checkedCastTo(targetType);
+            }
+            validateCharacterLength(value, targetType);
+            LiteralExpr typedLiteral = LiteralExprUtils.createLiteral(
+                    value, targetType.toCatalogDataType());
+            return Literal.fromLegacyLiteral(typedLiteral, typedLiteral.getType());
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+    }
+
+    private static void validateCharacterLength(String value, DataType targetType) {
+        if (!targetType.isCharType() && !targetType.isVarcharType()) {
+            return;
+        }
+        CharacterType characterType = (CharacterType) targetType;
+        if (characterType.isLengthSet() && value.length() > characterType.getLen()) {
+            throw new AnalysisException(String.format(
+                    "Partition value %s's length exceeds type length: %d > %d for %s",
+                    value, value.length(), characterType.getLen(), targetType));
+        }
+    }
+
+    private static Literal convertPartitionLiteral(String value, DataType targetType) {
+        if (targetType.isDateTimeType()) {
+            return new DateTimeLiteral(value);
+        }
+        if (targetType.isDateTimeV2Type()) {
+            return new DateTimeV2Literal(value);
+        }
+        if (targetType.isTimeStampTzType()) {
+            return TimestampTzLiteral.fromSessionTimeZone((TimeStampTzType) targetType, value);
+        }
+        throw new AnalysisException("Unsupported partition literal conversion for type: " + targetType);
+    }
+
     /**
      * translate partition value.
      */
     protected PartitionValue toLegacyPartitionValueStmt(Expression e) {
         if (e.isLiteral()) {
-            return new PartitionValue(((Literal) e).getStringValue(), e.isNullLiteral());
+            return new PartitionValue(((Literal) e).toLegacyLiteral(), e.isNullLiteral(),
+                    e.isNullLiteral() ? null : ((Literal) e).getStringValue());
         } else if (e instanceof MaxValue) {
             return PartitionValue.MAX_VALUE;
         }
@@ -206,6 +278,11 @@ public abstract class PartitionDefinition {
      */
     public static class MaxValue extends Expression implements LeafExpression {
         public static MaxValue INSTANCE = new MaxValue();
+
+        @Override
+        public Optional<Origin> getOrigin() {
+            return super.getOrigin();
+        }
 
         @Override
         public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
