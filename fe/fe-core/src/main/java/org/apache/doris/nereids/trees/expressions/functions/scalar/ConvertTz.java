@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.DateUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -133,7 +134,7 @@ public class ConvertTz extends ScalarFunction
         if (upperInstant.isBefore(lowerInstant)) {
             return false;
         }
-        return !hasTransitionInInstantRange(toZone, lowerInstant, upperInstant);
+        return DateUtils.noTransitionInInstantRange(toZone, lowerInstant, upperInstant);
     }
 
     @Override
@@ -189,16 +190,5 @@ public class ConvertTz extends ScalarFunction
             transition = zoneId.getRules().nextTransition(transition.getInstant());
         }
         return false;
-    }
-
-    private boolean hasTransitionInInstantRange(ZoneId zoneId, Instant lower, Instant upper) {
-        if (zoneId.getRules().isFixedOffset()) {
-            return false;
-        }
-        ZoneOffsetTransition transition = zoneId.getRules().previousTransition(lower.plusNanos(1));
-        if (transition == null || transition.getInstant().isBefore(lower)) {
-            transition = zoneId.getRules().nextTransition(lower);
-        }
-        return transition != null && !transition.getInstant().isAfter(upper);
     }
 }
