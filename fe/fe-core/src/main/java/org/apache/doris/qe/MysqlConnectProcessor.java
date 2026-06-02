@@ -82,6 +82,12 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         handleStmtClose(stmtId);
     }
 
+    private void handleStmtReset() {
+        packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
+        int stmtId = packetBuf.getInt();
+        handleStmtResetById(stmtId);
+    }
+
     private String getPacket() {
         byte[] bytes = packetBuf.array();
         StringBuilder printB = new StringBuilder();
