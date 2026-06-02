@@ -34,6 +34,7 @@
 #include "format/new_parquet/parquet_scan.h"
 #include "format/new_parquet/parquet_statistics.h"
 #include "format/new_parquet/reader/column_reader.h"
+#include "runtime/runtime_state.h"
 
 namespace doris::parquet {
 
@@ -42,6 +43,7 @@ struct ParquetReaderScanState {
     std::vector<std::unique_ptr<ParquetColumnSchema>> file_schema;
     RowGroupScanPlan scan_plan;
     ParquetScanScheduler scheduler;
+    bool enable_bloom_filter = false;
 };
 
 static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schema,
@@ -191,6 +193,8 @@ ParquetReader::~ParquetReader() = default;
 Status ParquetReader::init(RuntimeState* state) {
     RETURN_IF_ERROR(reader::FileReader::init(state));
     _state = std::make_unique<ParquetReaderScanState>();
+    _state->enable_bloom_filter =
+            state != nullptr && state->query_options().enable_parquet_filter_by_bloom_filter;
     // Open parquet file and parse metadata and file schema.
     RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get()));
     RETURN_IF_ERROR(
@@ -266,9 +270,10 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
     scan_range.size = _file_description->range_size;
     scan_range.file_size = _file_description->file_size;
     // Get selected ranges in row groups according to metadata (Row-Group level index and Page Index including Zonemap, Dictionary, Bloom Filter).
-    RETURN_IF_ERROR(plan_parquet_row_groups(
-            *_state->file_context.metadata, _state->file_context.file_reader.get(),
-            _state->file_schema, *_request, scan_range, &row_group_plan));
+    RETURN_IF_ERROR(plan_parquet_row_groups(*_state->file_context.metadata,
+                                            _state->file_context.file_reader.get(),
+                                            _state->file_schema, *_request, scan_range,
+                                            _state->enable_bloom_filter, &row_group_plan));
     if (_profile != nullptr) {
         const auto& pruning_stats = row_group_plan.pruning_stats;
         COUNTER_UPDATE(_parquet_profile.filtered_row_groups,
@@ -277,12 +282,16 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
                        pruning_stats.filtered_row_groups_by_statistics);
         COUNTER_UPDATE(_parquet_profile.filtered_row_groups_by_dictionary,
                        pruning_stats.filtered_row_groups_by_dictionary);
+        COUNTER_UPDATE(_parquet_profile.filtered_row_groups_by_bloom_filter,
+                       pruning_stats.filtered_row_groups_by_bloom_filter);
         COUNTER_UPDATE(_parquet_profile.to_read_row_groups, pruning_stats.selected_row_groups);
         COUNTER_UPDATE(_parquet_profile.total_row_groups, pruning_stats.total_row_groups);
         COUNTER_UPDATE(_parquet_profile.selected_row_ranges, pruning_stats.selected_row_ranges);
         COUNTER_UPDATE(_parquet_profile.filtered_group_rows, pruning_stats.filtered_group_rows);
         COUNTER_UPDATE(_parquet_profile.filtered_page_rows, pruning_stats.filtered_page_rows);
         COUNTER_UPDATE(_parquet_profile.page_index_read_calls, pruning_stats.page_index_read_calls);
+        COUNTER_UPDATE(_parquet_profile.bloom_filter_read_time,
+                       pruning_stats.bloom_filter_read_time);
     }
     _state->scan_plan = row_group_plan;
     _state->scheduler.set_plan(std::move(row_group_plan));

@@ -27,6 +27,7 @@
 #include "format/reader/file_reader.h"
 
 namespace parquet {
+class BloomFilter;
 class FileMetaData;
 class ParquetFileReader;
 class RowGroupMetaData;
@@ -45,6 +46,7 @@ enum class ParquetRowGroupPruneReason {
     NONE,
     STATISTICS,
     DICTIONARY,
+    BLOOM_FILTER,
 };
 
 struct ParquetPruningStats {
@@ -52,11 +54,13 @@ struct ParquetPruningStats {
     int64_t selected_row_groups = 0;
     int64_t filtered_row_groups_by_statistics = 0;
     int64_t filtered_row_groups_by_dictionary = 0;
+    int64_t filtered_row_groups_by_bloom_filter = 0;
     int64_t filtered_row_groups_by_page_index = 0;
     int64_t filtered_group_rows = 0;
     int64_t filtered_page_rows = 0;
     int64_t selected_row_ranges = 0;
     int64_t page_index_read_calls = 0;
+    int64_t bloom_filter_read_time = 0;
 };
 
 // Parquet row group column statistics 转换后的 Doris 统计视图。
@@ -100,9 +104,13 @@ struct ParquetStatisticsUtils {
             const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
             const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
             const reader::FileScanRequest& request, std::vector<int>* selected_row_groups,
-            ParquetPruningStats* pruning_stats);
+            bool enable_bloom_filter, ParquetPruningStats* pruning_stats);
 
     static bool BloomFilterSupported(const ParquetColumnSchema& column_schema);
+
+    static bool BloomFilterExcludes(const ParquetColumnSchema& column_schema,
+                                    const reader::FileColumnPredicateFilter& column_filter,
+                                    const ::parquet::BloomFilter& bloom_filter);
 };
 
 // Parquet file-local statistics/page index/bloom filter 裁剪入口。
@@ -113,7 +121,7 @@ Status select_row_groups_by_statistics(
         const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const reader::FileScanRequest& request, std::vector<int>* selected_row_groups,
-        ParquetPruningStats* pruning_stats);
+        bool enable_bloom_filter, ParquetPruningStats* pruning_stats);
 
 Status select_row_group_ranges_by_page_index(
         ::parquet::ParquetFileReader* file_reader,

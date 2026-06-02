@@ -19,6 +19,8 @@
 
 #include <parquet/api/reader.h>
 #include <parquet/api/schema.h>
+#include <parquet/bloom_filter.h>
+#include <parquet/bloom_filter_reader.h>
 #include <parquet/column_page.h>
 #include <parquet/encoding.h>
 #include <parquet/page_index.h>
@@ -27,8 +29,11 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstring>
 #include <exception>
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -39,7 +44,9 @@
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
 #include "format/new_parquet/parquet_column_schema.h"
+#include "runtime/runtime_profile.h"
 #include "storage/index/zone_map/zone_map_index.h"
+#include "storage/predicate/accept_null_predicate.h"
 #include "storage/predicate/column_predicate.h"
 
 namespace doris::parquet {
@@ -119,6 +126,188 @@ bool is_supported_dictionary_predicate(const ColumnPredicate& predicate) {
     default:
         return false;
     }
+}
+
+bool is_bloom_filter_prunable_predicate(const ColumnPredicate& predicate) {
+    if (dynamic_cast<const AcceptNullPredicate*>(&predicate) != nullptr ||
+        is_null_only_predicate(predicate)) {
+        return false;
+    }
+    return predicate.can_do_bloom_filter(false);
+}
+
+template <typename T>
+T load_predicate_value(const char* data) {
+    T value;
+    memcpy(&value, data, sizeof(T));
+    return value;
+}
+
+class ArrowParquetBloomFilterAdapter final : public segment_v2::BloomFilter {
+public:
+    ArrowParquetBloomFilterAdapter(const ParquetColumnSchema& column_schema,
+                                   const ::parquet::BloomFilter& bloom_filter)
+            : _column_schema(column_schema), _bloom_filter(bloom_filter) {}
+
+    void add_bytes(const char* buf, size_t size) override { DORIS_CHECK(false); }
+
+    bool test_bytes(const char* buf, size_t size) const override {
+        if (buf == nullptr) {
+            return true;
+        }
+        switch (physical_filter_type(_column_schema)) {
+        case TYPE_BOOLEAN:
+            return test_boolean(buf, size);
+        case TYPE_INT:
+            return test_int32(buf, size);
+        case TYPE_BIGINT:
+            return test_int64(buf, size);
+        case TYPE_FLOAT:
+            return test_float(buf, size);
+        case TYPE_DOUBLE:
+            return test_double(buf, size);
+        case TYPE_STRING:
+            return test_string(buf, size);
+        default:
+            return true;
+        }
+    }
+
+    void set_has_null(bool has_null) override { DORIS_CHECK(!has_null); }
+    bool has_null() const override { return false; }
+    void add_hash(uint64_t hash) override { DORIS_CHECK(false); }
+    bool test_hash(uint64_t hash) const override { return _bloom_filter.FindHash(hash); }
+
+private:
+    bool test_boolean(const char* buf, size_t size) const {
+        if (size == sizeof(bool)) {
+            const int32_t value = load_predicate_value<bool>(buf) ? 1 : 0;
+            return _bloom_filter.FindHash(_bloom_filter.Hash(value));
+        }
+        if (size == sizeof(int32_t)) {
+            const int32_t value = load_predicate_value<int32_t>(buf);
+            return _bloom_filter.FindHash(_bloom_filter.Hash(value != 0 ? 1 : 0));
+        }
+        return true;
+    }
+
+    bool test_int32(const char* buf, size_t size) const {
+        if (size == sizeof(int8_t)) {
+            return find_int32(static_cast<int32_t>(load_predicate_value<int8_t>(buf)));
+        }
+        if (size == sizeof(int16_t)) {
+            return find_int32(static_cast<int32_t>(load_predicate_value<int16_t>(buf)));
+        }
+        if (size == sizeof(int32_t)) {
+            return find_int32(load_predicate_value<int32_t>(buf));
+        }
+        return true;
+    }
+
+    bool test_int64(const char* buf, size_t size) const {
+        if (size != sizeof(int64_t)) {
+            return true;
+        }
+        const int64_t value = load_predicate_value<int64_t>(buf);
+        return _bloom_filter.FindHash(_bloom_filter.Hash(value));
+    }
+
+    bool test_float(const char* buf, size_t size) const {
+        if (size != sizeof(float)) {
+            return true;
+        }
+        const float value = load_predicate_value<float>(buf);
+        return _bloom_filter.FindHash(_bloom_filter.Hash(value));
+    }
+
+    bool test_double(const char* buf, size_t size) const {
+        if (size != sizeof(double)) {
+            return true;
+        }
+        const double value = load_predicate_value<double>(buf);
+        return _bloom_filter.FindHash(_bloom_filter.Hash(value));
+    }
+
+    bool test_string(const char* buf, size_t size) const {
+        ::parquet::ByteArray value(static_cast<uint32_t>(size),
+                                   reinterpret_cast<const uint8_t*>(buf));
+        return _bloom_filter.FindHash(_bloom_filter.Hash(&value));
+    }
+
+    bool find_int32(int32_t value) const {
+        return _bloom_filter.FindHash(_bloom_filter.Hash(value));
+    }
+
+    const ParquetColumnSchema& _column_schema;
+    const ::parquet::BloomFilter& _bloom_filter;
+};
+
+struct RowGroupBloomFilterCache {
+    ::parquet::BloomFilterReader* bloom_filter_reader = nullptr;
+    std::map<int, std::unique_ptr<::parquet::BloomFilter>> column_bloom_filters;
+    std::set<int> loaded_columns;
+
+    ::parquet::BloomFilter* get(int row_group_idx, int leaf_column_id,
+                                ParquetPruningStats* pruning_stats) {
+        if (bloom_filter_reader == nullptr || leaf_column_id < 0) {
+            return nullptr;
+        }
+        if (loaded_columns.find(leaf_column_id) == loaded_columns.end()) {
+            loaded_columns.insert(leaf_column_id);
+            try {
+                std::shared_ptr<::parquet::RowGroupBloomFilterReader> row_group_reader;
+                if (pruning_stats != nullptr) {
+                    SCOPED_RAW_TIMER(&pruning_stats->bloom_filter_read_time);
+                    row_group_reader = bloom_filter_reader->RowGroup(row_group_idx);
+                    if (row_group_reader != nullptr) {
+                        column_bloom_filters[leaf_column_id] =
+                                row_group_reader->GetColumnBloomFilter(leaf_column_id);
+                    }
+                } else {
+                    row_group_reader = bloom_filter_reader->RowGroup(row_group_idx);
+                    if (row_group_reader != nullptr) {
+                        column_bloom_filters[leaf_column_id] =
+                                row_group_reader->GetColumnBloomFilter(leaf_column_id);
+                    }
+                }
+            } catch (const ::parquet::ParquetException&) {
+                return nullptr;
+            } catch (const std::exception&) {
+                return nullptr;
+            }
+        }
+        auto it = column_bloom_filters.find(leaf_column_id);
+        return it == column_bloom_filters.end() ? nullptr : it->second.get();
+    }
+};
+
+ParquetRowGroupPruneReason BloomFilterPruneReason(
+        int row_group_idx, const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
+        const reader::FileColumnPredicateFilter& column_filter,
+        RowGroupBloomFilterCache* bloom_filter_cache, ParquetPruningStats* pruning_stats) {
+    if (bloom_filter_cache == nullptr || column_filter.predicates.empty()) {
+        return ParquetRowGroupPruneReason::NONE;
+    }
+    DCHECK_LT(column_filter.file_column_id, schema.size());
+    const auto& column_schema = *schema[column_filter.file_column_id];
+    if (column_schema.kind != ParquetColumnSchemaKind::PRIMITIVE ||
+        column_schema.leaf_column_id < 0 ||
+        !ParquetStatisticsUtils::BloomFilterSupported(column_schema)) {
+        return ParquetRowGroupPruneReason::NONE;
+    }
+    for (const auto& column_predicate : column_filter.predicates) {
+        if (column_predicate == nullptr || !is_bloom_filter_prunable_predicate(*column_predicate)) {
+            return ParquetRowGroupPruneReason::NONE;
+        }
+    }
+    auto* bloom_filter =
+            bloom_filter_cache->get(row_group_idx, column_schema.leaf_column_id, pruning_stats);
+    if (bloom_filter == nullptr) {
+        return ParquetRowGroupPruneReason::NONE;
+    }
+    return ParquetStatisticsUtils::BloomFilterExcludes(column_schema, column_filter, *bloom_filter)
+                   ? ParquetRowGroupPruneReason::BLOOM_FILTER
+                   : ParquetRowGroupPruneReason::NONE;
 }
 
 bool is_dictionary_data_encoding(::parquet::Encoding::type encoding) {
@@ -416,7 +605,7 @@ Status ParquetStatisticsUtils::SelectRowGroups(
         const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const reader::FileScanRequest& request, std::vector<int>* selected_row_groups,
-        ParquetPruningStats* pruning_stats) {
+        bool enable_bloom_filter, ParquetPruningStats* pruning_stats) {
     if (selected_row_groups == nullptr) {
         return Status::InvalidArgument("selected_row_groups is null");
     }
@@ -434,19 +623,37 @@ Status ParquetStatisticsUtils::SelectRowGroups(
             continue;
         }
         bool drop = false;
+        RowGroupBloomFilterCache bloom_filter_cache;
+        if (enable_bloom_filter && file_reader != nullptr) {
+            try {
+                bloom_filter_cache.bloom_filter_reader = &file_reader->GetBloomFilterReader();
+            } catch (const ::parquet::ParquetException&) {
+                bloom_filter_cache.bloom_filter_reader = nullptr;
+            } catch (const std::exception&) {
+                bloom_filter_cache.bloom_filter_reader = nullptr;
+            }
+        }
         for (const auto& column_filter : request.column_predicate_filters) {
             const auto prune_reason = RowGroupPruneReason(*row_group, file_reader, row_group_idx,
                                                           file_schema, column_filter);
-            if (prune_reason == ParquetRowGroupPruneReason::NONE) {
+            auto effective_prune_reason = prune_reason;
+            if (effective_prune_reason == ParquetRowGroupPruneReason::NONE && enable_bloom_filter) {
+                effective_prune_reason =
+                        BloomFilterPruneReason(row_group_idx, file_schema, column_filter,
+                                               &bloom_filter_cache, pruning_stats);
+            }
+            if (effective_prune_reason == ParquetRowGroupPruneReason::NONE) {
                 continue;
             }
             drop = true;
             if (pruning_stats != nullptr) {
                 pruning_stats->filtered_group_rows += row_group->num_rows();
-                if (prune_reason == ParquetRowGroupPruneReason::STATISTICS) {
+                if (effective_prune_reason == ParquetRowGroupPruneReason::STATISTICS) {
                     ++pruning_stats->filtered_row_groups_by_statistics;
-                } else if (prune_reason == ParquetRowGroupPruneReason::DICTIONARY) {
+                } else if (effective_prune_reason == ParquetRowGroupPruneReason::DICTIONARY) {
                     ++pruning_stats->filtered_row_groups_by_dictionary;
+                } else if (effective_prune_reason == ParquetRowGroupPruneReason::BLOOM_FILTER) {
+                    ++pruning_stats->filtered_row_groups_by_bloom_filter;
                 }
                 break;
             }
@@ -474,13 +681,33 @@ bool ParquetStatisticsUtils::BloomFilterSupported(const ParquetColumnSchema& col
     }
 }
 
+bool ParquetStatisticsUtils::BloomFilterExcludes(
+        const ParquetColumnSchema& column_schema,
+        const reader::FileColumnPredicateFilter& column_filter,
+        const ::parquet::BloomFilter& bloom_filter) {
+    if (!BloomFilterSupported(column_schema)) {
+        return false;
+    }
+    ArrowParquetBloomFilterAdapter adapter(column_schema, bloom_filter);
+    for (const auto& column_predicate : column_filter.predicates) {
+        if (column_predicate == nullptr || !is_bloom_filter_prunable_predicate(*column_predicate)) {
+            return false;
+        }
+        if (!column_predicate->evaluate_and(&adapter)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 Status select_row_groups_by_statistics(
         const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const reader::FileScanRequest& request, std::vector<int>* selected_row_groups,
-        ParquetPruningStats* pruning_stats) {
+        bool enable_bloom_filter, ParquetPruningStats* pruning_stats) {
     return ParquetStatisticsUtils::SelectRowGroups(metadata, file_reader, file_schema, request,
-                                                   selected_row_groups, pruning_stats);
+                                                   selected_row_groups, enable_bloom_filter,
+                                                   pruning_stats);
 }
 
 namespace {
