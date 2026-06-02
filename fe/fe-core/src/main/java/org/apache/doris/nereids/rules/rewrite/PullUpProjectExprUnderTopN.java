@@ -357,9 +357,6 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                     && rewritten.getProjects().equals(project.getProjects())) {
                 allPulledUpExprs = collectAllPulledUpExprs(context, project);
             }
-            if (allPulledUpExprs.isEmpty()) {
-                return rewritten;
-            }
             return simplifyProject(rewritten, allPulledUpExprs, context);
         }
 
@@ -400,7 +397,9 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             LogicalProject<? extends Plan> project,
             List<NamedExpression> pulledUpExprs,
             CollectorContext context) {
-        if (pulledUpExprs.isEmpty()) {
+        Set<ExprId> childOutputExprIds = buildOutputExprIds((Plan) project.child(0));
+        List<Expression> passThroughExprs = collectUnavailablePullUpExprs(project, context, childOutputExprIds);
+        if (pulledUpExprs.isEmpty() && passThroughExprs.isEmpty()) {
             return project;
         }
 
@@ -412,7 +411,8 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         List<NamedExpression> simplified = new ArrayList<>();
         Set<ExprId> existingExprIds = new HashSet<>();
         for (NamedExpression ne : project.getProjects()) {
-            if (!pulledUpExprIds.contains(ne.getExprId())) {
+            if (!pulledUpExprIds.contains(ne.getExprId())
+                    && !isUnavailablePullUpSlot(ne, context, childOutputExprIds)) {
                 simplified.add(ne);
                 existingExprIds.add(ne.getExprId());
             }
@@ -421,7 +421,6 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         for (NamedExpression pulledUpExpr : pulledUpExprs) {
             for (PullUpInfo info : context.topNToPullUpInfo.values()) {
                 if (info.baseSlotsByExpr.get(pulledUpExpr.getExprId()) != null) {
-                    Set<ExprId> childOutputExprIds = buildOutputExprIds((Plan) project.child(0));
                     for (Slot baseSlot : resolveInputSlots(pulledUpExpr, context, childOutputExprIds)) {
                         if (!existingExprIds.contains(baseSlot.getExprId())) {
                             simplified.add(baseSlot);
@@ -432,11 +431,46 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                 }
             }
         }
+        for (Expression passThroughExpr : passThroughExprs) {
+            for (Slot baseSlot : resolveInputSlots(passThroughExpr, context, childOutputExprIds)) {
+                if (!existingExprIds.contains(baseSlot.getExprId())) {
+                    simplified.add(baseSlot);
+                    existingExprIds.add(baseSlot.getExprId());
+                }
+            }
+        }
 
         if (simplified.equals(project.getProjects())) {
             return project;
         }
         return (LogicalProject<? extends Plan>) project.withProjects(simplified);
+    }
+
+    private static List<Expression> collectUnavailablePullUpExprs(
+            LogicalProject<? extends Plan> project, CollectorContext context, Set<ExprId> childOutputExprIds) {
+        List<Expression> passThroughExprs = new ArrayList<>();
+        for (NamedExpression ne : project.getProjects()) {
+            if (isUnavailablePullUpSlot(ne, context, childOutputExprIds)) {
+                passThroughExprs.add(getPullUpReplaceExpression((Slot) ne, context));
+            }
+        }
+        return passThroughExprs;
+    }
+
+    private static boolean isUnavailablePullUpSlot(
+            NamedExpression ne, CollectorContext context, Set<ExprId> childOutputExprIds) {
+        return ne instanceof Slot
+                && !childOutputExprIds.contains(ne.getExprId())
+                && getPullUpReplaceExpression((Slot) ne, context) != null;
+    }
+
+    private static Expression getPullUpReplaceExpression(Slot slot, CollectorContext context) {
+        for (Map.Entry<Slot, Expression> entry : context.pullUpExprReplaceMap.entrySet()) {
+            if (entry.getKey().getExprId().equals(slot.getExprId())) {
+                return entry.getValue();
+            }
+        }
+        return null;
     }
 
     /** Create a new Project above the TopN that restores pulled-up expressions. */
@@ -497,6 +531,11 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
     private static List<Slot> resolveInputSlots(NamedExpression expr, CollectorContext context,
             Set<ExprId> availableExprIds) {
         return ImmutableList.copyOf(resolveExpression(expr.child(0), context, availableExprIds).getInputSlots());
+    }
+
+    private static List<Slot> resolveInputSlots(Expression expr, CollectorContext context,
+            Set<ExprId> availableExprIds) {
+        return ImmutableList.copyOf(resolveExpression(expr, context, availableExprIds).getInputSlots());
     }
 
     private static Expression resolveExpression(Expression expression, CollectorContext context,

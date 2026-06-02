@@ -242,6 +242,52 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    void testPullUpThroughProjectSlotAboveJoinProject() {
+        Slot id1 = scan1.getOutput().get(0);
+        Slot a = scan1.getOutput().get(1);
+        Slot id2 = scan2.getOutput().get(0);
+        Alias x = new Alias(new Add(a, new IntegerLiteral((byte) 1)), "x");
+
+        LogicalPlan join = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .build();
+        LogicalProject<LogicalPlan> lowerProject = new LogicalProject<>(ImmutableList.of(id1, x, id2), join);
+        LogicalProject<LogicalProject<LogicalPlan>> upperProject = new LogicalProject<>(
+                ImmutableList.of(id1, x.toSlot(), id2), lowerProject);
+        LogicalPlan plan = new LogicalPlanBuilder(upperProject)
+                .topN(3, 0, ImmutableList.of(0))
+                .build();
+
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .matchesFromRoot(
+                        logicalProject(
+                                logicalTopN(
+                                        logicalProject(
+                                                logicalProject(
+                                                        logicalJoin(
+                                                                logicalOlapScan(),
+                                                                logicalOlapScan()
+                                                        )
+                                                )
+                                        )
+                                )
+                        )
+                )
+                .getPlan();
+
+        LogicalProject<?> topProject = (LogicalProject<?>) rewritten;
+        Assertions.assertEquals(x.getExprId(), topProject.getProjects().get(1).getExprId());
+
+        LogicalTopN<?> topN = (LogicalTopN<?>) topProject.child(0);
+        LogicalProject<?> rewrittenUpperProject = (LogicalProject<?>) topN.child(0);
+        Assertions.assertTrue(rewrittenUpperProject.getProjects().stream()
+                .anyMatch(expr -> expr.getExprId().equals(a.getExprId())));
+        Assertions.assertFalse(rewrittenUpperProject.getProjects().stream()
+                .anyMatch(expr -> expr.getExprId().equals(x.getExprId())));
+    }
+
+    @Test
     void testBlockedByJoinCondition() {
         // topn -> project(x, y) -> join on x = scan2.id
         // x is referenced by join condition, so it should be blocked.
