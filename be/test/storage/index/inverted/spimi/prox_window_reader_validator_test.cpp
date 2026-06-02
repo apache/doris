@@ -277,6 +277,40 @@ TEST(SpimiProxWindowReaderValidatorTest, RandomAccessMatchesEager) {
     }
 }
 
+// REGRESSION (decouple): frq_lazy.freq()/doc() must stay correct when read AFTER
+// PositionsForDoc. The .prx freq-gather drives frq_lazy's cached window across the
+// whole .prx window's doc range (default k_prx=4 spans several .frq windows), so
+// without the cache restore at the end of PositionsForDoc a later freq()/doc()
+// would index the displaced window. Pre-decouple this was benign (1:1 alignment).
+TEST(SpimiProxWindowReaderValidatorTest, FreqDocStableAfterPositionsForDoc) {
+    const Term t = MakeTerm(/*df=*/20000, /*seed=*/13131u, FreqShape::kMixed);
+    std::vector<uint8_t> frq, prx;
+    EncodeWindowed(t, &frq, &prx);
+    const auto df = static_cast<int32_t>(t.docs.size());
+
+    SpimiWindowedTermDocs frq_lazy;
+    ASSERT_TRUE(frq_lazy.Open(frq.data(), frq.size(), df, /*has_prox=*/true));
+    ASSERT_GT(frq_lazy.windows_total(), 4)
+            << "need a multi-window term so a .prx window spans several .frq windows";
+    MemPostingStore prx_store(prx.data(), prx.size());
+    SpimiWindowedTermPositions prx_lazy;
+    ASSERT_TRUE(prx_lazy.Open(&prx_store, 0, frq_lazy));
+
+    int32_t i = 0;
+    while (frq_lazy.next()) {
+        const int32_t before_doc = frq_lazy.doc();
+        const int32_t before_freq = frq_lazy.freq();
+        const auto& pos = prx_lazy.PositionsForDoc(frq_lazy.doc_index(), frq_lazy);
+        // The gather inside PositionsForDoc must NOT corrupt the .frq cursor's view.
+        EXPECT_EQ(frq_lazy.doc(), before_doc) << "doc() drifted after PositionsForDoc at index " << i;
+        EXPECT_EQ(frq_lazy.freq(), before_freq)
+                << "freq() drifted after PositionsForDoc at index " << i;
+        EXPECT_EQ(pos.size(), static_cast<size_t>(before_freq)) << "freq != #positions at index " << i;
+        ++i;
+    }
+    EXPECT_EQ(i, df);
+}
+
 // --- BYTE-FETCH PROXY: reading positions for ~1% of a large term's docs must
 //     fetch ~one `.prx` window worth of bytes — a small fraction of the whole
 //     `.prx` — while a full sweep fetches the whole block. Prints the ratio. ---

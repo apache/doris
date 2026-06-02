@@ -302,6 +302,9 @@ void EmitFrqCached(const std::vector<Window>& windows, uint8_t inner_mode, int32
     size_t payload_offset = 0;
     for (const auto& win : windows) {
         DCHECK(win.cached) << "EmitFrqCached requires MeasureAndCacheFrq to have run";
+        // win_byte_offset is a 32-bit VInt: a single term's .frq block stays far
+        // below 2 GiB (arena byte cap), so the cast never loses bits.
+        DCHECK_LE(payload_offset, static_cast<size_t>(INT32_MAX));
         out->WriteVInt(win.doc_count);
         out->WriteVInt(static_cast<int32_t>(payload_offset));
         out->WriteVInt(win.min_docid);
@@ -369,6 +372,9 @@ void EmitPrxForChosen(const std::vector<Unit>& units, int32_t k,
     out->WriteVInt(num_windows);
     size_t payload_offset = 0;
     for (const auto& pw : wins) {
+        // win_byte_offset is a 32-bit VInt: a single term's .prx block stays far
+        // below 2 GiB (arena byte cap), so the cast never loses bits.
+        DCHECK_LE(payload_offset, static_cast<size_t>(INT32_MAX));
         out->WriteVInt(pw.doc_count);
         out->WriteVInt(static_cast<int32_t>(payload_offset));
         out->WriteVInt(pw.min_docid);

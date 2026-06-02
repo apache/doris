@@ -128,7 +128,11 @@ bool SpimiWindowedTermPositions::Open(PostingStore* prx_store, int64_t prox_poin
     }
     _W = hcur.ReadVInt();
     const int32_t num_windows = hcur.ReadVInt();
-    if (num_windows <= 0) [[unlikely]] {
+    // Each window holds >= 1 doc, so num_windows can never exceed doc_freq. Bound
+    // it BEFORE the _windows/byte_offset resizes below so a crafted num_windows
+    // (~INT32_MAX) can't force a huge pre-validation allocation (DoS/OOM). Mirrors
+    // the .frq reader's guard (window_term_reader.cpp).
+    if (num_windows <= 0 || num_windows > frq_lazy.doc_freq()) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .prx windowed: num_windows out of range");
     }
     const int64_t header_bytes = static_cast<int64_t>(hcur.pos());
@@ -149,20 +153,25 @@ bool SpimiWindowedTermPositions::Open(PostingStore* prx_store, int64_t prox_poin
 
     _windows.resize(static_cast<size_t>(num_windows));
     std::vector<int64_t> byte_offset(static_cast<size_t>(num_windows));
-    int32_t doc_acc = 0;
+    // int64 accumulator: a crafted skip table can carry per-window doc_counts that
+    // individually pass the guard but sum past INT32_MAX (signed-overflow UB, and a
+    // wrapped sum could coincidentally pass the doc_freq check). The per-window
+    // doc_count > doc_freq reject bounds each term, mirroring the .frq reader.
+    int64_t doc_acc = 0;
+    const int32_t df = frq_lazy.doc_freq();
     for (int32_t w = 0; w < num_windows; ++w) {
         PrxWinEntry& e = _windows[static_cast<size_t>(w)];
         e.doc_count = scur.ReadVInt();
-        byte_offset[static_cast<size_t>(w)] = static_cast<uint32_t>(scur.ReadVInt());
+        byte_offset[static_cast<size_t>(w)] = scur.ReadVInt();
         e.min_docid = scur.ReadVInt();
         e.max_docid = e.min_docid + scur.ReadVInt();
-        if (e.doc_count <= 0) [[unlikely]] {
-            SPIMI_THROW_CORRUPT("SPIMI .prx windowed: non-positive window doc_count");
+        if (e.doc_count <= 0 || e.doc_count > df) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .prx windowed: window doc_count out of range");
         }
-        e.doc_index_start = doc_acc;
+        e.doc_index_start = static_cast<int32_t>(doc_acc);
         doc_acc += e.doc_count;
     }
-    if (doc_acc != frq_lazy.doc_freq()) [[unlikely]] {
+    if (doc_acc != static_cast<int64_t>(df)) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .prx windowed: Sum(doc_count) != .frq doc_freq");
     }
 
@@ -285,6 +294,12 @@ const std::vector<int32_t>& SpimiWindowedTermPositions::PositionsForDoc(
     // .frq). frq_lazy is consumed only as the freq oracle inside DecodeWindow.
     const int32_t w = PrxWindowIndexForDoc(p);
     DecodeWindow(w, frq_lazy);
+    // DecodeWindow's freq-gather drives frq_lazy across the whole .prx window's doc
+    // range, leaving its cached window on the range's LAST doc. Restore it to cover
+    // `p` (the caller's current doc) so a subsequent frq_lazy.freq()/doc() — which
+    // assume the cached window covers the cursor — stays correct regardless of call
+    // order. Cheap: hits the .frq window cache when it already covers `p`.
+    (void)frq_lazy.WindowDocsForDoc(p);
     const PrxWinEntry& e = _windows[static_cast<size_t>(w)];
     const int32_t local = p - e.doc_index_start;
     if (local < 0 || local >= e.doc_count) [[unlikely]] {

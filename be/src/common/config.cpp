@@ -1323,6 +1323,12 @@ DEFINE_mInt64(inverted_index_spimi_frq_zstd_min_bytes, "-1");
 // 1024 (k_prx=4) bounds read-amp to <=4 while keeping windows well above the ZSTD
 // size-gate.
 DEFINE_mInt64(inverted_index_spimi_prx_window_docs, "1024");
+// Reject the non-monotone cliff: the .prx window step is floor(v / 256), so any
+// value in 1..255 truncates to the FINEST 256-doc window — re-creating the exact
+// tiny-incompressible-window fragmentation the decouple removes. 0 (whole-term) and
+// >=256 are the only meaningful settings.
+DEFINE_VALIDATOR(inverted_index_spimi_prx_window_docs,
+                 [](int64_t v) -> bool { return v <= 0 || v >= 256; });
 // How often (in rows) add_values runs the EXPENSIVE spill gate (process memory
 // watermarks + reserve). The cheap 256MiB ShouldFlush() latch is still checked
 // every row; this only throttles the per-row watermark/MemoryUsage reads.
