@@ -35,7 +35,7 @@ public class PatternMatcher {
     private boolean caseSensitive;
 
     private static final Set<Character> FORBIDDEN_CHARS = Sets.newHashSet('<', '(', '[', '{', '^', '=',
-                                                                          '$', '!', '|', ']', '}', ')',
+                                                                          '!', '|', ']', '}', ')',
                                                                           '?', '*', '+', '>', '@');
 
     public PatternMatcher(Pattern pattern) {
@@ -120,6 +120,9 @@ public class PatternMatcher {
                     break;
                 case '.':
                     sb.append("\\.");
+                    break;
+                case '$':
+                    sb.append("\\$");
                     break;
                 case '_':
                     sb.append(".");
