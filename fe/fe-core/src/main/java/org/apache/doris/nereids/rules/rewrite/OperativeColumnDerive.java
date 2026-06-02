@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
@@ -61,6 +62,11 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
 
     @Override
     public Plan visitLogicalSink(LogicalSink<? extends Plan> sink, DeriveContext context) {
+        return visitChildren(this, sink, context);
+    }
+
+    @Override
+    public Plan visitPhysicalResultSink(PhysicalResultSink<? extends Plan> sink, DeriveContext context) {
         return visitChildren(this, sink, context);
     }
 

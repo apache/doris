@@ -17,11 +17,20 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 
 public class OperativeColumnDeriveTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
@@ -87,5 +96,26 @@ public class OperativeColumnDeriveTest extends TestWithFeService implements Memo
                                             && scan.getOperativeSlots().get(0).getName().equals("age"))
                         )
                 ));
+    }
+
+    @Test
+    public void testPhysicalResultSinkDoesNotMarkOutputAsOperativeSlots() {
+        Plan analyzedPlan = PlanChecker.from(connectContext)
+                .analyze("select * from score")
+                .getCascadesContext()
+                .getRewritePlan();
+        LogicalOlapScan scan = analyzedPlan.<LogicalOlapScan>collect(LogicalOlapScan.class::isInstance)
+                .iterator()
+                .next();
+
+        List<NamedExpression> outputExprs = new ArrayList<>(scan.getOutput());
+        PhysicalResultSink<Plan> sink = new PhysicalResultSink<>(outputExprs, Optional.empty(),
+                scan.getLogicalProperties(), scan);
+        Plan rewritten = new OperativeColumnDerive().rewriteRoot(sink, null);
+        LogicalOlapScan rewrittenScan = rewritten.<LogicalOlapScan>collect(LogicalOlapScan.class::isInstance)
+                .iterator()
+                .next();
+
+        Assertions.assertTrue(rewrittenScan.getOperativeSlots().isEmpty());
     }
 }
