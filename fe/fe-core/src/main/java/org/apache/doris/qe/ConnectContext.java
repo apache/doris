@@ -381,9 +381,10 @@ public class ConnectContext {
         userVars = new HashMap<>();
         preparedQuerys.clear();
         preparedStatementContextMap.clear();
-        preparedStmtId = INITIAL_PREPARED_STMT_ID;
         runningQuery = null;
-        resetQueryId();
+        queryId = null;
+        lastQueryId = null;
+        setTraceId(null);
         insertResult = null;
         command = MysqlCommand.COM_SLEEP;
         returnRows = 0;

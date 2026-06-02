@@ -100,9 +100,16 @@ public class ConnectContextTest {
         ctx.currentDbId = 10;
         ctx.addLastDBOfCatalog("external_catalog", "test_db");
         ctx.addPreparedQuery("1", "select 1");
+        long initialPreparedStmtId = ctx.getPreparedStmtId();
+        ctx.getSessionVariable().enableServeSidePreparedStatement = true;
+        ctx.addPreparedStatementContext(String.valueOf(initialPreparedStmtId),
+                new PreparedStatementContext(null, ctx, null, "select 1"));
+        long nextPreparedStmtId = ctx.getPreparedStmtId();
         ctx.setRunningQuery("select 1");
         TUniqueId queryId = new TUniqueId(100, 200);
         ctx.setQueryId(queryId);
+        ctx.setTraceId("old_trace");
+        ctx.setConnectScheduler(connectScheduler);
         ctx.setCommand(MysqlCommand.COM_QUERY);
         ctx.updateReturnRows(10);
         ctx.setOrUpdateInsertResult(1, "label", "test_db", "test_table", TransactionStatus.VISIBLE, 1, 0);
@@ -125,6 +132,11 @@ public class ConnectContextTest {
         Assert.assertNull(ctx.getPreparedQuery("1"));
         Assert.assertNull(ctx.getRunningQuery());
         Assert.assertNull(ctx.queryId());
+        Assert.assertNull(ctx.getLastQueryId());
+        Assert.assertNull(ctx.traceId());
+        Mockito.verify(connectScheduler).removeOldTraceId("old_trace");
+        Assert.assertEquals(nextPreparedStmtId, ctx.getPreparedStmtId());
+        Assert.assertTrue(initialPreparedStmtId != ctx.getPreparedStmtId());
         Assert.assertNull(ctx.getInsertResult());
         Assert.assertEquals(MysqlCommand.COM_SLEEP, ctx.getCommand());
         Assert.assertEquals(0, ctx.getReturnRows());
