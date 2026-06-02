@@ -242,6 +242,49 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    void testPullUpThroughForwardedSlotFromLowerProject() {
+        // This is the minimal trigger pattern:
+        // TopN -> Project(id, x) -> Project(id, a + 1 as x) -> Scan.
+        // The lower Project can remove x after pull-up, so the forwarding Project
+        // must pass through x's input slot a instead of keeping the unavailable x.
+        Slot id = scan1.getOutput().get(0);
+        Slot a = scan1.getOutput().get(1);
+        Alias x = new Alias(new Add(a, new IntegerLiteral((byte) 1)), "x");
+
+        LogicalProject<LogicalOlapScan> lowerProject = new LogicalProject<>(ImmutableList.of(id, x), scan1);
+        LogicalProject<LogicalProject<LogicalOlapScan>> upperProject = new LogicalProject<>(
+                ImmutableList.of(id, x.toSlot()), lowerProject);
+        LogicalPlan plan = new LogicalPlanBuilder(upperProject)
+                .topN(3, 0, ImmutableList.of(0))
+                .build();
+
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .matchesFromRoot(
+                        logicalProject(
+                                logicalTopN(
+                                        logicalProject(
+                                                logicalProject(
+                                                        logicalOlapScan()
+                                                )
+                                        )
+                                )
+                        )
+                )
+                .getPlan();
+
+        LogicalProject<?> topProject = (LogicalProject<?>) rewritten;
+        Assertions.assertEquals(x.getExprId(), topProject.getProjects().get(1).getExprId());
+
+        LogicalTopN<?> topN = (LogicalTopN<?>) topProject.child(0);
+        LogicalProject<?> rewrittenForwardingProject = (LogicalProject<?>) topN.child(0);
+        Assertions.assertTrue(rewrittenForwardingProject.getProjects().stream()
+                .anyMatch(expr -> expr.getExprId().equals(a.getExprId())));
+        Assertions.assertFalse(rewrittenForwardingProject.getProjects().stream()
+                .anyMatch(expr -> expr.getExprId().equals(x.getExprId())));
+    }
+
+    @Test
     void testPullUpThroughProjectSlotAboveJoinProject() {
         Slot id1 = scan1.getOutput().get(0);
         Slot a = scan1.getOutput().get(1);
