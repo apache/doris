@@ -141,8 +141,7 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
            stats.inverted_index_bytes_read_from_local != 0 ||
            stats.inverted_index_bytes_read_from_remote != 0 ||
            stats.inverted_index_bytes_read_from_peer != 0 ||
-           stats.inverted_index_local_io_timer != 0 ||
-           stats.inverted_index_remote_io_timer != 0 ||
+           stats.inverted_index_local_io_timer != 0 || stats.inverted_index_remote_io_timer != 0 ||
            stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0;
 }
 
