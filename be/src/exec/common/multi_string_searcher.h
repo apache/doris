@@ -103,29 +103,32 @@ public:
             }
         }
 
-        if (_step == std::numeric_limits<size_t>::max() ||
-            haystack_end - haystack < static_cast<ptrdiff_t>(sizeof(Ngram))) {
+        const auto haystack_size = static_cast<size_t>(haystack_end - haystack);
+        if (_step == std::numeric_limits<size_t>::max() || haystack_size < sizeof(Ngram)) {
             // The batch may contain only fallback needles, or the haystack may be too short
             // to read a 2-byte ngram. Fallback needles have already been handled above.
             return;
         }
 
-        for (const uint8_t* pos = haystack + _step - sizeof(Ngram);
-             pos <= haystack_end - sizeof(Ngram); pos += _step) {
+        for (size_t pos_offset = _step - sizeof(Ngram); pos_offset + sizeof(Ngram) <= haystack_size;
+             pos_offset += _step) {
+            const uint8_t* pos = haystack + pos_offset;
             // A 2-byte ngram has exactly 65536 possible values. HASH_SIZE is also 65536,
             // so ngram % HASH_SIZE is effectively direct addressing. Collisions and
             // duplicate ngrams are kept by linear probing and checked until an empty slot.
             for (size_t cell = to_ngram(pos) % HASH_SIZE; _hash[cell].off;
                  cell = (cell + 1) % HASH_SIZE) {
-                if (pos < haystack + _hash[cell].off - 1) {
+                const size_t ngram_offset = _hash[cell].off - 1;
+                if (pos_offset < ngram_offset) {
                     continue;
                 }
 
                 const size_t needle_index = _hash[cell].id;
                 // Convert the matched ngram position in the haystack back to the candidate
                 // start position of the whole needle, then verify the full needle below.
-                const uint8_t* match = pos - (_hash[cell].off - 1);
-                const auto candidate_position = static_cast<Int32>(match - haystack + 1);
+                const size_t match_offset = pos_offset - ngram_offset;
+                const uint8_t* match = haystack + match_offset;
+                const auto candidate_position = static_cast<Int32>(match_offset + 1);
                 if (answer[needle_index] != 0 && candidate_position >= answer[needle_index]) {
                     continue;
                 }
@@ -133,7 +136,7 @@ public:
                 const auto& needle = _needles[needle_index];
                 // The hash table only proves that one 2-byte ngram matched. Full memcmp is
                 // required to discard false positives from duplicate ngrams and collisions.
-                if (match + needle.size <= haystack_end &&
+                if (haystack_size - match_offset >= needle.size &&
                     std::memcmp(match, needle.data, needle.size) == 0) {
                     answer[needle_index] = candidate_position;
                 }
