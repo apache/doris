@@ -986,6 +986,13 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
                                             const PJdbcTestConnectionRequest* request,
                                             PJdbcTestConnectionResult* result,
                                             google::protobuf::Closure* done) {
+    if (!doris::config::enable_java_support) {
+        doris::Status status = doris::Status::InternalError(
+                "you can change be config enable_java_support to true and restart be.");
+        status.to_protobuf(result->mutable_status());
+        done->Run();
+        return;
+    }
     bool ret = _heavy_work_pool.try_offer([request, result, done]() {
         VLOG_RPC << "test jdbc connection";
         brpc::ClosureGuard closure_guard(done);
