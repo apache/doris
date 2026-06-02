@@ -29,6 +29,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "core/block/materialize_block.h"
 #include "core/column/column_const.h"
 #include "exec/exchange/exchange_writer.h"
 #include "exec/exchange/local_exchange_sink_operator.h"
@@ -393,6 +394,7 @@ Status ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPt
 }
 
 Status ExchangeSinkOperatorX::sink(RuntimeState* state, Block* block, bool eos) {
+    materialize_block_inplace(*block);
     auto& local_state = get_local_state(state);
     COUNTER_UPDATE(local_state.rows_input_counter(),
                    (int64_t)block->rows()); // for auto-partition, may decease when do_partitioning
