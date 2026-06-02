@@ -526,11 +526,11 @@ TEST(SegmentRoundtripTest, ProxZstdBlockRoundTripsAndUsesZstdMode) {
     // This test exercises the .prx ZSTD-1 envelope specifically, so pin the
     // small-block-ZSTD-skip threshold to 0 (always attempt ZSTD) — the
     // production default (512) would store this ~300B block raw.
-    const int64_t saved = config::inverted_index_spimi_zstd_min_bytes;
-    config::inverted_index_spimi_zstd_min_bytes = 0;
+    const int64_t saved = config::inverted_index_spimi_zstd_min_window_bytes;
+    config::inverted_index_spimi_zstd_min_window_bytes = 0;
     struct Restore {
         int64_t v;
-        ~Restore() { config::inverted_index_spimi_zstd_min_bytes = v; }
+        ~Restore() { config::inverted_index_spimi_zstd_min_window_bytes = v; }
     } restore {saved};
     MemoryByteOutput tis, tii, frq, prx;
     SegmentWriter w(&tis, &tii, &frq, &prx);

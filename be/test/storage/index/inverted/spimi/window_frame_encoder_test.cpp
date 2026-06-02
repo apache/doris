@@ -518,11 +518,11 @@ TEST(WindowFrameEncoderTest, ByteIdentityGolden) {
     // Pin the small-window-ZSTD-skip threshold to 0 (always attempt ZSTD) so this
     // golden locks the encoder's deterministic FULL-ZSTD output regardless of the
     // production default (which skips ZSTD on small windows for write speed).
-    const int64_t saved_zstd_min = config::inverted_index_spimi_zstd_min_bytes;
-    config::inverted_index_spimi_zstd_min_bytes = 0;
+    const int64_t saved_zstd_min = config::inverted_index_spimi_zstd_min_window_bytes;
+    config::inverted_index_spimi_zstd_min_window_bytes = 0;
     struct ZstdMinRestore {
         int64_t v;
-        ~ZstdMinRestore() { config::inverted_index_spimi_zstd_min_bytes = v; }
+        ~ZstdMinRestore() { config::inverted_index_spimi_zstd_min_window_bytes = v; }
     } restore {saved_zstd_min};
     struct Case {
         const char* name;

@@ -255,15 +255,23 @@ size_t EmitWindowPayload(const std::vector<uint8_t>& inner, ZSTD_CCtx* cctx,
 // scratch-sizing pass. The size accounting matches the previous FrqEmittedSize
 // exactly (EmitWindowPayload's chosen tuple length == FrqEmittedSize's min(raw,
 // zstd) best), so the chosen W — and thus every emitted byte — is unchanged.
-// Resolves the per-stream ZSTD size-gate for the .frq integer stream: the
-// .frq-specific override if set (>=0), else inherit the shared gate.
-inline int64_t ResolveFrqZstdMin() {
-    const int64_t f = config::inverted_index_spimi_frq_zstd_min_bytes;
-    return f < 0 ? config::inverted_index_spimi_zstd_min_bytes : f;
+// Per-stream ZSTD size-gate (bytes): a window is ZSTD-compressed only when its raw
+// size >= the returned value. A stream whose *_zstd_enable is false maps to
+// INT64_MAX so no window ever reaches the gate (an internal "disabled" encoding,
+// never a user-facing value).
+inline int64_t FrqZstdMinBytes() {
+    return config::inverted_index_spimi_frq_zstd_enable
+                   ? config::inverted_index_spimi_zstd_min_window_bytes
+                   : INT64_MAX;
+}
+inline int64_t PrxZstdMinBytes() {
+    return config::inverted_index_spimi_prx_zstd_enable
+                   ? config::inverted_index_spimi_zstd_min_window_bytes
+                   : INT64_MAX;
 }
 
 size_t MeasureAndCacheFrq(std::vector<Window>& windows, ZSTD_CCtx* cctx, faststring& comp_scratch) {
-    const int64_t frq_min = ResolveFrqZstdMin();
+    const int64_t frq_min = FrqZstdMinBytes();
     size_t total = 2 + VIntLen(static_cast<uint32_t>(kCandidateW.back())) +
                    VIntLen(static_cast<uint32_t>(windows.size()));
     for (auto& w : windows) {
@@ -357,11 +365,11 @@ void EmitPrxForChosen(const std::vector<Unit>& units, int32_t k,
                     pos_inner.end(), pos_parts.begin() + static_cast<std::ptrdiff_t>(u.pos_off),
                     pos_parts.begin() + static_cast<std::ptrdiff_t>(u.pos_off + u.pos_len));
         }
-        // .prx keeps the shared (un-split) ZSTD gate — positions carry the bulk
-        // of the ZSTD disk win, so they stay compressed even when .frq is raw.
+        // .prx ZSTD is gated independently (inverted_index_spimi_prx_zstd_enable +
+        // the shared min-window-bytes) — positions carry the bulk of the ZSTD disk
+        // win, so they stay compressed even when .frq is raw.
         MemoryByteOutput payload;
-        (void)EmitWindowPayload(pos_inner, cctx, comp_scratch, &payload,
-                                config::inverted_index_spimi_zstd_min_bytes);
+        (void)EmitWindowPayload(pos_inner, cctx, comp_scratch, &payload, PrxZstdMinBytes());
         pw.payload = std::move(payload.mutable_bytes());
         wins.push_back(std::move(pw));
         i += take;

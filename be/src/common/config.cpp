@@ -1293,25 +1293,25 @@ DEFINE_mInt64(inverted_index_spimi_min_spill_mem_mb, "64");
 // SPIMI buffer is past its soft floor. Reserve only this chunk, never the full
 // MemoryUsage().
 DEFINE_mInt64(inverted_index_spimi_reserve_granule_mb, "16");
-// Minimum window/block size (bytes) below which the SPIMI encoder SKIPS the
-// per-window ZSTD attempt and stores the bytes raw. ZSTD level-1 pays a fixed
-// Huffman/FSE table-build cost per call that small windows can't amortize, so
-// gating it trades a tiny .idx increase for a large write-CPU saving. 0 disables
-// the gate (always attempt ZSTD = byte-identical to pre-gate output).
-DEFINE_mInt64(inverted_index_spimi_zstd_min_bytes, "512");
-// Per-stream ZSTD size-gate override for the .frq (doc-delta/freq integer) stream,
-// separate from .prx (positions). -1 (default) = inherit
-// inverted_index_spimi_zstd_min_bytes, so the default build is BYTE-IDENTICAL to
-// today. Rationale: .frq is PFOR-packed integers where ZSTD earns only ~20-27% of
-// the windowed disk saving but costs disproportionate write-CPU (the adaptive-W
-// search compresses every candidate framing); .prx carries 73-81% of the ZSTD disk
-// win. Disabling .frq ZSTD (set huge) now KEEPS the disk win in .prx: .prx window
-// framing is decoupled (inverted_index_spimi_prx_window_docs) so it no longer
-// fragments into tiny ZSTD-incompressible windows when .frq goes raw. A residual
-// .frq-only effect remains — the .frq adaptive-W search tiebreaks to the finest
-// window on flat raw sizes, inflating .frq skip-table headers — which is a
-// separate .frq-search follow-up. Default (-1) changes nothing.
-DEFINE_mInt64(inverted_index_spimi_frq_zstd_min_bytes, "-1");
+// Skip the per-window ZSTD attempt (and store the window raw) when the window is
+// smaller than this many bytes. ZSTD level-1 pays a fixed Huffman/FSE table-build
+// cost per call that tiny windows can't amortize, so skipping them trades a
+// negligible .idx increase for a large write-CPU saving. Applies to whichever of
+// the .frq / .prx streams have ZSTD enabled below. 0 = no minimum (always attempt
+// ZSTD on every window).
+DEFINE_mInt64(inverted_index_spimi_zstd_min_window_bytes, "512");
+// ZSTD-compress the .prx (positions) stream? Positions carry the bulk (~73-81%)
+// of the windowed ZSTD disk saving, so this is ON by default.
+DEFINE_mBool(inverted_index_spimi_prx_zstd_enable, "true");
+// ZSTD-compress the .frq (doc-id delta + term-freq integer) stream? The .frq is
+// PFOR-packed integers where ZSTD earns only ~20-27% of the windowed disk saving
+// but costs disproportionate write-CPU (the adaptive-W search compresses every
+// candidate framing), so turning it OFF is the recommended write-throughput
+// setting. The .prx framing is decoupled (inverted_index_spimi_prx_window_docs),
+// so a raw .frq no longer drags .prx into tiny incompressible windows — disabling
+// .frq keeps the disk win in .prx. ON by default to stay byte-identical with the
+// pre-split build; set false for the throughput-optimized split.
+DEFINE_mBool(inverted_index_spimi_frq_zstd_enable, "true");
 // Target docs per .prx (positions) window, DECOUPLED from the .frq adaptive-W
 // framing. The .prx window step k_prx = clamp(this / 256, 1, num_units), so the
 // .prx window count is a function of df + this knob ALONE — never of the .frq
