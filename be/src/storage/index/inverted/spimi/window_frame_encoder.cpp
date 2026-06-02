@@ -545,6 +545,11 @@ void WindowFrameEncoder::Encode(const std::vector<uint32_t>& doc_deltas,
 #endif
 
     EmitFrqCached(chosen_windows, inner_mode, chosen_W, frq_out);
+    // Free the .frq compressed payloads now: they are not needed by the .prx emit,
+    // and EmitPrxForChosen builds its own per-term compressed-payload buffer, so
+    // dropping these first keeps the two buffers from co-residing at the peak.
+    chosen_windows.clear();
+    chosen_windows.shrink_to_fit();
     if (has_prox) {
         // DECOUPLED .prx framing: the .prx window step is derived from config +
         // num_units ONLY — never from the .frq search (chosen_k/chosen_W) or the
