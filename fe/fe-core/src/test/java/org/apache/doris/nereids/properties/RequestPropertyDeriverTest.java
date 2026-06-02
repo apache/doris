@@ -53,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -372,8 +373,9 @@ class RequestPropertyDeriverTest {
     @Test
     void testAggregateWithAggShuffleUseParentKeyDisabled() {
         // Create ConnectContext with aggShuffleUseParentKey = false
-        ConnectContext testConnectContext = new ConnectContext();
+        ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
         testConnectContext.getSessionVariable().aggShuffleUseParentKey = false;
+        testConnectContext.getSessionVariable().setBeNumberForTest(3);
 
         SlotReference key1 = new SlotReference(new ExprId(0), "col1", IntegerType.INSTANCE, true, ImmutableList.of());
         SlotReference key2 = new SlotReference(new ExprId(1), "col2", IntegerType.INSTANCE, true, ImmutableList.of());
@@ -411,8 +413,9 @@ class RequestPropertyDeriverTest {
     @Test
     void testAggregateWithAggShuffleUseParentKeyEnabled() {
         // Create ConnectContext with aggShuffleUseParentKey = true (default value)
-        ConnectContext testConnectContext = new ConnectContext();
+        ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
         testConnectContext.getSessionVariable().aggShuffleUseParentKey = true;
+        testConnectContext.getSessionVariable().setBeNumberForTest(3);
 
         SlotReference key1 = new SlotReference(new ExprId(0), "col1", IntegerType.INSTANCE, true, ImmutableList.of());
         SlotReference key2 = new SlotReference(new ExprId(1), "col2", IntegerType.INSTANCE, true, ImmutableList.of());

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("cse") {
+    sql "set parallel_pipeline_task_num=2"
     sql """
     drop table if exists cse;
     CREATE TABLE `cse` (
