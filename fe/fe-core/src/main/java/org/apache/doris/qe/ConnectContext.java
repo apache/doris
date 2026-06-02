@@ -379,6 +379,7 @@ public class ConnectContext {
         preparedStatementContextMap.clear();
         preparedStmtId = Integer.MIN_VALUE;
         runningQuery = null;
+        resetQueryId();
         insertResult = null;
         command = MysqlCommand.COM_SLEEP;
         returnRows = 0;

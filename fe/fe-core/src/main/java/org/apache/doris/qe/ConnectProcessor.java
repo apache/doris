@@ -147,16 +147,18 @@ public abstract class ConnectProcessor {
     protected void handleResetConnection() {
         try {
             ctx.resetConnection();
-            if (ctx.getSessionVariable().autoCommit) {
-                ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_STATUS_AUTOCOMMIT;
-            }
             ctx.getState().setOk();
         } catch (UserException e) {
             ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
         }
     }
 
-    protected void handleStmtReset() {
+    protected void handleStmtResetById(int stmtId) {
+        if (ctx.getPreparedStementContext(String.valueOf(stmtId)) == null) {
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_STMT_HANDLER,
+                    String.format("Unknown prepared statement handler (%s) given to mysqld_stmt_reset", stmtId));
+            return;
+        }
         ctx.getState().setOk();
     }
 
