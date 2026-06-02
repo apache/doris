@@ -111,6 +111,7 @@ public class IcebergUtilsTest {
     public void testDataLocationUsesLegacyObjectStorePath() {
         Table table = Mockito.mock(Table.class);
         Mockito.when(table.properties()).thenReturn(ImmutableMap.of(
+                TableProperties.OBJECT_STORE_ENABLED, "true",
                 TableProperties.OBJECT_STORE_PATH, "s3://bucket/legacy-object-store",
                 TableProperties.WRITE_FOLDER_STORAGE_LOCATION, "s3://bucket/folder-storage"));
 
@@ -125,6 +126,27 @@ public class IcebergUtilsTest {
                 TableProperties.OBJECT_STORE_PATH, "s3://bucket/legacy-object-store"));
 
         Assert.assertEquals("s3://bucket/data-path", IcebergUtils.dataLocation(table));
+    }
+
+    @Test
+    public void testDataLocationIgnoresObjectStorePathWhenObjectStoreDisabled() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(
+                TableProperties.OBJECT_STORE_ENABLED, "false",
+                TableProperties.OBJECT_STORE_PATH, "s3://bucket/legacy-object-store",
+                TableProperties.WRITE_FOLDER_STORAGE_LOCATION, "s3://bucket/folder-storage"));
+
+        Assert.assertEquals("s3://bucket/folder-storage", IcebergUtils.dataLocation(table));
+    }
+
+    @Test
+    public void testDataLocationIgnoresObjectStorePathWhenObjectStoreUnset() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(
+                TableProperties.OBJECT_STORE_PATH, "s3://bucket/legacy-object-store",
+                TableProperties.WRITE_FOLDER_STORAGE_LOCATION, "s3://bucket/folder-storage"));
+
+        Assert.assertEquals("s3://bucket/folder-storage", IcebergUtils.dataLocation(table));
     }
 
     @Test
