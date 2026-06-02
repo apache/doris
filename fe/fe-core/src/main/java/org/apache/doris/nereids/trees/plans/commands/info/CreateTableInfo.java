@@ -1139,8 +1139,10 @@ public class CreateTableInfo {
 
     private int getEffectiveIcebergFormatVersion() {
         String formatVersion = null;
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(
-                tableNameInfo.getCtl());
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableNameInfo.getCtl());
+        if (catalog == null) {
+            throw new AnalysisException("Unknown catalog: " + tableNameInfo.getCtl());
+        }
         if (catalog instanceof IcebergExternalCatalog) {
             Map<String, String> catalogProperties = catalog.getProperties();
             formatVersion = catalogProperties.get(CatalogProperties.TABLE_OVERRIDE_PREFIX
