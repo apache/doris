@@ -169,9 +169,9 @@ public class PatternMatcher {
                         break;
                     }
                     // look ahead
-                    if (newMysqlPattern.charAt(i + 1) == '.') {
-                        // leave '\.' as it is.
-                        sb.append('\\').append('.');
+                    if (newMysqlPattern.charAt(i + 1) == '.' || newMysqlPattern.charAt(i + 1) == '$') {
+                        // leave '\.' and '\$' as it is.
+                        sb.append('\\').append(newMysqlPattern.charAt(i + 1));
                         i++;
                         break;
                     }
