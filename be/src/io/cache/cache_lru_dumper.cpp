@@ -298,25 +298,53 @@ void CacheLRUDumper::dump_queue(const std::string& queue_name, bool force) {
     if (force || _recorder->get_lru_queue_update_cnt_from_last_dump(type) >
                          config::file_cache_background_lru_dump_update_cnt_threshold) {
         LRUQueue& queue = _recorder->get_shadow_queue(type);
-        do_dump_queue(queue, queue_name);
-        _recorder->reset_lru_queue_update_cnt_from_last_dump(type);
+        std::vector<LruDumpEntry> elements;
+        size_t dump_update_cnt = 0;
+        {
+            std::lock_guard<std::mutex> lru_log_lock(_recorder->_mutex_lru_log);
+            // Drain logs counted for this dump before updating the counter, otherwise restore may
+            // see a stale LRU tail after a crash.
+            _recorder->replay_queue_event_locked(type, 0, lru_log_lock);
+            elements = collect_lru_queue_entries_locked(queue, lru_log_lock);
+            dump_update_cnt =
+                    _recorder->get_lru_queue_update_cnt_from_last_dump_locked(type, lru_log_lock);
+        }
+        Status st = do_dump_queue(elements, queue_name);
+        if (st.ok()) {
+            std::lock_guard<std::mutex> lru_log_lock(_recorder->_mutex_lru_log);
+            _recorder->subtract_lru_queue_update_cnt_from_last_dump_locked(type, dump_update_cnt,
+                                                                           lru_log_lock);
+        } else {
+            LOG(WARNING) << "failed to dump lru queue " << queue_name << ": " << st;
+        }
     }
 }
 
-void CacheLRUDumper::do_dump_queue(LRUQueue& queue, const std::string& queue_name) {
-    Status st;
-    std::vector<std::tuple<UInt128Wrapper, size_t, size_t>> elements;
-    elements.reserve(config::file_cache_background_lru_dump_tail_record_num);
-
+Status CacheLRUDumper::do_dump_queue(LRUQueue& queue, const std::string& queue_name) {
+    std::vector<LruDumpEntry> elements;
     {
         std::lock_guard<std::mutex> lru_log_lock(_recorder->_mutex_lru_log);
-        size_t count = 0;
-        for (const auto& [hash, offset, size] : queue) {
-            if (count++ >= config::file_cache_background_lru_dump_tail_record_num) break;
-            elements.emplace_back(hash, offset, size);
-        }
+        elements = collect_lru_queue_entries_locked(queue, lru_log_lock);
     }
+    return do_dump_queue(elements, queue_name);
+};
 
+std::vector<CacheLRUDumper::LruDumpEntry> CacheLRUDumper::collect_lru_queue_entries_locked(
+        LRUQueue& queue, std::lock_guard<std::mutex>& /* lru_log_lock */) {
+    std::vector<LruDumpEntry> elements;
+    elements.reserve(config::file_cache_background_lru_dump_tail_record_num);
+    size_t count = 0;
+    for (const auto& [hash, offset, size] : queue) {
+        if (count++ >= config::file_cache_background_lru_dump_tail_record_num) {
+            break;
+        }
+        elements.emplace_back(hash, offset, size);
+    }
+    return elements;
+}
+
+Status CacheLRUDumper::do_dump_queue(const std::vector<LruDumpEntry>& elements,
+                                     const std::string& queue_name) {
     // Write to disk
     int64_t duration_ns = 0;
     std::uintmax_t file_size = 0;
@@ -330,19 +358,22 @@ void CacheLRUDumper::do_dump_queue(LRUQueue& queue, const std::string& queue_nam
         if (out) {
             LOG(INFO) << "begin dump " << queue_name << " with " << elements.size() << " elements";
             for (const auto& [hash, offset, size] : elements) {
-                RETURN_IF_STATUS_ERROR(st,
-                                       dump_one_lru_entry(out, tmp_filename, hash, offset, size));
+                RETURN_IF_ERROR(dump_one_lru_entry(out, tmp_filename, hash, offset, size));
             }
-            RETURN_IF_STATUS_ERROR(st, finalize_dump(out, elements.size(), tmp_filename,
-                                                     final_filename, file_size));
+            RETURN_IF_ERROR(
+                    finalize_dump(out, elements.size(), tmp_filename, final_filename, file_size));
         } else {
-            LOG(WARNING) << "open lru dump file failed, reason: " << tmp_filename
-                         << " failed to create";
+            std::string warn_msg =
+                    fmt::format("open lru dump file failed, file={} failed to create",
+                                tmp_filename);
+            LOG(WARNING) << warn_msg;
+            return Status::InternalError<false>(warn_msg);
         }
     }
     *(_mgr->_lru_dump_latency_us) << (duration_ns / 1000);
     LOG(INFO) << fmt::format("lru dump for {} size={} element={} time={}us", queue_name, file_size,
                              elements.size(), duration_ns / 1000);
+    return Status::OK();
 };
 
 Status CacheLRUDumper::parse_dump_footer(std::ifstream& in, std::string& filename,

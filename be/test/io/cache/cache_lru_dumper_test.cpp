@@ -21,9 +21,11 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "common/config.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
+#include "util/defer_op.h"
 
 using ::testing::_;
 using ::testing::Return;
@@ -140,7 +142,7 @@ TEST_F(CacheLRUDumperTest, test_dump_and_restore_queue) {
     src_queue.add(hash, offset, size, lock);
 
     // Test dump
-    dumper->do_dump_queue(src_queue, queue_name);
+    ASSERT_TRUE(dumper->do_dump_queue(src_queue, queue_name).ok());
 
     // Test restore
     std::lock_guard<std::mutex> cache_lock(mock_cache->mutex());
@@ -156,6 +158,74 @@ TEST_F(CacheLRUDumperTest, test_dump_and_restore_queue) {
         ++src_it;
         ++dst_it;
     }
+}
+
+TEST_F(CacheLRUDumperTest, test_dump_queue_drains_pending_logs_before_reset_counter) {
+    auto origin_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    auto origin_update_cnt_threshold = config::file_cache_background_lru_dump_update_cnt_threshold;
+    Defer restore_config {[&]() {
+        config::file_cache_background_lru_dump_tail_record_num = origin_tail_record_num;
+        config::file_cache_background_lru_dump_update_cnt_threshold = origin_update_cnt_threshold;
+    }};
+    config::file_cache_background_lru_dump_tail_record_num = 100;
+    config::file_cache_background_lru_dump_update_cnt_threshold = 0;
+
+    UInt128Wrapper hash(987654321ULL);
+    recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 2048, 8192);
+    ASSERT_EQ(recorder->get_lru_log_queue_size(FileCacheType::NORMAL), 1);
+    ASSERT_EQ(recorder->get_shadow_queue(FileCacheType::NORMAL).get_elements_num_unsafe(), 0);
+    ASSERT_EQ(recorder->get_lru_queue_update_cnt_from_last_dump(FileCacheType::NORMAL), 1);
+
+    dumper->dump_queue("normal", false);
+
+    EXPECT_EQ(recorder->get_lru_log_queue_size(FileCacheType::NORMAL), 0);
+    EXPECT_EQ(recorder->get_shadow_queue(FileCacheType::NORMAL).get_elements_num_unsafe(), 1);
+    EXPECT_EQ(recorder->get_lru_queue_update_cnt_from_last_dump(FileCacheType::NORMAL), 0);
+
+    std::lock_guard<std::mutex> cache_lock(mock_cache->mutex());
+    dumper->restore_queue(dst_queue, "normal", cache_lock);
+    ASSERT_EQ(dst_queue.get_elements_num_unsafe(), 1);
+    auto it = dst_queue.begin();
+    EXPECT_EQ(it->hash, hash);
+    EXPECT_EQ(it->offset, 2048);
+    EXPECT_EQ(it->size, 8192);
+}
+
+TEST_F(CacheLRUDumperTest, test_dump_counter_subtract_keeps_new_updates) {
+    auto origin_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    Defer restore_config {[&]() {
+        config::file_cache_background_lru_dump_tail_record_num = origin_tail_record_num;
+    }};
+    config::file_cache_background_lru_dump_tail_record_num = 100;
+
+    UInt128Wrapper hash(123123123ULL);
+    recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 4096, 16384);
+
+    size_t dump_update_cnt = 0;
+    std::vector<CacheLRUDumper::LruDumpEntry> elements;
+    {
+        std::lock_guard<std::mutex> lru_log_lock(recorder->_mutex_lru_log);
+        recorder->replay_queue_event_locked(FileCacheType::NORMAL, 0, lru_log_lock);
+        elements = dumper->collect_lru_queue_entries_locked(
+                recorder->get_shadow_queue(FileCacheType::NORMAL), lru_log_lock);
+        dump_update_cnt = recorder->get_lru_queue_update_cnt_from_last_dump_locked(
+                FileCacheType::NORMAL, lru_log_lock);
+    }
+
+    recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::MOVETOBACK, hash, 4096,
+                                 16384);
+    ASSERT_EQ(recorder->get_lru_queue_update_cnt_from_last_dump(FileCacheType::NORMAL),
+              dump_update_cnt + 1);
+
+    ASSERT_TRUE(dumper->do_dump_queue(elements, "normal").ok());
+    {
+        std::lock_guard<std::mutex> lru_log_lock(recorder->_mutex_lru_log);
+        recorder->subtract_lru_queue_update_cnt_from_last_dump_locked(
+                FileCacheType::NORMAL, dump_update_cnt, lru_log_lock);
+    }
+
+    EXPECT_EQ(recorder->get_lru_queue_update_cnt_from_last_dump(FileCacheType::NORMAL), 1);
+    EXPECT_EQ(recorder->get_lru_log_queue_size(FileCacheType::NORMAL), 1);
 }
 
 } // namespace doris::io

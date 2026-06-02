@@ -29,6 +29,7 @@ void LRUQueueRecorder::record_queue_event(FileCacheType type, CacheLRULogType lo
     if (_mgr->is_memory_storage() || config::file_cache_background_lru_dump_tail_record_num <= 0) {
         return;
     }
+    std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
     CacheLRULogQueue& log_queue = get_lru_log_queue(type);
     log_queue.enqueue(std::make_unique<CacheLRULog>(log_type, hash, offset, size));
     ++(_lru_queue_update_cnt_from_last_dump[type]);
@@ -36,10 +37,16 @@ void LRUQueueRecorder::record_queue_event(FileCacheType type, CacheLRULogType lo
 
 size_t LRUQueueRecorder::replay_queue_event(FileCacheType type, size_t max_events) {
     // we don't need the real cache lock for the shadow queue, but we do need a lock to prevent read/write contension
+    std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
+    return replay_queue_event_locked(type, max_events, lru_log_lock);
+}
+
+size_t LRUQueueRecorder::replay_queue_event_locked(
+        FileCacheType type, size_t max_events, std::lock_guard<std::mutex>& lru_log_lock) {
+    // we don't need the real cache lock for the shadow queue, but we do need a lock to prevent read/write contension
     CacheLRULogQueue& log_queue = get_lru_log_queue(type);
     LRUQueue& shadow_queue = get_shadow_queue(type);
 
-    std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
     std::unique_ptr<CacheLRULog> log;
     size_t replayed = 0;
     while ((max_events == 0 || replayed < max_events) && log_queue.try_dequeue(log)) {
@@ -137,11 +144,29 @@ CacheLRULogQueue& LRUQueueRecorder::get_lru_log_queue(FileCacheType type) {
 }
 
 size_t LRUQueueRecorder::get_lru_queue_update_cnt_from_last_dump(FileCacheType type) {
+    std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
+    return get_lru_queue_update_cnt_from_last_dump_locked(type, lru_log_lock);
+}
+
+size_t LRUQueueRecorder::get_lru_queue_update_cnt_from_last_dump_locked(
+        FileCacheType type, std::lock_guard<std::mutex>& /* lru_log_lock */) {
     return _lru_queue_update_cnt_from_last_dump[type];
 }
 
 void LRUQueueRecorder::reset_lru_queue_update_cnt_from_last_dump(FileCacheType type) {
+    std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
+    reset_lru_queue_update_cnt_from_last_dump_locked(type, lru_log_lock);
+}
+
+void LRUQueueRecorder::reset_lru_queue_update_cnt_from_last_dump_locked(
+        FileCacheType type, std::lock_guard<std::mutex>& /* lru_log_lock */) {
     _lru_queue_update_cnt_from_last_dump[type] = 0;
+}
+
+void LRUQueueRecorder::subtract_lru_queue_update_cnt_from_last_dump_locked(
+        FileCacheType type, size_t count, std::lock_guard<std::mutex>& /* lru_log_lock */) {
+    auto& update_cnt = _lru_queue_update_cnt_from_last_dump[type];
+    update_cnt = count >= update_cnt ? 0 : update_cnt - count;
 }
 
 size_t LRUQueueRecorder::get_lru_log_queue_size(FileCacheType type) {

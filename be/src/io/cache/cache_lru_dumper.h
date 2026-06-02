@@ -40,6 +40,8 @@ class LRUQueueRecorder;
 
 class CacheLRUDumper {
 public:
+    using LruDumpEntry = std::tuple<UInt128Wrapper, size_t, size_t>;
+
     CacheLRUDumper(BlockFileCache* mgr, LRUQueueRecorder* recorder)
             : _mgr(mgr), _recorder(recorder) {
         auto now = std::chrono::system_clock::now();
@@ -56,7 +58,10 @@ public:
     void set_first_dump_done() { _is_first_dump = false; }
 
 private:
-    void do_dump_queue(LRUQueue& queue, const std::string& queue_name);
+    Status do_dump_queue(LRUQueue& queue, const std::string& queue_name);
+    Status do_dump_queue(const std::vector<LruDumpEntry>& elements, const std::string& queue_name);
+    std::vector<LruDumpEntry> collect_lru_queue_entries_locked(
+            LRUQueue& queue, std::lock_guard<std::mutex>& lru_log_lock);
     Status check_ofstream_status(std::ofstream& out, std::string& filename);
     Status check_ifstream_status(std::ifstream& in, std::string& filename);
     Status dump_one_lru_entry(std::ofstream& out, std::string& filename, const UInt128Wrapper& hash,
