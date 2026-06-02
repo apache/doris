@@ -461,7 +461,7 @@ protected:
         // must be enough for the upper MIN/MAX aggregate without evaluating projections, default
         // expressions or virtual columns.
         for (const auto& mapping : _data_reader.column_mapper.mappings()) {
-            if (!mapping.file_column_id.has_value() || mapping.has_complex_projection ||
+            if (!mapping.field_id.has_value() || mapping.has_complex_projection ||
                 mapping.virtual_column_type != TableVirtualColumnType::INVALID ||
                 mapping.default_expr != nullptr || mapping.file_type == nullptr ||
                 mapping.table_type == nullptr) {
@@ -473,7 +473,7 @@ protected:
 
     Status _materialize_mapping_column(const ColumnMapping& mapping, Block* current_block,
                                        const size_t rows, ColumnPtr* column) {
-        if (mapping.has_complex_projection && mapping.file_column_id.has_value() &&
+        if (mapping.has_complex_projection && mapping.field_id.has_value() &&
             !mapping.child_mappings.empty()) {
             int res_id;
             RETURN_IF_ERROR(mapping.projection->execute(current_block, &res_id));
@@ -559,7 +559,7 @@ protected:
         child_columns.reserve(mapping.child_mappings.size());
         size_t file_child_idx = 0;
         for (const auto& child_mapping : mapping.child_mappings) {
-            if (!child_mapping.file_column_id.has_value()) {
+            if (!child_mapping.field_id.has_value()) {
                 child_columns.push_back(
                         child_mapping.table_type->create_column_const_with_default_value(rows)
                                 ->convert_to_full_column_if_const());
@@ -694,8 +694,8 @@ protected:
         }
         request->columns.reserve(_data_reader.column_mapper.mappings().size());
         for (const auto& mapping : _data_reader.column_mapper.mappings()) {
-            DORIS_CHECK(mapping.file_column_id.has_value());
-            request->columns.push_back({*mapping.file_column_id});
+            DORIS_CHECK(mapping.field_id.has_value());
+            request->columns.push_back({*mapping.field_id});
         }
     }
 
@@ -730,11 +730,11 @@ protected:
                                             _projected_columns[column_idx].name);
             }
             const auto& mapping = _data_reader.column_mapper.mappings()[column_idx];
-            DORIS_CHECK(mapping.file_column_id.has_value());
+            DORIS_CHECK(mapping.field_id.has_value());
             bool found_file_column = false;
             for (size_t block_position = 0; block_position < _data_reader.block_schema.size();
                  ++block_position) {
-                if (_data_reader.block_schema[block_position].id == *mapping.file_column_id) {
+                if (_data_reader.block_schema[block_position].id == *mapping.field_id) {
                     found_file_column = true;
                     auto column =
                             file_block.get_by_position(block_position).column->assume_mutable();

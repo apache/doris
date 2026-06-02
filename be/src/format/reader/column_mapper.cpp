@@ -306,7 +306,7 @@ static bool complex_projection_has_pruned_children(const ColumnMapping& mapping)
         return true;
     }
     for (const auto& child_mapping : mapping.child_mappings) {
-        if (!child_mapping.file_column_id.has_value() ||
+        if (!child_mapping.field_id.has_value() ||
             complex_projection_has_pruned_children(child_mapping)) {
             return true;
         }
@@ -322,7 +322,7 @@ static DataTypePtr build_projected_child_type(const DataTypePtr& file_type,
     child_types.reserve(child_mappings.size());
     child_names.reserve(child_mappings.size());
     for (const auto& child_mapping : child_mappings) {
-        if (!child_mapping.file_column_id.has_value()) {
+        if (!child_mapping.field_id.has_value()) {
             continue;
         }
         child_types.push_back(child_mapping.file_type);
@@ -363,12 +363,12 @@ static Status build_complex_projection(const ColumnMapping& mapping, FieldProjec
     if (projection == nullptr) {
         return Status::InvalidArgument("projection is null");
     }
-    DORIS_CHECK(mapping.file_column_id.has_value());
-    projection->file_column_id = *mapping.file_column_id;
+    DORIS_CHECK(mapping.field_id.has_value());
+    projection->file_column_id = *mapping.field_id;
     projection->project_all_children = mapping.child_mappings.empty();
     projection->children.clear();
     for (const auto& child_mapping : mapping.child_mappings) {
-        if (!child_mapping.file_column_id.has_value()) {
+        if (!child_mapping.field_id.has_value()) {
             continue;
         }
         FieldProjection child_projection;
@@ -392,7 +392,7 @@ static Status rebuild_projected_file_type(ColumnMapping* mapping) {
     child_types.reserve(mapping->child_mappings.size());
     child_names.reserve(mapping->child_mappings.size());
     for (auto& child_mapping : mapping->child_mappings) {
-        if (!child_mapping.file_column_id.has_value()) {
+        if (!child_mapping.field_id.has_value()) {
             continue;
         }
         if (complex_projection_has_pruned_children(child_mapping)) {
@@ -414,7 +414,7 @@ static Status rebuild_projected_file_type(ColumnMapping* mapping) {
 
 static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapping,
                               std::vector<FieldProjection>* scan_columns) {
-    auto file_column_id = mapping->file_column_id.value();
+    auto file_column_id = mapping->field_id.value();
     if (scan_columns == &file_request->non_predicate_columns &&
         std::ranges::find_if(file_request->predicate_columns, [&](const FieldProjection& p) {
             return p.file_column_id == file_column_id;
@@ -453,7 +453,7 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
 }
 
 static void rebuild_projection(ColumnMapping* mapping, size_t block_position) {
-    DORIS_CHECK(mapping->file_column_id.has_value());
+    DORIS_CHECK(mapping->field_id.has_value());
     if (mapping->is_trivial || mapping->has_complex_projection) {
         mapping->projection = VExprContext::create_shared(TableSlotRef::create_shared(
                 cast_set<int>(block_position), cast_set<int>(block_position), -1,
@@ -473,10 +473,10 @@ static std::map<int32_t, FileSlotRewriteInfo> build_file_slot_rewrite_map(
         const std::vector<ColumnMapping>& mappings, const FileScanRequest& file_request) {
     std::map<int32_t, FileSlotRewriteInfo> table_column_to_file_slot;
     for (const auto& mapping : mappings) {
-        if (!mapping.file_column_id.has_value()) {
+        if (!mapping.field_id.has_value()) {
             continue;
         }
-        const auto position_it = file_request.column_positions.find(*mapping.file_column_id);
+        const auto position_it = file_request.column_positions.find(*mapping.field_id);
         if (position_it != file_request.column_positions.end()) {
             table_column_to_file_slot.emplace(
                     mapping.table_column_id,
@@ -567,7 +567,7 @@ Status TableColumnMapper::create_scan_request(const std::vector<TableFilter>& ta
     // 1. Build referenced non-predicate columns
     for (const auto& table_column : projected_columns) {
         auto* mapping = _find_mapping(table_column.id);
-        if (mapping != nullptr && mapping->file_column_id.has_value()) {
+        if (mapping != nullptr && mapping->field_id.has_value()) {
             // A file column can be read lazily as a non-predicate column only when it is not used
             // by row-level expression filters. Single-column ColumnPredicate filters are pruning
             // hints only and must not force row-level predicate materialization.
@@ -590,10 +590,10 @@ Status TableColumnMapper::create_scan_request(const std::vector<TableFilter>& ta
     RETURN_IF_ERROR(localize_filters(table_filters, table_column_predicates, file_request));
     // 3. Re-build projections for all referenced file columns to point to the correct file-local block positions.
     for (auto& mapping : _mappings) {
-        if (!mapping.file_column_id.has_value()) {
+        if (!mapping.field_id.has_value()) {
             continue;
         }
-        auto position_it = file_request->column_positions.find(*mapping.file_column_id);
+        auto position_it = file_request->column_positions.find(*mapping.field_id);
         DORIS_CHECK(position_it != file_request->column_positions.end());
         rebuild_projection(&mapping, position_it->second);
     }
@@ -613,7 +613,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         }
         for (const auto table_column_id : filter_slot_ids(table_filter)) {
             auto* mapping = _find_mapping(table_column_id);
-            if (mapping == nullptr || !mapping->file_column_id.has_value()) {
+            if (mapping == nullptr || !mapping->field_id.has_value()) {
                 continue;
             }
             RETURN_IF_ERROR(
@@ -636,11 +636,11 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
     }
     for (const auto& [table_column_id, predicates] : table_column_predicates) {
         const auto* mapping = _find_mapping(table_column_id);
-        if (mapping == nullptr || !mapping->file_column_id.has_value() || predicates.empty()) {
+        if (mapping == nullptr || !mapping->field_id.has_value() || predicates.empty()) {
             continue;
         }
         FileColumnPredicateFilter column_predicate_filter;
-        column_predicate_filter.file_column_id = *mapping->file_column_id;
+        column_predicate_filter.file_column_id = *mapping->field_id;
         column_predicate_filter.predicates = predicates;
         file_request->column_predicate_filters.push_back(std::move(column_predicate_filter));
     }
@@ -668,7 +668,7 @@ Status TableColumnMapper::_create_direct_mapping(const TableColumn& table_column
     if (mapping == nullptr) {
         return Status::InvalidArgument("mapping is null");
     }
-    mapping->file_column_id = file_field.id;
+    mapping->field_id = file_field.id;
     mapping->file_column_name = file_field.name;
     mapping->file_type = file_field.type;
     mapping->is_trivial = _is_same_type(mapping->table_type, mapping->file_type);
