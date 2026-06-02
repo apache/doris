@@ -90,3 +90,39 @@
 1
 3
 
+-- !v2v4_noprox_any_fox_v2 --
+1
+5
+
+-- !v2v4_noprox_any_fox_v4 --
+1
+5
+
+-- !v2v4_noprox_any_dog_rabbit_v2 --
+2
+3
+4
+5
+
+-- !v2v4_noprox_any_dog_rabbit_v4 --
+2
+3
+4
+5
+
+-- !v2v4_noprox_all_the_dog_v2 --
+2
+4
+
+-- !v2v4_noprox_all_the_dog_v4 --
+2
+4
+
+-- !v2v4_noprox_all_quick_brown_v2 --
+1
+3
+
+-- !v2v4_noprox_all_quick_brown_v4 --
+1
+3
+
