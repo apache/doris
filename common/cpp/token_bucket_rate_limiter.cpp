@@ -20,6 +20,7 @@
 #include <bthread/bthread.h>
 #include <glog/logging.h> // IWYU pragma: export
 
+#include <atomic>
 #include <chrono>
 #include <mutex>
 #include <thread>
@@ -31,6 +32,18 @@
 namespace doris {
 // Just 10^6.
 static constexpr auto NS = 1000000000UL;
+
+bvar::Adder<int64_t> s3_get_rate_limit_sleep_ns("s3_get_rate_limit_sleep_ns");
+bvar::Adder<int64_t> s3_get_rate_limit_sleep_count("s3_get_rate_limit_sleep_count");
+bvar::Adder<int64_t> s3_get_rate_limit_rejected_count("s3_get_rate_limit_rejected_count");
+bvar::Adder<int64_t> s3_put_rate_limit_sleep_ns("s3_put_rate_limit_sleep_ns");
+bvar::Adder<int64_t> s3_put_rate_limit_sleep_count("s3_put_rate_limit_sleep_count");
+bvar::Adder<int64_t> s3_put_rate_limit_rejected_count("s3_put_rate_limit_rejected_count");
+
+static std::atomic<int64_t> s3_get_rate_limit_sleep_log_count {0};
+static std::atomic<int64_t> s3_get_rate_limit_rejected_log_count {0};
+static std::atomic<int64_t> s3_put_rate_limit_sleep_log_count {0};
+static std::atomic<int64_t> s3_put_rate_limit_rejected_log_count {0};
 
 class TokenBucketRateLimiter::SimpleSpinLock {
 public:
@@ -153,5 +166,54 @@ S3RateLimitType string_to_s3_rate_limit_type(std::string_view value) {
         return S3RateLimitType::PUT;
     }
     return S3RateLimitType::UNKNOWN;
+}
+
+std::function<void(int64_t)> s3_rate_limiter_metric_func(S3RateLimitType type) {
+    switch (type) {
+    case S3RateLimitType::GET:
+        return metric_func_factory(s3_get_rate_limit_sleep_ns, s3_get_rate_limit_sleep_count,
+                                   &s3_get_rate_limit_rejected_count);
+    case S3RateLimitType::PUT:
+        return metric_func_factory(s3_put_rate_limit_sleep_ns, s3_put_rate_limit_sleep_count,
+                                   &s3_put_rate_limit_rejected_count);
+    default:
+        return [](int64_t) {};
+    }
+}
+
+int64_t apply_s3_rate_limit(S3RateLimitType type, S3RateLimiterHolder* rate_limiter,
+                            int64_t log_interval) {
+    auto sleep_duration = rate_limiter->add(1);
+    if (log_interval <= 0 || sleep_duration == 0) {
+        return sleep_duration;
+    }
+
+    auto is_get = type == S3RateLimitType::GET;
+    auto* sleep_log_count =
+            is_get ? &s3_get_rate_limit_sleep_log_count : &s3_put_rate_limit_sleep_log_count;
+    auto* rejected_log_count =
+            is_get ? &s3_get_rate_limit_rejected_log_count : &s3_put_rate_limit_rejected_log_count;
+
+    if (sleep_duration > 0) {
+        int64_t count = sleep_log_count->fetch_add(1, std::memory_order_relaxed) + 1;
+        if (count == 1 || count % log_interval == 0) {
+            LOG(INFO) << "S3 " << to_string(type) << " request is throttled by local rate limiter"
+                      << ", sleep_ms=" << sleep_duration / 1000000 << ", sleep_count=" << count
+                      << ", token_per_second=" << rate_limiter->get_max_speed()
+                      << ", bucket_tokens=" << rate_limiter->get_max_burst()
+                      << ", token_limit=" << rate_limiter->get_limit();
+        }
+    } else {
+        int64_t count = rejected_log_count->fetch_add(1, std::memory_order_relaxed) + 1;
+        if (count == 1 || count % log_interval == 0) {
+            LOG(WARNING) << "S3 " << to_string(type)
+                         << " request is rejected by local rate limiter"
+                         << ", rejected_count=" << count
+                         << ", token_per_second=" << rate_limiter->get_max_speed()
+                         << ", bucket_tokens=" << rate_limiter->get_max_burst()
+                         << ", token_limit=" << rate_limiter->get_limit();
+        }
+    }
+    return sleep_duration;
 }
 } // namespace doris

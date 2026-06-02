@@ -21,6 +21,8 @@
 #include <functional>
 #include <memory>
 #include <shared_mutex>
+#include <string>
+#include <string_view>
 
 namespace doris {
 enum class S3RateLimitType : int {
@@ -100,4 +102,8 @@ private:
 
 using S3RateLimiter = TokenBucketRateLimiter;
 using S3RateLimiterHolder = TokenBucketRateLimiterHolder;
+
+std::function<void(int64_t)> s3_rate_limiter_metric_func(S3RateLimitType type);
+int64_t apply_s3_rate_limit(S3RateLimitType type, S3RateLimiterHolder* rate_limiter,
+                            int64_t log_interval);
 } // namespace doris

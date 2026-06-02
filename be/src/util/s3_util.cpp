@@ -158,18 +158,6 @@ constexpr char S3_EXTERNAL_ID[] = "AWS_EXTERNAL_ID";
 constexpr char S3_CREDENTIALS_PROVIDER_TYPE[] = "AWS_CREDENTIALS_PROVIDER_TYPE";
 } // namespace
 
-bvar::Adder<int64_t> s3_get_rate_limit_sleep_ns("s3_get_rate_limit_sleep_ns");
-bvar::Adder<int64_t> s3_get_rate_limit_sleep_count("s3_get_rate_limit_sleep_count");
-bvar::Adder<int64_t> s3_get_rate_limit_rejected_count("s3_get_rate_limit_rejected_count");
-bvar::Adder<int64_t> s3_put_rate_limit_sleep_ns("s3_put_rate_limit_sleep_ns");
-bvar::Adder<int64_t> s3_put_rate_limit_sleep_count("s3_put_rate_limit_sleep_count");
-bvar::Adder<int64_t> s3_put_rate_limit_rejected_count("s3_put_rate_limit_rejected_count");
-
-static std::atomic<int64_t> s3_get_rate_limit_sleep_log_count {0};
-static std::atomic<int64_t> s3_get_rate_limit_rejected_log_count {0};
-static std::atomic<int64_t> s3_put_rate_limit_sleep_log_count {0};
-static std::atomic<int64_t> s3_put_rate_limit_rejected_log_count {0};
-
 static std::atomic<int64_t> last_s3_get_token_bucket_tokens {0};
 static std::atomic<int64_t> last_s3_get_token_limit {0};
 static std::atomic<int64_t> last_s3_get_token_per_second {0};
@@ -238,41 +226,8 @@ int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_bur
 }
 
 int64_t apply_s3_rate_limit(S3RateLimitType type) {
-    auto sleep_duration = S3ClientFactory::instance().rate_limiter(type)->add(1);
-    int64_t interval = config::s3_rate_limiter_log_interval;
-    if (interval <= 0 || sleep_duration == 0) {
-        return sleep_duration;
-    }
-
-    auto is_get = type == S3RateLimitType::GET;
-    auto* sleep_log_count =
-            is_get ? &s3_get_rate_limit_sleep_log_count : &s3_put_rate_limit_sleep_log_count;
-    auto* rejected_log_count =
-            is_get ? &s3_get_rate_limit_rejected_log_count : &s3_put_rate_limit_rejected_log_count;
-    int64_t token_per_second =
-            is_get ? config::s3_get_token_per_second : config::s3_put_token_per_second;
-    int64_t bucket_tokens = is_get ? config::s3_get_bucket_tokens : config::s3_put_bucket_tokens;
-    int64_t token_limit = is_get ? config::s3_get_token_limit : config::s3_put_token_limit;
-
-    if (sleep_duration > 0) {
-        int64_t count = sleep_log_count->fetch_add(1, std::memory_order_relaxed) + 1;
-        if (count == 1 || count % interval == 0) {
-            LOG(INFO) << "S3 " << to_string(type) << " request is throttled by local rate limiter"
-                      << ", sleep_ms=" << sleep_duration / 1000000 << ", sleep_count=" << count
-                      << ", token_per_second=" << token_per_second
-                      << ", bucket_tokens=" << bucket_tokens << ", token_limit=" << token_limit;
-        }
-    } else {
-        int64_t count = rejected_log_count->fetch_add(1, std::memory_order_relaxed) + 1;
-        if (count == 1 || count % interval == 0) {
-            LOG(WARNING) << "S3 " << to_string(type)
-                         << " request is rejected by local rate limiter"
-                         << ", rejected_count=" << count
-                         << ", token_per_second=" << token_per_second
-                         << ", bucket_tokens=" << bucket_tokens << ", token_limit=" << token_limit;
-        }
-    }
-    return sleep_duration;
+    return doris::apply_s3_rate_limit(type, S3ClientFactory::instance().rate_limiter(type),
+                                      config::s3_rate_limiter_log_interval);
 }
 
 S3ClientFactory::S3ClientFactory() {
@@ -287,16 +242,11 @@ S3ClientFactory::S3ClientFactory() {
     _rate_limiters = {
             std::make_unique<S3RateLimiterHolder>(
                     config::s3_get_token_per_second, config::s3_get_bucket_tokens,
-                    config::s3_get_token_limit,
-                    metric_func_factory(s3_get_rate_limit_sleep_ns,
-                                        s3_get_rate_limit_sleep_count,
-                                        &s3_get_rate_limit_rejected_count)),
+                    config::s3_get_token_limit, s3_rate_limiter_metric_func(S3RateLimitType::GET)),
             std::make_unique<S3RateLimiterHolder>(
                     config::s3_put_token_per_second, config::s3_put_bucket_tokens,
                     config::s3_put_token_limit,
-                    metric_func_factory(s3_put_rate_limit_sleep_ns,
-                                        s3_put_rate_limit_sleep_count,
-                                        &s3_put_rate_limit_rejected_count))};
+                    s3_rate_limiter_metric_func(S3RateLimitType::PUT))};
 
 #ifdef USE_AZURE
     auto azureLogLevel =

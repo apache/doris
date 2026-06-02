@@ -29,6 +29,10 @@
 
 using namespace doris::cloud;
 
+namespace doris {
+extern bvar::Adder<int64_t> s3_put_rate_limit_rejected_count;
+} // namespace doris
+
 int main(int argc, char** argv) {
     auto conf_file = "doris_cloud.conf";
     if (!doris::cloud::config::init(conf_file, true)) {
@@ -130,4 +134,20 @@ TEST(S3RateLimiterHolderTest, BvarMetric) {
     sleep_time = rate_limiter_holder.add(1);
     EXPECT_EQ(sleep_time, -1);
     EXPECT_EQ(rate_limit_rejected_count.get_value(), 1);
+}
+
+TEST(S3RateLimiterHolderTest, ApplyS3RateLimitRecordsRejectedMetric) {
+    auto rate_limiter_holder = doris::S3RateLimiterHolder(
+            125, 250, 1, doris::s3_rate_limiter_metric_func(doris::S3RateLimitType::PUT));
+    auto rejected_count = doris::s3_put_rate_limit_rejected_count.get_value();
+
+    int64_t sleep_time = doris::apply_s3_rate_limit(doris::S3RateLimitType::PUT,
+                                                    &rate_limiter_holder, 1);
+    EXPECT_EQ(sleep_time, 0);
+    EXPECT_EQ(doris::s3_put_rate_limit_rejected_count.get_value(), rejected_count);
+
+    sleep_time =
+            doris::apply_s3_rate_limit(doris::S3RateLimitType::PUT, &rate_limiter_holder, 1);
+    EXPECT_EQ(sleep_time, -1);
+    EXPECT_EQ(doris::s3_put_rate_limit_rejected_count.get_value(), rejected_count + 1);
 }
