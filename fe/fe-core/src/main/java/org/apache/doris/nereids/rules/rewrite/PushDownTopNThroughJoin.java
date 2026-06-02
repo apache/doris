@@ -111,11 +111,13 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                     return null;
                 }
                 if (join.left().getOutputSet().containsAll(orderbySlots)) {
-                    if (!canPushToChild(join.left(), requiredOutputSlots)) {
+                    List<Slot> childRequiredOutputSlots = buildRequiredOutputSlots(
+                            requiredOutputSlots, join.getLeftConditionSlot());
+                    if (!canPushToChild(join.left(), childRequiredOutputSlots)) {
                         return null;
                     }
                     return join.withChildren(
-                            pushTopNToChild(topN, join.left(), orderbySlots, requiredOutputSlots),
+                            pushTopNToChild(topN, join.left(), orderbySlots, childRequiredOutputSlots),
                             join.right());
                 }
                 return null;
@@ -125,12 +127,14 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                     return null;
                 }
                 if (join.right().getOutputSet().containsAll(orderbySlots)) {
-                    if (!canPushToChild(join.right(), requiredOutputSlots)) {
+                    List<Slot> childRequiredOutputSlots = buildRequiredOutputSlots(
+                            requiredOutputSlots, join.getRightConditionSlot());
+                    if (!canPushToChild(join.right(), childRequiredOutputSlots)) {
                         return null;
                     }
                     return join.withChildren(
                             join.left(),
-                            pushTopNToChild(topN, join.right(), orderbySlots, requiredOutputSlots));
+                            pushTopNToChild(topN, join.right(), orderbySlots, childRequiredOutputSlots));
                 }
                 return null;
             case CROSS_JOIN:
@@ -138,22 +142,26 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                     if (join.left() instanceof TopN) {
                         return null;
                     }
-                    if (!canPushToChild(join.left(), requiredOutputSlots)) {
+                    List<Slot> childRequiredOutputSlots = buildRequiredOutputSlots(
+                            requiredOutputSlots, join.getLeftConditionSlot());
+                    if (!canPushToChild(join.left(), childRequiredOutputSlots)) {
                         return null;
                     }
                     return join.withChildren(
-                            pushTopNToChild(topN, join.left(), orderbySlots, requiredOutputSlots),
+                            pushTopNToChild(topN, join.left(), orderbySlots, childRequiredOutputSlots),
                             join.right());
                 } else if (join.right().getOutputSet().containsAll(orderbySlots)) {
                     if (join.right() instanceof TopN) {
                         return null;
                     }
-                    if (!canPushToChild(join.right(), requiredOutputSlots)) {
+                    List<Slot> childRequiredOutputSlots = buildRequiredOutputSlots(
+                            requiredOutputSlots, join.getRightConditionSlot());
+                    if (!canPushToChild(join.right(), childRequiredOutputSlots)) {
                         return null;
                     }
                     return join.withChildren(
                             join.left(),
-                            pushTopNToChild(topN, join.right(), orderbySlots, requiredOutputSlots));
+                            pushTopNToChild(topN, join.right(), orderbySlots, childRequiredOutputSlots));
                 } else {
                     return null;
                 }
@@ -165,6 +173,12 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
 
     private boolean canPushToChild(Plan child, List<Slot> requiredOutputSlots) {
         return requiredOutputSlots.isEmpty() || child.getOutputSet().containsAll(requiredOutputSlots);
+    }
+
+    private List<Slot> buildRequiredOutputSlots(List<Slot> requiredOutputSlots, Set<Slot> conditionSlots) {
+        Set<Slot> requiredSet = new HashSet<>(requiredOutputSlots);
+        requiredSet.addAll(conditionSlots);
+        return ImmutableList.copyOf(requiredSet);
     }
 
     private Plan pushTopNToChild(LogicalTopN<? extends Plan> topN, Plan child, List<Slot> orderbySlots,

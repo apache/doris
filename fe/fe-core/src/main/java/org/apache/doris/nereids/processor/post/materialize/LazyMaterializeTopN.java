@@ -19,6 +19,8 @@ package org.apache.doris.nereids.processor.post.materialize;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -248,6 +250,22 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                 requiredMaterializedSlots.addAll(projectExpr.getInputSlots());
             }
         } else if (plan instanceof PhysicalCatalogRelation) {
+            PhysicalCatalogRelation relation = (PhysicalCatalogRelation) plan;
+            if (relation.getTable() instanceof OlapTable) {
+                OlapTable table = (OlapTable) relation.getTable();
+                if (KeysType.UNIQUE_KEYS.equals(table.getKeysType())
+                        && !table.getTableProperty().getEnableUniqueKeyMergeOnWrite()
+                        || KeysType.AGG_KEYS.equals(table.getKeysType())
+                        || KeysType.PRIMARY_KEYS.equals(table.getKeysType())) {
+                    for (Slot slot : relation.getOutput()) {
+                        SlotReference slotReference = (SlotReference) slot;
+                        if (slotReference.getOriginalColumn().isPresent()
+                                && slotReference.getOriginalColumn().get().isKey()) {
+                            requiredMaterializedSlots.add(slotReference);
+                        }
+                    }
+                }
+            }
             for (Slot slot : plan.getOutput()) {
                 if (slot instanceof SlotReference && !((SlotReference) slot).getOriginalColumn().isPresent()) {
                     requiredMaterializedSlots.addAll(plan.getOutputSet());

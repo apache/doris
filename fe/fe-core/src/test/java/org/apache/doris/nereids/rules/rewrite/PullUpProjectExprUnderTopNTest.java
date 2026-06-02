@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -98,6 +99,29 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyCustom(new PullUpProjectExprUnderTopN())
                 .matches(
+                        logicalTopN(
+                                logicalProject(
+                                        logicalOlapScan()
+                                )
+                        )
+                )
+                .getPlan();
+    }
+
+    @Test
+    void testNotPullUpScoreExpression() {
+        List<NamedExpression> exprs = ImmutableList.of(
+                new Alias(new Score(), "score"),
+                scan1.getOutput().get(0)
+        );
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .projectExprs(exprs)
+                .topN(3, 0, ImmutableList.of(1))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .matchesFromRoot(
                         logicalTopN(
                                 logicalProject(
                                         logicalOlapScan()

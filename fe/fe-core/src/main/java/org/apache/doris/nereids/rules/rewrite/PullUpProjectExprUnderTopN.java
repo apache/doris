@@ -24,7 +24,9 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -277,6 +279,12 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         if (ne.anyMatch(e -> e instanceof NoneMovableFunction)) {
             return false;
         }
+        if (ne.anyMatch(e -> e instanceof Score)) {
+            return false;
+        }
+        if (ne.anyMatch(e -> e instanceof SlotReference && ((SlotReference) e).getDataType().isVariantType())) {
+            return false;
+        }
         return true;
     }
 
@@ -428,8 +436,9 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         for (NamedExpression ne : project.getProjects()) {
             if (!pulledUpExprIds.contains(ne.getExprId())
                     && !isUnavailablePullUpSlot(ne, context, childOutputExprIds)) {
-                simplified.add(ne);
-                existingExprIds.add(ne.getExprId());
+                NamedExpression resolved = resolveNamedExpression(ne, context, childOutputExprIds);
+                simplified.add(resolved);
+                existingExprIds.add(resolved.getExprId());
             }
         }
 
@@ -535,6 +544,18 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         }
 
         return new LogicalProject<>(ImmutableList.copyOf(upperOutput), topN);
+    }
+
+    private static NamedExpression resolveNamedExpression(NamedExpression expr, CollectorContext context,
+            Set<ExprId> availableExprIds) {
+        if (!(expr instanceof Alias)) {
+            return expr;
+        }
+        Expression resolvedChild = resolveExpression(expr.child(0), context, availableExprIds);
+        if (resolvedChild.equals(expr.child(0))) {
+            return expr;
+        }
+        return new Alias(expr.getExprId(), resolvedChild, expr.getName());
     }
 
     private static NamedExpression resolvePulledUpExpr(NamedExpression expr, CollectorContext context,
