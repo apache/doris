@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -120,15 +121,16 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             baseSlotsByExpr.put(expr.getExprId(), ImmutableList.copyOf(expr.getInputSlots()));
         }
 
-        void addPassThroughSlotsForDeduplicatedExpr(NamedExpression expr) {
+        void addPassThroughSlotsForDeduplicatedExpr(NamedExpression expr, CollectorContext context) {
             passThroughSlotsByDeduplicatedExpr.put(
-                    expr.getExprId(), ImmutableList.copyOf(expr.getInputSlots()));
+                    expr.getExprId(), ImmutableList.copyOf(resolveInputSlots(expr, context)));
         }
     }
 
     /** Context shared between collector and replacer passes. */
     static class CollectorContext {
         final Map<LogicalTopN, PullUpInfo> topNToPullUpInfo = new LinkedHashMap<>();
+        final Map<Slot, Expression> pullUpExprReplaceMap = new LinkedHashMap<>();
         int cteProducerDepth = 0;
 
         boolean hasPullUpInfo(LogicalTopN topN) {
@@ -139,6 +141,11 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             return topNToPullUpInfo.get(topN);
         }
 
+        void addPullUpExprReplace(NamedExpression expr) {
+            if (expr instanceof Alias) {
+                pullUpExprReplaceMap.putIfAbsent(expr.toSlot(), expr.child(0));
+            }
+        }
     }
 
     // =========================================================================
@@ -179,6 +186,9 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             Set<ExprId> blockedExprIds = buildOrderKeyExprIds(topN);
             collectFromNode((Plan) topN.child(0), info, blockedExprIds);
             if (!info.allPulledUpExprs.isEmpty()) {
+                for (NamedExpression expr : info.allPulledUpExprs) {
+                    context.addPullUpExprReplace(expr);
+                }
                 context.topNToPullUpInfo.put(topN, info);
             }
             return visit(topN, context);
@@ -318,7 +328,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                 }
             }
             for (NamedExpression expr : toRemove) {
-                info.addPassThroughSlotsForDeduplicatedExpr(expr);
+                info.addPassThroughSlotsForDeduplicatedExpr(expr, context);
                 info.allPulledUpExprs.remove(expr);
                 for (List<NamedExpression> list : info.projectToPulledUpExprs.values()) {
                     list.removeIf(e -> e == expr);
@@ -361,10 +371,11 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             if (info == null && rewritten != topN) {
                 info = context.getPullUpInfo(topN);
             }
-            if (info == null || info.allPulledUpExprs.isEmpty()) {
+            if (info == null || (info.allPulledUpExprs.isEmpty()
+                    && info.passThroughSlotsByDeduplicatedExpr.isEmpty())) {
                 return rewritten;
             }
-            return addUpperProject(rewritten, info);
+            return addUpperProject(rewritten, info, context);
         }
     }
 
@@ -410,9 +421,8 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
 
         for (NamedExpression pulledUpExpr : pulledUpExprs) {
             for (PullUpInfo info : context.topNToPullUpInfo.values()) {
-                List<Slot> baseSlots = info.baseSlotsByExpr.get(pulledUpExpr.getExprId());
-                if (baseSlots != null) {
-                    for (Slot baseSlot : baseSlots) {
+                if (info.baseSlotsByExpr.get(pulledUpExpr.getExprId()) != null) {
+                    for (Slot baseSlot : resolveInputSlots(pulledUpExpr, context)) {
                         if (!existingExprIds.contains(baseSlot.getExprId())) {
                             simplified.add(baseSlot);
                             existingExprIds.add(baseSlot.getExprId());
@@ -430,10 +440,11 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
     }
 
     /** Create a new Project above the TopN that restores pulled-up expressions. */
-    private static LogicalProject<Plan> addUpperProject(LogicalTopN topN, PullUpInfo info) {
+    private static LogicalProject<Plan> addUpperProject(LogicalTopN topN, PullUpInfo info,
+            CollectorContext context) {
         Map<ExprId, NamedExpression> pulledUpBySlotExprId = new HashMap<>();
         for (NamedExpression e : info.allPulledUpExprs) {
-            pulledUpBySlotExprId.put(e.toSlot().getExprId(), e);
+            pulledUpBySlotExprId.put(e.toSlot().getExprId(), resolvePulledUpExpr(e, context));
         }
 
         // Use the current (possibly rewritten) TopN's output so that slots
@@ -467,6 +478,26 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         }
 
         return new LogicalProject<>(ImmutableList.copyOf(upperOutput), topN);
+    }
+
+    private static NamedExpression resolvePulledUpExpr(NamedExpression expr, CollectorContext context) {
+        if (!(expr instanceof Alias)) {
+            return expr;
+        }
+        return new Alias(expr.getExprId(), resolveExpression(expr.child(0), context), expr.getName());
+    }
+
+    private static List<Slot> resolveInputSlots(NamedExpression expr, CollectorContext context) {
+        return ImmutableList.copyOf(resolveExpression(expr.child(0), context).getInputSlots());
+    }
+
+    private static Expression resolveExpression(Expression expression, CollectorContext context) {
+        Expression resolved = ExpressionUtils.replace(expression, context.pullUpExprReplaceMap);
+        while (!resolved.equals(expression)) {
+            expression = resolved;
+            resolved = ExpressionUtils.replace(expression, context.pullUpExprReplaceMap);
+        }
+        return resolved;
     }
 
     private static void addPassThroughSlots(

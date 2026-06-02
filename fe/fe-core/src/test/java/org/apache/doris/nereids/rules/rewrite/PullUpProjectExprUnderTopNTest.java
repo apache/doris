@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
@@ -48,9 +49,11 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 
 class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -453,6 +456,50 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                                 && project.getProjects().get(1).getExprId().equals(b.getExprId())
                                 && project.getProjects().get(2).getExprId().equals(id.getExprId()))
                 );
+    }
+
+    @Test
+    void testDeduplicatedPullUpPassesThroughTransitiveInputSlots() {
+        LogicalOlapScan scan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of("db"));
+        Slot id = scan.getOutput().get(0);
+        Slot a = scan.getOutput().get(1);
+        Slot b = scan.getOutput().get(3);
+        Alias x = new Alias(new Add(a, b), "x");
+        Alias y = new Alias(new Add(x.toSlot(), new IntegerLiteral((byte) 1)), "y");
+
+        LogicalPlan plan = new LogicalPlanBuilder(scan)
+                .projectExprs(ImmutableList.of(x, id))
+                .topN(30, 0, ImmutableList.of(1))
+                .projectExprs(ImmutableList.of(y, id))
+                .topN(20, 0, ImmutableList.of(1))
+                .topN(10, 0, ImmutableList.of(1))
+                .build();
+
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .getPlan();
+
+        LogicalProject<?> topN1UpperProject = (LogicalProject<?>) rewritten;
+        Assertions.assertEquals(y.getExprId(), topN1UpperProject.getProjects().get(0).getExprId());
+        Set<ExprId> topN1InputExprIds = topN1UpperProject.getProjects().get(0).child(0).getInputSlotExprIds();
+        Assertions.assertTrue(topN1InputExprIds.contains(a.getExprId()));
+        Assertions.assertTrue(topN1InputExprIds.contains(b.getExprId()));
+        Assertions.assertFalse(topN1InputExprIds.contains(x.getExprId()));
+
+        LogicalTopN<?> topN1 = (LogicalTopN<?>) topN1UpperProject.child(0);
+        LogicalProject<?> topN2UpperProject = (LogicalProject<?>) topN1.child(0);
+        Assertions.assertEquals(3, topN2UpperProject.getProjects().size());
+        Assertions.assertEquals(a.getExprId(), topN2UpperProject.getProjects().get(0).getExprId());
+        Assertions.assertEquals(b.getExprId(), topN2UpperProject.getProjects().get(1).getExprId());
+        Assertions.assertEquals(id.getExprId(), topN2UpperProject.getProjects().get(2).getExprId());
+
+        LogicalTopN<?> topN2 = (LogicalTopN<?>) topN2UpperProject.child(0);
+        LogicalProject<?> yProject = (LogicalProject<?>) topN2.child(0);
+        Assertions.assertEquals(3, yProject.getProjects().size());
+        Assertions.assertEquals(id.getExprId(), yProject.getProjects().get(0).getExprId());
+        Assertions.assertEquals(a.getExprId(), yProject.getProjects().get(1).getExprId());
+        Assertions.assertEquals(b.getExprId(), yProject.getProjects().get(2).getExprId());
     }
 
     @Test
