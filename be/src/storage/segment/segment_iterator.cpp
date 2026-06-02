@@ -478,7 +478,8 @@ Status SegmentIterator::_init_project_schema() {
     }
 
     _project_schema = _opts.project_columns != nullptr
-                              ? std::make_shared<Schema>(_schema->columns(), *_opts.project_columns)
+                              ? std::make_shared<Schema>(_opts.tablet_schema->columns(),
+                                                         *_opts.project_columns)
                               : _schema;
     return Status::OK();
 }
