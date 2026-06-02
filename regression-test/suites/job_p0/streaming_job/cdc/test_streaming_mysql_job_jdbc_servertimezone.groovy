@@ -86,7 +86,7 @@ suite("test_streaming_mysql_job_jdbc_servertimezone", "p0,external,mysql,externa
         sql """CREATE JOB ${jobName}
                 ON STREAMING
                 FROM MYSQL (
-                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}?serverTimezone=${jdbcTz}",
+                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}?serverTimezone=${jdbcTz}&forceConnectionTimeZoneToSession=true",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "com.mysql.cj.jdbc.Driver",
                     "user" = "root",

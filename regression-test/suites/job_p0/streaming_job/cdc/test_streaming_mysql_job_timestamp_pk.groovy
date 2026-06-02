@@ -52,8 +52,10 @@ suite("test_streaming_mysql_job_timestamp_pk", "p0,external,mysql,external_docke
             sql """SET SESSION time_zone = '+00:00'"""
 
             sql """DROP TABLE IF EXISTS ${mysqlDb}.${tableTs}"""
+            // Explicit DEFAULT suppresses MySQL 5.7 implicit ON UPDATE CURRENT_TIMESTAMP on the
+            // first TIMESTAMP column, so UPDATE does not auto-rewrite the event_ts primary key.
             sql """CREATE TABLE ${mysqlDb}.${tableTs} (
-                  `event_ts` timestamp(6) NOT NULL,
+                  `event_ts` timestamp(6) NOT NULL DEFAULT '1970-01-01 00:00:01',
                   `payload` varchar(64),
                   PRIMARY KEY (`event_ts`)
                 ) ENGINE=InnoDB"""
@@ -65,7 +67,7 @@ suite("test_streaming_mysql_job_timestamp_pk", "p0,external,mysql,external_docke
 
             sql """DROP TABLE IF EXISTS ${mysqlDb}.${tableComposite}"""
             sql """CREATE TABLE ${mysqlDb}.${tableComposite} (
-                  `event_ts` timestamp(6) NOT NULL,
+                  `event_ts` timestamp(6) NOT NULL DEFAULT '1970-01-01 00:00:01',
                   `id` int NOT NULL,
                   `payload` varchar(64),
                   PRIMARY KEY (`event_ts`, `id`)
