@@ -2226,8 +2226,7 @@ Status parse_and_materialize_variant_columns(Block& block, const std::vector<uin
 
 namespace {
 
-ParseConfig::ParseTo select_storage_variant_parse_target(const TabletSchema& tablet_schema,
-                                                         const TabletColumn& column,
+ParseConfig::ParseTo select_storage_variant_parse_target(const TabletColumn& column,
                                                          const ParseConfig& config) {
     // NestedGroup consumes the parse-time subcolumn tree to build nested storage structures, so it
     // must not go through doc-value staging.
@@ -2241,12 +2240,11 @@ ParseConfig::ParseTo select_storage_variant_parse_target(const TabletSchema& tab
         return ParseConfig::ParseTo::OnlyDocValueColumn;
     }
 
-    // Deprecated flatten-nested, predefined typed paths, and parent inverted indexes are storage
-    // contracts that rely on parse-time path/type/index metadata and validation. Until the
-    // writer-side staging path has equivalent coverage for all of those contracts, keep these
-    // columns on the subcolumn tree.
-    if (config.deprecated_enable_flatten_nested || column.get_subtype_count() > 0 ||
-        !tablet_schema.inverted_indexs(column.unique_id()).empty()) {
+    // Deprecated flatten-nested still consumes parse-time subcolumns. Predefined typed paths and
+    // parent inverted indexes are handled later by regular doc-value staging: typed paths are
+    // forced into the materialized set unless typed-to-sparse is enabled, and materialized dynamic
+    // subcolumns inherit parent indexes while sparse payloads stay unindexed.
+    if (config.deprecated_enable_flatten_nested) {
         return ParseConfig::ParseTo::OnlySubcolumns;
     }
 
@@ -2287,8 +2285,7 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
             return Status::InternalError("column is not variant type, column name: {}",
                                          column.name());
         }
-        configs[i].parse_to =
-                select_storage_variant_parse_target(tablet_schema, column, configs[i]);
+        configs[i].parse_to = select_storage_variant_parse_target(column, configs[i]);
     }
 
     RETURN_IF_ERROR(parse_and_materialize_variant_columns(block, variant_column_pos, configs));
