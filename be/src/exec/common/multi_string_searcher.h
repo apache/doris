@@ -42,8 +42,8 @@ class MultiStringSearcher {
     // needle id and the 1-based offset of this ngram inside that needle. off == 0 means
     // the slot is empty, so needle offsets are stored as 1-based values.
     struct OffsetId {
-        Id id = 0;
-        Offset off = 0;
+        Id id;
+        Offset off;
     };
 
 public:
