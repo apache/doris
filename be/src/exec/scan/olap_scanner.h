@@ -18,9 +18,9 @@
 #pragma once
 
 #include <gen_cpp/PaloInternalService_types.h>
-#include <stdint.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <optional>
@@ -121,17 +121,11 @@ public:
 
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
 
-    // This three fields are copied from OlapScanLocalState.
+    // This field is copied from OlapScanLocalState.
     std::map<SlotId, VExprContextSPtr> _slot_id_to_virtual_column_expr;
-    std::map<SlotId, size_t> _slot_id_to_index_in_block;
-    std::map<SlotId, DataTypePtr> _slot_id_to_col_type;
 
     // ColumnId of virtual column to its expr context
     std::map<ColumnId, VExprContextSPtr> _virtual_column_exprs;
-    // ColumnId of virtual column to its index in block
-    std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
-    // The idx of vir_col in block to its data type.
-    std::map<size_t, DataTypePtr> _vir_col_idx_to_type;
     std::shared_ptr<ScoreRuntime> _score_runtime;
 
     std::shared_ptr<segment_v2::AnnTopNRuntime> _ann_topn_runtime;

@@ -22,9 +22,13 @@ import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.properties.DataTrait;
@@ -45,7 +49,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
@@ -55,7 +58,10 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -98,13 +104,23 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
     @Test
     public void testOlapPrune() throws Exception {
         LogicalProperties placeHolder = Mockito.mock(LogicalProperties.class);
-        OlapTable t1 = PlanConstructor.newOlapTable(0, "t1", 0, KeysType.AGG_KEYS);
+        List<Column> columns = ImmutableList.of(
+                new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
+                new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
+                new Column("value", Type.INT, false, AggregateType.SUM, "0", ""));
+        OlapTable t1 = new OlapTable(0, "t1", columns, KeysType.AGG_KEYS, new PartitionInfo(),
+                new HashDistributionInfo(3, ImmutableList.of(columns.get(0))));
+        t1.setIndexMeta(-1, "t1", t1.getFullSchema(), 0, 0, (short) 0, TStorageType.COLUMN,
+                KeysType.AGG_KEYS);
         List<String> qualifier = new ArrayList<>();
         qualifier.add("test");
         List<Slot> t1Output = new ArrayList<>();
-        SlotReference col1 = new SlotReference("col1", IntegerType.INSTANCE);
-        SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE);
-        SlotReference col3 = new SlotReference("col2", IntegerType.INSTANCE);
+        SlotReference col1 = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(),
+                t1, t1.getBaseSchema().get(0), qualifier);
+        SlotReference col2 = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(),
+                t1, t1.getBaseSchema().get(1), qualifier);
+        SlotReference col3 = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(),
+                t1, t1.getBaseSchema().get(2), qualifier);
         t1Output.add(col1);
         t1Output.add(col2);
         t1Output.add(col3);
@@ -128,17 +144,45 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         Expression t1FilterExpr = new GreaterThan(col1, t1FilterRight);
         PhysicalFilter<PhysicalOlapScan> filter =
                 new PhysicalFilter<>(ImmutableSet.of(t1FilterExpr), placeHolder, scan);
-        List<NamedExpression> projList = new ArrayList<>();
-        projList.add(col2);
-        PhysicalProject<PhysicalFilter<PhysicalOlapScan>> project = new PhysicalProject<>(projList,
+        List<NamedExpression> filterProjectList = new ArrayList<>();
+        filterProjectList.add(col2);
+        PhysicalProject<PhysicalFilter<PhysicalOlapScan>> filterProject = new PhysicalProject<>(filterProjectList,
                 placeHolder, filter);
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(planTranslatorContext, null);
-        PlanFragment fragment = translator.visitPhysicalProject(project, planTranslatorContext);
+        PlanFragment fragment = translator.visitPhysicalProject(filterProject, planTranslatorContext);
         PlanNode planNode = fragment.getPlanRoot();
         List<OlapScanNode> scanNodeList = new ArrayList<>();
         planNode.collect(OlapScanNode.class, scanNodeList);
         Assertions.assertEquals(2, scanNodeList.get(0).getTupleDesc().getSlots().size());
+        Assertions.assertTrue(scanNodeList.get(0).getExtraKeyColumnSlotIds().isEmpty());
+
+        List<NamedExpression> extraKeyProjectList = new ArrayList<>();
+        extraKeyProjectList.add(col2);
+        PhysicalProject<PhysicalOlapScan> extraKeyProject = new PhysicalProject<>(extraKeyProjectList,
+                placeHolder, scan);
+        PlanTranslatorContext extraKeyPlanTranslatorContext = new PlanTranslatorContext();
+        PhysicalPlanTranslator extraKeyTranslator = new PhysicalPlanTranslator(extraKeyPlanTranslatorContext, null);
+        PlanFragment extraKeyFragment = extraKeyTranslator.visitPhysicalProject(extraKeyProject,
+                extraKeyPlanTranslatorContext);
+        List<OlapScanNode> extraKeyScanNodeList = new ArrayList<>();
+        extraKeyFragment.getPlanRoot().collect(OlapScanNode.class, extraKeyScanNodeList);
+        OlapScanNode extraKeyScanNode = extraKeyScanNodeList.get(0);
+        Assertions.assertEquals(2, extraKeyScanNode.getTupleDesc().getSlots().size());
+        Assertions.assertEquals("id", extraKeyScanNode.getTupleDesc().getSlots().get(0).getColumn().getName());
+        Assertions.assertEquals("name", extraKeyScanNode.getTupleDesc().getSlots().get(1).getColumn().getName());
+        Assertions.assertEquals(1, extraKeyScanNode.getOutputTupleDesc().getSlots().size());
+        Assertions.assertEquals("name", extraKeyScanNode.getOutputTupleDesc().getSlots().get(0).getColumn().getName());
+        Assertions.assertEquals(1, extraKeyScanNode.getProjectList().size());
+
+        int extraKeySlotId = extraKeyScanNode.getTupleDesc().getSlots().get(0).getId().asInt();
+        Assertions.assertEquals(ImmutableSet.of(extraKeySlotId), extraKeyScanNode.getExtraKeyColumnSlotIds());
+        Assertions.assertTrue(extraKeyScanNode.getNodeExplainString("", TExplainLevel.NORMAL)
+                .contains("EXTRA KEY COLUMNS: id"));
+        TPlanNode thriftScanNode = extraKeyScanNode.treeToThrift().getNodes().get(0);
+        Assertions.assertTrue(thriftScanNode.olap_scan_node.isSetExtraKeyColumnSlotIds());
+        Assertions.assertEquals(ImmutableSet.of(extraKeySlotId),
+                thriftScanNode.olap_scan_node.getExtraKeyColumnSlotIds());
     }
 
     @Test

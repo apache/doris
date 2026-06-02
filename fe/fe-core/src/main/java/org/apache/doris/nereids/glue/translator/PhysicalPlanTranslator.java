@@ -36,6 +36,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.TableIf;
@@ -1006,6 +1007,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), olapScan);
         return planFragment;
+    }
+
+    private long getSelectedIndexId(OlapScanNode scanNode) {
+        return scanNode.getSelectedIndexId() == -1
+                ? scanNode.getOlapTable().getBaseIndexId()
+                : scanNode.getSelectedIndexId();
+    }
+
+    private boolean shouldAlignStorageKeySlots(OlapTable olapTable, long selectedIndexId) {
+        KeysType keysType = olapTable.getIndexMetaByIndexId(selectedIndexId).getKeysType();
+        return keysType == KeysType.AGG_KEYS
+                || (keysType == KeysType.UNIQUE_KEYS && !olapTable.getEnableUniqueKeyMergeOnWrite());
     }
 
     private void translateRuntimeFilter(PhysicalRelation physicalRelation, ScanNode scanNode,
@@ -2919,6 +2932,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Set<SlotId> scanIds = lazyScan.getOutput().stream().map(NamedExpression::getExprId)
                 .map(context::findSlotRef).filter(Objects::nonNull).map(SlotRef::getSlotId)
                 .collect(Collectors.toSet());
+        preserveExtraStorageKeySlots(olapScanNode, scanIds);
 
         olapScanNode.getTupleDesc().getSlots().removeIf(slot -> !scanIds.contains(slot.getId()));
         context.createSlotDesc(olapScanNode.getTupleDesc(), lazyScan.getRowId());
@@ -2929,6 +2943,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         translateRuntimeFilter(lazyScan, olapScanNode, context);
+
+        if (!olapScanNode.getExtraKeyColumnSlotIds().isEmpty()) {
+            // Extra storage keys stay in the scan tuple for storage semantics, but the lazy-scan
+            // output must still match lazyScan.getOutput(). Keep a projection to hide those keys
+            // from parent operators.
+            List<Expr> projectionExprs = lazyScan.getOutput().stream()
+                    .map(slot -> context.findSlotRef(slot.getExprId()))
+                    .collect(Collectors.toList());
+            TupleDescriptor projectionTuple = generateTupleDesc(lazyScan.getOutput(), lazyScan.getTable(), context);
+            olapScanNode.setProjectList(projectionExprs);
+            olapScanNode.setOutputTupleDesc(projectionTuple);
+        }
 
         return planFragment;
     }
@@ -3002,6 +3028,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .collect(Collectors.toSet());
             requiredWithVirtualColumns.addAll(virtualColumnInputSlotIds);
         }
+        if (scanNode instanceof OlapScanNode) {
+            preserveExtraStorageKeySlots((OlapScanNode) scanNode, requiredWithVirtualColumns);
+        }
         // Find the smallest column, for count(*) or other situation that slot is empty after prune
         SlotDescriptor smallest = getSmallestSlot(scanNode.getTupleDesc().getSlots());
         scanNode.getTupleDesc().getSlots().removeIf(s -> !requiredWithVirtualColumns.contains(s.getId()));
@@ -3019,6 +3048,30 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
             context.removeScanFromStatsUnknownColumnsMap(scanNode);
         }
+    }
+
+    private void preserveExtraStorageKeySlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds) {
+        if (!shouldPreserveStorageKeySlots(scanNode)) {
+            return;
+        }
+        for (SlotDescriptor slot : scanNode.getTupleDesc().getSlots()) {
+            Column column = slot.getColumn();
+            if (column == null || !column.isKey()) {
+                // OLAP scan tuples follow the storage schema, where key columns form the prefix.
+                break;
+            }
+            if (!requiredSlotIds.contains(slot.getId())) {
+                scanNode.getExtraKeyColumnSlotIds().add(slot.getId().asInt());
+                requiredSlotIds.add(slot.getId());
+            }
+        }
+    }
+
+    private boolean shouldPreserveStorageKeySlots(OlapScanNode scanNode) {
+        if (scanNode.isIncrementalScan()) {
+            return false;
+        }
+        return shouldAlignStorageKeySlots(scanNode.getOlapTable(), getSelectedIndexId(scanNode));
     }
 
     /**

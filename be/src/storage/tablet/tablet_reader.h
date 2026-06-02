@@ -158,6 +158,12 @@ public:
         std::vector<ColumnId> return_columns;
         // output_columns only contain columns in OrderByExprs and outputExprs
         std::set<int32_t> output_columns;
+        // Extra storage key columns that are present only for scan-schema alignment.
+        // Example: for AGG keys (k1, k2), a query that returns k2 can scan
+        // (k1, k2) and project away k1. Direct readers may avoid reading such
+        // columns only if the lower iterator proves their real values are not
+        // required by predicates, delete conditions, or expressions.
+        std::set<ColumnId> extra_columns;
         RuntimeProfile* profile = nullptr;
         RuntimeState* runtime_state = nullptr;
 
@@ -209,8 +215,6 @@ public:
         int64_t batch_size = -1;
 
         std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
-        std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
-        std::map<size_t, DataTypePtr> vir_col_idx_to_type;
 
         std::shared_ptr<ScoreRuntime> score_runtime;
         CollectionStatisticsPtr collection_statistics;
