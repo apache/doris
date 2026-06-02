@@ -187,7 +187,6 @@ static VExprSPtr rewrite_literal_to_file_type(const VExprSPtr& literal_expr,
                                                    original_literal->data_type(), original_field);
 }
 
-// TODO: rewrite InPredicate
 static bool rewrite_binary_slot_literal_predicate(
         const VExprSPtr& expr,
         const std::map<int32_t, FileSlotRewriteInfo>& table_column_to_file_slot) {
@@ -227,6 +226,51 @@ static bool rewrite_binary_slot_literal_predicate(
     return true;
 }
 
+static bool rewrite_in_slot_literal_predicate(
+        const VExprSPtr& expr,
+        const std::map<int32_t, FileSlotRewriteInfo>& table_column_to_file_slot) {
+    if (expr->node_type() != TExprNodeType::IN_PRED || expr->get_num_children() < 2) {
+        return false;
+    }
+    auto children = expr->children();
+    const VSlotRef* slot_ref = nullptr;
+    const FileSlotRewriteInfo* rewrite_info =
+            find_slot_rewrite_info(children[0], table_column_to_file_slot, &slot_ref);
+    if (rewrite_info == nullptr || slot_ref == nullptr) {
+        return false;
+    }
+
+    VExprSPtrs rewritten_literals;
+    rewritten_literals.reserve(children.size() - 1);
+    for (size_t child_idx = 1; child_idx < children.size(); ++child_idx) {
+        auto literal_expr =
+                unwrap_literal_for_file_cast(children[child_idx], rewrite_info->table_type);
+        if (literal_expr == nullptr) {
+            return false;
+        }
+        auto rewritten_literal = rewrite_literal_to_file_type(literal_expr, *rewrite_info);
+        if (rewritten_literal == nullptr) {
+            for (size_t restore_idx = 1; restore_idx < children.size(); ++restore_idx) {
+                auto restore_literal = unwrap_literal_for_file_cast(children[restore_idx],
+                                                                    rewrite_info->table_type);
+                if (restore_literal != nullptr) {
+                    children[restore_idx] = original_table_literal(restore_literal);
+                }
+            }
+            expr->set_children(std::move(children));
+            return false;
+        }
+        rewritten_literals.push_back(std::move(rewritten_literal));
+    }
+
+    children[0] = create_file_slot_ref(*slot_ref, *rewrite_info);
+    for (size_t literal_idx = 0; literal_idx < rewritten_literals.size(); ++literal_idx) {
+        children[literal_idx + 1] = std::move(rewritten_literals[literal_idx]);
+    }
+    expr->set_children(std::move(children));
+    return true;
+}
+
 static VExprSPtr rewrite_table_expr_to_file_expr(
         const VExprSPtr& expr,
         const std::map<int32_t, FileSlotRewriteInfo>& table_column_to_file_slot) {
@@ -234,6 +278,9 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
         return nullptr;
     }
     if (rewrite_binary_slot_literal_predicate(expr, table_column_to_file_slot)) {
+        return expr;
+    }
+    if (rewrite_in_slot_literal_predicate(expr, table_column_to_file_slot)) {
         return expr;
     }
     if (expr->is_slot_ref()) {
