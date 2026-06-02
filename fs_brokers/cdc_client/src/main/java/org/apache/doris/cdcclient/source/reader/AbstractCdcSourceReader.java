@@ -70,7 +70,8 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
 
     @Override
     public synchronized void release(JobBaseConfig jobConfig) {
-        // Stop the engine but keep source-side state (e.g. the PG replication slot) for another backend to take over.
+        // Stop the engine but keep source-side state (e.g. the PG replication slot) for another
+        // backend to take over.
         LOG.info("Release source reader for job {}", jobConfig.getJobId());
         finishSplitRecords();
     }

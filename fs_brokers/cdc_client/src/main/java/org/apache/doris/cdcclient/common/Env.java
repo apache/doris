@@ -87,7 +87,9 @@ public class Env {
         }
     }
 
-    /** Return the reader only if {@code taskId} still owns it, else null (stale release -> no-op). */
+    /**
+     * Return the reader only if {@code taskId} still owns it, else null (stale release -> no-op).
+     */
     public SourceReader getReaderIfOwner(String jobId, String taskId) {
         JobContext context = jobContexts.get(jobId);
         if (context == null) {

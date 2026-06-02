@@ -480,7 +480,8 @@ public class PipelineCoordinator {
                 if (!recordIterator.hasNext()) {
                     Thread.sleep(100);
 
-                    // Stream-split setup stuck (WAL search / idle): bail out; snapshot has its own completion logic.
+                    // Stream-split setup stuck (WAL search / idle): bail out; snapshot has its own
+                    // completion logic.
                     if (!isSnapshotSplit
                             && streamingStartTime < 0
                             && searchTimeoutMs > 0

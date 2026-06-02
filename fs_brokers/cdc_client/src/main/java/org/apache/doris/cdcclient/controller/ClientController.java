@@ -147,7 +147,10 @@ public class ClientController {
         // Only the owning task may release; a stale RPC must not interrupt the replacement task.
         SourceReader reader = env.getReaderIfOwner(jobConfig.getJobId(), taskId);
         if (reader == null) {
-            LOG.info("No owned reader for job {} task {}, skip release", jobConfig.getJobId(), taskId);
+            LOG.info(
+                    "No owned reader for job {} task {}, skip release",
+                    jobConfig.getJobId(),
+                    taskId);
             return RestResponse.success(true);
         }
         reader.release(jobConfig);
