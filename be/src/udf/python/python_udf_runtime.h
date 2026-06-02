@@ -18,6 +18,7 @@
 #pragma once
 
 #include <boost/process.hpp>
+#include <chrono>
 
 #include "udf/python/python_env.h"
 
@@ -75,6 +76,11 @@ public:
 
     void shutdown();
 
+    enum class ChildExitWaitResult { EXITED, ALREADY_REAPED, TIMEOUT, ERROR };
+
+    static ChildExitWaitResult wait_child_exit(pid_t pid, std::chrono::milliseconds timeout,
+                                               int* exit_status);
+
     std::string to_string() const;
 
     pid_t get_child_pid() const { return _child_pid; }
@@ -88,7 +94,6 @@ public:
 #endif
 
 private:
-    constexpr static int TERMINATE_RETRY_TIMES = 10;
     constexpr static size_t MAX_ACCUMULATED_LOG_SIZE = 65536;
 
     bool _is_shutdown {false};

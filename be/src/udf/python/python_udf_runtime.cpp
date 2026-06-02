@@ -18,14 +18,46 @@
 #include "udf/python/python_udf_runtime.h"
 
 #include <butil/fd_utility.h>
+#include <signal.h>
+#include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include <boost/process.hpp>
+#include <cerrno>
+#include <chrono>
+#include <thread>
 
 #include "common/logging.h"
 
 namespace doris {
+
+PythonUDFProcess::ChildExitWaitResult PythonUDFProcess::wait_child_exit(
+        pid_t pid, std::chrono::milliseconds timeout, int* exit_status) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (true) {
+        pid_t ret = waitpid(pid, exit_status, WNOHANG);
+        if (ret == pid) {
+            return ChildExitWaitResult::EXITED;
+        }
+        if (ret < 0) {
+            if (errno == EINTR) {
+                // retry if interrupted
+                continue;
+            }
+            // Another owner may already have observed the child exit through boost::process.
+            if (errno == ECHILD) {
+                return ChildExitWaitResult::ALREADY_REAPED;
+            }
+            LOG(WARNING) << "Failed to wait Python process pid=" << pid << ": " << strerror(errno);
+            return ChildExitWaitResult::ERROR;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return ChildExitWaitResult::TIMEOUT;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+}
 
 void PythonUDFProcess::remove_unix_socket() {
     if (_uri.empty() || _unix_socket_file_path.empty()) return;
@@ -47,29 +79,51 @@ void PythonUDFProcess::remove_unix_socket() {
 void PythonUDFProcess::shutdown() {
     if (!_child.valid() || _is_shutdown) return;
 
-    _child.terminate();
-    bool graceful = false;
-    constexpr std::chrono::milliseconds retry_interval(100); // 100ms
-
-    for (int i = 0; i < TERMINATE_RETRY_TIMES; ++i) {
-        if (!_child.running()) {
-            graceful = true;
-            break;
-        }
-        std::this_thread::sleep_for(retry_interval);
-    }
-
-    if (!graceful) {
-        LOG(WARNING) << "Python process did not terminate gracefully, sending SIGKILL";
-        ::kill(_child_pid, SIGKILL);
-        _child.wait();
-    }
-
-    if (int exit_code = _child.exit_code(); exit_code > 128 && exit_code <= 255) {
-        int signal = exit_code - 128;
-        LOG(INFO) << "Python process was killed by signal " << signal;
+    constexpr std::chrono::milliseconds terminate_timeout(1000);
+    int exit_status = 0;
+    bool exited = !_child.running();
+    bool status_available = false;
+    bool already_reaped = false;
+    if (!exited) {
+        ::kill(_child_pid, SIGTERM);
+        auto wait_result = wait_child_exit(_child_pid, terminate_timeout, &exit_status);
+        exited = wait_result == ChildExitWaitResult::EXITED ||
+                 wait_result == ChildExitWaitResult::ALREADY_REAPED;
+        status_available = wait_result == ChildExitWaitResult::EXITED;
+        already_reaped = wait_result == ChildExitWaitResult::ALREADY_REAPED;
     } else {
-        LOG(INFO) << "Python process exited normally with code: " << exit_code;
+        auto wait_result = wait_child_exit(_child_pid, std::chrono::milliseconds(0), &exit_status);
+        status_available = wait_result == ChildExitWaitResult::EXITED;
+        already_reaped = wait_result == ChildExitWaitResult::ALREADY_REAPED;
+    }
+
+    if (!exited) {
+        LOG(WARNING) << "Python process did not terminate gracefully, sending SIGKILL, pid="
+                     << _child_pid;
+        ::kill(_child_pid, SIGKILL);
+        auto wait_result = wait_child_exit(_child_pid, terminate_timeout, &exit_status);
+        exited = wait_result == ChildExitWaitResult::EXITED ||
+                 wait_result == ChildExitWaitResult::ALREADY_REAPED;
+        status_available = wait_result == ChildExitWaitResult::EXITED;
+        already_reaped = wait_result == ChildExitWaitResult::ALREADY_REAPED;
+    }
+    _child.detach();
+
+    if (!exited) [[unlikely]] {
+        LOG(WARNING) << "Python process did not exit after SIGKILL, detach child handle, pid="
+                     << _child_pid;
+    } else if (already_reaped) {
+        LOG(INFO) << "Python process already reaped by another owner, pid=" << _child_pid;
+    } else if (!status_available) {
+        LOG(INFO) << "Python process exited but exit status is unavailable, pid=" << _child_pid;
+    } else {
+        if (WIFSIGNALED(exit_status)) {
+            LOG(INFO) << "Python process was killed by signal " << WTERMSIG(exit_status);
+        } else if (WIFEXITED(exit_status)) {
+            LOG(INFO) << "Python process exited normally with code: " << WEXITSTATUS(exit_status);
+        } else {
+            LOG(INFO) << "Python process exited";
+        }
     }
 
     _output_stream.close();
