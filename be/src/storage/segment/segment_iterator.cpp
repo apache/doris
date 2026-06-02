@@ -51,7 +51,6 @@
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
-#include "core/column/predicate_column.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
@@ -2502,15 +2501,14 @@ void SegmentIterator::_update_lsn_col_if_needed(const std::vector<ColumnId>& col
     const Int64 commit_tso = _opts.commit_tso.end_tso() == -1 ? 0 : _opts.commit_tso.end_tso();
 
     if (_is_pred_column[lsn_col_idx]) {
-        auto* lsn_column = assert_cast<PredicateColumnType<TYPE_LARGEINT>*>(
-                _current_return_columns[lsn_col_idx].get());
+        auto* lsn_column = assert_cast<ColumnInt128*>(_current_return_columns[lsn_col_idx].get());
         std::vector<Int128> binlog_lsns;
         binlog_lsns.reserve(num_rows);
         for (size_t j = 0; j < num_rows; j++) {
             const Int128 row_id = lsn_column->get_data()[j];
             binlog_lsns.emplace_back(make_row_binlog_lsn(commit_tso, row_id));
         }
-        _current_return_columns[lsn_col_idx]->clear();
+        lsn_column->clear();
         for (const auto& binlog_lsn : binlog_lsns) {
             lsn_column->insert_data(reinterpret_cast<const char*>(&binlog_lsn), 0);
         }
@@ -2564,9 +2562,8 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
             return;
         }
 
-        auto* tso_column = assert_cast<PredicateColumnType<TYPE_BIGINT>*>(
-                _current_return_columns[tso_col_idx].get());
-        _current_return_columns[tso_col_idx]->clear();
+        auto* tso_column = assert_cast<ColumnInt64*>(_current_return_columns[tso_col_idx].get());
+        tso_column->clear();
         auto value = commit_tso;
         for (size_t j = 0; j < num_rows; j++) {
             tso_column->insert_data(reinterpret_cast<const char*>(&value), 0);

@@ -148,6 +148,20 @@ public:
         memset(data.data() + old_size, 0, length * sizeof(data[0]));
     }
 
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
+        Self* output = assert_cast<Self*>(col_ptr);
+        auto& res_data = output->get_data();
+        DCHECK(res_data.empty())
+                << "filter_by_selector requires the destination column to be empty";
+        res_data.reserve(sel_size);
+        auto* dst = reinterpret_cast<value_type*>(res_data.get_end_ptr());
+        for (size_t i = 0; i < sel_size; i++) {
+            dst[i] = data[sel[i]];
+        }
+        res_data.resize(sel_size);
+        return Status::OK();
+    }
+
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     void pop_back(size_t n) override { data.resize_assume_reserved(data.size() - n); }

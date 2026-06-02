@@ -17,7 +17,7 @@
 
 #include "storage/predicate/like_column_predicate.h"
 
-#include "core/column/predicate_column.h"
+#include "core/column/column_string.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/string_ref.h"
 #include "exprs/function/like.h"
@@ -80,7 +80,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t
                 }
             }
         } else {
-            auto* str_col = assert_cast<const PredicateColumnType<T>*>(&nested_col);
+            auto* str_col = assert_cast<const ColumnString*>(&nested_col);
             if (!nullable_col->has_null()) {
                 ColumnUInt8::Container res(size, 0);
                 for (uint16_t i = 0; i != size; i++) {
@@ -121,7 +121,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t
                 new_size += _opposite ^ flag;
             }
         } else {
-            const auto* str_col = assert_cast<const PredicateColumnType<T>*>(&column);
+            const auto* str_col = assert_cast<const ColumnString*>(&column);
 
             ColumnUInt8::Container res(size, 0);
             for (uint16_t i = 0; i != size; i++) {

@@ -26,11 +26,13 @@
 
 #include "common/config.h"
 #include "core/column/column_array.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_dictionary.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_struct.h"
-#include "core/column/predicate_column.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
@@ -94,49 +96,49 @@ IColumn::MutablePtr Schema::get_predicate_column_ptr(const FieldType& type, bool
     IColumn::MutablePtr ptr = nullptr;
     switch (type) {
     case FieldType::OLAP_FIELD_TYPE_BOOL:
-        ptr = doris::PredicateColumnType<TYPE_BOOLEAN>::create();
+        ptr = PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnType::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_TINYINT:
-        ptr = doris::PredicateColumnType<TYPE_TINYINT>::create();
+        ptr = PrimitiveTypeTraits<TYPE_TINYINT>::ColumnType::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_SMALLINT:
-        ptr = doris::PredicateColumnType<TYPE_SMALLINT>::create();
+        ptr = PrimitiveTypeTraits<TYPE_SMALLINT>::ColumnType::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_INT:
-        ptr = doris::PredicateColumnType<TYPE_INT>::create();
+        ptr = PrimitiveTypeTraits<TYPE_INT>::ColumnType::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_FLOAT:
-        ptr = doris::PredicateColumnType<TYPE_FLOAT>::create();
+        ptr = PrimitiveTypeTraits<TYPE_FLOAT>::ColumnType::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_DOUBLE:
-        ptr = doris::PredicateColumnType<TYPE_DOUBLE>::create();
+        ptr = PrimitiveTypeTraits<TYPE_DOUBLE>::ColumnType::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_BIGINT:
-        ptr = doris::PredicateColumnType<TYPE_BIGINT>::create();
+        ptr = PrimitiveTypeTraits<TYPE_BIGINT>::ColumnType::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_LARGEINT:
-        ptr = doris::PredicateColumnType<TYPE_LARGEINT>::create();
+        ptr = PrimitiveTypeTraits<TYPE_LARGEINT>::ColumnType::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_DATE:
-        ptr = doris::PredicateColumnType<TYPE_DATE>::create();
+        ptr = PrimitiveTypeTraits<TYPE_DATE>::ColumnType::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_DATEV2:
-        ptr = doris::PredicateColumnType<TYPE_DATEV2>::create();
+        ptr = PrimitiveTypeTraits<TYPE_DATEV2>::ColumnType::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
-        ptr = doris::PredicateColumnType<TYPE_DATETIMEV2>::create();
+        ptr = PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnType::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_DATETIME:
-        ptr = doris::PredicateColumnType<TYPE_DATETIME>::create();
+        ptr = PrimitiveTypeTraits<TYPE_DATETIME>::ColumnType::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
-        ptr = doris::PredicateColumnType<TYPE_TIMESTAMPTZ>::create();
+        ptr = PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::ColumnType::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_CHAR:
         if (config::enable_low_cardinality_optimize && reader_type == ReaderType::READER_QUERY) {
             ptr = doris::ColumnDictI32::create(type);
         } else {
-            ptr = doris::PredicateColumnType<TYPE_CHAR>::create();
+            ptr = PrimitiveTypeTraits<TYPE_CHAR>::ColumnType::create();
         }
         break;
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
@@ -145,29 +147,31 @@ IColumn::MutablePtr Schema::get_predicate_column_ptr(const FieldType& type, bool
         if (config::enable_low_cardinality_optimize && reader_type == ReaderType::READER_QUERY) {
             ptr = doris::ColumnDictI32::create(type);
         } else {
-            ptr = doris::PredicateColumnType<TYPE_STRING>::create();
+            ptr = PrimitiveTypeTraits<TYPE_STRING>::ColumnType::create();
         }
         break;
+    // ColumnDecimal constructor needs (size, scale); scale is not consulted by
+    // predicate eval (compares raw value buffers), pass (0, 0).
     case FieldType::OLAP_FIELD_TYPE_DECIMAL:
-        ptr = doris::PredicateColumnType<TYPE_DECIMALV2>::create();
+        ptr = PrimitiveTypeTraits<TYPE_DECIMALV2>::ColumnType::create(0, 0);
         break;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
-        ptr = doris::PredicateColumnType<TYPE_DECIMAL32>::create();
+        ptr = PrimitiveTypeTraits<TYPE_DECIMAL32>::ColumnType::create(0, 0);
         break;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
-        ptr = doris::PredicateColumnType<TYPE_DECIMAL64>::create();
+        ptr = PrimitiveTypeTraits<TYPE_DECIMAL64>::ColumnType::create(0, 0);
         break;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
-        ptr = doris::PredicateColumnType<TYPE_DECIMAL128I>::create();
+        ptr = PrimitiveTypeTraits<TYPE_DECIMAL128I>::ColumnType::create(0, 0);
         break;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
-        ptr = doris::PredicateColumnType<TYPE_DECIMAL256>::create();
+        ptr = PrimitiveTypeTraits<TYPE_DECIMAL256>::ColumnType::create(0, 0);
         break;
     case FieldType::OLAP_FIELD_TYPE_IPV4:
-        ptr = doris::PredicateColumnType<TYPE_IPV4>::create();
+        ptr = PrimitiveTypeTraits<TYPE_IPV4>::ColumnType::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_IPV6:
-        ptr = doris::PredicateColumnType<TYPE_IPV6>::create();
+        ptr = PrimitiveTypeTraits<TYPE_IPV6>::ColumnType::create();
         break;
     default:
         throw Exception(
