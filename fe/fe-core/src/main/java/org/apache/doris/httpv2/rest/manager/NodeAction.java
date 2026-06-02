@@ -27,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.ha.FrontendNodeType;
@@ -240,7 +241,7 @@ public class NodeAction extends RestBaseController {
     }
 
     private static List<String> getFeList() {
-        int port = Config.enable_https ? Config.https_port : Config.http_port;
+        int port = HttpURLUtil.getHttpPort();
         return Env.getCurrentEnv().getFrontends(null).stream()
                 .map(fe -> NetUtils.getHostPortInAccessibleFormat(fe.getHost(), port))
                 .collect(Collectors.toList());
@@ -502,7 +503,7 @@ public class NodeAction extends RestBaseController {
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
         List<Pair<String, Integer>> aliveFe = Env.getCurrentEnv().getFrontends(null).stream().filter(Frontend::isAlive)
                 .map(fe -> Pair.of(fe.getHost(),
-                        Config.enable_https ? Config.https_port : Config.http_port)).collect(Collectors.toList());
+                        HttpURLUtil.getHttpPort())).collect(Collectors.toList());
         checkNodeIsAlive(nodeConfigList, aliveFe, failedTotal);
 
         Map<String, String> header = Maps.newHashMap();

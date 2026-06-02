@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest.manager;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.InternalHttpsUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.httpv2.entity.ResponseBody;
@@ -61,7 +62,7 @@ public class HttpUtils {
     static final int DEFAULT_TIME_OUT_MS = 2000;
 
     public static List<Pair<String, Integer>> getFeList() {
-        int port = Config.enable_https ? Config.https_port : Config.http_port;
+        int port = HttpURLUtil.getHttpPort();
         return Env.getCurrentEnv().getFrontends(null)
                 .stream().filter(Frontend::isAlive).map(fe -> Pair.of(fe.getHost(), port))
                 .collect(Collectors.toList());
@@ -70,7 +71,7 @@ public class HttpUtils {
     static boolean isCurrentFe(String ip, int port) {
         HostInfo hostInfo = Env.getCurrentEnv().getSelfNode();
         // Compare against the actual HTTP/HTTPS port, not the edit_log_port held by selfNode.
-        int selfPort = Config.enable_https ? Config.https_port : Config.http_port;
+        int selfPort = HttpURLUtil.getHttpPort();
         return hostInfo.getHost().equals(ip) && selfPort == port;
     }
 

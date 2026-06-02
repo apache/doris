@@ -228,7 +228,7 @@ public class Checkpoint extends MasterDaemon {
                     // skip master itself
                     continue;
                 }
-                int port = Config.enable_https ? Config.https_port : Config.http_port;
+                int port = HttpURLUtil.getHttpPort();
 
                 String queryParams = "version=" + replayedJournalId + "&port=" + port;
                 String url = HttpURLUtil.buildInternalFeUrl(host, "/put", queryParams);
@@ -304,7 +304,7 @@ public class Checkpoint extends MasterDaemon {
                                 minOtherNodesJournalId = id;
                             }
                         } catch (Throwable e) {
-                            int port = Config.enable_https ? Config.https_port : Config.http_port;
+                            int port = HttpURLUtil.getHttpPort();
                             throw new CheckpointException(String.format("Exception when getting current replayed"
                                     + " journal id. host=%s, port=%d", host, port), e);
                         } finally {

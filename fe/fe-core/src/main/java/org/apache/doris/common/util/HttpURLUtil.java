@@ -68,9 +68,13 @@ public class HttpURLUtil {
         return headers;
     }
 
+    public static int getHttpPort() {
+        return Config.enable_https ? Config.https_port : Config.http_port;
+    }
+
     public static String buildInternalFeUrl(String host, String path, String queryParams) {
         String protocol = Config.enable_https ? "https" : "http";
-        int port = Config.enable_https ? Config.https_port : Config.http_port;
+        int port = getHttpPort();
 
         String url = protocol + "://" + NetUtils.getHostPortInAccessibleFormat(host, port) + path;
         if (queryParams != null && !queryParams.isEmpty()) {
