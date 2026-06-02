@@ -68,6 +68,13 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
 
     private final Map<String, Class<?>> splitKeyClassCache = new ConcurrentHashMap<>();
 
+    @Override
+    public synchronized void release(JobBaseConfig jobConfig) {
+        // Stop the engine but keep source-side state (e.g. the PG replication slot) for another backend to take over.
+        LOG.info("Release source reader for job {}", jobConfig.getJobId());
+        finishSplitRecords();
+    }
+
     protected abstract Class<?> probeSplitKeyClass(
             TableId tableId, Column splitColumn, JobBaseConfig jobConfig);
 

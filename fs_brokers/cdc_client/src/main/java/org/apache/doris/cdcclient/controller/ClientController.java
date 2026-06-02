@@ -138,6 +138,22 @@ public class ClientController {
         return RestResponse.success(true);
     }
 
+    /** Release a job's reader on this backend: stop engine, keep the replication slot. */
+    @RequestMapping(path = "/api/releaseReader", method = RequestMethod.POST)
+    public Object releaseReader(@RequestBody JobBaseConfig jobConfig) {
+        LOG.info("Releasing reader (keep slot) for job {}", jobConfig.getJobId());
+        Env env = Env.getCurrentEnv();
+        SourceReader reader = env.getReaderIfPresent(jobConfig.getJobId());
+        if (reader == null) {
+            LOG.info("No reader present for job {}, skip release", jobConfig.getJobId());
+            return RestResponse.success(true);
+        }
+        reader.release(jobConfig);
+        env.close(jobConfig.getJobId());
+        pipelineCoordinator.closeJobStreamLoad(jobConfig.getJobId());
+        return RestResponse.success(true);
+    }
+
     /** get task fail reason */
     @RequestMapping(path = "/api/getFailReason/{taskId}", method = RequestMethod.POST)
     public Object getFailReason(@PathVariable("taskId") String taskId) {

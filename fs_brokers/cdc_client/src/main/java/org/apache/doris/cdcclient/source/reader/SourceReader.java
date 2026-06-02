@@ -79,6 +79,9 @@ public interface SourceReader {
     /** Called when closing */
     void close(JobBaseConfig jobConfig);
 
+    /** Stop the reader engine and free its replication-slot connection, but keep the slot itself. */
+    void release(JobBaseConfig jobConfig);
+
     DeserializeResult deserialize(Map<String, String> config, SourceRecord element)
             throws IOException;
 

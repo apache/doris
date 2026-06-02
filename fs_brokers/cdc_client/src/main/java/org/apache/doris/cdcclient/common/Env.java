@@ -73,6 +73,12 @@ public class Env {
         return manager.getOrCreateReader(jobConfig.getJobId(), ds, jobConfig.getConfig());
     }
 
+    /** Return the reader only if already created, else null (never creates one). */
+    public SourceReader getReaderIfPresent(String jobId) {
+        JobContext context = jobContexts.get(jobId);
+        return context == null ? null : context.reader;
+    }
+
     private DataSource resolveDataSource(String source) {
         if (source == null || source.trim().isEmpty()) {
             throw new IllegalArgumentException("Missing dataSource");
