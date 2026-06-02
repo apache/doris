@@ -442,10 +442,11 @@ public class PipelineCoordinator {
         Map<String, String> targetTableMappings =
                 ConfigUtil.parseAllTargetTableMappings(writeRecordRequest.getConfig());
 
-        SourceReader sourceReader = Env.getCurrentEnv().getReader(writeRecordRequest);
-        // Claim reader ownership before the engine starts, so a stale releaseReader RPC is a no-op.
-        Env.getCurrentEnv()
-                .setReaderOwner(writeRecordRequest.getJobId(), writeRecordRequest.getTaskId());
+        // Get-or-create the reader and claim ownership atomically, so a concurrent stale
+        // releaseReader RPC cannot stop the reader this task is about to use.
+        SourceReader sourceReader =
+                Env.getCurrentEnv()
+                        .getReaderAndClaim(writeRecordRequest, writeRecordRequest.getTaskId());
         DorisBatchStreamLoad batchStreamLoad = null;
         long scannedRows = 0L;
         int heartbeatCount = 0;

@@ -144,8 +144,9 @@ public class ClientController {
             @PathVariable("taskId") String taskId, @RequestBody JobBaseConfig jobConfig) {
         LOG.info("Releasing reader (keep slot) for job {} task {}", jobConfig.getJobId(), taskId);
         Env env = Env.getCurrentEnv();
-        // Only the owning task may release; a stale RPC must not interrupt the replacement task.
-        SourceReader reader = env.getReaderIfOwner(jobConfig.getJobId(), taskId);
+        // Only the owning task may release; detach removes the context under the per-job lock so a
+        // racing claim rebuilds a fresh reader, and a stale RPC is a no-op.
+        SourceReader reader = env.detachReaderIfOwner(jobConfig.getJobId(), taskId);
         if (reader == null) {
             LOG.info(
                     "No owned reader for job {} task {}, skip release",
@@ -154,7 +155,6 @@ public class ClientController {
             return RestResponse.success(true);
         }
         reader.release(jobConfig);
-        env.close(jobConfig.getJobId());
         pipelineCoordinator.closeJobStreamLoad(jobConfig.getJobId());
         return RestResponse.success(true);
     }
