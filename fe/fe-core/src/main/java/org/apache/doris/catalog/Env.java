@@ -6673,6 +6673,9 @@ public class Env {
      */
     public void setMutableConfigWithCallback(String key, String value) throws ConfigException {
         ConfigBase.setMutableConfig(key, value);
+        if ("ldap_default_roles".equals(key)) {
+            getAuth().getLdapManager().refresh(true, null);
+        }
         if (configtoThreads.get(key) != null) {
             try {
                 // not atomic. maybe delay to aware. but acceptable.
