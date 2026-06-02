@@ -74,6 +74,7 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
                                                               int& arrived_rf_num) {
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
     LockGuard lock(_conjuncts_lock);
+    size_t conjuncts_before = _conjuncts.size();
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
                                                                    arrived_rf_num, _conjuncts));
     if (state->enable_adjust_conjunct_order_by_cost()) {
@@ -81,6 +82,14 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
             return a->execute_cost() < b->execute_cost();
         });
     };
+    // Only re-run partition pruning when try_append_late_arrival_runtime_filter
+    // actually appended new conjuncts. Otherwise this hook would re-scan all
+    // partition boundaries on every scheduler pass while there are still
+    // unapplied RFs (Scanner::_applied_rf_num is not advanced here), wasting
+    // CPU re-evaluating the same set of RFs against the same boundaries.
+    if (_conjuncts.size() > conjuncts_before) {
+        RETURN_IF_ERROR(_on_runtime_filter_update());
+    }
     return Status::OK();
 }
 
@@ -90,6 +99,37 @@ Status ScanLocalStateBase::clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjun
     scanner_conjuncts.resize(_conjuncts.size());
     for (size_t i = 0; i != _conjuncts.size(); ++i) {
         RETURN_IF_ERROR(_conjuncts[i]->clone(_state, scanner_conjuncts[i]));
+    }
+    return Status::OK();
+}
+
+bool ScanLocalStateBase::is_partition_pruned(int64_t partition_id) const {
+    return _rf_partition_pruner.is_partition_pruned(partition_id);
+}
+
+Status ScanLocalStateBase::_on_runtime_filter_update() {
+    const auto* parsed = _parent->parsed_partition_boundaries();
+    if (parsed != nullptr && !parsed->empty()) {
+        RETURN_IF_ERROR(_do_partition_pruning_by_rf());
+    }
+    return Status::OK();
+}
+
+Status ScanLocalStateBase::_do_partition_pruning_by_rf() {
+    if (!_state->query_options().enable_runtime_filter_partition_prune) {
+        return Status::OK();
+    }
+    const auto* parsed = _parent->parsed_partition_boundaries();
+    if (parsed == nullptr || parsed->empty()) {
+        return Status::OK();
+    }
+    int64_t newly_pruned = 0;
+    RETURN_IF_ERROR(_rf_partition_pruner.prune_by_runtime_filters(
+            *parsed, _conjuncts, _parent->runtime_filter_descs(), _parent->node_id(),
+            &newly_pruned));
+    if (newly_pruned > 0) {
+        COUNTER_SET(_partitions_pruned_by_rf_counter,
+                    _rf_partition_pruner.pruned_partition_count());
     }
     return Status::OK();
 }
@@ -190,7 +230,11 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
     }
+    size_t conjuncts_before = _conjuncts.size();
     RETURN_IF_ERROR(_helper.acquire_runtime_filter(state, _conjuncts, p.row_descriptor()));
+    if (_conjuncts.size() > conjuncts_before) {
+        RETURN_IF_ERROR(_on_runtime_filter_update());
+    }
 
     // Disable condition cache in topn filter valid. TODO:: Try to support the topn filter in condition cache
     if (state->query_options().condition_cache_digest && p._topn_filter_source_node_ids.empty()) {
@@ -1079,6 +1123,11 @@ Status ScanLocalState<Derived>::_init_profile() {
     _condition_cache_hit_counter = ADD_COUNTER(_scanner_profile, "ConditionCacheHit", TUnit::UNIT);
     _condition_cache_filtered_rows_counter =
             ADD_COUNTER(_scanner_profile, "ConditionCacheFilteredRows", TUnit::UNIT);
+
+    _partitions_pruned_by_rf_counter =
+            ADD_COUNTER(custom_profile(), "PartitionsPrunedByRuntimeFilter", TUnit::UNIT);
+    _total_partitions_rf_counter =
+            ADD_COUNTER(custom_profile(), "TotalPartitionsForRFPruning", TUnit::UNIT);
 
     // Rows read from storage.
     // Include the rows read from doris page cache.
