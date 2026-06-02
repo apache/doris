@@ -19,13 +19,16 @@
 
 #include <stdint.h>
 
+#include <shared_mutex>
 #include <string>
+#include <unordered_set>
 
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/scan_operator.h"
 #include "runtime/runtime_profile.h"
+#include "storage/olap_scan_common.h"
 #include "storage/tablet/tablet_reader.h"
 
 namespace doris {
@@ -328,6 +331,14 @@ private:
     std::map<SlotId, size_t> _slot_id_to_index_in_block;
     // this map is needed for scanner opening.
     std::map<SlotId, DataTypePtr> _slot_id_to_col_type;
+
+    // ---- Runtime-filter partition pruning ----
+    // Attaches this per-instance pruner to the shared parse result owned by
+    // OlapScanOperatorX (parsed once in OperatorX::prepare()). Cheap: pointer
+    // assignment plus a counter set, no parsing work.
+    void _attach_partition_boundaries();
+
+    RuntimeProfile::Counter* _tablets_pruned_by_rf_counter = nullptr;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
@@ -335,6 +346,8 @@ public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                       const DescriptorTbl& descs, int parallel_tasks,
                       const TQueryCacheParam& cache_param);
+
+    Status prepare(RuntimeState* state) override;
 
     int get_column_id(const std::string& col_name) const override {
         if (!_tablet_schema) {

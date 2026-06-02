@@ -287,7 +287,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
         }
     }
 
-    switch (tablet()->keys_type()) {
+    switch (_tablet_schema->keys_type()) {
     case KeysType::DUP_KEYS:
         _next_block_func = &BlockReader::_direct_next_block;
         break;
@@ -309,7 +309,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
         RETURN_IF_ERROR(_init_agg_state(read_params));
         break;
     default:
-        DCHECK(false) << "No next row function for type:" << tablet()->keys_type();
+        DCHECK(false) << "No next row function for type:" << _tablet_schema->keys_type();
         break;
     }
 

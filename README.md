@@ -305,7 +305,6 @@ Contact us through the following mailing list.
 
 > **Note**
 > Some licenses of the third-party dependencies are not compatible with Apache 2.0 License. So you need to disable
-some Doris features to be complied with Apache 2.0 License. For details, refer to the `thirdparty/LICENSE.txt`
-
+some Doris features to comply with Apache 2.0 License. For details, refer to the `thirdparty/LICENSE.txt`
 
 

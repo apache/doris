@@ -397,9 +397,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatchAny;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiSearchAllPositions;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364V2;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3U128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3U64V2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
@@ -2012,6 +2014,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(function, context);
     }
 
+    default R visitMurmurHash3128(MurmurHash3128 murmurHash3128, C context) {
+        return visitScalarFunction(murmurHash3128, context);
+    }
+
     default R visitMurmurHash332(MurmurHash332 murmurHash332, C context) {
         return visitScalarFunction(murmurHash332, context);
     }
@@ -2022,6 +2028,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMurmurHash364V2(MurmurHash364V2 murmurHash364V2, C context) {
         return visitScalarFunction(murmurHash364V2, context);
+    }
+
+    default R visitMurmurHash3U128(MurmurHash3U128 murmurHash3U128, C context) {
+        return visitScalarFunction(murmurHash3U128, context);
     }
 
     default R visitMurmurHash3U64V2(MurmurHash3U64V2 murmurHash3U64V2, C context) {
