@@ -121,6 +121,7 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
 
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         connectContext.getSessionVariable().setEnableQueryCache(true);
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 2;
     }
 
     @Test

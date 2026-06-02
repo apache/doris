@@ -76,4 +76,28 @@ public class SummaryProfileTest {
         Assertions.assertEquals(20, profile.getNereidsPreloadExternalMetadataTimeMs());
         Assertions.assertEquals("20ms", profile.getPrettyNereidsPreloadExternalMetadataTime());
     }
+      
+    @Test
+    public void testExternalTableMetaSummary() {
+        SummaryProfile profile = new SummaryProfile();
+        profile.addExternalTableGetTableMetaTime(2);
+        profile.addExternalTableGetPartitionValuesTime(3);
+        profile.addExternalTableGetPartitionsTime(5);
+        profile.addExternalTableGetPartitionFilesTime(7);
+        profile.addExternalTableGetFileScanTasksTime(11);
+
+        profile.update(ImmutableMap.of());
+
+        RuntimeProfile executionSummary = profile.getExecutionSummary();
+        Assertions.assertEquals("28ms", executionSummary.getInfoString(SummaryProfile.EXTERNAL_TABLE_META_TIME));
+        Assertions.assertEquals("2ms", executionSummary.getInfoString(
+                SummaryProfile.EXTERNAL_TABLE_GET_TABLE_META_TIME));
+        Assertions.assertEquals("3ms", executionSummary.getInfoString(
+                SummaryProfile.EXTERNAL_TABLE_GET_PARTITION_VALUES_TIME));
+        Assertions.assertEquals("5ms", executionSummary.getInfoString(SummaryProfile.GET_PARTITIONS_TIME));
+        Assertions.assertEquals("7ms", executionSummary.getInfoString(SummaryProfile.GET_PARTITION_FILES_TIME));
+        Assertions.assertEquals("11ms", executionSummary.getInfoString(
+                SummaryProfile.EXTERNAL_TABLE_GET_FILE_SCAN_TASKS_TIME));
+        Assertions.assertEquals(28, profile.getExternalCatalogMetaTimeMs());
+    }
 }
