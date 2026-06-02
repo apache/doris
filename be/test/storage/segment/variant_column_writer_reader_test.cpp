@@ -2827,6 +2827,76 @@ TEST_F(VariantColumnWriterReaderTest,
 }
 
 TEST_F(VariantColumnWriterReaderTest,
+       test_compaction_schema_excludes_materialized_typed_paths_from_topn_sparse_paths) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1",
+                     /*variant_max_subcolumns_count=*/1,
+                     /*is_key=*/false,
+                     /*is_nullable=*/false,
+                     /*variant_sparse_hash_shard_count=*/0,
+                     /*variant_enable_doc_mode=*/false);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+
+    auto typed_path = make_int_typed_path_template("a");
+    _tablet_schema->mutable_column_by_uid(1).add_sub_column(typed_path);
+
+    TabletIndexPB parent_index_pb;
+    construct_tablet_index(&parent_index_pb, 10008, "idx_v1",
+                           _tablet_schema->column(0).unique_id());
+    TabletIndex parent_index;
+    parent_index.init_from_pb(parent_index_pb);
+    _tablet_schema->append_index(std::move(parent_index));
+    init_tablet_from_current_schema(33012);
+
+    auto rowset = create_variant_rowset({{R"({"a":1,"b":"x"})", R"({"a":2,"b":"y","c":"z"})"}}, 1);
+    std::vector<RowsetSharedPtr> input_rowsets {rowset};
+
+    auto compaction_schema = std::make_shared<TabletSchema>(*_tablet_schema);
+    auto st = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+            input_rowsets, compaction_schema);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto* path_set_info = compaction_schema->try_path_set_info(1);
+    ASSERT_NE(path_set_info, nullptr);
+    ASSERT_TRUE(path_set_info->typed_path_set.contains("a"));
+    EXPECT_FALSE(path_set_info->sub_path_set.contains(StringRef("a")));
+    EXPECT_FALSE(path_set_info->sparse_path_set.contains(StringRef("a")));
+    EXPECT_FALSE(path_set_info->subcolumn_indexes.contains("a"));
+    EXPECT_TRUE(path_set_info->sub_path_set.contains(StringRef("b")));
+    EXPECT_TRUE(path_set_info->sparse_path_set.contains(StringRef("c")));
+
+    size_t typed_path_count = 0;
+    size_t dynamic_path_count = 0;
+    size_t sparse_path_count = 0;
+    for (const auto& column : compaction_schema->columns()) {
+        if (!column->is_extracted_column() || column->parent_unique_id() != 1) {
+            continue;
+        }
+        const auto relative_path = column->path_info_ptr()->copy_pop_front().get_path();
+        if (relative_path == "a") {
+            ++typed_path_count;
+            EXPECT_TRUE(column->path_info_ptr()->get_is_typed());
+        } else if (relative_path == "b") {
+            ++dynamic_path_count;
+            EXPECT_FALSE(column->path_info_ptr()->get_is_typed());
+        } else if (relative_path == "c") {
+            ++sparse_path_count;
+        }
+    }
+    EXPECT_EQ(typed_path_count, 1);
+    EXPECT_EQ(dynamic_path_count, 1);
+    EXPECT_EQ(sparse_path_count, 0);
+
+    const auto& typed_info = path_set_info->typed_path_set.at("a");
+    ASSERT_EQ(typed_info.indexes.size(), 1);
+    EXPECT_EQ(typed_info.indexes[0]->index_id(), 10008);
+    EXPECT_EQ(typed_info.indexes[0]->get_index_suffix(), "v1%2Ea");
+}
+
+TEST_F(VariantColumnWriterReaderTest,
        test_doc_value_staging_root_writer_skips_payload_with_extracted_columns) {
     constexpr int kRows = 2;
 
