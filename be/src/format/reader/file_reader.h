@@ -104,10 +104,9 @@ struct FileScanRequest {
     std::vector<FileColumnPredicateFilter> column_predicate_filters;
 };
 
-// TODO: Support nested column
 struct FileAggregateRequest {
     struct Column {
-        ColumnId file_column_id = -1;
+        FieldProjection projection;
     };
 
     TPushAggOp::type agg_type = TPushAggOp::type::NONE;
@@ -116,6 +115,7 @@ struct FileAggregateRequest {
 
 struct FileAggregateResult {
     struct Column {
+        FieldProjection projection;
         bool has_min = false;
         bool has_max = false;
         Field min_value;

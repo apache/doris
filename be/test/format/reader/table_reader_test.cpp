@@ -32,10 +32,14 @@
 
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_array.h"
+#include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -348,6 +352,136 @@ void write_struct_parquet_file(const std::string& file_path, int32_t id) {
     writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
     writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
+                                                      writer_builder.build()));
+}
+
+void write_struct_parquet_file(const std::string& file_path, const std::vector<int32_t>& ids,
+                               int64_t row_group_size = -1) {
+    auto struct_type = arrow::struct_({arrow::field("id", arrow::int32(), false)});
+    arrow::StructBuilder builder(
+            struct_type, arrow::default_memory_pool(),
+            {std::make_shared<arrow::Int32Builder>(arrow::default_memory_pool())});
+    auto* id_builder = assert_cast<arrow::Int32Builder*>(builder.field_builder(0));
+    for (const auto id : ids) {
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(id_builder->Append(id).ok());
+    }
+
+    auto schema = arrow::schema({
+            arrow::field("s", struct_type, false),
+    });
+    auto table = arrow::Table::Make(schema, {finish_array(&builder)});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder writer_builder;
+    writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
+    const auto write_row_group_size =
+            row_group_size > 0 ? row_group_size : static_cast<int64_t>(ids.size());
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      write_row_group_size,
+                                                      writer_builder.build()));
+}
+
+void write_list_struct_parquet_file(const std::string& file_path) {
+    auto struct_type = arrow::struct_(
+            {arrow::field("a", arrow::int32(), false), arrow::field("b", arrow::utf8(), false)});
+    std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders;
+    auto a_array_builder = std::make_unique<arrow::Int32Builder>();
+    field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(a_array_builder)));
+    auto b_array_builder = std::make_unique<arrow::StringBuilder>();
+    field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(b_array_builder)));
+    auto struct_builder = std::make_shared<arrow::StructBuilder>(
+            struct_type, arrow::default_memory_pool(), std::move(field_builders));
+    auto list_type = arrow::list(arrow::field("element", struct_type, false));
+    arrow::ListBuilder builder(arrow::default_memory_pool(), struct_builder, list_type);
+    auto* a_builder = assert_cast<arrow::Int32Builder*>(struct_builder->field_builder(0));
+    auto* b_builder = assert_cast<arrow::StringBuilder*>(struct_builder->field_builder(1));
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(struct_builder->Append().ok());
+    EXPECT_TRUE(a_builder->Append(10).ok());
+    EXPECT_TRUE(b_builder->Append("la").ok());
+    EXPECT_TRUE(struct_builder->Append().ok());
+    EXPECT_TRUE(a_builder->Append(20).ok());
+    EXPECT_TRUE(b_builder->Append("lb").ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(struct_builder->Append().ok());
+    EXPECT_TRUE(a_builder->Append(30).ok());
+    EXPECT_TRUE(b_builder->Append("lc").ok());
+
+    EXPECT_TRUE(builder.AppendEmptyValue().ok());
+
+    auto schema = arrow::schema({
+            arrow::field("xs", list_type, false),
+    });
+    auto table = arrow::Table::Make(schema, {finish_array(&builder)});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder writer_builder;
+    writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 3,
+                                                      writer_builder.build()));
+}
+
+void write_map_struct_parquet_file(const std::string& file_path) {
+    auto key_builder = std::make_shared<arrow::Int32Builder>();
+    auto struct_type = arrow::struct_(
+            {arrow::field("a", arrow::int32(), false), arrow::field("b", arrow::utf8(), false)});
+    std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders;
+    auto a_array_builder = std::make_unique<arrow::Int32Builder>();
+    field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(a_array_builder)));
+    auto b_array_builder = std::make_unique<arrow::StringBuilder>();
+    field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(b_array_builder)));
+    auto value_builder = std::make_shared<arrow::StructBuilder>(
+            struct_type, arrow::default_memory_pool(), std::move(field_builders));
+    auto map_type = arrow::map(arrow::int32(), arrow::field("value", struct_type, false));
+    arrow::MapBuilder builder(arrow::default_memory_pool(), key_builder, value_builder, map_type);
+    auto* a_builder = assert_cast<arrow::Int32Builder*>(value_builder->field_builder(0));
+    auto* b_builder = assert_cast<arrow::StringBuilder*>(value_builder->field_builder(1));
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(key_builder->Append(1).ok());
+    EXPECT_TRUE(value_builder->Append().ok());
+    EXPECT_TRUE(a_builder->Append(10).ok());
+    EXPECT_TRUE(b_builder->Append("ma").ok());
+    EXPECT_TRUE(key_builder->Append(2).ok());
+    EXPECT_TRUE(value_builder->Append().ok());
+    EXPECT_TRUE(a_builder->Append(20).ok());
+    EXPECT_TRUE(b_builder->Append("mb").ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(key_builder->Append(3).ok());
+    EXPECT_TRUE(value_builder->Append().ok());
+    EXPECT_TRUE(a_builder->Append(30).ok());
+    EXPECT_TRUE(b_builder->Append("mc").ok());
+
+    EXPECT_TRUE(builder.AppendEmptyValue().ok());
+
+    auto schema = arrow::schema({
+            arrow::field("kv", map_type, false),
+    });
+    auto table = arrow::Table::Make(schema, {finish_array(&builder)});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder writer_builder;
+    writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 3,
                                                       writer_builder.build()));
 }
 
@@ -787,6 +921,176 @@ TEST(TableReaderTest, PushDownMinMaxCastsFileValueToTableType) {
     const auto& id_column = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
     EXPECT_EQ(id_column.get_element(0), 1);
     EXPECT_EQ(id_column.get_element(1), 5);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, PushDownMinMaxFromProjectedStructLeaf) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_minmax_struct_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_struct_parquet_file(file_path, {3, 1, 5, 2}, 2);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto id_child = make_table_column(0, "id", int_type);
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"id"});
+    auto struct_column = make_table_column(100, "s", struct_type);
+    struct_column.children = {id_child};
+    const std::vector<TableColumn> projected_columns = {struct_column};
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .push_down_agg_type = TPushAggOp::type::MINMAX,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 2);
+    const auto& struct_result = assert_cast<const ColumnStruct&>(*block.get_by_position(0).column);
+    ASSERT_EQ(struct_result.get_columns().size(), 1);
+    const auto& ids = assert_cast<const ColumnInt32&>(struct_result.get_column(0));
+    EXPECT_EQ(ids.get_element(0), 1);
+    EXPECT_EQ(ids.get_element(1), 5);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_minmax_list_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_list_struct_parquet_file(file_path);
+
+    const auto string_type = std::make_shared<DataTypeString>();
+    auto b_child = make_table_column(1, "b", string_type);
+    auto element_type = std::make_shared<DataTypeStruct>(DataTypes {string_type}, Strings {"b"});
+    auto element_child = make_table_column(0, "element", element_type);
+    element_child.children = {b_child};
+    auto list_column = make_table_column(100, "xs", std::make_shared<DataTypeArray>(element_type));
+    list_column.children = {element_child};
+    const std::vector<TableColumn> projected_columns = {list_column};
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .push_down_agg_type = TPushAggOp::type::MINMAX,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 3);
+    const auto& array_result = assert_cast<const ColumnArray&>(*block.get_by_position(0).column);
+    EXPECT_EQ(array_result.get_offsets()[0], 2);
+    EXPECT_EQ(array_result.get_offsets()[1], 3);
+    EXPECT_EQ(array_result.get_offsets()[2], 3);
+    const auto& element_struct = assert_cast<const ColumnStruct&>(array_result.get_data());
+    ASSERT_EQ(element_struct.get_columns().size(), 1);
+    const auto& b_values = assert_cast<const ColumnString&>(element_struct.get_column(0));
+    EXPECT_EQ(b_values.get_data_at(0).to_string(), "la");
+    EXPECT_EQ(b_values.get_data_at(1).to_string(), "lb");
+    EXPECT_EQ(b_values.get_data_at(2).to_string(), "lc");
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_minmax_map_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_map_struct_parquet_file(file_path);
+
+    const auto key_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    auto b_child = make_table_column(1, "b", string_type);
+    auto value_type = std::make_shared<DataTypeStruct>(DataTypes {string_type}, Strings {"b"});
+    auto value_child = make_table_column(1, "value", value_type);
+    value_child.children = {b_child};
+    auto entry_type = std::make_shared<DataTypeStruct>(DataTypes {value_type}, Strings {"value"});
+    auto entry_child = make_table_column(0, "entries", entry_type);
+    entry_child.children = {value_child};
+    auto map_column =
+            make_table_column(100, "kv", std::make_shared<DataTypeMap>(key_type, value_type));
+    map_column.children = {entry_child};
+    const std::vector<TableColumn> projected_columns = {map_column};
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = VExprContext(nullptr),
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .push_down_agg_type = TPushAggOp::type::MINMAX,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 3);
+    const auto& map_result = assert_cast<const ColumnMap&>(*block.get_by_position(0).column);
+    EXPECT_EQ(map_result.get_offsets()[0], 2);
+    EXPECT_EQ(map_result.get_offsets()[1], 3);
+    EXPECT_EQ(map_result.get_offsets()[2], 3);
+    const auto& keys = assert_cast<const ColumnInt32&>(map_result.get_keys());
+    EXPECT_EQ(keys.get_element(0), 1);
+    EXPECT_EQ(keys.get_element(1), 2);
+    EXPECT_EQ(keys.get_element(2), 3);
+    const auto& value_struct = assert_cast<const ColumnStruct&>(map_result.get_values());
+    ASSERT_EQ(value_struct.get_columns().size(), 1);
+    const auto& b_values = assert_cast<const ColumnString&>(value_struct.get_column(0));
+    EXPECT_EQ(b_values.get_data_at(0).to_string(), "ma");
+    EXPECT_EQ(b_values.get_data_at(1).to_string(), "mb");
+    EXPECT_EQ(b_values.get_data_at(2).to_string(), "mc");
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
