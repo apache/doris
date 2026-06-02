@@ -31,14 +31,21 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
@@ -922,6 +929,365 @@ public class QueryStatsRecorderTest {
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    /**
+     * Plan: CTEConsumer (consumerSlot#3 → producerSlot#1=k1) → Scan[k1(#1)]
+     * Expected: k1.queryHit=true via consumer slot.
+     */
+    @Test
+    public void testCteConsumerMapsToProducerScan() {
+        ExprId prodId = new ExprId(1);
+        ExprId consId = new ExprId(3);
+        SlotReference prodSlot = mockSlot(prodId, "k1");
+        SlotReference consSlot = mockSlot(consId, "k1");
+
+        PhysicalOlapScan scan = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(prodSlot));
+
+        PhysicalCTEConsumer consumer = Mockito.mock(PhysicalCTEConsumer.class);
+        Mockito.when(consumer.getOutput()).thenReturn(ImmutableList.of(consSlot));
+        Mockito.when(consumer.getProducerSlot(consSlot)).thenReturn(prodSlot);
+        Mockito.when(consumer.children()).thenReturn(ImmutableList.of());
+
+        // Root plan: scan (producer) visited first, consumer slots then get registered.
+        PhysicalFilter<?> root = Mockito.mock(PhysicalFilter.class);
+        Mockito.when(root.children()).thenReturn(ImmutableList.of(scan, consumer));
+        Mockito.when(root.getConjuncts()).thenReturn(ImmutableSet.of());
+        Mockito.when(root.getOutput()).thenReturn(ImmutableList.of(consSlot));
+
+        Map<String, StatsDelta> deltas = QueryStatsRecorder.collectDeltas((PhysicalPlan) root);
+
+        Assertions.assertEquals(1, deltas.size());
+        StatsDelta delta = deltas.values().iterator().next();
+        Assertions.assertNotNull(delta.getColumnStats().get("k1"));
+        Assertions.assertTrue(delta.getColumnStats().get("k1").queryHit);
+    }
+
+    /**
+     * Plan: UNION of Scan1[k1(#1)] and Scan2[k1(#3)]
+     * Expected: k1.queryHit=true on both scan tables.
+     */
+    @Test
+    public void testUnionRecordsQueryHitOnAllBranches() {
+        ExprId id1 = new ExprId(1);
+        ExprId id3 = new ExprId(3);
+        SlotReference k1Left = mockSlot(id1, "k1");
+        SlotReference k1Right = mockSlot(id3, "k1");
+
+        PhysicalOlapScan scan1 = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(k1Left));
+        PhysicalOlapScan scan2 = mockScan(1L, 2L, 2L, 1L, ImmutableList.of(k1Right));
+
+        PhysicalSetOperation union = Mockito.mock(PhysicalSetOperation.class);
+        Mockito.when(union.children()).thenReturn(ImmutableList.of(scan1, scan2));
+        Mockito.when(union.getRegularChildrenOutputs())
+                .thenReturn(ImmutableList.of(ImmutableList.of(k1Left), ImmutableList.of(k1Right)));
+        Mockito.when(union.getOutput()).thenReturn(ImmutableList.of());
+
+        Map<String, StatsDelta> deltas = QueryStatsRecorder.collectDeltas((PhysicalPlan) union);
+
+        Assertions.assertEquals(2, deltas.size());
+        for (StatsDelta delta : deltas.values()) {
+            Assertions.assertNotNull(delta.getColumnStats().get("k1"));
+            Assertions.assertTrue(delta.getColumnStats().get("k1").queryHit);
+        }
+    }
+
+    /**
+     * Plan: Filter(SUM(k2)#5 > 0) → Agg[SUM(k2)] → Scan[k2(#2)]
+     * Expected: k2.filterHit=true from HAVING SUM(k2) > 0.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testHavingAggregateFilterHitRecorded() {
+        ExprId k2Id = new ExprId(2);
+        ExprId sumId = new ExprId(5);
+        SlotReference k2Slot = mockSlot(k2Id, "k2");
+        // Aggregate output slots have no originalColumn in real Doris; use Optional.empty()
+        // so recordInputSlotsAsFilterHit falls back to exprIdToColName.get(sumId) = "k2".
+        SlotReference sumSlot = Mockito.mock(SlotReference.class);
+        Mockito.when(sumSlot.getExprId()).thenReturn(sumId);
+        Mockito.when(sumSlot.getOriginalColumn()).thenReturn(Optional.empty());
+
+        PhysicalOlapScan scan = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(k2Slot));
+
+        NamedExpression sumExpr = Mockito.mock(NamedExpression.class);
+        Mockito.when(sumExpr.getExprId()).thenReturn(sumId);
+        Mockito.when(sumExpr.getInputSlots()).thenReturn(ImmutableSet.of(k2Slot));
+
+        Aggregate<?> agg = Mockito.mock(Aggregate.class);
+        Mockito.when(agg.children()).thenReturn(ImmutableList.of(scan));
+        Mockito.when(agg.getGroupByExpressions()).thenReturn(ImmutableList.of());
+        Mockito.when(agg.getOutputExpressions())
+                .thenReturn((List<NamedExpression>) (List<?>) ImmutableList.of(sumExpr));
+        Mockito.when(agg.getOutput()).thenReturn(ImmutableList.of(sumSlot));
+
+        Expression havingConjunct = Mockito.mock(Expression.class);
+        Mockito.when(havingConjunct.getInputSlots()).thenReturn(ImmutableSet.of(sumSlot));
+
+        PhysicalFilter<?> havingFilter = Mockito.mock(PhysicalFilter.class);
+        Mockito.when(havingFilter.children()).thenReturn(ImmutableList.of(agg));
+        Mockito.when(havingFilter.getConjuncts()).thenReturn(ImmutableSet.of(havingConjunct));
+        Mockito.when(havingFilter.getOutput()).thenReturn(ImmutableList.of());
+
+        Map<String, StatsDelta> deltas =
+                QueryStatsRecorder.collectDeltas((PhysicalPlan) havingFilter);
+
+        Assertions.assertEquals(1, deltas.size());
+        StatsDelta delta = deltas.values().iterator().next();
+        Assertions.assertNotNull(delta.getColumnStats().get("k2"));
+        Assertions.assertTrue(delta.getColumnStats().get("k2").filterHit);
+    }
+
+    /**
+     * Plan: Generate(EXPLODE(tags#2)) → Scan[tags(#2)]
+     * Expected: tags.queryHit=true from the generator input column.
+     */
+    @Test
+    public void testLateralViewExplodeRecordsGeneratorInputAsQueryHit() {
+        ExprId tagsId = new ExprId(2);
+        SlotReference tagsSlot = mockSlot(tagsId, "tags");
+
+        PhysicalOlapScan scan = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(tagsSlot));
+
+        Function explodeFn = Mockito.mock(Function.class);
+        Mockito.when(explodeFn.getInputSlots()).thenReturn(ImmutableSet.of(tagsSlot));
+
+        PhysicalGenerate<?> generate = Mockito.mock(PhysicalGenerate.class);
+        Mockito.when(generate.children()).thenReturn(ImmutableList.of(scan));
+        Mockito.when(generate.getGenerators()).thenReturn(ImmutableList.of(explodeFn));
+        Mockito.when(generate.getOutput()).thenReturn(ImmutableList.of());
+
+        Map<String, StatsDelta> deltas =
+                QueryStatsRecorder.collectDeltas((PhysicalPlan) generate);
+
+        Assertions.assertEquals(1, deltas.size());
+        StatsDelta delta = deltas.values().iterator().next();
+        Assertions.assertNotNull(delta.getColumnStats().get("tags"));
+        Assertions.assertTrue(delta.getColumnStats().get("tags").queryHit);
+        Assertions.assertFalse(delta.getColumnStats().get("tags").filterHit);
+    }
+
+    /**
+     * Plan: PhysicalCTEProducer(Scan[k1(#1)]) + CTEConsumer(consSlot#3 → prodSlot#1)
+     * PhysicalCTEProducer must walk its child so the scan is registered before the
+     * consumer is processed by the sibling walk.
+     * Expected: k1.queryHit=true via consumer slot resolved through producer scan.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testCTEProducerRegistersScansForConsumer() {
+        ExprId prodId = new ExprId(1);
+        ExprId consId = new ExprId(3);
+        SlotReference prodSlot = mockSlot(prodId, "k1");
+        SlotReference consSlot = mockSlot(consId, "k1");
+
+        PhysicalOlapScan scan = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(prodSlot));
+
+        PhysicalCTEProducer<?> producer = Mockito.mock(PhysicalCTEProducer.class);
+        Mockito.when(producer.child()).thenReturn(scan);
+
+        PhysicalCTEConsumer consumer = Mockito.mock(PhysicalCTEConsumer.class);
+        Mockito.when(consumer.getOutput()).thenReturn(ImmutableList.of(consSlot));
+        Mockito.when(consumer.getProducerSlot(consSlot)).thenReturn(prodSlot);
+        Mockito.when(consumer.children()).thenReturn(ImmutableList.of());
+
+        PhysicalPlan root = Mockito.mock(PhysicalPlan.class);
+        Mockito.when(root.children()).thenReturn(ImmutableList.of(producer, consumer));
+        Mockito.when(root.getOutput()).thenReturn(ImmutableList.of(consSlot));
+
+        Map<String, StatsDelta> deltas = QueryStatsRecorder.collectDeltas(root);
+
+        Assertions.assertEquals(1, deltas.size());
+        StatsDelta delta = deltas.values().iterator().next();
+        Assertions.assertNotNull(delta.getColumnStats().get("k1"),
+                "k1 must be registered via PhysicalCTEProducer→scan path");
+        Assertions.assertTrue(delta.getColumnStats().get("k1").queryHit,
+                "k1.queryHit must be true via CTE producer→scan→consumer chain");
+    }
+
+    /**
+     * Plan: Filter(SUM(k2+k3)#5 > 0) → Agg[SUM(k2+k3)] → Scan[k2(#2), k3(#3)]
+     * Multi-input aggregate output is stored in aggOutputToInputSlots so that a HAVING
+     * filter on SUM(k2+k3) records filterHit on both k2 and k3.
+     * Expected: k2.filterHit=true AND k3.filterHit=true.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testHavingMultiInputAggregateFilterHitRecorded() {
+        ExprId k2Id = new ExprId(2);
+        ExprId k3Id = new ExprId(3);
+        ExprId sumId = new ExprId(5);
+        SlotReference k2Slot = mockSlot(k2Id, "k2");
+        SlotReference k3Slot = mockSlot(k3Id, "k3");
+        SlotReference sumSlot = mockSlot(sumId, "sum_k2_k3");
+
+        PhysicalOlapScan scan = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(k2Slot, k3Slot));
+
+        // SUM(k2+k3): two input slots → must go into aggOutputToInputSlots
+        NamedExpression sumExpr = Mockito.mock(NamedExpression.class);
+        Mockito.when(sumExpr.getExprId()).thenReturn(sumId);
+        Mockito.when(sumExpr.getInputSlots()).thenReturn(ImmutableSet.of(k2Slot, k3Slot));
+
+        Aggregate<?> agg = Mockito.mock(Aggregate.class);
+        Mockito.when(agg.children()).thenReturn(ImmutableList.of(scan));
+        Mockito.when(agg.getGroupByExpressions()).thenReturn(ImmutableList.of());
+        Mockito.when(agg.getOutputExpressions())
+                .thenReturn((List<NamedExpression>) (List<?>) ImmutableList.of(sumExpr));
+        Mockito.when(agg.getOutput()).thenReturn(ImmutableList.of(sumSlot));
+
+        // HAVING SUM(k2+k3) > 0: conjunct references the aggregate output slot
+        Expression havingConjunct = Mockito.mock(Expression.class);
+        Mockito.when(havingConjunct.getInputSlots()).thenReturn(ImmutableSet.of(sumSlot));
+
+        PhysicalFilter<?> havingFilter = Mockito.mock(PhysicalFilter.class);
+        Mockito.when(havingFilter.children()).thenReturn(ImmutableList.of(agg));
+        Mockito.when(havingFilter.getConjuncts()).thenReturn(ImmutableSet.of(havingConjunct));
+        Mockito.when(havingFilter.getOutput()).thenReturn(ImmutableList.of());
+
+        Map<String, StatsDelta> deltas =
+                QueryStatsRecorder.collectDeltas((PhysicalPlan) havingFilter);
+
+        Assertions.assertEquals(1, deltas.size());
+        StatsDelta delta = deltas.values().iterator().next();
+        Assertions.assertNotNull(delta.getColumnStats().get("k2"),
+                "k2 must be recorded via multi-input HAVING expansion");
+        Assertions.assertTrue(delta.getColumnStats().get("k2").filterHit,
+                "k2.filterHit must be true from HAVING SUM(k2+k3)");
+        Assertions.assertNotNull(delta.getColumnStats().get("k3"),
+                "k3 must be recorded via multi-input HAVING expansion");
+        Assertions.assertTrue(delta.getColumnStats().get("k3").filterHit,
+                "k3.filterHit must be true from HAVING SUM(k2+k3)");
+    }
+
+    /**
+     * Mark join conjuncts (from IN/EXISTS subquery rewriting) are stored separately
+     * in AbstractPhysicalJoin and must be processed independently of hash/other conjuncts.
+     * Plan: HashJoin with k1=k2 in hashJoinConjuncts and k3>0 in markJoinConjuncts.
+     * Expected: k1.filterHit, k2.filterHit (hash), k3.filterHit (mark).
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testMarkJoinConjunctsRecordFilterHit() {
+        ExprId id1 = new ExprId(1);
+        ExprId id2 = new ExprId(2);
+        ExprId id3 = new ExprId(3);
+        SlotReference k1Slot = mockSlot(id1, "k1");
+        SlotReference k2Slot = mockSlot(id2, "k2");
+        SlotReference k3Slot = mockSlot(id3, "k3");
+
+        PhysicalOlapScan left  = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(k1Slot, k3Slot));
+        PhysicalOlapScan right = mockScan(2L, 2L, 2L, 2L, ImmutableList.of(k2Slot));
+
+        Expression hashConjunct = Mockito.mock(Expression.class);
+        Mockito.when(hashConjunct.getInputSlots()).thenReturn(ImmutableSet.of(k1Slot, k2Slot));
+
+        // Mark conjunct: k3 > 0 — only reachable via getMarkJoinConjuncts()
+        Expression markConjunct = Mockito.mock(Expression.class);
+        Mockito.when(markConjunct.getInputSlots()).thenReturn(ImmutableSet.of(k3Slot));
+
+        org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin<?, ?> join =
+                Mockito.mock(org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin.class);
+        Mockito.when(join.children()).thenReturn(ImmutableList.of(left, right));
+        Mockito.when(join.getHashJoinConjuncts()).thenReturn(ImmutableList.of(hashConjunct));
+        Mockito.when(join.getOtherJoinConjuncts()).thenReturn(ImmutableList.of());
+        Mockito.when(join.getMarkJoinConjuncts()).thenReturn(ImmutableList.of(markConjunct));
+        Mockito.when(join.getOutput()).thenReturn(ImmutableList.of());
+
+        Map<String, StatsDelta> deltas = QueryStatsRecorder.collectDeltas((PhysicalPlan) join);
+
+        Assertions.assertTrue(deltas.containsKey("1_1_1_1"), "left scan delta missing");
+        Assertions.assertTrue(deltas.containsKey("2_2_2_2"), "right scan delta missing");
+        Assertions.assertTrue(deltas.get("1_1_1_1").getColumnStats().get("k1").filterHit,
+                "k1.filterHit: hash join conjunct");
+        Assertions.assertTrue(deltas.get("2_2_2_2").getColumnStats().get("k2").filterHit,
+                "k2.filterHit: hash join conjunct");
+        Assertions.assertTrue(deltas.get("1_1_1_1").getColumnStats().get("k3").filterHit,
+                "k3.filterHit: mark join conjunct — previously missed");
+    }
+
+    /**
+     * PhysicalRecursiveUnion extends PhysicalBinary, not PhysicalSetOperation, so its
+     * getRegularChildrenOutputs() was never called. The base-case slots (from an OlapScan)
+     * must get queryHit; recursive-case slots (from WorkTableReference) are silently skipped.
+     * Plan: RecursiveUnion with base-case output [k1(#1)] from scan, recursive-case [k1(#5)] skipped.
+     * Expected: k1.queryHit=true (base case only).
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testRecursiveUnionBaseColumnGetsQueryHit() {
+        ExprId baseScanId = new ExprId(1);
+        ExprId recursiveId = new ExprId(5); // WorkTableReference slot — not in exprIdToScan
+        SlotReference baseScanSlot   = mockSlot(baseScanId, "k1");
+        SlotReference recursiveSlot  = mockSlot(recursiveId, "k1");
+
+        PhysicalOlapScan scan = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(baseScanSlot));
+
+        PhysicalRecursiveUnion<?, ?> recUnion = Mockito.mock(PhysicalRecursiveUnion.class);
+        // left child (base case) contains the scan; right child (recursive case) is not walked further
+        Mockito.when(recUnion.children()).thenReturn(ImmutableList.of(scan));
+        Mockito.when(recUnion.getRegularChildrenOutputs()).thenReturn(
+                ImmutableList.of(
+                        ImmutableList.of(baseScanSlot),   // base case: resolves to scan
+                        ImmutableList.of(recursiveSlot)   // recursive case: not in exprIdToScan → skipped
+                ));
+        Mockito.when(recUnion.getOutput()).thenReturn(ImmutableList.of());
+
+        Map<String, StatsDelta> deltas = QueryStatsRecorder.collectDeltas((PhysicalPlan) recUnion);
+
+        Assertions.assertEquals(1, deltas.size());
+        StatsDelta delta = deltas.get("1_1_1_1");
+        Assertions.assertNotNull(delta, "base-case scan delta must exist");
+        Assertions.assertNotNull(delta.getColumnStats().get("k1"),
+                "k1 must be recorded from base case via getRegularChildrenOutputs");
+        Assertions.assertTrue(delta.getColumnStats().get("k1").queryHit,
+                "k1.queryHit must be true for recursive union base case");
+    }
+
+    /**
+     * SELECT k1+k2 AS result FROM t: computed alias with two input slots.
+     * unwrapAlias returns null (not a plain SlotReference), so the root output loop
+     * cannot record queryHit. The multi-input branch in the PhysicalProject handler
+     * must call recordInputSlotsAsQueryHit directly on the alias child expression.
+     * Expected: k1.queryHit=true AND k2.queryHit=true.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testComputedProjectExpressionRecordsBothInputsAsQueryHit() {
+        ExprId id1 = new ExprId(1);
+        ExprId id2 = new ExprId(2);
+        ExprId aliasId = new ExprId(99);
+        SlotReference k1Slot = mockSlot(id1, "k1");
+        SlotReference k2Slot = mockSlot(id2, "k2");
+        PhysicalOlapScan scan = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(k1Slot, k2Slot));
+
+        // Simulates k1+k2 — a binary expression with two input slots
+        Expression addExpr = Mockito.mock(Expression.class);
+        Mockito.when(addExpr.getInputSlots()).thenReturn(ImmutableSet.of(k1Slot, k2Slot));
+
+        org.apache.doris.nereids.trees.expressions.Alias alias =
+                Mockito.mock(org.apache.doris.nereids.trees.expressions.Alias.class);
+        Mockito.when(alias.getExprId()).thenReturn(aliasId);
+        Mockito.when(alias.child()).thenReturn(addExpr);
+
+        org.apache.doris.nereids.trees.plans.physical.PhysicalProject<?> project =
+                Mockito.mock(org.apache.doris.nereids.trees.plans.physical.PhysicalProject.class);
+        Mockito.when(project.children()).thenReturn(ImmutableList.of(scan));
+        Mockito.when(project.getProjects()).thenReturn(ImmutableList.of(alias));
+        Mockito.when(project.getOutput()).thenReturn(ImmutableList.of());
+
+        Map<String, StatsDelta> deltas = QueryStatsRecorder.collectDeltas(
+                (org.apache.doris.nereids.trees.plans.physical.PhysicalPlan) project);
+
+        Assertions.assertEquals(1, deltas.size());
+        StatsDelta delta = deltas.values().iterator().next();
+        Assertions.assertNotNull(delta.getColumnStats().get("k1"),
+                "k1 must be recorded as queryHit from computed SELECT k1+k2");
+        Assertions.assertTrue(delta.getColumnStats().get("k1").queryHit,
+                "k1.queryHit must be true");
+        Assertions.assertNotNull(delta.getColumnStats().get("k2"),
+                "k2 must be recorded as queryHit from computed SELECT k1+k2");
+        Assertions.assertTrue(delta.getColumnStats().get("k2").queryHit,
+                "k2.queryHit must be true");
+    }
 
     private SlotReference mockSlot(ExprId exprId, String columnName) {
         SlotReference slot = Mockito.mock(SlotReference.class);

@@ -198,6 +198,41 @@ suite("query_stats_test") {
     def joinResult = sql "show query stats from ${tbName} all"
     assertTrue((joinResult[0][1] as int) >= 1)
 
+    // UNION ALL: both branches contribute queryHit for k1; WHERE on right branch adds k2.filterHit.
+    sql "clean all query stats"
+    sql "select k1 from ${tbName} union all select k1 from ${tbName} where k2 = 100"
+    def unionStats = sql "show query stats from ${tbName}"
+    def uK1 = unionStats.find { it[0] == "k1" }
+    def uK2 = unionStats.find { it[0] == "k2" }
+    assertNotNull(uK1)
+    assertNotNull(uK2)
+    assertTrue((uK1[1] as int) >= 1, "k1: UNION ALL queryHit")
+    assertTrue((uK2[2] as int) >= 1, "k2: WHERE on right UNION branch filterHit")
+
+    // HAVING: k1 queryHit from GROUP BY + SELECT, k2 queryHit from SUM input,
+    // k2 filterHit from HAVING SUM(k2) > -1000.
+    sql "clean all query stats"
+    sql "select k1, sum(k2) from ${tbName} group by k1 having sum(k2) > -1000"
+    def havingStats = sql "show query stats from ${tbName}"
+    def hvK1 = havingStats.find { it[0] == "k1" }
+    def hvK2 = havingStats.find { it[0] == "k2" }
+    assertNotNull(hvK1)
+    assertNotNull(hvK2)
+    assertTrue((hvK1[1] as int) >= 1, "k1: GROUP BY / SELECT queryHit")
+    assertTrue((hvK2[1] as int) >= 1, "k2: SUM aggregate input queryHit")
+    assertTrue((hvK2[2] as int) >= 1, "k2: HAVING SUM(k2) filterHit")
+
+    // CTE: consumer query records queryHit on k2 and filterHit on k1.
+    sql "clean all query stats"
+    sql """with cte as (select k2 from ${tbName} where k1 = 1) select k2 from cte"""
+    def cteStats = sql "show query stats from ${tbName}"
+    def cteK2 = cteStats.find { it[0] == "k2" }
+    def cteK1 = cteStats.find { it[0] == "k1" }
+    assertNotNull(cteK2)
+    assertNotNull(cteK1)
+    assertTrue((cteK2[1] as int) >= 1, "k2: CTE consumer queryHit")
+    assertTrue((cteK1[2] as int) >= 1, "k1: CTE WHERE filterHit")
+
     sql "admin set all frontends config (\"enable_query_hit_stats\"=\"false\");"
     sql "set enable_nereids_planner = ${origNereids}"
     sql "set enable_query_cache = ${origCache}"
