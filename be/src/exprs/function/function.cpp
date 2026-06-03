@@ -280,7 +280,10 @@ DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& a
             auto return_type = get_return_type_impl(
                     ColumnsWithTypeAndName(nested_block.begin(), nested_block.end()));
             if (!return_type) {
-                return nullptr;
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "function return type is nullptr, function_name={}, "
+                                "input_arguments={}",
+                                get_name(), get_types_string(arguments));
             }
             return make_nullable(return_type);
         }

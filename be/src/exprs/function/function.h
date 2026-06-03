@@ -343,7 +343,6 @@ protected:
     virtual DataTypePtr get_return_type_impl(const DataTypes& /*arguments*/) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "get_return_type is not implemented for {}", get_name());
-        return nullptr;
     }
 
     /** If use_default_implementation_for_nulls() is true, than change arguments for get_return_type() and build_impl():

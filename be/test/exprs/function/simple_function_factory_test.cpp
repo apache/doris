@@ -35,7 +35,9 @@ public:
 
     size_t get_number_of_arguments() const override { return 0; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override { return nullptr; }
+    DataTypePtr get_return_type_impl(const DataTypes& /*arguments*/) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "BEUT TEST: nullptr return type");
+    }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
