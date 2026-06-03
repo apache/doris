@@ -718,6 +718,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             file_request->conjuncts.push_back(
                     VExprContext::create_shared(rewrite_table_expr_to_file_expr(
                             table_filter.conjunct->root(), table_column_to_file_slot)));
+            table_filter.conjunct->clone_fn_contexts(file_request->conjuncts.back().get());
         }
     }
     for (const auto& [table_column_id, predicates] : table_column_predicates) {
