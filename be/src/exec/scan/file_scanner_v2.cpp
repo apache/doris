@@ -21,18 +21,24 @@
 #include <gen_cpp/PlanNodes_types.h>
 
 #include <algorithm>
+#include <charconv>
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "core/assert_cast.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/string_ref.h"
 #include "exec/common/util.hpp"
@@ -71,6 +77,136 @@ bool is_supported_table_format(const TFileRangeDesc& range) {
 bool is_partition_slot(const TFileScanSlotInfo& slot_info) {
     return slot_info.__isset.category ? slot_info.category == TColumnCategory::PARTITION_KEY
                                       : !slot_info.is_file_slot;
+}
+
+bool parse_non_negative_int(std::string_view value, int32_t* result) {
+    DORIS_CHECK(result != nullptr);
+    int32_t parsed = -1;
+    const auto* begin = value.data();
+    const auto* end = begin + value.size();
+    const auto [ptr, ec] = std::from_chars(begin, end, parsed);
+    if (ec != std::errc() || ptr != end || parsed < 0) {
+        return false;
+    }
+    *result = parsed;
+    return true;
+}
+
+reader::TableColumn* find_or_add_child(reader::TableColumn* parent, reader::ColumnId id,
+                                       std::string name, DataTypePtr type) {
+    DORIS_CHECK(parent != nullptr);
+    for (auto& child : parent->children) {
+        if (child.id == id || child.name == name) {
+            return &child;
+        }
+    }
+    parent->children.push_back({
+            .id = id,
+            .name = std::move(name),
+            .type = std::move(type),
+    });
+    return &parent->children.back();
+}
+
+bool add_struct_access_path(reader::TableColumn* column, const DataTypeStruct& struct_type,
+                            const std::vector<std::string>& path, size_t path_idx);
+
+bool add_access_path(reader::TableColumn* column, const DataTypePtr& type,
+                     const std::vector<std::string>& path, size_t path_idx) {
+    DORIS_CHECK(column != nullptr);
+    if (path_idx >= path.size()) {
+        return true;
+    }
+    if (path[path_idx] == "OFFSET") {
+        return false;
+    }
+
+    const auto nested_type = remove_nullable(type);
+    switch (nested_type->get_primitive_type()) {
+    case TYPE_STRUCT:
+        return add_struct_access_path(column, assert_cast<const DataTypeStruct&>(*nested_type),
+                                      path, path_idx);
+    case TYPE_ARRAY: {
+        const auto& array_type = assert_cast<const DataTypeArray&>(*nested_type);
+        auto* child = find_or_add_child(column, 0, "element", array_type.get_nested_type());
+        return add_access_path(child, child->type, path, path_idx + 1);
+    }
+    case TYPE_MAP: {
+        const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
+        if (path[path_idx] == "KEYS") {
+            return false;
+        }
+        if (path[path_idx] == "VALUES" || path[path_idx] == "*") {
+            auto entry_type = std::make_shared<DataTypeStruct>(
+                    DataTypes {map_type.get_value_type()}, Strings {"value"});
+            auto* entry_child = find_or_add_child(column, 0, "entries", entry_type);
+            auto* value_child =
+                    find_or_add_child(entry_child, 1, "value", map_type.get_value_type());
+            return add_access_path(value_child, value_child->type, path, path_idx + 1);
+        }
+        return false;
+    }
+    default:
+        return false;
+    }
+}
+
+bool add_struct_access_path(reader::TableColumn* column, const DataTypeStruct& struct_type,
+                            const std::vector<std::string>& path, size_t path_idx) {
+    DORIS_CHECK(column != nullptr);
+    DORIS_CHECK(path_idx < path.size());
+    int32_t field_id = -1;
+    std::string field_name = path[path_idx];
+    DataTypePtr field_type;
+    int32_t parsed_field_id = -1;
+    if (parse_non_negative_int(field_name, &parsed_field_id)) {
+        field_id = parsed_field_id;
+        if (parsed_field_id < static_cast<int32_t>(struct_type.get_elements().size())) {
+            field_name = struct_type.get_element_name(parsed_field_id);
+            field_type = struct_type.get_element(parsed_field_id);
+        }
+    } else if (const auto position = struct_type.try_get_position_by_name(field_name)) {
+        field_id = cast_set<int32_t>(*position);
+        field_type = struct_type.get_element(*position);
+    }
+
+    if (field_id < 0 || field_type == nullptr) {
+        return false;
+    }
+    auto* child = find_or_add_child(column, field_id, field_name, field_type);
+    return add_access_path(child, child->type, path, path_idx + 1);
+}
+
+bool build_nested_children_from_access_paths(reader::TableColumn* column,
+                                             const SlotDescriptor* slot_desc) {
+    DORIS_CHECK(column != nullptr);
+    DORIS_CHECK(slot_desc != nullptr);
+    if (slot_desc->all_access_paths().empty()) {
+        return true;
+    }
+
+    for (const auto& access_path : slot_desc->all_access_paths()) {
+        if (access_path.type != TAccessPathType::DATA || !access_path.__isset.data_access_path) {
+            column->children.clear();
+            return false;
+        }
+        const auto& path = access_path.data_access_path.path;
+        if (path.empty()) {
+            column->children.clear();
+            return false;
+        }
+        int32_t top_level_id = -1;
+        if (path.front() != column->name &&
+            (!parse_non_negative_int(path.front(), &top_level_id) || top_level_id != column->id)) {
+            column->children.clear();
+            return false;
+        }
+        if (!add_access_path(column, column->type, path, 1)) {
+            column->children.clear();
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -297,6 +433,7 @@ Status FileScannerV2::_build_projected_columns() {
         }
         auto column = _build_table_column(it->second);
         RETURN_IF_ERROR(_build_default_expr(slot_info, &column.default_expr));
+        static_cast<void>(build_nested_children_from_access_paths(&column, it->second));
         if (is_partition_slot(slot_info)) {
             column.is_partition_key = true;
             _partition_slot_descs.emplace(column.name, it->second);
