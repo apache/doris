@@ -238,9 +238,9 @@ class ScanLocalState : public ScanLocalStateBase {
             : ScanLocalStateBase(state, parent) {}
     ~ScanLocalState() override = default;
 
-    virtual Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
 
-    virtual Status open(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const final;
@@ -387,6 +387,10 @@ public:
     }
 
     [[nodiscard]] virtual int get_column_id(const std::string& col_name) const { return -1; }
+
+    [[nodiscard]] virtual bool can_push_down_column_predicate(const SlotDescriptor*) const {
+        return true;
+    }
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
