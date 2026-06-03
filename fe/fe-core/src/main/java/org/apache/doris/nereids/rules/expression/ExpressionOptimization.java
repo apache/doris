@@ -30,6 +30,7 @@ import org.apache.doris.nereids.rules.expression.rules.LikeToEqualRewrite;
 import org.apache.doris.nereids.rules.expression.rules.NestedCaseWhenCondToLiteral;
 import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
 import org.apache.doris.nereids.rules.expression.rules.PushIntoCaseWhenBranch;
+import org.apache.doris.nereids.rules.expression.rules.RegexpFunctionRewrite;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyConflictCompound;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyInPredicate;
@@ -70,6 +71,7 @@ public class ExpressionOptimization extends ExpressionRewrite {
                     PushIntoCaseWhenBranch.INSTANCE,
                     NullSafeEqualToEqual.INSTANCE,
                     LikeToEqualRewrite.INSTANCE,
+                    RegexpFunctionRewrite.INSTANCE,
                     BetweenToEqual.INSTANCE,
                     StringEmptyToLengthRule.INSTANCE
             )
