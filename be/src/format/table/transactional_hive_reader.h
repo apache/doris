@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -53,6 +54,11 @@ public:
                             const TFileScanRangeParams& params, const TFileRangeDesc& range,
                             size_t batch_size, const std::string& ctz, io::IOContext* io_ctx,
                             FileMetaCache* meta_cache = nullptr);
+    TransactionalHiveReader(RuntimeProfile* profile, RuntimeState* state,
+                            const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                            size_t batch_size, const std::string& ctz,
+                            std::shared_ptr<io::IOContext> io_ctx_holder,
+                            FileMetaCache* meta_cache = nullptr);
     ~TransactionalHiveReader() final = default;
 
 protected:
@@ -69,6 +75,8 @@ protected:
     Status on_after_read_block(Block* block, size_t* read_rows) override;
 
 private:
+    void _init_transactional_hive_profile();
+
     struct TransactionalHiveProfile {
         RuntimeProfile::Counter* num_delete_files = nullptr;
         RuntimeProfile::Counter* num_delete_rows = nullptr;
