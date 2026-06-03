@@ -143,7 +143,11 @@ public class FrontendsProcNode implements ProcNodeInterface {
             InetSocketAddress socketAddress = new InetSocketAddress(fe.getHost(), fe.getEditLogPort());
             //An ipv6 address may have different format, so we compare InetSocketAddress objects instead of IP Strings.
             //e.g.  fdbd:ff1:ce00:1c26::d8 and fdbd:ff1:ce00:1c26:0:0:d8
-            info.add(String.valueOf(socketAddress.equals(master)));
+            boolean isMaster = socketAddress.equals(master);
+            if (!isMaster && master == null && fe.getHost().equals(env.getSelfNode().getHost()) && env.isMaster()) {
+                isMaster = true;
+            }
+            info.add(String.valueOf(isMaster));
 
             info.add(Integer.toString(env.getClusterId()));
             info.add(String.valueOf(isJoin(allFe, fe)));

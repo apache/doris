@@ -74,8 +74,8 @@
 #include "service/arrow_flight/flight_sql_service.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
-#include "service/brpc_service.h"
 #include "service/http_service.h"
+#include "service/server/be_server_starter_factory.h"
 #include "storage/options.h"
 #include "storage/storage_engine.h"
 #include "udf/python/python_env.h"
@@ -607,7 +607,6 @@ int main(int argc, char** argv) {
     // begin to start services
     doris::ThriftRpcHelper::setup(exec_env);
     // 1. thrift server with be_port
-    std::unique_ptr<doris::ThriftServer> be_server;
     std::shared_ptr<doris::BaseBackendService> service;
     std::function<void(Status&, std::string_view)> stop_work_if_error = [&](Status& status,
                                                                             std::string_view msg) {
@@ -621,49 +620,49 @@ int main(int argc, char** argv) {
     if (doris::config::is_cloud_mode()) {
         service = std::make_shared<doris::CloudBackendService>(
                 exec_env->storage_engine().to_cloud(), exec_env);
-        EXIT_IF_ERROR(doris::CloudBackendService::create_service(
-                exec_env->storage_engine().to_cloud(), exec_env, doris::config::be_port, &be_server,
-                std::dynamic_pointer_cast<doris::CloudBackendService>(service)));
     } else {
         service = std::make_shared<doris::BackendService>(exec_env->storage_engine().to_local(),
                                                           exec_env);
-        EXIT_IF_ERROR(doris::BackendService::create_service(
-                exec_env->storage_engine().to_local(), exec_env, doris::config::be_port, &be_server,
-                std::dynamic_pointer_cast<doris::BackendService>(service)));
     }
 
-    status = be_server->start();
+    std::unique_ptr<doris::server::IServerStarter> backend_thrift_starter;
+    EXIT_IF_ERROR(doris::server::create_backend_thrift_starter(exec_env, doris::config::be_port,
+                                                               service, &backend_thrift_starter));
+    status = backend_thrift_starter->start();
     stop_work_if_error(status, "Doris BE server did not start correctly, exiting");
 
-    // 2. bprc service
-    std::unique_ptr<doris::BRpcService> brpc_service =
-            std::make_unique<doris::BRpcService>(exec_env);
-    status = brpc_service->start(doris::config::brpc_port, doris::config::brpc_num_threads);
+    // 2. brpc service
+    std::unique_ptr<doris::server::IServerStarter> brpc_starter;
+    EXIT_IF_ERROR(doris::server::create_brpc_starter(
+            exec_env, doris::config::brpc_port, doris::config::brpc_num_threads, &brpc_starter));
+    status = brpc_starter->start();
     stop_work_if_error(status, "BRPC service did not start correctly, exiting");
 
     // 3. http service
-    std::unique_ptr<doris::HttpService> http_service = std::make_unique<doris::HttpService>(
-            exec_env, doris::config::webserver_port, doris::config::webserver_num_workers);
-    status = http_service->start();
+    std::unique_ptr<doris::server::IServerStarter> http_starter;
+    EXIT_IF_ERROR(doris::server::create_http_starter(exec_env, doris::config::webserver_port,
+                                                     doris::config::webserver_num_workers,
+                                                     &http_starter));
+    status = http_starter->start();
     stop_work_if_error(status, "Doris Be http service did not start correctly, exiting");
 
     // 4. heart beat server
     doris::ClusterInfo* cluster_info = exec_env->cluster_info();
-    std::unique_ptr<doris::ThriftServer> heartbeat_thrift_server;
-    doris::Status heartbeat_status = doris::create_heartbeat_server(
-            exec_env, doris::config::heartbeat_service_port, &heartbeat_thrift_server,
-            doris::config::heartbeat_service_thread_count, cluster_info);
+    std::unique_ptr<doris::server::IServerStarter> heartbeat_thrift_starter;
+    status = doris::server::create_heartbeat_thrift_starter(
+            exec_env, doris::config::heartbeat_service_port,
+            doris::config::heartbeat_service_thread_count, cluster_info, &heartbeat_thrift_starter);
+    stop_work_if_error(status, "Heartbeat services did not start correctly, exiting");
 
-    stop_work_if_error(heartbeat_status, "Heartbeat services did not start correctly, exiting");
-
-    status = heartbeat_thrift_server->start();
+    status = heartbeat_thrift_starter->start();
     stop_work_if_error(status, "Doris BE HeartBeat Service did not start correctly, exiting: " +
                                        status.to_string());
 
     // 5. arrow flight service
-    std::shared_ptr<doris::flight::FlightSqlServer> flight_server =
-            std::move(doris::flight::FlightSqlServer::create()).ValueOrDie();
-    status = flight_server->init(doris::config::arrow_flight_sql_port);
+    std::unique_ptr<doris::server::IServerStarter> flight_starter;
+    EXIT_IF_ERROR(doris::server::create_flight_starter(doris::config::arrow_flight_sql_port,
+                                                       &flight_starter));
+    status = flight_starter->start();
     stop_work_if_error(
             status, "Arrow Flight Service did not start correctly, exiting, " + status.to_string());
 
@@ -699,19 +698,21 @@ int main(int argc, char** argv) {
         return 0;
     }
     daemon.stop();
-    flight_server.reset();
+    flight_starter->stop();
+    flight_starter->join();
     LOG(INFO) << "Flight server stopped.";
-    heartbeat_thrift_server->stop();
-    heartbeat_thrift_server.reset(nullptr);
+    heartbeat_thrift_starter->stop();
+    heartbeat_thrift_starter->join();
     LOG(INFO) << "Heartbeat server stopped";
     // TODO(zhiqiang): http_service
-    http_service->stop();
-    http_service.reset(nullptr);
+    http_starter->stop();
+    http_starter->join();
     LOG(INFO) << "Http service stopped";
-    be_server->stop();
-    be_server.reset(nullptr);
+    backend_thrift_starter->stop();
+    backend_thrift_starter->join();
     LOG(INFO) << "Be server stopped";
-    brpc_service.reset(nullptr);
+    brpc_starter->stop();
+    brpc_starter->join();
     LOG(INFO) << "Brpc service stopped";
     service.reset();
     LOG(INFO) << "Backend Service stopped";
