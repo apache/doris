@@ -30,6 +30,7 @@
 #include "common/be_mock_util.h"
 #include "common/global_types.h"
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 #include "runtime/runtime_profile.h"
 
 namespace google {
@@ -57,8 +58,7 @@ public:
             RuntimeProfile* profile, bool is_merging, size_t data_queue_capacity);
 
     MOCK_FUNCTION Status find_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id,
-                                    std::shared_ptr<VDataStreamRecvr>* res,
-                                    bool acquire_lock = true);
+                                    std::shared_ptr<VDataStreamRecvr>* res);
 
     Status deregister_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
 
@@ -68,9 +68,9 @@ public:
     void cancel(const TUniqueId& fragment_instance_id, Status exec_status);
 
 private:
-    std::shared_mutex _lock;
+    AnnotatedSharedMutex _lock;
     using StreamMap = std::unordered_multimap<uint32_t, std::shared_ptr<VDataStreamRecvr>>;
-    StreamMap _receiver_map;
+    StreamMap _receiver_map GUARDED_BY(_lock);
 
     struct ComparisonOp {
         bool operator()(const std::pair<doris::TUniqueId, PlanNodeId>& a,
@@ -88,7 +88,11 @@ private:
         }
     };
     using FragmentStreamSet = std::set<std::pair<TUniqueId, PlanNodeId>, ComparisonOp>;
-    FragmentStreamSet _fragment_stream_set;
+    FragmentStreamSet _fragment_stream_set GUARDED_BY(_lock);
+
+    Status _find_recvr(uint32_t hash_value, const TUniqueId& fragment_instance_id,
+                       PlanNodeId node_id, std::shared_ptr<VDataStreamRecvr>* res)
+            REQUIRES_SHARED(_lock);
 
     uint32_t get_hash_value(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
 };

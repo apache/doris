@@ -28,6 +28,7 @@
 #include "exec/operator/operator.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/runtime_filter/runtime_filter_consumer_helper.h"
+#include "exec/runtime_filter/runtime_filter_partition_pruner.h"
 #include "exec/scan/scan_node.h"
 #include "exec/scan/scanner_context.h"
 #include "exprs/function_filter.h"
@@ -85,6 +86,10 @@ public:
     [[nodiscard]] virtual int min_scanners_concurrency(RuntimeState* state) const;
     [[nodiscard]] virtual ScannerScheduler* scan_scheduler(RuntimeState* state) const;
 
+    // Thread-safe check whether a partition has been pruned by runtime filter.
+    // Callable from any scan type's scanner in scheduling threads.
+    bool is_partition_pruned(int64_t partition_id) const;
+
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
     uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
@@ -98,6 +103,13 @@ protected:
     friend class Scanner;
 
     virtual Status _init_profile() = 0;
+
+    // Hook for subclasses to react after new runtime filters are appended.
+    // Called inside update_late_arrival_runtime_filter() while _conjuncts_lock is held.
+    // Default implementation runs partition pruning on the newly appended RFs.
+    virtual Status _on_runtime_filter_update();
+
+    Status _do_partition_pruning_by_rf();
 
     std::atomic<bool> _opened {false};
 
@@ -133,6 +145,11 @@ protected:
     // condition cache filter stats
     RuntimeProfile::Counter* _condition_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _condition_cache_filtered_rows_counter = nullptr;
+
+    // ---- Runtime-filter partition pruning (scan-agnostic) ----
+    RuntimeFilterPartitionPruner _rf_partition_pruner;
+    RuntimeProfile::Counter* _partitions_pruned_by_rf_counter = nullptr;
+    RuntimeProfile::Counter* _total_partitions_rf_counter = nullptr;
 
     // Moved from ScanLocalState<Derived> to avoid re-instantiation for each Derived type.
     std::atomic<bool> _eos = false;
@@ -258,11 +275,6 @@ class ScanLocalState : public ScanLocalStateBase {
     std::vector<int> get_topn_filter_source_node_ids(RuntimeState* state, bool push_down) {
         std::vector<int> result;
         for (int id : _parent->cast<typename Derived::Parent>()._topn_filter_source_node_ids) {
-            if (!state->get_query_ctx()->has_runtime_predicate(id)) {
-                // compatible with older versions fe
-                continue;
-            }
-
             const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
             if (!pred.enable()) {
                 continue;
@@ -281,7 +293,10 @@ protected:
     friend class Scanner;
 
     Status _init_profile() override;
-    virtual Status _process_conjuncts(RuntimeState* state) { return _normalize_conjuncts(state); }
+    virtual Status _process_conjuncts(RuntimeState* state) {
+        RETURN_IF_ERROR(_do_partition_pruning_by_rf());
+        return _normalize_conjuncts(state);
+    }
     virtual bool _should_push_down_common_expr(const VExprSPtr&) { return false; }
 
     virtual bool _storage_no_merge() { return false; }
@@ -361,6 +376,16 @@ public:
         return _runtime_filter_descs;
     }
 
+    // Expose this operator's per-fragment shared partition-boundary parse
+    // result to the non-templated ScanLocalStateBase so it can drive runtime
+    // filter partition pruning without down-casting to a specific scan type.
+    // Subclasses are expected to populate `_parsed_partition_boundaries` from
+    // their own partition-boundary thrift field inside their `prepare()`
+    // override before any LocalState observes the result.
+    const ParsedPartitionBoundaries* parsed_partition_boundaries() const override {
+        return &_parsed_partition_boundaries;
+    }
+
     [[nodiscard]] virtual int get_column_id(const std::string& col_name) const { return -1; }
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
@@ -438,6 +463,12 @@ protected:
 
     std::shared_ptr<MemShareArbitrator> _mem_arb = nullptr;
     std::shared_ptr<MemLimiter> _mem_limiter = nullptr;
+
+    // Shared parse result of partition boundaries for runtime-filter partition
+    // pruning. Lives here (rather than on the Olap-specific subclass) so any
+    // future scan type can populate it in its `prepare()` override and reuse
+    // the generic pruning machinery in ScanLocalStateBase.
+    ParsedPartitionBoundaries _parsed_partition_boundaries;
 };
 
 } // namespace doris

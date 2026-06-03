@@ -29,6 +29,7 @@
 #include "io/fs/file_reader.h"
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/encoding_info.h"
 #include "storage/segment/mock/mock_segment.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/variant/variant_column_reader.h"
@@ -57,6 +58,14 @@ private:
 
 class ColumnReaderCacheTest : public ::testing::Test {
 protected:
+    // EncodingInfo friended ColumnReaderCacheTest so the fixture can pick a valid V2
+    // default encoding for the synthetic ColumnMetaPBs constructed by these tests.
+    // TEST_F bodies subclass this fixture and call the helper (friendship doesn't carry
+    // to subclasses).
+    static segment_v2::EncodingTypePB get_v2_default_encoding(FieldType t) {
+        return segment_v2::EncodingInfo::get_v2_default_encoding(t);
+    }
+
     void SetUp() override {
         // Set up test configuration
         config::max_segment_partial_column_cache_size = 3;
@@ -141,7 +150,7 @@ TEST_F(ColumnReaderCacheTest, BasicCacheOperations) {
     ColumnMetaPB col_meta;
     col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
     col_meta.set_unique_id(1);
-    col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
     col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({col_meta});
 
@@ -174,7 +183,7 @@ TEST_F(ColumnReaderCacheTest, LRUEviction) {
         ColumnMetaPB col_meta;
         col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
         col_meta.set_unique_id(i);
-        col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+        col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
         col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
         setup_segment_footer({col_meta});
 
@@ -202,11 +211,11 @@ TEST_F(ColumnReaderCacheTest, LRUOrderMaintenance) {
     ColumnMetaPB col_meta1, col_meta2;
     col_meta1.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
     col_meta1.set_unique_id(1);
-    col_meta1.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    col_meta1.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta1.type())));
     col_meta1.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     col_meta2.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
     col_meta2.set_unique_id(2);
-    col_meta2.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    col_meta2.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta2.type())));
     col_meta2.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({col_meta1, col_meta2});
 
@@ -230,7 +239,7 @@ TEST_F(ColumnReaderCacheTest, LRUOrderMaintenance) {
     ColumnMetaPB col_meta3;
     col_meta3.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
     col_meta3.set_unique_id(3);
-    col_meta3.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    col_meta3.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta3.type())));
     col_meta3.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({col_meta1, col_meta2, col_meta3});
 
@@ -254,14 +263,14 @@ TEST_F(ColumnReaderCacheTest, VariantColumnPathReading) {
     ColumnMetaPB variant_meta;
     variant_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_VARIANT));
     variant_meta.set_unique_id(1);
-    variant_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    variant_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(variant_meta.type())));
     variant_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
 
     // Create subcolumn meta
     ColumnMetaPB subcol_meta;
     subcol_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_STRING));
     subcol_meta.set_unique_id(2);
-    subcol_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    subcol_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(subcol_meta.type())));
     subcol_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
 
     setup_segment_footer({variant_meta, subcol_meta});
@@ -289,7 +298,7 @@ TEST_F(ColumnReaderCacheTest, NonExistentVariantPath) {
     ColumnMetaPB variant_meta;
     variant_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_VARIANT));
     variant_meta.set_unique_id(1);
-    variant_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    variant_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(variant_meta.type())));
     variant_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({variant_meta});
 
@@ -307,7 +316,7 @@ TEST_F(ColumnReaderCacheTest, ConcurrentAccess) {
     ColumnMetaPB col_meta;
     col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
     col_meta.set_unique_id(1);
-    col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
     col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({col_meta});
 
@@ -342,7 +351,7 @@ TEST_F(ColumnReaderCacheTest, CacheStatistics) {
     ColumnMetaPB col_meta;
     col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
     col_meta.set_unique_id(1);
-    col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
     col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({col_meta});
 
@@ -372,7 +381,7 @@ TEST_F(ColumnReaderCacheTest, DifferentColumnTypes) {
         ColumnMetaPB col_meta;
         col_meta.set_type(static_cast<int32_t>(types[i]));
         col_meta.set_unique_id(static_cast<int32_t>(i + 1));
-        col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+        col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
         col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
         setup_segment_footer({col_meta});
 
@@ -393,11 +402,11 @@ TEST_F(ColumnReaderCacheTest, NodeHintParameter) {
     ColumnMetaPB variant_meta, subcol_meta;
     variant_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_VARIANT));
     variant_meta.set_unique_id(1);
-    variant_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    variant_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(variant_meta.type())));
     variant_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     subcol_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_STRING));
     subcol_meta.set_unique_id(2);
-    subcol_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    subcol_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(subcol_meta.type())));
     subcol_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({variant_meta, subcol_meta});
 
@@ -431,7 +440,7 @@ TEST_F(ColumnReaderCacheTest, PerformanceUnderLoad) {
         ColumnMetaPB col_meta;
         col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
         col_meta.set_unique_id(i);
-        col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+        col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
         col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
         all_columns.push_back(col_meta);
     }
@@ -471,7 +480,7 @@ TEST_F(ColumnReaderCacheTest, EmptyPath) {
     ColumnMetaPB col_meta;
     col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_VARIANT));
     col_meta.set_unique_id(1);
-    col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
     col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({col_meta});
 

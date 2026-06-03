@@ -113,10 +113,6 @@ public:
         return nullptr;
     }
 
-    // shrink the end zeros for ColumnStr(also for who has it nested). so nest column will call it for all nested.
-    // for non-str col, will reach here(do nothing). only ColumnStr will really shrink itself.
-    virtual void shrink_padding_chars() {}
-
     // Only used in ColumnVariant to handle lifecycle of variant. Other columns would do nothing.
     virtual void finalize() {}
 
@@ -579,18 +575,29 @@ public:
         return false;
     }
 
+    // Recursively make a mutable column tree. Use this rvalue member when the
+    // current column object is being consumed. Shared nodes are cloned, while
+    // exclusive nodes are reused through the COW fast path.
     MutablePtr mutate() const&& {
         MutablePtr res = shallow_mutate();
-        res->for_each_subcolumn(
-                [](WrappedPtr& subcolumn) { subcolumn = std::move(*subcolumn).mutate(); });
+        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
+            static_cast<IColumn::Ptr&>(subcolumn) =
+                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
+        });
         return res;
     }
 
+    // COW entry point for a ColumnPtr. Passing the pointer by value keeps the
+    // original owner alive until the top-level detach succeeds; passing
+    // std::move(ptr) explicitly consumes that owner. Subcolumns are still
+    // recursively detached as needed.
     static MutablePtr mutate(Ptr ptr) {
         MutablePtr res = ptr->shallow_mutate(); /// Now use_count is 2.
         ptr.reset();                            /// Reset use_count to 1.
-        res->for_each_subcolumn(
-                [](WrappedPtr& subcolumn) { subcolumn = std::move(*subcolumn).mutate(); });
+        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
+            static_cast<IColumn::Ptr&>(subcolumn) =
+                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
+        });
         return res;
     }
 

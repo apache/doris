@@ -121,7 +121,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     }
 
     bool need_ordered_result = true;
-    if (read_params.reader_type == ReaderType::READER_QUERY) {
+    if (read_params.reader_type == ReaderType::READER_QUERY ||
+        read_params.reader_type == ReaderType::READER_BINLOG) {
         if (_tablet_schema->keys_type() == DUP_KEYS) {
             // duplicated keys are allowed, no need to merge sort keys in rowset
             need_ordered_result = false;
@@ -155,6 +156,10 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.topn_filter_source_node_ids = read_params.topn_filter_source_node_ids;
     _reader_context.topn_filter_target_node_id = read_params.topn_filter_target_node_id;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
+    _reader_context.use_insert_order_when_same =
+            read_params.use_insert_order_when_same ||
+            read_params.reader_type == ReaderType::READER_BINLOG ||
+            read_params.reader_type == ReaderType::READER_BINLOG_COMPACTION;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =
@@ -178,7 +183,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.record_rowids = read_params.record_rowids;
     _reader_context.rowid_conversion = read_params.rowid_conversion;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
-    _reader_context.remaining_conjunct_roots = read_params.remaining_conjunct_roots;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
     _reader_context.output_columns = &read_params.output_columns;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
@@ -271,7 +275,8 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
 
 Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_return_columns_timer_ns);
-    if (read_params.reader_type == ReaderType::READER_QUERY) {
+    if (read_params.reader_type == ReaderType::READER_QUERY ||
+        read_params.reader_type == ReaderType::READER_BINLOG) {
         _return_columns = read_params.return_columns;
         _tablet_columns_convert_to_null_set = read_params.tablet_columns_convert_to_null_set;
         for (auto id : read_params.return_columns) {
@@ -295,6 +300,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
                 read_params.reader_type == ReaderType::READER_SEGMENT_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_FULL_COMPACTION ||
+                read_params.reader_type == ReaderType::READER_BINLOG_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_ALTER_TABLE) &&
                !read_params.return_columns.empty()) {
@@ -347,11 +353,6 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                 scan_key_size, _tablet_schema->num_columns());
     }
 
-    std::vector<uint32_t> columns(scan_key_size);
-    std::iota(columns.begin(), columns.end(), 0);
-
-    std::shared_ptr<Schema> schema = std::make_shared<Schema>(_tablet_schema->columns(), columns);
-
     for (size_t i = 0; i < start_key_size; ++i) {
         if (read_params.start_key[i].size() != scan_key_size) {
             return Status::Error<INVALID_ARGUMENT>(
@@ -359,8 +360,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                     read_params.start_key[i].size(), scan_key_size);
         }
 
-        Status res =
-                _keys_param.start_keys[i].init(_tablet_schema, read_params.start_key[i], schema);
+        Status res = _keys_param.start_keys[i].init(_tablet_schema, read_params.start_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
@@ -377,7 +377,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                     read_params.end_key[i].size(), scan_key_size);
         }
 
-        Status res = _keys_param.end_keys[i].init(_tablet_schema, read_params.end_key[i], schema);
+        Status res = _keys_param.end_keys[i].init(_tablet_schema, read_params.end_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;

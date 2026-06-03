@@ -16,6 +16,7 @@
 // under the License.
 
 suite("infer_intersect_except") {
+    sql "set parallel_pipeline_task_num=2"
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
     sql """SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"""

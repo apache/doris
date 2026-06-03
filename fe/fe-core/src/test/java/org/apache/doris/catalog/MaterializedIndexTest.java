@@ -21,6 +21,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TStorageMedium;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -35,6 +36,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class MaterializedIndexTest {
 
@@ -71,6 +74,68 @@ public class MaterializedIndexTest {
     @Test
     public void getMethodTest() {
         Assert.assertEquals(indexId, index.getId());
+    }
+
+    @Test
+    public void testGetTabletsReturnsImmutableSnapshot() {
+        TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD);
+        index.addTablet(new LocalTablet(1L), tabletMeta, true);
+
+        List<Tablet> snapshot = index.getTablets();
+        Assert.assertEquals(1, snapshot.size());
+
+        // A write after the snapshot was taken must not be visible in it (copy-on-write).
+        index.addTablet(new LocalTablet(2L), tabletMeta, true);
+        Assert.assertEquals(1, snapshot.size());
+        Assert.assertEquals(2, index.getTablets().size());
+
+        // The returned snapshot is read-only.
+        Assert.assertThrows(UnsupportedOperationException.class, () -> snapshot.add(new LocalTablet(3L)));
+    }
+
+    @Test
+    public void testConcurrentGetTabletsNeverThrows() throws InterruptedException {
+        // A reader repeatedly snapshots and iterates getTablets() while a writer keeps
+        // adding tablets. Copy-on-write guarantees the reader never observes a partially
+        // built list or throws ConcurrentModificationException.
+        TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD);
+        AtomicReference<Throwable> error = new AtomicReference<>();
+        AtomicBoolean stop = new AtomicBoolean(false);
+
+        Thread writer = new Thread(() -> {
+            long id = 1000L;
+            while (!stop.get()) {
+                index.addTablet(new LocalTablet(id++), tabletMeta, true);
+                // Keep the list bounded (and exercise the clear path) so the test stays fast.
+                if (index.getTablets().size() > 64) {
+                    index.clearTabletsForRestore();
+                }
+            }
+        });
+
+        Thread reader = new Thread(() -> {
+            try {
+                for (int i = 0; i < 50000 && error.get() == null; i++) {
+                    for (Tablet tablet : index.getTablets()) {
+                        tablet.getId();
+                    }
+                }
+            } catch (Throwable t) {
+                error.set(t);
+            } finally {
+                stop.set(true);
+            }
+        });
+
+        writer.start();
+        reader.start();
+        reader.join();
+        stop.set(true);
+        writer.join();
+
+        if (error.get() != null) {
+            Assert.fail("getTablets() iteration threw under concurrent mutation: " + error.get());
+        }
     }
 
     @Test

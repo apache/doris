@@ -77,21 +77,9 @@ std::shared_ptr<ColumnPredicate> create_comparison_predicate(const uint32_t cid,
                                                                            opposite);
     }
     case TYPE_CHAR: {
-        auto target = std::max(cast_set<size_t>(assert_cast<const DataTypeString*>(
-                                                        remove_nullable(data_type).get())
-                                                        ->len()),
-                               value.template get<TYPE_CHAR>().size());
-        if (target > value.template get<TYPE_CHAR>().size()) {
-            std::string tmp(target, '\0');
-            memcpy(tmp.data(), value.template get<TYPE_CHAR>().data(),
-                   value.template get<TYPE_CHAR>().size());
-            return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(
-                    cid, col_name, Field::create_field<TYPE_CHAR>(std::move(tmp)), opposite);
-        } else {
-            return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(
-                    cid, col_name, Field::create_field<TYPE_CHAR>(value.template get<TYPE_CHAR>()),
-                    opposite);
-        }
+        return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(
+                cid, col_name, Field::create_field<TYPE_CHAR>(value.template get<TYPE_CHAR>()),
+                opposite);
     }
     case TYPE_VARCHAR:
     case TYPE_STRING: {

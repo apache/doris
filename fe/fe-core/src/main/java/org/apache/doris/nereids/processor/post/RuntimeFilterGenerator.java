@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.processor.post;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -68,6 +69,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -293,6 +295,14 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 }
             }
         }
+
+        // Decoupled RF: for each equi-conjunct, check if the probe-side expression originates
+        // from a descendant join's build side. If so, generate an RF produced by that descendant
+        // join and pushed down into this join's build subtree.
+        if (ctx.getSessionVariable().enableDecoupledRuntimeFilter) {
+            generateDecoupledRuntimeFilters(join, hashJoinConjuncts, legalTypes, ctx, context);
+        }
+
         return join;
     }
 
@@ -321,6 +331,344 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             }
         }
         return false;
+    }
+
+    /**
+     * Generate decoupled runtime filters for the given join.
+     *
+     * For each equi-conjunct left=probe, right=build:
+     *   Walk the probe subtree to find a descendant join whose build side contains
+     *   the probe expression. If found, create an RF produced by that descendant join,
+     *   pushed down into this join's build subtree to reach the target scan.
+     *
+     * Decision logic to avoid circular wait between standard and decoupled RFs:
+     * - Stats known: if decoupled_ndv / standard_ndv < threshold → prefer decoupled (remove standard)
+     *                else → keep both, decoupled is non-blocking (wait_time=0)
+     * - Stats unknown: if probe subtree has filters but build subtree doesn't → prefer decoupled
+     *                  else → keep both, decoupled is non-blocking
+     */
+    private void generateDecoupledRuntimeFilters(
+            PhysicalHashJoin<? extends Plan, ? extends Plan> join,
+            List<Expression> hashJoinConjuncts,
+            List<TRuntimeFilterType> legalTypes,
+            RuntimeFilterContext ctx,
+            CascadesContext context) {
+        // Only generate decoupled RFs for INNER/CROSS joins. For SEMI/ANTI/OUTER joins,
+        // the standard RF has specialized semantics and a reverse-direction decoupled RF
+        // may interfere or be semantically incorrect.
+        if (!join.getJoinType().isInnerJoin() && !join.getJoinType().isCrossJoin()) {
+            return;
+        }
+        double ndvRatioThreshold = ctx.getSessionVariable().decoupledRfNdvRatioThreshold;
+
+        for (int i = 0; i < hashJoinConjuncts.size(); i++) {
+            EqualPredicate equalTo = JoinUtils.swapEqualToForChildrenOrder(
+                    (EqualPredicate) hashJoinConjuncts.get(i), join.left().getOutputSet());
+            Expression probeExpr = equalTo.left();
+            Expression buildExpr = equalTo.right();
+            if (buildExpr.getInputSlots().size() != 1) {
+                continue;
+            }
+            Pair<AbstractPhysicalJoin<?, ?>, Expression> result =
+                    findBuilderForDecoupledRf(probeExpr, join.left());
+            if (result == null) {
+                continue;
+            }
+            AbstractPhysicalJoin<?, ?> decoupledBuilder = result.first;
+            Expression resolvedSrcExpr = result.second;
+
+            long decoupledNdv = getDecoupledBuildSideNdv(decoupledBuilder, resolvedSrcExpr);
+            // Use strict NDV (returns -1 for unknown) for the preference comparison,
+            // to avoid biased ratio when one side has real NDV and the other uses rowCount fallback.
+            long strictDecoupledNdv = getStrictNdv(decoupledBuilder.right(), resolvedSrcExpr);
+            long strictStandardNdv = getStrictNdv(join.right(), equalTo.right());
+
+            // Prune decoupled RFs that won't be selective enough when stats are unknown.
+            // With known stats: always create the decoupled RF — shouldPreferDecoupledRf()
+            // decides below whether to prefer it or keep both with decoupled non-blocking.
+            // Without stats: if the builder's build side has no filter predicates,
+            // it likely outputs all distinct values -> non-selective.
+            if (!(strictDecoupledNdv > 0 && strictStandardNdv > 0)
+                    && !hasFilterInSubtree(decoupledBuilder.right())) {
+                continue;
+            }
+
+            boolean preferDecoupled = shouldPreferDecoupledRf(
+                    strictDecoupledNdv, strictStandardNdv, ndvRatioThreshold,
+                    decoupledBuilder, join);
+
+            for (TRuntimeFilterType type : legalTypes) {
+                if (type == TRuntimeFilterType.BITMAP) {
+                    continue;
+                }
+
+                RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
+                        RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContext(
+                                ctx, decoupledBuilder, resolvedSrcExpr, buildExpr, type, false,
+                                context.getStatementContext().isHasUnknownColStats(),
+                                decoupledNdv, -1 /*sentinel: decoupled RF*/);
+                boolean decoupledRfPushed = false;
+                if (pushDownContext.isValid()) {
+                    decoupledRfPushed = join.right().accept(
+                            new RuntimeFilterPushDownVisitor(), pushDownContext);
+                }
+                if (decoupledRfPushed) {
+                    if (preferDecoupled) {
+                        // When preferring decoupled RF, make the standard RF non-blocking.
+                        // This preserves both filters while prioritizing the decoupled RF
+                        // (which blocks). The standard RF still applies if it arrives in
+                        // time (with wait_time=0).
+                        markStandardRfAsNonBlocking(ctx, join, equalTo.right(), type, i);
+                    } else {
+                        markDecoupledRfAsNonBlocking(ctx, pushDownContext);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Decide whether decoupled RF should replace the standard RF.
+     *
+     * @return true if decoupled RF is preferred (standard RF should be removed);
+     *         false means keep both but decoupled RF will be non-blocking.
+     */
+    private boolean shouldPreferDecoupledRf(
+            long decoupledNdv, long standardNdv, double ndvRatioThreshold,
+            AbstractPhysicalJoin<?, ?> decoupledBuilder,
+            PhysicalHashJoin<? extends Plan, ? extends Plan> conditionJoin) {
+        boolean statsKnown = decoupledNdv > 0 && standardNdv > 0;
+        if (statsKnown) {
+            double ratio = (double) decoupledNdv / standardNdv;
+            return ratio < ndvRatioThreshold;
+        }
+        // Unknown stats: use filter-presence heuristic.
+        // The decoupled RF's source is in the probe subtree (via decoupledBuilder),
+        // the standard RF's source is in conditionJoin's build subtree.
+        // If probe source has filters but build source doesn't → decoupled RF is more selective.
+        boolean probeHasFilter = hasFilterInSubtree(decoupledBuilder.right());
+        boolean buildHasFilter = hasFilterInSubtree(conditionJoin.right());
+        return probeHasFilter && !buildHasFilter;
+    }
+
+    /**
+     * Check if the given subtree contains a PhysicalFilter with visible predicates.
+     * Walks through Project, Filter, Distribute, and Join nodes.
+     */
+    private boolean hasFilterInSubtree(Plan subtree) {
+        if (subtree instanceof PhysicalFilter) {
+            PhysicalFilter<?> filter = (PhysicalFilter<?>) subtree;
+            for (Expression expr : filter.getExpressions()) {
+                for (Slot slot : expr.getInputSlots()) {
+                    if (slot instanceof SlotReference) {
+                        SlotReference slotRef = (SlotReference) slot;
+                        if (!slotRef.getOriginalColumn().isPresent()
+                                || slotRef.getOriginalColumn().get().isVisible()) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        for (Plan child : subtree.children()) {
+            if (hasFilterInSubtree(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * After push-down, find the newly created decoupled RF and mark it as non-blocking.
+     * The decoupled RF was just pushed down and registered in targetExprIdToFilter.
+     * We identify it by exprOrder == -1 and the matching builderNode.
+     */
+    private void markDecoupledRfAsNonBlocking(
+            RuntimeFilterContext ctx,
+            RuntimeFilterPushDownVisitor.PushDownContext pushDownContext) {
+        for (List<RuntimeFilter> filters : ctx.getTargetExprIdToFilter().values()) {
+            for (RuntimeFilter rf : filters) {
+                if (rf.getExprOrder() == -1
+                        && rf.getBuilderNode().equals(pushDownContext.builderNode)
+                        && rf.getSrcExpr().equals(pushDownContext.srcExpr)
+                        && rf.getType().equals(pushDownContext.type)) {
+                    rf.setNonBlocking(true);
+                }
+            }
+        }
+    }
+
+    private void markStandardRfAsNonBlocking(
+            RuntimeFilterContext ctx,
+            PhysicalHashJoin<? extends Plan, ? extends Plan> join,
+            Expression srcExpr,
+            TRuntimeFilterType type,
+            int exprOrder) {
+        for (RuntimeFilter rf : ctx.getNereidsRuntimeFilter()) {
+            if (rf.getExprOrder() == exprOrder
+                    && rf.getBuilderNode().equals(join)
+                    && rf.getSrcExpr().equals(srcExpr)
+                    && rf.getType().equals(type)) {
+                rf.setNonBlocking(true);
+            }
+        }
+    }
+
+    /**
+     * Walk the probe subtree to find a descendant join whose build side (right child)
+     * contains all input slots of the given expression.
+     *
+     * @return Pair of (builderNode, resolvedSrcExpr) where resolvedSrcExpr is the
+     *         expression rewritten through any intermediate Projects, or null if not found.
+     */
+    private Pair<AbstractPhysicalJoin<?, ?>, Expression> findBuilderForDecoupledRf(
+            Expression expr, Plan subtree) {
+        //Constraints:
+        //   - Only INNER/CROSS joins on the path (OUTER/ANTI/SEMI block traversal)
+        //   - Expr must come from a join's build side (not a leaf scan directly)
+        if (subtree instanceof AbstractPhysicalJoin) {
+            AbstractPhysicalJoin<?, ?> join = (AbstractPhysicalJoin<?, ?>) subtree;
+            if (join.getJoinType() != JoinType.INNER_JOIN
+                    && join.getJoinType() != JoinType.CROSS_JOIN) {
+                return null;
+            }
+            if (join.isMarkJoin()) {
+                return null;
+            }
+            if (join.right().getOutputSet().containsAll(expr.getInputSlots())) {
+                // Try to find a deeper builder within the build subtree.
+                // A deeper builder produces the bloom filter earlier because it's built
+                // from a smaller, more selective dataset (e.g., a filtered dimension table).
+                Pair<AbstractPhysicalJoin<?, ?>, Expression> deeper =
+                        tryFindDeeperBuilder(expr, join.right());
+                return deeper != null ? deeper : Pair.of(join, expr);
+            }
+            if (join.left().getOutputSet().containsAll(expr.getInputSlots())) {
+                return findBuilderForDecoupledRf(expr, join.left());
+            }
+        } else if (subtree instanceof PhysicalProject) {
+            PhysicalProject<?> project = (PhysicalProject<?>) subtree;
+            Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(project.getProjects());
+            Expression rewritten = expr.rewriteDownShortCircuit(e -> replaceMap.getOrDefault(e, e));
+            if (rewritten.getInputSlots().size() == 1) {
+                return findBuilderForDecoupledRf(rewritten, project.child());
+            }
+        } else if (subtree instanceof PhysicalDistribute || subtree instanceof PhysicalFilter) {
+            // Transparent operators: pass through without expression rewriting
+            return findBuilderForDecoupledRf(expr, subtree.child(0));
+        }
+        return null;
+    }
+
+    /**
+     * Dive into the build subtree to find a deeper join that can serve as the decoupled RF
+     * builder. When expr is on the probe side of an inner join and an equi-condition maps it
+     * to the build side, the inner join is a better builder — its bloom filter is produced
+     * earlier (when the smaller build-side hash table is ready) rather than waiting for the
+     * entire join result.
+     *
+     * Example: plan is orders ⋈ (lineitem ⋈ part[filter]) with expr=l_partkey.
+     *   l_partkey is on the probe side of lineitem ⋈ part, equi-cond l_partkey = p_partkey
+     *   maps to p_partkey on part (build side). Returning (lineitem ⋈ part, p_partkey) means
+     *   the bloom filter is built from part's hash table, ready immediately after part scan.
+     */
+    private Pair<AbstractPhysicalJoin<?, ?>, Expression> tryFindDeeperBuilder(
+            Expression expr, Plan subtree) {
+        if (subtree instanceof AbstractPhysicalJoin) {
+            AbstractPhysicalJoin<?, ?> join = (AbstractPhysicalJoin<?, ?>) subtree;
+            if (join.getJoinType() != JoinType.INNER_JOIN
+                    && join.getJoinType() != JoinType.CROSS_JOIN) {
+                return null;
+            }
+            if (join.isMarkJoin()) {
+                return null;
+            }
+            if (join.right().getOutputSet().containsAll(expr.getInputSlots())) {
+                // expr is already on the build side; try to go even deeper
+                Pair<AbstractPhysicalJoin<?, ?>, Expression> deeper =
+                        tryFindDeeperBuilder(expr, join.right());
+                return deeper != null ? deeper : Pair.of(join, expr);
+            }
+            if (join.left().getOutputSet().containsAll(expr.getInputSlots())) {
+                // expr is on the probe side; check equi-conditions for equivalent build expr
+                Expression buildEquiv = findEquivalentBuildExpr(expr, join);
+                if (buildEquiv != null) {
+                    Pair<AbstractPhysicalJoin<?, ?>, Expression> deeper =
+                            tryFindDeeperBuilder(buildEquiv, join.right());
+                    return deeper != null ? deeper : Pair.of(join, buildEquiv);
+                }
+                // No equi-condition maps expr to build side; try through probe side
+                return tryFindDeeperBuilder(expr, join.left());
+            }
+        } else if (subtree instanceof PhysicalProject) {
+            PhysicalProject<?> project = (PhysicalProject<?>) subtree;
+            Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(project.getProjects());
+            Expression rewritten = expr.rewriteDownShortCircuit(e -> replaceMap.getOrDefault(e, e));
+            if (rewritten.getInputSlots().size() == 1) {
+                return tryFindDeeperBuilder(rewritten, project.child());
+            }
+        } else if (subtree instanceof PhysicalDistribute || subtree instanceof PhysicalFilter) {
+            return tryFindDeeperBuilder(expr, subtree.child(0));
+        }
+        return null;
+    }
+
+    /**
+     * Find an equivalent build-side expression through a join's equi-conditions.
+     * For example, if expr is l_partkey (probe) and join has l_partkey = p_partkey,
+     * returns p_partkey (build side).
+     */
+    private Expression findEquivalentBuildExpr(Expression expr, AbstractPhysicalJoin<?, ?> join) {
+        Set<Slot> exprSlots = expr.getInputSlots();
+        Set<Slot> leftOutputSet = join.left().getOutputSet();
+        for (Expression condition : join.getHashJoinConjuncts()) {
+            if (condition instanceof EqualPredicate) {
+                EqualPredicate eq = JoinUtils.swapEqualToForChildrenOrder(
+                        (EqualPredicate) condition, leftOutputSet);
+                if (eq.left().getInputSlots().equals(exprSlots)
+                        && eq.right().getInputSlots().size() == 1) {
+                    // Rewrite the full expression shape by replacing the equivalent slot,
+                    // rather than returning only the right-side slot. This preserves the
+                    // expression structure through descendant joins. For example, when
+                    // expr = t1.k + 1 and the equi-cond is t1.k = t2.k, we return
+                    // t2.k + 1 instead of just t2.k.
+                    Map<Expression, Expression> replaceMap = new HashMap<>();
+                    replaceMap.put(eq.left(), eq.right());
+                    return expr.rewriteDownShortCircuit(e -> replaceMap.getOrDefault(e, e));
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Get NDV estimate for the decoupled RF's source expression on the builder's build side.
+     * Used for bloom filter sizing — returns rowCount fallback when column stats are unknown.
+     */
+    private long getDecoupledBuildSideNdv(AbstractPhysicalJoin<?, ?> builder, Expression srcExpr) {
+        AbstractPlan right = (AbstractPlan) builder.right();
+        if (right.getStats() == null) {
+            return -1L;
+        }
+        ExpressionEstimation estimator = new ExpressionEstimation();
+        ColumnStatistic colStats = srcExpr.accept(estimator, right.getStats());
+        return colStats.isUnKnown
+                ? Math.max(1, (long) right.getStats().getRowCount()) : Math.max(1, (long) colStats.ndv);
+    }
+
+    /**
+     * Get strict NDV estimate for a plan's expression — returns -1 when column stats are unknown.
+     * Used only for NDV ratio comparison in decoupled RF decision, where rowCount fallback
+     * would introduce bias (rowCount != NDV).
+     */
+    private long getStrictNdv(Plan planNode, Expression expr) {
+        AbstractPlan plan = (AbstractPlan) planNode;
+        if (plan.getStats() == null) {
+            return -1L;
+        }
+        ExpressionEstimation estimator = new ExpressionEstimation();
+        ColumnStatistic colStats = expr.accept(estimator, plan.getStats());
+        return colStats.isUnKnown ? -1L : Math.max(1, (long) colStats.ndv);
     }
 
     @Override

@@ -96,9 +96,7 @@ public:
         }
 
         const auto& col_array = assert_cast<const ColumnArray&>(*arg_column);
-        const auto& off_data =
-                assert_cast<const ColumnArray::ColumnOffsets&>(col_array.get_offsets_column())
-                        .get_data();
+        const auto& off_data = col_array.get_offsets_column().get_data();
 
         const auto& nested_nullable_column =
                 assert_cast<const ColumnNullable&>(*col_array.get_data_ptr());
@@ -142,7 +140,7 @@ public:
         NullMap* temp_nullmap_data[2] = {nullptr, nullptr};
         for (int i = 0; i < 2; i++) {
             auto* temp_column = assert_cast<ColumnNullable*>(
-                    lambda_block.get_by_position(i).column->assume_mutable().get());
+                    lambda_block.get_by_position(i).column->assert_mutable().get());
             temp_data[i] = temp_column->get_nested_column_ptr();
             auto& null_map_col = temp_column->get_null_map_column();
             temp_nullmap_data[i] = &null_map_col.get_data();

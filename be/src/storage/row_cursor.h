@@ -34,7 +34,6 @@
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
-class StorageField;
 
 // Delegate the operation of a row of data.
 // Stores values as core::Field objects instead of raw byte buffers.
@@ -50,12 +49,6 @@ public:
     // Initialize from OlapTuple (which now stores Fields).
     // Sets up the schema and copies Fields from the tuple.
     Status init(TabletSchemaSPtr schema, const OlapTuple& tuple);
-    Status init(TabletSchemaSPtr schema, const OlapTuple& tuple,
-                const std::shared_ptr<Schema>& shared_schema);
-
-    // Initialize with schema and num_columns, creating null Fields.
-    // Caller sets individual fields via mutable_field().
-    Status init(TabletSchemaSPtr schema, size_t num_columns);
 
     // Initialize from typed Fields directly.
     Status init_scan_key(TabletSchemaSPtr schema, std::vector<Field> fields);
@@ -65,16 +58,11 @@ public:
 
     size_t field_count() const { return _fields.size(); }
 
-    const StorageField* column_schema(uint32_t cid) const { return _schema->column(cid); }
+    const TabletColumn* column(uint32_t cid) const { return _schema->column(cid); }
     const Schema* schema() const { return _schema.get(); }
 
     // Returns a deep copy of this RowCursor with the same schema and field values.
     RowCursor clone() const;
-
-    // Pad all CHAR-type fields in-place to their declared column length using '\0'.
-    // RowCursor holds CHAR values in compute format (unpadded). Call this before
-    // comparing against storage-format data (e.g. _seek_block) where CHAR is padded.
-    void pad_char_fields();
 
     // Output row cursor content in string format
     std::string to_string() const;
@@ -95,20 +83,19 @@ public:
     void encode_single_field(uint32_t cid, std::string* buf, bool full_encode) const {
         const auto& f = _fields[cid];
         DCHECK(!f.is_null());
-        _encode_field(_schema->column(cid), f, full_encode, buf);
+        _encode_column_value(_schema->column(cid), f, full_encode, buf);
     }
 
 private:
     // Copy Fields from an OlapTuple into this cursor.
-    Status from_tuple(const OlapTuple& tuple);
+    Status _from_tuple(const OlapTuple& tuple);
 
     void _init_schema(TabletSchemaSPtr schema, uint32_t column_count);
-    void _init_schema(const std::shared_ptr<Schema>& shared_schema, uint32_t column_count);
 
     // Helper: encode a single non-null field for the given column.
     // Converts the core::Field to storage format and calls KeyCoder.
-    void _encode_field(const StorageField* storage_field, const Field& f, bool full_encode,
-                       std::string* buf) const;
+    void _encode_column_value(const TabletColumn* column, const Field& value, bool full_encode,
+                              std::string* buf) const;
 
     std::unique_ptr<Schema> _schema;
     std::vector<Field> _fields;

@@ -288,6 +288,63 @@ TEST_F(FSFileCacheLeakCleanerTest, remove_orphan_and_tmp_files) {
     fs::remove_all(dir, ec);
 }
 
+TEST_F(FSFileCacheLeakCleanerTest, remove_cleans_empty_v2_and_v3_key_directories) {
+    auto dir = prepare_test_dir();
+    FileCacheSettings settings = default_settings();
+    BlockFileCache mgr(dir.string(), settings);
+    FSFileCacheStorage storage;
+    setup_storage(storage, mgr, dir);
+
+    FileCacheKey key;
+    key.hash = BlockFileCache::hash("remove_empty_v3_dir");
+    key.offset = 0;
+    key.meta.expiration_time = 123456789;
+    key.meta.type = FileCacheType::NORMAL;
+    key.meta.tablet_id = 0;
+
+    auto key_dir = storage.get_path_in_local_cache_v3(key.hash);
+    auto block_path = FSFileCacheStorage::get_path_in_local_cache_v3(key_dir, key.offset);
+    auto old_key_dir = storage.get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
+    auto old_block_path =
+            FSFileCacheStorage::get_path_in_local_cache_v2(old_key_dir, key.offset, key.meta.type);
+    create_regular_file(block_path, 'r');
+    create_regular_file(old_block_path, 'o');
+
+    ASSERT_TRUE(storage.remove(key).ok());
+
+    EXPECT_FALSE(fs::exists(block_path));
+    EXPECT_FALSE(fs::exists(key_dir));
+    EXPECT_FALSE(fs::exists(old_block_path));
+    EXPECT_FALSE(fs::exists(old_key_dir));
+}
+
+TEST_F(FSFileCacheLeakCleanerTest, remove_v3_block_when_v2_directory_missing) {
+    auto dir = prepare_test_dir();
+    FileCacheSettings settings = default_settings();
+    BlockFileCache mgr(dir.string(), settings);
+    FSFileCacheStorage storage;
+    setup_storage(storage, mgr, dir);
+
+    FileCacheKey key;
+    key.hash = BlockFileCache::hash("remove_v3_without_v2_dir");
+    key.offset = 0;
+    key.meta.expiration_time = 123456789;
+    key.meta.type = FileCacheType::NORMAL;
+    key.meta.tablet_id = 0;
+
+    auto key_dir = storage.get_path_in_local_cache_v3(key.hash);
+    auto block_path = FSFileCacheStorage::get_path_in_local_cache_v3(key_dir, key.offset);
+    auto old_key_dir = storage.get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
+    create_regular_file(block_path, 'r');
+    ASSERT_FALSE(fs::exists(old_key_dir));
+
+    ASSERT_TRUE(storage.remove(key).ok());
+
+    EXPECT_FALSE(fs::exists(block_path));
+    EXPECT_FALSE(fs::exists(key_dir));
+    EXPECT_FALSE(fs::exists(old_key_dir));
+}
+
 TEST_F(FSFileCacheLeakCleanerTest, snapshot_metadata_for_hash_offsets_handles_missing_hash) {
     auto dir = prepare_test_dir();
     FileCacheSettings settings = default_settings();

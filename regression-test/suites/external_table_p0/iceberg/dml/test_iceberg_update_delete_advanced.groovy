@@ -77,7 +77,10 @@ suite("test_iceberg_update_delete_advanced", "p0,external,iceberg,external_docke
             ) ENGINE=iceberg
             PROPERTIES (
                 "format-version" = "1",
-                "write.format.default" = "${format}"
+                "write.format.default" = "${format}",
+                "write.delete.mode" = "merge-on-read",
+                "write.update.mode" = "merge-on-read",
+                "write.merge.mode" = "merge-on-read"
             )
         """
         sql """INSERT INTO ${v1TableName} VALUES (1, 'A')"""
@@ -92,6 +95,30 @@ suite("test_iceberg_update_delete_advanced", "p0,external,iceberg,external_docke
         }
         sql """drop table if exists ${v1TableName}"""
 
+        // 2. Error handling for copy-on-write tables
+        String cowTableName = "${tableName}_cow_${format}"
+        sql """drop table if exists ${cowTableName}"""
+        sql """
+            CREATE TABLE ${cowTableName} (
+                id INT,
+                name STRING
+            ) ENGINE=iceberg
+            PROPERTIES (
+                "format-version" = "2",
+                "write.format.default" = "${format}",
+                "write.delete.mode" = "copy-on-write",
+                "write.update.mode" = "copy-on-write"
+            )
+        """
+        test {
+            sql """DELETE FROM ${cowTableName} WHERE id = 1"""
+            exception "Doris does not support DELETE on Iceberg copy-on-write tables"
+        }
+        test {
+            sql """UPDATE ${cowTableName} SET name = 'B' WHERE id = 1"""
+            exception "Doris does not support UPDATE on Iceberg copy-on-write tables"
+        }
+
         // Main table for advanced operations
         String formatTableName = "${tableName}_${format}"
         sql """drop table if exists ${formatTableName}"""
@@ -103,7 +130,10 @@ suite("test_iceberg_update_delete_advanced", "p0,external,iceberg,external_docke
             ) ENGINE=iceberg
             PROPERTIES (
                 "format-version" = "2",
-                "write.format.default" = "${format}"
+                "write.format.default" = "${format}",
+                "write.delete.mode" = "merge-on-read",
+                "write.update.mode" = "merge-on-read",
+                "write.merge.mode" = "merge-on-read"
             )
         """
 
@@ -116,7 +146,7 @@ suite("test_iceberg_update_delete_advanced", "p0,external,iceberg,external_docke
             (5, 'Eve', 45)
         """
 
-        // 2. Subqueries
+        // 3. Subqueries
         def q_subquery_upd = "qt_${format}_subquery_upd"
         "${q_subquery_upd}" """
             UPDATE ${formatTableName}
@@ -133,7 +163,7 @@ suite("test_iceberg_update_delete_advanced", "p0,external,iceberg,external_docke
         def q_check_subqueries = "order_qt_${format}_check_subqueries"
         "${q_check_subqueries}" """SELECT * FROM ${formatTableName}"""
 
-        // 3. Complex Expressions
+        // 4. Complex Expressions
         def q_expr_upd = "qt_${format}_expr_upd"
         "${q_expr_upd}" """
             UPDATE ${formatTableName}
@@ -143,7 +173,7 @@ suite("test_iceberg_update_delete_advanced", "p0,external,iceberg,external_docke
         def q_check_expr = "order_qt_${format}_check_expr"
         "${q_check_expr}" """SELECT * FROM ${formatTableName}"""
 
-        // 4. Schema Evolution
+        // 5. Schema Evolution
         sql """ALTER TABLE ${formatTableName} ADD COLUMN c_new INT"""
         sql """INSERT INTO ${formatTableName} VALUES (6, 'Frank', 50, 100)"""
         
@@ -163,7 +193,7 @@ suite("test_iceberg_update_delete_advanced", "p0,external,iceberg,external_docke
         def q_schema_ev_check2 = "order_qt_${format}_schema_ev_check2"
         "${q_schema_ev_check2}" """SELECT * FROM ${formatTableName}"""
 
-        // 5. Concurrent Conflict Detection (Best Effort)
+        // 6. Concurrent Conflict Detection (Best Effort)
         // We will launch two concurrent updates. We just expect the backend to not crash.
         // It might succeed fully if optimistic concurrency is robust, or throw transaction conflict.
         def future1 = thread {

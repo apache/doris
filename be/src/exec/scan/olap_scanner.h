@@ -68,6 +68,7 @@ public:
         TabletReadSource read_source;
         int64_t limit;
         bool aggregation;
+        bool read_row_binlog = false;
     };
 
     OlapScanner(ScanLocalStateBase* parent, Params&& params);
@@ -79,6 +80,8 @@ public:
     Status close(RuntimeState* state) override;
 
     doris::TabletStorageType get_storage_type() override;
+
+    bool check_partition_pruned() const override;
 
     void update_realtime_counters() override;
 

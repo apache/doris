@@ -47,9 +47,61 @@
 class SipHash;
 
 namespace doris {
+namespace {
+
+const ColumnArray::ColumnOffsets& check_array_offsets_column(const IColumn& offsets_column) {
+    const auto* offsets_concrete = typeid_cast<const ColumnArray::ColumnOffsets*>(&offsets_column);
+    if (!offsets_concrete) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "offsets_column must be a ColumnUInt64");
+        __builtin_unreachable();
+    }
+    return *offsets_concrete;
+}
+
+ColumnArray::ColumnOffsets::Ptr check_array_offsets_column_ptr(const ColumnPtr& offsets_column) {
+    return ColumnArray::ColumnOffsets::cast_to_column_ptr(
+            &check_array_offsets_column(*offsets_column));
+}
+
+ColumnArray::ColumnOffsets::MutablePtr assert_mutable_array_offsets(
+        MutableColumnPtr&& offsets_column) {
+    check_array_offsets_column(*offsets_column);
+    auto mutable_offsets = ColumnArray::ColumnOffsets::cast_to_column_mutptr(
+            assert_cast<ColumnArray::ColumnOffsets*, TypeCheckOnRelease::DISABLE>(
+                    offsets_column.get()));
+    offsets_column = nullptr;
+    return mutable_offsets;
+}
+
+void validate_array_offsets(const IColumn& nested_column, const IColumn& offsets_column) {
+    const auto& offsets_concrete = check_array_offsets_column(offsets_column);
+    if (!offsets_concrete.empty()) {
+        auto last_offset = offsets_concrete.get_data().back();
+
+        /// This will also prevent possible overflow in offset.
+        if (nested_column.size() != last_offset) {
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "nested_column's size {}, is not consistent with offsets_column's {}",
+                    nested_column.size(), last_offset);
+        }
+    }
+}
+
+void check_empty_array_data_without_offsets(const IColumn& nested_column) {
+    if (!nested_column.empty()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Not empty data passed to ColumnArray, but no offsets passed");
+        __builtin_unreachable();
+    }
+}
+
+} // namespace
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column)
-        : data(std::move(nested_column)), offsets(std::move(offsets_column)) {
+        : data(std::move(nested_column)) {
+    static_cast<ColumnOffsets::Ptr&>(offsets) =
+            assert_mutable_array_offsets(std::move(offsets_column));
     // TODO(lihangyu) : we need to check the nullable attribute of array's data column.
     // but currently ColumnMap<ColumnString, ColumnString> is used to store sparse data of variant type,
     // so I temporarily disable this check.
@@ -63,24 +115,8 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
     //     }
     // #endif
     check_const_only_in_top_level();
-    const auto* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());
-
-    if (!offsets_concrete) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "offsets_column must be a ColumnUInt64");
-        __builtin_unreachable();
-    }
-
-    if (!offsets_concrete->empty() && data) {
-        auto last_offset = offsets_concrete->get_data().back();
-
-        /// This will also prevent possible overflow in offset.
-        if (data->size() != last_offset) {
-            throw doris::Exception(
-                    ErrorCode::INTERNAL_ERROR,
-                    "nested_column's size {}, is not consistent with offsets_column's {}",
-                    data->size(), last_offset);
-        }
-    }
+    validate_array_offsets(*static_cast<const IColumn::Ptr&>(data),
+                           *static_cast<const ColumnOffsets::Ptr&>(offsets));
 
     /** NOTE
       * Arrays with constant value are possible and used in implementation of higher order functions (see FunctionReplicate).
@@ -90,16 +126,16 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nested_column)) {
     data = data->convert_to_full_column_if_const();
-    if (!data->empty()) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Not empty data passed to ColumnArray, but no offsets passed");
-        __builtin_unreachable();
-    }
-    offsets = ColumnOffsets::create();
+    check_empty_array_data_without_offsets(*data);
+    static_cast<ColumnOffsets::Ptr&>(offsets) = ColumnOffsets::create();
 }
 
-void ColumnArray::shrink_padding_chars() {
-    data->shrink_padding_chars();
+ColumnArray::ColumnArray(SharedTag, ColumnPtr nested_column, ColumnPtr offsets_column) {
+    static_cast<IColumn::Ptr&>(data) = std::move(nested_column);
+    static_cast<ColumnOffsets::Ptr&>(offsets) = check_array_offsets_column_ptr(offsets_column);
+    check_const_only_in_top_level();
+    validate_array_offsets(*static_cast<const IColumn::Ptr&>(data),
+                           *static_cast<const ColumnOffsets::Ptr&>(offsets));
 }
 
 std::string ColumnArray::get_name() const {
@@ -861,7 +897,7 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
                                      res_null_map->get_data(), filt, result_size_hint);
 
         auto src_data = nullable_data_column->get_nested_column_ptr();
-        const auto* src_offsets = assert_cast<const ColumnOffsets*>(offsets.get());
+        const auto* src_offsets = offsets.get();
         auto array_of_nested =
                 filter_return_new_dispatch(filt, result_size_hint, src_data, src_offsets);
 
@@ -870,7 +906,7 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
                 array_of_nested.offsets);
     } else {
         // filter offsets
-        const auto* src_offsets = assert_cast<const ColumnOffsets*>(offsets.get());
+        const auto* src_offsets = offsets.get();
         auto array_of_nested =
                 filter_return_new_dispatch(filt, result_size_hint, data, src_offsets);
         return ColumnArray::create(array_of_nested.data, std::move(array_of_nested.offsets));
@@ -922,12 +958,12 @@ size_t ColumnArray::filter(const Filter& filter) {
                 nullable_data_column->get_null_map_data(), get_offsets(), filter);
 
         auto& src_data = nullable_data_column->get_nested_column();
-        auto& src_offsets = assert_cast<ColumnOffsets&>(*offsets);
+        auto& src_offsets = *offsets;
         filter_inplace_dispatch(filter, src_data, src_offsets);
         return result_size;
     } else {
         auto& src_data = get_data();
-        auto& src_offsets = assert_cast<ColumnOffsets&>(*offsets);
+        auto& src_offsets = *offsets;
 
         return filter_inplace_dispatch(filter, src_data, src_offsets);
     }

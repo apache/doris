@@ -16,6 +16,7 @@
 // under the License.
 
 suite("eager_agg") {
+    sql "set parallel_pipeline_task_num=2"
     sql """
         set eager_aggregation_mode=1;
         set eager_aggregation_on_join=true;

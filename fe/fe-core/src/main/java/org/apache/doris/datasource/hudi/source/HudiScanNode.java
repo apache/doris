@@ -170,60 +170,67 @@ public class HudiScanNode extends HiveScanNode {
         initBackendPolicy();
         initSchemaParams();
 
-        hudiClient = hmsTable.getHudiClient();
-        hudiClient.reloadActiveTimeline();
-        basePath = hmsTable.getRemoteTable().getSd().getLocation();
-        inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
-        serdeLib = hmsTable.getRemoteTable().getSd().getSerdeInfo().getSerializationLib();
+        long tableMetaStartTime = System.currentTimeMillis();
+        try {
+            hudiClient = hmsTable.getHudiClient();
+            hudiClient.reloadActiveTimeline();
+            basePath = hmsTable.getRemoteTable().getSd().getLocation();
+            inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
+            serdeLib = hmsTable.getRemoteTable().getSd().getSerdeInfo().getSerializationLib();
 
-        if (scanParams != null && !scanParams.incrementalRead()) {
-            // Only support incremental read
-            throw new UserException("Not support function '" + scanParams.getParamType() + "' in hudi table");
-        }
-        if (incrementalRead) {
-            if (isCowTable) {
-                try {
-                    Map<String, String> serd = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
-                    if ("true".equals(serd.get("hoodie.query.as.ro.table"))
-                            && hmsTable.getRemoteTable().getTableName().endsWith("_ro")) {
-                        // Incremental read RO table as RT table, I don't know why?
-                        isCowTable = false;
-                        LOG.warn("Execute incremental read on RO table: {}", hmsTable.getFullQualifiers());
+            if (scanParams != null && !scanParams.incrementalRead()) {
+                // Only support incremental read
+                throw new UserException("Not support function '" + scanParams.getParamType() + "' in hudi table");
+            }
+            if (incrementalRead) {
+                if (isCowTable) {
+                    try {
+                        Map<String, String> serd = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
+                        if ("true".equals(serd.get("hoodie.query.as.ro.table"))
+                                && hmsTable.getRemoteTable().getTableName().endsWith("_ro")) {
+                            // Incremental read RO table as RT table, I don't know why?
+                            isCowTable = false;
+                            LOG.warn("Execute incremental read on RO table: {}", hmsTable.getFullQualifiers());
+                        }
+                    } catch (Exception e) {
+                        // ignore
                     }
-                } catch (Exception e) {
-                    // ignore
+                }
+                if (incrementalRelation == null) {
+                    throw new UserException("Failed to create incremental relation");
                 }
             }
-            if (incrementalRelation == null) {
-                throw new UserException("Failed to create incremental relation");
+
+            timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
+            TableSnapshot tableSnapshot = getQueryTableSnapshot();
+            if (tableSnapshot != null) {
+                if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
+                    throw new UserException("Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`");
+                }
+                queryInstant = tableSnapshot.getValue().replaceAll("[-: ]", "");
+            } else {
+                Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
+                if (!snapshotInstant.isPresent()) {
+                    prunedPartitions = Collections.emptyList();
+                    partitionInit = true;
+                    return;
+                }
+                queryInstant = snapshotInstant.get().requestedTime();
+            }
+
+            HudiSchemaCacheValue hudiSchemaCacheValue = HudiUtils.getSchemaCacheValue(hmsTable, queryInstant);
+            columnNames = hudiSchemaCacheValue.getSchema().stream().map(Column::getName).collect(Collectors.toList());
+            columnTypes = hudiSchemaCacheValue.getColTypes();
+
+            fsView = Env.getCurrentEnv()
+                .getExtMetaCacheMgr()
+                .hudi(hmsTable.getCatalog().getId())
+                .getFsView(hmsTable.getOrBuildNameMapping());
+        } finally {
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetTableMetaTime(System.currentTimeMillis() - tableMetaStartTime);
             }
         }
-
-        timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
-        TableSnapshot tableSnapshot = getQueryTableSnapshot();
-        if (tableSnapshot != null) {
-            if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
-                throw new UserException("Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`");
-            }
-            queryInstant = tableSnapshot.getValue().replaceAll("[-: ]", "");
-        } else {
-            Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
-            if (!snapshotInstant.isPresent()) {
-                prunedPartitions = Collections.emptyList();
-                partitionInit = true;
-                return;
-            }
-            queryInstant = snapshotInstant.get().requestedTime();
-        }
-
-        HudiSchemaCacheValue hudiSchemaCacheValue = HudiUtils.getSchemaCacheValue(hmsTable, queryInstant);
-        columnNames = hudiSchemaCacheValue.getSchema().stream().map(Column::getName).collect(Collectors.toList());
-        columnTypes = hudiSchemaCacheValue.getColTypes();
-
-        fsView = Env.getCurrentEnv()
-            .getExtMetaCacheMgr()
-            .hudi(hmsTable.getCatalog().getId())
-            .getFsView(hmsTable.getOrBuildNameMapping());
         // Todo: Get the current schema id of the table, instead of using -1.
         // In Be Parquet/Rrc reader, if `current table schema id == current file schema id`, then its
         // `table_info_node_ptr` will be `TableSchemaChangeHelper::ConstNode`. When using `ConstNode`,
@@ -368,21 +375,30 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     private List<Split> getIncrementalSplits() {
+        long startTime = System.currentTimeMillis();
         if (canUseNativeReader()) {
             List<Split> splits = incrementalRelation.collectSplits();
             noLogsSplitNum.addAndGet(splits.size());
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
+            }
             return splits;
         }
         Option<String[]> partitionColumns = hudiClient.getTableConfig().getPartitionFields();
         List<String> partitionNames = partitionColumns.isPresent() ? Arrays.asList(partitionColumns.get())
                 : Collections.emptyList();
-        return incrementalRelation.collectFileSlices().stream().map(fileSlice -> generateHudiSplit(fileSlice,
-                HudiPartitionUtils.parsePartitionValues(partitionNames, fileSlice.getPartitionPath()),
-                incrementalRelation.getEndTs())).collect(Collectors.toList());
+        List<Split> splits = incrementalRelation.collectFileSlices().stream()
+                .map(fileSlice -> generateHudiSplit(fileSlice,
+                        HudiPartitionUtils.parsePartitionValues(partitionNames, fileSlice.getPartitionPath()),
+                        incrementalRelation.getEndTs()))
+                .collect(Collectors.toList());
+        if (getSummaryProfile() != null) {
+            getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
+        }
+        return splits;
     }
 
     private void getPartitionSplits(HivePartition partition, List<Split> splits) throws IOException {
-
         String partitionName;
         if (partition.isDummyPartition()) {
             partitionName = "";
@@ -422,6 +438,7 @@ public class HudiScanNode extends HiveScanNode {
         Executor executor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
         CountDownLatch countDownLatch = new CountDownLatch(partitions.size());
         AtomicReference<Throwable> throwable = new AtomicReference<>();
+        long startTime = System.currentTimeMillis();
         partitions.forEach(partition -> executor.execute(() -> {
             try {
                 getPartitionSplits(partition, splits);
@@ -439,6 +456,9 @@ public class HudiScanNode extends HiveScanNode {
         if (throwable.get() != null) {
             throw new RuntimeException(throwable.get().getMessage(), throwable.get());
         }
+        if (getSummaryProfile() != null) {
+            getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
+        }
     }
 
     @Override
@@ -446,15 +466,7 @@ public class HudiScanNode extends HiveScanNode {
         if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
             return getIncrementalSplits();
         }
-        if (!partitionInit) {
-            try {
-                prunedPartitions = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
-                        -> getPrunedPartitions(hudiClient));
-            } catch (Exception e) {
-                throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
-            }
-            partitionInit = true;
-        }
+        initPrunedPartitions();
         List<Split> splits = Collections.synchronizedList(new ArrayList<>());
         try {
             hmsTable.getCatalog().getExecutionAuthenticator().execute(() -> {
@@ -467,6 +479,23 @@ public class HudiScanNode extends HiveScanNode {
         return splits;
     }
 
+    private void initPrunedPartitions() throws UserException {
+        if (partitionInit) {
+            return;
+        }
+        long startTime = System.currentTimeMillis();
+        try {
+            prunedPartitions = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
+                    -> getPrunedPartitions(hudiClient));
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetPartitionsTime(System.currentTimeMillis() - startTime);
+            }
+        } catch (Exception e) {
+            throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
+        }
+        partitionInit = true;
+    }
+
     @Override
     public void startSplit(int numBackends) {
         if (prunedPartitions.isEmpty()) {
@@ -475,6 +504,7 @@ public class HudiScanNode extends HiveScanNode {
         }
         AtomicInteger numFinishedPartitions = new AtomicInteger(0);
         ExecutorService scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
+        long startTime = System.currentTimeMillis();
         CompletableFuture.runAsync(() -> {
             for (HivePartition partition : prunedPartitions) {
                 if (batchException.get() != null || splitAssignment.isStop()) {
@@ -504,6 +534,10 @@ public class HudiScanNode extends HiveScanNode {
                             splitAssignment.setException(batchException.get());
                         }
                         if (numFinishedPartitions.incrementAndGet() == prunedPartitions.size()) {
+                            if (getSummaryProfile() != null) {
+                                getSummaryProfile().addExternalTableGetFileScanTasksTime(
+                                        System.currentTimeMillis() - startTime);
+                            }
                             splitAssignment.finishSchedule();
                         }
                     }
@@ -520,15 +554,10 @@ public class HudiScanNode extends HiveScanNode {
         if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
             return false;
         }
-        if (!partitionInit) {
-            // Non partition table will get one dummy partition
-            try {
-                prunedPartitions = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
-                        -> getPrunedPartitions(hudiClient));
-            } catch (Exception e) {
-                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
-            }
-            partitionInit = true;
+        try {
+            initPrunedPartitions();
+        } catch (UserException e) {
+            throw new RuntimeException(e.getMessage(), e);
         }
         int numPartitions = sessionVariable.getNumPartitionsInBatchMode();
         return numPartitions >= 0 && prunedPartitions.size() >= numPartitions;
