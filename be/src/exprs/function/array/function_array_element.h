@@ -88,12 +88,12 @@ public:
         if (arg_0->get_primitive_type() == TYPE_STRUCT) {
             const auto* struct_type = check_and_get_data_type<DataTypeStruct>(arg_0.get());
             size_t index = 0;
-            // The index is always a constant literal for struct field access; if it cannot be
-            // resolved (out of bound / unknown name) we return nullptr and the framework reports it.
-            if (!get_struct_element_index(*struct_type, arguments[1].column, arguments[1].type,
-                                          &index)
-                         .ok()) {
-                return nullptr;
+            // Throw the concrete error (field not found / out of bound) instead of returning
+            // nullptr, which the framework would report as an opaque "return type check failed".
+            Status st = get_struct_element_index(*struct_type, arguments[1].column,
+                                                 arguments[1].type, &index);
+            if (!st.ok()) {
+                throw doris::Exception(st);
             }
             return make_nullable(struct_type->get_elements()[index]);
         }
