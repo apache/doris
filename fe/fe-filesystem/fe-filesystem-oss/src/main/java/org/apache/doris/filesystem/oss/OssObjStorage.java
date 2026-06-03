@@ -100,6 +100,11 @@ public class OssObjStorage implements ObjStorage<OSS> {
         this.properties = properties;
     }
 
+    /** Whether path-style (vs virtual-hosted-style) bucket access is configured. */
+    public boolean isUsePathStyle() {
+        return properties.isUsePathStyle();
+    }
+
     @Override
     public OSS getClient() throws IOException {
         if (closed.get()) {

@@ -78,6 +78,14 @@ class OssObjStorageTest {
     }
 
     @Test
+    void isUsePathStyle_reflectsConfiguredProperty() {
+        Map<String, String> props = buildBasicProps();
+        props.put("use_path_style", "true");
+        Assertions.assertTrue(new OssObjStorage(props).isUsePathStyle());
+        Assertions.assertFalse(new OssObjStorage(buildBasicProps()).isUsePathStyle());
+    }
+
+    @Test
     void getPresignedUrl_missingBucketThrowsIOException() {
         OSS mockOss = Mockito.mock(OSS.class);
         Map<String, String> props = new HashMap<>();

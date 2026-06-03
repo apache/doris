@@ -102,7 +102,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     public S3ObjStorage(S3FileSystemProperties properties) {
         this.s3Properties = properties;
-        this.usePathStyle = Boolean.parseBoolean(properties.getUsePathStyle());
+        this.usePathStyle = properties.isUsePathStyle();
         this.bucket = properties.getBucket();
     }
 

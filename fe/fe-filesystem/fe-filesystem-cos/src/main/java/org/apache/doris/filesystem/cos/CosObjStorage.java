@@ -98,6 +98,11 @@ public class CosObjStorage implements ObjStorage<COSClient> {
         this.properties = properties;
     }
 
+    /** Whether path-style (vs virtual-hosted-style) bucket access is configured. */
+    public boolean isUsePathStyle() {
+        return properties.isUsePathStyle();
+    }
+
     @Override
     public COSClient getClient() throws IOException {
         if (closed.get()) {

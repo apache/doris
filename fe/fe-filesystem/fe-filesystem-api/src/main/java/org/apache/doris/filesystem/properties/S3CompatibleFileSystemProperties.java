@@ -62,8 +62,13 @@ public interface S3CompatibleFileSystemProperties extends FileSystemProperties {
     /** Returns the connection timeout in milliseconds as a provider property value. */
     String getConnectionTimeoutMs();
 
-    /** Returns whether path-style bucket addressing is enabled. */
+    /** Returns whether path-style bucket addressing is enabled, as a raw provider property value. */
     String getUsePathStyle();
+
+    /** Returns path-style bucket addressing as a parsed boolean (single conversion point). */
+    default boolean isUsePathStyle() {
+        return Boolean.parseBoolean(getUsePathStyle());
+    }
 
     /** Returns true when a static AK/SK credential pair is present. */
     default boolean hasStaticCredentials() {

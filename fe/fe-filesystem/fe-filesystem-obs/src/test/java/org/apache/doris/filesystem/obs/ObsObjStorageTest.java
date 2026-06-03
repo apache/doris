@@ -78,6 +78,14 @@ class ObsObjStorageTest {
     }
 
     @Test
+    void isUsePathStyle_reflectsConfiguredProperty() {
+        Map<String, String> props = buildBasicProps();
+        props.put("use_path_style", "true");
+        Assertions.assertTrue(new ObsObjStorage(props).isUsePathStyle());
+        Assertions.assertFalse(new ObsObjStorage(buildBasicProps()).isUsePathStyle());
+    }
+
+    @Test
     void getPresignedUrl_missingBucketThrowsIOException() {
         ObsClient mockObs = Mockito.mock(ObsClient.class);
         Map<String, String> props = new HashMap<>();

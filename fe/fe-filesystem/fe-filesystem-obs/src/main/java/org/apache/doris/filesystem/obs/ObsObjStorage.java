@@ -97,6 +97,11 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
         this.properties = properties;
     }
 
+    /** Whether path-style (vs virtual-hosted-style) bucket access is configured. */
+    public boolean isUsePathStyle() {
+        return properties.isUsePathStyle();
+    }
+
     @Override
     public ObsClient getClient() throws IOException {
         if (closed.get()) {
@@ -487,7 +492,7 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
                 "OBS connection timeout"));
         config.setSocketTimeout(parseIntProperty(properties.getRequestTimeoutMs(),
                 "OBS socket timeout"));
-        config.setPathStyle(Boolean.parseBoolean(properties.getUsePathStyle()));
+        config.setPathStyle(properties.isUsePathStyle());
         return config;
     }
 

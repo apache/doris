@@ -80,6 +80,14 @@ class CosObjStorageTest {
     }
 
     @Test
+    void isUsePathStyle_reflectsConfiguredProperty() {
+        Map<String, String> props = buildBasicProps();
+        props.put("use_path_style", "true");
+        Assertions.assertTrue(new CosObjStorage(props).isUsePathStyle());
+        Assertions.assertFalse(new CosObjStorage(buildBasicProps()).isUsePathStyle());
+    }
+
+    @Test
     void getPresignedUrl_missingBucketThrowsIOException() {
         COSClient mockCos = Mockito.mock(COSClient.class);
         Map<String, String> props = new HashMap<>();
