@@ -70,7 +70,29 @@ sha512sum --check "$f.sha512"
 ok "sha512 ok: $f.sha512"
 echo; ls -l "$f" "$f.asc" "$f.sha512"; echo
 
-# 4. upload to dev SVN (two confirmations; nothing public happens before them)
+# 4. sign + checksum the prebuilt binary tarballs. Sidecar files are written NEXT TO
+#    each binary (not in WORK_DIR) and are NOT uploaded here -- you upload them manually.
+bin_count="${#BIN_FILES[@]}"
+if [[ "$bin_count" -gt 0 ]]; then
+  echo "signing $bin_count binary artifact(s)..."
+  for bin in "${BIN_FILES[@]}"; do
+    [[ -f "$bin" ]] || die "binary artifact not found: $bin (check BIN_FILES in release.env)"
+    bdir="$(cd "$(dirname "$bin")" && pwd)"
+    bname="$(basename "$bin")"
+    (
+      cd "$bdir"
+      rm -f "$bname.asc" "$bname.sha512"
+      gpg -u "$SIGNER" --armor --output "$bname.asc" --detach-sign "$bname"
+      gpg --verify "$bname.asc" "$bname"
+      sha512sum "$bname" > "$bname.sha512"
+      sha512sum --check "$bname.sha512"
+    )
+    ok "binary signed: $bdir/$bname (+ .asc, .sha512)"
+  done
+  echo
+fi
+
+# 5. upload to dev SVN (two confirmations; nothing public happens before them)
 echo "Target dev SVN folder: ${DEV_SVN_DIR}/"
 confirm "Checkout + add these 3 files for the above SVN URL?" || { warn "stopping before SVN."; exit 0; }
 wc="$WORK_DIR/dev-svn"
