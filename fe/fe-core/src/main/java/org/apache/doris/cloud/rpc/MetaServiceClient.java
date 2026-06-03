@@ -27,8 +27,6 @@ import com.google.gson.stream.JsonReader;
 import io.grpc.ConnectivityState;
 import io.grpc.ManagedChannel;
 import io.grpc.NameResolverRegistry;
-import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
-import io.grpc.netty.shaded.io.netty.channel.ChannelOption;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -42,12 +40,15 @@ import java.util.concurrent.TimeUnit;
 public class MetaServiceClient {
     public static final Logger LOG = LogManager.getLogger(MetaServiceClient.class);
     private static final Map<String, ?> serviceConfig;
+    private static final MetaServiceClientChannelProvider CHANNEL_PROVIDER =
+            MetaServiceClientChannelProviderFactory.create();
 
     private final String address;
     private final MetaServiceGrpc.MetaServiceFutureStub stub;
     private final MetaServiceGrpc.MetaServiceBlockingStub blockingStub;
     private final ManagedChannel channel;
     private final long expiredAt;
+    private final long channelConfigVersion;
     private Random random = new Random();
 
     static {
@@ -69,14 +70,8 @@ public class MetaServiceClient {
         }
 
         Preconditions.checkNotNull(serviceConfig, "serviceConfig is null");
-        channel = NettyChannelBuilder.forTarget(target)
-                .flowControlWindow(Config.grpc_max_message_size_bytes)
-                .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
-                .defaultServiceConfig(serviceConfig)
-                .defaultLoadBalancingPolicy("round_robin")
-                .enableRetry()
-                .usePlaintext()
-                .withOption(ChannelOption.CONNECT_TIMEOUT_MILLIS, Config.meta_service_brpc_connect_timeout_ms).build();
+        channelConfigVersion = CHANNEL_PROVIDER.currentConfigVersion();
+        channel = CHANNEL_PROVIDER.createChannel(target);
         stub = MetaServiceGrpc.newFutureStub(channel);
         blockingStub = MetaServiceGrpc.newBlockingStub(channel);
         expiredAt = connectionAgeExpiredAt();
@@ -106,6 +101,14 @@ public class MetaServiceClient {
         return state == ConnectivityState.CONNECTING
                 || state == ConnectivityState.IDLE
                 || state == ConnectivityState.READY;
+    }
+
+    public boolean isUsingLatestChannelConfig() {
+        return channelConfigVersion == CHANNEL_PROVIDER.currentConfigVersion();
+    }
+
+    public static Map<String, ?> serviceConfig() {
+        return serviceConfig;
     }
 
     public void shutdown(boolean debugLog) {

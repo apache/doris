@@ -330,6 +330,41 @@ public class Config extends ConfigBase {
             "Whether to enable authentication for all HTTP interfaces"}, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_all_http_auth = false;
 
+    @ConfField(description = {"Whether to enable FE unified TLS configuration. When enabled, protocols not listed in "
+            + "tls_excluded_protocols will use TLS implementation."})
+    public static boolean enable_tls = false;
+
+    @ConfField(description = {"Verify mode used by FE TLS. Supported values are verify_peer, verify_none and "
+            + "verify_fail_if_no_peer_cert."})
+    public static String tls_verify_mode = "verify_peer";
+
+    @ConfField(description = {"Path to the FE TLS server certificate."})
+    public static String tls_certificate_path = "";
+
+    @ConfField(description = {"Path to the FE TLS private key."})
+    public static String tls_private_key_path = "";
+
+    @ConfField(description = {"Password for the FE TLS private key."})
+    public static String tls_private_key_password = "";
+
+    @ConfField(description = {"Path to the FE TLS CA certificate."})
+    public static String tls_ca_certificate_path = "";
+
+    @ConfField(description = {"Refresh interval for FE TLS certificate reload, in seconds."})
+    public static int tls_cert_refresh_interval_seconds = 3600;
+
+    @ConfField(description = {"Comma-separated list of protocols that should not use TLS. Supported values are "
+            + "thrift,mysql,http,arrowflight."})
+    public static String tls_excluded_protocols = "";
+
+    @ConfField(description = {"Peer certificate DNS SAN allowlist for private protocols. "
+            + "Syntax: protocol=dns1,dns2;... . Currently supported protocols are thrift and brpc."})
+    public static String tls_peer_cert_required_san_dns = "";
+
+    @ConfField(mutable = true, description = {
+            "Whether password verification can be skipped after cert-based auth succeeds."})
+    public static boolean tls_cert_based_auth_ignore_password = false;
+
     @ConfField(description = {"FE HTTP port. Currently, all FEs' HTTP port must be the same"})
     public static int http_port = 8030;
 
