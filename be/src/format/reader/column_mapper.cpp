@@ -1006,7 +1006,8 @@ static bool complex_projection_has_pruned_children(const ColumnMapping& mapping)
         return true;
     }
     for (const auto& child_mapping : mapping.child_mappings) {
-        if (!child_mapping.field_id.has_value() ||
+        if (child_mapping.table_column_name != child_mapping.file_column_name ||
+            !child_mapping.field_id.has_value() ||
             complex_projection_has_pruned_children(child_mapping)) {
             return true;
         }
