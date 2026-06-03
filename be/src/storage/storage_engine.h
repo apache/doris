@@ -61,7 +61,6 @@ class MemTableFlushExecutor;
 class SegcompactionWorker;
 class BaseCompaction;
 class CumulativeCompaction;
-class SingleReplicaCompaction;
 class CumulativeCompactionPolicy;
 class StreamLoadRecorder;
 class TCloneReq;
@@ -343,11 +342,7 @@ public:
     void get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
                                     PGetTabletVersionsResponse* response);
 
-    bool get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica, std::string* token);
-
     bool get_peers_replica_backends(int64_t tablet_id, std::vector<TBackend>* backends);
-
-    bool should_fetch_from_peer(int64_t tablet_id);
 
     const std::shared_ptr<StreamLoadRecorder>& get_stream_load_recorder() {
         return _stream_load_recorder;
@@ -442,8 +437,6 @@ private:
     void _compaction_tasks_producer_callback();
     void _binlog_compaction_tasks_producer_callback();
 
-    void _update_replica_infos_callback();
-
     std::vector<TabletCompactionContext> _generate_compaction_tasks(
             CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score);
     void _update_cumulative_compaction_policy();
@@ -461,9 +454,6 @@ private:
     void _handle_compaction(TabletSharedPtr tablet, std::shared_ptr<CompactionMixin> compaction,
                             CompactionType compaction_type, int64_t permits, bool force,
                             int64_t compaction_id = 0);
-
-    Status _submit_single_replica_compaction_task(TabletSharedPtr tablet,
-                                                  CompactionType compaction_type);
 
     void _adjust_compaction_thread_num();
 
@@ -531,7 +521,6 @@ private:
     // thread to produce both base and cumulative compaction tasks
     std::shared_ptr<Thread> _compaction_tasks_producer_thread;
     std::shared_ptr<Thread> _binlog_compaction_tasks_producer_thread;
-    std::shared_ptr<Thread> _update_replica_infos_thread;
     std::shared_ptr<Thread> _cache_clean_thread;
     // threads to clean all file descriptor not actively in use
     std::vector<std::shared_ptr<Thread>> _path_gc_threads;
@@ -551,7 +540,6 @@ private:
     // Type of new loaded data
     RowsetTypePB _default_rowset_type;
 
-    std::unique_ptr<ThreadPool> _single_replica_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _binlog_compaction_thread_pool;
 
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
@@ -567,11 +555,6 @@ private:
 
     std::mutex _low_priority_task_nums_mutex;
     std::unordered_map<DataDir*, int32_t> _low_priority_task_nums;
-
-    std::mutex _peer_replica_infos_mutex;
-    // key: tabletId
-    std::unordered_map<int64_t, TReplicaInfo> _peer_replica_infos;
-    std::string _token;
 
     std::atomic<int32_t> _wakeup_producer_flag {0};
 
