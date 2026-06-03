@@ -300,6 +300,9 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         if (ne.anyMatch(e -> e instanceof NoneMovableFunction)) {
             return false;
         }
+        if (ne.containsVolatileExpression()) {
+            return false;
+        }
         if (ne.anyMatch(e -> e instanceof Score)) {
             return false;
         }
