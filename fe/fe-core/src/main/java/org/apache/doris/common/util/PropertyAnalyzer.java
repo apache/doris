@@ -162,8 +162,6 @@ public class PropertyAnalyzer {
     @Deprecated
     public static final String PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED = "deprecated_variant_enable_flatten_nested";
 
-    public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
-
     public static final String PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP =
             "vertical_compaction_num_columns_per_group";
 
@@ -854,26 +852,6 @@ public class PropertyAnalyzer {
             return false;
         }
         throw new AnalysisException(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED
-                + " must be `true` or `false`");
-    }
-
-    public static Boolean analyzeEnableSingleReplicaCompaction(Map<String, String> properties)
-            throws AnalysisException {
-        if (properties == null || properties.isEmpty()) {
-            return false;
-        }
-        String value = properties.get(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
-        // set enable single replica compaction false by default
-        if (null == value) {
-            return false;
-        }
-        properties.remove(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
-        if (value.equalsIgnoreCase("true")) {
-            return true;
-        } else if (value.equalsIgnoreCase("false")) {
-            return false;
-        }
-        throw new AnalysisException(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
                 + " must be `true` or `false`");
     }
 

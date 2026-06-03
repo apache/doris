@@ -456,7 +456,6 @@
                         "default.replication_allocation": "tag.location.default: 1",
                         "storage_format": "V2",
                         "storage_policy": "",
-                        "enable_single_replica_compaction": "false",
                         "compression": "LZ4F",
                         "store_row_column": "false",
                         "light_schema_change": "true",

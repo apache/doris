@@ -63,7 +63,6 @@ namespace doris {
 class Tablet;
 class CumulativeCompactionPolicy;
 class CompactionMixin;
-class SingleReplicaCompaction;
 class RowsetWriter;
 struct RowsetWriterContext;
 class TTabletInfo;
@@ -269,12 +268,6 @@ public:
         _last_full_compaction_schedule_millis = millis;
     }
 
-    void set_last_single_compaction_failure_status(std::string status) {
-        _last_single_compaction_failure_status = std::move(status);
-    }
-
-    void set_last_fetched_version(Version version) { _last_fetched_version = std::move(version); }
-
     void delete_all_files();
 
     void check_tablet_path_exists();
@@ -314,7 +307,6 @@ public:
             std::shared_ptr<CompactionMixin>& compaction, int64_t& permits);
 
     void execute_compaction(CompactionMixin& compaction);
-    void execute_single_replica_compaction(SingleReplicaCompaction& compaction);
 
     void set_cumulative_compaction_policy(
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
@@ -348,8 +340,6 @@ public:
     void set_visible_version(const std::shared_ptr<const VersionWithTime>& visible_version) {
         _visible_version.store(visible_version);
     }
-
-    bool should_fetch_from_peer();
 
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
@@ -598,10 +588,6 @@ private:
     std::string _last_cumu_compaction_status;
     std::string _last_base_compaction_status;
     std::string _last_full_compaction_status;
-
-    // single replica compaction status
-    std::string _last_single_compaction_failure_status;
-    Version _last_fetched_version;
 
     // cumulative compaction policy
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;

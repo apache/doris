@@ -40,7 +40,6 @@
 #include "storage/compaction/cumulative_compaction.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
-#include "storage/compaction/single_replica_compaction.h"
 #include "storage/compaction_task_tracker.h"
 #include "storage/olap_define.h"
 #include "storage/storage_engine.h"
@@ -140,15 +139,6 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
         return Status::NotSupported("The compaction type '{}' is not supported", compaction_type);
     }
 
-    // "remote" = "true" means tablet should do single replica compaction to fetch rowset from peer
-    bool fetch_from_remote = false;
-    std::string param_remote = req->param(PARAM_COMPACTION_REMOTE);
-    if (param_remote == "true") {
-        fetch_from_remote = true;
-    } else if (!param_remote.empty() && param_remote != "false") {
-        return Status::NotSupported("The remote = '{}' is not supported", param_remote);
-    }
-
     // "force" = "true" means skip permit limiter when submitting full compaction to thread pool
     bool force = false;
     std::string param_force = req->param(PARAM_COMPACTION_FORCE);
@@ -173,9 +163,6 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
             return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
         }
 
-        if (fetch_from_remote && !tablet->should_fetch_from_peer()) {
-            return Status::NotSupported("tablet should do compaction locally");
-        }
         DBUG_EXECUTE_IF("CompactionAction._handle_run_compaction.submit_cumu_task", {
             RETURN_IF_ERROR(_engine.submit_compaction_task(
                     tablet, CompactionType::CUMULATIVE_COMPACTION, false));
@@ -193,8 +180,8 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
                                                            force, true, 1));
         } else {
             // 3. execute base/cumulative compaction task in a detached thread
-            std::packaged_task<Status()> task([this, tablet, compaction_type, fetch_from_remote]() {
-                return _execute_compaction_callback(tablet, compaction_type, fetch_from_remote);
+            std::packaged_task<Status()> task([this, tablet, compaction_type]() {
+                return _execute_compaction_callback(tablet, compaction_type);
             });
             std::future<Status> future_obj = task.get_future();
             std::thread(std::move(task)).detach();
@@ -303,8 +290,7 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
 }
 
 Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
-                                                      const std::string& compaction_type,
-                                                      bool fetch_from_remote) {
+                                                      const std::string& compaction_type) {
     MonotonicStopWatch timer;
     timer.start();
 
@@ -362,15 +348,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
             }
         }
     } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
-        if (fetch_from_remote) {
-            SingleReplicaCompaction single_compaction(_engine, tablet,
-                                                      CompactionType::CUMULATIVE_COMPACTION);
-            res = do_compact(single_compaction, CompactionProfileType::CUMULATIVE);
-            if (!res) {
-                LOG(WARNING) << "failed to do single compaction. res=" << res
-                             << ", table=" << tablet->tablet_id();
-            }
-        } else {
+        {
             CumulativeCompaction cumulative_compaction(_engine, tablet);
             res = do_compact(cumulative_compaction, CompactionProfileType::CUMULATIVE);
             if (!res) {

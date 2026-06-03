@@ -41,8 +41,7 @@ suite("test_pushdown_explain") {
         "colocate_with" = "groupa1",
         "storage_format" = "V2",
         "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false"
+        "disable_auto_compaction" = "false"
     ); """
     sql """ insert into test_lineorder values(1,2,"asd"); """
     explain {
@@ -90,8 +89,7 @@ suite("test_pushdown_explain") {
         "colocate_with" = "groupa1",
         "storage_format" = "V2",
         "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false"
+        "disable_auto_compaction" = "false"
     ); """
     sql """ insert into test_null_columns values(1, NULL, "value1"); """
     sql """ insert into test_null_columns values(2, NULL, "value2"); """

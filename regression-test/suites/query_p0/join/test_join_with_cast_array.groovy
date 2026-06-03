@@ -73,8 +73,7 @@ suite("test_join_with_cast_array", "query,p0") {
     "binlog.enable" = "false",
     "binlog.ttl_seconds" = "86400",
     "binlog.max_bytes" = "9223372036854775807",
-    "binlog.max_history_nums" = "9223372036854775807",
-    "enable_single_replica_compaction" = "false"
+    "binlog.max_history_nums" = "9223372036854775807"
     );   """
 
     sql "drop table if exists dwd_oa_customer"
@@ -97,8 +96,7 @@ suite("test_join_with_cast_array", "query,p0") {
     "binlog.enable" = "false",
     "binlog.ttl_seconds" = "86400",
     "binlog.max_bytes" = "9223372036854775807",
-    "binlog.max_history_nums" = "9223372036854775807",
-    "enable_single_replica_compaction" = "false"
+    "binlog.max_history_nums" = "9223372036854775807"
     );"""
 
     sql "drop table if exists tb_media"
@@ -120,8 +118,7 @@ suite("test_join_with_cast_array", "query,p0") {
     "binlog.enable" = "false",
     "binlog.ttl_seconds" = "86400",
     "binlog.max_bytes" = "9223372036854775807",
-    "binlog.max_history_nums" = "9223372036854775807",
-    "enable_single_replica_compaction" = "false"
+    "binlog.max_history_nums" = "9223372036854775807"
     ); """
 
     sql "drop table if exists tb_reconciliation_detail"
@@ -144,8 +141,7 @@ suite("test_join_with_cast_array", "query,p0") {
     "binlog.enable" = "false",
     "binlog.ttl_seconds" = "86400",
     "binlog.max_bytes" = "9223372036854775807",
-    "binlog.max_history_nums" = "9223372036854775807",
-    "enable_single_replica_compaction" = "false"
+    "binlog.max_history_nums" = "9223372036854775807"
     ); """
 
     sql "drop table if exists tb_reconciliation_media_order"
@@ -173,8 +169,7 @@ suite("test_join_with_cast_array", "query,p0") {
     "binlog.enable" = "false",
     "binlog.ttl_seconds" = "86400",
     "binlog.max_bytes" = "9223372036854775807",
-    "binlog.max_history_nums" = "9223372036854775807",
-    "enable_single_replica_compaction" = "false"
+    "binlog.max_history_nums" = "9223372036854775807"
     );"""
 
     def stream_load_by_name = {tableName, tblRows ->

@@ -104,7 +104,6 @@ suite("test_variant_arrayInvertedIdx_profile", "p0,nonConcurrent"){
     "storage_format" = "V2",
     "light_schema_change" = "true",
     "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false",
     "inverted_index_storage_format" = "$storageFormat"
     );
     """

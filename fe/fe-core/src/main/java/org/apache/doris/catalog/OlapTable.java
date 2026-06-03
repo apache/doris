@@ -2642,22 +2642,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return baseIndexMeta.getSchemaVersion();
     }
 
-    public void setEnableSingleReplicaCompaction(boolean enableSingleReplicaCompaction) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
-        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION,
-                Boolean.valueOf(enableSingleReplicaCompaction).toString());
-        tableProperty.buildEnableSingleReplicaCompaction();
-    }
-
-    public Boolean enableSingleReplicaCompaction() {
-        if (tableProperty != null) {
-            return tableProperty.enableSingleReplicaCompaction();
-        }
-        return false;
-    }
-
     public void setStoreRowColumn(boolean storeRowColumn) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
