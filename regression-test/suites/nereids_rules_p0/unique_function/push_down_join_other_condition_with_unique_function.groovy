@@ -18,6 +18,7 @@
 suite('push_down_join_other_condition_with_unique_function') {
     sql 'SET enable_nereids_planner=true'
     sql 'SET runtime_filter_mode=OFF'
+    sql 'SET disable_join_reorder=true'
     sql 'SET enable_fallback_to_original_planner=false'
     sql "SET ignore_shape_nodes='PhysicalDistribute'"
     sql "SET detail_shape_nodes='PhysicalProject'"

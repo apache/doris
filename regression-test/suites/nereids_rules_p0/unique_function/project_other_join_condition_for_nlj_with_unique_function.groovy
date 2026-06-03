@@ -47,4 +47,12 @@ suite('project_other_join_condition_for_nlj_with_unique_function') {
         select t1.id, t2.id
         from t1 join t2 on t1.id + rand() > t2.id + rand()
         '''
+
+    qt_hash_and_other_with_volatile_equal '''
+        explain shape plan
+        select t1.id, t2.id
+        from t1 join t2
+            on t1.id = t2.id
+            and t1.id = t2.id + random(1, 10)
+        '''
 }

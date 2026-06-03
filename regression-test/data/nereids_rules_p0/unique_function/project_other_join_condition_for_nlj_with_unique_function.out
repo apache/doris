@@ -26,3 +26,11 @@ PhysicalResultSink
 ------PhysicalProject[cast(id as DOUBLE) AS `cast(id as DOUBLE)`, t2.id]
 --------PhysicalOlapScan[t2]
 
+-- !hash_and_other_with_volatile_equal --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=((cast(id as BIGINT) = (cast(id as BIGINT) + random(1, 10))))
+----PhysicalProject[t1.id]
+------PhysicalOlapScan[t1]
+----PhysicalProject[t2.id]
+------PhysicalOlapScan[t2]
+
