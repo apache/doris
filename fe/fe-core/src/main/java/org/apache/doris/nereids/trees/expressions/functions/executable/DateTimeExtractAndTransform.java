@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMilliseco
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -59,7 +60,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
@@ -68,10 +68,7 @@ import java.time.format.ResolverStyle;
 import java.time.format.TextStyle;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.WeekFields;
-import java.time.zone.ZoneOffsetTransition;
-import java.time.zone.ZoneRules;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Locale;
 
 /**
@@ -818,23 +815,9 @@ public class DateTimeExtractAndTransform {
         ZoneId toZone = ZoneId.from(zoneFormatter.parse(toTz.getStringValue()));
 
         LocalDateTime localDateTime = datetime.toJavaDateType();
-        Instant instant = convertLocalToInstant(localDateTime, fromZone);
+        Instant instant = DateTimeLiteral.convertLocalToInstant(localDateTime, fromZone);
         return DateTimeV2Literal.fromJavaDateType(LocalDateTime.ofInstant(instant, toZone),
                 datetime.getDataType().getScale());
-    }
-
-    private static Instant convertLocalToInstant(LocalDateTime localDateTime, ZoneId fromZone) {
-        ZoneRules rules = fromZone.getRules();
-        List<ZoneOffset> validOffsets = rules.getValidOffsets(localDateTime);
-        int size = validOffsets.size();
-        // Match BE cctz::convert(civil_second, zone) semantics for constant folding.
-        // Normal local time has one offset; repeated local time uses the pre-transition offset.
-        if (size == 1 || size == 2) {
-            return localDateTime.atOffset(validOffsets.get(0)).toInstant();
-        }
-        // Skipped local time maps to the transition instant, e.g. 2021-03-28 02:15 Europe/Paris.
-        ZoneOffsetTransition transition = rules.getTransition(localDateTime);
-        return transition.getInstant();
     }
 
     private static void validateTimezoneOffset(String timezone) {
