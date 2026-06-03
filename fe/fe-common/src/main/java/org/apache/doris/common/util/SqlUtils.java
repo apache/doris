@@ -33,6 +33,20 @@ import java.util.Collections;
 import java.util.List;
 
 public class SqlUtils {
+    public static String getIdentSql(String ident) {
+        StringBuilder sb = new StringBuilder();
+        sb.append('`');
+        for (char ch : ident.toCharArray()) {
+            if (ch == '`') {
+                sb.append("``");
+            } else {
+                sb.append(ch);
+            }
+        }
+        sb.append('`');
+        return sb.toString();
+    }
+
     public static String escapeQuota(String str) {
         if (Strings.isNullOrEmpty(str)) {
             return str;
