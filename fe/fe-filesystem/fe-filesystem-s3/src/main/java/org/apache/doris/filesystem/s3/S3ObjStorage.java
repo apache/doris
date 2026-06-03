@@ -17,12 +17,12 @@
 
 package org.apache.doris.filesystem.s3;
 
+import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.ObjectListOptions;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.StsCredentials;
-import org.apache.doris.filesystem.spi.UploadPartResult;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -384,7 +384,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public void completeMultipartUpload(String remotePath, String uploadId,
-            List<org.apache.doris.filesystem.spi.UploadPartResult> parts) throws IOException {
+            List<UploadPartResult> parts) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
         List<CompletedPart> completedParts = parts.stream()
                 .map(p -> CompletedPart.builder().partNumber(p.partNumber()).eTag(p.etag()).build())

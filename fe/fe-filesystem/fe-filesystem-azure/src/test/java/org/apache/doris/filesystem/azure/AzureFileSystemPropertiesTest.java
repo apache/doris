@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.Set;
 
 class AzureFileSystemPropertiesTest {
 
@@ -43,6 +44,35 @@ class AzureFileSystemPropertiesTest {
         Assertions.assertEquals("https://account.blob.core.windows.net", properties.getEndpoint());
         Assertions.assertEquals("azure-account", properties.getAccountName());
         Assertions.assertEquals("azure-key", properties.getAccountKey());
+    }
+
+    @Test
+    void toString_masksCredentialsAndNeverLeaksPlaintext() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.endpoint", "account.blob.core.windows.net",
+                "azure.account_name", "azure-account",
+                "azure.account_key", "azure-key-plain",
+                "AZURE_CLIENT_SECRET", "azure-clientsecret-plain"));
+
+        String rendered = properties.toString();
+
+        Assertions.assertFalse(rendered.contains("azure-key-plain"), rendered);
+        Assertions.assertFalse(rendered.contains("azure-clientsecret-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("accountKey=***"), rendered);
+        Assertions.assertTrue(rendered.contains("clientSecret=***"), rendered);
+        // accountName is the storage account identifier (also appears in the endpoint), not a secret.
+        Assertions.assertTrue(rendered.contains("accountName=azure-account"), rendered);
+    }
+
+    @Test
+    void provider_sensitivePropertyKeysCoverSecretsButNotAccountName() {
+        Set<String> keys = new AzureFileSystemProvider().sensitivePropertyKeys();
+
+        Assertions.assertTrue(keys.contains("azure.secret_key"), keys.toString());
+        Assertions.assertTrue(keys.contains("AZURE_ACCOUNT_KEY"), keys.toString());
+        Assertions.assertTrue(keys.contains("AZURE_CLIENT_SECRET"), keys.toString());
+        Assertions.assertFalse(keys.contains("AZURE_ACCOUNT_NAME"), keys.toString());
+        Assertions.assertFalse(keys.contains("azure.access_key"), keys.toString());
     }
 
     @Test

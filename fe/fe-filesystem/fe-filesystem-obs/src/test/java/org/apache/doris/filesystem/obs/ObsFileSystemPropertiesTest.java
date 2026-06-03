@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.Set;
 
 class ObsFileSystemPropertiesTest {
 
@@ -126,6 +127,38 @@ class ObsFileSystemPropertiesTest {
         Assertions.assertEquals(FileSystemType.S3, properties.type());
         Assertions.assertInstanceOf(ObsFileSystem.class, fileSystem);
         Assertions.assertEquals(ObjectStorageFileSystem.class, fileSystem.getClass().getSuperclass());
+    }
+
+    @Test
+    void toString_masksCredentialsAndNeverLeaksPlaintext() {
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(Map.of(
+                "obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com",
+                "obs.access_key", "obs-ak-plain",
+                "obs.secret_key", "obs-sk-plain",
+                "obs.session_token", "obs-token-plain"));
+
+        String rendered = properties.toString();
+
+        // Secret material must never leak.
+        Assertions.assertFalse(rendered.contains("obs-sk-plain"), rendered);
+        Assertions.assertFalse(rendered.contains("obs-token-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("secretKey=***"), rendered);
+        Assertions.assertTrue(rendered.contains("sessionToken=***"), rendered);
+        // accessKey is an identifier, not a secret: shown in clear text for diagnostics.
+        Assertions.assertTrue(rendered.contains("accessKey=obs-ak-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("https://obs.cn-north-4.myhuaweicloud.com"), rendered);
+    }
+
+    @Test
+    void provider_sensitivePropertyKeysCoverSecretsButNotAccessKey() {
+        Set<String> keys = new ObsFileSystemProvider().sensitivePropertyKeys();
+
+        Assertions.assertTrue(keys.contains("obs.secret_key"), keys.toString());
+        Assertions.assertTrue(keys.contains("OBS_SECRET_KEY"), keys.toString());
+        Assertions.assertTrue(keys.contains("OBS_SESSION_TOKEN"), keys.toString());
+        // accessKey is not sensitive, so its aliases must not be registered for masking.
+        Assertions.assertFalse(keys.contains("OBS_ACCESS_KEY"), keys.toString());
+        Assertions.assertFalse(keys.contains("obs.access_key"), keys.toString());
     }
 
     @Test

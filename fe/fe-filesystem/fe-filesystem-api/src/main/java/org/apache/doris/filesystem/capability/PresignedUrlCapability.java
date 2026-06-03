@@ -25,7 +25,7 @@ import java.time.Duration;
 /**
  * Capability for creating a temporary URL that allows direct upload to a file location.
  */
-public interface PresignedUrlCapability {
+public interface PresignedUrlCapability extends Capability {
 
     String createPresignedPutUrl(Location location, Duration expiration) throws IOException;
 }

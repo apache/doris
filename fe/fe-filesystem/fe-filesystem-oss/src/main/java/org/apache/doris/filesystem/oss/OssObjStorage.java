@@ -17,6 +17,7 @@
 
 package org.apache.doris.filesystem.oss;
 
+import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.ObjectListOptions;
 import org.apache.doris.filesystem.spi.ObjectStorageUri;
@@ -24,7 +25,6 @@ import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
 import org.apache.doris.filesystem.spi.StsCredentials;
-import org.apache.doris.filesystem.spi.UploadPartResult;
 
 import com.aliyun.oss.ClientBuilderConfiguration;
 import com.aliyun.oss.ClientException;

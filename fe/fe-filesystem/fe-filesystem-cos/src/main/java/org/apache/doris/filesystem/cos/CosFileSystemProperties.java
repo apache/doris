@@ -83,7 +83,6 @@ public final class CosFileSystemProperties
     @ConnectorProperty(names = {ACCESS_KEY, "s3.access_key", "s3.access-key-id", "AWS_ACCESS_KEY",
             "access_key", "ACCESS_KEY", "COS_ACCESS_KEY"},
             required = false,
-            sensitive = true,
             description = "The access key of COS.")
     private String accessKey = "";
 
@@ -97,6 +96,7 @@ public final class CosFileSystemProperties
     @ConnectorProperty(names = {SESSION_TOKEN, "s3.session_token", "s3.session-token",
             "session_token", "COS_SESSION_TOKEN", "COS_TOKEN", "AWS_TOKEN"},
             required = false,
+            sensitive = true,
             description = "The session token of COS.")
     private String sessionToken = "";
 
@@ -363,5 +363,10 @@ public final class CosFileSystemProperties
         if (StringUtils.isNotBlank(value)) {
             map.put(key, value);
         }
+    }
+
+    @Override
+    public String toString() {
+        return ConnectorPropertiesUtils.toMaskedString(this);
     }
 }

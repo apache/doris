@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.capability;
 
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.UploadPartResult;
 
 import java.io.IOException;
 import java.util.List;
@@ -25,7 +26,7 @@ import java.util.List;
 /**
  * Optional upload capability for providers that expose a multipart, block, or resumable upload flow.
  */
-public interface MultipartUploadCapability {
+public interface MultipartUploadCapability extends Capability {
 
     UploadSession initiateUpload(Location location) throws IOException;
 

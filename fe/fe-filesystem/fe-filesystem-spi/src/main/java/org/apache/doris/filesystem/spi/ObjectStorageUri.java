@@ -38,6 +38,12 @@ public final class ObjectStorageUri {
      * {@code scheme://endpoint/bucket/key}. The first path segment after the host is the
      * bucket, the remainder is the key. For all other schemes the first authority
      * component is always treated as the bucket, regardless of {@code pathStyleAccess}.
+     *
+     * <p><strong>Implicit dependency:</strong> {@code path} is parsed by literal string
+     * splitting and is <em>not</em> percent-decoded. Callers must pass an already-escaped URI;
+     * any {@code /} in a bucket or key must be encoded by the caller, otherwise it will be
+     * mistaken for a path separator. The returned {@code bucket}/{@code key} preserve the
+     * original (escaped) form.
      */
     public static ObjectStorageUri parse(String path, boolean pathStyleAccess) {
         if (path == null) {

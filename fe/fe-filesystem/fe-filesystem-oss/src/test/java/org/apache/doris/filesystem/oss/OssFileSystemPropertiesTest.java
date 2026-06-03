@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.Map;
+import java.util.Set;
 
 class OssFileSystemPropertiesTest {
 
@@ -56,6 +57,34 @@ class OssFileSystemPropertiesTest {
         Assertions.assertEquals("", properties.getAccessKey());
         Assertions.assertEquals("", properties.getSecretKey());
         Assertions.assertEquals("cn-hangzhou", properties.getRegion());
+    }
+
+    @Test
+    void toString_masksCredentialsAndNeverLeaksPlaintext() {
+        OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
+                "oss.access_key", "oss-ak-plain",
+                "oss.secret_key", "oss-sk-plain",
+                "s3.session_token", "oss-token-plain"));
+
+        String rendered = properties.toString();
+
+        Assertions.assertFalse(rendered.contains("oss-sk-plain"), rendered);
+        Assertions.assertFalse(rendered.contains("oss-token-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("secretKey=***"), rendered);
+        Assertions.assertTrue(rendered.contains("sessionToken=***"), rendered);
+        Assertions.assertTrue(rendered.contains("accessKey=oss-ak-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("https://oss-cn-hangzhou.aliyuncs.com"), rendered);
+    }
+
+    @Test
+    void provider_sensitivePropertyKeysCoverSecretsButNotAccessKey() {
+        Set<String> keys = new OssFileSystemProvider().sensitivePropertyKeys();
+
+        Assertions.assertTrue(keys.contains("oss.secret_key"), keys.toString());
+        Assertions.assertTrue(keys.contains("OSS_SECRET_KEY"), keys.toString());
+        Assertions.assertFalse(keys.contains("OSS_ACCESS_KEY"), keys.toString());
+        Assertions.assertFalse(keys.contains("oss.access_key"), keys.toString());
     }
 
     @Test

@@ -80,7 +80,6 @@ public final class ObsFileSystemProperties
     @ConnectorProperty(names = {ACCESS_KEY, "s3.access_key", "s3.access-key-id", "AWS_ACCESS_KEY",
             "access_key", "ACCESS_KEY", "OBS_ACCESS_KEY"},
             required = false,
-            sensitive = true,
             description = "The access key of OBS.")
     private String accessKey = "";
 
@@ -100,6 +99,7 @@ public final class ObsFileSystemProperties
     @ConnectorProperty(names = {SESSION_TOKEN, "s3.session_token", "s3.session-token",
             "session_token", "OBS_SESSION_TOKEN", "OBS_TOKEN", "AWS_TOKEN"},
             required = false,
+            sensitive = true,
             description = "The session token of OBS.")
     private String sessionToken = "";
 
@@ -397,5 +397,10 @@ public final class ObsFileSystemProperties
         } catch (ClassNotFoundException e) {
             return false;
         }
+    }
+
+    @Override
+    public String toString() {
+        return ConnectorPropertiesUtils.toMaskedString(this);
     }
 }

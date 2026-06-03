@@ -39,12 +39,16 @@ import java.io.OutputStream;
  */
 public class ObjectStorageOutputStream extends OutputStream {
 
+    // Single-PUT can technically carry up to 5 GB, but we deliberately guard far lower (256 MB)
+    // so an accidental large-file write fails fast with a clear message instead of OOMing silently.
     private static final long MAX_SINGLE_UPLOAD_BYTES = 256L * 1024 * 1024; // 256 MB
 
     private final String remotePath;
     private final ObjStorage<?> objStorage;
     private final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     private boolean closed = false;
+    // Tracks whether write(...) was ever called; close() skips upload when false (see empty-close
+    // semantics above) to avoid creating phantom 0-byte objects on an accidental empty close.
     private boolean writeCalled = false;
 
     public ObjectStorageOutputStream(String remotePath, ObjStorage<?> objStorage) {
@@ -75,6 +79,7 @@ public class ObjectStorageOutputStream extends OutputStream {
         }
         closed = true;
         if (!writeCalled) {
+            // No write ever happened: skip upload to avoid leaving a phantom 0-byte object.
             return;
         }
         byte[] data = buffer.toByteArray();

@@ -25,7 +25,7 @@ import java.util.List;
 /**
  * Capability for deleting multiple file locations through a provider-optimized path.
  */
-public interface BatchDeleteCapability {
+public interface BatchDeleteCapability extends Capability {
 
     void deleteBatch(List<Location> locations) throws IOException;
 }

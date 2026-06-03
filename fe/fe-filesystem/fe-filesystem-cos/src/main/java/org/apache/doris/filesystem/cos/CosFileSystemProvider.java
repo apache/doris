@@ -19,11 +19,13 @@ package org.apache.doris.filesystem.cos;
 
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI provider for Tencent Cloud COS.
@@ -70,6 +72,11 @@ public class CosFileSystemProvider implements FileSystemProvider<CosFileSystemPr
     @Override
     public String name() {
         return "COS";
+    }
+
+    @Override
+    public Set<String> sensitivePropertyKeys() {
+        return ConnectorPropertiesUtils.getSensitiveKeys(CosFileSystemProperties.class);
     }
 
     private boolean isExplicitCos(Map<String, String> properties) {

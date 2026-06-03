@@ -53,11 +53,6 @@ public class ObjectStorageFileSystem extends ObjFileSystem {
     }
 
     @Override
-    protected boolean isNotFoundError(IOException e) {
-        return e instanceof java.io.FileNotFoundException;
-    }
-
-    @Override
     public void mkdirs(Location location) throws IOException {
         // Object storage has no real directories; emulate POSIX mkdir -p:
         //   1) Idempotent: if the dir marker already exists, do nothing.

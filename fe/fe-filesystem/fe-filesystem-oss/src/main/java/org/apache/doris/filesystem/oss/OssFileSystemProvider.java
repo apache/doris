@@ -19,11 +19,13 @@ package org.apache.doris.filesystem.oss;
 
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI provider for Alibaba Cloud OSS.
@@ -70,6 +72,11 @@ public class OssFileSystemProvider implements FileSystemProvider<OssFileSystemPr
     @Override
     public String name() {
         return "OSS";
+    }
+
+    @Override
+    public Set<String> sensitivePropertyKeys() {
+        return ConnectorPropertiesUtils.getSensitiveKeys(OssFileSystemProperties.class);
     }
 
     private boolean isExplicitOss(Map<String, String> properties) {

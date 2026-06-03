@@ -17,6 +17,8 @@
 
 package org.apache.doris.filesystem.spi;
 
+import org.apache.doris.filesystem.UploadPartResult;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;

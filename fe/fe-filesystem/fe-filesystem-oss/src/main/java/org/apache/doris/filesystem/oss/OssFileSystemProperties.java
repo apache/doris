@@ -83,7 +83,6 @@ public final class OssFileSystemProperties
             "access_key", "ACCESS_KEY", "dlf.access_key", "dlf.catalog.accessKeyId",
             "fs.oss.accessKeyId", "OSS_ACCESS_KEY"},
             required = false,
-            sensitive = true,
             description = "The access key of OSS.")
     private String accessKey = "";
 
@@ -390,5 +389,10 @@ public final class OssFileSystemProperties
         if (StringUtils.isNotBlank(value)) {
             map.put(key, value);
         }
+    }
+
+    @Override
+    public String toString() {
+        return ConnectorPropertiesUtils.toMaskedString(this);
     }
 }

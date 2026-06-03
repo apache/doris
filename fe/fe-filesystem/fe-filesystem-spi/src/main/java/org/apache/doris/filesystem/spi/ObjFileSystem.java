@@ -19,6 +19,7 @@ package org.apache.doris.filesystem.spi;
 
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.UploadPartResult;
 
 import java.io.IOException;
 import java.util.Comparator;

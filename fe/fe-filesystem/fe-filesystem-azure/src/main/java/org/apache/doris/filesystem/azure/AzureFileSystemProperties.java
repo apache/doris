@@ -84,7 +84,6 @@ public final class AzureFileSystemProperties
     @ConnectorProperty(names = {ACCOUNT_NAME, "azure.access_key", "s3.access_key",
             "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key", "AZURE_ACCOUNT_NAME"},
             required = false,
-            sensitive = true,
             description = "The Azure storage account name.")
     private String accountName = "";
 
@@ -396,5 +395,10 @@ public final class AzureFileSystemProperties
             }
         }
         return matched;
+    }
+
+    @Override
+    public String toString() {
+        return ConnectorPropertiesUtils.toMaskedString(this);
     }
 }

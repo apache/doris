@@ -19,11 +19,13 @@ package org.apache.doris.filesystem.obs;
 
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI provider for Huawei Cloud OBS.
@@ -70,6 +72,11 @@ public class ObsFileSystemProvider implements FileSystemProvider<ObsFileSystemPr
     @Override
     public String name() {
         return "OBS";
+    }
+
+    @Override
+    public Set<String> sensitivePropertyKeys() {
+        return ConnectorPropertiesUtils.getSensitiveKeys(ObsFileSystemProperties.class);
     }
 
     private boolean isExplicitObs(Map<String, String> properties) {

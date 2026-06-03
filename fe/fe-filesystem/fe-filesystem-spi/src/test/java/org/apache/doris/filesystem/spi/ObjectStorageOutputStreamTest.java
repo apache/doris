@@ -17,6 +17,8 @@
 
 package org.apache.doris.filesystem.spi;
 
+import org.apache.doris.filesystem.UploadPartResult;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

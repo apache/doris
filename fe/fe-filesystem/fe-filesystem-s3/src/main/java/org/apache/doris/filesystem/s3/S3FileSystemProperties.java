@@ -103,7 +103,6 @@ public final class S3FileSystemProperties
             "client.credentials-provider.glue.access_key", "iceberg.rest.access-key-id",
             "s3.access-key-id"},
             required = false,
-            sensitive = true,
             description = "The access key of S3.")
     private String accessKey = "";
 
@@ -121,6 +120,7 @@ public final class S3FileSystemProperties
     @ConnectorProperty(names = {SESSION_TOKEN, "AWS_TOKEN", "session_token",
             "s3.session-token", "iceberg.rest.session-token"},
             required = false,
+            sensitive = true,
             description = "The session token of S3.")
     private String sessionToken = "";
 
@@ -386,13 +386,6 @@ public final class S3FileSystemProperties
 
     @Override
     public String toString() {
-        return "S3FileSystemProperties{"
-                + "endpoint='" + endpoint + '\''
-                + ", region='" + region + '\''
-                + ", accessKey=" + (StringUtils.isNotBlank(accessKey) ? "***" : "<empty>")
-                + ", roleArn='" + roleArn + '\''
-                + ", bucket='" + bucket + '\''
-                + ", usePathStyle=" + usePathStyle
-                + '}';
+        return ConnectorPropertiesUtils.toMaskedString(this);
     }
 }

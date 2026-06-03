@@ -21,6 +21,7 @@ import org.apache.doris.filesystem.DorisInputFile;
 import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.UploadPartResult;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

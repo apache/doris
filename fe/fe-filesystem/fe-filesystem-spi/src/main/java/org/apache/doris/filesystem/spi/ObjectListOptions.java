@@ -22,9 +22,13 @@ package org.apache.doris.filesystem.spi;
  */
 public final class ObjectListOptions {
 
+    // Opaque pagination cursor returned by a previous listing; resume the next page from here.
     private final String continuationToken;
+    // Return only keys lexicographically greater than this value (exclusive start key).
     private final String startAfter;
+    // Maximum number of keys to return in a single page; 0 means use the provider default.
     private final int maxKeys;
+    // Group keys sharing a common prefix up to this separator (e.g. "/") to emulate directories.
     private final String delimiter;
 
     private ObjectListOptions(Builder builder) {

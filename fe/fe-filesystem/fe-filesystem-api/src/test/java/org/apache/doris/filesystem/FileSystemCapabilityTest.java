@@ -17,6 +17,9 @@
 
 package org.apache.doris.filesystem;
 
+import org.apache.doris.filesystem.capability.BatchDeleteCapability;
+import org.apache.doris.filesystem.capability.Capability;
+import org.apache.doris.filesystem.capability.MultipartUploadCapability;
 import org.apache.doris.filesystem.capability.PresignedUrlCapability;
 
 import org.junit.jupiter.api.Assertions;
@@ -26,6 +29,13 @@ import java.io.IOException;
 import java.util.Optional;
 
 class FileSystemCapabilityTest {
+
+    @Test
+    void capabilityInterfacesAreMarkedAsCapability() {
+        Assertions.assertTrue(Capability.class.isAssignableFrom(PresignedUrlCapability.class));
+        Assertions.assertTrue(Capability.class.isAssignableFrom(BatchDeleteCapability.class));
+        Assertions.assertTrue(Capability.class.isAssignableFrom(MultipartUploadCapability.class));
+    }
 
     @Test
     void capability_returnsEmptyByDefault() {
@@ -107,7 +117,7 @@ class FileSystemCapabilityTest {
         }
 
         @Override
-        public <T> Optional<T> capability(Class<T> capabilityType) {
+        public <T extends Capability> Optional<T> capability(Class<T> capabilityType) {
             if (capabilityType == PresignedUrlCapability.class) {
                 return Optional.of(capabilityType.cast(presignedUrl));
             }

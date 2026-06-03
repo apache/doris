@@ -19,11 +19,13 @@ package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI provider for AWS S3 and S3-compatible storage (MinIO, etc.).
@@ -94,6 +96,11 @@ public class S3FileSystemProvider implements FileSystemProvider<S3FileSystemProp
     @Override
     public String name() {
         return "S3";
+    }
+
+    @Override
+    public Set<String> sensitivePropertyKeys() {
+        return ConnectorPropertiesUtils.getSensitiveKeys(S3FileSystemProperties.class);
     }
 
     private boolean hasAny(Map<String, String> properties, String[] names) {

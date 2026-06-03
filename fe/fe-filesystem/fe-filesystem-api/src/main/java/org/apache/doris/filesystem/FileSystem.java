@@ -17,6 +17,8 @@
 
 package org.apache.doris.filesystem;
 
+import org.apache.doris.filesystem.capability.Capability;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -39,7 +41,7 @@ public interface FileSystem extends AutoCloseable {
      * such as presigned URLs or temporary credentials should be exposed as capability
      * interfaces so callers do not depend on concrete filesystem implementations.
      */
-    default <T> Optional<T> capability(Class<T> capabilityType) {
+    default <T extends Capability> Optional<T> capability(Class<T> capabilityType) {
         Objects.requireNonNull(capabilityType, "capabilityType");
         return Optional.empty();
     }
@@ -48,7 +50,7 @@ public interface FileSystem extends AutoCloseable {
      * Returns the requested capability or throws a clear error if the filesystem does not
      * expose it.
      */
-    default <T> T requireCapability(Class<T> capabilityType) {
+    default <T extends Capability> T requireCapability(Class<T> capabilityType) {
         Objects.requireNonNull(capabilityType, "capabilityType");
         return capability(capabilityType).orElseThrow(() -> new UnsupportedOperationException(
                 getClass().getSimpleName() + " does not support " + capabilityType.getSimpleName()));

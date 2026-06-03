@@ -15,26 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.filesystem.capability;
+package org.apache.doris.filesystem;
 
 /**
- * Result of uploading one provider-defined part or block.
+ * Result of uploading a single part of a multipart/block upload.
+ *
+ * <p>{@code etag} carries the part identifier returned by the backend: an ETag for S3-compatible
+ * stores (S3/OSS/COS/OBS) or a block id for Azure.
  */
 public final class UploadPartResult {
 
     private final int partNumber;
-    private final String checksum;
+    private final String etag;
 
-    public UploadPartResult(int partNumber, String checksum) {
+    public UploadPartResult(int partNumber, String etag) {
         this.partNumber = partNumber;
-        this.checksum = checksum;
+        this.etag = etag;
     }
 
     public int partNumber() {
         return partNumber;
     }
 
-    public String checksum() {
-        return checksum;
+    public String etag() {
+        return etag;
     }
 }

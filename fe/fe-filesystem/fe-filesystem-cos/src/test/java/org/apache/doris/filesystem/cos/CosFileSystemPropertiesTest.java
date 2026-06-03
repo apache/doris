@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.Set;
 
 class CosFileSystemPropertiesTest {
 
@@ -55,6 +56,35 @@ class CosFileSystemPropertiesTest {
         Assertions.assertEquals("", properties.getAccessKey());
         Assertions.assertEquals("", properties.getSecretKey());
         Assertions.assertEquals("ap-guangzhou", properties.getRegion());
+    }
+
+    @Test
+    void toString_masksCredentialsAndNeverLeaksPlaintext() {
+        CosFileSystemProperties properties = CosFileSystemProperties.of(Map.of(
+                "cos.endpoint", "https://cos.ap-guangzhou.myqcloud.com",
+                "cos.access_key", "cos-ak-plain",
+                "cos.secret_key", "cos-sk-plain",
+                "s3.session_token", "cos-token-plain"));
+
+        String rendered = properties.toString();
+
+        Assertions.assertFalse(rendered.contains("cos-sk-plain"), rendered);
+        Assertions.assertFalse(rendered.contains("cos-token-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("secretKey=***"), rendered);
+        Assertions.assertTrue(rendered.contains("sessionToken=***"), rendered);
+        Assertions.assertTrue(rendered.contains("accessKey=cos-ak-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("https://cos.ap-guangzhou.myqcloud.com"), rendered);
+    }
+
+    @Test
+    void provider_sensitivePropertyKeysCoverSecretsButNotAccessKey() {
+        Set<String> keys = new CosFileSystemProvider().sensitivePropertyKeys();
+
+        Assertions.assertTrue(keys.contains("cos.secret_key"), keys.toString());
+        Assertions.assertTrue(keys.contains("COS_SECRET_KEY"), keys.toString());
+        Assertions.assertTrue(keys.contains("COS_SESSION_TOKEN"), keys.toString());
+        Assertions.assertFalse(keys.contains("COS_ACCESS_KEY"), keys.toString());
+        Assertions.assertFalse(keys.contains("cos.access_key"), keys.toString());
     }
 
     @Test

@@ -19,11 +19,13 @@ package org.apache.doris.filesystem.azure;
 
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI provider for Azure Blob Storage.
@@ -94,6 +96,11 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
     @Override
     public String name() {
         return "AZURE";
+    }
+
+    @Override
+    public Set<String> sensitivePropertyKeys() {
+        return ConnectorPropertiesUtils.getSensitiveKeys(AzureFileSystemProperties.class);
     }
 
     private boolean isExplicitAzure(Map<String, String> properties) {
