@@ -104,7 +104,9 @@ public class ObsObjStorage extends S3ObjStorage {
         if (obsProps.containsKey("OBS_REGION") && !obsProps.containsKey("AWS_REGION")) {
             s3Props.put("AWS_REGION", obsProps.get("OBS_REGION"));
         }
-        s3Props.put("use_path_style", "false");
+        if (!s3Props.containsKey("use_path_style") && !s3Props.containsKey("s3.path-style-access")) {
+            s3Props.put("use_path_style", "false");
+        }
         return s3Props;
     }
 

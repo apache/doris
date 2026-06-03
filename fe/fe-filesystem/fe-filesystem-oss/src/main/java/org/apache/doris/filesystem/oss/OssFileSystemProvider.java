@@ -61,7 +61,9 @@ public class OssFileSystemProvider implements FileSystemProvider {
         if (properties.containsKey("OSS_SECRET_KEY")) {
             props.put("AWS_SECRET_KEY", properties.get("OSS_SECRET_KEY"));
         }
-        props.put("use_path_style", "false");
+        if (!props.containsKey("use_path_style") && !props.containsKey("s3.path-style-access")) {
+            props.put("use_path_style", "false");
+        }
         return new S3FileSystem(new OssObjStorage(props));
     }
 

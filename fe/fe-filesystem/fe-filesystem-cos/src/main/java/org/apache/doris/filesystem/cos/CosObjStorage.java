@@ -107,7 +107,9 @@ public class CosObjStorage extends S3ObjStorage {
         if (cosProps.containsKey("COS_ROLE_ARN") && !cosProps.containsKey("AWS_ROLE_ARN")) {
             s3Props.put("AWS_ROLE_ARN", cosProps.get("COS_ROLE_ARN"));
         }
-        s3Props.put("use_path_style", "false");
+        if (!s3Props.containsKey("use_path_style") && !s3Props.containsKey("s3.path-style-access")) {
+            s3Props.put("use_path_style", "false");
+        }
         return s3Props;
     }
 

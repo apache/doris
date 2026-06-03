@@ -17,6 +17,9 @@
 
 package org.apache.doris.filesystem.obs;
 
+import org.apache.doris.filesystem.s3.S3FileSystem;
+import org.apache.doris.filesystem.s3.S3ObjStorage;
+
 import com.obs.services.ObsClient;
 import com.obs.services.model.HttpMethodEnum;
 import com.obs.services.model.TemporarySignatureRequest;
@@ -58,6 +61,49 @@ class ObsObjStorageTest {
         Assertions.assertEquals("my-obs-bucket", s3Props.get("AWS_BUCKET"));
         Assertions.assertEquals("cn-north-4", s3Props.get("AWS_REGION"));
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
+    }
+
+    @Test
+    void toS3Props_explicitUsePathStylePreserved() {
+        Map<String, String> obsProps = buildBasicProps();
+        obsProps.put("use_path_style", "true");
+
+        Map<String, String> s3Props = ObsObjStorage.toS3Props(obsProps);
+
+        Assertions.assertEquals("true", s3Props.get("use_path_style"));
+    }
+
+    @Test
+    void toS3Props_pathStyleAliasPreserved() {
+        Map<String, String> obsProps = buildBasicProps();
+        obsProps.put("s3.path-style-access", "true");
+
+        Map<String, String> s3Props = ObsObjStorage.toS3Props(obsProps);
+
+        Assertions.assertFalse(s3Props.containsKey("use_path_style"));
+        Assertions.assertEquals("true", s3Props.get("s3.path-style-access"));
+    }
+
+    @Test
+    void providerCreate_explicitUsePathStylePreserved() throws IOException {
+        Map<String, String> obsProps = buildBasicProps();
+        obsProps.put("use_path_style", "true");
+
+        S3FileSystem fileSystem = (S3FileSystem) new ObsFileSystemProvider().create(obsProps);
+        S3ObjStorage objStorage = (S3ObjStorage) fileSystem.getObjStorage();
+
+        Assertions.assertTrue(objStorage.isUsePathStyle());
+    }
+
+    @Test
+    void providerCreate_pathStyleAliasPreserved() throws IOException {
+        Map<String, String> obsProps = buildBasicProps();
+        obsProps.put("s3.path-style-access", "true");
+
+        S3FileSystem fileSystem = (S3FileSystem) new ObsFileSystemProvider().create(obsProps);
+        S3ObjStorage objStorage = (S3ObjStorage) fileSystem.getObjStorage();
+
+        Assertions.assertTrue(objStorage.isUsePathStyle());
     }
 
     @Test

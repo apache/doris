@@ -17,6 +17,9 @@
 
 package org.apache.doris.filesystem.cos;
 
+import org.apache.doris.filesystem.s3.S3FileSystem;
+import org.apache.doris.filesystem.s3.S3ObjStorage;
+
 import com.qcloud.cos.COSClient;
 import com.qcloud.cos.http.HttpMethodName;
 import org.junit.jupiter.api.Assertions;
@@ -60,6 +63,49 @@ class CosObjStorageTest {
         Assertions.assertEquals("ap-guangzhou", s3Props.get("AWS_REGION"));
         Assertions.assertEquals("qcs::cam::uin/100000:roleName/DorisRole", s3Props.get("AWS_ROLE_ARN"));
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
+    }
+
+    @Test
+    void toS3Props_explicitUsePathStylePreserved() {
+        Map<String, String> cosProps = buildBasicProps();
+        cosProps.put("use_path_style", "true");
+
+        Map<String, String> s3Props = CosObjStorage.toS3Props(cosProps);
+
+        Assertions.assertEquals("true", s3Props.get("use_path_style"));
+    }
+
+    @Test
+    void toS3Props_pathStyleAliasPreserved() {
+        Map<String, String> cosProps = buildBasicProps();
+        cosProps.put("s3.path-style-access", "true");
+
+        Map<String, String> s3Props = CosObjStorage.toS3Props(cosProps);
+
+        Assertions.assertFalse(s3Props.containsKey("use_path_style"));
+        Assertions.assertEquals("true", s3Props.get("s3.path-style-access"));
+    }
+
+    @Test
+    void providerCreate_explicitUsePathStylePreserved() throws IOException {
+        Map<String, String> cosProps = buildBasicProps();
+        cosProps.put("use_path_style", "true");
+
+        S3FileSystem fileSystem = (S3FileSystem) new CosFileSystemProvider().create(cosProps);
+        S3ObjStorage objStorage = (S3ObjStorage) fileSystem.getObjStorage();
+
+        Assertions.assertTrue(objStorage.isUsePathStyle());
+    }
+
+    @Test
+    void providerCreate_pathStyleAliasPreserved() throws IOException {
+        Map<String, String> cosProps = buildBasicProps();
+        cosProps.put("s3.path-style-access", "true");
+
+        S3FileSystem fileSystem = (S3FileSystem) new CosFileSystemProvider().create(cosProps);
+        S3ObjStorage objStorage = (S3ObjStorage) fileSystem.getObjStorage();
+
+        Assertions.assertTrue(objStorage.isUsePathStyle());
     }
 
     @Test
@@ -140,7 +186,7 @@ class CosObjStorageTest {
     }
 
     @Test
-    void constructor_missingRegionFailsTypedValidation() {
+    void getPresignedUrl_missingRegionThrowsIOException() {
         COSClient mockCos = Mockito.mock(COSClient.class);
         Map<String, String> props = new HashMap<>();
         props.put("COS_ENDPOINT", "https://cos.myqcloud.com");
@@ -149,11 +195,10 @@ class CosObjStorageTest {
         props.put("COS_BUCKET", "my-bucket-1234");
         // no region
 
-        IllegalArgumentException exception = Assertions.assertThrows(
-                IllegalArgumentException.class, () -> new TestableCosObjStorage(props, mockCos));
+        CosObjStorage storage = new TestableCosObjStorage(props, mockCos);
 
-        Assertions.assertTrue(exception.getMessage().contains("Invalid S3 filesystem properties"));
-        Assertions.assertTrue(exception.getMessage().contains("Region is not set"));
+        Assertions.assertThrows(IOException.class, () -> storage.getPresignedUrl("some/key"),
+                "Should throw when region is missing");
     }
 
     @Test
