@@ -427,7 +427,7 @@ private:
             const std::shared_ptr<ClearFileCacheCancelToken>& cancel_token = nullptr);
     bool recycle_keys_idle();
     bool try_dequeue_recycle_key(FileCacheKey* key);
-    Status remove_dequeued_recycle_key(const FileCacheKey& key);
+    Status remove_dequeued_recycle_key(const FileCacheKey& key, bool wait_meta_delete_fence);
     void refresh_metrics_unlocked(std::lock_guard<std::mutex>& cache_lock);
 
     LRUQueue& get_queue(FileCacheType type);

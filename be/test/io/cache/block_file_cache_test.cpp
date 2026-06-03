@@ -8564,6 +8564,58 @@ TEST_F(BlockFileCacheTest, clear_file_cache_sync_skips_new_blocks_during_clear) 
     EXPECT_TRUE(cache.get_blocks_by_key(new_key).empty());
 }
 
+TEST_F(BlockFileCacheTest, remove_if_cached_async_recycles_held_deleting_block) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    auto old_gc_interval_ms = config::file_cache_background_gc_interval_ms;
+    config::file_cache_background_gc_interval_ms = 10000000;
+    Defer defer {[old_gc_interval_ms] {
+        config::file_cache_background_gc_interval_ms = old_gc_interval_ms;
+    }};
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.capacity = 90;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; ++i) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    auto key = io::BlockFileCache::hash("async_remove_held_deleting_block");
+
+    std::optional<io::FileBlocksHolder> holder;
+    holder.emplace(cache.get_or_set(key, 0, 5, context));
+    ASSERT_EQ(holder->file_blocks.size(), 1);
+    auto& block = holder->file_blocks.front();
+    ASSERT_TRUE(block->get_or_set_downloader() == io::FileBlock::get_caller_id());
+    download(block);
+    ASSERT_FALSE(block->is_deleting());
+
+    cache.remove_if_cached_async(key);
+    EXPECT_TRUE(block->is_deleting());
+    EXPECT_EQ(cache._recycle_keys.size_approx(), 0);
+
+    holder.reset();
+    EXPECT_TRUE(cache.get_blocks_by_key(key).empty());
+    EXPECT_EQ(cache._recycle_keys.size_approx(), 1);
+}
+
 TEST_F(BlockFileCacheTest, clear_file_cache_sync_cancel_waiting_keeps_async_cleanup_safe) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);

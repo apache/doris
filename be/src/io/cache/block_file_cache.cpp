@@ -754,16 +754,21 @@ bool BlockFileCache::try_dequeue_recycle_key(FileCacheKey* key) {
     return true;
 }
 
-Status BlockFileCache::remove_dequeued_recycle_key(const FileCacheKey& key) {
+Status BlockFileCache::remove_dequeued_recycle_key(const FileCacheKey& key,
+                                                   bool wait_meta_delete_fence) {
     FileCacheStorageRemoveContextPtr context;
     Status st;
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        st = _storage->remove(key, &context);
+        if (wait_meta_delete_fence) {
+            st = _storage->remove(key, &context);
+        } else {
+            st = _storage->remove(key);
+        }
     }
     *_storage_async_remove_latency_us << (duration_ns / 1000);
-    if (context) {
+    if (wait_meta_delete_fence && context) {
         Status fence_st = context->wait();
         if (st.ok() && !fence_st.ok()) {
             st = fence_st;
@@ -786,7 +791,7 @@ BlockFileCache::ClearFileCacheResult BlockFileCache::drain_recycle_keys(
     };
     FileCacheKey key;
     while (!is_cancelled() && try_dequeue_recycle_key(&key)) {
-        Status st = remove_dequeued_recycle_key(key);
+        Status st = remove_dequeued_recycle_key(key, true);
         ++result.num_recycle_drained;
         if (!st.ok()) {
             LOG_WARNING("").error(st);
@@ -2413,7 +2418,7 @@ void BlockFileCache::run_background_gc() {
         }
 
         while (batch_count < batch_limit && try_dequeue_recycle_key(&key)) {
-            Status st = remove_dequeued_recycle_key(key);
+            Status st = remove_dequeued_recycle_key(key, false);
             if (!st.ok()) {
                 LOG_WARNING("").error(st);
             }
