@@ -18,7 +18,6 @@
 package org.apache.doris.maxcompute;
 
 import org.apache.doris.common.jni.JniWriter;
-import org.apache.doris.common.jni.utils.JNINativeMethod;
 import org.apache.doris.common.jni.vec.VectorColumn;
 import org.apache.doris.common.jni.vec.VectorTable;
 import org.apache.doris.common.maxcompute.MCProperties;
@@ -115,6 +114,7 @@ public class MaxComputeJniWriter extends JniWriter {
     private final int readTimeout;
     private final int retryCount;
     private final long maxBlockBytes;
+    private final MaxComputeFeClient feClient;
 
     // Storage API objects
     private TableBatchWriteSession writeSession;
@@ -155,6 +155,7 @@ public class MaxComputeJniWriter extends JniWriter {
         this.maxBlockBytes = Long.parseLong(
                 params.getOrDefault(MCProperties.WRITE_MAX_BLOCK_BYTES,
                         MCProperties.DEFAULT_WRITE_MAX_BLOCK_BYTES));
+        this.feClient = MaxComputeFeClient.create(params);
     }
 
     @Override
@@ -241,12 +242,12 @@ public class MaxComputeJniWriter extends JniWriter {
         }
     }
 
-    private long resolveInitialBlockId() {
+    private long resolveInitialBlockId() throws IOException {
         return preallocatedBlockId != null ? preallocatedBlockId : requestBlockId();
     }
 
-    private long requestBlockId() {
-        return JNINativeMethod.requestMaxComputeBlockId(txnId, writeSessionId);
+    private long requestBlockId() throws IOException {
+        return feClient.requestBlockId(txnId, writeSessionId);
     }
 
     private void openBatchWriter(long blockId) throws IOException {
@@ -918,6 +919,8 @@ public class MaxComputeJniWriter extends JniWriter {
             String errorMsg = "Failed to close MaxCompute arrow writer";
             LOG.error(errorMsg, e);
             throw new IOException(errorMsg, e);
+        } finally {
+            feClient.close();
         }
     }
 

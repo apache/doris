@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.maxcompute;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
@@ -49,7 +50,6 @@ import java.util.stream.Collectors;
 public class MCTransaction implements Transaction {
 
     private static final Logger LOG = LogManager.getLogger(MCTransaction.class);
-    private static final long MAX_BLOCK_COUNT = 20000L;
 
     private final MaxComputeExternalCatalog catalog;
     private MaxComputeExternalTable table;
@@ -147,9 +147,10 @@ public class MCTransaction implements Transaction {
         do {
             start = nextBlockId.get();
             endExclusive = start + length;
-            if (endExclusive > MAX_BLOCK_COUNT) {
+            if (endExclusive > Config.max_compute_write_max_block_count) {
                 throw new UserException("MaxCompute block_id exceeds limit, start="
-                        + start + ", length=" + length + ", maxBlockCount=" + MAX_BLOCK_COUNT);
+                        + start + ", length=" + length + ", maxBlockCount="
+                        + Config.max_compute_write_max_block_count);
             }
         } while (!nextBlockId.compareAndSet(start, endExclusive));
 
