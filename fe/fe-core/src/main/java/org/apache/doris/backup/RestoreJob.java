@@ -2172,7 +2172,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
 
-        updateOlapTablesVersion(db);
+        updateOlapTablesVersion(db, isReplay);
 
         if (!isReplay) {
             restoredPartitions.clear();
@@ -2199,7 +2199,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         return Status.OK;
     }
 
-    private void updateOlapTablesVersion(Database db) {
+    protected void updateOlapTablesVersion(Database db, boolean isReplay) {
         if (Env.getCurrentEnv().invalidCacheForCloud()) {
             return;
         }
