@@ -420,21 +420,21 @@ Status ScannerContext::validate_block_schema(Block* block) {
     size_t index = 0;
     for (auto& slot : _output_tuple_desc->slots()) {
         auto& data = block->get_by_position(index++);
-        if (data.column->is_nullable() != data.type->is_nullable()) {
+        const auto column_nullable = data.column->is_concrete_nullable();
+        if (column_nullable != data.type->is_nullable()) {
             return Status::Error<ErrorCode::INVALID_SCHEMA>(
                     "column(name: {}) nullable({}) does not match type nullable({}), slot(id: "
                     "{}, "
                     "name:{})",
-                    data.name, data.column->is_nullable(), data.type->is_nullable(), slot->id(),
+                    data.name, column_nullable, data.type->is_nullable(), slot->id(),
                     slot->col_name());
         }
 
-        if (data.column->is_nullable() != slot->is_nullable()) {
+        if (column_nullable != slot->is_nullable()) {
             return Status::Error<ErrorCode::INVALID_SCHEMA>(
                     "column(name: {}) nullable({}) does not match slot(id: {}, name: {}) "
                     "nullable({})",
-                    data.name, data.column->is_nullable(), slot->id(), slot->col_name(),
-                    slot->is_nullable());
+                    data.name, column_nullable, slot->id(), slot->col_name(), slot->is_nullable());
         }
     }
     return Status::OK();
