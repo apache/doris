@@ -55,14 +55,17 @@ import org.apache.flink.cdc.connectors.postgres.source.utils.TableDiscoveryUtils
 import org.apache.flink.table.types.DataType;
 
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
@@ -98,6 +101,10 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId, 0);
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
+        // Doris-owned publication: pre-create it covering all include_tables (autocreate is DISABLED).
+        if (isPublicationDorisOwned(config, jobId)) {
+            createPublicationForDorisOwned(dialect, config, jobId);
+        }
         // Only create the slot when Doris owns it (name == default); user-provided slots must
         // pre-exist, validated at CREATE JOB.
         if (isSlotDorisOwned(config, jobId)) {
@@ -147,6 +154,43 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                             "Fail to get or create slot, the slot name is %s. Due to: %s ",
                             postgresDialect.getSlotName(), ExceptionUtils.getRootCauseMessage(t)),
                     t);
+        }
+    }
+
+    /** Create/ensure the Doris-owned publication for all include_tables (idempotent, multi-BE safe). */
+    private void createPublicationForDorisOwned(
+            PostgresDialect dialect, Map<String, String> config, String jobId) {
+        String pubName = resolvePublicationName(config, jobId);
+        String schema = config.get(DataSourceConfigKeys.SCHEMA);
+        String[] qualified = ConfigUtil.getTableList(schema, config);
+        if (qualified.length == 0) {
+            throw new CdcClientException("No tables to create publication " + pubName);
+        }
+        String tableList =
+                Arrays.stream(qualified)
+                        .map(q -> new TableId(null, schema, q.substring(q.indexOf('.') + 1))
+                                .toDoubleQuotedString())
+                        .collect(Collectors.joining(", "));
+        // Mirrors debezium PostgresReplicationConnection#initPublication: check existence, then
+        // CREATE ... FOR TABLE / ALTER ... SET TABLE (here always the full include_tables set).
+        try (PostgresConnection conn = dialect.openJdbcConnection();
+                Statement stmt = conn.connection().createStatement()) {
+            long count;
+            try (ResultSet rs =
+                    stmt.executeQuery(
+                            "SELECT COUNT(1) FROM pg_publication WHERE pubname = '" + pubName + "'")) {
+                rs.next();
+                count = rs.getLong(1);
+            }
+            if (count == 0) {
+                stmt.execute("CREATE PUBLICATION " + pubName + " FOR TABLE " + tableList);
+            } else {
+                stmt.execute("ALTER PUBLICATION " + pubName + " SET TABLE " + tableList);
+            }
+            LOG.info("Ensured publication {} for tables {}", pubName, tableList);
+        } catch (SQLException e) {
+            throw new CdcClientException(
+                    "Failed to create publication " + pubName + ": " + e.getMessage(), e);
         }
     }
 
@@ -242,18 +286,15 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         Properties dbzProps = ConfigUtil.getDefaultDebeziumProps();
         dbzProps.put("interval.handling.mode", "string");
 
-        // Doris-owned = FILTERED (auto-create per-table publication); otherwise DISABLED
-        // (user-provided or legacy dbz_publication already present on PG).
+        // Always DISABLED; the publication always pre-exists: Doris creates it for all include_tables
+        // in initialize(); user-provided / legacy (dbz_publication) ones are already present on PG.
+        // FILTERED would make each split SET TABLE its single table -> flip publication -> data loss.
         String publicationName = resolvePublicationName(cdcConfig, jobId);
         String slotName = resolveSlotName(cdcConfig, jobId);
-        AutoCreateMode autocreateMode =
-                isPublicationDorisOwned(cdcConfig, jobId)
-                        ? AutoCreateMode.FILTERED
-                        : AutoCreateMode.DISABLED;
         dbzProps.put(PostgresConnectorConfig.PUBLICATION_NAME.name(), publicationName);
         dbzProps.put(
                 PostgresConnectorConfig.PUBLICATION_AUTOCREATE_MODE.name(),
-                autocreateMode.getValue());
+                AutoCreateMode.DISABLED.getValue());
 
         configFactory.debeziumProperties(dbzProps);
 
@@ -279,7 +320,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         // support scan partition table
         configFactory.setIncludePartitionedTables(true);
 
-        // FE injects "true" on TVF path; from-to leaves it absent → default false.
+        // from-to: FE forces "true" (at-least-once, skip backfill); TVF: absent → false (exactly-once needs backfill).
         configFactory.skipSnapshotBackfill(
                 Boolean.parseBoolean(cdcConfig.get(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL)));
 
