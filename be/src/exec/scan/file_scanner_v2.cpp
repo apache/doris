@@ -17,6 +17,7 @@
 
 #include "exec/scan/file_scanner_v2.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 
@@ -91,6 +92,10 @@ bool parse_non_negative_int(std::string_view value, int32_t* result) {
     return true;
 }
 
+std::string access_path_to_string(const std::vector<std::string>& path) {
+    return fmt::format("{}", fmt::join(path, "."));
+}
+
 reader::TableColumn* find_or_add_child(reader::TableColumn* parent, reader::ColumnId id,
                                        std::string name, DataTypePtr type) {
     DORIS_CHECK(parent != nullptr);
@@ -110,17 +115,18 @@ reader::TableColumn* find_or_add_child(reader::TableColumn* parent, reader::Colu
     return &parent->children.back();
 }
 
-bool add_struct_access_path(reader::TableColumn* column, const DataTypeStruct& struct_type,
-                            const std::vector<std::string>& path, size_t path_idx);
+Status add_struct_access_path(reader::TableColumn* column, const DataTypeStruct& struct_type,
+                              const std::vector<std::string>& path, size_t path_idx);
 
-bool add_access_path(reader::TableColumn* column, const DataTypePtr& type,
-                     const std::vector<std::string>& path, size_t path_idx) {
+Status add_access_path(reader::TableColumn* column, const DataTypePtr& type,
+                       const std::vector<std::string>& path, size_t path_idx) {
     DORIS_CHECK(column != nullptr);
     if (path_idx >= path.size()) {
-        return true;
+        return Status::OK();
     }
     if (path[path_idx] == "OFFSET") {
-        return false;
+        return Status::NotSupported("FileScannerV2 does not support access path {} for slot {}",
+                                    access_path_to_string(path), column->name);
     }
 
     const auto nested_type = remove_nullable(type);
@@ -136,7 +142,9 @@ bool add_access_path(reader::TableColumn* column, const DataTypePtr& type,
     case TYPE_MAP: {
         const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
         if (path[path_idx] == "KEYS") {
-            return false;
+            return Status::NotSupported(
+                    "FileScannerV2 does not support key access path {} for slot {}",
+                    access_path_to_string(path), column->name);
         }
         if (path[path_idx] == "VALUES" || path[path_idx] == "*") {
             auto entry_type = std::make_shared<DataTypeStruct>(
@@ -146,15 +154,17 @@ bool add_access_path(reader::TableColumn* column, const DataTypePtr& type,
                     find_or_add_child(entry_child, 1, "value", map_type.get_value_type());
             return add_access_path(value_child, value_child->type, path, path_idx + 1);
         }
-        return false;
+        return Status::NotSupported("FileScannerV2 does not support access path {} for slot {}",
+                                    access_path_to_string(path), column->name);
     }
     default:
-        return false;
+        return Status::NotSupported("FileScannerV2 does not support access path {} for slot {}",
+                                    access_path_to_string(path), column->name);
     }
 }
 
-bool add_struct_access_path(reader::TableColumn* column, const DataTypeStruct& struct_type,
-                            const std::vector<std::string>& path, size_t path_idx) {
+Status add_struct_access_path(reader::TableColumn* column, const DataTypeStruct& struct_type,
+                              const std::vector<std::string>& path, size_t path_idx) {
     DORIS_CHECK(column != nullptr);
     DORIS_CHECK(path_idx < path.size());
     int32_t field_id = -1;
@@ -173,40 +183,40 @@ bool add_struct_access_path(reader::TableColumn* column, const DataTypeStruct& s
     }
 
     if (field_id < 0 || field_type == nullptr) {
-        return false;
+        return Status::NotSupported("FileScannerV2 does not support access path {} for slot {}",
+                                    access_path_to_string(path), column->name);
     }
     auto* child = find_or_add_child(column, field_id, field_name, field_type);
     return add_access_path(child, child->type, path, path_idx + 1);
 }
 
-bool build_nested_children_from_access_paths(reader::TableColumn* column,
-                                             const SlotDescriptor* slot_desc) {
+Status build_nested_children_from_access_paths(reader::TableColumn* column,
+                                               const SlotDescriptor* slot_desc) {
     DORIS_CHECK(column != nullptr);
     DORIS_CHECK(slot_desc != nullptr);
     if (slot_desc->all_access_paths().empty()) {
-        return true;
+        return Status::OK();
     }
 
     for (const auto& access_path : slot_desc->all_access_paths()) {
         if (access_path.type != TAccessPathType::DATA || !access_path.__isset.data_access_path) {
-            return false;
+            return Status::NotSupported("FileScannerV2 only supports DATA access paths for slot {}",
+                                        column->name);
         }
         const auto& path = access_path.data_access_path.path;
         if (path.empty()) {
-            return false;
+            return Status::NotSupported("FileScannerV2 found empty access path for slot {}",
+                                        column->name);
         }
         int32_t top_level_id = -1;
         if (path.front() != column->name &&
             (!parse_non_negative_int(path.front(), &top_level_id) || top_level_id != column->id)) {
-            column->children.clear();
-            return false;
+            return Status::NotSupported("FileScannerV2 access path {} does not match slot {}",
+                                        access_path_to_string(path), column->name);
         }
-        if (!add_access_path(column, column->type, path, 1)) {
-            column->children.clear();
-            return false;
-        }
+        RETURN_IF_ERROR(add_access_path(column, column->type, path, 1));
     }
-    return true;
+    return Status::OK();
 }
 
 } // namespace
@@ -433,9 +443,7 @@ Status FileScannerV2::_build_projected_columns() {
         }
         auto column = _build_table_column(it->second);
         RETURN_IF_ERROR(_build_default_expr(slot_info, &column.default_expr));
-        if (!build_nested_children_from_access_paths(&column, it->second)) {
-            column.children.clear();
-        }
+        RETURN_IF_ERROR(build_nested_children_from_access_paths(&column, it->second));
         if (is_partition_slot(slot_info)) {
             column.is_partition_key = true;
             _partition_slot_descs.emplace(column.name, it->second);
