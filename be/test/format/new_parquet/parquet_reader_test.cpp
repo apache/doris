@@ -1200,8 +1200,10 @@ TEST(TableColumnMapperTest, ColumnPredicatesDoNotForcePredicateMaterialization) 
     ASSERT_TRUE(mapper.create_mapping({table_id, table_value}, {}, {id_field, value_field}).ok());
 
     reader::TableColumnPredicates column_predicates;
-    column_predicates[0].push_back(create_comparison_predicate<PredicateType::GT>(
-            0, "id", id_field.type, Field::create_field<TYPE_INT>(2), false));
+    column_predicates[0] = {
+            table_id,
+            {create_comparison_predicate<PredicateType::GT>(
+                    0, "id", id_field.type, Field::create_field<TYPE_INT>(2), false)}};
 
     auto request = std::make_unique<reader::FileScanRequest>();
     ASSERT_TRUE(mapper.create_scan_request({}, column_predicates, {table_id, table_value},

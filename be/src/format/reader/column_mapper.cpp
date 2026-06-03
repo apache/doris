@@ -1262,18 +1262,25 @@ static const SchemaField* find_file_child_by_table_column(
         if (mode == TableColumnMappingMode::BY_FIELD_ID && field.id == table_column.id) {
             return &field;
         }
-        if (field.name == table_column.name) {
+        if (to_lower(field.name) == to_lower(table_column.name)) {
             return &field;
         }
     }
     return nullptr;
 }
 
-static std::vector<int32_t> filter_slot_ids(const TableFilter& table_filter) {
-    if (!table_filter.slot_ids.empty()) {
-        return table_filter.slot_ids;
+static const SchemaField* find_file_child_for_complex_wrapper(const TableColumn& table_child,
+                                                              const SchemaField& file_field,
+                                                              TableColumnMappingMode mode) {
+    const auto primitive_type = remove_nullable(file_field.type)->get_primitive_type();
+    if (primitive_type == TYPE_ARRAY || primitive_type == TYPE_MAP) {
+        if (file_field.children.empty()) {
+            return nullptr;
+        }
+        DORIS_CHECK(file_field.children.size() == 1);
+        return &file_field.children[0];
     }
-    return {};
+    return find_file_child_by_table_column(table_child, file_field.children, mode);
 }
 
 Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& projected_columns,
@@ -1381,16 +1388,18 @@ Status TableColumnMapper::create_scan_request(const std::vector<TableFilter>& ta
     file_request->column_predicate_filters.clear();
     // 1. Build referenced non-predicate columns
     for (const auto& table_column : projected_columns) {
-        auto* mapping = _find_mapping(table_column.id);
+        auto* mapping = _find_mapping(table_column);
         if (mapping != nullptr && mapping->field_id.has_value()) {
             // A file column can be read lazily as a non-predicate column only when it is not used
             // by row-level expression filters. Single-column ColumnPredicate filters are pruning
             // hints only and must not force row-level predicate materialization.
             bool used_by_filter = false;
             for (const auto& table_filter : table_filters) {
-                const auto slot_ids = filter_slot_ids(table_filter);
-                if (std::find(slot_ids.begin(), slot_ids.end(), table_column.id) !=
-                    slot_ids.end()) {
+                const auto columns = table_filter.column_unique_ids;
+                if (std::find_if(columns.begin(), columns.end(),
+                                 [&](const TableColumn& col) -> bool {
+                                     return table_column.id == col.id;
+                                 }) != columns.end()) {
                     used_by_filter = true;
                     break;
                 }
@@ -1409,10 +1418,42 @@ Status TableColumnMapper::create_scan_request(const std::vector<TableFilter>& ta
             continue;
         }
         auto position_it = file_request->column_positions.find(*mapping.field_id);
-        DORIS_CHECK(position_it != file_request->column_positions.end());
+        DORIS_CHECK(position_it != file_request->column_positions.end())
+                << file_request->column_positions.size() << " " << *mapping.field_id << " "
+                << mapping.file_column_name;
         rebuild_projection(&mapping, position_it->second);
     }
     return Status::OK();
+}
+
+ColumnMapping* TableColumnMapper::_find_mapping(const TableColumn& table_column) {
+    for (auto& mapping : _mappings) {
+        if ((_options.mode == TableColumnMappingMode::BY_FIELD_ID ||
+             _options.mode == TableColumnMappingMode::BY_INDEX) &&
+            mapping.table_column_id == table_column.id) {
+            return &mapping;
+        }
+        if (_options.mode == TableColumnMappingMode::BY_NAME &&
+            to_lower(mapping.file_column_name) == to_lower(table_column.name)) {
+            return &mapping;
+        }
+    }
+    return nullptr;
+}
+
+const ColumnMapping* TableColumnMapper::_find_mapping(const TableColumn& table_column) const {
+    for (const auto& mapping : _mappings) {
+        if ((_options.mode == TableColumnMappingMode::BY_FIELD_ID ||
+             _options.mode == TableColumnMappingMode::BY_INDEX) &&
+            mapping.table_column_id == table_column.id) {
+            return &mapping;
+        }
+        if (_options.mode == TableColumnMappingMode::BY_NAME &&
+            to_lower(mapping.file_column_name) == to_lower(table_column.name)) {
+            return &mapping;
+        }
+    }
+    return nullptr;
 }
 
 Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table_filters,
@@ -1423,7 +1464,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
     FilterProjectionMap filter_projections;
     RETURN_IF_ERROR(build_filter_projection_map(table_filters, &_mappings, &filter_projections));
     for (const auto& table_filter : table_filters) {
-        for (const auto table_column_id : filter_slot_ids(table_filter)) {
+        for (const auto& table_column_id : table_filter.column_unique_ids) {
             auto* mapping = _find_mapping(table_column_id);
             if (mapping == nullptr || !mapping->field_id.has_value()) {
                 continue;
@@ -1445,13 +1486,13 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         }
     }
     for (const auto& [table_column_id, predicates] : table_column_predicates) {
-        const auto* mapping = _find_mapping(table_column_id);
-        if (mapping == nullptr || !mapping->field_id.has_value() || predicates.empty()) {
+        const auto* mapping = _find_mapping(predicates.first);
+        if (mapping == nullptr || !mapping->field_id.has_value() || predicates.second.empty()) {
             continue;
         }
         FileColumnPredicateFilter column_predicate_filter;
         column_predicate_filter.file_column_id = *mapping->field_id;
-        column_predicate_filter.predicates = predicates;
+        column_predicate_filter.predicates = predicates.second;
         file_request->column_predicate_filters.push_back(std::move(column_predicate_filter));
     }
     for (const auto& table_filter : table_filters) {
@@ -1477,7 +1518,7 @@ const SchemaField* TableColumnMapper::_find_file_field(
                 return &field;
             }
         }
-        if (field.name == table_column.name) {
+        if (to_lower(field.name) == to_lower(table_column.name)) {
             return &field;
         }
     }
@@ -1501,8 +1542,8 @@ Status TableColumnMapper::_create_direct_mapping(const TableColumn& table_column
 
     if (!table_column.children.empty()) {
         for (const auto& table_child : table_column.children) {
-            const auto* file_child = find_file_child_by_table_column(
-                    table_child, file_field.children, _options.mode);
+            const auto* file_child =
+                    find_file_child_for_complex_wrapper(table_child, file_field, _options.mode);
             if (file_child == nullptr) {
                 if (!_options.allow_missing_columns) {
                     return Status::InvalidArgument(

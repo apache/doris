@@ -344,7 +344,7 @@ Status FileScannerV2::_create_table_reader(const TFileRangeDesc& range) {
             .io_ctx = _io_ctx,
             .runtime_state = _state,
             .scanner_profile = _local_state->scanner_profile(),
-            .allow_missing_columns = true, // TODO
+            .allow_missing_columns = false, // TODO
             .push_down_agg_type = _local_state->get_push_down_agg_type(),
             .profile = nullptr, // TODO
     }));
@@ -491,7 +491,11 @@ Status FileScannerV2::_build_table_column_predicates(
         if (it == _slot_id_to_desc.end()) {
             continue;
         }
-        (*predicates)[it->second->col_unique_id()] = slot_predicate_list;
+        (*predicates)[it->second->col_unique_id()] = {
+                reader::TableColumn {.id = it->second->col_unique_id(),
+                                     .name = it->second->col_name(),
+                                     .type = it->second->get_data_type_ptr()},
+                slot_predicate_list};
     }
     return Status::OK();
 }

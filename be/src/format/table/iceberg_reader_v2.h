@@ -45,6 +45,11 @@ namespace doris::iceberg {
 class IcebergTableReader : public reader::TableReader {
 public:
     ~IcebergTableReader() override = default;
+    Status init(reader::TableReadOptions&& options) override {
+        RETURN_IF_ERROR(reader::TableReader::init(std::move(options)));
+        _mapper_options.mode = reader::TableColumnMappingMode::BY_FIELD_ID;
+        return Status::OK();
+    }
 
     Status prepare_split(const reader::SplitReadOptions& options) override;
 

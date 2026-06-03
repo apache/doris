@@ -39,16 +39,20 @@
 namespace doris::reader {
 namespace {
 
-void collect_table_slot_ids(const VExprSPtr& expr, std::set<int>* slot_ids) {
+void collect_table_column_unique_ids(const VExprSPtr& expr,
+                                     std::map<ColumnId, TableColumn>* column_unique_ids) {
     if (expr == nullptr) {
         return;
     }
     if (expr->is_slot_ref()) {
         const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
-        slot_ids->insert(slot_ref->slot_id());
+        column_unique_ids->insert(
+                {slot_ref->column_uniq_id(), TableColumn {.id = slot_ref->column_uniq_id(),
+                                                          .name = slot_ref->column_name(),
+                                                          .type = slot_ref->data_type()}});
     }
     for (const auto& child : expr->children()) {
-        collect_table_slot_ids(child, slot_ids);
+        collect_table_column_unique_ids(child, column_unique_ids);
     }
 }
 
@@ -57,13 +61,15 @@ Status build_table_filters_from_conjunct(const VExprContextSPtr& conjunct, Runti
     if (conjunct == nullptr) {
         return Status::OK();
     }
-    std::set<int> slot_ids;
-    collect_table_slot_ids(conjunct->root(), &slot_ids);
-    if (!slot_ids.empty()) {
+    std::map<ColumnId, TableColumn> columns;
+    collect_table_column_unique_ids(conjunct->root(), &columns);
+    if (!columns.empty()) {
         TableFilter table_filter;
         table_filter.conjunct = nullptr;
         RETURN_IF_ERROR(conjunct->clone(state, table_filter.conjunct));
-        table_filter.slot_ids.assign(slot_ids.begin(), slot_ids.end());
+        for (const auto& [column_id, column] : columns) {
+            table_filter.column_unique_ids.push_back(column);
+        }
         table_filters->push_back(std::move(table_filter));
     }
     return Status::OK();
@@ -152,10 +158,8 @@ Status TableReader::init(TableReadOptions&& options) {
     _projected_columns = std::move(options.projected_columns);
     _system_properties = create_system_properties(_scan_params);
     _profile = std::move(options.profile);
-    TableColumnMapperOptions mapper_options;
-    mapper_options.mode = TableColumnMappingMode::BY_FIELD_ID;
-    mapper_options.allow_missing_columns = options.allow_missing_columns;
-    _data_reader.column_mapper = TableColumnMapper(mapper_options);
+    _mapper_options.mode = TableColumnMappingMode::BY_NAME;
+    _mapper_options.allow_missing_columns = options.allow_missing_columns;
     _conjuncts = std::move(options.conjuncts);
     _table_column_predicates = std::move(options.column_predicates);
     return Status::OK();
@@ -224,6 +228,7 @@ std::unique_ptr<io::FileDescription> create_file_description(const TFileRangeDes
 }
 
 Status TableReader::prepare_split(const SplitReadOptions& options) {
+    _data_reader.column_mapper = TableColumnMapper(_mapper_options);
     _partition_values = std::move(options.partition_values);
     _current_task = std::make_unique<ScanTask>();
     _current_task->data_file = create_file_description(options.current_range);
