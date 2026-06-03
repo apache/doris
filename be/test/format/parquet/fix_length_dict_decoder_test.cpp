@@ -19,8 +19,10 @@
 
 #include <gtest/gtest.h>
 
+#include "core/column/column_fixed_length_object.h"
 #include "core/column/column_vector.h"
 #include "core/custom_allocator.h"
+#include "core/data_type/data_type_fixed_length_object.h"
 #include "core/data_type/data_type_number.h"
 #include "util/slice.h"
 
@@ -47,6 +49,11 @@ protected:
     FixLengthDictDecoder<tparquet::Type::FIXED_LEN_BYTE_ARRAY> _decoder;
     size_t _type_length;
 };
+
+static std::string fixed_length_value(const ColumnFixedLengthObject& column, size_t row) {
+    const auto value = column.get_data_at(row);
+    return {value.data, value.size};
+}
 
 // Test basic decoding functionality
 TEST_F(FixLengthDictDecoderTest, test_basic_decode) {
@@ -97,6 +104,39 @@ TEST_F(FixLengthDictDecoderTest, test_basic_decode) {
     EXPECT_EQ(decoded_strings[6], "banana");
 }
 
+TEST_F(FixLengthDictDecoderTest, test_decode_with_column_fixed_length_object) {
+    MutableColumnPtr column = ColumnFixedLengthObject::create(_type_length);
+    DataTypePtr data_type = std::make_shared<DataTypeFixedLengthObject>();
+
+    // RLE encoded data: 4 zeros followed by 1, 2, 1, padded to 8 values, [0 0 0 0 1 2 1]
+    std::vector<uint8_t> rle_data = {2, 8, 0, 3, 0b00011001, 0};
+
+    Slice data_slice(reinterpret_cast<char*>(rle_data.data()), rle_data.size());
+    ASSERT_TRUE(_decoder.set_data(&data_slice).ok());
+
+    const size_t num_values = 7;
+    std::vector<uint16_t> run_length_null_map(1, num_values);
+    std::vector<uint8_t> filter_data(num_values, 1);
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+    ColumnSelectVector select_vector;
+    ASSERT_TRUE(select_vector.init(run_length_null_map, num_values, nullptr, &filter_map, 0).ok());
+
+    ASSERT_TRUE(_decoder.decode_values(column, data_type, select_vector, false).ok());
+
+    const auto* result_column = assert_cast<const ColumnFixedLengthObject*>(column.get());
+    ASSERT_EQ(result_column->item_size(), _type_length);
+    ASSERT_EQ(result_column->size(), num_values);
+
+    EXPECT_EQ(fixed_length_value(*result_column, 0), "apple ");
+    EXPECT_EQ(fixed_length_value(*result_column, 1), "apple ");
+    EXPECT_EQ(fixed_length_value(*result_column, 2), "apple ");
+    EXPECT_EQ(fixed_length_value(*result_column, 3), "apple ");
+    EXPECT_EQ(fixed_length_value(*result_column, 4), "banana");
+    EXPECT_EQ(fixed_length_value(*result_column, 5), "cherry");
+    EXPECT_EQ(fixed_length_value(*result_column, 6), "banana");
+}
+
 // Test decoding with filter
 TEST_F(FixLengthDictDecoderTest, test_decode_with_filter) {
     MutableColumnPtr column = ColumnUInt8::create();
@@ -142,6 +182,43 @@ TEST_F(FixLengthDictDecoderTest, test_decode_with_filter) {
     EXPECT_EQ(decoded_strings[2], "banana");
     EXPECT_EQ(decoded_strings[3], "cherry");
     EXPECT_EQ(decoded_strings[4], "banana");
+}
+
+TEST_F(FixLengthDictDecoderTest, test_decode_fixed_length_object_with_filter_and_null) {
+    MutableColumnPtr column = ColumnFixedLengthObject::create(_type_length);
+    DataTypePtr data_type = std::make_shared<DataTypeFixedLengthObject>();
+
+    // RLE encoded data: 4 zeros followed by 2, padded to 8 values, [0 0 0 0 2]
+    std::vector<uint8_t> rle_data = {2, 8, 0, 3, 0b00000010, 0};
+
+    Slice data_slice(reinterpret_cast<char*>(rle_data.data()), rle_data.size());
+    ASSERT_TRUE(_decoder.set_data(&data_slice).ok());
+
+    const size_t num_values = 7;
+    std::vector<uint16_t> run_length_null_map {4, 1, 1, 1};   // data: [0 0 0 0 null 2 null]
+    std::vector<uint8_t> filter_data = {1, 0, 1, 0, 1, 1, 1}; // output: [0 0 null 2 null]
+
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+    ColumnSelectVector select_vector;
+    NullMap null_map;
+    ASSERT_TRUE(
+            select_vector.init(run_length_null_map, num_values, &null_map, &filter_map, 0).ok());
+
+    ASSERT_TRUE(_decoder.decode_values(column, data_type, select_vector, false).ok());
+
+    const auto* result_column = assert_cast<const ColumnFixedLengthObject*>(column.get());
+    ASSERT_EQ(result_column->item_size(), _type_length);
+    ASSERT_EQ(result_column->size(), 5);
+
+    EXPECT_EQ(fixed_length_value(*result_column, 0), "apple ");
+    EXPECT_EQ(fixed_length_value(*result_column, 1), "apple ");
+    EXPECT_EQ(fixed_length_value(*result_column, 3), "cherry");
+    EXPECT_FALSE(null_map[0]);
+    EXPECT_FALSE(null_map[1]);
+    EXPECT_TRUE(null_map[2]);
+    EXPECT_FALSE(null_map[3]);
+    EXPECT_TRUE(null_map[4]);
 }
 
 // Test decoding with filter and null

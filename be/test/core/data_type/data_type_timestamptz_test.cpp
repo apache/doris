@@ -21,6 +21,7 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -101,6 +102,17 @@ TEST_F(DataTypeTimeStampTzTest, test_serder) {
     }
 }
 
+TEST_F(DataTypeTimeStampTzTest, test_to_string_negative_sub_hour_offset) {
+    cctz::time_zone time_zone = cctz::fixed_time_zone(std::chrono::minutes(-30));
+
+    DateV2Value<DateTimeV2ValueType> local_dt;
+    local_dt.unchecked_set_time(2023, 12, 31, 23, 45, 0, 0);
+
+    TimestampTzValue value;
+    EXPECT_TRUE(value.from_datetime(local_dt, time_zone, 6, 6));
+    EXPECT_EQ(value.to_string(time_zone), "2023-12-31 23:45:00.000000-00:30");
+}
+
 TEST_F(DataTypeTimeStampTzTest, test_sort) {
     MockRuntimeState _state;
     RuntimeProfile _profile {"test"};
@@ -111,25 +123,17 @@ TEST_F(DataTypeTimeStampTzTest, test_sort) {
 
     ObjectPool pool;
 
-    VSortExecExprs sort_exec_exprs;
+    VExprContextSPtrs ordering_expr_ctxs;
 
     std::vector<bool> is_asc_order {true};
     std::vector<bool> nulls_first {false};
 
     row_desc.reset(new MockRowDescriptor({std::make_shared<DataTypeTimeStampTz>()}, &pool));
 
-    sort_exec_exprs._sort_tuple_slot_expr_ctxs =
+    ordering_expr_ctxs =
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeTimeStampTz>());
 
-    sort_exec_exprs._materialize_tuple = false;
-
-    sort_exec_exprs._ordering_expr_ctxs =
-            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeTimeStampTz>());
-
-    sort_exec_exprs._sort_tuple_slot_expr_ctxs =
-            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeTimeStampTz>());
-
-    sorter = FullSorter::create_unique(sort_exec_exprs, 3, 3, &pool, is_asc_order, nulls_first,
+    sorter = FullSorter::create_unique(ordering_expr_ctxs, 3, 3, &pool, is_asc_order, nulls_first,
                                        *row_desc, &_state, nullptr);
     sorter->init_profile(&_profile);
     {

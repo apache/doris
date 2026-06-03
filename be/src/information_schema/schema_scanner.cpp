@@ -42,11 +42,13 @@
 #include "core/types.h"
 #include "core/value/hll.h"
 #include "exec/pipeline/dependency.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "information_schema/schema_active_queries_scanner.h"
 #include "information_schema/schema_authentication_integrations_scanner.h"
 #include "information_schema/schema_backend_active_tasks.h"
 #include "information_schema/schema_backend_configuration_scanner.h"
 #include "information_schema/schema_backend_kerberos_ticket_cache.h"
+#include "information_schema/schema_backend_ms_rpc_table_throttlers_scanner.h"
 #include "information_schema/schema_catalog_meta_cache_stats_scanner.h"
 #include "information_schema/schema_charsets_scanner.h"
 #include "information_schema/schema_cluster_snapshot_properties_scanner.h"
@@ -54,6 +56,7 @@
 #include "information_schema/schema_collations_scanner.h"
 #include "information_schema/schema_column_data_sizes_scanner.h"
 #include "information_schema/schema_columns_scanner.h"
+#include "information_schema/schema_compaction_tasks_scanner.h"
 #include "information_schema/schema_database_properties_scanner.h"
 #include "information_schema/schema_dummy_scanner.h"
 #include "information_schema/schema_encryption_keys_scanner.h"
@@ -65,6 +68,7 @@
 #include "information_schema/schema_partitions_scanner.h"
 #include "information_schema/schema_processlist_scanner.h"
 #include "information_schema/schema_profiling_scanner.h"
+#include "information_schema/schema_role_mappings_scanner.h"
 #include "information_schema/schema_routine_load_job_scanner.h"
 #include "information_schema/schema_rowsets_scanner.h"
 #include "information_schema/schema_schema_privileges_scanner.h"
@@ -73,6 +77,8 @@
 #include "information_schema/schema_table_options_scanner.h"
 #include "information_schema/schema_table_privileges_scanner.h"
 #include "information_schema/schema_table_properties_scanner.h"
+#include "information_schema/schema_table_stream_consumption_scanner.h"
+#include "information_schema/schema_table_streams_scanner.h"
 #include "information_schema/schema_tables_scanner.h"
 #include "information_schema/schema_tablets_scanner.h"
 #include "information_schema/schema_user_privileges_scanner.h"
@@ -89,6 +95,24 @@
 
 namespace doris {
 class ObjectPool;
+
+namespace {
+
+void insert_column_range(ColumnWithTypeAndName* dst, const ColumnWithTypeAndName& src, size_t start,
+                         size_t length) {
+    DORIS_CHECK(dst->column.get() != nullptr);
+    DORIS_CHECK(src.column.get() != nullptr);
+    MutableColumnPtr dst_column = IColumn::mutate(std::move(dst->column));
+    ColumnPtr src_column = src.column->convert_to_full_column_if_const();
+    if (dst_column->is_nullable() && !src_column->is_nullable()) {
+        src_column = make_nullable(src_column);
+    }
+    DORIS_CHECK(dst_column->is_nullable() == src_column->is_nullable());
+    dst_column->insert_range_from(*src_column, start, length);
+    dst->column = std::move(dst_column);
+}
+
+} // namespace
 
 SchemaScanner::SchemaScanner(const std::vector<ColumnDesc>& columns, TSchemaTableType::type type)
         : _is_init(false), _columns(columns), _schema_table_type(type) {}
@@ -110,10 +134,8 @@ Status SchemaScanner::get_next_block(RuntimeState* state, Block* block, bool* eo
     DCHECK(_async_thread_running == false);
     RETURN_IF_ERROR(_scanner_status.status());
     for (size_t i = 0; i < block->columns(); i++) {
-        std::move(*block->get_by_position(i).column)
-                .mutate()
-                ->insert_range_from(*_data_block->get_by_position(i).column, 0,
-                                    _data_block->rows());
+        insert_column_range(&block->get_by_position(i), _data_block->get_by_position(i), 0,
+                            _data_block->rows());
     }
     _data_block->clear_column_data();
     *eos = _eos;
@@ -264,6 +286,16 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaFileCacheInfoScanner::create_unique();
     case TSchemaTableType::SCH_AUTHENTICATION_INTEGRATIONS:
         return SchemaAuthenticationIntegrationsScanner::create_unique();
+    case TSchemaTableType::SCH_ROLE_MAPPINGS:
+        return SchemaRoleMappingsScanner::create_unique();
+    case TSchemaTableType::SCH_TABLE_STREAMS:
+        return SchemaTableStreamsScanner::create_unique();
+    case TSchemaTableType::SCH_TABLE_STREAM_CONSUMPTION:
+        return SchemaTableStreamConsumptionScanner::create_unique();
+    case TSchemaTableType::SCH_BE_COMPACTION_TASKS:
+        return SchemaCompactionTasksScanner::create_unique();
+    case TSchemaTableType::SCH_BACKEND_MS_RPC_TABLE_THROTTLERS:
+        return SchemaBackendMsRpcTableThrottlersScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;
@@ -282,11 +314,10 @@ void SchemaScanner::_init_block(Block* src_block) {
 Status SchemaScanner::fill_dest_column_for_range(Block* block, size_t pos,
                                                  const std::vector<void*>& datas) {
     const ColumnDesc& col_desc = _columns[pos];
-    MutableColumnPtr column_ptr;
-    column_ptr = std::move(*block->get_by_position(pos).column).assume_mutable();
+    MutableColumnPtr column_ptr = IColumn::mutate(std::move(block->get_by_position(pos).column));
     IColumn* col_ptr = column_ptr.get();
 
-    auto* nullable_column = reinterpret_cast<ColumnNullable*>(col_ptr);
+    auto* nullable_column = assert_cast<ColumnNullable*>(col_ptr);
 
     // Resize in advance to improve insertion efficiency.
     size_t fill_num = datas.size();
@@ -427,6 +458,7 @@ Status SchemaScanner::fill_dest_column_for_range(Block* block, size_t pos,
         }
         }
     }
+    block->replace_by_position(pos, std::move(column_ptr));
     return Status::OK();
 }
 
@@ -441,8 +473,8 @@ std::string SchemaScanner::get_db_from_full_name(const std::string& full_name) {
 Status SchemaScanner::insert_block_column(TCell cell, int col_index, Block* block,
                                           PrimitiveType type) {
     MutableColumnPtr mutable_col_ptr;
-    mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-    auto* nullable_column = reinterpret_cast<ColumnNullable*>(mutable_col_ptr.get());
+    mutable_col_ptr = IColumn::mutate(std::move(block->get_by_position(col_index).column));
+    auto* nullable_column = assert_cast<ColumnNullable*>(mutable_col_ptr.get());
     IColumn* col_ptr = &nullable_column->get_nested_column();
 
     switch (type) {
@@ -482,7 +514,9 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, Block* bloc
     case TYPE_DATETIME: {
         std::vector<void*> datas(1);
         VecDateTimeValue src[1];
-        src[0].from_date_str(cell.stringVal.data(), cell.stringVal.size());
+        CastParameters params;
+        CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                {cell.stringVal.data(), cell.stringVal.size()}, src[0], nullptr, params);
         datas[0] = src;
         auto data = datas[0];
         reinterpret_cast<ColumnDateTime*>(col_ptr)->insert_data(reinterpret_cast<char*>(data), 0);
@@ -495,6 +529,7 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, Block* bloc
     }
     }
     nullable_column->push_false_to_nullmap(1);
+    block->replace_by_position(col_index, std::move(mutable_col_ptr));
     return Status::OK();
 }
 

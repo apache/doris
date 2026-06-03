@@ -20,7 +20,6 @@
 #include "common/exception.h"
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 void CharTokenizer::initialize(int32_t max_token_len) {
     if (max_token_len > MAX_TOKEN_LENGTH_LIMIT || max_token_len <= 0) {
@@ -89,5 +88,4 @@ void CharTokenizer::reset() {
     _data_len = _in->read((const void**)&_char_buffer, 0, static_cast<int32_t>(_in->size()));
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

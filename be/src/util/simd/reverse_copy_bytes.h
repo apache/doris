@@ -20,7 +20,6 @@
 #include "core/data_type/data_type.h"
 
 namespace doris::simd {
-#include "common/compile_check_begin.h"
 // Copy src_len bytes from src_void to desc in reverse order.
 // The first bytes of src_void will be copied to the last bytes of desc.
 inline void reverse_copy_bytes(UInt8* __restrict desc, size_t desc_len, const void* src_void,
@@ -35,5 +34,4 @@ inline void reverse_copy_bytes(UInt8* __restrict desc, size_t desc_len, const vo
         desc[i] = src_ui8[j];
     }
 }
-#include "common/compile_check_end.h"
 } // namespace doris::simd

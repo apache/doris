@@ -32,7 +32,6 @@
 #include "util/simd/bits.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 static bool check_all_match_one(const auto& vecs) {
     size_t size = vecs.size();
@@ -165,7 +164,10 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(MutableColumns&
     for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
         if (_left_output_slot_flags[i]) {
             if (_parent_operator->need_finalize_variant_column()) {
-                std::move(*probe_block.get_by_position(i).column).mutate()->finalize();
+                auto mutable_column =
+                        IColumn::mutate(std::move(probe_block.get_by_position(i).column));
+                mutable_column->finalize();
+                probe_block.get_by_position(i).column = std::move(mutable_column);
             }
         }
 
@@ -201,7 +203,8 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
         // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
         if (_parent->_probe_columns.size() == 1 && null_map) {
             if (simd::contain_one(null_map, probe_rows)) {
-                _parent->_probe_columns[0]->assume_mutable()->replace_column_null_data(null_map);
+                const_cast<IColumn*>(_parent->_probe_columns[0])
+                        ->replace_column_null_data(null_map);
             }
         }
 
@@ -250,15 +253,13 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
     DORIS_CHECK(asof_probe_expr);
 
     auto& probe_block = _parent->_probe_block;
-    int probe_col_idx = -1;
+    ColumnPtr probe_col_ptr;
     {
         SCOPED_TIMER(_asof_probe_expr_timer);
-        auto st = asof_probe_expr->execute(&probe_block, &probe_col_idx);
+        auto st = asof_probe_expr->execute(&probe_block, probe_col_ptr);
         DORIS_CHECK(st.ok());
     }
-    DORIS_CHECK(probe_col_idx >= 0 && probe_col_idx < static_cast<int>(probe_block.columns()));
-    auto probe_col_ptr =
-            probe_block.get_by_position(probe_col_idx).column->convert_to_full_column_if_const();
+    probe_col_ptr = probe_col_ptr->convert_to_full_column_if_const();
 
     // Remove nullable wrapper for comparison - keep original for null check
     ColumnPtr probe_col_for_compare = probe_col_ptr;
@@ -653,9 +654,11 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(Block* outp
                             ->get_data_column_ptr();
 
             auto& src = source_block->get_by_position(column_id).column;
-            auto dst = output_block->get_by_position(output_column_id).column->assume_mutable();
+            auto dst = IColumn::mutate(
+                    std::move(output_block->get_by_position(output_column_id).column));
             dst->clear();
             insert_with_indexs(dst, src, container, all_match_one);
+            output_block->get_by_position(output_column_id).column = std::move(dst);
         }
     };
     do_lazy_materialize(_right_output_slot_flags, _build_indexs, (int)_right_col_idx,
@@ -720,14 +723,17 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(Block* output_b
         return Status::OK();
     }
 
-    auto mark_column_mutable =
-            output_block->get_by_position(_parent->_mark_column_id).column->assume_mutable();
-    auto& mark_column = assert_cast<ColumnNullable&>(*mark_column_mutable);
-    IColumn::Filter& filter = assert_cast<ColumnUInt8&>(mark_column.get_nested_column()).get_data();
+    auto mark_column_mutable = IColumn::mutate(
+            std::move(output_block->get_by_position(_parent->_mark_column_id).column));
+    auto* mark_column = assert_cast<ColumnNullable*>(mark_column_mutable.get());
+    IColumn::Filter& filter =
+            assert_cast<ColumnUInt8&>(mark_column->get_nested_column()).get_data();
+    auto& null_map_column = mark_column->get_null_map_column();
+    output_block->replace_by_position(_parent->_mark_column_id, std::move(mark_column_mutable));
     RETURN_IF_ERROR(VExprContext::execute_conjuncts(_parent->_mark_join_conjuncts, output_block,
-                                                    mark_column.get_null_map_column(), filter));
+                                                    null_map_column, filter));
     uint8_t* mark_filter_data = filter.data();
-    uint8_t* mark_null_map = mark_column.get_null_map_data().data();
+    uint8_t* mark_null_map = mark_column->get_null_map_data().data();
 
     if (is_null_aware_join) {
         // For null aware anti/semi join, if the equal conjuncts was not matched and the build side has null value,
@@ -874,7 +880,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(Block* output_
     output_block->insert({std::move(filter_column), std::make_shared<DataTypeUInt8>(), ""});
     uint8_t* __restrict filter_column_ptr =
             assert_cast<ColumnUInt8&>(
-                    output_block->get_by_position(result_column_id).column->assume_mutable_ref())
+                    output_block->get_by_position(result_column_id).column->assert_mutable_ref())
                     .get_data()
                     .data();
 
@@ -1091,5 +1097,4 @@ struct ExtractType<T(U)> {
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<UInt136>));          \
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<UInt256>));          \
     INSTANTIATION(JoinOpType, (MethodOneString));
-#include "common/compile_check_end.h"
 } // namespace doris

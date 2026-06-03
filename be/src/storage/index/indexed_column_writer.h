@@ -24,18 +24,17 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 
 #include "common/status.h"
-#include "core/arena.h"
+#include "storage/olap_common.h"
 #include "storage/segment/common.h"
 #include "storage/segment/page_pointer.h"
-#include "util/faststring.h"
 
 namespace doris {
 
 class BlockCompressionCodec;
 class KeyCoder;
-class TypeInfo;
 
 namespace io {
 class FileWriter;
@@ -72,8 +71,8 @@ struct IndexedColumnWriterOptions {
 // TODO test with empty input
 class IndexedColumnWriter {
 public:
-    explicit IndexedColumnWriter(const IndexedColumnWriterOptions& options,
-                                 const TypeInfo* type_info, io::FileWriter* file_writer);
+    explicit IndexedColumnWriter(const IndexedColumnWriterOptions& options, FieldType type,
+                                 io::FileWriter* file_writer);
 
     ~IndexedColumnWriter();
 
@@ -94,16 +93,14 @@ private:
     Status _flush_index(IndexPageBuilder* index_builder, BTreeMetaPB* meta);
 
     IndexedColumnWriterOptions _options;
-    const TypeInfo* _type_info = nullptr;
+    FieldType _type;
     io::FileWriter* _file_writer = nullptr;
-    // only used for `_first_value`
-    Arena _arena;
 
     ordinal_t _num_values;
     uint32_t _num_data_pages;
     uint64_t _disk_size;
-    // remember the first value in current page
-    faststring _first_value;
+    // remember the encoded first value key in current page
+    std::string _first_value_string;
     PagePointer _last_data_page;
 
     // the following members are initialized in init()

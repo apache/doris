@@ -22,13 +22,13 @@
 
 #include "common/compare.h"
 #include "core/column/column_dictionary.h"
+#include "core/field.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/inverted/inverted_index_cache.h" // IWYU pragma: keep
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/predicate/column_predicate.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase final : public ColumnPredicate {
 public:
@@ -50,12 +50,6 @@ public:
         fmt::format_to(debug_string_buffer, "ComparisonPredicateBase({})",
                        ColumnPredicate::debug_string());
         return fmt::to_string(debug_string_buffer);
-    }
-    bool could_be_erased() const override {
-        if ((PT == PredicateType::NE && !_opposite) || (PT == PredicateType::EQ && _opposite)) {
-            return false;
-        }
-        return true;
     }
 
     PredicateType type() const override { return PT; }
@@ -99,14 +93,10 @@ public:
             return Status::InvalidArgument("invalid comparison predicate type {}", PT);
         }
 
-        std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-        RETURN_IF_ERROR(
-                InvertedIndexQueryParamFactory::create_query_value<Type>(&_value, query_param));
-
         InvertedIndexParam param;
         param.column_name = name_with_type.first;
         param.column_type = name_with_type.second;
-        param.query_value = query_param->get_value();
+        param.query_value = Field::create_field<Type>(_value);
         param.query_type = query_type;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
@@ -290,7 +280,12 @@ public:
             if (bf->is_ngram_bf()) {
                 return true;
             }
-            if constexpr (is_string_type(Type)) {
+            if constexpr (Type == TYPE_CHAR) {
+                // CHAR BFs hash zero-padded bytes while the predicate value is
+                // unpadded, so probing the BF would always miss. Skip BF
+                // pruning for CHAR entirely and let the scan filter the rows.
+                return true;
+            } else if constexpr (is_string_type(Type)) {
                 return bf->test_bytes(_value.data(), _value.size());
             } else {
                 // DecimalV2 using decimal12_t in bloom filter, should convert value to decimal12_t
@@ -403,16 +398,13 @@ public:
         });
 
         if (column.is_nullable()) {
-            const auto* nullable_column_ptr = check_and_get_column<ColumnNullable>(column);
+            const auto* nullable_column_ptr = assert_cast<const ColumnNullable*>(&column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map =
-                    assert_cast<const ColumnUInt8&>(nullable_column_ptr->get_null_map_column())
-                            .get_data();
+            const auto& null_map = nullable_column_ptr->get_null_map_column().get_data();
 
             if (nested_column.is_column_dictionary()) {
                 if constexpr (is_string_type(Type)) {
-                    const auto* dict_column_ptr =
-                            check_and_get_column<ColumnDictI32>(nested_column);
+                    const auto* dict_column_ptr = assert_cast<const ColumnDictI32*>(&nested_column);
 
                     auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
                     do {
@@ -432,18 +424,18 @@ public:
                     __builtin_unreachable();
                 }
             } else {
-                auto* data_array = check_and_get_column<
-                                           const PredicateColumnType<PredicateEvaluateType<Type>>>(
-                                           nested_column)
-                                           ->get_data()
-                                           .data();
+                auto* data_array =
+                        assert_cast<const PredicateColumnType<PredicateEvaluateType<Type>>*>(
+                                &nested_column)
+                                ->get_data()
+                                .data();
 
                 _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array, _value);
             }
         } else {
             if (column.is_column_dictionary()) {
                 if constexpr (is_string_type(Type)) {
-                    const auto* dict_column_ptr = check_and_get_column<ColumnDictI32>(column);
+                    const auto* dict_column_ptr = assert_cast<const ColumnDictI32*>(&column);
                     auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
                     do {
                         if constexpr (PT == PredicateType::EQ) {
@@ -462,8 +454,8 @@ public:
                 }
             } else {
                 auto* data_array =
-                        check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(
-                                column)
+                        assert_cast<const PredicateColumnType<PredicateEvaluateType<Type>>*>(
+                                &column)
                                 ->get_data()
                                 .data();
 
@@ -499,11 +491,9 @@ public:
 private:
     uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override {
         if (column.is_nullable()) {
-            const auto* nullable_column_ptr = check_and_get_column<ColumnNullable>(column);
+            const auto* nullable_column_ptr = assert_cast<const ColumnNullable*>(&column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map =
-                    assert_cast<const ColumnUInt8&>(nullable_column_ptr->get_null_map_column())
-                            .get_data();
+            const auto& null_map = nullable_column_ptr->get_null_map_column().get_data();
 
             return _base_evaluate<true>(&nested_column, null_map.data(), sel, size);
         } else {
@@ -554,11 +544,9 @@ private:
     void _evaluate_bit(const IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
         if (column.is_nullable()) {
-            const auto* nullable_column_ptr = check_and_get_column<ColumnNullable>(column);
+            const auto* nullable_column_ptr = assert_cast<const ColumnNullable*>(&column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map =
-                    assert_cast<const ColumnUInt8&>(nullable_column_ptr->get_null_map_column())
-                            .get_data();
+            const auto& null_map = nullable_column_ptr->get_null_map_column().get_data();
 
             _base_evaluate_bit<true, is_and>(&nested_column, null_map.data(), sel, size, flags);
         } else {
@@ -617,7 +605,7 @@ private:
                             uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
             if constexpr (is_string_type(Type)) {
-                const auto* dict_column_ptr = check_and_get_column<ColumnDictI32>(column);
+                const auto* dict_column_ptr = assert_cast<const ColumnDictI32*>(column);
                 const auto* data_array = dict_column_ptr->get_data().data();
                 auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
                 _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array,
@@ -628,7 +616,7 @@ private:
             }
         } else {
             auto* data_array =
-                    check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(column)
+                    assert_cast<const PredicateColumnType<PredicateEvaluateType<Type>>*>(column)
                             ->get_data()
                             .data();
 
@@ -641,7 +629,7 @@ private:
                             uint16_t size) const {
         if (column->is_column_dictionary()) {
             if constexpr (is_string_type(Type)) {
-                const auto* dict_column_ptr = check_and_get_column<ColumnDictI32>(column);
+                const auto* dict_column_ptr = assert_cast<const ColumnDictI32*>(column);
                 const auto& pred_col = dict_column_ptr->get_data();
                 const auto* pred_col_data = pred_col.data();
                 auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
@@ -666,7 +654,7 @@ private:
             }
         } else {
             auto& pred_col =
-                    check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(column)
+                    assert_cast<const PredicateColumnType<PredicateEvaluateType<Type>>*>(column)
                             ->get_data();
             auto pred_col_data = pred_col.data();
             uint16_t new_size = 0;
@@ -716,5 +704,4 @@ private:
             _segment_id_to_cached_code;
     T _value;
 };
-#include "common/compile_check_end.h"
 } //namespace doris

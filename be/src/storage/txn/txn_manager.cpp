@@ -31,11 +31,13 @@
 #include <queue>
 #include <set>
 #include <string>
+#include <unordered_set>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "load/delta_writer/delta_writer.h"
+#include "storage/binlog.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
 #include "storage/partial_update_info.h"
@@ -191,19 +193,21 @@ Status TxnManager::commit_txn(TPartitionId partition_id, const Tablet& tablet,
                               TTransactionId transaction_id, const PUniqueId& load_id,
                               const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard,
                               bool is_recovery,
-                              std::shared_ptr<PartialUpdateInfo> partial_update_info) {
+                              std::shared_ptr<PartialUpdateInfo> partial_update_info,
+                              std::vector<RowsetSharedPtr>* attach_rowsets) {
     return commit_txn(tablet.data_dir()->get_meta(), partition_id, transaction_id,
                       tablet.tablet_id(), tablet.tablet_uid(), load_id, rowset_ptr,
-                      std::move(guard), is_recovery, partial_update_info);
+                      std::move(guard), is_recovery, partial_update_info, attach_rowsets);
 }
 
 Status TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                                TTransactionId transaction_id, const Version& version,
                                TabletPublishStatistics* stats,
-                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info) {
+                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
+                               const int64_t commit_tso) {
     return publish_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id,
                        tablet->tablet_id(), tablet->tablet_uid(), version, stats,
-                       extend_tablet_txn_info);
+                       extend_tablet_txn_info, commit_tso);
 }
 
 void TxnManager::abort_txn(TPartitionId partition_id, TTransactionId transaction_id,
@@ -280,7 +284,8 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                               TabletUid tablet_uid, const PUniqueId& load_id,
                               const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard,
                               bool is_recovery,
-                              std::shared_ptr<PartialUpdateInfo> partial_update_info) {
+                              std::shared_ptr<PartialUpdateInfo> partial_update_info,
+                              std::vector<RowsetSharedPtr>* attach_rowsets) {
     if (partition_id < 1 || transaction_id < 1 || tablet_id < 1) {
         LOG(WARNING) << "invalid commit req "
                      << " partition_id=" << partition_id << " transaction_id=" << transaction_id
@@ -374,9 +379,23 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
     // save meta need access disk, it maybe very slow, so that it is not in global txn lock
     // it is under a single txn lock
     if (!is_recovery) {
+        std::optional<BinlogFormatPB> binlog_format;
+        std::map<RowsetId, RowsetMetaPB> attach_rowset_map;
+        if (attach_rowsets != nullptr) {
+            for (const auto& rs : *attach_rowsets) {
+                if (rs == nullptr) {
+                    continue;
+                }
+                attach_rowset_map.emplace(rs->rowset_id(), rs->rowset_meta()->get_rowset_pb());
+            }
+            if (!attach_rowset_map.empty()) {
+                binlog_format = BinlogFormatPB::ROW;
+            }
+        }
         Status save_status =
                 RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(),
-                                        rowset_ptr->rowset_meta()->get_rowset_pb(), false);
+                                        rowset_ptr->rowset_meta()->get_rowset_pb(), binlog_format,
+                                        attach_rowset_map.empty() ? nullptr : &attach_rowset_map);
         DBUG_EXECUTE_IF("TxnManager.RowsetMetaManager.save_wait", {
             if (auto wait = dp->param<int>("duration", 0); wait > 0) {
                 LOG_WARNING("TxnManager.RowsetMetaManager.save_wait")
@@ -425,6 +444,9 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
     {
         std::lock_guard<std::shared_mutex> wrlock(_get_txn_map_lock(transaction_id));
         auto load_info = std::make_shared<TabletTxnInfo>(load_id, rowset_ptr);
+        if (attach_rowsets != nullptr) {
+            load_info->attach_rowsets = *attach_rowsets;
+        }
         load_info->pending_rs_guard = std::move(guard);
         if (is_recovery) {
             if (tablet != nullptr && tablet->enable_unique_key_merge_on_write()) {
@@ -438,6 +460,15 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                             decoded_partial_update_info->summary());
                     load_info->partial_update_info = decoded_partial_update_info;
                 }
+            }
+        }
+
+        // For binlog<Row> txn (attached rowsets exist), binlog_delvec is only needed for publish
+        // phase to copy delete bitmap deltas.
+        if (attach_rowsets != nullptr && !attach_rowsets->empty()) {
+            TabletSharedPtr t = _engine.tablet_manager()->get_tablet(tablet_id, tablet_uid);
+            if (t != nullptr && t->enable_unique_key_merge_on_write()) {
+                load_info->binlog_delvec.reset(new DeleteBitmap(t->tablet_id()));
             }
         }
         load_info->commit();
@@ -459,7 +490,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                TTransactionId transaction_id, TTabletId tablet_id,
                                TabletUid tablet_uid, const Version& version,
                                TabletPublishStatistics* stats,
-                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info) {
+                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
+                               const int64_t commit_tso) {
     auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
         return Status::OK();
@@ -493,8 +525,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     if (rowset == nullptr) {
         return Status::Error<TRANSACTION_NOT_EXIST>(
                 "publish txn failed, rowset not found. partition_id={}, transaction_id={}, "
-                "tablet={}",
-                partition_id, transaction_id, tablet_info.to_string());
+                "tablet={}, commit_tso={}",
+                partition_id, transaction_id, tablet_info.to_string(), commit_tso);
     }
     DBUG_EXECUTE_IF("TxnManager.publish_txn.random_failed_before_save_rs_meta", {
         if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
@@ -519,7 +551,15 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // it is under a single txn lock
     // TODO(ygl): rowset is already set version here, memory is changed, if save failed
     // it maybe a fatal error
-    rowset->make_visible(version);
+    rowset->make_visible(version, commit_tso);
+
+    // Make all attached rowsets visible together.
+    for (const auto& rs : tablet_txn_info->attach_rowsets) {
+        if (rs == nullptr) {
+            continue;
+        }
+        rs->make_visible(version, commit_tso);
+    }
 
     DBUG_EXECUTE_IF("TxnManager.publish_txn.random_failed_after_save_rs_meta", {
         if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
@@ -558,13 +598,14 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         stats->calc_delete_bitmap_time_us = t3 - t2;
         RETURN_IF_ERROR(TabletMetaManager::save_delete_bitmap(
                 tablet->data_dir(), tablet->tablet_id(), tablet_txn_info->delete_bitmap,
-                version.second));
+                tablet_txn_info->binlog_delvec, version.second));
         stats->save_meta_time_us = MonotonicMicros() - t3;
     }
 
     /// Step 3:  add to binlog
-    auto enable_binlog = tablet->is_enable_binlog();
-    if (enable_binlog) {
+    std::optional<BinlogFormatPB> binlog_format;
+    if (tablet->enable_ccr_binlog()) {
+        binlog_format = BinlogFormatPB::STATEMENT_AND_SNAPSHOT;
         auto status = rowset->add_to_binlog();
         if (!status.ok()) {
             return Status::Error<ROWSET_ADD_TO_BINLOG_FAILED>(
@@ -575,10 +616,24 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         }
     }
 
+    std::map<RowsetId, RowsetMetaPB> attach_rowset_map;
+    if (tablet_txn_info != nullptr) {
+        for (const auto& rs : tablet_txn_info->attach_rowsets) {
+            if (rs == nullptr) {
+                continue;
+            }
+            attach_rowset_map.emplace(rs->rowset_id(), rs->rowset_meta()->get_rowset_pb());
+        }
+        if (!attach_rowset_map.empty()) {
+            binlog_format = BinlogFormatPB::ROW;
+        }
+    }
+
     /// Step 4: save meta
     int64_t t5 = MonotonicMicros();
     auto status = RowsetMetaManager::save(meta, tablet_uid, rowset->rowset_id(),
-                                          rowset->rowset_meta()->get_rowset_pb(), enable_binlog);
+                                          rowset->rowset_meta()->get_rowset_pb(), binlog_format,
+                                          attach_rowset_map.empty() ? nullptr : &attach_rowset_map);
     stats->save_meta_time_us += MonotonicMicros() - t5;
     if (!status.ok()) {
         status.append(fmt::format(", txn id: {}", transaction_id));
@@ -600,7 +655,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     }
 
     // TODO(Drogon): remove these test codes
-    if (enable_binlog) {
+    if (tablet->enable_ccr_binlog()) {
         auto version_str = fmt::format("{}", version.first);
         VLOG_DEBUG << fmt::format("tabletid: {}, version: {}, binlog filepath: {}", tablet_id,
                                   version_str, tablet->get_binlog_filepath(version_str));
@@ -719,6 +774,11 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
                         rowset->rowset_id().to_string(), rowset->version().to_string(),
                         RowsetStatePB_Name(rowset->rowset_meta_state()));
             } else {
+                for (const auto& attach_rowset : load_info->attach_rowsets) {
+                    static_cast<void>(RowsetMetaManager::remove_row_binlog(
+                            meta, tablet_uid, rowset->rowset_id(), attach_rowset->rowset_id()));
+                    _engine.add_unused_rowset(attach_rowset);
+                }
                 static_cast<void>(RowsetMetaManager::remove(meta, tablet_uid, rowset->rowset_id()));
 #ifndef BE_TEST
                 _engine.add_unused_rowset(rowset);
@@ -726,7 +786,11 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
                 VLOG_NOTICE << "delete transaction from engine successfully."
                             << " partition_id: " << key.first << ", transaction_id: " << key.second
                             << ", tablet: " << tablet_info.to_string() << ", rowset: "
-                            << (rowset != nullptr ? rowset->rowset_id().to_string() : "0");
+                            << (rowset != nullptr ? rowset->rowset_id().to_string() : "0")
+                            << ", binlog<row> rowset: "
+                            << (load_info->attach_rowsets.empty()
+                                        ? "0"
+                                        : load_info->attach_rowsets[0]->rowset_id().to_string());
             }
         }
         it->second.erase(load_itr);
@@ -781,6 +845,16 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
                     LOG(INFO) << " delete transaction from engine "
                               << ", tablet: " << tablet_info.to_string()
                               << ", rowset id: " << rowset->rowset_id();
+                    // clean attach rowset first
+                    for (const auto& attach_rowset : load_info->attach_rowsets) {
+                        Status status = RowsetMetaManager::remove_row_binlog(
+                                meta, tablet_uid, rowset->rowset_id(), attach_rowset->rowset_id());
+                        if (!status.ok()) {
+                            if (status.is<META_KEY_NOT_FOUND>()) {
+                                continue;
+                            }
+                        }
+                    }
                     static_cast<void>(
                             RowsetMetaManager::remove(meta, tablet_uid, rowset->rowset_id()));
                 }
@@ -788,7 +862,11 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
                           << " partition_id: " << it->first.first
                           << ", transaction_id: " << it->first.second
                           << ", tablet: " << tablet_info.to_string() << ", rowset: "
-                          << (rowset != nullptr ? rowset->rowset_id().to_string() : "0");
+                          << (rowset != nullptr ? rowset->rowset_id().to_string() : "0")
+                          << ", binlog<row> rowset: "
+                          << (load_info->attach_rowsets.empty()
+                                      ? "0"
+                                      : load_info->attach_rowsets[0]->rowset_id().to_string());
                 it->second.erase(load_itr);
             }
             if (it->second.empty()) {
@@ -809,9 +887,10 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
     }
 }
 
-void TxnManager::get_txn_related_tablets(const TTransactionId transaction_id,
-                                         TPartitionId partition_id,
-                                         std::map<TabletInfo, RowsetSharedPtr>* tablet_infos) {
+void TxnManager::get_txn_related_tablets(
+        const TTransactionId transaction_id, TPartitionId partition_id,
+        std::map<TabletInfo, RowsetSharedPtr>* tablet_infos,
+        std::map<TabletInfo, std::vector<RowsetSharedPtr>>* tablet_attach_rowsets) {
     // get tablets in this transaction
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     std::shared_lock txn_rdlock(_get_txn_map_lock(transaction_id));
@@ -830,6 +909,9 @@ void TxnManager::get_txn_related_tablets(const TTransactionId transaction_id,
         // must not check rowset == null here, because if rowset == null
         // publish version should failed
         tablet_infos->emplace(tablet_info, load_info.second->rowset);
+        if (tablet_attach_rowsets != nullptr) {
+            tablet_attach_rowsets->emplace(tablet_info, load_info.second->attach_rowsets);
+        }
     }
 }
 

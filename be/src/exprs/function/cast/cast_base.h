@@ -19,8 +19,11 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/call_on_type_index.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_bitmap.h"
@@ -41,13 +44,31 @@
 #include "exprs/function/cast/cast_parameters.h"
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
-#include "util/io_helper.h"
 
 namespace doris {
+
+enum class DatelikeParseMode {
+    NON_STRICT,
+    STRICT,
+};
+
+constexpr bool is_datelike_parse_strict(DatelikeParseMode parse_mode) {
+    return parse_mode == DatelikeParseMode::STRICT;
+}
+
+enum class DatelikeTargetType {
+    DATE,
+    DATE_TIME,
+};
+
+constexpr bool is_datelike_target_datetime(DatelikeTargetType target_type) {
+    return target_type == DatelikeTargetType::DATE_TIME;
+}
 
 struct NameCast {
     static constexpr auto name = "CAST";
 };
+
 namespace CastUtil {
 // `static_cast_set` is introduced to wrap `static_cast` and handle special cases.
 // Doris uses `uint8` to represent boolean values internally.
@@ -78,6 +99,12 @@ template <typename T>
 constexpr static bool IsBaseCastFromType = IsBaseCastToType<T> || IsStringType<T>;
 
 } // namespace CastUtil
+
+inline ColumnNullable::MutablePtr create_empty_nullable_column(const DataTypePtr& nested_type) {
+    // Batch serde paths resize the nested column and null map together.
+    return ColumnNullable::create(remove_nullable(nested_type)->create_column(),
+                                  ColumnUInt8::create());
+}
 
 namespace CastWrapper {
 

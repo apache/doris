@@ -255,7 +255,7 @@ public class OperationType {
     // The actual opcode now represents
     // modify table properties: inMemory, StoragePolicy, IsBeingSynced, CompactionPolicy,
     // TimeSeriesCompactionFileCountThreshold, SeriesCompactionTimeThresholdSeconds,
-    // SkipWriteIndexOnLoad, EnableSingleReplicaCompaction.
+    // SkipWriteIndexOnLoad.
     public static final short OP_MODIFY_TABLE_PROPERTIES = 267;
 
     // set table default distribution bucket num
@@ -421,6 +421,8 @@ public class OperationType {
     public static final short OP_CREATE_AUTHENTICATION_INTEGRATION = 493;
     public static final short OP_ALTER_AUTHENTICATION_INTEGRATION = 494;
     public static final short OP_DROP_AUTHENTICATION_INTEGRATION = 495;
+    public static final short OP_CREATE_ROLE_MAPPING = 496;
+    public static final short OP_DROP_ROLE_MAPPING = 497;
 
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;
@@ -430,6 +432,8 @@ public class OperationType {
 
     public static final short OP_BEGIN_SNAPSHOT = 1100;
     public static final short OP_META_SYNC_POINT = 1101;
+
+    public static final short OP_TSO_TIMESTAMP_WINDOW_END = 1200;
 
     /**
      * Get opcode name by op code.

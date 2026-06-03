@@ -23,7 +23,108 @@ import java.text.SimpleDateFormat
 
 suite("test_stream_load_strict_mode_and_filter_ratio", "p0") {
     // 1. number overflow
-    def csvFile = """test_decimal_overflow.csv"""
+    def csvFile = """test_tinyint_overflow.csv"""
+
+
+    // 1.1 strict_mode=false, load success
+    sql """ DROP TABLE IF EXISTS test_stream_load_strict_mode_and_filter_ratio """
+    sql """
+    CREATE TABLE test_stream_load_strict_mode_and_filter_ratio
+    (
+        k00 tinyint
+    )
+    PROPERTIES ("replication_num" = "1");
+    """
+
+    streamLoad {
+        table "test_stream_load_strict_mode_and_filter_ratio"
+        file """${csvFile}"""
+        set 'column_separator', '|'
+        set 'strict_mode', 'false'
+        set 'max_filter_ratio', '0'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(10, json.NumberTotalRows)
+            assertEquals(10, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+            // assertTrue(json.Message.contains("Encountered unqualified data, stop processing. Please"))
+        }
+    }
+    qt_sql_int_overflow_non_strict "select * from test_stream_load_strict_mode_and_filter_ratio order by 1"
+
+
+    // 1.2 strict_mode=true, max_filter_ratio=0.3, load success
+    sql """ DROP TABLE IF EXISTS test_stream_load_strict_mode_and_filter_ratio """
+    sql """
+    CREATE TABLE test_stream_load_strict_mode_and_filter_ratio
+    (
+        k00 tinyint
+    )
+    PROPERTIES ("replication_num" = "1");
+    """
+
+    streamLoad {
+        table "test_stream_load_strict_mode_and_filter_ratio"
+        file """${csvFile}"""
+        set 'column_separator', '|'
+        set 'strict_mode', 'true'
+        set 'max_filter_ratio', '0.3'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(10, json.NumberTotalRows)
+            assertEquals(7, json.NumberLoadedRows)
+            assertEquals(3, json.NumberFilteredRows)
+            assertTrue(result.contains("ErrorURL"))
+        }
+    }
+    qt_sql_tinyint_overflow_strict0 "select * from test_stream_load_strict_mode_and_filter_ratio order by 1"
+
+
+
+    // 1.3 strict_mode=true, max_filter_ratio=0.2, load fail
+    sql """ DROP TABLE IF EXISTS test_stream_load_strict_mode_and_filter_ratio """
+    sql """
+    CREATE TABLE test_stream_load_strict_mode_and_filter_ratio
+    (
+        k00 tinyint
+    )
+    PROPERTIES ("replication_num" = "1");
+    """
+
+    streamLoad {
+        table "test_stream_load_strict_mode_and_filter_ratio"
+        file """${csvFile}"""
+        set 'column_separator', '|'
+        set 'strict_mode', 'true'
+        set 'max_filter_ratio', '0.2'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(10, json.NumberTotalRows)
+            assertEquals(0, json.NumberLoadedRows)
+            assertEquals(3, json.NumberFilteredRows)
+            assertTrue(json.Message.contains("too many filtered rows"))
+            assertTrue(result.contains("ErrorURL"))
+        }
+    }
+    qt_sql_tinyint_overflow_strict1 "select * from test_stream_load_strict_mode_and_filter_ratio order by 1"
+
+
+    csvFile = """test_decimal_overflow.csv"""
 
     // 1.1 strict_mode=false, load success
     sql """ DROP TABLE IF EXISTS test_stream_load_strict_mode_and_filter_ratio """

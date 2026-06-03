@@ -27,7 +27,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // this class used in cross join node
 class RuntimeFilterProducerHelperCross : public RuntimeFilterProducerHelper {
 public:
@@ -65,10 +64,10 @@ private:
         return Status::OK();
     }
 
-    void _init_expr(const VExprContextSPtrs& build_expr_ctxs,
-                    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) override {
+    Status _init_expr(const VExprContextSPtrs& build_expr_ctxs,
+                      const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) override {
         _filter_expr_contexts = build_expr_ctxs;
+        return Status::OK();
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

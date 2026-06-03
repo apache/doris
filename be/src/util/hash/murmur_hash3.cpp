@@ -26,16 +26,19 @@
 
 #include "util/hash/murmur_hash3.h"
 
+#if defined(_MSC_VER)
+#include <stdlib.h>
+#endif
+
+#include <glog/logging.h>
+
 #include "util/unaligned.h"
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 #if defined(_MSC_VER)
 
 #define FORCE_INLINE __forceinline
-
-#include <stdlib.h>
 
 #define ROTL32(x, y) _rotl(x, y)
 #define ROTL64(x, y) _rotl64(x, y)
@@ -71,7 +74,7 @@ FORCE_INLINE uint32_t getblock32(const uint32_t* p, int i) {
     return unaligned_load<uint32_t>(&p[i]);
 }
 
-FORCE_INLINE uint64_t getblock64(const uint64_t* p, int i) {
+FORCE_INLINE uint64_t getblock64(const uint64_t* p, size_t i) {
     return unaligned_load<uint64_t>(&p[i]);
 }
 
@@ -333,9 +336,9 @@ void murmur_hash3_x86_128(const void* key, const int len, uint32_t seed, void* o
 //-----------------------------------------------------------------------------
 
 // Helper function that implements the core MurmurHash3 128-bit hashing algorithm
-void murmur_hash3_x64_process(const void* key, const int len, uint64_t& h1, uint64_t& h2) {
+void murmur_hash3_x64_process(const void* key, const size_t len, uint64_t& h1, uint64_t& h2) {
     const uint8_t* data = (const uint8_t*)key;
-    const int nblocks = len / 16;
+    const size_t nblocks = len / 16;
 
     const uint64_t c1 = BIG_CONSTANT(0x87c37b91114253d5);
     const uint64_t c2 = BIG_CONSTANT(0x4cf5ad432745937f);
@@ -345,7 +348,7 @@ void murmur_hash3_x64_process(const void* key, const int len, uint64_t& h1, uint
 
     const uint64_t* blocks = (const uint64_t*)(data);
 
-    for (int i = 0; i < nblocks; i++) {
+    for (size_t i = 0; i < nblocks; i++) {
         uint64_t k1 = getblock64(blocks, i * 2 + 0);
         uint64_t k2 = getblock64(blocks, i * 2 + 1);
 
@@ -452,7 +455,7 @@ void murmur_hash3_x64_process(const void* key, const int len, uint64_t& h1, uint
 // The origin function `murmur_hash3_x64_128` is copied from: https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
 // And Doris modified it into function `murmur_hash3_x64_process`
 // For this reason, this function is still retained even though it has no calls.
-void murmur_hash3_x64_128(const void* key, const int len, const uint32_t seed, void* out) {
+void murmur_hash3_x64_128(const void* key, const size_t len, const uint32_t seed, void* out) {
     uint64_t h1 = seed;
     uint64_t h2 = seed;
     murmur_hash3_x64_process(key, len, h1, h2);
@@ -467,9 +470,10 @@ void murmur_hash3_x64_128(const void* key, const int len, const uint32_t seed, v
 // Used for function mmh3_64_v2
 void murmur_hash3_x64_64_shared(const void* key, const int64_t len, const uint64_t seed,
                                 void* out) {
+    DCHECK_GE(len, 0);
     uint64_t h1 = seed;
     uint64_t h2 = seed;
-    murmur_hash3_x64_process(key, static_cast<int>(len), h1, h2);
+    murmur_hash3_x64_process(key, static_cast<size_t>(len), h1, h2);
     ((uint64_t*)out)[0] = h1;
 }
 
@@ -544,6 +548,5 @@ void murmur_hash3_x64_64(const void* key, const int64_t len, const uint64_t seed
 
     ((uint64_t*)out)[0] = h1;
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

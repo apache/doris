@@ -37,7 +37,6 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
-#include "format/table/iceberg_sys_table_jni_reader.h"
 #include "format/table/parquet_metadata_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -51,7 +50,6 @@ class VExprContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 MetaScanner::MetaScanner(RuntimeState* state, ScanLocalStateBase* local_state, TupleId tuple_id,
                          const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
@@ -65,15 +63,7 @@ MetaScanner::MetaScanner(RuntimeState* state, ScanLocalStateBase* local_state, T
 Status MetaScanner::_open_impl(RuntimeState* state) {
     VLOG_CRITICAL << "MetaScanner::open";
     RETURN_IF_ERROR(Scanner::_open_impl(state));
-    if (_scan_range.meta_scan_range.metadata_type == TMetadataType::ICEBERG) {
-        // TODO: refactor this code
-        auto reader = IcebergSysTableJniReader::create_unique(_tuple_desc->slots(), state, _profile,
-                                                              _scan_range.meta_scan_range);
-        RETURN_IF_ERROR(reader->init_reader());
-        static_cast<IcebergSysTableJniReader*>(reader.get())
-                ->set_col_name_to_block_idx(&_src_block_name_to_idx);
-        _reader = std::move(reader);
-    } else if (_scan_range.meta_scan_range.metadata_type == TMetadataType::PARQUET) {
+    if (_scan_range.meta_scan_range.metadata_type == TMetadataType::PARQUET) {
         auto reader = ParquetMetadataReader::create_unique(_tuple_desc->slots(), state, _profile,
                                                            _scan_range.meta_scan_range);
         RETURN_IF_ERROR(reader->init_reader());
@@ -122,21 +112,14 @@ Status MetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
         columns.resize(column_size);
         for (auto i = 0; i < column_size; i++) {
             if (mem_reuse) {
-                columns[i] = block->get_by_position(i).column->assume_mutable();
+                columns[i] = IColumn::mutate(std::move(block->get_by_position(i).column));
             } else {
                 columns[i] = _tuple_desc->slots()[i]->get_empty_mutable_column();
             }
         }
         // fill block
         RETURN_IF_ERROR(_fill_block_with_remote_data(columns));
-        if (_meta_eos == true) {
-            if (block->rows() == 0) {
-                *eof = true;
-            }
-            break;
-        }
-        // Before really use the Block, must clear other ptr of column in block
-        // So here need do std::move and clear in `columns`
+        const bool empty_result = columns.empty() || columns.front()->empty();
         if (!mem_reuse) {
             int column_index = 0;
             for (const auto slot_desc : _tuple_desc->slots()) {
@@ -145,7 +128,13 @@ Status MetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
                                                     slot_desc->col_name()));
             }
         } else {
-            columns.clear();
+            block->set_columns(std::move(columns));
+        }
+        if (_meta_eos == true) {
+            if (empty_result) {
+                *eof = true;
+            }
+            break;
         }
         VLOG_ROW << "VMetaScanNode output rows: " << block->rows();
     } while (block->rows() == 0 && !(*eof));
@@ -530,5 +519,4 @@ Status MetaScanner::close(RuntimeState* state) {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

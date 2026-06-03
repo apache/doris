@@ -82,16 +82,14 @@ public:
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                            TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet, DataDir* data_dir,
                            const SegmentWriterOptions& opts, IndexFileWriter* inverted_file_writer);
-    ~SegmentWriter();
+    virtual ~SegmentWriter();
 
-    Status init();
+    virtual Status init();
 
     // for vertical compaction
-    Status init(const std::vector<uint32_t>& col_ids, bool has_key);
+    virtual Status init(const std::vector<uint32_t>& col_ids, bool has_key);
 
-    Status append_row(const RowCursor& row);
-
-    Status append_block(const Block* block, size_t row_pos, size_t num_rows);
+    virtual Status append_block(const Block* block, size_t row_pos, size_t num_rows);
     Status probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
                              bool have_delete_sign,
                              const std::vector<RowsetSharedPtr>& specified_rowsets,
@@ -127,7 +125,7 @@ public:
     Status finalize_footer(uint64_t* segment_file_size);
 
     void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
-                          TabletSchemaSPtr tablet_schema);
+                          const ColumnWriterOptions& opts);
     Slice min_encoded_key();
     Slice max_encoded_key();
 
@@ -151,6 +149,7 @@ public:
     uint64_t primary_keys_size() const { return _primary_keys_size; }
 
 private:
+    friend class TestSegmentWriter;
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
     Status _create_column_writer(uint32_t cid, const TabletColumn& column,
                                  const TabletSchemaSPtr& schema);
@@ -183,7 +182,7 @@ private:
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
-    void _serialize_block_to_row_column(const Block& block);
+    void _serialize_block_to_row_column(Block& block);
     Status _generate_primary_key_index(
             const std::vector<const KeyCoder*>& primary_key_coders,
             const std::vector<IOlapColumnDataAccessor*>& primary_key_columns,
@@ -193,7 +192,11 @@ private:
     bool _is_mow();
     bool _is_mow_with_cluster_key();
 
-private:
+protected:
+    // Build key index for derived writers that override append_block.
+    Status build_key_index(std::vector<IOlapColumnDataAccessor*>& key_columns,
+                           IOlapColumnDataAccessor* seq_column, size_t num_rows);
+
     uint32_t _segment_id;
     TabletSchemaSPtr _tablet_schema;
     BaseTabletSPtr _tablet;

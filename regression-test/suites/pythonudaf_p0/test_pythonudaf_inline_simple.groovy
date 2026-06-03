@@ -18,7 +18,7 @@
 suite("test_pythonudaf_inline_simple") {
     // Simplest Python UDAF test using inline mode
     
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     
     try {
         // Create test table

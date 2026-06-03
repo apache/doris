@@ -19,11 +19,9 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisParser;
-import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AliasQueryContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
-import org.apache.doris.nereids.DorisParser.GroupingElementContext;
 import org.apache.doris.nereids.DorisParser.IdentifierContext;
 import org.apache.doris.nereids.DorisParser.LateralViewContext;
 import org.apache.doris.nereids.DorisParser.MultipartIdentifierContext;
@@ -159,9 +157,4 @@ public class LogicalPlanBuilderForCreateView extends LogicalPlanBuilder {
         return slot.withIndexInSql(Pair.of(ctx.start.getStartIndex(), ctx.stop.getStopIndex()));
     }
 
-    private boolean isRepeat(AggClauseContext ctx) {
-        GroupingElementContext groupingElementContext = ctx.groupingElement();
-        return groupingElementContext.GROUPING() != null || groupingElementContext.CUBE() != null
-                || groupingElementContext.ROLLUP() != null;
-    }
 }

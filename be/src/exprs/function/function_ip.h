@@ -40,6 +40,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/field.h"
 #include "core/types.h"
 #include "core/value/ip_address_cidr.h"
 #include "exec/common/endian.h"
@@ -50,7 +51,6 @@
 #include "storage/index/index_reader_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class FunctionIPv4NumToString : public IFunction {
 private:
@@ -396,7 +396,7 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
     ColumnString* column_string = nullptr;
     if constexpr (std::is_same_v<ToColumn, ColumnString>) {
         offset_inc = IPV6_BINARY_LENGTH;
-        column_string = assert_cast<ColumnString*>(col_res.get());
+        column_string = col_res.get();
     }
 
     for (size_t out_offset = 0, i = 0; i < column_size; out_offset += offset_inc, ++i) {
@@ -458,7 +458,7 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
                 std::reverse(res_value, res_value + IPV6_BINARY_LENGTH);
             }
             if constexpr (std::is_same_v<ToColumn, ColumnString>) {
-                auto* column_string_res = assert_cast<ColumnString*>(col_res.get());
+                auto* column_string_res = static_cast<ColumnString*>(col_res.get());
                 std::copy(res_value, res_value + IPV6_BINARY_LENGTH,
                           column_string_res->get_chars().begin() + i * IPV6_BINARY_LENGTH);
                 column_string_res->get_offsets().push_back((i + 1) * IPV6_BINARY_LENGTH);
@@ -471,7 +471,7 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
             }
             std::fill_n(&vec_res[out_offset], offset_inc, 0);
             if constexpr (std::is_same_v<ToColumn, ColumnString>) {
-                auto* column_string_res = assert_cast<ColumnString*>(col_res.get());
+                auto* column_string_res = static_cast<ColumnString*>(col_res.get());
                 column_string_res->get_offsets().push_back((i + 1) * IPV6_BINARY_LENGTH);
             }
             if constexpr (exception_mode == IPConvertExceptionMode::Null) {
@@ -708,29 +708,22 @@ public:
         // apply for inverted index
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
 
-        auto param_type = data_type_with_name.second->get_primitive_type();
-        std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
-
         // >= min ip
-        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
-                param_type, &min_ip, query_param));
         segment_v2::InvertedIndexParam min_param;
         min_param.column_name = data_type_with_name.first;
         min_param.column_type = data_type_with_name.second;
         min_param.query_type = segment_v2::InvertedIndexQueryType::GREATER_EQUAL_QUERY;
-        min_param.query_value = query_param->get_value();
+        min_param.query_value = min_ip;
         min_param.num_rows = num_rows;
         min_param.roaring = std::make_shared<roaring::Roaring>();
         RETURN_IF_ERROR(iter->read_from_index(&min_param));
 
         // <= max ip
-        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
-                param_type, &max_ip, query_param));
         segment_v2::InvertedIndexParam max_param;
         max_param.column_name = data_type_with_name.first;
         max_param.column_type = data_type_with_name.second;
         max_param.query_type = segment_v2::InvertedIndexQueryType::LESS_EQUAL_QUERY;
-        max_param.query_value = query_param->get_value();
+        max_param.query_value = max_ip;
         max_param.num_rows = num_rows;
         max_param.roaring = std::make_shared<roaring::Roaring>();
         RETURN_IF_ERROR(iter->read_from_index(&max_param));
@@ -1352,10 +1345,10 @@ public:
                 unpack_if_const(ipv6_column_with_type_and_name.column);
         const auto* ipv6_addr_column = assert_cast<const ColumnString*>(ipv6_column.get());
         // result is nullable column
-        auto col_res = ColumnNullable::create(ColumnIPv6::create(input_rows_count, 0),
-                                              ColumnUInt8::create(input_rows_count, 1));
-        auto& col_res_data = assert_cast<ColumnIPv6*>(&col_res->get_nested_column())->get_data();
-        auto& res_null_map_data = col_res->get_null_map_data();
+        auto col_res_nested = ColumnIPv6::create(input_rows_count, 0);
+        auto col_res_null_map = ColumnUInt8::create(input_rows_count, 1);
+        auto& col_res_data = col_res_nested->get_data();
+        auto& res_null_map_data = col_res_null_map->get_data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             IPv6 ipv6 = 0;
@@ -1371,11 +1364,10 @@ public:
             }
         }
 
-        block.replace_by_position(result, std::move(col_res));
+        block.replace_by_position(result, ColumnNullable::create(std::move(col_res_nested),
+                                                                 std::move(col_res_null_map)));
         return Status::OK();
     }
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

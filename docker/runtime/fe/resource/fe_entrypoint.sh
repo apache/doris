@@ -39,6 +39,10 @@ FE_MASTER=
 POD_INDEX=
 # probe interval: 2 seconds
 PROBE_INTERVAL=2
+# timeout for fqdn ready check.
+DNS_READY_TIMEOUT=${DNS_READY_TIMEOUT:-120}
+# interval for fqdn ready check.
+DNS_READY_INTERVAL=${DNS_READY_INTERVAL:-2}
 # timeout for probe master: 60 seconds
 PROBE_MASTER_POD0_TIMEOUT=60 # at most 30 attempts, no less than the times needed for an election
 # no-0 ordinal pod timeout for probe master: 90 times
@@ -51,6 +55,18 @@ DB_ADMIN_PASSWD=$PASSWD
 MYSELF=
 # doris mtat storage path
 DORIS_META_DIR=
+
+#specify enable tls or not.
+ENABLE_TLS=
+
+#tls_certificate_path specify the path of public crt.
+TLS_CERTIFICATE_PATH=
+
+#tls_private_key_path specify the public secert key.
+TLS_PRIVATE_KEY_PATH=
+
+# tls_ca_certificate_path specify the root ca cert.
+TLS_CA_CERTIFICATE_PATH=
 
 function log_stderr()
 {
@@ -130,43 +146,126 @@ collect_env_info()
     DORIS_META_DIR=$doris_meta_path
 }
 
+wait_for_fqdn_ready()
+{
+    if [[ "x$START_TYPE" != "xtrue" ]] ; then
+        return 0
+    fi
+
+    local fqdn=$POD_FQDN
+    local start=`date +%s`
+    while true
+    do
+        if getent hosts "$fqdn" >/dev/null 2>&1 || nslookup "$fqdn" >/dev/null 2>&1 ; then
+            log_stderr "[info] fqdn $fqdn is ready."
+            return 0
+        fi
+
+        local now=`date +%s`
+        let "expire=start+DNS_READY_TIMEOUT"
+        if [[ $expire -le $now ]] ; then
+            log_stderr "[error] timeout waiting fqdn ready: $fqdn"
+            return 1
+        fi
+
+        log_stderr "[info] fqdn $fqdn not ready, sleep ${DNS_READY_INTERVAL}s ..."
+        sleep $DNS_READY_INTERVAL
+    done
+}
+
 # get all registered fe in cluster.
-function show_frontends()
+show_frontends()
+{
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        show_frontends_with_tls $1
+    else
+        show_frontends_with_no_tls $1
+    fi
+}
+
+function show_frontends_with_no_tls()
 {
     local addr=$1
     # fist start use root and no password check. avoid use pre setted username and password.
     frontends=`timeout 15 mysql --connect-timeout 2 -h $addr -P $QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
-    log_stderr "[info] use root no password show frotends result '$frontends'"
+    log_stderr "[info] [NO-TLS] show frontends result '$frontends'"
     if echo $frontends | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
         log_stderr "[info] use username and password that configured show frontends."
         frontends=`timeout 15 mysql --connect-timeout 2 -h $addr -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --batch -e 'show frontends;' 2>&1`
     fi
    echo "$frontends"
+}
 
+show_frontends_with_tls()
+{
+    local addr=$1
+    frontends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $addr -P $QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
+    log_stderr "[info] [TLS] show frontends result '$frontends'"
+    if echo $frontends | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
+        log_stderr "[info] use username and password that configured show frontends."
+        frontends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $addr -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --batch -e 'show frontends;' 2>&1`
+    fi
+   echo "$frontends"
 }
 
 # add myself in cluster for FOLLOWER.
-function add_self_follower()
+add_self_follower()
+{
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        add_self_follower_with_tls
+    else
+        add_self_follower_with_no_tls
+    fi
+}
+
+add_self_follower_with_no_tls()
 {
     add_result=`mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";" 2>&1`
-    log_stderr "[info] use root no password to add follower result '$add_result'"
+    log_stderr "[info] [NO-TLS] add follower result '$add_result'"
     if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
         log_stderr "[info] use username and password that configured to add self as follower."
         mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";"
     fi
+}
 
+add_self_follower_with_tls()
+{
+    add_result=`mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";" 2>&1`
+    log_stderr "[info] [TLS] add follower result '$add_result'"
+    if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
+        log_stderr "[info] use username and password that configured to add self as follower."
+        mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";"
+    fi
 }
 
 # add myself in cluster for OBSERVER.
-function add_self_observer()
+add_self_observer()
+{
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        add_self_observer_with_tls
+    else
+        add_self_observer_with_no_tls
+    fi
+}
+
+add_self_observer_with_no_tls()
 {
     add_result=`mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";" 2>&1`
-    log_stderr "[info] use root no password to add self as observer result '$add_result'."
+    log_stderr "[info] [NO-TLS] add observer result '$add_result'."
     if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
         log_stderr "[info] use username and password that configed to add self as observer."
         mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";"
     fi
+}
 
+add_self_observer_with_tls()
+{
+    add_result=`mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";" 2>&1`
+    log_stderr "[info] [TLS] add observer result '$add_result'."
+    if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
+        log_stderr "[info] use username and password that configed to add self as observer."
+        mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";"
+    fi
 }
 
 # `dori-meta/image` not exist start as first time.
@@ -423,8 +522,30 @@ print_vlsn()
     echo "$vlsns"
 }
 
+parse_tls_connection_variables()
+{
+   ENABLE_TLS=`parse_confval_from_fe_conf "enable_tls"`
+   TLS_CERTIFICATE_PATH=`parse_confval_from_fe_conf "tls_certificate_path"`
+   TLS_PRIVATE_KEY_PATH=`parse_confval_from_fe_conf "tls_private_key_path"`
+   TLS_CA_CERTIFICATE_PATH=`parse_confval_from_fe_conf "tls_ca_certificate_path"`
+   if [[ "$ENABLE_TLS" == "true" ]]; then
+       log_stderr "[info] [TLS] TLS is ENABLED, ca=$TLS_CA_CERTIFICATE_PATH, cert=$TLS_CERTIFICATE_PATH, key=$TLS_PRIVATE_KEY_PATH"
+   else
+       log_stderr "[info] [NO-TLS] TLS is DISABLED (enable_tls='$ENABLE_TLS')"
+   fi
+}
+
 #fist start create account and grant 'NODE_PRIV'
 create_account()
+{
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        create_account_with_tls
+    else
+        create_account_with_no_tls
+    fi
+}
+
+create_account_with_no_tls()
 {
     if [[ "x$FE_MASTER" == "x" ]]; then
 		return 0
@@ -447,7 +568,33 @@ create_account()
     fi
 
     `mysql --connect-timeout 2 -h $FE_MASTER -P$QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1`
-    log_stderr "created new account and grant NODE_PRIV!"
+    log_stderr "[NO-TLS] created new account and grant NODE_PRIV!"
+}
+
+create_account_with_tls()
+{
+    if [[ "x$FE_MASTER" == "x" ]]; then
+		return 0
+	fi
+
+    # if not set password, the account not config.
+    if [[ "x$DB_ADMIN_PASSWD" == "x" ]]; then
+        return 0
+    fi
+
+    users=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P$QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
+    if echo $users | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "the 'root' account have set paasword! not need auto create management account."
+        return 0
+    fi
+
+    if echo $users | awk '{print $1}' | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
+       log_stderr "the $DB_ADMIN_USER have exist in doris."
+       return 0
+    fi
+
+    `mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P$QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1`
+    log_stderr "[TLS] created new account and grant NODE_PRIV!"
 }
 
 fe_addrs=$1
@@ -459,9 +606,12 @@ fi
 #first upate config
 update_conf_from_configmap
 collect_env_info
+wait_for_fqdn_ready || exit 1
 mount_kerberos_config
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
+#parse tls connection config
+parse_tls_connection_variables
 # if [[ -f "/opt/apache-doris/fe/doris-meta/image/ROLE" ]]; then
 doris_meta_dir=$(eval "echo \"$DORIS_META_DIR\"")
 if [[ -f "$doris_meta_dir/image/ROLE" ]]; then

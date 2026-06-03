@@ -48,6 +48,7 @@ namespace doris {
 class DataTypeVariant : public IDataType {
 private:
     int32_t _max_subcolumns_count = 0;
+    bool _enable_doc_mode = false;
     std::string name = "Variant";
 
 public:
@@ -55,6 +56,7 @@ public:
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_VARIANT; }
     DataTypeVariant() = default;
     DataTypeVariant(int32_t max_subcolumns_count);
+    DataTypeVariant(int32_t max_subcolumns_count, bool enable_doc_mode);
     String do_get_name() const override { return name; }
     const std::string get_family_name() const override { return "Variant"; }
 
@@ -71,7 +73,6 @@ public:
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
-    Field get_default() const override { return Field::create_field<TYPE_VARIANT>(VariantMap()); }
 
     Field get_field(const TExprNode& node) const override;
 
@@ -81,8 +82,11 @@ public:
     };
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
         node->set_type(TTypeNodeType::VARIANT);
+        node->set_variant_max_subcolumns_count(_max_subcolumns_count);
+        node->set_variant_enable_doc_mode(_enable_doc_mode);
     }
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
     int32_t variant_max_subcolumns_count() const { return _max_subcolumns_count; }
+    bool enable_doc_mode() const { return _enable_doc_mode; }
 };
 } // namespace doris

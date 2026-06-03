@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -323,6 +324,18 @@ public class TransactionState implements Writable {
     @Setter
     private Set<Long> involvedBackends = Sets.newHashSet();
 
+    // commit tso of this transaction
+    @SerializedName(value = "commitTSO")
+    @Getter
+    @Setter
+    private long commitTSO = -1;
+
+    // stream update infos of this transaction
+    @Getter
+    @Setter
+    @SerializedName(value = "sui")
+    private List<TableStreamUpdateInfo> streamUpdateInfos;
+
     public TransactionState() {
         this.dbId = -1;
         this.tableIdList = Lists.newArrayList();
@@ -342,6 +355,7 @@ public class TransactionState implements Writable {
         this.publishVersionTasks = Maps.newHashMap();
         this.hasSendTask = false;
         this.visibleLatch = new CountDownLatch(1);
+        this.commitTSO = -1;
     }
 
     public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label, TUniqueId requestId,
@@ -366,6 +380,7 @@ public class TransactionState implements Writable {
         this.visibleLatch = new CountDownLatch(1);
         this.callbackId = callbackId;
         this.timeoutMs = timeoutMs;
+        this.commitTSO = -1;
     }
 
     //for TxnInfoPB convert to TransactionState
@@ -727,6 +742,9 @@ public class TransactionState implements Writable {
         }
         if (!subTxnIdToTableCommitInfo.isEmpty()) {
             sb.append(", sub txn table commit info: ").append(subTxnIdToTableCommitInfo);
+        }
+        if (commitTSO > 0) {
+            sb.append(", commit tso: ").append(commitTSO);
         }
         return sb.toString();
     }

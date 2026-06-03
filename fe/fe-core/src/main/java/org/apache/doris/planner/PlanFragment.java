@@ -24,11 +24,8 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.JoinOperator;
-import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.ToSqlParams;
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.nereids.trees.plans.distribute.NereidsSpecifyInstances;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanSource;
@@ -41,7 +38,6 @@ import org.apache.doris.thrift.TResultSinkType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.Lists;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -165,7 +161,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public Optional<NereidsSpecifyInstances<ScanSource>> specifyInstances = Optional.empty();
 
     public TQueryCacheParam queryCacheParam;
-    private int numBackends = 0;
     private boolean forceSingleInstance = false;
 
     /**
@@ -253,14 +248,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public void setOutputExprs(List<Expr> outputExprs) {
         this.outputExprs = Expr.cloneList(outputExprs, null);
-    }
-
-    public void resetOutputExprs(TupleDescriptor tupleDescriptor) {
-        this.outputExprs = Lists.newArrayList();
-        for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
-            SlotRef slotRef = new SlotRef(slotDescriptor);
-            outputExprs.add(slotRef);
-        }
     }
 
     public ArrayList<Expr> getOutputExprs() {
@@ -491,10 +478,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public Set<RuntimeFilterId> getTargetRuntimeFilterIds() {
         return targetRuntimeFilterIds;
-    }
-
-    public void setTransferQueryStatisticsWithEveryBatch(boolean value) {
-        transferQueryStatisticsWithEveryBatch = value;
     }
 
     public boolean isTransferQueryStatisticsWithEveryBatch() {

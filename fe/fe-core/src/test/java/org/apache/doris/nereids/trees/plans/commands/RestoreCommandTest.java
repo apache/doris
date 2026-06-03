@@ -19,66 +19,52 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import com.google.common.collect.ImmutableMap;
 import org.apache.commons.collections4.map.HashedMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public class RestoreCommandTest {
+public class RestoreCommandTest extends TestWithFeService {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
-    @Mocked
     private Env env;
-    @Mocked
     private AccessControllerManager accessControllerManager;
-    @Mocked
     private ConnectContext connectContext;
 
     private String dbName = "test_db";
 
-    private void runBefore() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkDbPriv(connectContext, internalCtl, dbName, PrivPredicate.LOAD);
-                minTimes = 0;
-                result = true;
-            }
-        };
+    private void runBefore() throws IOException {
+        connectContext = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        accessControllerManager = env.getAccessManager();
     }
 
     @Test
-    public void testValidateNormal() {
+    public void testValidateNormal() throws Exception {
         runBefore();
+        connectContext.setSkipAuth(true);
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkDbPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                Mockito.anyString(), Mockito.any(PrivPredicate.class));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
         LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, "label0");
         String repoName = "testRepo";
 
@@ -135,5 +121,20 @@ public class RestoreCommandTest {
         String repoName2 = "__keep_on_local__";
         RestoreCommand command5 = new RestoreCommand(labelNameInfo, repoName2, tableRefInfos, properties2, isExclude);
         Assertions.assertThrows(DdlException.class, () -> command5.validate(connectContext));
+    }
+
+    @Test
+    public void testAnalyzePropertiesWithImmutableMap() {
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, "label0");
+        Map<String, String> properties = ImmutableMap.of(
+                "timeout", "86400",
+                "backup_timestamp", "2025-06-12-11-15-20");
+
+        RestoreCommand command = new RestoreCommand(labelNameInfo, "testRepo",
+                new ArrayList<>(), properties, false);
+
+        Assertions.assertDoesNotThrow(command::analyzeProperties);
+        Assertions.assertEquals(86400L * 1000, command.getTimeoutMs());
+        Assertions.assertEquals("2025-06-12-11-15-20", command.getBackupTimestamp());
     }
 }

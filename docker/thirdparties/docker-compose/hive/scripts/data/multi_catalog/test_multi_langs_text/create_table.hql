@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.test_multi_langs_text`(
+drop table if exists `multi_catalog.test_multi_langs_text`;
+
+create table `multi_catalog.test_multi_langs_text`(
   `id` int, 
   `col1` varchar(1148))
 ROW FORMAT SERDE 
@@ -17,5 +19,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/multi_catalog/test_multi_langs_text'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1688971823');
-
-msck repair table test_multi_langs_text;

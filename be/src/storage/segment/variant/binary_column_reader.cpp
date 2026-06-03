@@ -31,8 +31,6 @@
 
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
-
 Status DummyBinaryColumnReader::new_binary_column_iterator(ColumnIteratorUPtr* iter) const {
     static const TabletColumn binary_column = []() {
         TabletColumn binary_column;
@@ -107,6 +105,16 @@ BinaryColumnType SingleSparseColumnReader::get_type() const {
 }
 
 Status MultipleBinaryColumnReader::new_binary_column_iterator(ColumnIteratorUPtr* iter) const {
+    // Single bucket can be read directly without cross-bucket merge/sort.
+    if (_multiple_column_readers.size() == 1) {
+        DCHECK(!_multiple_column_readers.empty());
+        auto it = _multiple_column_readers.begin();
+        ColumnIteratorUPtr single_iter;
+        RETURN_IF_ERROR(it->second->new_iterator(&single_iter, nullptr));
+        *iter = std::move(single_iter);
+        return Status::OK();
+    }
+
     std::vector<std::unique_ptr<ColumnIterator>> iters;
     iters.reserve(_multiple_column_readers.size());
     for (const auto& [index, reader] : _multiple_column_readers) {
@@ -228,7 +236,7 @@ void CombineMultipleBinaryColumnIterator::_collect_sparse_data_from_buckets(
     auto& column_map = assert_cast<ColumnMap&>(binary_data_column);
     auto& dst_paths = assert_cast<ColumnString&>(column_map.get_keys());
     auto& dst_values = assert_cast<ColumnString&>(column_map.get_values());
-    auto& dst_offsets = assert_cast<ColumnArray::Offsets64&>(column_map.get_offsets());
+    auto& dst_offsets = column_map.get_offsets();
 
     std::vector<const ColumnString*> src_paths(_binary_column_data.size());
     std::vector<const ColumnString*> src_values(_binary_column_data.size());
@@ -237,7 +245,7 @@ void CombineMultipleBinaryColumnIterator::_collect_sparse_data_from_buckets(
         const auto& src_map = assert_cast<const ColumnMap&>(*_binary_column_data[i]);
         src_paths[i] = assert_cast<const ColumnString*>(&src_map.get_keys());
         src_values[i] = assert_cast<const ColumnString*>(&src_map.get_values());
-        src_offsets[i] = assert_cast<const ColumnArray::Offsets64*>(&src_map.get_offsets());
+        src_offsets[i] = &src_map.get_offsets();
     }
 
     size_t num_rows = _binary_column_data[0]->size();
@@ -267,5 +275,4 @@ void CombineMultipleBinaryColumnIterator::_collect_sparse_data_from_buckets(
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

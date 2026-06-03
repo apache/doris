@@ -46,7 +46,6 @@
 #include "exprs/function/string_hex_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class FunctionContext;
 } // namespace doris
 
@@ -90,7 +89,7 @@ struct HexStringImpl {
 
     static Status vector(ColumnPtr argument_column, size_t input_rows_count,
                          ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
-        const auto* str_col = check_and_get_column<ColumnString>(argument_column.get());
+        const auto* str_col = assert_cast<const ColumnString*>(argument_column.get());
         const auto& data = str_col->get_chars();
         const auto& offsets = str_col->get_offsets();
         dst_offsets.resize(input_rows_count);
@@ -137,7 +136,7 @@ struct HexIntImpl {
 
     static Status vector(ColumnPtr argument_column, size_t input_rows_count,
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
-        const auto* str_col = check_and_get_column<ColumnInt64>(argument_column.get());
+        const auto* str_col = assert_cast<const ColumnInt64*>(argument_column.get());
         const auto& data = str_col->get_data();
 
         res_offsets.resize(input_rows_count);
@@ -154,7 +153,7 @@ struct HexHLLImpl {
 
     static Status vector(ColumnPtr argument_column, size_t input_rows_count,
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
-        const auto* str_col = check_and_get_column<ColumnHLL>(argument_column.get());
+        const auto* str_col = assert_cast<const ColumnHLL*>(argument_column.get());
         const auto& hll_data = str_col->get_data();
         res_offsets.resize(input_rows_count);
         size_t total_length = 0, offset = 0;

@@ -31,7 +31,6 @@
 
 namespace doris::segment_v2 {
 struct AnnRangeSearchParams;
-#include "common/compile_check_begin.h"
 
 /**
  * @brief Runtime information structure for ANN (Approximate Nearest Neighbor) range search operations.
@@ -133,7 +132,6 @@ struct AnnRangeSearchRuntime {
     double radius = 0.0;                       ///< Search radius/distance threshold
     AnnIndexMetric metric_type;                ///< Distance metric (L2, Inner Product, etc.)
     doris::VectorSearchUserParams user_params; ///< User-defined search parameters
-    IColumn::Ptr query_value;                  ///< Query vector data (deep copied)
+    ColumnFloat32::Ptr query_value;            ///< Query vector data
 };
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

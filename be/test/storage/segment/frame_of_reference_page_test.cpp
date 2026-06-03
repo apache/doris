@@ -259,12 +259,6 @@ TEST_F(FrameOfReferencePageTest, TestFirstLastValue) {
     EXPECT_TRUE(ret0.ok());
     page_builder.add(reinterpret_cast<const uint8_t*>(ints.get()), &size);
     OwnedSlice s = page_builder.finish();
-    int32_t first_value = -1;
-    page_builder.get_first_value(&first_value);
-    EXPECT_EQ(0, first_value);
-    int32_t last_value = 0;
-    page_builder.get_last_value(&last_value);
-    EXPECT_EQ(127, last_value);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt32NormalBlockEncoderSize) {

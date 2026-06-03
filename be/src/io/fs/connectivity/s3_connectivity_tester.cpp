@@ -21,7 +21,6 @@
 #include "util/s3_uri.h"
 
 namespace doris::io {
-#include "common/compile_check_begin.h"
 
 Status S3ConnectivityTester::test(const std::map<std::string, std::string>& properties) {
     auto it = properties.find(TEST_LOCATION);
@@ -49,5 +48,4 @@ Status S3ConnectivityTester::test(const std::map<std::string, std::string>& prop
 
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 } // namespace doris::io

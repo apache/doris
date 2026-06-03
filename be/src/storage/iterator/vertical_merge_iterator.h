@@ -39,7 +39,6 @@
 #pragma once
 
 namespace doris {
-#include "common/compile_check_begin.h"
 enum KeysType : int;
 
 // Row source represent row location in multi-segments
@@ -150,6 +149,7 @@ class VerticalMergeIteratorContext {
 public:
     VerticalMergeIteratorContext(RowwiseIteratorUPtr&& iter, RowsetId rowset_id,
                                  size_t ori_return_cols, uint32_t order, uint32_t seq_col_idx,
+                                 bool use_insert_order_when_same = false,
                                  std::vector<uint32_t> key_group_cluster_key_idxes = {})
             : _iter(std::move(iter)),
               _rowset_id(rowset_id),
@@ -157,6 +157,7 @@ public:
               _order(order),
               _seq_col_idx(seq_col_idx),
               _num_key_columns(_iter->schema().num_key_columns()),
+              _use_insert_order_when_same(use_insert_order_when_same),
               _key_group_cluster_key_idxes(std::move(key_group_cluster_key_idxes)) {}
 
     VerticalMergeIteratorContext(const VerticalMergeIteratorContext&) = delete;
@@ -208,7 +209,7 @@ public:
 
     size_t bytes() {
         if (_block) {
-            return _block->bytes();
+            return _block->allocated_bytes();
         } else {
             return 0;
         }
@@ -249,6 +250,7 @@ private:
     int32_t _index_in_block = -1;
     size_t _block_row_max = 0;
     int64_t _num_key_columns;
+    const bool _use_insert_order_when_same = false;
     const std::vector<uint32_t> _key_group_cluster_key_idxes;
     size_t _cur_batch_num = 0;
 
@@ -461,5 +463,4 @@ std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
         std::vector<RowwiseIteratorUPtr>&& inputs, size_t ori_return_cols,
         RowSourcesBuffer* row_sources_buf);
 
-#include "common/compile_check_end.h"
 } // namespace doris

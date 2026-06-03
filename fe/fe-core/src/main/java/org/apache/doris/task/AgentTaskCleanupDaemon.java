@@ -58,7 +58,7 @@ public class AgentTaskCleanupDaemon extends MasterDaemon {
                             }
                             return updated;
                         });
-                        LOG.info("Check failure on be={}, times={}", failureTimes, failureTimes);
+                        LOG.info("Check failure on be={}, times={}", id, failureTimes);
                     }
                 });
 

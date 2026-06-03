@@ -19,10 +19,10 @@
 
 #include <cstdint>
 
+#include "core/column/column_fixed_length_object.h"
 #include "util/byte_stream_split.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 Status ByteStreamSplitDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                              ColumnSelectVector& select_vector,
                                              bool is_dict_filter) {
@@ -46,7 +46,13 @@ Status ByteStreamSplitDecoder::_decode_values(MutableColumnPtr& doris_column,
                 _offset, non_null_size, _data->size);
     }
 
-    size_t primitive_length = remove_nullable(data_type)->get_size_of_value_in_memory();
+    size_t primitive_length = _type_length;
+    if (const auto* fixed_length_column =
+                check_and_get_column<ColumnFixedLengthObject>(*doris_column)) {
+        DCHECK_EQ(fixed_length_column->item_size(), _type_length);
+    } else {
+        primitive_length = remove_nullable(data_type)->get_size_of_value_in_memory();
+    }
     size_t data_index = doris_column->size() * primitive_length;
     size_t scale_size = (select_vector.num_values() - select_vector.num_filtered()) *
                         (_type_length / primitive_length);
@@ -94,6 +100,5 @@ Status ByteStreamSplitDecoder::skip_values(size_t num_values) {
     }
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 }; // namespace doris

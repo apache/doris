@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToExprNameVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
@@ -789,41 +790,41 @@ public class CreateTableCommandTest extends TestWithFeService {
 
         Expr expr0 = partitionFields2.get(0);
         Assertions.assertInstanceOf(SlotRef.class, expr0);
-        Assertions.assertEquals("val", expr0.getExprName());
+        Assertions.assertEquals("val", expr0.accept(ExprToExprNameVisitor.INSTANCE, null));
 
         Expr expr1 = partitionFields2.get(1);
         Assertions.assertInstanceOf(FunctionCallExpr.class, expr1);
         List<Expr> params1 = ((FunctionCallExpr) expr1).getParams().exprs();
-        Assertions.assertEquals("bucket", expr1.getExprName());
+        Assertions.assertEquals("bucket", expr1.accept(ExprToExprNameVisitor.INSTANCE, null));
         Assertions.assertEquals(2, params1.size());
         Assertions.assertInstanceOf(StringLiteral.class, params1.get(0));
         Assertions.assertEquals("2", params1.get(0).getStringValue());
         Assertions.assertInstanceOf(SlotRef.class, params1.get(1));
-        Assertions.assertEquals("id", params1.get(1).getExprName());
+        Assertions.assertEquals("id", params1.get(1).accept(ExprToExprNameVisitor.INSTANCE, null));
 
         Expr expr2 = partitionFields2.get(2);
         Assertions.assertInstanceOf(SlotRef.class, expr2);
-        Assertions.assertEquals("par", expr2.getExprName());
+        Assertions.assertEquals("par", expr2.accept(ExprToExprNameVisitor.INSTANCE, null));
 
         Expr expr3 = partitionFields2.get(3);
         Assertions.assertInstanceOf(FunctionCallExpr.class, expr3);
         List<Expr> params3 = ((FunctionCallExpr) expr3).getParams().exprs();
-        Assertions.assertEquals("day", expr3.getExprName());
+        Assertions.assertEquals("day", expr3.accept(ExprToExprNameVisitor.INSTANCE, null));
         Assertions.assertEquals(1, params3.size());
         Assertions.assertInstanceOf(SlotRef.class, params3.get(0));
-        Assertions.assertEquals("ts", params3.get(0).getExprName());
+        Assertions.assertEquals("ts", params3.get(0).accept(ExprToExprNameVisitor.INSTANCE, null));
 
         Expr expr4 = partitionFields2.get(4);
         Assertions.assertInstanceOf(FunctionCallExpr.class, expr4);
         List<Expr> params4 = ((FunctionCallExpr) expr4).getParams().exprs();
-        Assertions.assertEquals("efg", expr4.getExprName());
+        Assertions.assertEquals("efg", expr4.accept(ExprToExprNameVisitor.INSTANCE, null));
         Assertions.assertEquals(3, params4.size());
         Assertions.assertInstanceOf(SlotRef.class, params4.get(0));
-        Assertions.assertEquals("a", params4.get(0).getExprName());
+        Assertions.assertEquals("a", params4.get(0).accept(ExprToExprNameVisitor.INSTANCE, null));
         Assertions.assertInstanceOf(SlotRef.class, params4.get(1));
-        Assertions.assertEquals("b", params4.get(1).getExprName());
+        Assertions.assertEquals("b", params4.get(1).accept(ExprToExprNameVisitor.INSTANCE, null));
         Assertions.assertInstanceOf(SlotRef.class, params4.get(2));
-        Assertions.assertEquals("c", params4.get(2).getExprName());
+        Assertions.assertEquals("c", params4.get(2).accept(ExprToExprNameVisitor.INSTANCE, null));
 
         Assertions.assertEquals(
                 "PARTITION BY LIST(`val`, bucket('2', `id`), `par`, day(`ts`), efg(`a`, `b`, `c`))\n(\n\n)",

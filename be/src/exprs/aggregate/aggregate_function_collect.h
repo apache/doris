@@ -17,11 +17,11 @@
 
 #pragma once
 
-#include <assert.h>
+#include <cctz/time_zone.h>
 #include <glog/logging.h>
-#include <string.h>
 
 #include <cstddef>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <new>
@@ -41,18 +41,16 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "util/io_helper.h"
 #include "util/var_int.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <PrimitiveType T, bool HasLimit>
 struct AggregateFunctionCollectSetData {
     static constexpr PrimitiveType PType = T;
     using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using SelfType = AggregateFunctionCollectSetData;
-    using Set = phmap::flat_hash_set<ElementType>;
+    using Set = doris::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
 
@@ -78,7 +76,9 @@ struct AggregateFunctionCollectSetData {
                 data_set.insert(rhs_elem);
             }
         } else {
-            data_set.merge(Set(rhs.data_set));
+            for (const auto& elem : rhs.data_set) {
+                data_set.insert(elem);
+            }
         }
     }
 
@@ -119,7 +119,7 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     using SelfType = AggregateFunctionCollectSetData<T, HasLimit>;
-    using Set = phmap::flat_hash_set<ElementType>;
+    using Set = doris::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
 
@@ -137,7 +137,6 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
         if (max_size == -1) {
             max_size = rhs.max_size;
         }
-        max_size = rhs.max_size;
 
         for (const auto& rhs_elem : rhs.data_set) {
             if constexpr (HasLimit) {
@@ -205,7 +204,6 @@ struct AggregateFunctionCollectListData {
             if (max_size == -1) {
                 max_size = rhs.max_size;
             }
-            max_size = rhs.max_size;
             for (auto& rhs_elem : rhs.data) {
                 if (size() >= max_size) {
                     return;
@@ -237,7 +235,7 @@ struct AggregateFunctionCollectListData {
         auto& vec = assert_cast<ColVecType&>(to).get_data();
         size_t old_size = vec.size();
         vec.resize(old_size + size());
-        memcpy(vec.data() + old_size, data.data(), size() * sizeof(ElementType));
+        std::memcpy(vec.data() + old_size, data.data(), size() * sizeof(ElementType));
     }
 };
 
@@ -263,12 +261,9 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
             if (max_size == -1) {
                 max_size = rhs.max_size;
             }
-            max_size = rhs.max_size;
 
             data->insert_range_from(*rhs.data, 0,
-                                    std::min(assert_cast<size_t, TypeCheckOnRelease::DISABLE>(
-                                                     static_cast<size_t>(max_size - size())),
-                                             rhs.size()));
+                                    std::min(static_cast<size_t>(max_size - size()), rhs.size()));
         } else {
             data->insert_range_from(*rhs.data, 0, rhs.size());
         }
@@ -334,13 +329,10 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
             if (max_size == -1) {
                 max_size = rhs.max_size;
             }
-            max_size = rhs.max_size;
 
             column_data->insert_range_from(
                     *rhs.column_data, 0,
-                    std::min(assert_cast<size_t, TypeCheckOnRelease::DISABLE>(
-                                     static_cast<size_t>(max_size - size())),
-                             rhs.size()));
+                    std::min(static_cast<size_t>(max_size - size()), rhs.size()));
         } else {
             column_data->insert_range_from(*rhs.column_data, 0, rhs.size());
         }
@@ -351,6 +343,10 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
         buf.write_binary(size);
 
         DataTypeSerDe::FormatOptions opt;
+        auto timezone = cctz::utc_time_zone();
+        opt.timezone = &timezone;
+        // TODO: Refactor this aggregate state serialization to avoid
+        // round-tripping through a human-readable string format.
         auto tmp_str = ColumnString::create();
         VectorBufferWriter tmp_buf(*tmp_str.get());
 
@@ -376,6 +372,8 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
 
         StringRef s;
         DataTypeSerDe::FormatOptions opt;
+        auto timezone = cctz::utc_time_zone();
+        opt.timezone = &timezone;
         for (size_t i = 0; i < size; i++) {
             buf.read_binary(s);
             Slice slice(s.data, s.size);
@@ -394,7 +392,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
 };
 
 template <typename Data, bool HasLimit>
-class AggregateFunctionCollect
+class AggregateFunctionCollect final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>, true>,
           VarargsExpression,
           NotNullableAggregateFunction {
@@ -475,5 +473,3 @@ private:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

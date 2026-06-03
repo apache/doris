@@ -35,6 +35,7 @@
 
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
@@ -996,6 +997,62 @@ TEST_F(DorisCompoundReaderTest, OpenInputFromRAMDirectory) {
 
     input->close();
     _CLLDELETE(input);
+    reader.close();
+}
+
+// Verify that after initialize() + setIoContext(nullptr) (the cache-safe
+// transition), the main stream's io_ctx is cleared and sub-streams created
+// via openInput() do NOT carry stale io_ctx pointers.  This is the pattern
+// used by both MATCH and SEARCH paths before inserting an IndexSearcher
+// into the global InvertedIndexSearcherCache.
+TEST_F(DorisCompoundReaderTest, InitializeThenClearIoCtxForCacheSafety) {
+    std::string index_path = kTestDir + "/test_io_ctx_lifecycle.idx";
+    std::vector<std::string> file_names = {"segments.gen", "posting.dat"};
+    std::vector<int64_t> lengths = {30, 60};
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    // --- Phase 1: initialization (simulates index open with a query's io_ctx) ---
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    reader.initialize(&io_ctx);
+
+    auto* stream = reader.getDorisIndexInput();
+    auto* ctx_after_init = (const io::IOContext*)stream->getIoContext();
+    // Main stream should carry the io_ctx during initialization reads
+    EXPECT_EQ(ctx_after_init->reader_type, ReaderType::READER_QUERY);
+
+    // --- Phase 2: cache-safe transition (mirrors create_index_searcher) ---
+    stream->setIoContext(nullptr);
+    stream->setIndexFile(false);
+
+    auto* ctx_after_clear = (const io::IOContext*)stream->getIoContext();
+    // Main stream io_ctx should be reset to defaults
+    EXPECT_EQ(ctx_after_clear->reader_type, ReaderType::UNKNOWN);
+    EXPECT_EQ(ctx_after_clear->file_cache_stats, nullptr);
+
+    // --- Phase 3: verify sub-streams don't inherit stale io_ctx ---
+    CLuceneError err;
+    lucene::store::IndexInput* sub_input = nullptr;
+    EXPECT_TRUE(reader.openInput("posting.dat", sub_input, err, 4096));
+    EXPECT_NE(sub_input, nullptr);
+
+    // CSIndexInput._io_ctx should be nullptr (not set by openInput on master)
+    // This means readInternal() will skip setIoContext on the base stream,
+    // allowing query-phase reads to use their own io_ctx through the
+    // CLucene API parameter chain (termDocs/termPositions/terms).
+    // We verify this indirectly: cloning should also have nullptr _io_ctx.
+    lucene::store::IndexInput* cloned = sub_input->clone();
+    EXPECT_NE(cloned, nullptr);
+
+    sub_input->close();
+    cloned->close();
+    _CLLDELETE(sub_input);
+    _CLLDELETE(cloned);
+
     reader.close();
 }
 

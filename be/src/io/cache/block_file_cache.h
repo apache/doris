@@ -170,6 +170,7 @@ class BlockFileCache {
     friend class CacheLRUDumper;
     friend class LRUQueueRecorder;
     friend struct FileBlockCell;
+    friend class BlockFileCacheTest;
 
 public:
     // hash the file_name to uint128
@@ -275,7 +276,7 @@ public:
     void remove_if_cached(const UInt128Wrapper& key);
     void remove_if_cached_async(const UInt128Wrapper& key);
 
-    // Shrink the block size. old_size is always larged than new_size.
+    // Reset the block size and keep FileBlock, LRU queue, and cache counters consistent.
     void reset_range(const UInt128Wrapper&, size_t offset, size_t old_size, size_t new_size,
                      std::lock_guard<std::mutex>& cache_lock);
 
@@ -318,6 +319,9 @@ public:
 
     // for be UTs
     std::map<std::string, double> get_stats_unsafe();
+    [[nodiscard]] size_t need_update_lru_blocks_size_unsafe() const {
+        return _need_update_lru_blocks.size();
+    }
 
     using AccessRecord =
             std::unordered_map<AccessKeyAndOffset, LRUQueue::Iterator, KeyAndOffsetHash>;

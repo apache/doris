@@ -198,7 +198,8 @@ public class PartitionCompensator {
                 // Base table partition maybe deleted, need not union
                 continue;
             }
-            baseTableNeedUnionPartitionNameSet.addAll(baseTablePartitions);
+            Sets.intersection(baseTablePartitions, queryUsedBaseTablePartitionNameSet)
+                    .copyInto(baseTableNeedUnionPartitionNameSet);
         }
         // If related base table creates partitions or mv is created with ttl, need base table union
         Sets.difference(queryUsedBaseTablePartitionNameSet, mvValidBaseTablePartitionNameSet)

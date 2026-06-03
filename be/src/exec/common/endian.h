@@ -22,7 +22,6 @@
 #include "util/unaligned.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 inline uint64_t gbswap_64(uint64_t host_int) {
 #if defined(__GNUC__) && defined(__x86_64__) && !defined(__APPLE__)
     // Adapted from /usr/include/byteswap.h.  Not available on Mac.
@@ -153,5 +152,4 @@ public:
         unaligned_store<uint64_t>(p, to_endian<std::endian::big>(v));
     }
 }; // BigEndian
-#include "common/compile_check_end.h"
 } // namespace doris

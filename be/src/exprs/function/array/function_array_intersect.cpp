@@ -24,7 +24,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 struct NameArrayIntersect {
     static constexpr auto name = "array_intersect";
 };

@@ -25,9 +25,13 @@ PROBE_TIMEOUT=60
 PROBE_INTERVAL=2
 # rpc port for fe communicate with be.
 HEARTBEAT_PORT=9050
+# timeout for fqdn ready check.
+DNS_READY_TIMEOUT=${DNS_READY_TIMEOUT:-120}
+# interval for fqdn ready check.
+DNS_READY_INTERVAL=${DNS_READY_INTERVAL:-2}
 # fqdn or ip
 MY_SELF=
-MY_IP=`hostname -i`
+MY_IP=${POD_IP:-$(hostname -I | awk '{print $1}')}
 MY_HOSTNAME=`hostname -f`
 DORIS_ROOT=${DORIS_ROOT:-"/opt/apache-doris"}
 # if config secret for basic auth about operate node of doris, the path must be `/etc/basic_auth`. This is set by operator and the key of password must be `password`.
@@ -42,6 +46,18 @@ DB_ADMIN_USER=${USER:-"root"}
 DB_ADMIN_PASSWD=$PASSWD
 
 ENABLE_WORKLOAD_GROUP=${ENABLE_WORKLOAD_GROUP:-false}
+
+# enable_tls specify use tls connection or not.
+ENABLE_TLS=
+
+# tls_private_key_path specify the client private key
+TLS_PRIVATE_KEY_PATH=
+
+# tls_certificate_path specify the path of public crt.
+TLS_CERTIFICATE_PATH=
+
+#tls_ca_certificate_path specify the path of root ca.
+TLS_CA_CERTIFICATE_PATH=
 WORKLOAD_GROUP_PATH="/sys/fs/cgroup/cpu/doris"
 
 log_stderr()
@@ -151,9 +167,17 @@ resolve_password_from_secret()
 
 # get all backends info to check self exist or not.
 show_backends(){
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        show_backends_with_tls $1
+    else
+        show_backends_with_no_tls $1
+    fi
+}
+
+show_backends_with_no_tls(){
     local svc=$1
     backends=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW BACKENDS;' 2>&1`
-    log_stderr "[info] use root no password show backends result $backends ."
+    log_stderr "[info] [NO-TLS] show backends result $backends ."
     if echo $backends | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
         log_stderr "[info] use username and password that configured to show backends."
         backends=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e 'SHOW BACKENDS;'`
@@ -162,15 +186,49 @@ show_backends(){
     echo "$backends"
 }
 
+show_backends_with_tls(){
+    local svc=$1
+    backends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW BACKENDS;' 2>&1`
+    log_stderr "[info] [TLS] show backends result $backends ."
+    if echo $backends | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "[info] use username and password that configured to show backends."
+        backends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e 'SHOW BACKENDS;'`
+    fi
+
+    echo "$backends"
+}
+
 # get all registered fe in cluster, for check the fe have `MASTER`.
 function show_frontends()
 {
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        show_frontends_with_tls $1
+    else
+        show_frontends_with_no_tls $1
+    fi
+}
+
+show_frontends_with_no_tls()
+{
     local addr=$1
     frontends=`timeout 15 mysql --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
-    log_stderr "[info] use root no password show frontends result $frontends ."
+    log_stderr "[info] [NO-TLS] show frontends result $frontends ."
     if echo $frontends | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
         log_stderr "[info] use username and passwore that configured to show frontends."
         frontends=`timeout 15 mysql --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --batch -e 'show frontends;'`
+    fi
+
+    echo "$frontends"
+}
+
+show_frontends_with_tls()
+{
+    local addr=$1
+    frontends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
+    log_stderr "[info] [TLS] show frontends result $frontends ."
+    if echo $frontends | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "[info] use username and password that configured to show frontends."
+        frontends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --batch -e 'show frontends;'`
     fi
 
     echo "$frontends"
@@ -209,6 +267,91 @@ collect_env_info()
     fi
 }
 
+wait_for_fqdn_ready()
+{
+    if [[ "x$HOST_TYPE" == "xIP" ]] ; then
+        return 0
+    fi
+
+    local fqdn=$MY_HOSTNAME
+    local start=`date +%s`
+    while true
+    do
+        if getent hosts "$fqdn" >/dev/null 2>&1 || nslookup "$fqdn" >/dev/null 2>&1 ; then
+            log_stderr "[info] fqdn $fqdn is ready."
+            return 0
+        fi
+
+        local now=`date +%s`
+        let "expire=start+DNS_READY_TIMEOUT"
+        if [[ $expire -le $now ]] ; then
+            log_stderr "[error] timeout waiting fqdn ready: $fqdn"
+            return 1
+        fi
+
+        log_stderr "[info] fqdn $fqdn not ready, sleep ${DNS_READY_INTERVAL}s ..."
+        sleep $DNS_READY_INTERVAL
+    done
+}
+
+parse_tls_connection_variables()
+{
+    ENABLE_TLS=$(parse_confval_from_conf "enable_tls")
+    TLS_PRIVATE_KEY_PATH=$(parse_confval_from_conf "tls_private_key_path")
+    TLS_CERTIFICATE_PATH=$(parse_confval_from_conf "tls_certificate_path")
+    TLS_CA_CERTIFICATE_PATH=$(parse_confval_from_conf "tls_ca_certificate_path")
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        log_stderr "[info] [TLS] TLS is ENABLED, ca=$TLS_CA_CERTIFICATE_PATH, cert=$TLS_CERTIFICATE_PATH, key=$TLS_PRIVATE_KEY_PATH"
+    else
+        log_stderr "[info] [NO-TLS] TLS is DISABLED (enable_tls='$ENABLE_TLS')"
+    fi
+}
+
+add_self_as_backend()
+{
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        add_self_as_backend_with_tls $1
+    else
+        add_self_as_backend_with_no_tls $1
+    fi
+}
+
+add_self_as_backend_with_no_tls()
+{
+    local svc=$1
+    local add_sql="ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";"
+    log_stderr "[info] add backend sql: $add_sql"
+    add_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "$add_sql" 2>&1`
+    add_status=$?
+    if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
+        add_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "$add_sql" 2>&1`
+        add_status=$?
+    fi
+    log_stderr "[info] add backend result: $add_result"
+    if [[ $add_status -ne 0 ]]; then
+        log_stderr "[error] add backend failed with status $add_status."
+        return $add_status
+    fi
+}
+
+add_self_as_backend_with_tls()
+{
+    local svc=$1
+    local add_sql="ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";"
+    log_stderr "[info] add backend sql: $add_sql"
+    add_result=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "$add_sql" 2>&1`
+    add_status=$?
+    if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
+        add_result=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "$add_sql" 2>&1`
+        add_status=$?
+    fi
+    log_stderr "[info] add backend result: $add_result"
+    if [[ $add_status -ne 0 ]]; then
+        log_stderr "[error] add backend failed with status $add_status."
+        return $add_status
+    fi
+}
+
 add_self()
 {
     local svc=$1
@@ -242,9 +385,9 @@ add_self()
         if [[ "x$leader" != "x" ]]; then
             create_account $leader
             log_stderr "[info] myself ($MY_SELF:$HEARTBEAT_PORT)  not exist in FE and fe have leader register myself into fe."
-            add_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";" 2>&1`
-            if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
-                timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";"
+            add_self_as_backend $svc
+            if [[ "$?" -ne 0 ]]; then
+                return 1
             fi
 
             let "expire=start+timeout"
@@ -262,6 +405,15 @@ add_self()
 
 function create_account()
 {
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        create_account_with_tls $1
+    else
+        create_account_with_no_tls $1
+    fi
+}
+
+create_account_with_no_tls()
+{
     master=$1
     users=`mysql --connect-timeout 2 -h $master -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
     if echo $users | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
@@ -273,8 +425,23 @@ function create_account()
        return 0
     fi
     mysql --connect-timeout 2 -h $master -P$FE_QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1
-    log_stderr "created new account and grant NODE_PRIV!"
+    log_stderr "[NO-TLS] created new account and grant NODE_PRIV!"
+}
 
+create_account_with_tls()
+{
+    master=$1
+    users=`mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $master -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
+    if echo $users | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "the 'root' account have set password! not need auto create management account."
+        return 0
+    fi
+    if echo $users | awk '{print $1}' | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
+       log_stderr "the $DB_ADMIN_USER have exist in doris."
+       return 0
+    fi
+    mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $master -P$FE_QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1
+    log_stderr "[TLS] created new account and grant NODE_PRIV!"
 }
 
 # check be exist or not, if exist return 0, or register self in fe cluster. when all fe address failed exit script.
@@ -358,7 +525,10 @@ add_cpu_limit_config
 mount_kerberos_config
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
+# parse tls connection variables, if config `enable_tls=true`, use tls connection to manage node.
+parse_tls_connection_variables
 collect_env_info
+wait_for_fqdn_ready || exit 1
 #add_self $fe_addr || exit $?
 check_and_register $fe_addrs
 ./doris-debug --component be

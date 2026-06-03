@@ -30,6 +30,8 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/column/column_fixed_length_object.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "format/parquet/decoder.h"
 #include "format/parquet/fix_length_plain_decoder.h"
@@ -39,7 +41,6 @@
 #include "util/slice.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class DeltaDecoder : public Decoder {
 public:
     DeltaDecoder(Decoder* decoder) { _type_converted_decoder.reset(decoder); }
@@ -85,11 +86,21 @@ public:
     Status decode_fixed_byte_array(const std::vector<Slice>& decoded_vals,
                                    MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                    ColumnSelectVector& select_vector) {
-        auto& column_data = reinterpret_cast<ColumnInt8&>(*doris_column).get_data();
-        size_t data_index = column_data.size();
-        column_data.resize(data_index + _type_length * (select_vector.num_values() -
-                                                        select_vector.num_filtered()));
-        auto* data = column_data.data();
+        const size_t result_size = select_vector.num_values() - select_vector.num_filtered();
+        size_t data_index = 0;
+        uint8_t* data = nullptr;
+        if (auto* fixed_length_column =
+                    check_and_get_column<ColumnFixedLengthObject>(*doris_column)) {
+            DCHECK_EQ(fixed_length_column->item_size(), _type_length);
+            data_index = fixed_length_column->size() * _type_length;
+            fixed_length_column->resize(fixed_length_column->size() + result_size);
+            data = fixed_length_column->get_data().data();
+        } else {
+            auto& column_data = assert_cast<ColumnInt8&>(*doris_column).get_data();
+            data_index = column_data.size();
+            column_data.resize(data_index + _type_length * result_size);
+            data = reinterpret_cast<uint8_t*>(column_data.data());
+        }
         ColumnSelectVector::DataReadType read_type;
         int value_idx = 0;
         while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
@@ -520,7 +531,5 @@ Status DeltaBitPackDecoder<T>::_get_internal(T* buffer, uint32_t num_values,
     *out_num_values = num_values;
     return Status::OK();
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

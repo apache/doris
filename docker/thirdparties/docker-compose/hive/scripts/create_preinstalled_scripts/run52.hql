@@ -1,4 +1,5 @@
-CREATE TABLE `parquet_timestamp_millis`(
+drop table if exists `parquet_timestamp_millis`;
+create table `parquet_timestamp_millis`(
 test timestamp
 ) ROW FORMAT SERDE
   'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
@@ -8,7 +9,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/preinstalled_data/parquet_table/parquet_timestamp_millis';
-
-msck repair table parquet_timestamp_millis;
-
-

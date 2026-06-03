@@ -85,6 +85,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.statistics.query.QueryStatsRecorder;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryCacheParam;
 
@@ -178,6 +179,9 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.info(getExplainString(new ExplainOptions(ExplainLevel.SHAPE_PLAN, false)));
             LOG.info(getExplainString(new ExplainOptions(ExplainLevel.DISTRIBUTED_PLAN, false)));
+        }
+        if (physicalPlan != null) {
+            QueryStatsRecorder.record(physicalPlan, statementContext);
         }
     }
 
@@ -1108,10 +1112,7 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public List<RuntimeFilter> getRuntimeFilters() {
-        ArrayList<RuntimeFilter> runtimeFilters = new ArrayList<>();
-        runtimeFilters.addAll(cascadesContext.getRuntimeFilterContext().getLegacyFilters());
-        runtimeFilters.addAll(cascadesContext.getRuntimeFilterV2Context().getLegacyFilters());
-        return runtimeFilters;
+        return new ArrayList<>(cascadesContext.getRuntimeFilterContext().getLegacyFilters());
     }
 
     @Override

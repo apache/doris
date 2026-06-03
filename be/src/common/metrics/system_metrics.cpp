@@ -26,12 +26,12 @@
 #include <utility>
 
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "runtime/memory/jemalloc_control.h"
 #include "util/cgroup_util.h"
 #include "util/perf_counters.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(avail_cpu_num, MetricUnit::NOUNIT);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(host_cpu_num, MetricUnit::NOUNIT);
@@ -432,6 +432,18 @@ void SystemMetrics::_update_cpu_metrics() {
         char buf[64];
         LOG(WARNING) << "open /proc/stat failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
+        if (errno == 24) {
+            _file_handle_deplenish_counter++;
+        } else {
+            _file_handle_deplenish_counter = 0;
+        }
+        // Threshold of the number of consecutive failures
+        if (_file_handle_deplenish_counter >= config::file_handles_deplenish_frequency_times) {
+            LOG(FATAL) << "The system file handles are insufficient, causing service exceptions"
+                       << ", BE will exit. please check the configs 'soft nofile'"
+                       << " and 'hard nofile' of /etc/security/limits.conf ";
+            exit(-1);
+        }
         return;
     }
 
@@ -453,6 +465,17 @@ void SystemMetrics::_update_cpu_metrics() {
         auto it = _cpu_metrics.find(cpu_name);
         if (it == _cpu_metrics.end()) {
             continue;
+        }
+
+        if (cpu_name == "cpu") {
+            AggregateCpuTime aggregate_cpu_time;
+            aggregate_cpu_time.total_time = values[0] + values[1] + values[2] + values[3] +
+                                            values[4] + values[5] + values[6] + values[7];
+            aggregate_cpu_time.idle_time = values[3] + values[4];
+            aggregate_cpu_time.initialized = aggregate_cpu_time.total_time > 0;
+            // Publish a consistent aggregate snapshot derived from one /proc/stat row.
+            std::lock_guard<std::mutex> lk(_aggregate_cpu_time_mutex);
+            _aggregate_cpu_time = aggregate_cpu_time;
         }
 
         for (int i = 0; i < CpuMetrics::cpu_num_metrics; ++i) {
@@ -894,6 +917,20 @@ double SystemMetrics::get_load_average_1_min() {
     } else {
         return 0;
     }
+}
+
+bool SystemMetrics::get_aggregate_cpu_time(int64_t* total_time, int64_t* idle_time) const {
+    DCHECK(total_time != nullptr);
+    DCHECK(idle_time != nullptr);
+
+    std::lock_guard<std::mutex> lk(_aggregate_cpu_time_mutex);
+    if (!_aggregate_cpu_time.initialized) {
+        return false;
+    }
+
+    *total_time = _aggregate_cpu_time.total_time;
+    *idle_time = _aggregate_cpu_time.idle_time;
+    return true;
 }
 
 void SystemMetrics::get_network_traffic(std::map<std::string, int64_t>* send_map,

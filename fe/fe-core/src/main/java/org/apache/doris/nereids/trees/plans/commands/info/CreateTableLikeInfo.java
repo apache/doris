@@ -18,12 +18,12 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -53,7 +53,7 @@ public class CreateTableLikeInfo {
 
     /** validate */
     public void validate(ConnectContext ctx) throws AnalysisException {
-        existedTableName.analyze(ctx);
+        existedTableName.analyze(ctx.getNameSpaceContext());
         // disallow external catalog
         Util.prohibitExternalCatalog(existedTableName.getCtl(), "CreateTableLikeCommand");
         //check privilege
@@ -63,7 +63,7 @@ public class CreateTableLikeInfo {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
         }
 
-        tableName.analyze(ctx);
+        tableName.analyze(ctx.getNameSpaceContext());
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), "CreateTableLikeCommand");
         FeNameFormat.checkTableName(tableName.getTbl());

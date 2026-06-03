@@ -59,7 +59,6 @@ public class AddPartitionOp extends AlterTableOp {
         this.properties = properties;
         this.isTempPartition = isTempPartition;
 
-        this.needTableStable = false;
     }
 
     /**
@@ -75,7 +74,6 @@ public class AddPartitionOp extends AlterTableOp {
         this.properties = properties;
         this.isTempPartition = isTempPartition;
 
-        this.needTableStable = false;
     }
 
     /**
@@ -118,6 +116,12 @@ public class AddPartitionOp extends AlterTableOp {
             partitionDefinition.setPartitionTypes(partitionTypes);
         }
         partitionDefinition.validate(properties);
+    }
+
+    @Override
+    public boolean allowOpRowBinlog() {
+        // Adding partition is allowed for row binlog tables.
+        return true;
     }
 
     public boolean isTempPartition() {

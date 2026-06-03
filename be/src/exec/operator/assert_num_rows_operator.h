@@ -20,7 +20,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class AssertNumRowsLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
@@ -60,5 +59,4 @@ private:
     bool _should_convert_output_to_nullable;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

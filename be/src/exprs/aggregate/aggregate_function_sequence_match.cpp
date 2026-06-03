@@ -25,7 +25,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <template <PrimitiveType> typename AggregateFunction>
 AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string& name,
@@ -51,6 +50,9 @@ AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string& 
                 argument_types, result_is_nullable, attr);
     case TYPE_DATEV2:
         return creator_without_type::create<AggregateFunction<TYPE_DATEV2>>(
+                argument_types, result_is_nullable, attr);
+    case TYPE_TIMESTAMPTZ:
+        return creator_without_type::create<AggregateFunction<TYPE_TIMESTAMPTZ>>(
                 argument_types, result_is_nullable, attr);
     default:
         return nullptr;

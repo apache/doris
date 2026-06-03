@@ -48,7 +48,6 @@
 #include "util/jsonb_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <typename F> /// Field template parameter may be const or non-const Field.
 void dispatch(F&& f, const Field& field) {
@@ -216,7 +215,7 @@ public:
     }
     void operator()(const Array& x, JsonbWriter* writer) const;
 
-    void operator()(const Tuple& x, JsonbWriter* writer) const {
+    void operator()(const Struct& x, JsonbWriter* writer) const {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
     void operator()(const Decimal32& x, JsonbWriter* writer) const {
@@ -829,5 +828,4 @@ void convert_field_to_type(const Field& from_value, const IDataType& to_type, Fi
         return convert_field_to_typeImpl(from_value, to_type, from_type_hint, to);
     }
 }
-#include "common/compile_check_end.h"
 } // namespace doris

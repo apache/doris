@@ -30,7 +30,6 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
                                                        const std::string& name) {
@@ -79,7 +78,7 @@ void Dependency::set_ready() {
     for (auto task : local_block_task) {
         if (auto t = task.lock()) {
             std::unique_lock<std::mutex> lc(_task_lock);
-            THROW_IF_ERROR(t->wake_up(this, lc));
+            t->wake_up(this, lc);
         }
     }
 }
@@ -314,6 +313,11 @@ Status AggSharedState::reset_hash_table() {
 }
 
 void PartitionedAggSharedState::close() {
+    bool false_close = false;
+    if (!is_closed.compare_exchange_strong(false_close, true)) {
+        return;
+    }
+
     for (auto& partition : _spill_partitions) {
         if (partition) {
             ExecEnv::GetInstance()->spill_file_mgr()->delete_spill_file(partition);
@@ -346,6 +350,13 @@ int AggSharedState::get_slot_column_id(const AggFnEvaluator* evaluator) {
 }
 
 void AggSharedState::_destroy_agg_status(AggregateDataPtr data) {
+    for (int i = 0; i < aggregate_evaluators.size(); ++i) {
+        aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);
+    }
+}
+
+void BucketedAggSharedState::_destroy_agg_status(AggregateDataPtr data) {
+    DCHECK(!use_simple_count) << "should not call _destroy_agg_status when use_simple_count";
     for (int i = 0; i < aggregate_evaluators.size(); ++i) {
         aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);
     }

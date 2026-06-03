@@ -26,6 +26,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.util.Set;
 
 /**
  * Unit tests for {@link AuthenticationOutcome}.
@@ -184,4 +185,44 @@ class AuthenticationOutcomeTest {
         Assertions.assertFalse(outcome.isSuccess());
         Assertions.assertFalse(outcome.isFailure());
     }
+
+    @Test
+    @DisplayName("UT-AO-009: Success outcome exposes granted roles")
+    void testSuccessOutcomeExposesGrantedRoles() {
+        AuthenticationIntegration integration = AuthenticationIntegration.builder()
+                .name("test")
+                .type("password")
+                .properties(new HashMap<>())
+                .build();
+
+        BasicPrincipal principal = BasicPrincipal.builder()
+                .name("ivy")
+                .authenticator("test")
+                .build();
+
+        AuthenticationResult result = AuthenticationResult.success(principal, Set.of("admin", "analyst"));
+
+        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result);
+
+        Assertions.assertEquals(Set.of("admin", "analyst"), outcome.getGrantedRoles());
+    }
+
+    @Test
+    @DisplayName("UT-AO-010: Continue and failure outcomes expose empty granted roles")
+    void testNonSuccessOutcomesExposeEmptyGrantedRoles() {
+        AuthenticationIntegration integration = AuthenticationIntegration.builder()
+                .name("test")
+                .type("password")
+                .properties(new HashMap<>())
+                .build();
+
+        AuthenticationOutcome continueOutcome = AuthenticationOutcome.of(
+                integration, AuthenticationResult.continueWith("state", "challenge".getBytes()));
+        AuthenticationOutcome failureOutcome = AuthenticationOutcome.of(
+                integration, AuthenticationResult.failure("bad password"));
+
+        Assertions.assertTrue(continueOutcome.getGrantedRoles().isEmpty());
+        Assertions.assertTrue(failureOutcome.getGrantedRoles().isEmpty());
+    }
+
 }

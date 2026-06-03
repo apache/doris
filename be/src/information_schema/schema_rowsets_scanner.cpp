@@ -46,8 +46,6 @@
 namespace doris {
 class Block;
 
-#include "common/compile_check_begin.h"
-
 std::vector<SchemaScanner::ColumnDesc> SchemaRowsetsScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
         {"BACKEND_ID", TYPE_BIGINT, sizeof(int64_t), true},
@@ -63,6 +61,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaRowsetsScanner::_s_tbls_columns = {
         {"CREATION_TIME", TYPE_DATETIME, sizeof(int64_t), true},
         {"NEWEST_WRITE_TIMESTAMP", TYPE_DATETIME, sizeof(int64_t), true},
         {"SCHEMA_VERSION", TYPE_INT, sizeof(int32_t), true},
+        {"COMMIT_TSO", TYPE_VARCHAR, sizeof(StringRef), true},
 
 };
 
@@ -267,6 +266,19 @@ Status SchemaRowsetsScanner::_fill_block_impl(Block* block) {
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, datas));
+    }
+    // COMMIT_TSO
+    {
+        std::vector<std::string> commit_tsos(fill_rowsets_num);
+        std::vector<StringRef> srcs(fill_rowsets_num);
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
+            RowsetSharedPtr rowset = rowsets_[i];
+            commit_tsos[i - fill_idx_begin] = rowset->commit_tso().to_string();
+            srcs[i - fill_idx_begin] = StringRef(commit_tsos[i - fill_idx_begin].c_str(),
+                                                 commit_tsos[i - fill_idx_begin].size());
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, datas));
     }
 
     _rowsets_idx += fill_rowsets_num;

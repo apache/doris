@@ -220,6 +220,35 @@ public class AuthenticationPluginManager {
         }
     }
 
+    /**
+     * Create and initialize a plugin instance without caching it.
+     *
+     * @param integration authentication integration
+     * @return initialized plugin instance
+     * @throws AuthenticationException if plugin creation fails
+     */
+    public AuthenticationPlugin createPlugin(AuthenticationIntegration integration) throws AuthenticationException {
+        Objects.requireNonNull(integration, "integration");
+        return createAndInit(integration);
+    }
+
+    /**
+     * Install a prepared plugin instance into the cache, replacing the old one atomically.
+     *
+     * @param integration authentication integration
+     * @param plugin initialized plugin instance
+     */
+    public void installPlugin(AuthenticationIntegration integration, AuthenticationPlugin plugin) {
+        Objects.requireNonNull(integration, "integration");
+        Objects.requireNonNull(plugin, "plugin");
+        synchronized (pluginByIntegration) {
+            AuthenticationPlugin oldPlugin = pluginByIntegration.put(integration.getName(), plugin);
+            if (oldPlugin != null && oldPlugin != plugin) {
+                oldPlugin.close();
+            }
+        }
+    }
+
     private AuthenticationPlugin createAndInit(AuthenticationIntegration integration) throws AuthenticationException {
         AuthenticationPluginFactory factory = factories.get(integration.getType());
         if (factory == null) {

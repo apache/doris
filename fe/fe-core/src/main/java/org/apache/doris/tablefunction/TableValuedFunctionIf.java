@@ -57,8 +57,6 @@ public abstract class TableValuedFunctionIf {
                 return new HttpStreamTableValuedFunction(params);
             case LocalTableValuedFunction.NAME:
                 return new LocalTableValuedFunction(params);
-            case IcebergTableValuedFunction.NAME:
-                return IcebergTableValuedFunction.create(params);
             case HudiTableValuedFunction.NAME:
                 return new HudiTableValuedFunction(params);
             case BackendsTableValuedFunction.NAME:
@@ -104,6 +102,8 @@ public abstract class TableValuedFunctionIf {
                 return new FileTableValuedFunction(params);
             case HttpTableValuedFunction.NAME:
                 return new HttpTableValuedFunction(params);
+            case TableBinlogFunction.NAME:
+                return new TableBinlogFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }

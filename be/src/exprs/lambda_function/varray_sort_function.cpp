@@ -33,7 +33,6 @@
 #include "exprs/vexpr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class VExprContext;
 
@@ -45,7 +44,7 @@ using ConstColumnVariant =
                      const ColumnDecimal32*, const ColumnDecimal64*, const ColumnDecimal128V2*,
                      const ColumnDecimal128V3*, const ColumnDecimal256*, const ColumnDate*,
                      const ColumnDateTime*, const ColumnDateV2*, const ColumnDateTimeV2*,
-                     const ColumnTime*, const ColumnTimeV2*>;
+                     const ColumnTimeV2*>;
 
 template <typename T>
 struct is_column_vector : std::false_type {};
@@ -67,8 +66,8 @@ public:
 
     std::string get_name() const override { return name; }
 
-    Status execute(VExprContext* context, const Block* block, Selector* expr_selector, size_t count,
-                   ColumnPtr& result_column, const DataTypePtr& result_type,
+    Status execute(VExprContext* context, const Block* block, const Selector* expr_selector,
+                   size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
                    const VExprSPtrs& children) const override {
         ///* array_sort(lambda, arg) *///
 
@@ -97,9 +96,7 @@ public:
         }
 
         const auto& col_array = assert_cast<const ColumnArray&>(*arg_column);
-        const auto& off_data =
-                assert_cast<const ColumnArray::ColumnOffsets&>(col_array.get_offsets_column())
-                        .get_data();
+        const auto& off_data = col_array.get_offsets_column().get_data();
 
         const auto& nested_nullable_column =
                 assert_cast<const ColumnNullable&>(*col_array.get_data_ptr());
@@ -143,9 +140,9 @@ public:
         NullMap* temp_nullmap_data[2] = {nullptr, nullptr};
         for (int i = 0; i < 2; i++) {
             auto* temp_column = assert_cast<ColumnNullable*>(
-                    lambda_block.get_by_position(i).column->assume_mutable().get());
+                    lambda_block.get_by_position(i).column->assert_mutable().get());
             temp_data[i] = temp_column->get_nested_column_ptr();
-            auto& null_map_col = assert_cast<ColumnUInt8&>(temp_column->get_null_map_column());
+            auto& null_map_col = temp_column->get_null_map_column();
             temp_nullmap_data[i] = &null_map_col.get_data();
             temp_data[i]->resize(1);
             temp_nullmap_data[i]->resize(1);
@@ -256,7 +253,6 @@ public:
             DISPATCH_PRIMITIVE_TYPE(TYPE_DATETIME, ColumnDateTime)
             DISPATCH_PRIMITIVE_TYPE(TYPE_DATEV2, ColumnDateV2)
             DISPATCH_PRIMITIVE_TYPE(TYPE_DATETIMEV2, ColumnDateTimeV2)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_TIME, ColumnTime)
             DISPATCH_PRIMITIVE_TYPE(TYPE_TIMEV2, ColumnTimeV2)
         default:
             return Status::InternalError("Unsupported type in array_sort");
@@ -271,5 +267,4 @@ void register_function_array_sort(doris::LambdaFunctionFactory& factory) {
     factory.register_function<ArraySortFunction>();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

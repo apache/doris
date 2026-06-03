@@ -41,7 +41,6 @@
 #include "util/thrift_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <typename ResultCtxType>
 ResultBlockBuffer<ResultCtxType>::ResultBlockBuffer(TUniqueId id, RuntimeState* state,
@@ -60,7 +59,7 @@ ResultBlockBuffer<ResultCtxType>::ResultBlockBuffer(TUniqueId id, RuntimeState* 
 
 template <typename ResultCtxType>
 Status ResultBlockBuffer<ResultCtxType>::close(const TUniqueId& id, Status exec_status,
-                                               int64_t num_rows) {
+                                               int64_t num_rows, bool& is_fully_closed) {
     std::unique_lock<std::mutex> l(_lock);
     _returned_rows.fetch_add(num_rows);
     // close will be called multiple times and error status needs to be collected.
@@ -77,9 +76,13 @@ Status ResultBlockBuffer<ResultCtxType>::close(const TUniqueId& id, Status exec_
                                         print_id(id));
     }
     if (!_result_sink_dependencies.empty()) {
+        // Still waiting for other instances to finish; this is not the final close.
+        is_fully_closed = false;
         return _status;
     }
 
+    // All instances have closed: the buffer is now fully closed.
+    is_fully_closed = true;
     _is_close = true;
     _arrow_data_arrival.notify_all();
 
@@ -211,9 +214,11 @@ Status ResultBlockBuffer<ResultCtxType>::add_batch(RuntimeState* state,
                 (batch_size + _last_batch_bytes) <= config::thrift_max_message_size) {
                 if constexpr (std::is_same_v<InBlockType, Block>) {
                     auto last_block = _result_batch_queue.back();
+                    auto mutable_columns_guard = last_block->mutate_columns_scoped();
+                    auto& mutable_columns = mutable_columns_guard.mutable_columns();
                     for (size_t i = 0; i < last_block->columns(); i++) {
-                        last_block->mutate_columns()[i]->insert_range_from(
-                                *result->get_by_position(i).column, 0, num_rows);
+                        mutable_columns[i]->insert_range_from(*result->get_by_position(i).column, 0,
+                                                              num_rows);
                     }
                 } else {
                     std::vector<std::string>& back_rows =
@@ -253,5 +258,4 @@ Status ResultBlockBuffer<ResultCtxType>::add_batch(RuntimeState* state,
 template class ResultBlockBuffer<GetArrowResultBatchCtx>;
 template class ResultBlockBuffer<GetResultBatchCtx>;
 
-#include "common/compile_check_end.h"
 } // namespace doris

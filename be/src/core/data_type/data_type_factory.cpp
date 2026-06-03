@@ -65,15 +65,9 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
 #include "core/uint128.h"
-#include "storage/field.h"
 #include "storage/olap_common.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
-DataTypePtr DataTypeFactory::create_data_type(const doris::StorageField& col_desc) {
-    return create_data_type(col_desc.get_desc(), col_desc.is_nullable());
-}
-
 DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool is_nullable) {
     DataTypePtr nested = nullptr;
     if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
@@ -104,7 +98,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
     } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
-        nested = std::make_shared<DataTypeVariant>(col_desc.variant_max_subcolumns_count());
+        nested = std::make_shared<DataTypeVariant>(col_desc.variant_max_subcolumns_count(),
+                                                   col_desc.variant_enable_doc_mode());
     } else {
         nested = _create_primitive_data_type(col_desc.type(), col_desc.precision(), col_desc.frac(),
                                              col_desc.length());
@@ -175,7 +170,7 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = std::make_shared<DataTypeString>(-1, TYPE_STRING);
         break;
     case FieldType::OLAP_FIELD_TYPE_VARIANT:
-        result = std::make_shared<DataTypeVariant>(0);
+        result = std::make_shared<DataTypeVariant>(0, false);
         break;
     case FieldType::OLAP_FIELD_TYPE_JSONB:
         result = std::make_shared<DataTypeJsonb>();
@@ -242,7 +237,8 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeString>();
         break;
     case PGenericType::VARIANT:
-        nested = std::make_shared<DataTypeVariant>(pcolumn.variant_max_subcolumns_count());
+        nested = std::make_shared<DataTypeVariant>(pcolumn.variant_max_subcolumns_count(),
+                                                   pcolumn.variant_enable_doc_mode());
         break;
     case PGenericType::JSONB:
         nested = std::make_shared<DataTypeJsonb>();
@@ -383,8 +379,23 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
     } else {
         // TODO add precision and frac
-        nested = _create_primitive_data_type(static_cast<FieldType>(pcolumn.type()),
-                                             pcolumn.precision(), pcolumn.frac(), -1);
+        auto meta_precision = pcolumn.precision();
+        auto meta_scale = pcolumn.frac();
+        if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_DECIMAL)) {
+            // Segments written by Doris < 2.1.0 (before #26572) do not persist
+            // precision/frac in ColumnMetaPB, so they default to 0 when read back.
+            // Pass UINT32_MAX to DataTypeDecimalV2 to signal that the original
+            // precision/scale are unknown; otherwise check_type_precision(0) throws
+            // "meet invalid precision: real_precision=0".
+            UInt32 orig_precision =
+                    meta_precision > 0 ? static_cast<UInt32>(meta_precision) : UINT32_MAX;
+            UInt32 orig_scale = meta_precision > 0 ? static_cast<UInt32>(meta_scale) : UINT32_MAX;
+            nested = _create_primitive_data_type(static_cast<FieldType>(pcolumn.type()),
+                                                 orig_precision, orig_scale, -1);
+        } else {
+            nested = _create_primitive_data_type(static_cast<FieldType>(pcolumn.type()),
+                                                 meta_precision, meta_scale, -1);
+        }
     }
 
     if (pcolumn.is_nullable() && nested) {
@@ -447,7 +458,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = std::make_shared<DataTypeFloat64>();
         break;
     case TYPE_VARIANT:
-        nested = std::make_shared<DataTypeVariant>(0);
+        nested = std::make_shared<DataTypeVariant>(0, false);
         break;
     case TYPE_STRING:
     case TYPE_CHAR:
@@ -455,7 +466,6 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = std::make_shared<DataTypeString>(len, primitive_type);
         break;
     case TYPE_BINARY:
-    case TYPE_LAMBDA_FUNCTION:
         nested = std::make_shared<DataTypeString>(len, TYPE_STRING);
         break;
     case TYPE_JSONB:
@@ -522,10 +532,12 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
         if (scalar_type.type == TPrimitiveType::VARIANT) {
             DCHECK(scalar_type.variant_max_subcolumns_count >= 0)
                     << "count is: " << scalar_type.variant_max_subcolumns_count;
-            return is_nullable ? make_nullable(std::make_shared<DataTypeVariant>(
-                                         scalar_type.variant_max_subcolumns_count))
-                               : std::make_shared<DataTypeVariant>(
-                                         scalar_type.variant_max_subcolumns_count);
+            bool doc_mode = scalar_type.__isset.variant_enable_doc_mode
+                                    ? scalar_type.variant_enable_doc_mode
+                                    : false;
+            auto dt = std::make_shared<DataTypeVariant>(scalar_type.variant_max_subcolumns_count,
+                                                        doc_mode);
+            return is_nullable ? make_nullable(dt) : dt;
         }
         return create_data_type(thrift_to_type(scalar_type.type), is_nullable,
                                 scalar_type.__isset.precision ? scalar_type.precision : 0,
@@ -628,7 +640,8 @@ DataTypePtr DataTypeFactory::create_data_type(
             // Do nothing
             nested = std::make_shared<DataTypeAggState>();
         } else if (primitive_type == TYPE_VARIANT) {
-            nested = std::make_shared<DataTypeVariant>(node.variant_max_subcolumns_count());
+            nested = std::make_shared<DataTypeVariant>(node.variant_max_subcolumns_count(),
+                                                       node.variant_enable_doc_mode());
         } else {
             return create_data_type(primitive_type, is_nullable,
                                     scalar_type.has_precision() ? scalar_type.precision() : 0,
@@ -669,7 +682,8 @@ DataTypePtr DataTypeFactory::create_data_type(
         break;
     }
     case TTypeNodeType::VARIANT: {
-        nested = std::make_shared<DataTypeVariant>(node.variant_max_subcolumns_count());
+        nested = std::make_shared<DataTypeVariant>(node.variant_max_subcolumns_count(),
+                                                   node.variant_enable_doc_mode());
         break;
     }
     default:

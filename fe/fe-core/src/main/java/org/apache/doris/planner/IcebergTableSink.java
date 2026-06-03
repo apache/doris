@@ -34,11 +34,13 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TIcebergTableSink;
+import org.apache.doris.thrift.TIcebergWriteType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.iceberg.NullOrder;
 import org.apache.iceberg.PartitionSpecParser;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SortDirection;
 import org.apache.iceberg.SortField;
@@ -117,8 +119,22 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         tSink.setDbName(targetTable.getDbName());
         tSink.setTbName(targetTable.getName());
 
-        // schema
-        tSink.setSchemaJson(SchemaParser.toJson(icebergTable.schema()));
+        boolean isRewriting = false;
+        if (insertCtx.isPresent() && insertCtx.get() instanceof IcebergInsertCommandContext) {
+            IcebergInsertCommandContext context = (IcebergInsertCommandContext) insertCtx.get();
+            isRewriting = context.isRewriting();
+            if (isRewriting) {
+                tSink.setWriteType(TIcebergWriteType.REWRITE);
+            }
+        }
+
+        Schema schema = icebergTable.schema();
+        if (isRewriting
+                && IcebergUtils.getFormatVersion(icebergTable) >= IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            // iceberg v3 format requires additional row lineage fields when rewrite data files.
+            schema = IcebergUtils.appendRowLineageFieldsForV3(schema);
+        }
+        tSink.setSchemaJson(SchemaParser.toJson(schema));
 
         // partition spec
         if (icebergTable.spec().isPartitioned()) {
@@ -172,7 +188,7 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
             tSink.setBrokerAddresses(getBrokerAddresses(targetTable.getCatalog().bindBrokerName()));
         }
 
-        if (insertCtx.isPresent()) {
+        if (insertCtx.isPresent() && insertCtx.get() instanceof IcebergInsertCommandContext) {
             IcebergInsertCommandContext context = (IcebergInsertCommandContext) insertCtx.get();
             tSink.setOverwrite(context.isOverwrite());
 

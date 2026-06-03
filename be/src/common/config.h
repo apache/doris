@@ -395,15 +395,17 @@ DECLARE_mInt32(thrift_connect_timeout_seconds);
 DECLARE_mInt64(thrift_client_retry_interval_ms);
 // max message size of thrift request
 // default: 100 * 1024 * 1024
-DECLARE_mInt64(thrift_max_message_size);
+DECLARE_mInt32(thrift_max_message_size);
 // max bytes number for single scan range, used in segmentv2
 DECLARE_mInt32(doris_scan_range_max_mb);
 // single read execute fragment row number
 DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
 DECLARE_mInt32(doris_scanner_row_bytes);
-// single read execute fragment max run time millseconds
+// Deprecated. single read execute fragment max run time millseconds
 DECLARE_mInt32(doris_scanner_max_run_time_ms);
+// Minimum interval in milliseconds between adaptive scanner concurrency adjustments
+DECLARE_mInt32(doris_scanner_dynamic_interval_ms);
 // (Advanced) Maximum size of per-query receive-side buffer
 DECLARE_mInt32(exchg_node_buffer_size_bytes);
 DECLARE_mInt32(exchg_buffer_queue_capacity_factor);
@@ -498,6 +500,11 @@ DECLARE_mInt32(pk_index_page_cache_stale_sweep_time_sec);
 DECLARE_mBool(enable_low_cardinality_optimize);
 DECLARE_Bool(enable_low_cardinality_cache_code);
 
+// Adaptive batch size: dynamically adjust SegmentIterator chunk row count using EWMA
+// so that each output block stays close to preferred_block_size_bytes.
+// When false, the fixed batch_size row behaviour is preserved.
+DECLARE_mBool(enable_adaptive_batch_size);
+
 // be policy
 // whether check compaction checksum
 DECLARE_mBool(enable_compaction_checksum);
@@ -532,7 +539,16 @@ DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 // This config can be set to limit thread number in compaction thread pool.
 DECLARE_mInt32(max_base_compaction_threads);
 DECLARE_mInt32(max_cumu_compaction_threads);
-DECLARE_mInt32(max_single_replica_compaction_threads);
+
+// Binlog Compaction
+DECLARE_mInt64(binlog_compaction_wait_timesec_after_visible);
+DECLARE_mInt64(binlog_compaction_goal_size_mbytes);
+DECLARE_mInt32(binlog_compaction_task_num_per_disk);
+DECLARE_mInt32(binlog_compaction_file_count_threshold);
+DECLARE_mInt32(binlog_level_compaction_max_deltas);
+DECLARE_mInt64(binlog_compaction_time_threshold_seconds);
+DECLARE_mInt32(binlog_compaction_permits_percent);
+DECLARE_mInt32(max_binlog_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);
 DECLARE_mInt64(base_compaction_min_rowset_num);
@@ -579,8 +595,6 @@ DECLARE_mInt64(total_permits_for_compaction_score);
 
 // sleep interval in ms after generated compaction tasks
 DECLARE_mInt32(generate_compaction_tasks_interval_ms);
-// sleep interval in second after update replica infos
-DECLARE_mInt32(update_replica_infos_interval_seconds);
 
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
@@ -612,6 +626,9 @@ DECLARE_mInt32(compaction_keep_invisible_version_max_count);
 DECLARE_mInt32(base_compaction_trace_threshold);
 DECLARE_mInt32(cumulative_compaction_trace_threshold);
 DECLARE_mBool(disable_compaction_trace_log);
+
+DECLARE_mBool(enable_compaction_task_tracker);
+DECLARE_mInt32(compaction_task_tracker_max_records);
 
 // Interval to picking rowset to compact, in seconds
 DECLARE_mInt64(pick_rowset_to_compact_interval_sec);
@@ -878,6 +895,11 @@ DECLARE_mInt32(high_priority_flush_thread_num_per_store);
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
 DECLARE_mInt32(max_flush_thread_num_per_cpu);
+// minimum flush threads per cpu when adaptive flush is enabled (default 0.5)
+DECLARE_mDouble(min_flush_thread_num_per_cpu);
+
+// Whether to enable adaptive flush thread adjustment
+DECLARE_mBool(enable_adaptive_flush_threads);
 
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
@@ -1119,7 +1141,6 @@ DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
 
 DECLARE_Bool(enable_time_lut);
-DECLARE_mBool(enable_simdjson_reader);
 
 DECLARE_mBool(enable_query_like_bloom_filter);
 // number of s3 scanner thread pool size
@@ -1262,6 +1283,7 @@ DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_qps_limit);
+DECLARE_mBool(enable_file_cache_async_touch_on_get_or_set);
 DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
@@ -1302,6 +1324,11 @@ DECLARE_String(inverted_index_query_cache_limit);
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
 
+// ANN index topn result cache
+DECLARE_String(ann_index_result_cache_limit);
+DECLARE_Int32(ann_index_result_cache_shards);
+DECLARE_Int32(ann_index_result_cache_stale_sweep_time_sec);
+
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
@@ -1340,9 +1367,6 @@ DECLARE_mInt64(file_cache_max_file_reader_cache_size);
 DECLARE_mInt64(hdfs_write_batch_buffer_size_mb);
 //enable shrink memory
 DECLARE_mBool(enable_shrink_memory);
-// enable cache for high concurrent point query work load
-DECLARE_mInt32(schema_cache_capacity);
-DECLARE_mInt32(schema_cache_sweep_time_sec);
 
 // max number of segment cache
 DECLARE_Int32(segment_cache_capacity);
@@ -1417,6 +1441,8 @@ DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 DECLARE_mInt32(variant_max_json_key_length);
 // Treat invalid json format str as string, instead of throwing exception if false
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
+// Enable duplicate path check when parsing json into variant subcolumns/jsonb.
+DECLARE_mBool(variant_enable_duplicate_json_path_check);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
 DECLARE_mBool(enable_variant_doc_sparse_write_subcolumns);
@@ -1632,9 +1658,6 @@ DECLARE_String(s3_client_http_scheme);
 
 DECLARE_mBool(ignore_schema_change_check);
 
-/** Only use in fuzzy test **/
-DECLARE_mInt64(string_overflow_size);
-
 // The min thread num for BufferedReaderPrefetchThreadPool
 DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread);
 // The max thread num for BufferedReaderPrefetchThreadPool
@@ -1769,6 +1792,10 @@ DECLARE_mInt32(segments_key_bounds_truncation_threshold);
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DECLARE_mBool(random_segments_key_bounds_truncation);
 
+// If true, non-MOW rowsets store a single aggregated [rowset_min, rowset_max]
+// key-bounds entry instead of per-segment bounds, to reduce meta size on cloud FDB.
+DECLARE_mBool(enable_aggregate_non_mow_key_bounds);
+
 DECLARE_mBool(enable_auto_clone_on_compaction_missing_version);
 
 DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
@@ -1779,11 +1806,20 @@ DECLARE_String(fuzzy_test_type);
 // The maximum csv line reader output buffer size
 DECLARE_mInt64(max_csv_line_reader_output_buffer_size);
 
+// The maximum bytes of a single block returned by load file readers (CsvReader, NewJsonReader,
+// ParquetReader, OrcReader). Default is 200MB. Set to 0 to disable the limit.
+DECLARE_mInt64(load_reader_max_block_bytes);
+
 // Maximum number of OpenMP threads available for concurrent index builds.
 // -1 means auto: use 80% of detected CPU cores.
 DECLARE_Int32(omp_threads_limit);
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DECLARE_mInt32(max_segment_partial_column_cache_size);
+// Cache for ANN index IVF on-disk list data.
+// Default "70%" means 70% of total physical memory.
+DECLARE_String(ann_index_ivf_list_cache_limit);
+// Stale sweep time for ANN index IVF list cache in seconds.
+DECLARE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec);
 // Chunk size for ANN/vector index building per training/adding batch
 DECLARE_mInt64(ann_index_build_chunk_size);
 
@@ -1805,6 +1841,7 @@ DECLARE_mInt32(concurrency_stats_dump_interval_ms);
 DECLARE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin);
 
 DECLARE_mBool(enable_cloud_make_rs_visible_on_be);
+DECLARE_mInt32(file_handles_deplenish_frequency_times);
 
 #ifdef BE_TEST
 // test s3

@@ -181,9 +181,15 @@ public class VariantType extends PrimitiveType {
                                     .append(String.valueOf(variantMaxSparseColumnStatisticsSize))
                                     .append("\"");
             sb.append(",");
+            // Output at least 1 for backward compatibility: old data without this parameter defaults to 0
             sb.append("\"variant_sparse_hash_shard_count\" = \"")
-                                    .append(String.valueOf(variantSparseHashShardCount))
+                                    .append(String.valueOf(Math.max(1, variantSparseHashShardCount)))
                                     .append("\"");
+        }
+        if (enableNestedGroup) {
+            sb.append(",");
+            sb.append("\"variant_enable_nested_group\" = \"")
+                    .append(String.valueOf(enableNestedGroup)).append("\"");
         }
         sb.append(")>");
         return sb.toString();
@@ -286,5 +292,9 @@ public class VariantType extends PrimitiveType {
 
     public int getVariantDocShardCount() {
         return variantDocShardCount;
+    }
+
+    public boolean getEnableNestedGroup() {
+        return enableNestedGroup;
     }
 }

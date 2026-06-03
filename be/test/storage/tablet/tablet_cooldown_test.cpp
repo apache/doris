@@ -41,6 +41,7 @@
 #include "core/column/column.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
@@ -333,7 +334,7 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
                                            slot_desc->col_name()));
     }
     Status st;
-    auto columns = block.mutate_columns();
+    auto columns = std::move(block).mutate_columns();
 
     if (with_data) {
         int8_t c1 = 123;
@@ -343,13 +344,19 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
         columns[1]->insert_data((const char*)&c2, sizeof(c2));
 
         int32_t c3 = 1;
-        columns[2]->insert_data((const char*)&c3, sizeof(c2));
+        columns[2]->insert_data((const char*)&c3, sizeof(c3));
 
         VecDateTimeValue c4;
-        c4.from_date_str("2020-07-16 19:39:43", 19);
+        {
+            CastParameters p;
+            CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                          DatelikeTargetType::DATE_TIME>(
+                    {"2020-07-16 19:39:43", 19}, c4, nullptr, p);
+        }
         int64_t c4_int = c4.to_int64();
-        columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
+        columns[3]->insert_data((const char*)&c4_int, sizeof(c4_int));
 
+        block.set_columns(std::move(columns));
         st = delta_writer->write(&block, {0});
         ASSERT_EQ(Status::OK(), st);
     }

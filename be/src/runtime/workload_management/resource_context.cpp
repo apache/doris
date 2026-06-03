@@ -20,10 +20,10 @@
 #include <gen_cpp/data.pb.h>
 #include <glog/logging.h>
 
+#include "runtime/workload_management/query_task_controller.h"
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) const {
     DCHECK(statistics != nullptr);
@@ -31,6 +31,7 @@ void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) c
     statistics->__set_scan_bytes(io_context()->scan_bytes());
     statistics->__set_cpu_ms(cpu_context()->cpu_cost_ms() / NANOS_PER_MILLIS);
     statistics->__set_returned_rows(io_context()->returned_rows());
+    statistics->__set_process_rows(io_context()->process_rows());
     statistics->__set_max_peak_memory_bytes(memory_context()->max_peak_memory_bytes());
     statistics->__set_current_used_memory_bytes(memory_context()->current_memory_bytes());
     statistics->__set_shuffle_send_bytes(io_context()->shuffle_send_bytes());
@@ -50,7 +51,12 @@ void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) c
             io_context_->spill_write_bytes_to_local_storage());
     statistics->__set_spill_read_bytes_from_local_storage(
             io_context_->spill_read_bytes_from_local_storage());
+
+    if (auto* query_task_controller = dynamic_cast<QueryTaskController*>(task_controller())) {
+        // Fill query task-level progress directly from task controller.
+        statistics->__set_total_tasks_num(query_task_controller->get_total_task_num());
+        statistics->__set_finished_tasks_num(query_task_controller->get_finished_task_num());
+    }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

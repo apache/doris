@@ -30,7 +30,6 @@
 #include "util/hash/murmur_hash3.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 inline bvar::Adder<int64_t> g_total_bloom_filter_num("doris_total_bloom_filter_num");
 inline bvar::Adder<int64_t> g_read_bloom_filter_num("doris_read_bloom_filter_num");
 inline bvar::Adder<int64_t> g_write_bloom_filter_num("doris_write_bloom_filter_num");
@@ -243,4 +242,3 @@ protected:
 };
 
 } // namespace doris::segment_v2
-#include "common/compile_check_end.h"

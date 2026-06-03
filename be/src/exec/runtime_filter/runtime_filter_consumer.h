@@ -28,9 +28,8 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // Work on ScanNode or MultiCastDataStreamSource, RuntimeFilterConsumerHelper will manage all RuntimeFilterConsumer
-// Used to create VRuntimeFilterWrapper to filter data
+// Used to create RuntimeFilterExpr to filter data
 class RuntimeFilterConsumer : public RuntimeFilter {
 public:
     // NOT_READY (-> TIMEOUT) -> READY -> APPLIED
@@ -56,7 +55,7 @@ public:
             std::shared_ptr<Dependency> dependencies);
 
     // Called after `State` is ready (e.g. signaled)
-    Status acquire_expr(std::vector<VRuntimeFilterPtr>& push_exprs);
+    Status acquire_expr(std::vector<RuntimeFilterExprPtr>& push_exprs);
 
     std::string debug_string() override {
         std::unique_lock<std::recursive_mutex> l(_rmtx);
@@ -91,19 +90,24 @@ private:
               _probe_expr(desc->planId_to_target_expr.find(node_id)->second),
               _registration_time(MonotonicMillis()),
               _rf_state(State::NOT_READY) {
-        // If bitmap filter is not applied, it will cause the query result to be incorrect
-        // local rf must wait until timeout, otherwise it may lead results incorrectness, because LEFT_SEMI_DIRECT_RETURN_OPT
-        bool wait_infinitely = state->runtime_filter_wait_infinitely() ||
-                               _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER ||
-                               !has_remote_target();
-        _rf_wait_time_ms = wait_infinitely ? state->get_query_ctx()->execution_timeout() * 1000
-                                           : state->get_query_ctx()->runtime_filter_wait_time_ms();
+        if (desc->__isset.wait_time_ms) {
+            _rf_wait_time_ms = desc->wait_time_ms;
+        } else {
+            // If bitmap filter is not applied, it will cause the query result to be incorrect
+            // local rf must wait until timeout, otherwise it may lead results incorrectness, because LEFT_SEMI_DIRECT_RETURN_OPT
+            bool wait_infinitely = state->runtime_filter_wait_infinitely() ||
+                                   _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER ||
+                                   !has_remote_target();
+            _rf_wait_time_ms = wait_infinitely
+                                       ? state->get_query_ctx()->execution_timeout() * 1000
+                                       : state->get_query_ctx()->runtime_filter_wait_time_ms();
+        }
         DorisMetrics::instance()->runtime_filter_consumer_num->increment(1);
     }
 
-    Status _apply_ready_expr(std::vector<VRuntimeFilterPtr>& push_exprs);
+    Status _apply_ready_expr(std::vector<RuntimeFilterExprPtr>& push_exprs);
 
-    Status _get_push_exprs(std::vector<VRuntimeFilterPtr>& container, const TExpr& probe_expr);
+    Status _get_push_exprs(std::vector<RuntimeFilterExprPtr>& container, const TExpr& probe_expr);
     void _check_state(std::vector<State> assumed_states) {
         if (!check_state_impl<RuntimeFilterConsumer>(_rf_state, assumed_states)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -140,9 +144,9 @@ private:
             std::make_shared<RuntimeProfile::Counter>(TUnit::TIME_NS, 0);
     //_rf_filter is used to record the number of rows filtered by the runtime filter.
     //It aggregates the filtering statistics from both the Storage and Execution.
-    // Counter will be shared by RuntimeFilterConsumer & VRuntimeFilterWrapper
+    // Counter will be shared by RuntimeFilterConsumer & RuntimeFilterExpr
     // OperatorLocalState's close method will collect the statistics from RuntimeFilterConsumer
-    // VRuntimeFilterWrapper will update the statistics.
+    // RuntimeFilterExpr will update the statistics.
     std::shared_ptr<RuntimeProfile::Counter> _rf_filter =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0, 1);
     std::shared_ptr<RuntimeProfile::Counter> _rf_input =
@@ -159,5 +163,4 @@ private:
 
     friend class RuntimeFilterProducer;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

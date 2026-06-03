@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.stats.StatsCalculator;
@@ -52,6 +53,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -134,12 +136,15 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
      * */
     private boolean shouldBanOnePhaseAgg(PhysicalHashAggregate<? extends Plan> aggregate,
             PhysicalProperties requiredChildProperty) {
-        if (banAggUnionAll(aggregate)) {
-            return true;
-        }
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null && ctx.getSessionVariable().aggPhase == 1) {
             return false;
+        }
+        if (ctx != null && AggregateUtils.isSingleExecutionInstance(ctx)) {
+            return false;
+        }
+        if (banAggUnionAll(aggregate)) {
+            return true;
         }
         if (!onePhaseAggWithDistribute(aggregate)) {
             return false;
@@ -152,7 +157,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             }
             // group by key is skew
             return skewOnShuffleExpr(aggregate);
-
         } else {
             return true;
         }
@@ -165,7 +169,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         if (aggStatistics == null || inputStatistics == null) {
             return false;
         }
-        if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), inputStatistics)) {
+        if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), inputStatistics, true)) {
             return false;
         }
         // There are two cases of skew:
@@ -183,10 +187,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         for (int i = 0; i < groupBy.size(); ++i) {
             Expression expr = groupBy.get(i);
             ColumnStatistic colStat = inputStatistics.findColumnStatistics(expr);
-            if (colStat == null) {
+            if (colStat == null || colStat.isUnKnown) {
                 continue;
             }
-            if (colStat.getHotValues() == null) {
+            if (StatisticsUtil.getHotValuesWithOriginalThreshold(colStat.getHotValues(), colStat.ndv) == null) {
                 continue;
             }
             List<Expression> otherExpr = excludeElement(groupBy, i);
@@ -229,9 +233,24 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
     * no matter x.ndv is high or not, it is not worthwhile to shuffle A and B by x
     * and hence we forbid one phase agg */
     private boolean banAggUnionAll(PhysicalHashAggregate<? extends Plan> aggregate) {
-        return aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
-                && children.get(0).getPlan() instanceof PhysicalUnion
-                && !((PhysicalUnion) children.get(0).getPlan()).isDistinct();
+        if (aggregate.getAggMode() == AggMode.INPUT_TO_RESULT && children.get(0).getPlan() instanceof PhysicalUnion
+                && !((PhysicalUnion) children.get(0).getPlan()).isDistinct()) {
+            GroupExpression gExprUnion = children.get(0);
+            List<Group> groups = gExprUnion.children();
+            Pair<Cost, List<PhysicalProperties>> pair = gExprUnion.getLowestCostTable().get(requiredProperties.get(0));
+            int i = 0;
+            // If none of the union inputs have PhysicalDistribute, allow one-phase aggregation
+            for (Group group : groups) {
+                GroupExpression groupExpression = group.getBestPlan(pair.second.get(i));
+                i++;
+                if (groupExpression != null && groupExpression.getPlan() instanceof PhysicalDistribute) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        return false;
     }
 
     @Override
@@ -292,10 +311,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 int bucketNum = candidate.getTable().getDefaultDistributionInfo().getBucketNum();
                 int totalBucketNum = prunedPartNum * bucketNum;
                 ConnectContext connectContext = ConnectContext.get();
-                int backEndNum = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
-                String clusterName = connectContext.getSessionVariable().resolveCloudClusterName(connectContext);
-                int paraNum = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum(clusterName));
-                return totalBucketNum < backEndNum * paraNum * 0.8;
+                return totalBucketNum < connectContext.getTotalInstanceNum() * 0.8;
             }
         }
     }

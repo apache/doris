@@ -17,6 +17,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/check.h"         // IWYU pragma: export
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/expected.h"
@@ -82,6 +83,7 @@ namespace ErrorCode {
     TStatusError(OBTAIN_LOCK_FAILED, false);              \
     TStatusError(SNAPSHOT_EXPIRED, false);                \
     TStatusError(DELETE_BITMAP_LOCK_ERROR, false);        \
+    TStatusError(SC_COMPACTION_CONFLICT, false);          \
     TStatusError(FINISHED, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
@@ -254,6 +256,8 @@ namespace ErrorCode {
     E(FULL_NO_SUITABLE_VERSION, -2008, false);               \
     E(FULL_MISS_VERSION, -2009, true);                       \
     E(CUMULATIVE_MEET_DELETE_VERSION, -2010, false);         \
+    E(BINLOG_COMPACTION_INVALID_PARAMETERS, -2011, true);    \
+    E(BINLOG_COMPACTION_NO_SUITABLE_VERSION, -2012, false);  \
     E(META_INVALID_ARGUMENT, -3000, true);                   \
     E(META_OPEN_DB_ERROR, -3001, true);                      \
     E(META_KEY_NOT_FOUND, -3002, false);                     \
@@ -767,14 +771,6 @@ using ResultError = unexpected<Status>;
         }                                                                                         \
         std::forward<_result_t>(_result_).error();                                                \
     })
-
-// core in Debug mode, exception in Release mode.
-#define DORIS_CHECK(stmt)                                                                \
-    do {                                                                                 \
-        if (!static_cast<bool>(stmt)) [[unlikely]] {                                     \
-            throw Exception(Status::FatalError(fmt::format("Check failed: {}", #stmt))); \
-        }                                                                                \
-    } while (false)
 
 } // namespace doris
 

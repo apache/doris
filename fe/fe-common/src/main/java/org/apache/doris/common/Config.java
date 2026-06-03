@@ -380,6 +380,13 @@ public class Config extends ConfigBase {
     @ConfField(description = {"The maximum HTTP POST size of Jetty, in bytes, the default value is 100MB."})
     public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
 
+    @ConfField(description = {
+            "Jetty 在应用未消费完请求体时，额外尝试读取剩余内容的最大次数。"
+                    + "-1 表示不限制，0 表示不额外读取，正数表示最大读取次数。",
+            "The maximum number of extra reads Jetty performs for unconsumed request content. "
+                    + "-1 means unlimited, 0 means disabled, and a positive value limits the read attempts."})
+    public static int jetty_server_max_unconsumed_request_content_reads = -1;
+
     @ConfField(description = {"The maximum HTTP header size of Jetty, in bytes, the default value is 1MB."})
     public static int jetty_server_max_http_header_size = 1048576;
 
@@ -396,6 +403,15 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"The connection timeout of thrift client, in milliseconds. 0 means no timeout."})
     public static int thrift_client_timeout_ms = 0;
+
+    @ConfField(mutable = true, masterOnly = false,
+            description = {"Thrift RPC 连接阶段的超时时间（毫秒），包括 TCP connect 和可能的 TLS 握手。"
+                    + "用于防止 reopen() 时因网络异常长时间阻塞。0 表示不设置。",
+                    "Timeout in milliseconds for the connect phase of Thrift RPC connections, "
+                    + "including TCP connect and potential TLS handshake. "
+                    + "Prevents long blocking during reopen() when network is unreachable. "
+                    + "0 means no timeout."})
+    public static int thrift_rpc_connect_timeout_ms = 10000;
 
     // The default value is inherited from org.apache.thrift.TConfiguration
     @ConfField(description = {"The maximum size of a received message of the Thrift server, in bytes"})
@@ -880,6 +896,27 @@ public class Config extends ConfigBase {
     public static int max_point_query_retry_time = 2;
 
     /**
+     * If set to true, FE may omit heavy reusable parameters (desc_tbl/output_expr/query_options)
+     * in point lookup requests (PTabletKeyLookupRequest) when executing prepared statements.
+     * BE will first try to find reusable context from LookupConnectionCache by uuid; if missing,
+     * BE asks FE to resend a full request with these parameters via
+     * response.need_resend_query_context.
+     *
+     * This can greatly reduce FE outbound network throughput when cache hit rate is high.
+     */
+    @ConfField(mutable = true, description = {
+            "是否启用 point query 轻量请求。开启后，FE 在 PreparedStatement 执行阶段会优先省略"
+                    + " desc_tbl/output_expr/query_options，BE 若未命中可复用缓存则会要求 FE 补发完整请求。"
+                    + "当 BE 侧缓存命中率较高时，可以显著降低 FE 的出网带宽。",
+            "Whether to enable lightweight point-query requests. When enabled, FE will omit"
+                    + " desc_tbl/output_expr/query_options on the first PreparedStatement execute"
+                    + " request, and BE will ask FE to resend the full request if reusable cache"
+                    + " is missing. This can significantly reduce FE outbound bandwidth when the"
+                    + " BE-side reusable cache hit rate is high."
+    })
+    public static boolean enable_lightweight_lookup_request = false;
+
+    /**
      * The tryLock timeout configuration of catalog lock.
      * Normally it does not need to change, unless you need to test something.
      */
@@ -1145,6 +1182,15 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_task_timeout_multiplier = 10;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_cdc_light_rpc_timeout_sec = 90;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_cdc_heavy_rpc_timeout_sec = 600;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_cdc_fetch_splits_batch_size = 100;
 
     /**
      * the max timeout of get kafka meta.
@@ -1512,6 +1558,20 @@ public class Config extends ConfigBase {
     public static int grpc_keep_alive_second = 10;
 
     /**
+     * Whether to use gRPC directExecutor() for BackendServiceClient.
+     *
+     * WARNING: When enabled, gRPC client call listeners (including protobuf parsing/completion) may run on
+     * Netty EventLoop threads. If response messages are large, this can block transport threads and delay
+     * unrelated RPCs on the same channel.
+     *
+     * This option should only be enabled when you are sure responses are small and the risk is acceptable.
+     * Takes effect after FE restart.
+     */
+    @ConfField(description = {"是否为 BackendServiceClient 使用 gRPC directExecutor",
+            "Whether to use gRPC directExecutor for BackendServiceClient"})
+    public static boolean grpc_backend_client_use_direct_executor = false;
+
+    /**
      * Used to set minimal number of replication per tablet.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1872,6 +1932,12 @@ public class Config extends ConfigBase {
                     + "old records will be discarded."})
     public static int max_streaming_task_show_count = 100;
 
+    @ConfField(masterOnly = true, mutable = true, description = {
+            "Max auto resume retry count for streaming jobs. "
+                    + "After exceeding, the failure reason is rewritten to CANNOT_RESUME_ERR "
+                    + "and the job requires manual intervention."})
+    public static int streaming_job_max_auto_resume_count = 10;
+
     /* job test config */
     /**
      * If set to true, we will allow the interval unit to be set to second, when creating a recurring job.
@@ -2094,7 +2160,7 @@ public class Config extends ConfigBase {
      * Decrease this value if FE's memory is small
      */
     @ConfField(description = {"Maximum cache number of partitions at table level in Hive Metastore."})
-    public static long max_hive_partition_cache_num = 10000;
+    public static long max_hive_partition_cache_num = 100000;
 
     @ConfField(description = {"Maximum cache number of Hudi/Iceberg tables."})
     public static long max_external_table_cache_num = 1000;
@@ -2103,7 +2169,7 @@ public class Config extends ConfigBase {
     public static long max_meta_object_cache_num = 1000;
 
     @ConfField(description = {"Maximum cache number of Hive partitioned tables."})
-    public static long max_hive_partition_table_cache_num = 1000;
+    public static long max_hive_partition_table_cache_num = 10000;
 
     @ConfField(mutable = false, masterOnly = false, description = {
             "Max number of hive partition values to return while list partitions, -1 means no limitation."})
@@ -2205,16 +2271,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(masterOnly = true)
     public static boolean enable_hms_events_incremental_sync = false;
-
-    /**
-     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
-     * otherwise it will throw an AnalysisException.
-     */
-    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
-            "Currently defaults to true. After this function is enabled, the load statement of "
-                    + "the new optimizer can be used to import data. If this function fails, "
-                    + "the system will fall back to the old load statement."})
-    public static boolean enable_nereids_load = false;
 
     /**
      * the plan cache num which can be reused for the next query
@@ -2487,7 +2543,7 @@ public class Config extends ConfigBase {
     @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
 
-    @ConfField
+    @ConfField(mutable = true)
     public static long statistics_sql_mem_limit_in_bytes = 2L * 1024 * 1024 * 1024;
 
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -2510,6 +2566,23 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static int auto_analyze_simultaneously_running_task_num = 1;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "统计信息收集时 string 列允许的最大字节长度。若列中存在长度超过该值的行，"
+                    + "该列的统计信息将被跳过收集（task 仍标记为 FINISHED，在 SHOW ANALYZE 中显示跳过原因）。"
+                    + "≤ 0 表示关闭此保护。默认 1024 (1KB)。"
+                    + "注意：此保护只覆盖 FULL / LINEAR / DUJ1 统计收集路径（即 analyze 全表和 sample 的主 SQL）。"
+                    + "当 enable_partition_analyze=true 时的 per-partition 路径（PARTITION_ANALYZE_TEMPLATE）"
+                    + "出于正确性考虑不启用该保护，详见 BaseAnalysisTask 中的 NOTE。",
+            "Max byte length allowed for a string column when collecting statistics. "
+                    + "If any row in a string column is longer than this value, the column's stats "
+                    + "collection is skipped (the task is still marked FINISHED, with the skip reason "
+                    + "shown in SHOW ANALYZE). A value <= 0 disables this protection. Default: 1024 (1KB). "
+                    + "Note: this protection applies to the FULL / LINEAR / DUJ1 collection paths "
+                    + "(i.e. the main SQL used by full-table and sample analyze). The per-partition path "
+                    + "(PARTITION_ANALYZE_TEMPLATE, used when enable_partition_analyze=true) is intentionally "
+                    + "not guarded for correctness reasons; see the NOTE in BaseAnalysisTask."})
+    public static long statistics_max_string_column_length = 1024;
 
     @Deprecated
     @ConfField
@@ -2577,6 +2650,17 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {"Maximum number of buckets for auto bucketing."})
     public static int autobucket_max_buckets = 128;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Maximum number of buckets allowed when creating a table or adding a partition. "
+                    + "This config shares the same default value with autobucket_max_buckets for consistency. "
+                    + "Behavior: "
+                    + "1. For user-specified buckets (CREATE TABLE / ALTER TABLE ADD PARTITION): "
+                    + "if bucket number exceeds this limit, the operation will be rejected with an error message. "
+                    + "2. For auto-bucket feature (Dynamic Partition): "
+                    + "bucket number will be capped at autobucket_max_buckets automatically. "
+                    + "Set to 0 or negative value to disable this limit for user-specified buckets."})
+    public static int max_bucket_num_per_partition = 768;
 
     @ConfField(description = {"Maximum number of connections for the Arrow Flight Server per FE."})
     public static int arrow_flight_max_connections = 4096;
@@ -2780,9 +2864,16 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean ignore_bdbje_log_checksum_read = false;
 
-    @ConfField(description = {"Specifies the authentication type"},
-            options = {"default", "ldap"})
+    @ConfField(description = {
+            "Specifies the primary MySQL authenticator name, either a built-in authenticator "
+                    + "or an authentication plugin name"},
+            options = {"default", "password", "ldap", "<plugin_name>"})
     public static String authentication_type = "default";
+
+    @ConfField(mutable = true, description = {
+            "Specifies the authentication chain used after primary authentication failure, "
+                    + "multiple integration names are comma-separated"})
+    public static String authentication_chain = "";
 
     @ConfField(mutable = true, masterOnly = false, description = {
             "Specify the default plugins loading path for the trino-connector catalog"})
@@ -2889,7 +2980,8 @@ public class Config extends ConfigBase {
     public static boolean enable_abort_txn_by_checking_coordinator_be = true;
 
     @ConfField(mutable = true, description = {
-            "Whether to abort transactions by checking conflict transactions in schema change."})
+            "Whether to abort transactions by checking conflict transactions in schema change "
+                    + "or cloud upgrade checks."})
     public static boolean enable_abort_txn_by_checking_conflict_txn = true;
 
     @ConfField(mutable = true, description = {
@@ -2912,6 +3004,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {
             "Interval at which the dictionary triggers a data expiration check, in seconds."})
     public static int dictionary_auto_refresh_interval_seconds = 5;
+
+    @ConfField(mutable = false, masterOnly = false, description = {
+            "Whether to enable the experimental Table Stream functionality" },
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_table_stream = false;
 
     //==========================================================================
     //                    begin of cloud config
@@ -3239,6 +3336,23 @@ public class Config extends ConfigBase {
     public static String streamload_redirect_policy = "";
 
     @ConfField(mutable = true, description = {
+            "Stream Load redirect 场景下，FE 在返回 307 后额外丢弃请求体的最大字节数。"
+                    + "0 表示关闭该兼容逻辑，正数表示最大丢弃字节数。",
+            "The maximum number of request body bytes FE drains after returning 307 for Stream Load redirects. "
+                    + "0 disables the compatibility logic, and a positive value sets the byte limit."})
+    // Enable a generous bounded drain window by default to preserve FE redirect compatibility on Jetty 12.
+    public static long stream_load_redirect_bounded_drain_max_bytes = 1024L * 1024 * 1024;
+
+    @ConfField(mutable = true, description = {
+            "Stream Load redirect 场景下，FE 在检测到请求体暂时无可读数据后继续等待的最大空闲时长，单位毫秒。"
+                    + "0 表示不额外等待，用于给慢客户端或分段到达的数据保留一个有限的缓冲窗口。",
+            "The maximum idle wait time in milliseconds after FE detects no readable request body bytes "
+                    + "during Stream Load redirect drain. 0 disables the extra idle wait, while a positive value "
+                    + "keeps a bounded grace window for slow clients or delayed request body chunks."})
+    // Keep a small grace period for delayed body chunks after FE has already written the redirect.
+    public static int stream_load_redirect_bounded_drain_max_idle_time_ms = 1000;
+
+    @ConfField(mutable = true, description = {
             "Whether to enable group commit streamload BE forward feature in cloud mode. "
                     + "Solves the issue where LB random forwarding breaks group commit batching "
                     + "by implementing BE-level forwarding to ensure same-table requests reach the same BE node."})
@@ -3361,6 +3475,54 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long mow_get_ms_lock_retry_backoff_interval = 80;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable TSO."}, varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_tso_feature = false;
+
+    @ConfField(mutable = false, masterOnly = true, description = {
+            "TSO service update interval in milliseconds. Default is 50, which means the TSO service "
+                    + "will perform timestamp update checks every 50 milliseconds."})
+    public static int tso_service_update_interval_ms = 50;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "TSO service max retry count. Default is 3, which means the TSO service will retry 3 times "
+                    + "to update the global timestamp."})
+    public static int tso_max_update_retry_count = 3;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "TSO get max retry count. Default is 10, which means the TSO service will retry 10 times "
+                    + "to generate TSO."})
+    public static int tso_max_get_retry_count = 10;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "TSO service time window in milliseconds. Default is 5000, which means the TSO service "
+                    + "will apply for a TSO time window of 5000ms from BDBJE once."})
+    public static int tso_service_window_duration_ms = 5000;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Max tolerated clock backward threshold during TSO calibration in milliseconds. "
+                    + "Exceeding this threshold will fail enabling TSO. Default is 30 minutes."})
+    public static long tso_clock_backward_startup_threshold_ms = 30L * 60 * 1000;
+
+    @ConfField(mutable = true, description = {
+            "TSO service time offset in milliseconds. Only for test. Default is 0, which means the TSO service "
+                    + "timestamp offset is 0 milliseconds."})
+    public static int tso_time_offset_debug_mode = 0;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable persisting TSO window end into edit log. Enabling emits new op code, "
+                    + "which may break rollback to older versions."})
+    public static boolean enable_tso_persist_journal = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to include TSO info as an image module in checkpoint. Older versions may need to ignore "
+                    + "unknown modules when reading new images."})
+    public static boolean enable_tso_checkpoint_module = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to forward TSO 1ms when logical counter is nearly full. Default is true."})
+    public static boolean enable_tso_forward_when_counter_full = true;
+
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_notify_be_after_load_txn_commit = false;
 
@@ -3392,14 +3554,26 @@ public class Config extends ConfigBase {
                     + "detailed information of all replicas of the tablet will be printed."})
     public static boolean sql_block_rule_ignore_admin = false;
 
-    @ConfField(description = {"Authentication plugin directory."})
+    @ConfField(description = {"Authentication plugin root directories. Use a comma-separated list to configure "
+            + "multiple roots."})
     public static String authentication_plugins_dir = EnvUtils.getDorisHome() + "/plugins/authentication";
 
-    @ConfField(description = {"Authorization plugin directory."})
+    @ConfField(description = {"Authorization plugin root directories. Use a comma-separated list to configure "
+            + "multiple roots."})
     public static String authorization_plugins_dir = EnvUtils.getDorisHome() + "/plugins/authorization";
 
     @ConfField(description = {"Security plugin directory."})
     public static String security_plugins_dir = EnvUtils.getDorisHome() + "/plugins/security";
+
+    @ConfField(description = {"Directory containing filesystem provider plugin subdirectories. "
+            + "Each subdirectory is one storage backend (e.g., s3/, hdfs/, azure/). "
+            + "If empty, only classpath-based built-in providers are used (test/dev mode)."})
+    public static String filesystem_plugin_root = EnvUtils.getDorisHome() + "/plugins/filesystem";
+
+    @ConfField(description = {"Directory containing connector provider plugin subdirectories. "
+            + "Each subdirectory is one connector (e.g., es/, jdbc/, iceberg/). "
+            + "If empty, only classpath-based built-in providers are used (test/dev mode)."})
+    public static String connector_plugin_root = EnvUtils.getDorisHome() + "/plugins/connector";
 
     @ConfField(description = {"Authorization plugin configuration file path. Must be under DORIS_HOME. "
             + "Default is conf/authorization.conf."})

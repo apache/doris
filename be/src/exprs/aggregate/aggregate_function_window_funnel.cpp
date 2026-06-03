@@ -26,7 +26,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& name,
                                                              const DataTypes& argument_types,
@@ -38,16 +37,20 @@ AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& 
         return nullptr;
     }
     if (argument_types[2]->get_primitive_type() == TYPE_DATETIMEV2) {
-        return creator_without_type::create<AggregateFunctionWindowFunnel>(
+        return creator_without_type::create<AggregateFunctionWindowFunnel<TYPE_DATETIMEV2>>(
+                argument_types, result_is_nullable, attr);
+    } else if (argument_types[2]->get_primitive_type() == TYPE_TIMESTAMPTZ) {
+        return creator_without_type::create<AggregateFunctionWindowFunnel<TYPE_TIMESTAMPTZ>>(
                 argument_types, result_is_nullable, attr);
     } else {
-        LOG(WARNING) << "Only support DateTime type as window argument!";
+        LOG(WARNING) << "Only support DateTime or TimeStampTz type as window argument!";
         return nullptr;
     }
 }
 
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("window_funnel", create_aggregate_function_window_funnel);
+    factory.register_function_both("window_funnel_v1", create_aggregate_function_window_funnel);
+    factory.register_alias("window_funnel_v1", "window_funnel");
 }
 void register_aggregate_function_window_funnel_old(AggregateFunctionSimpleFactory& factory) {
     BeExecVersionManager::registe_restrict_function_compatibility("window_funnel");

@@ -120,7 +120,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         // null bitmap
         String stmtStr = "";
         try {
-            StatementContext statementContext = prepCtx.statementContext;
+            StatementContext statementContext = prepCtx.getStatementContext();
             if (paramCount > 0) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("execute param buf: {}, array: {}", packetBuf, getHexStr(packetBuf));
@@ -186,6 +186,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
         if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
             auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+        } else {
+            // When audit log is disabled for prepared statements, still update QPS metrics.
+            AuditLogHelper.updateMetrics(ctx);
         }
     }
 
@@ -245,6 +248,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
         ctx.setCommand(command);
         ctx.setStartTime();
+        resolveWorkloadGroupName();
 
         switch (command) {
             case COM_INIT_DB:

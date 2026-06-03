@@ -72,6 +72,11 @@ message PackedSliceLocationPB {
     optional int64 packed_file_size = 4;  // Total size of the packed file
 }
 
+message TsoRangePB {
+    optional int64 start_tso = 1 [default = -1];
+    optional int64 end_tso = 2 [default = -1];
+}
+
 // ATTN: When adding or deleting fields, please update `message RowsetMetaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message RowsetMetaPB {
@@ -140,6 +145,13 @@ message RowsetMetaPB {
     // rows count for each segment
     repeated int64 num_segment_rows = 56;
 
+    // If true, `segments_key_bounds` contains a single aggregated
+    // [rowset_min_key, rowset_max_key] entry instead of per-segment bounds.
+    // Only applies to non-MOW rowsets to reduce meta size on cloud FDB.
+    optional bool segments_key_bounds_aggregated = 57;
+
+    optional bool is_row_binlog = 58 [default = false];
+
     // For cloud
     // for data recycling
     optional int64 txn_expiration = 1000;
@@ -165,6 +177,12 @@ message RowsetMetaPB {
     
     optional bool is_recycled = 1013; // for recycler mark rowset as recycled
     optional string job_id = 1014;
+
+    optional TsoRangePB commit_tso = 1015;
+
+    // For row binlog LSN allocation (FE auto-inc RPC)
+    optional int64 db_id = 1016;
+    optional int64 table_id = 1017;
 }
 
 message SchemaDictKeyList {
@@ -244,6 +262,13 @@ message RowsetMetaCloudPB {
     // rows count for each segment
     repeated int64 num_segment_rows = 56;
 
+    // If true, `segments_key_bounds` contains a single aggregated
+    // [rowset_min_key, rowset_max_key] entry instead of per-segment bounds.
+    // Only applies to non-MOW rowsets to reduce meta size on cloud FDB.
+    optional bool segments_key_bounds_aggregated = 57;
+
+    optional bool is_row_binlog = 58 [default = false];
+
     // cloud
     // the field is a vector, rename it
     repeated int64 segments_file_size = 100;
@@ -270,6 +295,12 @@ message RowsetMetaCloudPB {
 
     optional bool is_recycled = 112;
     optional string job_id = 113;
+    optional TsoRangePB commit_tso = 114;
+
+    // For row binlog LSN allocation (FE auto-inc RPC)
+    optional int64 db_id = 115;
+    optional int64 table_id = 116;
+
 }
 
 message SegmentStatisticsPB {
@@ -417,6 +448,15 @@ enum InvertedIndexStorageFormatPB {
     V3 = 2;
 }
 
+// Tablet-level storage format. Values match TStorageFormat (Thrift) integer values so
+// the C++ side can cast between TStorageFormat::type and this enum 1:1.
+enum TabletStorageFormatPB {
+    TABLET_STORAGE_FORMAT_DEFAULT = 0;
+    TABLET_STORAGE_FORMAT_V1 = 1;
+    TABLET_STORAGE_FORMAT_V2 = 2;
+    TABLET_STORAGE_FORMAT_V3 = 3;
+}
+
 message TabletIndexPB {
     optional int64 index_id = 1;
     optional string index_name = 2;
@@ -471,7 +511,7 @@ message TabletSchemaPB {
     optional bool is_dynamic_schema = 19 [default=false]; // deprecated
     reserved 20; // deprecated is_partial_update
     reserved 21; // deprecated partial_update_input_columns
-    optional bool enable_single_replica_compaction = 22 [default=false];
+    reserved 22; // deprecated enable_single_replica_compaction
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_uids = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
@@ -491,6 +531,14 @@ message TabletSchemaPB {
     optional BinaryPlainEncodingTypePB binary_plain_encoding_default_impl = 34;
     // mapping from seq column unique id to value column unique id
     optional ColumnGroupsPB seq_map = 35;
+
+    // Persisted TStorageFormat (V2=2, V3=3). This is the new authoritative field.
+    // The legacy is_external_segment_column_meta_used, integer_type_default_use_plain_encoding
+    // and binary_plain_encoding_default_impl fields above are still emitted redundantly when
+    // storage_format == V3 so that an old BE rolled back from a new one can still recover
+    // the format via the prior "any of those three implies V3" rule. New code should read
+    // storage_format; the fallback path lives in TabletSchema::init_from_pb.
+    optional TabletStorageFormatPB storage_format = 36;
 
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
@@ -515,7 +563,7 @@ message TabletSchemaCloudPB {
     optional bool store_row_column = 18 [default=false]; // store tuplerow oriented column
     reserved 20; // deprecated is_partial_update
     reserved 21; // deprecated partial_update_input_columns
-    optional bool enable_single_replica_compaction = 22 [default=false];
+    reserved 22; // deprecated enable_single_replica_compaction
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_uids = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
@@ -535,6 +583,9 @@ message TabletSchemaCloudPB {
     optional BinaryPlainEncodingTypePB binary_plain_encoding_default_impl = 35;
     // mapping from seq column unique id to value column unique id
     optional ColumnGroupsPB seq_map = 36;
+
+    // Persisted TStorageFormat (V2=2, V3=3); see TabletSchemaPB::storage_format.
+    optional TabletStorageFormatPB storage_format = 37;
 
     optional bool is_dynamic_schema = 100 [default=false];
 
@@ -580,11 +631,18 @@ message S3StorageParamPB {
     optional string root_path = 8;
 }
 
+enum BinlogFormatPB {
+    STATEMENT_AND_SNAPSHOT = 0;
+    ROW = 1;
+}
+
 message BinlogConfigPB {
     optional bool enable = 1;
     optional int64 ttl_seconds = 2;
     optional int64 max_bytes = 3;
     optional int64 max_history_nums = 4;
+    optional BinlogFormatPB binlog_format = 5;
+    optional bool need_historical_value = 6;
 }
 
 // ATTN: When adding or deleting fields, please update `message TabletMetaCloudPB`
@@ -624,9 +682,12 @@ message TabletMetaPB {
     optional int64 storage_policy_id = 25;
     optional PUniqueId cooldown_meta_id = 26;
     optional BinlogConfigPB binlog_config = 27;
+    optional TabletSchemaPB row_binlog_schema = 42;
+    repeated RowsetMetaPB row_binlog_rs_metas = 43;
+    optional int32 row_binlog_schema_hash = 44;
     optional string compaction_policy = 28 [default = "size_based"];
     optional int64 time_series_compaction_goal_size_mbytes = 29 [default = 1024];
-    optional int64 time_series_compaction_file_count_threshold = 30 [default = 2000];
+    optional int64 time_series_compaction_file_count_threshold = 30 [default = 1000];
     optional int64 time_series_compaction_time_threshold_seconds = 31 [default = 3600];
     optional int64 time_series_compaction_empty_rowsets_threshold = 32 [default = 5];
     optional int64 time_series_compaction_level_threshold = 33 [default = 1];
@@ -680,9 +741,12 @@ message TabletMetaCloudPB {
     optional int64 storage_policy_id = 28;
     optional PUniqueId cooldown_meta_id = 29;
     optional BinlogConfigPB binlog_config = 30;
+    optional TabletSchemaCloudPB row_binlog_schema = 42;
+    repeated RowsetMetaCloudPB row_binlog_rs_metas = 43;
+    optional int32 row_binlog_schema_hash = 44;
     optional string compaction_policy = 31 [default = "size_based"];
     optional int64 time_series_compaction_goal_size_mbytes = 32 [default = 1024];
-    optional int64 time_series_compaction_file_count_threshold = 33 [default = 2000];
+    optional int64 time_series_compaction_file_count_threshold = 33 [default = 1000];
     optional int64 time_series_compaction_time_threshold_seconds = 34 [default = 3600];
     reserved 35; // deprecated group_commit_interval_ms
     reserved 36; // deprecated group_commit_data_bytes
@@ -707,6 +771,7 @@ message DeleteBitmapPB {
     repeated int64 versions = 3;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 4;
+    repeated bool is_binlog_delvec = 5;
 }
 
 message BinlogMetaEntryPB {
@@ -721,6 +786,7 @@ message BinlogMetaEntryPB {
 message PendingPublishInfoPB {
     optional int64 partition_id = 1;
     optional int64 transaction_id = 2;
+    optional int64 commit_tso = 3;
 }
 
 message RowsetBinlogMetasPB {

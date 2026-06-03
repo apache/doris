@@ -46,10 +46,10 @@ public class MergeOneRowRelationIntoUnion extends OneRewriteRuleFactory {
                     ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
                     for (int i = 0; i < u.arity(); i++) {
                         Plan child = u.child(i);
-                        // if one row relation contains unique function which exist multiple times,
-                        // don't merge it, later AddProjectForUniqueFunction will handle this one row relation.
+                        // if one row relation contains volatile expression which exist multiple times,
+                        // don't merge it, later AddProjectForVolatileExpression will handle this one row relation.
                         if (!(child instanceof LogicalOneRowRelation)
-                                || ExpressionUtils.containUniqueFunctionExistMultiple(
+                                || ExpressionUtils.containVolatileExpressionExistMultiple(
                                         ((LogicalOneRowRelation) child).getProjects())) {
                             newChildren.add(child);
                             newChildrenOutputs.add(u.getRegularChildOutput(i));

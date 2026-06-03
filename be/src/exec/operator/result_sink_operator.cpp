@@ -35,7 +35,6 @@
 #include "runtime/result_buffer_mgr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -94,11 +93,11 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, int node_id,
+                                         const RowDescriptor& row_desc,
                                          const std::vector<TExpr>& t_output_expr,
                                          const TResultSink& sink)
-        : DataSinkOperatorX(operator_id, std::numeric_limits<int>::max(),
-                            std::numeric_limits<int>::max()),
+        : DataSinkOperatorX(operator_id, node_id, node_id),
           _sink_type(!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCOL
                              ? TResultSinkType::MYSQL_PROTOCOL
                              : sink.type),
@@ -197,14 +196,22 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
             state->get_query_ctx()->resource_ctx()->io_context()->update_returned_rows(
                     written_rows);
         }
-        RETURN_IF_ERROR(_sender->close(state->fragment_instance_id(), final_status, written_rows));
+        bool is_fully_closed = false;
+        RETURN_IF_ERROR(_sender->close(state->fragment_instance_id(), final_status, written_rows,
+                                       is_fully_closed));
+        // Schedule deferred cleanup only when the last instance closes the shared
+        // buffer.  In parallel result-sink mode the buffer is keyed by query_id;
+        // in non-parallel mode it is keyed by fragment_instance_id.  Either way,
+        // _sender->buffer_id() returns the correct registration key, so there is
+        // no need to branch on enable_parallel_result_sink here.
+        if (is_fully_closed) {
+            state->exec_env()->result_mgr()->cancel_at_time(
+                    time(nullptr) + config::result_buffer_cancelled_interval_time,
+                    _sender->buffer_id());
+        }
     }
-    state->exec_env()->result_mgr()->cancel_at_time(
-            time(nullptr) + config::result_buffer_cancelled_interval_time,
-            state->fragment_instance_id());
     RETURN_IF_ERROR(Base::close(state, exec_status));
     return final_status;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

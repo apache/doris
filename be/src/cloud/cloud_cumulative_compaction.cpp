@@ -34,7 +34,6 @@
 #include "util/uuid_generator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bvar::Adder<uint64_t> cumu_output_size("cumu_compaction", "output_size");
@@ -435,7 +434,8 @@ Status CloudCumulativeCompaction::modify_rowsets() {
                 DBUG_BLOCK);
         auto status = _engine.meta_mgr().cloud_update_delete_bitmap_without_lock(
                 *cloud_tablet(), pre_rowsets_delete_bitmap.get(), pre_rowset_to_versions,
-                _output_rowset->start_version(), _output_rowset->end_version());
+                cloud_tablet()->table_id(), _output_rowset->start_version(),
+                _output_rowset->end_version());
         if (!status.ok()) {
             LOG(WARNING) << "failed to agg pre rowsets delete bitmap to ms. tablet_id="
                          << _tablet->tablet_id() << ", pre rowset num=" << pre_rowsets.size()
@@ -658,5 +658,4 @@ void CloudCumulativeCompaction::do_lease() {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -21,7 +21,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 RuntimeFilterConsumerHelper::RuntimeFilterConsumerHelper(
         const std::vector<TRuntimeFilterDesc>& runtime_filters)
         : _runtime_filter_descs(runtime_filters) {}
@@ -68,7 +67,7 @@ Status RuntimeFilterConsumerHelper::acquire_runtime_filter(RuntimeState* state,
                                                            VExprContextSPtrs& conjuncts,
                                                            const RowDescriptor& row_descriptor) {
     SCOPED_TIMER(_acquire_runtime_filter_timer.get());
-    std::vector<VRuntimeFilterPtr> vexprs;
+    std::vector<RuntimeFilterExprPtr> vexprs;
     for (const auto& consumer : _consumers) {
         RETURN_IF_ERROR(consumer->acquire_expr(vexprs));
         if (!consumer->is_applied()) {
@@ -80,7 +79,7 @@ Status RuntimeFilterConsumerHelper::acquire_runtime_filter(RuntimeState* state,
 }
 
 Status RuntimeFilterConsumerHelper::_append_rf_into_conjuncts(
-        RuntimeState* state, const std::vector<VRuntimeFilterPtr>& vexprs,
+        RuntimeState* state, const std::vector<RuntimeFilterExprPtr>& vexprs,
         VExprContextSPtrs& conjuncts, const RowDescriptor& row_descriptor) {
     if (vexprs.empty()) {
         return Status::OK();
@@ -113,7 +112,7 @@ Status RuntimeFilterConsumerHelper::try_append_late_arrival_runtime_filter(
     }
 
     // 1. Check if are runtime filter ready but not applied.
-    std::vector<VRuntimeFilterPtr> exprs;
+    std::vector<RuntimeFilterExprPtr> exprs;
     int current_arrived_rf_num = 0;
     for (const auto& consumer : _consumers) {
         RETURN_IF_ERROR(consumer->acquire_expr(exprs));

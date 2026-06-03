@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.Queriable;
@@ -37,6 +38,7 @@ import org.apache.thrift.TSerializer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -55,6 +57,7 @@ public class ShortCircuitQueryContext {
 
     public final int schemaVersion;
     public final OlapTable tbl;
+    public final String tableName;
 
     public final OlapScanNode scanNode;
     public final Queriable analzyedQuery;
@@ -83,7 +86,7 @@ public class ShortCircuitQueryContext {
     public ShortCircuitQueryContext(Planner planner, Queriable analzyedQuery) throws TException {
         this.planner = planner;
         this.serializedDescTable = ByteString.copyFrom(
-                new TSerializer().serialize(planner.getDescTable().toThrift()));
+                new TSerializer().serialize(DescriptorToThriftConverter.toThrift(planner.getDescTable())));
         TQueryOptions options = planner.getQueryOptions() != null ? planner.getQueryOptions() : new TQueryOptions();
         this.serializedQueryOptions = ByteString.copyFrom(
                 new TSerializer().serialize(options));
@@ -105,8 +108,15 @@ public class ShortCircuitQueryContext {
         this.cacheID = UUID.randomUUID();
         this.scanNode = olapScanNode;
         this.tbl = this.scanNode.getOlapTable();
+        this.tableName = this.scanNode.getTableNameInPlan();
         this.schemaVersion = this.tbl.getBaseSchemaVersion();
         this.analzyedQuery = analzyedQuery;
+    }
+
+    public boolean isReusable() {
+        return !this.tbl.isDropped
+                && this.tbl.getBaseSchemaVersion() == this.schemaVersion
+                && Objects.equals(this.tableName, this.tbl.getName());
     }
 
     public void sanitize() {
@@ -114,5 +124,6 @@ public class ShortCircuitQueryContext {
         Preconditions.checkNotNull(serializedOutputExpr);
         Preconditions.checkNotNull(cacheID);
         Preconditions.checkNotNull(tbl);
+        Preconditions.checkNotNull(tableName);
     }
 }

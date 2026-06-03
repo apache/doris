@@ -20,7 +20,6 @@
 #include "exprs/create_predicate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::unique_ptr<EqualityDeleteBase> EqualityDeleteBase::get_delete_impl(
         const Block* delete_block, const std::vector<int>& delete_col_ids) {
@@ -52,8 +51,10 @@ Status SimpleEqualityDelete::filter_data_block(
     DCHECK(_delete_col_ids.size() == 1);
     auto column_field_id = _delete_col_ids[0];
 
-    auto column_and_type = data_block->get_by_position(
-            col_name_to_block_idx->at(id_to_block_column_name.at(column_field_id)));
+    const auto& block_col_name = id_to_block_column_name.at(column_field_id);
+    auto block_idx = col_name_to_block_idx->at(block_col_name);
+
+    auto column_and_type = data_block->get_by_position(block_idx);
 
     size_t rows = data_block->rows();
     //     _filter: 1 => in _hybrid_set; 0 => not in _hybrid_set
@@ -67,9 +68,8 @@ Status SimpleEqualityDelete::filter_data_block(
         const NullMap& null_map =
                 reinterpret_cast<const ColumnNullable*>(column_and_type.column.get())
                         ->get_null_map_data();
-        _hybrid_set->find_batch_nullable(
-                remove_nullable(column_and_type.column)->assume_mutable_ref(), rows, null_map,
-                *_single_filter);
+        _hybrid_set->find_batch_nullable(*remove_nullable(column_and_type.column), rows, null_map,
+                                         *_single_filter);
         if (_hybrid_set->contain_null()) {
             auto* filter_data = _single_filter->data();
             for (size_t i = 0; i < rows; ++i) {
@@ -77,8 +77,7 @@ Status SimpleEqualityDelete::filter_data_block(
             }
         }
     } else {
-        _hybrid_set->find_batch(column_and_type.column->assume_mutable_ref(), rows,
-                                *_single_filter);
+        _hybrid_set->find_batch(*column_and_type.column, rows, *_single_filter);
     }
     // should reverse _filter
     auto* filter_data = filter.data();
@@ -165,5 +164,4 @@ bool MultiEqualityDelete::_equal(Block* data_block, size_t data_row_index,
     return true;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

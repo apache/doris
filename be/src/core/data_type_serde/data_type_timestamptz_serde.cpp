@@ -36,7 +36,7 @@ Status DataTypeTimeStampTzSerDe::from_string(StringRef& str, IColumn& column,
 
     TimestampTzValue res;
 
-    if (!CastToTimstampTz::from_string(str, res, params, options.timezone, _scale)) [[unlikely]] {
+    if (!CastToTimestampTz::from_string(str, res, params, options.timezone, _scale)) [[unlikely]] {
         return Status::InvalidArgument("parse timestamptz fail, string: '{}'", str.to_string());
     }
     col_data.insert_value(res);
@@ -49,7 +49,7 @@ Status DataTypeTimeStampTzSerDe::from_olap_string(const std::string& str, Field&
 
     TimestampTzValue res;
 
-    if (!CastToTimstampTz::from_string(StringRef(str), res, params, options.timezone, _scale))
+    if (!CastToTimestampTz::from_string(StringRef(str), res, params, options.timezone, _scale))
             [[unlikely]] {
         return Status::InvalidArgument("parse timestamptz fail, string: '{}'", str);
     }
@@ -61,7 +61,7 @@ Status DataTypeTimeStampTzSerDe::from_string_batch(const ColumnString& col_str,
                                                    ColumnNullable& col_res,
                                                    const FormatOptions& options) const {
     auto& col_data = assert_cast<ColumnTimeStampTz&>(col_res.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(col_res.get_null_map_column());
+    auto& col_nullmap = col_res.get_null_map_column();
     size_t row = col_str.size();
     col_res.resize(row);
 
@@ -69,7 +69,7 @@ Status DataTypeTimeStampTzSerDe::from_string_batch(const ColumnString& col_str,
     for (size_t i = 0; i < row; ++i) {
         auto str = col_str.get_data_at(i);
         TimestampTzValue res;
-        if (!CastToTimstampTz::from_string(str, res, params, options.timezone, _scale))
+        if (!CastToTimestampTz::from_string(str, res, params, options.timezone, _scale))
                 [[unlikely]] {
             col_nullmap.get_data()[i] = true;
             col_data.get_data()[i] = TimestampTzValue(TimestampTzValue::default_column_value());
@@ -88,7 +88,7 @@ Status DataTypeTimeStampTzSerDe::from_string_strict_mode(StringRef& str, IColumn
     CastParameters params {.status = Status::OK(), .is_strict = true};
 
     TimestampTzValue res;
-    CastToTimstampTz::from_string(str, res, params, options.timezone, _scale);
+    CastToTimestampTz::from_string(str, res, params, options.timezone, _scale);
 
     if (!params.status.ok()) [[unlikely]] {
         params.status.prepend(
@@ -113,7 +113,7 @@ Status DataTypeTimeStampTzSerDe::from_string_strict_mode_batch(
         }
         auto str = col_str.get_data_at(i);
         TimestampTzValue res;
-        CastToTimstampTz::from_string(str, res, params, options.timezone, _scale);
+        CastToTimestampTz::from_string(str, res, params, options.timezone, _scale);
         // only after we called something with `IS_STRICT = true`, params.status will be set
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(
@@ -169,7 +169,7 @@ Status DataTypeTimeStampTzSerDe::deserialize_one_cell_from_json(
     TimestampTzValue res;
 
     if (StringRef str(slice.data, slice.size);
-        !CastToTimstampTz::from_string(str, res, params, options.timezone, _scale)) {
+        !CastToTimestampTz::from_string(str, res, params, options.timezone, _scale)) {
         return Status::InvalidArgument("parse timestamptz fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(res);
@@ -248,6 +248,23 @@ Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone
 
 std::string DataTypeTimeStampTzSerDe::to_olap_string(const Field& field) const {
     return CastToString::from_timestamptz(field.get<TYPE_TIMESTAMPTZ>(), 6);
+}
+
+void DataTypeTimeStampTzSerDe::write_one_cell_to_binary(const IColumn& src_column,
+                                                        ColumnString::Chars& chars,
+                                                        int64_t row_num) const {
+    const auto type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ);
+    const auto& data_ref = assert_cast<const ColumnTimeStampTz&>(src_column).get_data_at(row_num);
+    const auto sc = static_cast<uint8_t>(_scale);
+
+    const size_t old_size = chars.size();
+    const size_t new_size = old_size + sizeof(uint8_t) + sizeof(uint8_t) + data_ref.size;
+    chars.resize(new_size);
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), reinterpret_cast<const char*>(&sc),
+           sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(uint8_t), data_ref.data,
+           data_ref.size);
 }
 
 } // namespace doris

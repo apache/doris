@@ -24,7 +24,7 @@
 #include "core/column/column.h"
 #include "core/data_type/define_primitive_type.h"
 #include "exec/runtime_filter/runtime_filter_selectivity.h"
-#include "exprs/vruntimefilter_wrapper.h"
+#include "exprs/runtime_filter_expr.h"
 #include "format/parquet/parquet_predicate.h"
 #include "runtime/runtime_profile.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
@@ -226,8 +226,7 @@ public:
     }
 
     virtual double get_ignore_threshold() const { return 0; }
-    // If this predicate acts on the key column, this predicate should be erased.
-    virtual bool could_be_erased() const { return false; }
+
     // Return the size of value set for IN/NOT IN predicates and 0 for others.
     virtual std::string debug_string() const {
         fmt::memory_buffer debug_string_buffer;
@@ -417,7 +416,7 @@ protected:
     // TODO: the value is only in delete condition, better be template value
     bool _opposite;
     int _runtime_filter_id = -1;
-    // VRuntimeFilterWrapper and ColumnPredicate share the same logic,
+    // RuntimeFilterExpr and ColumnPredicate share the same logic,
     // but it's challenging to unify them, so the code is duplicated.
     // _judge_counter, _judge_input_rows, _judge_filter_rows, and _always_true
     // are variables used to implement the _always_true logic, calculated periodically

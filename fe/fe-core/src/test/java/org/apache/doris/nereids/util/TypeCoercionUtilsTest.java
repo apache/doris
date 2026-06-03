@@ -63,10 +63,12 @@ import org.apache.doris.nereids.types.QuantileStateType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -286,6 +288,22 @@ public class TypeCoercionUtilsTest {
         // datetime
         Assertions.assertEquals(DateTimeV2Type.SYSTEM_DEFAULT,
                                 TypeCoercionUtils.characterLiteralTypeCoercion("2020-02-02", DateTimeType.INSTANCE).get().getDataType());
+        // timestamptz wildcard
+        Assertions.assertEquals(TimeStampTzType.SYSTEM_DEFAULT,
+                TypeCoercionUtils.characterLiteralTypeCoercion("2023-08-17T01:41:18Z", TimeStampTzType.WILDCARD)
+                        .get().getDataType());
+        // No-zone TIMESTAMPTZ coercion uses the session timezone to define the local civil time.
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.getSessionVariable().setTimeZone("Asia/Shanghai");
+        connectContext.setThreadLocalInfo();
+        try {
+            // timestamptz without explicit timezone keeps the literal scale during signature search
+            Assertions.assertEquals(TimeStampTzType.SYSTEM_DEFAULT,
+                    TypeCoercionUtils.characterLiteralTypeCoercion("2004-12-31", TimeStampTzType.MAX)
+                            .get().getDataType());
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test

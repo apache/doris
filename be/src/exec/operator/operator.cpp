@@ -27,13 +27,14 @@
 #include "exec/operator/analytic_source_operator.h"
 #include "exec/operator/assert_num_rows_operator.h"
 #include "exec/operator/blackhole_sink_operator.h"
+#include "exec/operator/bucketed_aggregation_sink_operator.h"
+#include "exec/operator/bucketed_aggregation_source_operator.h"
 #include "exec/operator/cache_sink_operator.h"
 #include "exec/operator/cache_source_operator.h"
 #include "exec/operator/datagen_operator.h"
 #include "exec/operator/dict_sink_operator.h"
 #include "exec/operator/distinct_streaming_aggregation_operator.h"
 #include "exec/operator/empty_set_operator.h"
-#include "exec/operator/es_scan_operator.h"
 #include "exec/operator/exchange_sink_operator.h"
 #include "exec/operator/exchange_source_operator.h"
 #include "exec/operator/file_scan_operator.h"
@@ -42,6 +43,8 @@
 #include "exec/operator/hashjoin_build_sink.h"
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/hive_table_sink_operator.h"
+#include "exec/operator/iceberg_delete_sink_operator.h"
+#include "exec/operator/iceberg_merge_sink_operator.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
 #include "exec/operator/jdbc_scan_operator.h"
 #include "exec/operator/jdbc_table_sink_operator.h"
@@ -97,7 +100,6 @@
 #include "util/string_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeState;
 } // namespace doris
@@ -143,6 +145,23 @@ DataDistribution OperatorBase::required_data_distribution(RuntimeState* /*state*
     return _child && _child->is_serial_operator() && !is_source()
                    ? DataDistribution(ExchangeType::PASSTHROUGH)
                    : DataDistribution(ExchangeType::NOOP);
+}
+
+bool OperatorBase::is_hash_shuffle(ExchangeType exchange_type) {
+    return exchange_type == ExchangeType::HASH_SHUFFLE ||
+           exchange_type == ExchangeType::BUCKET_HASH_SHUFFLE;
+}
+
+bool OperatorBase::child_breaks_local_key_distribution(RuntimeState* state) const {
+    if (!_child) {
+        return false;
+    }
+    if (_child->is_serial_operator()) {
+        return true;
+    }
+    const auto child_distribution = _child->required_data_distribution(state);
+    return child_distribution.need_local_exchange() &&
+           !is_hash_shuffle(child_distribution.distribution_type);
 }
 
 const RowDescriptor& OperatorBase::row_desc() const {
@@ -346,26 +365,25 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
                 null_column.get_null_map_column().get_data().resize_fill(rows, 0);
                 bytes_usage += null_column.allocated_bytes();
             } else {
-                to = make_nullable(from, false)->assume_mutable();
+                to = make_nullable(from, false)->assert_mutable();
             }
         } else {
             if (_keep_origin || !from->is_exclusive()) {
                 to->insert_range_from(*from, 0, rows);
                 bytes_usage += from->allocated_bytes();
             } else {
-                to = from->assume_mutable();
+                to = from->assert_mutable();
             }
         }
     };
 
-    MutableBlock mutable_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
+    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+            output_block, *_output_row_descriptor);
+    auto& mutable_block = scoped_mutable_block.mutable_block();
+    auto& mutable_columns = mutable_block.mutable_columns();
     if (rows != 0) {
-        auto& mutable_columns = mutable_block.mutable_columns();
-        const size_t origin_columns_count = input_block.columns();
         DCHECK_EQ(mutable_columns.size(), local_state->_projections.size()) << debug_string();
         for (int i = 0; i < mutable_columns.size(); ++i) {
-            auto result_column_id = -1;
             ColumnPtr column_ptr;
             RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, column_ptr));
             if (column_ptr->size() != rows) {
@@ -375,15 +393,11 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
                         local_state->_projections[i]->root()->debug_string());
             }
             column_ptr = column_ptr->convert_to_full_column_if_const();
-            if (result_column_id >= origin_columns_count) {
-                bytes_usage += column_ptr->allocated_bytes();
-            }
+            bytes_usage += column_ptr->allocated_bytes();
             insert_column_datas(mutable_columns[i], column_ptr, rows);
         }
         DCHECK(mutable_block.rows() == rows);
-        output_block->set_columns(std::move(mutable_columns));
     }
-
     local_state->_estimate_memory_usage += bytes_usage;
 
     return Status::OK();
@@ -405,10 +419,7 @@ Status OperatorXBase::get_block_after_projects(RuntimeState* state, Block* block
     auto* local_state = state->get_local_state(operator_id());
     Defer defer([&]() {
         if (status.ok()) {
-            if (auto rows = block->rows()) {
-                COUNTER_UPDATE(local_state->_rows_returned_counter, rows);
-                COUNTER_UPDATE(local_state->_blocks_returned_counter, 1);
-            }
+            local_state->update_output_block_counters(*block);
         }
     });
     if (_output_row_descriptor) {
@@ -443,6 +454,7 @@ void PipelineXLocalStateBase::reached_limit(Block* block, bool* eos) {
 
     if (auto rows = block->rows()) {
         _num_rows_returned += rows;
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_process_rows(rows);
     }
 }
 
@@ -525,7 +537,11 @@ PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* 
         : _parent(parent), _state(state) {}
 
 PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
-        : _num_rows_returned(0), _rows_returned_counter(nullptr), _parent(parent), _state(state) {}
+        : _num_rows_returned(0),
+          _rows_returned_counter(nullptr),
+          _parent(parent),
+          _state(state),
+          _budget(state->batch_size(), state->preferred_block_size_bytes()) {}
 
 template <typename SharedStateArg>
 Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalStateInfo& info) {
@@ -574,6 +590,12 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
             ADD_COUNTER_WITH_LEVEL(_common_profile, profile::ROWS_PRODUCED, TUnit::UNIT, 1);
     _blocks_returned_counter =
             ADD_COUNTER_WITH_LEVEL(_common_profile, profile::BLOCKS_PRODUCED, TUnit::UNIT, 1);
+    _output_block_bytes_counter =
+            ADD_COUNTER_WITH_LEVEL(_common_profile, profile::OUTPUT_BLOCK_BYTES, TUnit::BYTES, 1);
+    _max_output_block_bytes_counter = ADD_COUNTER_WITH_LEVEL(
+            _common_profile, profile::MAX_OUTPUT_BLOCK_BYTES, TUnit::BYTES, 1);
+    _min_output_block_bytes_counter = ADD_COUNTER_WITH_LEVEL(
+            _common_profile, profile::MIN_OUTPUT_BLOCK_BYTES, TUnit::BYTES, 1);
     _projection_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::PROJECTION_TIME, 2);
     _init_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::INIT_TIME, 2);
     _open_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::OPEN_TIME, 2);
@@ -813,6 +835,8 @@ DECLARE_OPERATOR(HiveTableSinkLocalState)
 DECLARE_OPERATOR(TVFTableSinkLocalState)
 DECLARE_OPERATOR(IcebergTableSinkLocalState)
 DECLARE_OPERATOR(SpillIcebergTableSinkLocalState)
+DECLARE_OPERATOR(IcebergDeleteSinkLocalState)
+DECLARE_OPERATOR(IcebergMergeSinkLocalState)
 DECLARE_OPERATOR(MCTableSinkLocalState)
 DECLARE_OPERATOR(AnalyticSinkLocalState)
 DECLARE_OPERATOR(BlackholeSinkLocalState)
@@ -820,6 +844,7 @@ DECLARE_OPERATOR(SortSinkLocalState)
 DECLARE_OPERATOR(SpillSortSinkLocalState)
 DECLARE_OPERATOR(LocalExchangeSinkLocalState)
 DECLARE_OPERATOR(AggSinkLocalState)
+DECLARE_OPERATOR(BucketedAggSinkLocalState)
 DECLARE_OPERATOR(PartitionedAggSinkLocalState)
 DECLARE_OPERATOR(ExchangeSinkLocalState)
 DECLARE_OPERATOR(NestedLoopJoinBuildSinkLocalState)
@@ -845,12 +870,12 @@ DECLARE_OPERATOR(OlapScanLocalState)
 DECLARE_OPERATOR(GroupCommitLocalState)
 DECLARE_OPERATOR(JDBCScanLocalState)
 DECLARE_OPERATOR(FileScanLocalState)
-DECLARE_OPERATOR(EsScanLocalState)
 DECLARE_OPERATOR(AnalyticLocalState)
 DECLARE_OPERATOR(SortLocalState)
 DECLARE_OPERATOR(SpillSortLocalState)
 DECLARE_OPERATOR(LocalMergeSortLocalState)
 DECLARE_OPERATOR(AggLocalState)
+DECLARE_OPERATOR(BucketedAggLocalState)
 DECLARE_OPERATOR(PartitionedAggLocalState)
 DECLARE_OPERATOR(TableFunctionLocalState)
 DECLARE_OPERATOR(ExchangeLocalState)
@@ -897,6 +922,7 @@ template class PipelineXSinkLocalState<SpillSortSharedState>;
 template class PipelineXSinkLocalState<NestedLoopJoinSharedState>;
 template class PipelineXSinkLocalState<AnalyticSharedState>;
 template class PipelineXSinkLocalState<AggSharedState>;
+template class PipelineXSinkLocalState<BucketedAggSharedState>;
 template class PipelineXSinkLocalState<PartitionedAggSharedState>;
 template class PipelineXSinkLocalState<FakeSharedState>;
 template class PipelineXSinkLocalState<UnionSharedState>;
@@ -915,6 +941,7 @@ template class PipelineXLocalState<SpillSortSharedState>;
 template class PipelineXLocalState<NestedLoopJoinSharedState>;
 template class PipelineXLocalState<AnalyticSharedState>;
 template class PipelineXLocalState<AggSharedState>;
+template class PipelineXLocalState<BucketedAggSharedState>;
 template class PipelineXLocalState<PartitionedAggSharedState>;
 template class PipelineXLocalState<FakeSharedState>;
 template class PipelineXLocalState<UnionSharedState>;
@@ -933,6 +960,8 @@ template class AsyncWriterSink<doris::VTabletWriterV2, OlapTableSinkV2OperatorX>
 template class AsyncWriterSink<doris::VHiveTableWriter, HiveTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergTableWriter, IcebergTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergTableWriter, SpillIcebergTableSinkOperatorX>;
+template class AsyncWriterSink<doris::VIcebergDeleteSink, IcebergDeleteSinkOperatorX>;
+template class AsyncWriterSink<doris::VIcebergMergeSink, IcebergMergeSinkOperatorX>;
 template class AsyncWriterSink<doris::VMCTableWriter, MCTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VTVFTableWriter, TVFTableSinkOperatorX>;
 
@@ -941,5 +970,4 @@ template class OperatorX<DummyOperatorLocalState>;
 template class DataSinkOperatorX<DummySinkLocalState>;
 #endif
 
-#include "common/compile_check_end.h"
 } // namespace doris

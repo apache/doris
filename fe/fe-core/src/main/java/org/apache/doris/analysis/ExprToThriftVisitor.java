@@ -26,6 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TAggregateExpr;
 import org.apache.doris.thrift.TBoolLiteral;
 import org.apache.doris.thrift.TCaseExpr;
 import org.apache.doris.thrift.TColumnRef;
@@ -290,7 +291,7 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
     @Override
     public Void visitSlotRef(SlotRef expr, TExprNode msg) {
         msg.node_type = TExprNodeType.SLOT_REF;
-        msg.slot_ref = new TSlotRef(expr.getDesc().getId().asInt(), expr.getDesc().getParent().getId().asInt());
+        msg.slot_ref = new TSlotRef(expr.getDesc().getId().asInt(), expr.getDesc().getParentId().asInt());
         msg.slot_ref.setColUniqueId(expr.getDesc().getUniqueId());
         msg.slot_ref.setIsVirtualSlot(expr.getDesc().getVirtualColumn() != null);
         msg.setLabel(expr.getLabel());
@@ -412,37 +413,6 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
     public Void visitSearchPredicate(SearchPredicate expr, TExprNode msg) {
         msg.node_type = TExprNodeType.SEARCH_EXPR;
         msg.setSearchParam(buildSearchThriftParam(expr));
-
-        LOG.info("SearchPredicate.toThrift: dsl='{}', num_children_in_base={}, children_size={}",
-                expr.getDslString(), msg.num_children, expr.getChildren().size());
-
-        if (expr.getQsPlan() != null) {
-            LOG.info("SearchPredicate.toThrift: QsPlan fieldBindings.size={}",
-                    expr.getQsPlan().getFieldBindings() != null
-                            ? expr.getQsPlan().getFieldBindings().size() : 0);
-            if (expr.getQsPlan().getFieldBindings() != null) {
-                for (int i = 0; i < expr.getQsPlan().getFieldBindings().size(); i++) {
-                    SearchDslParser.QsFieldBinding binding = expr.getQsPlan().getFieldBindings().get(i);
-                    LOG.info("SearchPredicate.toThrift: binding[{}] fieldName='{}', slotIndex={}",
-                            i, binding.getFieldName(), binding.getSlotIndex());
-                }
-            }
-        }
-
-        for (int i = 0; i < expr.getChildren().size(); i++) {
-            Expr child = expr.getChildren().get(i);
-            LOG.info("SearchPredicate.toThrift: child[{}] = {} (type={})",
-                    i, child.getClass().getSimpleName(), child.getType());
-            if (child instanceof SlotRef) {
-                SlotRef slotRef = (SlotRef) child;
-                LOG.info("SearchPredicate.toThrift: SlotRef details - column={}",
-                        slotRef.getColumnName());
-                if (slotRef.getDesc() != null) {
-                    LOG.info("SearchPredicate.toThrift: SlotRef analyzed - slotId={}",
-                            slotRef.getSlotId());
-                }
-            }
-        }
         return null;
     }
 
@@ -493,7 +463,7 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
             if (aggParams == null) {
                 aggParams = expr.getFnParams();
             }
-            msg.setAggExpr(aggParams.createTAggregateExpr(expr.isMergeAggFn()));
+            msg.setAggExpr(createTAggregateExprFromFunctionParams(aggParams, expr.isMergeAggFn()));
         } else {
             msg.node_type = TExprNodeType.FUNCTION_CALL;
         }
@@ -502,6 +472,20 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
             msg.setShortCircuitEvaluation(ConnectContext.get().getSessionVariable().isShortCircuitEvaluation());
         }
         return null;
+    }
+
+    public TAggregateExpr createTAggregateExprFromFunctionParams(FunctionParams functionParams, boolean isMergeAggFn) {
+        List<TTypeDesc> paramTypes = new ArrayList<>();
+        if (functionParams.exprs() != null) {
+            for (Expr expr : functionParams.exprs()) {
+                TTypeDesc desc = expr.getType().toThrift();
+                desc.setIsNullable(expr.isNullable());
+                paramTypes.add(desc);
+            }
+        }
+        TAggregateExpr aggExpr = new TAggregateExpr(isMergeAggFn);
+        aggExpr.setParamTypes(paramTypes);
+        return aggExpr;
     }
 
     @Override
@@ -647,9 +631,6 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
                 thriftBinding.setIsVariantSubcolumn(true);
                 thriftBinding.setParentFieldName(parentField);
                 thriftBinding.setSubcolumnPath(subcolumnPath);
-
-                LOG.info("buildThriftParam: variant subcolumn field='{}', parent='{}', subcolumn='{}'",
-                        fieldPath, parentField, subcolumnPath);
             } else {
                 thriftBinding.setIsVariantSubcolumn(false);
             }
@@ -660,10 +641,7 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
                 SlotRef slotRef = (SlotRef) expr.getChildren().get(i);
                 int actualSlotId = slotRef.getSlotId().asInt();
                 thriftBinding.setSlotIndex(actualSlotId);
-                LOG.info("buildThriftParam: binding field='{}', actual slotId={}",
-                        binding.getFieldName(), actualSlotId);
             } else {
-                LOG.warn("buildThriftParam: No corresponding SlotRef for field '{}'", binding.getFieldName());
                 thriftBinding.setSlotIndex(i);
             }
 
@@ -672,8 +650,6 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
                 Map<String, String> properties = fieldIndexes.get(i).getProperties();
                 if (properties != null && !properties.isEmpty()) {
                     thriftBinding.setIndexProperties(properties);
-                    LOG.debug("buildThriftParam: field='{}' index_properties={}",
-                            fieldPath, properties);
                 }
             }
 

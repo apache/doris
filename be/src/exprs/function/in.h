@@ -38,6 +38,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -113,7 +114,7 @@ public:
                    context->get_arg_type(0)->get_primitive_type() == PrimitiveType::TYPE_VARCHAR ||
                    context->get_arg_type(0)->get_primitive_type() == PrimitiveType::TYPE_STRING) {
             // the StringValue's memory is held by FunctionContext, so we can use StringValueSet here directly
-            state->hybrid_set.reset(create_string_value_set(get_size_with_out_null(context)));
+            state->hybrid_set.reset(create_string_value_set(get_size_with_out_null(context), true));
         } else {
             state->hybrid_set.reset(create_set(context->get_arg_type(0)->get_primitive_type(),
                                                get_size_with_out_null(context), true));
@@ -161,7 +162,6 @@ public:
         for (const auto& arg : arguments) {
             Field param_value;
             arg.column->get(0, param_value);
-            auto param_type = arg.type->get_primitive_type();
             if (param_value.is_null()) {
                 // predicate like column NOT IN (NULL, '') should not push down to index.
                 if (negative) {
@@ -170,14 +170,11 @@ public:
                 *roaring |= *null_bitmap;
                 continue;
             }
-            std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-            RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
-                    param_type, &param_value, query_param));
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             segment_v2::InvertedIndexParam param;
             param.column_name = data_type_with_name.first;
             param.column_type = data_type_with_name.second;
-            param.query_value = query_param->get_value();
+            param.query_value = param_value;
             param.query_type = query_type;
             param.num_rows = num_rows;
             param.roaring = std::make_shared<roaring::Roaring>();
@@ -218,10 +215,8 @@ public:
         if (in_state->use_set) {
             if (materialized_column->is_nullable()) {
                 const auto* null_col_ptr =
-                        check_and_get_column<ColumnNullable>(materialized_column.get());
-                const auto& null_map =
-                        assert_cast<const ColumnUInt8&>(null_col_ptr->get_null_map_column())
-                                .get_data();
+                        assert_cast<const ColumnNullable*>(materialized_column.get());
+                const auto& null_map = null_col_ptr->get_null_map_column().get_data();
                 const auto* nested_col_ptr = null_col_ptr->get_nested_column_ptr().get();
 
                 if (nested_col_ptr->is_column_string()) {

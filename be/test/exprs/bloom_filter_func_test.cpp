@@ -30,6 +30,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "gtest/gtest.h"
 #include "testutil/column_helper.h"
 #include "util/url_coding.h"
@@ -91,7 +92,11 @@ TEST_F(BloomFilterFuncTest, FixedLenToUInt32) {
     fixed_len_to_uint32_v2 fixed_lenv2;
     {
         DateV2Value<DateV2ValueType> date;
-        date.from_date_str("2021-01-01", strlen("2021-01-01"));
+        {
+            CastParameters p;
+            CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {"2021-01-01", strlen("2021-01-01")}, date, nullptr, p);
+        }
         auto min = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(MIN_DATE_V2);
         auto max = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(MAX_DATE_V2);
 
@@ -565,8 +570,10 @@ TEST_F(BloomFilterFuncTest, FindFixedLenOlapEngine) {
 
     bloom_filter_func2.insert_fixed_len(string_column->clone(), 0);
 
-    StringRef strings[] = {StringRef("aa"), StringRef("bb"), StringRef("cc"),
-                           StringRef("dd\0\0", 4), StringRef("ef\0\0", 4)};
+    // CHAR padding is stripped at the page decoder now, so the runtime BF
+    // probe sees natural-length StringRefs; no trailing '\0' bytes here.
+    StringRef strings[] = {StringRef("aa"), StringRef("bb"), StringRef("cc"), StringRef("dd"),
+                           StringRef("ef")};
 
     PODArray<uint16_t> offsets2(5);
     std::iota(offsets2.begin(), offsets2.end(), 0);

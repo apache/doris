@@ -26,8 +26,6 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
-#include "storage/cache/schema_cache.h"
-#include "storage/field.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/schema.h"
@@ -39,8 +37,6 @@ namespace doris {
 class RuntimeProfile;
 
 using namespace ErrorCode;
-
-#include "common/compile_check_begin.h"
 
 Status VStatisticsIterator::init(const StorageReadOptions& opts) {
     if (!_init) {
@@ -67,7 +63,8 @@ Status VStatisticsIterator::next_batch(Block* block) {
     DCHECK(block->columns() == _column_iterators.size());
     if (_output_rows < _target_rows) {
         block->clear_column_data();
-        auto columns = block->mutate_columns();
+        auto columns_guard = block->mutate_columns_scoped();
+        auto& columns = columns_guard.mutable_columns();
 
         size_t size = _push_down_agg_type_opt == TPushAggOp::MINMAX
                               ? 2
@@ -90,7 +87,6 @@ Status VStatisticsIterator::next_batch(Block* block) {
                 }
             }
         }
-        block->set_columns(std::move(columns));
         _output_rows += size;
         return Status::OK();
     }
@@ -141,7 +137,9 @@ bool VMergeIteratorContext::compare(const VMergeIteratorContext& rhs) const {
         col_cmp_res = _block->compare_column_at(_index_in_block, rhs._index_in_block,
                                                 _sequence_id_idx, *rhs._block, -1);
     }
-    auto result = col_cmp_res == 0 ? data_id() < rhs.data_id() : col_cmp_res < 0;
+    auto result = col_cmp_res == 0 ? (_use_insert_order_when_same ? (data_id() > rhs.data_id())
+                                                                  : (data_id() < rhs.data_id()))
+                                   : col_cmp_res < 0;
 
     if (_is_unique) {
         result ? set_skip(true) : rhs.set_skip(true);
@@ -174,7 +172,7 @@ Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
             ColumnPtr& s_cp = s_col.column;
             ColumnPtr& d_cp = d_col.column;
 
-            d_cp->assume_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
+            d_cp->assert_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
         }
     });
     _cur_batch_num = 0;
@@ -362,7 +360,7 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     for (auto& iter : _origin_iters) {
         auto ctx = std::make_shared<VMergeIteratorContext>(
                 std::move(iter), _sequence_id_idx, _is_unique, _is_reverse,
-                opts.read_orderby_key_columns, _output_schema);
+                opts.use_insert_order_when_same, opts.read_orderby_key_columns, _output_schema);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;
@@ -480,7 +478,5 @@ RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment, cons
 RowwiseIteratorUPtr new_auto_increment_iterator(const Schema& schema, size_t num_rows) {
     return std::make_unique<VAutoIncrementIterator>(schema, num_rows);
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

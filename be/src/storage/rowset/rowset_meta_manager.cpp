@@ -37,7 +37,6 @@
 #include "util/debug_points.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bool RowsetMetaManager::check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
@@ -73,7 +72,9 @@ Status RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
 }
 
 Status RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
-                               const RowsetMetaPB& rowset_meta_pb, bool enable_binlog) {
+                               const RowsetMetaPB& rowset_meta_pb,
+                               std::optional<BinlogFormatPB> binlog_format,
+                               const std::map<RowsetId, RowsetMetaPB>* attach_rowset_map) {
     if (rowset_meta_pb.partition_id() <= 0) {
         LOG(WARNING) << "invalid partition id " << rowset_meta_pb.partition_id() << " tablet "
                      << rowset_meta_pb.tablet_id();
@@ -88,11 +89,16 @@ Status RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const Rowse
         LOG(WARNING) << "set debug point RowsetMetaManager::save::zero_partition_id old="
                      << partition_id << " new=" << rowset_meta_pb.DebugString();
     });
-    if (enable_binlog) {
-        return _save_with_binlog(meta, tablet_uid, rowset_id, rowset_meta_pb);
-    } else {
+    if (!binlog_format.has_value()) {
         return _save(meta, tablet_uid, rowset_id, rowset_meta_pb);
     }
+    if (*binlog_format == BinlogFormatPB::STATEMENT_AND_SNAPSHOT) {
+        return _save_with_ccr_binlog(meta, tablet_uid, rowset_id, rowset_meta_pb);
+    }
+    DCHECK_EQ(*binlog_format, BinlogFormatPB::ROW);
+    DCHECK(attach_rowset_map != nullptr);
+    DCHECK(!attach_rowset_map->empty());
+    return _save_with_row_binlog(meta, tablet_uid, rowset_id, rowset_meta_pb, *attach_rowset_map);
 }
 
 Status RowsetMetaManager::_save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
@@ -108,9 +114,9 @@ Status RowsetMetaManager::_save(OlapMeta* meta, TabletUid tablet_uid, const Rows
     return meta->put(META_COLUMN_FAMILY_INDEX, key, value);
 }
 
-Status RowsetMetaManager::_save_with_binlog(OlapMeta* meta, TabletUid tablet_uid,
-                                            const RowsetId& rowset_id,
-                                            const RowsetMetaPB& rowset_meta_pb) {
+Status RowsetMetaManager::_save_with_ccr_binlog(OlapMeta* meta, TabletUid tablet_uid,
+                                                const RowsetId& rowset_id,
+                                                const RowsetMetaPB& rowset_meta_pb) {
     // create rowset write data
     std::string rowset_key =
             fmt::format("{}{}_{}", ROWSET_PREFIX, tablet_uid.to_string(), rowset_id.to_string());
@@ -151,6 +157,40 @@ Status RowsetMetaManager::_save_with_binlog(OlapMeta* meta, TabletUid tablet_uid
             {std::cref(binlog_meta_key), std::cref(binlog_meta_value)},
             {std::cref(binlog_data_key), std::cref(rowset_value)}};
 
+    return meta->put(META_COLUMN_FAMILY_INDEX, entries);
+}
+
+Status RowsetMetaManager::_save_with_row_binlog(
+        OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
+        const RowsetMetaPB& rowset_meta_pb,
+        const std::map<RowsetId, RowsetMetaPB>& attach_rowset_map) {
+    std::vector<std::string> keys;
+    std::vector<std::string> values;
+    keys.reserve(attach_rowset_map.size() + 1);
+    values.reserve(attach_rowset_map.size() + 1);
+
+    keys.emplace_back(
+            fmt::format("{}{}_{}", ROWSET_PREFIX, tablet_uid.to_string(), rowset_id.to_string()));
+    if (!rowset_meta_pb.SerializeToString(&values.emplace_back())) {
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>("serialize rowset pb failed. rowset id:{}",
+                                                       keys[0]);
+    }
+
+    for (const auto& [row_binlog_rs_id, row_binlog_rs_meta_pb] : attach_rowset_map) {
+        keys.emplace_back(make_row_binlog_key(tablet_uid, rowset_id, row_binlog_rs_id));
+        DCHECK(row_binlog_rs_meta_pb.has_is_row_binlog() && row_binlog_rs_meta_pb.is_row_binlog())
+                << row_binlog_rs_meta_pb.ShortDebugString();
+        if (!row_binlog_rs_meta_pb.SerializeToString(&values.emplace_back())) {
+            return Status::Error<SERIALIZE_PROTOBUF_ERROR>(
+                    "serialize rowset pb failed. rowset id:{}", keys.back());
+        }
+    }
+
+    std::vector<OlapMeta::BatchEntry> entries;
+    entries.reserve(keys.size());
+    for (size_t i = 0; i < keys.size(); ++i) {
+        entries.emplace_back(keys[i], values[i]);
+    }
     return meta->put(META_COLUMN_FAMILY_INDEX, entries);
 }
 
@@ -479,6 +519,78 @@ Status RowsetMetaManager::remove_binlog(OlapMeta* meta, const std::string& suffi
                                                   kBinlogDataPrefix.data() + suffix});
 }
 
+Status RowsetMetaManager::remove_row_binlog(OlapMeta* meta, TabletUid tablet_uid,
+                                            const RowsetId& base_rowset_id,
+                                            const RowsetId& row_binlog_rowset_id) {
+    return meta->remove(META_COLUMN_FAMILY_INDEX,
+                        make_row_binlog_key(tablet_uid, base_rowset_id, row_binlog_rowset_id));
+}
+
+Status RowsetMetaManager::remove_row_binlog_metas(OlapMeta* meta, TabletUid tablet_uid,
+                                                  const std::set<RowsetId>& row_binlog_rowset_ids) {
+    std::map<RowsetId, RowsetId> base_rowset_id_to_row_binlog;
+    RETURN_IF_ERROR(get_row_binlog_base_rowset_ids(meta, tablet_uid, base_rowset_id_to_row_binlog,
+                                                   row_binlog_rowset_ids));
+    for (const auto& [base_rowset_id, row_binlog_rowset_id] : base_rowset_id_to_row_binlog) {
+        RETURN_IF_ERROR(remove_row_binlog(meta, tablet_uid, base_rowset_id, row_binlog_rowset_id));
+    }
+    return Status::OK();
+}
+
+bool RowsetMetaManager::row_binlog_meta_exists(OlapMeta* meta, TabletUid tablet_uid,
+                                               const RowsetId& row_binlog_rowset_id) {
+    bool found = false;
+    auto probe = [&found, &row_binlog_rowset_id](std::string_view key,
+                                                 std::string_view /* value */) -> bool {
+        std::vector<std::string> parts;
+        // key format: binlog_row_uuid_{rowset_id}_{row_binlog_rowset_id}
+        RETURN_IF_ERROR(split_string(key, '_', &parts));
+        if (parts.size() != 5) {
+            LOG(WARNING) << "invalid binlog<row> key:" << key << ", splitted size:" << parts.size();
+            return true;
+        }
+        RowsetId id;
+        id.init(parts[4]);
+        if (id == row_binlog_rowset_id) {
+            found = true;
+            return false;
+        }
+        return true;
+    };
+    static_cast<void>(meta->iterate(META_COLUMN_FAMILY_INDEX,
+                                    std::string(kRowBinlogPrefix) + tablet_uid.to_string(), probe));
+    return found;
+}
+
+Status RowsetMetaManager::get_row_binlog_base_rowset_ids(
+        OlapMeta* meta, TabletUid tablet_uid,
+        std::map<RowsetId, RowsetId>& base_rowset_id_to_row_binlog,
+        const std::set<RowsetId>& row_binlog_rowset_ids) {
+    auto collect_row_binlog_base_rowset_id =
+            [&base_rowset_id_to_row_binlog, &row_binlog_rowset_ids](
+                    std::string_view key, std::string_view /* value */) -> bool {
+        std::vector<std::string> parts;
+        // key format: binlog_row_uuid_{rowset_id}_{row_binlog_rowset_id}
+        RETURN_IF_ERROR(split_string(key, '_', &parts));
+        if (parts.size() != 5) {
+            LOG(WARNING) << "invalid binlog<row> key:" << key << ", splitted size:" << parts.size();
+            return true;
+        }
+
+        RowsetId rowset_id;
+        rowset_id.init(parts[3]);
+        RowsetId row_binlog_rowset_id;
+        row_binlog_rowset_id.init(parts[4]);
+        if (row_binlog_rowset_ids.contains(row_binlog_rowset_id)) {
+            base_rowset_id_to_row_binlog.emplace(rowset_id, row_binlog_rowset_id);
+        }
+        return true;
+    };
+    return meta->iterate(META_COLUMN_FAMILY_INDEX,
+                         std::string(kRowBinlogPrefix) + tablet_uid.to_string(),
+                         collect_row_binlog_base_rowset_id);
+}
+
 Status RowsetMetaManager::ingest_binlog_metas(OlapMeta* meta, TabletUid tablet_uid,
                                               RowsetBinlogMetasPB* metas_pb) {
     std::vector<OlapMeta::BatchEntry> entries;
@@ -558,6 +670,36 @@ Status RowsetMetaManager::traverse_binlog_metas(
     } while (status.ok() && seek_found);
 
     return status;
+}
+
+Status RowsetMetaManager::traverse_row_binlog_metas(
+        OlapMeta* meta, std::function<bool(const TabletUid&, const RowsetId&, const RowsetId&,
+                                           const std::string&)> const& func) {
+    auto traverse_row_binlog_rowset_meta_func = [&func](std::string_view key,
+                                                        std::string_view value) -> bool {
+        std::vector<std::string> parts;
+        // key format: binlog_row_uuid_{rowset_id}_{row_binlog_rowset_id}
+        RETURN_IF_ERROR(split_string(key, '_', &parts));
+        if (parts.size() != 5) {
+            LOG(WARNING) << "invalid rowset key:" << key << ", splitted size:" << parts.size();
+            return true;
+        }
+        std::vector<std::string> uid_parts;
+        RETURN_IF_ERROR(split_string(parts[2], '-', &uid_parts));
+        if (uid_parts.size() != 2) {
+            LOG(WARNING) << "invalid tablet uid in binlog<row> key:" << key
+                         << ", splitted size:" << uid_parts.size();
+            return true;
+        }
+        TabletUid tablet_uid(uid_parts[0], uid_parts[1]);
+        RowsetId rowset_id;
+        rowset_id.init(parts[3]);
+        RowsetId row_binlog_rowset_id;
+        row_binlog_rowset_id.init(parts[4]);
+        return func(tablet_uid, rowset_id, row_binlog_rowset_id, std::string(value));
+    };
+    return meta->iterate(META_COLUMN_FAMILY_INDEX, std::string(kRowBinlogPrefix),
+                         traverse_row_binlog_rowset_meta_func);
 }
 
 Status RowsetMetaManager::save_partial_update_info(
@@ -653,5 +795,4 @@ Status RowsetMetaManager::remove_tablet_related_partial_update_info(OlapMeta* me
     RETURN_IF_ERROR(meta->iterate(META_COLUMN_FAMILY_INDEX, prefix, get_remove_keys_func));
     return meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

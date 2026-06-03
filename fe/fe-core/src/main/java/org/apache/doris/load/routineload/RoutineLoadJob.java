@@ -19,7 +19,6 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
-import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
@@ -49,6 +48,7 @@ import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
+import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
@@ -439,17 +439,15 @@ public abstract class RoutineLoadJob
     protected void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
         if (routineLoadDesc != null) {
             if (routineLoadDesc.getColumnsInfo() != null) {
-                ImportColumnsStmt columnsStmt = routineLoadDesc.getColumnsInfo();
-                if (columnsStmt.getColumns() != null) {
-                    columnDescs = new ImportColumnDescs();
-                    columnDescs.descs.addAll(columnsStmt.getColumns());
-                }
+                columnDescs = new ImportColumnDescs();
+                columnDescs.descs.addAll(routineLoadDesc.getColumnsInfo());
+
             }
             if (routineLoadDesc.getPrecedingFilter() != null) {
-                precedingFilter = routineLoadDesc.getPrecedingFilter().getExpr();
+                precedingFilter = routineLoadDesc.getPrecedingFilter();
             }
-            if (routineLoadDesc.getWherePredicate() != null) {
-                whereExpr = routineLoadDesc.getWherePredicate().getExpr();
+            if (routineLoadDesc.getFilter() != null) {
+                whereExpr = routineLoadDesc.getFilter();
             }
             if (routineLoadDesc.getColumnSeparator() != null) {
                 columnSeparator = routineLoadDesc.getColumnSeparator();
@@ -832,9 +830,9 @@ public abstract class RoutineLoadJob
         }
     }
 
-    abstract void updateCloudProgress() throws UserException;
+    protected abstract void updateCloudProgress() throws UserException;
 
-    abstract void divideRoutineLoadJob(int currentConcurrentTaskNum) throws UserException;
+    protected abstract void divideRoutineLoadJob(int currentConcurrentTaskNum) throws UserException;
 
     public int calculateCurrentConcurrentTaskNum() throws MetaNotFoundException {
         return 0;
@@ -1003,7 +1001,8 @@ public abstract class RoutineLoadJob
         return 0L;
     }
 
-    abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo, boolean delaySchedule);
+    protected abstract RoutineLoadTaskInfo unprotectRenewTask(
+            RoutineLoadTaskInfo routineLoadTaskInfo, boolean delaySchedule);
 
     // call before first scheduling
     // derived class can override this.

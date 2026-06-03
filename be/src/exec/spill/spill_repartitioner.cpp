@@ -36,7 +36,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void SpillRepartitioner::init(std::unique_ptr<PartitionerBase> partitioner, RuntimeProfile* profile,
                               int fanout, int repartition_level) {
@@ -367,5 +366,4 @@ uint32_t SpillRepartitioner::_map_hash_to_partition(uint32_t hash) const {
     return ((mixed >> 16) | (mixed << 16)) % static_cast<uint32_t>(_fanout);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

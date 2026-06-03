@@ -53,16 +53,17 @@ Schema& Schema::operator=(const Schema& other) {
 
 void Schema::_copy_from(const Schema& other) {
     _col_ids = other._col_ids;
-    _col_offsets = other._col_offsets;
-
     _num_key_columns = other._num_key_columns;
-    _schema_size = other._schema_size;
+    _delete_sign_idx = other._delete_sign_idx;
+    _has_sequence_col = other._has_sequence_col;
+    _rowid_col_idx = other._rowid_col_idx;
+    _version_col_idx = other._version_col_idx;
+    _lsn_col_idx = other._lsn_col_idx;
+    _tso_col_idx = other._tso_col_idx;
 
-    // Deep copy _cols
-    // TODO(lingbin): really need clone?
-    _cols.resize(other._cols.size(), nullptr);
+    _cols.resize(other._cols.size());
     for (auto cid : _col_ids) {
-        _cols[cid] = other._cols[cid]->clone();
+        _cols[cid] = other._cols[cid];
     }
 }
 
@@ -71,63 +72,21 @@ void Schema::_init(const std::vector<TabletColumnPtr>& cols, const std::vector<C
     _col_ids = col_ids;
     _num_key_columns = num_key_columns;
 
-    _cols.resize(cols.size(), nullptr);
-    _col_offsets.resize(_cols.size(), -1);
+    _cols.resize(cols.size());
 
-    size_t offset = 0;
     std::unordered_set<uint32_t> col_id_set(col_ids.begin(), col_ids.end());
     for (int cid = 0; cid < cols.size(); ++cid) {
         if (col_id_set.find(cid) == col_id_set.end()) {
             continue;
         }
-        _cols[cid] = StorageFieldFactory::create(*cols[cid]);
-
-        _col_offsets[cid] = offset;
-        // Plus 1 byte for null byte
-        offset += _cols[cid]->size() + 1;
-    }
-
-    _schema_size = offset;
-}
-
-void Schema::_init(const std::vector<const StorageField*>& cols,
-                   const std::vector<ColumnId>& col_ids, size_t num_key_columns) {
-    _col_ids = col_ids;
-    _num_key_columns = num_key_columns;
-
-    _cols.resize(cols.size(), nullptr);
-    _col_offsets.resize(_cols.size(), -1);
-
-    size_t offset = 0;
-    std::unordered_set<uint32_t> col_id_set(col_ids.begin(), col_ids.end());
-    for (int cid = 0; cid < cols.size(); ++cid) {
-        if (col_id_set.find(cid) == col_id_set.end()) {
-            continue;
-        }
-        // TODO(lingbin): is it necessary to clone StorageField? each SegmentIterator will
-        // use this func, can we avoid clone?
-        _cols[cid] = cols[cid]->clone();
-
-        _col_offsets[cid] = offset;
-        // Plus 1 byte for null byte
-        offset += _cols[cid]->size() + 1;
-    }
-
-    _schema_size = offset;
-}
-
-Schema::~Schema() {
-    for (auto col : _cols) {
-        delete col;
+        _cols[cid] = cols[cid];
     }
 }
 
-DataTypePtr Schema::get_data_type_ptr(const StorageField& field) {
-    return DataTypeFactory::instance().create_data_type(field);
-}
+Schema::~Schema() = default;
 
-IColumn::MutablePtr Schema::get_column_by_field(const StorageField& field) {
-    return get_data_type_ptr(field)->create_column();
+DataTypePtr Schema::get_data_type_ptr(const TabletColumn& column) {
+    return DataTypeFactory::instance().create_data_type(column);
 }
 
 IColumn::MutablePtr Schema::get_predicate_column_ptr(const FieldType& type, bool is_nullable,

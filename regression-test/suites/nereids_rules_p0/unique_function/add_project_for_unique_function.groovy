@@ -16,6 +16,7 @@
 // under the License.
 
 suite('add_project_for_unique_function') {
+    sql "set parallel_pipeline_task_num=2"
     sql 'SET enable_nereids_planner=true'
     sql 'SET runtime_filter_mode=OFF'
     sql 'SET enable_fallback_to_original_planner=false'

@@ -17,13 +17,11 @@
 
 package org.apache.doris.datasource.iceberg.fileio;
 
-import org.apache.doris.backup.Status;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.FileSystem;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.io.ParsedPath;
 
-import com.google.common.collect.Iterables;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.ManifestFile;
@@ -34,7 +32,6 @@ import org.apache.iceberg.io.SupportsBulkOperations;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -44,13 +41,12 @@ import java.util.Objects;
  * This class is responsible for bridging Doris file system operations with Iceberg's file IO abstraction.
  */
 public class DelegateFileIO implements SupportsBulkOperations {
-    private static final int DELETE_BATCH_SIZE = 1000;
     /**
      * Properties used to initialize the file system.
      */
     private Map<String, String> properties;
     /**
-     * The underlying Doris file system used for file operations.
+     * The underlying SPI filesystem used for file operations.
      */
     private FileSystem fileSystem;
 
@@ -62,9 +58,9 @@ public class DelegateFileIO implements SupportsBulkOperations {
     }
 
     /**
-     * Constructor with a specified FileSystem.
+     * Constructor with a specified SPI FileSystem.
      *
-     * @param fileSystem the Doris file system to delegate operations to
+     * @param fileSystem the SPI filesystem to delegate operations to
      */
     public DelegateFileIO(FileSystem fileSystem) {
         this.fileSystem = Objects.requireNonNull(fileSystem, "fileSystem is null");
@@ -80,7 +76,11 @@ public class DelegateFileIO implements SupportsBulkOperations {
      */
     @Override
     public InputFile newInputFile(String path) {
-        return new DelegateInputFile(fileSystem.newInputFile(new ParsedPath(path)));
+        try {
+            return new DelegateInputFile(fileSystem.newInputFile(Location.of(path)));
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to create InputFile for: " + path, e);
+        }
     }
 
     /**
@@ -92,7 +92,11 @@ public class DelegateFileIO implements SupportsBulkOperations {
      */
     @Override
     public InputFile newInputFile(String path, long length) {
-        return new DelegateInputFile(fileSystem.newInputFile(new ParsedPath(path), length));
+        try {
+            return new DelegateInputFile(fileSystem.newInputFile(Location.of(path), length));
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to create InputFile for: " + path, e);
+        }
     }
 
     /**
@@ -103,7 +107,11 @@ public class DelegateFileIO implements SupportsBulkOperations {
      */
     @Override
     public OutputFile newOutputFile(String path) {
-        return new DelegateOutputFile(fileSystem, new ParsedPath(path));
+        try {
+            return new DelegateOutputFile(fileSystem, Location.of(path));
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to create OutputFile for: " + path, e);
+        }
     }
 
     // ===================== File Deletion Methods =====================
@@ -116,10 +124,10 @@ public class DelegateFileIO implements SupportsBulkOperations {
      */
     @Override
     public void deleteFile(String path) {
-        Status status = fileSystem.delete(path);
-        if (!status.ok()) {
-            throw new UncheckedIOException(
-                    new IOException("Failed to delete file: " + path + ", " + status.toString()));
+        try {
+            fileSystem.delete(Location.of(path), false);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to delete file: " + path, e);
         }
     }
 
@@ -154,20 +162,8 @@ public class DelegateFileIO implements SupportsBulkOperations {
      */
     @Override
     public void deleteFiles(Iterable<String> pathsToDelete) throws BulkDeletionFailureException {
-        Iterable<List<String>> partitions = Iterables.partition(pathsToDelete, DELETE_BATCH_SIZE);
-        partitions.forEach(this::deleteBatch);
-    }
-
-    /**
-     * Helper method to delete a batch of files.
-     * Throws UncheckedIOException if deletion fails.
-     *
-     * @param filesToDelete list of file paths to delete
-     */
-    private void deleteBatch(List<String> filesToDelete) {
-        Status status = fileSystem.deleteAll(filesToDelete);
-        if (!status.ok()) {
-            throw new UncheckedIOException(new IOException("Failed to delete some or all files: " + status.toString()));
+        for (String path : pathsToDelete) {
+            deleteFile(path);
         }
     }
 
@@ -229,7 +225,11 @@ public class DelegateFileIO implements SupportsBulkOperations {
     @Override
     public void initialize(Map<String, String> properties) {
         StorageProperties storageProperties = StorageProperties.createPrimary(properties);
-        this.fileSystem = FileSystemFactory.get(storageProperties);
+        try {
+            this.fileSystem = FileSystemFactory.getFileSystem(storageProperties);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to create FileSystem for Iceberg FileIO", e);
+        }
         this.properties = properties;
     }
 

@@ -18,7 +18,6 @@
 #include "exec/common/partition_sort_utils.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status PartitionBlocks::append_block_by_selector(const Block* input_block, bool eos) {
     auto selector_rows = _selector.size();
@@ -29,13 +28,15 @@ Status PartitionBlocks::append_block_by_selector(const Block* input_block, bool 
             _blocks.push_back(Block::create_unique(
                     VectorizedUtils::create_empty_block(_partition_sort_info->_row_desc)));
         }
-        auto columns = input_block->get_columns();
-        auto mutable_columns = _blocks.back()->mutate_columns();
-        DCHECK(columns.size() == mutable_columns.size());
-        for (int i = 0; i < mutable_columns.size(); ++i) {
-            columns[i]->append_data_by_selector(mutable_columns[i], _selector);
+        {
+            auto columns = input_block->get_columns();
+            auto mutable_columns_guard = _blocks.back()->mutate_columns_scoped();
+            auto& mutable_columns = mutable_columns_guard.mutable_columns();
+            DCHECK(columns.size() == mutable_columns.size());
+            for (int i = 0; i < mutable_columns.size(); ++i) {
+                columns[i]->append_data_by_selector(mutable_columns[i], _selector);
+            }
         }
-        _blocks.back()->set_columns(std::move(mutable_columns));
         _init_rows = _init_rows - selector_rows;
         _current_input_rows = _current_input_rows + selector_rows;
         _selector.clear();
@@ -55,7 +56,7 @@ void PartitionBlocks::create_or_reset_sorter_state() {
     if (_partition_topn_sorter == nullptr) {
         _previous_row = std::make_unique<SortCursorCmp>();
         _partition_topn_sorter = PartitionSorter::create_unique(
-                *_partition_sort_info->_vsort_exec_exprs, _partition_sort_info->_limit,
+                *_partition_sort_info->_ordering_expr_ctxs, _partition_sort_info->_limit,
                 _partition_sort_info->_offset, _partition_sort_info->_pool,
                 _partition_sort_info->_is_asc_order, _partition_sort_info->_nulls_first,
                 _partition_sort_info->_row_desc, _partition_sort_info->_runtime_state,
@@ -91,5 +92,4 @@ Status PartitionBlocks::do_partition_topn_sort() {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

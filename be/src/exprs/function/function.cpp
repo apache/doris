@@ -41,7 +41,6 @@
 #include "exprs/function/function_helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
                            size_t input_rows_count) {
     ColumnPtr result_null_map_column;
@@ -68,8 +67,7 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
             }
 
             if (!mutable_result_null_map_column) {
-                mutable_result_null_map_column =
-                        std::move(result_null_map_column)->assume_mutable();
+                mutable_result_null_map_column = (*std::move(result_null_map_column)).mutate();
             }
 
             NullMap& result_null_map =
@@ -79,6 +77,12 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
 
             VectorizedUtils::update_null_map(result_null_map, src_null_map);
         }
+    }
+
+    // Commit merged null map back: result_null_map_column was moved into
+    // mutable_result_null_map_column when merging 2+ nullable args with nulls.
+    if (mutable_result_null_map_column) {
+        result_null_map_column = std::move(mutable_result_null_map_column);
     }
 
     if (!result_null_map_column) {
@@ -401,5 +405,4 @@ bool FunctionBuilderImpl::is_nested_type_date_or_datetime_or_decimal(
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

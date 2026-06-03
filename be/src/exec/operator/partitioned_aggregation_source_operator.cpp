@@ -37,8 +37,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 PartitionedAggLocalState::PartitionedAggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent) {}
 
@@ -153,13 +151,6 @@ Status PartitionedAggSourceOperatorX::prepare(RuntimeState* state) {
 Status PartitionedAggSourceOperatorX::close(RuntimeState* state) {
     RETURN_IF_ERROR(OperatorXBase::close(state));
 
-    // Centralize shared_state cleanup here so resources are released when
-    // the pipeline task finishes, matching the Sort operator pattern.
-    auto& local_state = get_local_state(state);
-    if (local_state._shared_state) {
-        local_state._shared_state->close();
-    }
-
     return _agg_source_operator->close(state);
 }
 
@@ -189,6 +180,11 @@ bool PartitionedAggSourceOperatorX::is_shuffled_operator() const {
 size_t PartitionedAggSourceOperatorX::revocable_mem_size(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
     if (!local_state._shared_state->_is_spilled || !local_state._current_partition.spill_file) {
+        return 0;
+    }
+    // If the current partition has reached the max repartition depth, it cannot be
+    // repartitioned further, so its data is not revocable.
+    if ((local_state._current_partition.level + 1) >= _repartition_max_depth) {
         return 0;
     }
 
@@ -551,5 +547,4 @@ bool PartitionedAggLocalState::is_blockable() const {
     return _shared_state->_is_spilled;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

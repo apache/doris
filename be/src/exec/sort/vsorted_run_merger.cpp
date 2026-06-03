@@ -30,7 +30,6 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VSortedRunMerger::VSortedRunMerger(const VExprContextSPtrs& ordering_expr,
                                    const std::vector<bool>& is_asc_order,
@@ -151,8 +150,9 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         return Status::OK();
     } else {
         size_t num_columns = _priority_queue.top().impl->block->columns();
-        MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(
+        auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
                 output_block, *_priority_queue.top().impl->block);
+        auto& m_block = scoped_mutable_block.mutable_block();
         MutableColumns& merged_columns = m_block.mutable_columns();
 
         if (num_columns != merged_columns.size()) {
@@ -195,11 +195,12 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             current->next();
             if (_need_more_data(current)) {
                 do_insert();
+                scoped_mutable_block.restore();
                 return Status::OK();
             }
         }
         do_insert();
-        output_block->set_columns(std::move(merged_columns));
+        scoped_mutable_block.restore();
 
         if (merged_rows == 0) {
             *eos = true;

@@ -30,7 +30,6 @@
 #include "exprs/function/array/function_array_utils.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct AggregateFunctionForEachData {
     size_t dynamic_array_size = 0;
@@ -52,7 +51,8 @@ struct AggregateFunctionForEachData {
   *
   * TODO Allow variable number of arguments.
   */
-class AggregateFunctionForEach : public IAggregateFunctionDataHelper<AggregateFunctionForEachData,
+class AggregateFunctionForEach : public AggregateFunctionNonFinalBase,
+                                 public IAggregateFunctionDataHelper<AggregateFunctionForEachData,
                                                                      AggregateFunctionForEach>,
                                  VarargsExpression,
                                  NullableAggregateFunction {
@@ -210,11 +210,19 @@ public:
 
         auto& arr_to = assert_cast<ColumnArray&>(to);
         auto& offsets_to = arr_to.get_offsets();
-        IColumn& elems_to = arr_to.get_data();
+        IColumn* elems_to = &arr_to.get_data();
+        ColumnNullable* nullable_elems_to = nullptr;
+        if (!nested_function->get_return_type()->is_nullable()) {
+            nullable_elems_to = assert_cast<ColumnNullable*>(elems_to);
+            elems_to = nullable_elems_to->get_nested_column_ptr().get();
+        }
 
         char* nested_state = state.array_of_aggregate_datas;
         for (size_t i = 0; i < state.dynamic_array_size; ++i) {
-            nested_function->insert_result_into(nested_state, elems_to);
+            nested_function->insert_result_into(nested_state, *elems_to);
+            if (nullable_elems_to != nullptr) {
+                nullable_elems_to->get_null_map_data().push_back(0);
+            }
             nested_state += nested_size_of_data;
         }
 
@@ -261,5 +269,3 @@ public:
     }
 };
 } // namespace doris
-
-#include "common/compile_check_end.h"

@@ -17,6 +17,15 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -24,6 +33,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class StatisticsCacheTest {
 
@@ -86,5 +98,103 @@ public class StatisticsCacheTest {
         } finally {
             ConnectContext.get().getState().setPlanWithUnKnownColumnStats(prevFlag);
         }
+    }
+
+    @Test
+    public void testOlapTableStatisticsSkipSystemTable() {
+        try (MockedConstruction<ColumnStatisticsCacheLoader> columnLoader = Mockito.mockConstruction(
+                ColumnStatisticsCacheLoader.class);
+                MockedConstruction<PartitionColumnStatisticCacheLoader> partitionLoader = Mockito.mockConstruction(
+                        PartitionColumnStatisticCacheLoader.class)) {
+            StatisticsCache cache = new StatisticsCache();
+            StatisticsCache.OlapTableStatistics olapTableStats =
+                    cache.getOlapTableStats(mockSystemOlapScan(FeConstants.INTERNAL_DB_NAME));
+
+            Assertions.assertEquals(ColumnStatistic.UNKNOWN,
+                    olapTableStats.getColumnStatistics("col", ConnectContext.get()));
+            Assertions.assertEquals(PartitionColumnStatistic.UNKNOWN,
+                    olapTableStats.getPartitionColumnStatistics("p1", "col", ConnectContext.get()));
+
+            Mockito.verifyNoInteractions(columnLoader.constructed().get(0));
+            Mockito.verifyNoInteractions(partitionLoader.constructed().get(0));
+        }
+    }
+
+    @Test
+    public void testGetStatisticsSkipSystemDb() {
+        try (MockedConstruction<ColumnStatisticsCacheLoader> columnLoader = Mockito.mockConstruction(
+                ColumnStatisticsCacheLoader.class);
+                MockedConstruction<HistogramCacheLoader> histogramLoader = Mockito.mockConstruction(
+                        HistogramCacheLoader.class);
+                MockedConstruction<PartitionColumnStatisticCacheLoader> partitionLoader = Mockito.mockConstruction(
+                        PartitionColumnStatisticCacheLoader.class)) {
+            StatisticsCache cache = new StatisticsCache();
+
+            Assertions.assertEquals(ColumnStatistic.UNKNOWN, cache.getColumnStatistics(
+                    InternalCatalog.INTERNAL_CATALOG_ID, InfoSchemaDb.DATABASE_ID, 1L, 2L,
+                    "col", ConnectContext.get()));
+            Assertions.assertEquals(PartitionColumnStatistic.UNKNOWN, cache.getPartitionColumnStatistics(
+                    InternalCatalog.INTERNAL_CATALOG_ID, InfoSchemaDb.DATABASE_ID, 1L, 2L,
+                    "p1", "col", ConnectContext.get()));
+            Assertions.assertNull(cache.getHistogram(
+                    InternalCatalog.INTERNAL_CATALOG_ID, InfoSchemaDb.DATABASE_ID, 1L, "col"));
+
+            Mockito.verifyNoInteractions(columnLoader.constructed().get(0));
+            Mockito.verifyNoInteractions(histogramLoader.constructed().get(0));
+            Mockito.verifyNoInteractions(partitionLoader.constructed().get(0));
+        }
+    }
+
+    @Test
+    public void testGetStatisticsSkipInternalSchemaDb() {
+        long internalSchemaDbId = 12345L;
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(internalCatalog.getDb(FeConstants.INTERNAL_DB_NAME))
+                .thenReturn(java.util.Optional.of(new Database(internalSchemaDbId, FeConstants.INTERNAL_DB_NAME)));
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedConstruction<ColumnStatisticsCacheLoader> columnLoader = Mockito.mockConstruction(
+                        ColumnStatisticsCacheLoader.class);
+                MockedConstruction<HistogramCacheLoader> histogramLoader = Mockito.mockConstruction(
+                        HistogramCacheLoader.class);
+                MockedConstruction<PartitionColumnStatisticCacheLoader> partitionLoader = Mockito.mockConstruction(
+                        PartitionColumnStatisticCacheLoader.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            StatisticsCache cache = new StatisticsCache();
+
+            Assertions.assertEquals(ColumnStatistic.UNKNOWN, cache.getColumnStatistics(
+                    InternalCatalog.INTERNAL_CATALOG_ID, internalSchemaDbId, 1L, 2L,
+                    "col", ConnectContext.get()));
+            Assertions.assertEquals(PartitionColumnStatistic.UNKNOWN, cache.getPartitionColumnStatistics(
+                    InternalCatalog.INTERNAL_CATALOG_ID, internalSchemaDbId, 1L, 2L,
+                    "p1", "col", ConnectContext.get()));
+            Assertions.assertNull(cache.getHistogram(
+                    InternalCatalog.INTERNAL_CATALOG_ID, internalSchemaDbId, 1L, "col"));
+
+            Mockito.verifyNoInteractions(columnLoader.constructed().get(0));
+            Mockito.verifyNoInteractions(histogramLoader.constructed().get(0));
+            Mockito.verifyNoInteractions(partitionLoader.constructed().get(0));
+        }
+    }
+
+    private OlapScan mockSystemOlapScan(String dbName) {
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        Mockito.when(database.getId()).thenReturn(2L);
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getQualifiedDbName()).thenReturn(dbName);
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(table.getId()).thenReturn(3L);
+        Mockito.when(table.getBaseIndexId()).thenReturn(4L);
+
+        OlapScan scan = Mockito.mock(OlapScan.class);
+        Mockito.when(scan.getTable()).thenReturn(table);
+        Mockito.when(scan.getSelectedIndexId()).thenReturn(4L);
+        return scan;
     }
 }

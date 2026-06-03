@@ -48,13 +48,12 @@ public:
                                         column->get_name(), get_name());
         };
         if constexpr (is_nullable) {
-            const ColumnNullable* col_nullable = check_and_get_column<ColumnNullable>(column.get());
+            const ColumnNullable* col_nullable = assert_cast<const ColumnNullable*>(column.get());
             const ColumnType* col =
                     check_and_get_column<ColumnType>(col_nullable->get_nested_column_ptr().get());
-            const ColumnUInt8* col_nullmap = check_and_get_column<ColumnUInt8>(
-                    col_nullable->get_null_map_column_ptr().get());
+            const ColumnUInt8* col_nullmap = col_nullable->get_null_map_column_ptr().get();
 
-            if (col != nullptr && col_nullmap != nullptr) {
+            if (col != nullptr) {
                 if constexpr (WithReturn) {
                     RETURN_IF_ERROR(
                             Function::vector_nullable(col, col_nullmap->get_data(), column_result));
@@ -65,7 +64,7 @@ public:
                 return type_error();
             }
         } else {
-            const ColumnType* col = check_and_get_column<ColumnType>(column.get());
+            const ColumnType* col = assert_cast<const ColumnType*>(column.get());
             if constexpr (WithReturn) {
                 RETURN_IF_ERROR(Function::vector(col, column_result));
             } else {

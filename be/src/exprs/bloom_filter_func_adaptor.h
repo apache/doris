@@ -108,8 +108,7 @@ struct CommonFindOp {
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column();
-            const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
+            const auto& nullmap = nullable->get_null_map_column().get_data();
 
             const T* data = (T*)col.get_raw_data().data;
             for (size_t i = start; i < size; i++) {
@@ -142,9 +141,7 @@ struct CommonFindOp {
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             if (nullable->has_null()) {
-                nullmap = assert_cast<const ColumnUInt8&>(nullable->get_null_map_column())
-                                  .get_data()
-                                  .data();
+                nullmap = nullable->get_null_map_column().get_data().data();
             }
             data = (T*)nullable->get_nested_column().get_raw_data().data;
         } else {
@@ -189,8 +186,7 @@ struct StringFindOp : CommonFindOp<fixed_len_to_uint32_method, StringRef> {
 
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
-            const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
+            const auto& nullmap = nullable->get_null_map_column().get_data();
             if (nullable->get_nested_column().is_column_string64()) {
                 _insert_batch_col_str(
                         assert_cast<const ColumnString64&>(nullable->get_nested_column()),
@@ -216,8 +212,7 @@ struct StringFindOp : CommonFindOp<fixed_len_to_uint32_method, StringRef> {
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = assert_cast<const ColumnString&>(nullable->get_nested_column());
-            const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
+            const auto& nullmap = nullable->get_null_map_column().get_data();
             if (nullable->has_null()) {
                 auto update = [&](size_t i) {
                     if (!nullmap[i]) {
@@ -248,18 +243,6 @@ struct StringFindOp : CommonFindOp<fixed_len_to_uint32_method, StringRef> {
     }
 };
 
-// We do not need to judge whether data is empty, because null will not appear
-// when filer used by the storage engine
-template <typename fixed_len_to_uint32_method>
-struct FixedStringFindOp : public StringFindOp<fixed_len_to_uint32_method> {
-    static uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
-                                           const uint8_t* nullmap, uint16_t* offsets, int number,
-                                           const bool is_parse_column) {
-        return find_batch_olap<fixed_len_to_uint32_method, StringRef, true>(
-                bloom_filter, data, nullmap, offsets, number, is_parse_column);
-    }
-};
-
 template <typename fixed_len_to_uint32_method, PrimitiveType type>
 struct BloomFilterTypeTraits {
     using T = typename PrimitiveTypeTraits<type>::CppType;
@@ -268,7 +251,7 @@ struct BloomFilterTypeTraits {
 
 template <typename fixed_len_to_uint32_method>
 struct BloomFilterTypeTraits<fixed_len_to_uint32_method, TYPE_CHAR> {
-    using FindOp = FixedStringFindOp<fixed_len_to_uint32_method>;
+    using FindOp = StringFindOp<fixed_len_to_uint32_method>;
 };
 
 template <typename fixed_len_to_uint32_method>

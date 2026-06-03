@@ -45,7 +45,6 @@ namespace doris {
 class PColumnMeta;
 enum PGenericType_TypeId : int;
 
-#include "common/compile_check_begin.h"
 class IDataType;
 class IColumn;
 class BufferWritable;
@@ -125,11 +124,6 @@ public:
     ColumnPtr create_column_const(size_t size, const Field& field) const;
     ColumnPtr create_column_const_with_default_value(size_t size) const;
 
-    /** Get default value of data type.
-      * It is the "default" default, regardless the fact that a table could contain different user-specified default.
-      */
-    virtual Field get_default() const = 0;
-
     virtual Field get_field(const TExprNode& node) const = 0;
 
     /// Checks that two instances belong to the same type
@@ -137,7 +131,7 @@ public:
 
     virtual bool equals_ignore_precision(const IDataType& rhs) const { return equals(rhs); }
 
-    /** Example: numbers, Date, DateTime, FixedString, Enum... Nullable and Tuple of such types.
+    /** Example: numbers, Date, DateTime, FixedString, Enum... Nullable and Struct of such types.
       * Counterexamples: String, Array.
       * It's Ok to return false for AggregateFunction despite the fact that some of them have fixed size state.
       */
@@ -236,5 +230,4 @@ char* serialize_const_flag_and_row_num(const IColumn** column, char* buf,
 const char* deserialize_const_flag_and_row_num(const char* buf, MutableColumnPtr* column,
                                                size_t* real_have_saved_num);
 
-#include "common/compile_check_end.h"
 } // namespace doris

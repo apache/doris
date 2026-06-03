@@ -124,6 +124,9 @@ class DeltaWriter final : public BaseDeltaWriter {
 public:
     DeltaWriter(StorageEngine& engine, const WriteRequest& req, RuntimeProfile* profile,
                 const UniqueId& load_id);
+    DeltaWriter(StorageEngine& engine, const WriteRequest& group_build_req,
+                const WriteRequest& sub_data_req, const WriteRequest& sub_row_binlog_req,
+                RuntimeProfile* profile, const UniqueId& load_id);
 
     ~DeltaWriter() override;
 
@@ -149,9 +152,6 @@ private:
     void _init_profile(RuntimeProfile* profile) override;
 
     void _request_slave_tablet_pull_rowset(const PNodeInfo& node_info);
-
-    // Convert `_rowset_builder` from `BaseRowsetBuilder` to `RowsetBuilder`
-    RowsetBuilder* rowset_builder();
 
     std::mutex _lock;
 

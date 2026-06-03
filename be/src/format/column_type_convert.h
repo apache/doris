@@ -32,14 +32,31 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
+#include "exprs/function/cast/cast_to_basic_number_common.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/cast/cast_to_datev2_impl.hpp"
+#include "exprs/function/cast/cast_to_decimal.h"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 #include "util/to_string.h"
 
 namespace doris::converter {
-#include "common/compile_check_begin.h"
 
 enum FileFormat { COMMON, ORC, PARQUET };
+
+// Helper: get the inner (non-nullable) mutable column from an exclusively-owned dst_col.
+// - For non-nullable dst_col: returns a raw pointer to the column itself.
+// - For nullable dst_col: returns a raw pointer to the nested (non-null) column.
+// Must only be called when dst_col has exclusive ownership (use_count == 1).
+// Returns IColumn* (raw pointer) to avoid creating a second owning MutableColumnPtr,
+// which would violate COW invariant (use_count > 1).
+inline IColumn* get_mutable_inner_col(MutableColumnPtr& dst_col) {
+    if (dst_col->is_nullable()) {
+        return static_cast<ColumnNullable*>(dst_col.get())->get_nested_column_ptr().get();
+    } else {
+        return dst_col.get();
+    }
+}
 
 template <PrimitiveType type>
 constexpr bool is_decimal_type() {
@@ -106,8 +123,9 @@ public:
     /**
      * Get the column to read data from file with the type from file meta data.
      * If the converter is not consistent, the returned column is `_cached_src_column`.
-     * For performance reasons, the null map of `_cached_src_column` is a reference from
-     * the null map of `dst_column`, so there is no need to convert null map in `convert()`.
+     * For nullable destination columns, `_cached_src_column` is also nullable and owns its
+     * temporary null map. The reader fills this source null map first, then copies only the
+     * newly appended null slice back to the destination column before value conversion.
      *
      * According to the hive standard, if certain values fail to be converted(eg. string `row1` to int value),
      * these values are replaced by nulls.
@@ -162,13 +180,13 @@ public:
         using DstColumnType = typename PrimitiveTypeTraits<DstPrimitiveType>::ColumnType;
         using DstCppType = typename PrimitiveTypeTraits<DstPrimitiveType>::CppType;
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
         for (int i = 0; i < rows; ++i) {
             if constexpr (sizeof(DstCppType) < sizeof(SrcCppType)) {
                 SrcCppType src_value = src_data[i];
@@ -209,7 +227,7 @@ public:
         using DstColumnType = typename PrimitiveTypeTraits<DstPrimitiveType>::ColumnType;
         using DstCppType = typename PrimitiveTypeTraits<DstPrimitiveType>::CppType;
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
@@ -220,7 +238,7 @@ public:
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
         for (int i = 0; i < rows; ++i) {
             SrcCppType src_value = src_data[i];
             if constexpr (is_integer_type<SrcPrimitiveType>()) {
@@ -245,11 +263,11 @@ public:
     Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
         using SrcColumnType = typename PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnType;
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
-        auto& string_col = static_cast<ColumnString&>(*to_col.get());
+        auto& string_col = static_cast<ColumnString&>(*to_col);
         for (int i = 0; i < rows; ++i) {
             std::string value = src_data[i] != 0 ? "TRUE" : "FALSE";
             string_col.insert_data(value.data(), value.size());
@@ -266,7 +284,7 @@ public:
     Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
         using SrcColumnType = typename PrimitiveTypeTraits<SrcPrimitiveType>::ColumnType;
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
@@ -276,7 +294,7 @@ public:
         size_t rows = from_col->size();
         size_t start_idx = to_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
-        auto& string_col = static_cast<ColumnString&>(*to_col.get());
+        auto& string_col = static_cast<ColumnString&>(*to_col);
         for (int i = 0; i < rows; ++i) {
             if constexpr (SrcPrimitiveType == TYPE_FLOAT || SrcPrimitiveType == TYPE_DOUBLE) {
                 if (fileFormat == FileFormat::ORC && std::isnan(src_data[i])) {
@@ -292,7 +310,7 @@ public:
             } else {
                 std::string value;
                 if constexpr (SrcPrimitiveType == TYPE_LARGEINT) {
-                    value = int128_to_string(src_data[i]);
+                    value = CastToString::from_int128(src_data[i]);
                 } else {
                     value = std::to_string(src_data[i]);
                 }
@@ -315,11 +333,11 @@ public:
     Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
         using SrcColumnType = typename PrimitiveTypeTraits<SrcPrimitiveType>::ColumnType;
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
-        auto& string_col = static_cast<ColumnString&>(*to_col.get());
+        auto& string_col = static_cast<ColumnString&>(*to_col);
         for (int i = 0; i < rows; ++i) {
             std::string value = src_data[i].to_string(_scale);
             string_col.insert_data(value.data(), value.size());
@@ -336,11 +354,11 @@ public:
         using SrcCppType = typename PrimitiveTypeTraits<SrcPrimitiveType>::CppType;
         using SrcColumnType = typename PrimitiveTypeTraits<SrcPrimitiveType>::ColumnType;
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
-        auto& string_col = static_cast<ColumnString&>(*to_col.get());
+        auto& string_col = static_cast<ColumnString&>(*to_col);
         char buf[50];
         for (int i = 0; i < rows; ++i) {
             int len = (reinterpret_cast<const SrcCppType&>(src_data[i])).to_buffer(buf);
@@ -354,12 +372,13 @@ public:
 template <PrimitiveType DstPrimitiveType, FileFormat = COMMON>
 struct SafeCastString {};
 
-template <>
-struct SafeCastString<TYPE_BOOLEAN> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_BOOLEAN, fileFormat> {
     // Ref: https://github.com/apache/hive/blob/4df4d75bf1e16fe0af75aad0b4179c34c07fc975/serde/src/java/org/apache/hadoop/hive/serde2/objectinspector/primitive/PrimitiveObjectInspectorUtils.java#L559
     static inline const std::set<std::string> FALSE_VALUES = {"false", "off", "no", "0", ""};
     static bool safe_cast_string(const StringRef& str_ref,
-                                 PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnType::value_type* value) {
+                                 PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnType::value_type* value,
+                                 CastParameters& params) {
         std::string str_value = str_ref.to_string();
         std::transform(str_value.begin(), str_value.end(), str_value.begin(), ::tolower);
         bool is_false = (FALSE_VALUES.contains(str_value));
@@ -373,7 +392,8 @@ struct SafeCastString<TYPE_BOOLEAN> {
 template <>
 struct SafeCastString<TYPE_BOOLEAN, ORC> {
     static bool safe_cast_string(const StringRef& str_ref,
-                                 PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnType::value_type* value) {
+                                 PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnType::value_type* value,
+                                 CastParameters& params) {
         int64_t cast_to_long = 0;
         bool can_cast = absl::SimpleAtoi({str_ref.data, str_ref.size}, &cast_to_long);
         *value = cast_to_long == 0 ? 0 : 1;
@@ -381,10 +401,11 @@ struct SafeCastString<TYPE_BOOLEAN, ORC> {
     }
 };
 
-template <>
-struct SafeCastString<TYPE_TINYINT> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_TINYINT, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
-                                 PrimitiveTypeTraits<TYPE_TINYINT>::ColumnType::value_type* value) {
+                                 PrimitiveTypeTraits<TYPE_TINYINT>::ColumnType::value_type* value,
+                                 CastParameters& params) {
         int32_t cast_to_int = 0;
         bool can_cast = absl::SimpleAtoi({str_ref.data, str_ref.size}, &cast_to_int);
         if (can_cast && cast_to_int <= std::numeric_limits<int8_t>::max() &&
@@ -397,11 +418,11 @@ struct SafeCastString<TYPE_TINYINT> {
     }
 };
 
-template <>
-struct SafeCastString<TYPE_SMALLINT> {
-    static bool safe_cast_string(
-            const StringRef& str_ref,
-            PrimitiveTypeTraits<TYPE_SMALLINT>::ColumnType::value_type* value) {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_SMALLINT, fileFormat> {
+    static bool safe_cast_string(const StringRef& str_ref,
+                                 PrimitiveTypeTraits<TYPE_SMALLINT>::ColumnType::value_type* value,
+                                 CastParameters& params) {
         int32_t cast_to_int = 0;
         bool can_cast = absl::SimpleAtoi({str_ref.data, str_ref.size}, &cast_to_int);
         if (can_cast && cast_to_int <= std::numeric_limits<int16_t>::max() &&
@@ -414,10 +435,11 @@ struct SafeCastString<TYPE_SMALLINT> {
     }
 };
 
-template <>
-struct SafeCastString<TYPE_INT> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_INT, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
-                                 PrimitiveTypeTraits<TYPE_INT>::ColumnType::value_type* value) {
+                                 PrimitiveTypeTraits<TYPE_INT>::ColumnType::value_type* value,
+                                 CastParameters& params) {
         int32_t cast_to_int = 0;
         bool can_cast = absl::SimpleAtoi({str_ref.data, str_ref.size}, &cast_to_int);
         *value = cast_to_int;
@@ -425,10 +447,11 @@ struct SafeCastString<TYPE_INT> {
     }
 };
 
-template <>
-struct SafeCastString<TYPE_BIGINT> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_BIGINT, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
-                                 PrimitiveTypeTraits<TYPE_BIGINT>::ColumnType::value_type* value) {
+                                 PrimitiveTypeTraits<TYPE_BIGINT>::ColumnType::value_type* value,
+                                 CastParameters& params) {
         int64_t cast_to_int = 0;
         bool can_cast = absl::SimpleAtoi({str_ref.data, str_ref.size}, &cast_to_int);
         *value = cast_to_int;
@@ -436,19 +459,20 @@ struct SafeCastString<TYPE_BIGINT> {
     }
 };
 
-template <>
-struct SafeCastString<TYPE_LARGEINT> {
-    static bool safe_cast_string(
-            const StringRef& str_ref,
-            PrimitiveTypeTraits<TYPE_LARGEINT>::ColumnType::value_type* value) {
-        return try_read_int_text<Int128>(*value, str_ref);
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_LARGEINT, fileFormat> {
+    static bool safe_cast_string(const StringRef& str_ref,
+                                 PrimitiveTypeTraits<TYPE_LARGEINT>::ColumnType::value_type* value,
+                                 CastParameters& params) {
+        return CastToInt::from_string<false>(str_ref, *value, params);
     }
 };
 
 template <FileFormat fileFormat>
 struct SafeCastString<TYPE_FLOAT, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
-                                 PrimitiveTypeTraits<TYPE_FLOAT>::ColumnType::value_type* value) {
+                                 PrimitiveTypeTraits<TYPE_FLOAT>::ColumnType::value_type* value,
+                                 CastParameters& params) {
         float cast_to_float = 0;
         bool can_cast = absl::SimpleAtof({str_ref.data, str_ref.size}, &cast_to_float);
         if (can_cast && fileFormat == ORC) {
@@ -465,7 +489,8 @@ struct SafeCastString<TYPE_FLOAT, fileFormat> {
 template <FileFormat fileFormat>
 struct SafeCastString<TYPE_DOUBLE, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
-                                 PrimitiveTypeTraits<TYPE_DOUBLE>::ColumnType::value_type* value) {
+                                 PrimitiveTypeTraits<TYPE_DOUBLE>::ColumnType::value_type* value,
+                                 CastParameters& params) {
         double cast_to_double = 0;
         bool can_cast = absl::SimpleAtod({str_ref.data, str_ref.size}, &cast_to_double);
         if (can_cast && fileFormat == ORC) {
@@ -478,37 +503,51 @@ struct SafeCastString<TYPE_DOUBLE, fileFormat> {
     }
 };
 
-template <>
-struct SafeCastString<TYPE_DATETIME> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_DATETIME, fileFormat> {
+    static bool safe_cast_string(const StringRef& str_ref,
+                                 PrimitiveTypeTraits<TYPE_DATETIME>::ColumnType::value_type* value,
+                                 CastParameters& params) {
+        if (!CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                    str_ref, *value, nullptr, params)) {
+            return false;
+        }
+        value->to_datetime();
+        return true;
+    }
+};
+
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_DATETIMEV2, fileFormat> {
     static bool safe_cast_string(
             const StringRef& str_ref,
-            PrimitiveTypeTraits<TYPE_DATETIME>::ColumnType::value_type* value) {
-        return read_datetime_text_impl(*value, str_ref);
+            PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnType::value_type* value, int scale,
+            CastParameters& params) {
+        return CastToDatetimeV2::from_string_non_strict_mode(str_ref, *value, nullptr, scale,
+                                                             params);
     }
 };
 
-template <>
-struct SafeCastString<TYPE_DATETIMEV2> {
-    static bool safe_cast_string(
-            const StringRef& str_ref,
-            PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnType::value_type* value, int scale) {
-        return read_datetime_v2_text_impl(*value, str_ref, scale);
-    }
-};
-
-template <>
-struct SafeCastString<TYPE_DATE> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_DATE, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
-                                 PrimitiveTypeTraits<TYPE_DATE>::ColumnType::value_type* value) {
-        return read_date_text_impl(*value, str_ref);
+                                 PrimitiveTypeTraits<TYPE_DATE>::ColumnType::value_type* value,
+                                 CastParameters& params) {
+        if (!CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE>(
+                    str_ref, *value, nullptr, params)) {
+            return false;
+        }
+        value->cast_to_date();
+        return true;
     }
 };
 
-template <>
-struct SafeCastString<TYPE_DATEV2> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_DATEV2, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
-                                 PrimitiveTypeTraits<TYPE_DATEV2>::ColumnType::value_type* value) {
-        return read_date_v2_text_impl(*value, str_ref);
+                                 PrimitiveTypeTraits<TYPE_DATEV2>::ColumnType::value_type* value,
+                                 CastParameters& params) {
+        return CastToDateV2::from_string_non_strict_mode(str_ref, *value, nullptr, params);
     }
 };
 
@@ -516,10 +555,9 @@ template <PrimitiveType DstPrimitiveType>
 struct SafeCastDecimalString {
     using CppType = typename PrimitiveTypeTraits<DstPrimitiveType>::ColumnType::value_type;
 
-    static bool safe_cast_string(const StringRef& str_ref, CppType* value, int precision,
-                                 int scale) {
-        return read_decimal_text_impl<DstPrimitiveType, CppType>(
-                       *value, str_ref, precision, scale) == StringParser::PARSE_SUCCESS;
+    static bool safe_cast_string(const StringRef& str_ref, CppType* value, int precision, int scale,
+                                 CastParameters& params) {
+        return CastToDecimal::from_string(str_ref, *value, precision, scale, params);
     }
 };
 
@@ -548,35 +586,36 @@ public:
         }
 
         NullMap* null_map = nullptr;
-        MutableColumnPtr to_col = nullptr;
+        IColumn* to_col = nullptr;
         if (dst_col->is_nullable()) {
             auto* nullable = assert_cast<ColumnNullable*>(dst_col.get());
-            to_col = nullable->get_nested_column_ptr()->assume_mutable();
+            to_col = nullable->get_nested_column_ptr().get();
             null_map = &nullable->get_null_map_data();
         } else {
-            to_col = dst_col->assume_mutable();
+            to_col = dst_col.get();
         }
 
         size_t rows = string_col->size();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = assert_cast<DstColumnType*>(to_col.get())->get_data();
+        auto& data = assert_cast<DstColumnType*>(to_col)->get_data();
+        CastParameters params;
         for (int i = 0; i < rows; ++i) {
             bool can_cast = false;
             if constexpr (is_decimal_type<DstPrimitiveType>()) {
                 can_cast = SafeCastDecimalString<DstPrimitiveType>::safe_cast_string(
                         string_col->get_data_at(i), &data[start_idx + i],
-                        _dst_type_desc->get_precision(), _dst_type_desc->get_scale());
+                        _dst_type_desc->get_precision(), _dst_type_desc->get_scale(), params);
             } else if constexpr (DstPrimitiveType == TYPE_DATETIMEV2) {
                 can_cast = SafeCastString<TYPE_DATETIMEV2>::safe_cast_string(
                         string_col->get_data_at(i), &data[start_idx + i],
-                        _dst_type_desc->get_scale());
+                        _dst_type_desc->get_scale(), params);
             } else if constexpr (DstPrimitiveType == TYPE_BOOLEAN && fileFormat == ORC) {
                 can_cast = SafeCastString<TYPE_BOOLEAN, ORC>::safe_cast_string(
-                        string_col->get_data_at(i), &data[start_idx + i]);
+                        string_col->get_data_at(i), &data[start_idx + i], params);
             } else {
                 can_cast = SafeCastString<DstPrimitiveType>::safe_cast_string(
-                        string_col->get_data_at(i), &data[start_idx + i]);
+                        string_col->get_data_at(i), &data[start_idx + i], params);
             }
 
             if (!can_cast) {
@@ -604,7 +643,7 @@ public:
         using DstCppType = typename PrimitiveTypeTraits<DstPrimitiveType>::CppType;
 
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
@@ -615,7 +654,7 @@ public:
         const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
 
         for (int i = 0; i < rows; ++i) {
             const SrcCppType& src_value = src_data[i];
@@ -656,13 +695,13 @@ public:
         using DstCppType = typename PrimitiveTypeTraits<DstPrimitiveType>::CppType;
 
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
         for (int i = 0; i < rows; ++i) {
             const auto& src_value = reinterpret_cast<const SrcCppType&>(src_data[i]);
             auto& dst_value = reinterpret_cast<DstCppType&>(data[start_idx + i]);
@@ -694,7 +733,7 @@ public:
         using DstDorisType = typename PrimitiveTypeTraits<DstPrimitiveType>::ColumnType::value_type;
 
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
@@ -705,7 +744,7 @@ public:
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
 
         auto max_result = DataTypeDecimal<DstPrimitiveType>::get_max_digits_number(_precision);
         auto multiplier = DataTypeDecimal<DstPrimitiveType>::get_scale_multiplier(_scale);
@@ -780,13 +819,13 @@ public:
         using DstCppType = typename PrimitiveTypeTraits<DstPrimitiveType>::CppType;
 
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
@@ -865,13 +904,13 @@ public:
         bool narrow_integral = (_to_precision - _to_scale) < (_from_precision - _from_scale);
 
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
 
         for (int i = 0; i < rows; ++i) {
             SrcNativeType src_value = src_data[i].value;
@@ -959,15 +998,15 @@ public:
             from_col = &assert_cast<const FromColumnType&>(*src_col);
         }
 
-        MutableColumnPtr to_col = nullptr;
+        IColumn* to_col = nullptr;
         // nullmap flag seems have been handled in upper level
         if (dst_col->is_nullable()) {
             const auto* nullable = assert_cast<const ColumnNullable*>(dst_col.get());
-            to_col = nullable->get_nested_column_ptr()->assume_mutable();
+            to_col = const_cast<ColumnNullable*>(nullable)->get_nested_column_ptr().get();
         } else {
-            to_col = dst_col->assume_mutable();
+            to_col = dst_col.get();
         }
-        auto* to_dst_column = assert_cast<ToColumnType*>(to_col.get());
+        auto* to_dst_column = assert_cast<ToColumnType*>(to_col);
 
         for (size_t i = 0; i < from_col->size(); ++i) {
             auto string_ref = from_col->get_data_at(i);
@@ -977,5 +1016,4 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris::converter

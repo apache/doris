@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
-import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
@@ -31,12 +30,10 @@ import java.util.Set;
 public class RandomDistributionDesc extends DistributionDesc {
     public RandomDistributionDesc(int numBucket) {
         super(numBucket);
-        type = DistributionInfoType.RANDOM;
     }
 
     public RandomDistributionDesc(int numBucket, boolean autoBucket) {
         super(numBucket, autoBucket);
-        type = DistributionInfoType.RANDOM;
     }
 
     @Override

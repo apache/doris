@@ -18,7 +18,6 @@
 #include "storage/index/inverted/analyzer/ik/core/LetterSegmenter.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 LetterSegmenter::LetterSegmenter()
         : letter_connectors_ {'#', '&', '+', '-', '.', '@', '_'}, num_connectors_ {',', '.'} {
@@ -199,5 +198,4 @@ Lexeme LetterSegmenter::createLexeme(AnalyzeContext& context, int start, int end
                   type, start, end);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -43,7 +43,6 @@
 class SipHash;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class ColumnSorter;
 /// PaddedPODArray extended by Decimal scale
@@ -205,7 +204,7 @@ public:
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     bool structure_equals(const IColumn& rhs) const override {
-        if (auto rhs_concrete = typeid_cast<const ColumnDecimal<T>*>(&rhs))
+        if (auto rhs_concrete = check_and_get_column<ColumnDecimal<T>>(&rhs))
             return scale == rhs_concrete->scale;
         return false;
     }
@@ -312,4 +311,3 @@ using ColumnDecimal128V3 = ColumnDecimal<TYPE_DECIMAL128I>;
 using ColumnDecimal256 = ColumnDecimal<TYPE_DECIMAL256>;
 
 } // namespace doris
-#include "common/compile_check_end.h"

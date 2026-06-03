@@ -165,6 +165,27 @@ if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
     set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
 endif()
 
+option(BUILD_RUST_READERS "Build Rust-based format readers (Lance, etc.)" OFF)
+if (DEFINED ENV{BUILD_RUST_READERS})
+    set(BUILD_RUST_READERS "$ENV{BUILD_RUST_READERS}" CACHE BOOL "" FORCE)
+endif()
+# Auto-enable if pre-built Rust library exists (from zigbuild or manylinux2014)
+if (NOT BUILD_RUST_READERS)
+    if (EXISTS "${SRC_DIR}/rust/doris-native/target/x86_64-unknown-linux-gnu/release/libdoris_ffi.a"
+        OR EXISTS "${SRC_DIR}/rust/doris-native/target/release/libdoris_ffi.a")
+        set(BUILD_RUST_READERS ON)
+        message(STATUS "Auto-enabling BUILD_RUST_READERS: pre-built library found")
+    endif()
+endif()
+if (BUILD_RUST_READERS)
+    # rust.cmake detects pre-built .a or builds via Corrosion.
+    # If neither exists, it sets BUILD_RUST_READERS=OFF and returns.
+    include(cmake/rust.cmake)
+endif()
+if (BUILD_RUST_READERS)
+    add_definitions(-DBUILD_RUST_READERS)
+endif()
+
 set(CMAKE_SKIP_RPATH TRUE)
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_STATIC_RUNTIME ON)
@@ -317,7 +338,6 @@ add_compile_options(-g
                     $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
 add_compile_options(-Wno-unused-parameter
-                    -Wno-deprecated-declarations
                     -Wno-sign-compare)
 
 if (COMPILER_GCC)
@@ -349,7 +369,8 @@ if (COMPILER_CLANG)
                         -Wunused-template
                         -Wunused-member-function
                         -Wunused-macros
-                        -Wconversion)
+                        -Wconversion
+                        -Wthread-safety)
     add_compile_options(-Wno-gnu-statement-expression
                         -Wno-implicit-float-conversion
                         -Wno-sign-conversion)
@@ -428,7 +449,10 @@ endif()
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
 set(CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 message(STATUS "UBSAN_IGNORELIST is ${UBSAN_IGNORELIST}")
-set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-sanitize=float-cast-overflow -fsanitize-ignorelist=${UBSAN_IGNORELIST} -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
+set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-sanitize=float-cast-overflow -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
+if (COMPILER_CLANG)
+    set(CXX_FLAGS_ASAN "${CXX_FLAGS_ASAN} -fsanitize-ignorelist=${UBSAN_IGNORELIST}")
+endif()
 set(CXX_FLAGS_LSAN "-O0 -fsanitize=leak -DLEAK_SANITIZER")
 ## Use for BE-UT
 set(CXX_FLAGS_ASAN_UT "-O0 -fsanitize=address -DADDRESS_SANITIZER")
@@ -684,6 +708,10 @@ if (ENABLE_PAIMON_CPP)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} tbb_paimon)
 endif()
 
+if (BUILD_RUST_READERS)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} doris_ffi_lib)
+endif()
+
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 
 # Add all external dependencies. They should come after the palo libs.
@@ -706,6 +734,11 @@ else()
         -lresolv
         -liconv
     )
+    # On macOS arm64, large binaries (>2GB) can cause the virtual address space
+    # to overlap with the dyld shared cache region, resulting in "dyld cache not
+    # loaded: syscall to map cache into shared region failed". Use -dead_strip to
+    # remove unreachable code/data and reduce binary size.
+    add_link_options(-Wl,-dead_strip)
 endif()
 
 

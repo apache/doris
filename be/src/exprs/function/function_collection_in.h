@@ -40,7 +40,6 @@
 #include "exprs/function/function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct ColumnRowRef {
     ENABLE_FACTORY_CREATOR(ColumnRowRef);
     ColumnPtr column;
@@ -115,7 +114,7 @@ public:
             DCHECK(const_column_ptr != nullptr);
             const auto& [col, _] = unpack_if_const(const_column_ptr->column_ptr);
             if (col->is_nullable()) {
-                const auto* null_col = check_and_get_column<ColumnNullable>(col.get());
+                const auto* null_col = assert_cast<const ColumnNullable*>(col.get());
                 if (null_col->has_null()) {
                     state->null_in_set = true;
                 } else {
@@ -157,9 +156,9 @@ public:
         const auto& [materialized_column, col_const] = unpack_if_const(left_arg.column);
         auto materialized_column_not_null = materialized_column;
         if (materialized_column_not_null->is_nullable()) {
-            materialized_column_not_null = assert_cast<ColumnPtr>(
-                    check_and_get_column<ColumnNullable>(materialized_column_not_null.get())
-                            ->get_nested_column_ptr());
+            materialized_column_not_null =
+                    assert_cast<const ColumnNullable*>(materialized_column_not_null.get())
+                            ->get_nested_column_ptr();
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -189,5 +188,3 @@ public:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

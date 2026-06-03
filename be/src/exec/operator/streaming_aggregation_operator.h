@@ -27,7 +27,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class StreamingAggOperatorX;
@@ -225,10 +224,10 @@ public:
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_child && _child->is_hash_join_probe() &&
             state->enable_streaming_agg_hash_join_force_passthrough()) {
-            return DataDistribution(ExchangeType::PASSTHROUGH);
+            return {ExchangeType::PASSTHROUGH};
         }
-        if (!state->get_query_ctx()->should_be_shuffled_agg(
-                    StatefulOperatorX<StreamingAggLocalState>::node_id())) {
+        if (!_needs_finalize && !state->enable_local_exchange_before_agg() &&
+            !child_breaks_local_key_distribution(state)) {
             return StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(state);
         }
         if (_partition_exprs.empty()) {
@@ -237,7 +236,7 @@ public:
                            : StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(
                                      state);
         }
-        return DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        return {ExchangeType::HASH_SHUFFLE, _partition_exprs};
     }
 
 private:
@@ -281,5 +280,4 @@ private:
     std::vector<TExpr> _partition_exprs;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

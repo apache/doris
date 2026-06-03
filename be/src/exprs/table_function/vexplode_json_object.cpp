@@ -33,7 +33,6 @@
 #include "util/jsonb_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VExplodeJsonObjectTableFunction::VExplodeJsonObjectTableFunction() {
     _fn_name = "vexplode_json_object";
@@ -108,8 +107,8 @@ void VExplodeJsonObjectTableFunction::get_same_many_values(MutableColumnPtr& col
         // make map kv value into struct
         ret = assert_cast<ColumnStruct*>(
                 assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get());
-        assert_cast<ColumnUInt8*>(
-                assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+        assert_cast<ColumnNullable*>(column.get())
+                ->get_null_map_column_ptr()
                 ->insert_many_defaults(length);
     } else if (is_column<ColumnStruct>(column.get())) {
         ret = assert_cast<ColumnStruct*>(column.get());
@@ -138,8 +137,7 @@ int VExplodeJsonObjectTableFunction::get_value(MutableColumnPtr& column, int max
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             struct_column =
                     assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             // here nullmap_column insert max_step many defaults as if MAP[row_idx] is NULL
             // will be not update value, _cur_size = 0, means current_empty;
             // so here could insert directly
@@ -160,5 +158,4 @@ int VExplodeJsonObjectTableFunction::get_value(MutableColumnPtr& column, int max
     return max_step;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -21,31 +21,98 @@
 
 #include <map>
 #include <ostream>
-#include <string>
 #include <utility>
 
 #include "common/logging.h"
+#include "io/fs/kafka_consumer_pipe.h"
+#include "io/fs/kinesis_consumer_pipe.h"
 #include "librdkafka/rdkafkacpp.h"
+#include "load/routine_load/consumer_group_helpers.h"
 #include "load/routine_load/data_consumer.h"
 #include "load/stream_load/stream_load_context.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
+
+bool DataConsumerGroup::_submit_all_consumers(
+        std::function<void(std::shared_ptr<DataConsumer>, ConsumeFinishCallback)> consume_fn,
+        std::function<void()> shutdown_fn, Status& result_st) {
+    for (auto& consumer : _consumers) {
+        auto cb = [this, shutdown_fn, &result_st](const Status& st) {
+            std::unique_lock<std::mutex> lock(_mutex);
+            if (--_counter == 0) {
+                shutdown_fn();
+                LOG(INFO) << "all consumers finished, shutdown queue. grp: " << _grp_id;
+            }
+            if (result_st.ok() && !st.ok()) {
+                result_st = st;
+            }
+        };
+        if (!_thread_pool.offer([consume_fn, consumer, cb] { consume_fn(consumer, cb); })) {
+            LOG(WARNING) << "failed to submit consumer: " << consumer->id() << ", grp: " << _grp_id;
+            return false;
+        }
+        VLOG_CRITICAL << "submit consumer: " << consumer->id() << ", grp: " << _grp_id;
+    }
+    return true;
+}
+
+Status DataConsumerGroup::_run_consume_loop(std::shared_ptr<StreamLoadContext> ctx,
+                                            std::shared_ptr<io::StreamLoadPipe> pipe,
+                                            Status& result_st) {
+    int64_t left_time = ctx->max_interval_s * 1000;
+    int64_t left_rows = ctx->max_batch_rows;
+    int64_t left_bytes = ctx->max_batch_size;
+
+    LOG(INFO) << "start consumer group: " << _grp_id << ". max time(ms): " << left_time
+              << ", batch rows: " << left_rows << ", batch size: " << left_bytes << ". "
+              << ctx->brief();
+
+    MonotonicStopWatch watch;
+    watch.start();
+    bool eos = false;
+    while (true) {
+        if (eos || left_time <= 0 || left_rows <= 0 || left_bytes <= 0) {
+            LOG(INFO) << "consumer group done: " << _grp_id
+                      << ". consume time(ms)=" << ctx->max_interval_s * 1000 - left_time
+                      << ", received rows=" << ctx->max_batch_rows - left_rows
+                      << ", received bytes=" << ctx->max_batch_size - left_bytes << ", eos: " << eos
+                      << ", left_time: " << left_time << ", left_rows: " << left_rows
+                      << ", left_bytes: " << left_bytes
+                      << ", blocking get time(us): " << pipe->get_queue_size() << ", "
+                      << ctx->brief();
+
+            _shutdown_queue();
+            for (auto& consumer : _consumers) {
+                static_cast<void>(consumer->cancel(ctx));
+            }
+            _thread_pool.shutdown();
+            _thread_pool.join();
+            if (!result_st.ok()) {
+                pipe->cancel(result_st.to_string());
+                return result_st;
+            }
+            RETURN_IF_ERROR(pipe->finish());
+            _on_finish(ctx);
+            ctx->receive_bytes = ctx->max_batch_size - left_bytes;
+            return Status::OK();
+        }
+
+        if (!_dequeue_and_process(pipe.get(), left_rows, left_bytes, result_st)) {
+            eos = true;
+        }
+        left_time = ctx->max_interval_s * 1000 - watch.elapsed_time() / 1000 / 1000;
+    }
+}
 
 Status KafkaDataConsumerGroup::assign_topic_partitions(std::shared_ptr<StreamLoadContext> ctx) {
     DCHECK(ctx->kafka_info);
     DCHECK(_consumers.size() >= 1);
 
-    // divide partitions
+    // divide partitions using round-robin partitioner
     int consumer_size = doris::cast_set<int>(_consumers.size());
-    std::vector<std::map<int32_t, int64_t>> divide_parts(consumer_size);
-    int i = 0;
-    for (auto& kv : ctx->kafka_info->begin_offset) {
-        int idx = i % consumer_size;
-        divide_parts[idx].emplace(kv.first, kv.second);
-        i++;
-    }
+    auto divide_parts = WorkPartitioner<int32_t, int64_t>::partition_round_robin(
+            ctx->kafka_info->begin_offset, consumer_size);
 
     // assign partitions to consumers equally
     for (int j = 0; j < consumer_size; ++j) {
@@ -73,132 +140,62 @@ KafkaDataConsumerGroup::~KafkaDataConsumerGroup() {
 }
 
 Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx,
-                                         std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe) {
+                                         std::shared_ptr<io::StreamLoadPipe> pipe) {
+    DORIS_CHECK(std::dynamic_pointer_cast<io::KafkaConsumerPipe>(pipe) != nullptr);
     Status result_st = Status::OK();
-    // start all consumers
-    for (auto& consumer : _consumers) {
-        if (!_thread_pool.offer(std::bind<void>(
-                    &KafkaDataConsumerGroup::actual_consume, this, consumer, &_queue,
-                    ctx->max_interval_s * 1000, [this, &result_st](const Status& st) {
-                        std::unique_lock<std::mutex> lock(_mutex);
-                        _counter--;
-                        VLOG_CRITICAL << "group counter is: " << _counter << ", grp: " << _grp_id;
-                        if (_counter == 0) {
-                            _queue.shutdown();
-                            LOG(INFO) << "all consumers are finished. shutdown queue. group id: "
-                                      << _grp_id;
-                        }
-                        if (result_st.ok() && !st.ok()) {
-                            result_st = st;
-                        }
-                    }))) {
-            LOG(WARNING) << "failed to submit data consumer: " << consumer->id()
-                         << ", group id: " << _grp_id;
-            return Status::InternalError("failed to submit data consumer");
-        } else {
-            VLOG_CRITICAL << "submit a data consumer: " << consumer->id()
-                          << ", group id: " << _grp_id;
-        }
+    _cmt_offset = ctx->kafka_info->cmt_offset;
+    _format = ctx->format;
+
+    if (!_submit_all_consumers(
+                [this, max_time = ctx->max_interval_s * 1000](std::shared_ptr<DataConsumer> c,
+                                                              ConsumeFinishCallback cb) {
+                    actual_consume(c, &_queue, max_time, cb);
+                },
+                [this] { _queue.shutdown(); }, result_st)) {
+        return Status::InternalError("failed to submit data consumer");
     }
-
-    // consuming from queue and put data to stream load pipe
-    int64_t left_time = ctx->max_interval_s * 1000;
-    int64_t left_rows = ctx->max_batch_rows;
-    int64_t left_bytes = ctx->max_batch_size;
-
-    LOG(INFO) << "start consumer group: " << _grp_id << ". max time(ms): " << left_time
-              << ", batch rows: " << left_rows << ", batch size: " << left_bytes << ". "
-              << ctx->brief();
-
-    // copy one
-    std::map<int32_t, int64_t> cmt_offset = ctx->kafka_info->cmt_offset;
-
-    //improve performance
-    Status (io::KafkaConsumerPipe::*append_data)(const char* data, size_t size);
-    if (ctx->format == TFileFormatType::FORMAT_JSON) {
-        append_data = &io::KafkaConsumerPipe::append_json;
-    } else {
-        append_data = &io::KafkaConsumerPipe::append_with_line_delimiter;
-    }
-
-    MonotonicStopWatch watch;
-    watch.start();
-    bool eos = false;
-    while (true) {
-        if (eos || left_time <= 0 || left_rows <= 0 || left_bytes <= 0) {
-            LOG(INFO) << "consumer group done: " << _grp_id
-                      << ". consume time(ms)=" << ctx->max_interval_s * 1000 - left_time
-                      << ", received rows=" << ctx->max_batch_rows - left_rows
-                      << ", received bytes=" << ctx->max_batch_size - left_bytes << ", eos: " << eos
-                      << ", left_time: " << left_time << ", left_rows: " << left_rows
-                      << ", left_bytes: " << left_bytes
-                      << ", blocking get time(us): " << _queue.total_get_wait_time() / 1000
-                      << ", blocking put time(us): " << _queue.total_put_wait_time() / 1000 << ", "
-                      << ctx->brief();
-
-            // shutdown queue
-            _queue.shutdown();
-            // cancel all consumers
-            for (auto& consumer : _consumers) {
-                static_cast<void>(consumer->cancel(ctx));
-            }
-
-            // waiting all threads finished
-            _thread_pool.shutdown();
-            _thread_pool.join();
-            if (!result_st.ok()) {
-                kafka_pipe->cancel(result_st.to_string());
-                return result_st;
-            }
-            static_cast<void>(kafka_pipe->finish());
-            ctx->kafka_info->cmt_offset = std::move(cmt_offset);
-            ctx->receive_bytes = ctx->max_batch_size - left_bytes;
-            return Status::OK();
-        }
-
-        RdKafka::Message* msg;
-        bool res = _queue.controlled_blocking_get(&msg, config::blocking_queue_cv_wait_timeout_ms);
-        if (res) {
-            // conf has to be deleted finally
-            Defer delete_msg {[msg]() { delete msg; }};
-            VLOG_NOTICE << "get kafka message"
-                        << ", partition: " << msg->partition() << ", offset: " << msg->offset()
-                        << ", len: " << msg->len();
-
-            if (msg->err() == RdKafka::ERR__PARTITION_EOF) {
-                if (msg->offset() > 0) {
-                    cmt_offset[msg->partition()] = msg->offset() - 1;
-                }
-            } else {
-                Status st = (kafka_pipe.get()->*append_data)(
-                        static_cast<const char*>(msg->payload()), static_cast<size_t>(msg->len()));
-                if (st.ok()) {
-                    left_rows--;
-                    left_bytes -= msg->len();
-                    cmt_offset[msg->partition()] = msg->offset();
-                    VLOG_NOTICE << "consume partition[" << msg->partition() << " - "
-                                << msg->offset() << "]";
-                } else {
-                    // failed to append this msg, we must stop
-                    LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id;
-                    eos = true;
-                    {
-                        std::unique_lock<std::mutex> lock(_mutex);
-                        if (result_st.ok()) {
-                            result_st = st;
-                        }
-                    }
-                }
-            }
-        } else {
-            // queue is empty and shutdown
-            eos = true;
-        }
-
-        left_time = ctx->max_interval_s * 1000 - watch.elapsed_time() / 1000 / 1000;
-    }
-
+    RETURN_IF_ERROR(_run_consume_loop(ctx, pipe, result_st));
+    ctx->kafka_info->cmt_offset = std::move(_cmt_offset);
     return Status::OK();
+}
+
+bool KafkaDataConsumerGroup::_dequeue_and_process(io::StreamLoadPipe* pipe, int64_t& left_rows,
+                                                  int64_t& left_bytes, Status& result_st) {
+    RdKafka::Message* msg = nullptr;
+    if (!_queue.controlled_blocking_get(&msg, config::blocking_queue_cv_wait_timeout_ms)) {
+        return false;
+    }
+    Defer delete_msg {[msg] { delete msg; }};
+    VLOG_NOTICE << "get kafka message, partition: " << msg->partition()
+                << ", offset: " << msg->offset() << ", len: " << msg->len();
+
+    if (msg->err() == RdKafka::ERR__PARTITION_EOF) {
+        if (msg->offset() > 0) {
+            _cmt_offset[msg->partition()] = msg->offset() - 1;
+        }
+        return true;
+    }
+
+    auto append_fn = FormatAppender::get_append_function<io::StreamLoadPipe>(_format);
+    Status st = (pipe->*append_fn)(static_cast<const char*>(msg->payload()),
+                                   static_cast<size_t>(msg->len()));
+    if (st.ok()) {
+        left_rows--;
+        left_bytes -= msg->len();
+        _cmt_offset[msg->partition()] = msg->offset();
+        VLOG_NOTICE << "consume partition[" << msg->partition() << " - " << msg->offset() << "]";
+    } else {
+        LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id;
+        std::unique_lock<std::mutex> lock(_mutex);
+        if (result_st.ok()) {
+            result_st = st;
+        }
+    }
+    return true;
+}
+
+void KafkaDataConsumerGroup::_on_finish(std::shared_ptr<StreamLoadContext> ctx) {
+    // cmt_offset is moved back in start_all after _run_consume_loop returns
 }
 
 void KafkaDataConsumerGroup::actual_consume(std::shared_ptr<DataConsumer> consumer,
@@ -208,6 +205,107 @@ void KafkaDataConsumerGroup::actual_consume(std::shared_ptr<DataConsumer> consum
             queue, max_running_time_ms);
     cb(st);
 }
-#include "common/compile_check_end.h"
+
+Status KinesisDataConsumerGroup::assign_stream_shards(std::shared_ptr<StreamLoadContext> ctx) {
+    DCHECK(ctx->kinesis_info);
+    DCHECK(_consumers.size() >= 1);
+
+    // divide shards using round-robin partitioner
+    int consumer_size = doris::cast_set<int>(_consumers.size());
+    auto divide_shards = WorkPartitioner<std::string, std::string>::partition_round_robin(
+            ctx->kinesis_info->begin_sequence_number, consumer_size);
+
+    // assign shards to consumers equally
+    for (int j = 0; j < consumer_size; ++j) {
+        RETURN_IF_ERROR(std::static_pointer_cast<KinesisDataConsumer>(_consumers[j])
+                                ->assign_shards(divide_shards[j], ctx->kinesis_info->stream, ctx));
+    }
+
+    return Status::OK();
+}
+
+KinesisDataConsumerGroup::~KinesisDataConsumerGroup() {
+    _queue.shutdown();
+    while (true) {
+        std::shared_ptr<Aws::Kinesis::Model::Record> record;
+        if (_queue.blocking_get(&record)) {
+            record.reset();
+        } else {
+            break;
+        }
+    }
+    DCHECK(_queue.get_size() == 0);
+}
+
+Status KinesisDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx,
+                                           std::shared_ptr<io::StreamLoadPipe> pipe) {
+    DORIS_CHECK(std::dynamic_pointer_cast<io::KinesisConsumerPipe>(pipe) != nullptr);
+    Status result_st = Status::OK();
+    _format = ctx->format;
+
+    if (!_submit_all_consumers(
+                [this, max_time = ctx->max_interval_s * 1000](std::shared_ptr<DataConsumer> c,
+                                                              ConsumeFinishCallback cb) {
+                    actual_consume(c, &_queue, max_time, cb);
+                },
+                [this] { _queue.shutdown(); }, result_st)) {
+        return Status::InternalError("failed to submit kinesis data consumer");
+    }
+    return _run_consume_loop(ctx, pipe, result_st);
+}
+
+bool KinesisDataConsumerGroup::_dequeue_and_process(io::StreamLoadPipe* pipe, int64_t& left_rows,
+                                                    int64_t& left_bytes, Status& result_st) {
+    std::shared_ptr<Aws::Kinesis::Model::Record> record;
+    if (!_queue.controlled_blocking_get(&record, config::blocking_queue_cv_wait_timeout_ms)) {
+        return false;
+    }
+    auto& data = record->GetData();
+    const char* payload = reinterpret_cast<const char*>(data.GetUnderlyingData());
+    size_t len = data.GetLength();
+    VLOG_NOTICE << "get kinesis record, seq: " << record->GetSequenceNumber() << ", len: " << len;
+
+    auto append_fn = FormatAppender::get_append_function<io::StreamLoadPipe>(_format);
+    Status st = (pipe->*append_fn)(payload, len);
+    if (st.ok()) {
+        left_rows--;
+        left_bytes -= len;
+        VLOG_NOTICE << "consume kinesis record [seq=" << record->GetSequenceNumber() << "]";
+    } else {
+        LOG(WARNING) << "failed to append kinesis record to pipe. grp: " << _grp_id;
+        std::unique_lock<std::mutex> lock(_mutex);
+        if (result_st.ok()) {
+            result_st = st;
+        }
+    }
+    return true;
+}
+
+void KinesisDataConsumerGroup::_on_finish(std::shared_ptr<StreamLoadContext> ctx) {
+    for (auto& consumer : _consumers) {
+        auto kinesis_consumer = std::static_pointer_cast<KinesisDataConsumer>(consumer);
+        for (auto& [shard_id, seq_num] : kinesis_consumer->get_committed_sequence_numbers()) {
+            ctx->kinesis_info->cmt_sequence_number[shard_id] = seq_num;
+        }
+        for (auto& [shard_id, millis] : kinesis_consumer->get_millis_behind_latest()) {
+            auto [it, inserted] = ctx->kinesis_info->millis_behind_latest.emplace(shard_id, millis);
+            if (!inserted && it->second < millis) {
+                it->second = millis;
+            }
+        }
+        for (auto& shard_id : kinesis_consumer->get_closed_shard_ids()) {
+            ctx->kinesis_info->closed_shard_ids.insert(shard_id);
+        }
+    }
+}
+
+void KinesisDataConsumerGroup::actual_consume(
+        std::shared_ptr<DataConsumer> consumer,
+        BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
+        int64_t max_running_time_ms, ConsumeFinishCallback cb) {
+    Status st = std::static_pointer_cast<KinesisDataConsumer>(consumer)->group_consume(
+            queue, max_running_time_ms);
+    cb(st);
+}
 
 } // namespace doris

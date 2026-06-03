@@ -123,7 +123,11 @@ public:
         auto* data_col = array_col->get_data_ptr().get();
         EXPECT_EQ(data_col->size(), expect_num);
         for (size_t i = 0; i < expect_num; ++i) {
-            check_column_basic<DataType, nullable>(data_col, i, i);
+            if (data_col->is_nullable()) {
+                check_column_basic<DataType, true>(data_col, i, i);
+            } else {
+                check_column_basic<DataType, false>(data_col, i, i);
+            }
         }
     }
 
@@ -313,7 +317,7 @@ public:
         EXPECT_EQ(input_nums, data_column->size());
         //test Value
         {
-            Value<ColumnType, nullable> value;
+            Value<nullable> value;
             EXPECT_TRUE(value.is_null());
             for (int64_t i = 0; i < input_nums; ++i) {
                 value.set_value(data_column.get(), i);
@@ -332,17 +336,17 @@ public:
         }
         //test CopiedValue
         {
-            CopiedValue<ColumnType, nullable> value;
+            CopiedValue<nullable> value;
             EXPECT_TRUE(value.is_null());
             for (int64_t i = 0; i < input_nums; ++i) {
-                value.set_value(data_column.get(), i);
+                value.template set_value<ColumnType>(data_column.get(), i);
                 EXPECT_FALSE(value.is_null());
                 auto to_column = data_type->create_column();
                 if constexpr (nullable) {
                     auto& nullable_col = assert_cast<ColumnNullable&>(*to_column);
-                    value.insert_into(nullable_col.get_nested_column());
+                    value.template insert_into<ColumnType>(nullable_col.get_nested_column());
                 } else {
-                    value.insert_into(*to_column);
+                    value.template insert_into<ColumnType>(*to_column);
                 }
                 EXPECT_EQ(1, to_column->size());
                 check_column_basic<DataType, nullable>(to_column.get(), i);
@@ -360,7 +364,7 @@ public:
         EXPECT_EQ(input_nums + 1, data_column->size());
         //test Value
         {
-            Value<ColumnArray, nullable> value;
+            Value<nullable> value;
             EXPECT_TRUE(value.is_null());
             for (int64_t i = 0; i <= input_nums; ++i) {
                 value.set_value(data_column.get(), i);
@@ -378,17 +382,17 @@ public:
         }
         //test CopiedValue
         {
-            CopiedValue<ColumnArray, nullable> value;
+            CopiedValue<nullable> value;
             EXPECT_TRUE(value.is_null());
             for (int64_t i = 0; i <= input_nums; ++i) {
-                value.set_value(data_column.get(), i);
+                value.template set_value<ColumnArray>(data_column.get(), i);
                 EXPECT_FALSE(value.is_null());
                 auto to_column = data_type->create_column();
                 if constexpr (nullable) {
                     auto& nullable_col = assert_cast<ColumnNullable&>(*to_column);
-                    value.insert_into(nullable_col.get_nested_column());
+                    value.template insert_into<ColumnArray>(nullable_col.get_nested_column());
                 } else {
-                    value.insert_into(*to_column);
+                    value.template insert_into<ColumnArray>(*to_column);
                 }
                 EXPECT_EQ(1, to_column->size());
                 check_column_array<DataType, nullable>(to_column.get(), i);

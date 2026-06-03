@@ -42,7 +42,6 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VInPredicate::VInPredicate(const TExprNode& node)
         : VExpr(node), _is_not_in(node.in_predicate.is_not_in) {}
@@ -113,8 +112,9 @@ Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t seg
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VInPredicate::execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                    size_t count, ColumnPtr& result_column) const {
+Status VInPredicate::execute_column_impl(VExprContext* context, const Block* block,
+                                         const Selector* selector, size_t count,
+                                         ColumnPtr& result_column) const {
     if (is_const_and_have_executed()) { // const have execute in open function
         result_column = get_result_from_const(count);
         return Status::OK();
@@ -187,5 +187,4 @@ std::string VInPredicate::debug_string() const {
     return out.str();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

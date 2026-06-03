@@ -69,7 +69,6 @@ public class ReplacePartitionOp extends AlterTableOp {
         super(AlterOpType.REPLACE_PARTITION);
         this.partitionNames = partitionNames;
         this.tempPartitionNames = tempPartitionNames;
-        this.needTableStable = false;
         this.forceDropOldPartition = isForce;
         this.properties = properties;
 
@@ -135,6 +134,12 @@ public class ReplacePartitionOp extends AlterTableOp {
     @Override
     public boolean allowOpMTMV() {
         return false;
+    }
+
+    @Override
+    public boolean allowOpRowBinlog() {
+        // Replacing partition does not change schema, allow on row binlog tables.
+        return true;
     }
 
     @Override

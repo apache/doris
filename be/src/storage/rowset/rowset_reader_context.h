@@ -47,12 +47,13 @@ struct RowsetReaderContext {
     bool need_ordered_result = true;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
+    // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
+    // For example, use lower rowset version / segment id first.
+    bool use_insert_order_when_same = false;
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     // limit of rows for read_orderby_key
     size_t read_orderby_key_limit = 0;
-    // filter_block arguments
-    VExprContextSPtrs filter_block_conjuncts;
     // projection columns: the set of columns rowset reader should return
     const std::vector<uint32_t>* return_columns = nullptr;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
@@ -68,11 +69,16 @@ struct RowsetReaderContext {
     const DeleteHandler* delete_handler = nullptr;
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
-    std::vector<VExprSPtr> remaining_conjunct_roots;
     VExprContextSPtrs common_expr_ctxs_push_down;
     bool use_page_cache = false;
     int sequence_id_idx = -1;
     int batch_size = 1024;
+    // Effective adaptive batch size byte budget. 0 means disabled internally.
+    size_t preferred_block_size_bytes = 8388608UL;
+
+    // Points to the "true" output column list before non-direct-mode expansion.
+    // Used by BlockReader to map expanded storage columns back to the requested output layout.
+    const std::vector<ColumnId>* origin_return_columns = nullptr;
     bool is_unique = false;
     //record row num merged in generic iterator
     uint64_t* merged_rows = nullptr;
@@ -103,6 +109,9 @@ struct RowsetReaderContext {
 
     // When true, push down value predicates for MOR tables
     bool enable_mor_value_predicate_pushdown = false;
+
+    // General LIMIT budget forwarded to SegmentIterator.
+    int64_t general_read_limit = -1;
 };
 
 } // namespace doris

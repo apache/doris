@@ -36,7 +36,6 @@
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // A regex to match any regex pattern is equivalent to a substring search.
 static const RE2 SUBSTRING_RE(R"((?:\.\*)*([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)(?:\.\*)*)");
 
@@ -1084,5 +1083,4 @@ void register_function_regexp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRegexpLike>();
     factory.register_alias(FunctionRegexpLike::name, FunctionRegexpLike::alias);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

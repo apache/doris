@@ -47,6 +47,12 @@ Scanner::Scanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t l
 }
 
 Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    // All scanners share a remaining-limit counter so a LIMIT query can
+    // stop once enough rows have been collected across scanners.
+    // Key TopN scans have no ordinary scan LIMIT, so each scanner can
+    // independently produce its full local top-N.
+    _shared_scan_limit = _local_state->shared_scan_limit_ptr();
+
     if (!conjuncts.empty()) {
         _conjuncts.resize(conjuncts.size());
         for (size_t i = 0; i != conjuncts.size(); ++i) {
@@ -81,36 +87,36 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().vscanner_get_block);
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
-        if (_alreay_eos) {
-            *eos = true;
-            _padding_block.swap(_origin_block);
-        } else {
-            _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
-            const auto min_batch_size = std::max(state->batch_size() / 2, 1);
-            while (_padding_block.rows() < min_batch_size && !*eos) {
-                RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
-                if (_origin_block.rows() >= min_batch_size) {
-                    break;
-                }
+        _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+        const auto min_batch_size = std::max(state->batch_size() / 2, 1);
+        const auto block_max_bytes = state->preferred_block_size_bytes();
+        while (_padding_block.rows() < min_batch_size && _padding_block.bytes() < block_max_bytes &&
+               !*eos) {
+            RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
+            if (*eos) {
+                // For the final block, merge any padding directly and return eos in this call.
+                // The merged tail can be larger than the target batch, but each source block is
+                // already bounded by the lower scanner.
+                RETURN_IF_ERROR(_merge_padding_block());
+                _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+                break;
+            }
+            if (_origin_block.rows() >= min_batch_size) {
+                break;
+            }
 
-                if (_origin_block.rows() + _padding_block.rows() <= state->batch_size()) {
-                    RETURN_IF_ERROR(_merge_padding_block());
-                    _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
-                } else {
-                    if (_origin_block.rows() < _padding_block.rows()) {
-                        _padding_block.swap(_origin_block);
-                    }
-                    break;
+            if (_origin_block.rows() + _padding_block.rows() <= state->batch_size() &&
+                _origin_block.bytes() + _padding_block.bytes() <= block_max_bytes) {
+                RETURN_IF_ERROR(_merge_padding_block());
+                _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+            } else {
+                if (_origin_block.rows() < _padding_block.rows()) {
+                    _padding_block.swap(_origin_block);
                 }
+                break;
             }
         }
 
-        // first output the origin block change eos = false, next time output padding block
-        // set the eos to true
-        if (*eos && !_padding_block.empty() && !_origin_block.empty()) {
-            _alreay_eos = true;
-            *eos = false;
-        }
         if (_origin_block.empty() && !_padding_block.empty()) {
             _padding_block.swap(_origin_block);
         }
@@ -123,6 +129,15 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
 Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // only empty block should be here
     DCHECK(block->rows() == 0);
+
+    // Stop early if other scanners have already collected enough rows
+    // for the SQL LIMIT. Skipped when _shared_scan_limit is null (topn
+    // path or no LIMIT).
+    if (_shared_scan_limit && _shared_scan_limit->load(std::memory_order_acquire) <= 0) {
+        *eof = true;
+        return Status::OK();
+    }
+
     // scanner running time
     SCOPED_RAW_TIMER(&_per_scanner_timer);
     int64_t rows_read_threshold = _num_rows_read + config::doris_scanner_row_num;
@@ -156,6 +171,13 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             }
             // record rows return (after filter) for _limit check
             _num_rows_return += block->rows();
+            // Publish progress to the shared counter so peer scanners can
+            // observe it. The counter may go negative when several scanners
+            // subtract concurrently; that is harmless because the operator's
+            // reached_limit() makes the final cut.
+            if (_shared_scan_limit && block->rows() > 0) {
+                _shared_scan_limit->fetch_sub(block->rows(), std::memory_order_acq_rel);
+            }
         } while (!_should_stop && !state->is_cancelled() && block->rows() == 0 && !(*eof) &&
                  _num_rows_read < rows_read_threshold);
     }
@@ -168,6 +190,7 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // set eof to true if per scanner limit is reached
     // currently for query: ORDER BY key LIMIT n
     *eof = *eof || (_limit > 0 && _num_rows_return >= _limit);
+    *eof = *eof || (_shared_scan_limit && _shared_scan_limit->load(std::memory_order_acquire) <= 0);
 
     return Status::OK();
 }
@@ -199,8 +222,9 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
     }
 
     DCHECK_EQ(rows, input_block.rows());
-    MutableBlock mutable_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
+    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+            output_block, *_output_row_descriptor);
+    auto& mutable_block = scoped_mutable_block.mutable_block();
 
     auto& mutable_columns = mutable_block.mutable_columns();
 
@@ -213,10 +237,10 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
         if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
         }
-        mutable_columns[i] = column_ptr->assume_mutable();
+        mutable_columns[i] = IColumn::mutate(std::move(column_ptr));
     }
 
-    output_block->set_columns(std::move(mutable_columns));
+    scoped_mutable_block.restore();
 
     // origin columns was moved into output_block, so we need to set origin_block to empty columns
     auto empty_columns = origin_block->clone_empty_columns();
@@ -242,6 +266,7 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     // avoid conjunct destroy in used by storage layer
     _conjuncts.clear();
     RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
+    _applied_rf_num = arrived_rf_num;
     return Status::OK();
 }
 
@@ -266,7 +291,7 @@ void Scanner::_collect_profile_before_close() {
     _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
 }
 
-void Scanner::update_scan_cpu_timer() {
+void Scanner::_update_scan_cpu_timer() {
     int64_t cpu_time = _cpu_watch.elapsed_time();
     _scan_cpu_timer += cpu_time;
     if (_state && _state->get_query_ctx()) {

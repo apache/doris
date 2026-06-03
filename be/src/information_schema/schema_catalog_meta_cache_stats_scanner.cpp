@@ -27,7 +27,6 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::vector<SchemaScanner::ColumnDesc> SchemaCatalogMetaCacheStatsScanner::_s_tbls_columns = {
         {"FE_HOST", TYPE_STRING, sizeof(StringRef), true},
@@ -49,6 +48,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaCatalogMetaCacheStatsScanner::_s_tb
         {"TOTAL_LOAD_TIME_MS", TYPE_BIGINT, sizeof(int64_t), true},
         {"AVG_LOAD_PENALTY_MS", TYPE_DOUBLE, sizeof(double), true},
         {"EVICTION_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"EVICTION_RATE", TYPE_DOUBLE, sizeof(double), true},
         {"INVALIDATE_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
         {"LAST_LOAD_SUCCESS_TIME", TYPE_STRING, sizeof(StringRef), true},
         {"LAST_LOAD_FAILURE_TIME", TYPE_STRING, sizeof(StringRef), true},
@@ -144,7 +144,8 @@ Status SchemaCatalogMetaCacheStatsScanner::get_next_block_internal(Block* block,
     }
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
-    MutableBlock mblock = MutableBlock::build_mutable_block(block);
+    ScopedMutableBlock scoped_mblock(block);
+    auto& mblock = scoped_mblock.mutable_block();
     RETURN_IF_ERROR(mblock.add_rows(_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;
 

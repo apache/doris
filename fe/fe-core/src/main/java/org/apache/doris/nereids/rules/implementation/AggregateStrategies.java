@@ -23,6 +23,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.annotation.DependsRules;
@@ -513,7 +514,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 SlotReference.class::isInstance);
         List<SlotReference> usedSlotInTable = (List<SlotReference>) Project.findProject(aggUsedSlots, outPutSlots);
         for (SlotReference slot : usedSlotInTable) {
-            Column column = slot.getOriginalColumn().get();
+            Optional<Column> optionalColumn = slot.getOriginalColumn();
+            if (!optionalColumn.isPresent()) {
+                return false;
+            }
+            Column column = optionalColumn.get();
             PrimitiveType colType = column.getType().getPrimitiveType();
             if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()) {
                 return false;
@@ -687,13 +692,24 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 logicalScan.getOutput());
 
         for (SlotReference slot : usedSlotInTable) {
-            Column column = slot.getOriginalColumn().get();
+            Optional<Column> optionalColumn = slot.getOriginalColumn();
+            if (!optionalColumn.isPresent()) {
+                // virtual columns (e.g., generated from MATCH_ALL expressions) do not have
+                // an original column and cannot be pushed down to storage layer aggregate
+                return canNotPush;
+            }
+            Column column = optionalColumn.get();
             if (column.isAggregated()) {
                 return canNotPush;
             }
             // The zone map max length of CharFamily is 512, do not
             // over the length: https://github.com/apache/doris/pull/6293
             if (mergeOp == PushDownAggOp.MIN_MAX || mergeOp == PushDownAggOp.MIX) {
+                if (logicalScan instanceof LogicalOlapScan
+                        && ((LogicalOlapScan) logicalScan).getTable() instanceof RowBinlogTableWrapper
+                        && RowBinlogTableWrapper.isRowBinlogSyntheticColumn(column)) {
+                    return canNotPush;
+                }
                 PrimitiveType colType = column.getType().getPrimitiveType();
                 if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()
                          || (colType == PrimitiveType.STRING && !enablePushDownStringMinMax())) {

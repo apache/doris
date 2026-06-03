@@ -27,7 +27,6 @@ suite("test_partition_instance_query_cache") {
         GROUP BY url
     """
 
-    sql "set enable_nereids_planner=true"
     sql "set enable_nereids_distribute_planner=true"
     sql "set enable_query_cache=true"
     sql "set parallel_pipeline_task_num=3"

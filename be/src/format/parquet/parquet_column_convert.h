@@ -17,10 +17,17 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
 #include <gen_cpp/parquet_types.h>
+#include <libdivide.h>
+
+#include <chrono>
+#include <limits>
 
 #include "common/cast_set.h"
+#include "core/column/column_fixed_length_object.h"
 #include "core/column/column_varbinary.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/primitive_type.h"
 #include "core/extended_types.h"
@@ -31,14 +38,86 @@
 #include "format/parquet/decoder.h"
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/schema_desc.h"
+#include "util/timezone_utils.h"
 
 namespace doris::parquet {
-#include "common/compile_check_begin.h"
+namespace detail {
+
+inline bool try_split_local_time(int64_t local_time, uint16_t* year, uint8_t* month, uint8_t* day,
+                                 uint8_t* hour, uint8_t* minute, uint8_t* second) {
+    static const libdivide::divider<int64_t> fast_div_86400(86400);
+    static const libdivide::divider<int64_t> fast_div_3600(3600);
+    static const libdivide::divider<int64_t> fast_div_60(60);
+    static constexpr int64_t kMinSupportedDays = -365LL * 10000;
+    static constexpr int64_t kMaxSupportedDays = 365LL * 10000;
+
+    int64_t days = local_time / fast_div_86400;
+    int64_t second_of_day = local_time - days * 86400;
+    if (second_of_day < 0) {
+        second_of_day += 86400;
+        --days;
+    }
+    if (days < kMinSupportedDays || days > kMaxSupportedDays) {
+        return false;
+    }
+
+    const auto ymd = std::chrono::year_month_day {std::chrono::sys_days {std::chrono::days {days}}};
+    const int y = static_cast<int>(ymd.year());
+    if (y < 0 || y > std::numeric_limits<uint16_t>::max()) {
+        return false;
+    }
+
+    const int64_t h = second_of_day / fast_div_3600;
+    const int64_t minute_second = second_of_day - h * 3600;
+    const int64_t m = minute_second / fast_div_60;
+    const int64_t s = minute_second - m * 60;
+
+    *year = static_cast<uint16_t>(y);
+    *month = static_cast<uint8_t>(static_cast<unsigned>(ymd.month()));
+    *day = static_cast<uint8_t>(static_cast<unsigned>(ymd.day()));
+    *hour = static_cast<uint8_t>(h);
+    *minute = static_cast<uint8_t>(m);
+    *second = static_cast<uint8_t>(s);
+    return true;
+}
+
+template <typename DateType>
+inline bool try_convert_timestamp_with_fixed_offset(DateType& value, int64_t epoch_seconds,
+                                                    int32_t offset_seconds) {
+    uint16_t year = 0;
+    uint8_t month = 0;
+    uint8_t day = 0;
+    uint8_t hour = 0;
+    uint8_t minute = 0;
+    uint8_t second = 0;
+    if (!try_split_local_time(epoch_seconds + offset_seconds, &year, &month, &day, &hour, &minute,
+                              &second)) {
+        return false;
+    }
+    // The caller sets sub-second precision immediately after this conversion.
+    value.unchecked_set_time(year, month, day, hour, minute, second, 0);
+    return true;
+}
+
+template <typename DateType>
+inline bool try_convert_timestamp_with_lookup(DateType& value, int64_t epoch_seconds,
+                                              const cctz::time_zone& ctz) {
+    static const auto epoch = std::chrono::time_point_cast<cctz::sys_seconds>(
+            std::chrono::system_clock::from_time_t(0));
+    cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(epoch_seconds);
+    const int32_t offset = ctz.lookup_offset(t).offset;
+    return try_convert_timestamp_with_fixed_offset(value, epoch_seconds, offset);
+}
+
+} // namespace detail
+
 struct ConvertParams {
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false
     static const cctz::time_zone utc0;
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == true, we should set local time zone
     const cctz::time_zone* ctz = nullptr;
+    bool is_fixed_offset = false;
+    int32_t fixed_offset_seconds = 0;
     int64_t second_mask = 1;
     int64_t scale_to_nano_factor = 1;
     const FieldSchema* field_schema = nullptr;
@@ -109,9 +188,91 @@ struct ConvertParams {
             }
         }
 
+        if (ctz != nullptr) {
+            is_fixed_offset =
+                    TimezoneUtils::try_get_fixed_offset_seconds(*ctz, &fixed_offset_seconds);
+        }
         is_type_compatibility = field_schema_->is_type_compatibility;
     }
 };
+
+inline IColumn* get_mutable_inner_column(ColumnPtr& column) {
+    column = IColumn::mutate(std::move(column));
+    auto mutable_column = column->assert_mutable();
+    if (mutable_column->is_nullable()) {
+        return &assert_cast<ColumnNullable*>(mutable_column.get())->get_nested_column();
+    }
+    return mutable_column.get();
+}
+
+inline size_t get_mutable_inner_column_size(const ColumnPtr& column) {
+    if (column->is_nullable()) {
+        const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
+        return nullable->get_nested_column().size();
+    }
+    return column->size();
+}
+
+inline size_t get_null_map_size_or_inner_column_size(const ColumnPtr& column) {
+    if (column->is_nullable()) {
+        const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
+        return nullable->get_null_map_column().size();
+    }
+    return column->size();
+}
+
+inline size_t get_appended_null_map_start(const ColumnPtr& column, size_t new_rows) {
+    if (!column->is_nullable()) {
+        return 0;
+    }
+    const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
+    const size_t null_map_size = nullable->get_null_map_column().size();
+    DCHECK_GE(null_map_size, new_rows);
+    return null_map_size - new_rows;
+}
+
+inline void align_null_map(ColumnPtr& src_column, ColumnPtr& dst_column, size_t old_null_map_size,
+                           size_t new_rows, size_t src_null_map_start = 0) {
+    if (!dst_column->is_nullable()) {
+        return;
+    }
+
+    dst_column = IColumn::mutate(std::move(dst_column));
+    auto* dst_nullable = assert_cast<ColumnNullable*>(dst_column->assert_mutable().get());
+    auto& dst_null_map = dst_nullable->get_null_map_column();
+    const size_t expected_rows = old_null_map_size + new_rows;
+    if (dst_null_map.size() == expected_rows) {
+        return;
+    }
+    DCHECK_EQ(dst_null_map.size(), old_null_map_size);
+    if (src_column->is_nullable()) {
+        const auto* src_nullable = assert_cast<const ColumnNullable*>(src_column.get());
+        DCHECK_GE(src_nullable->get_null_map_column().size(), src_null_map_start + new_rows);
+        dst_null_map.insert_range_from(src_nullable->get_null_map_column(), src_null_map_start,
+                                       new_rows);
+    } else {
+        dst_null_map.insert_many_vals(0, new_rows);
+    }
+}
+
+struct FixedLengthPhysicalData {
+    const uint8_t* data = nullptr;
+    size_t byte_size = 0;
+    size_t rows = 0;
+};
+
+inline FixedLengthPhysicalData get_fixed_length_physical_data(const IColumn& column,
+                                                              size_t type_length) {
+    if (const auto* fixed_length_column = check_and_get_column<ColumnFixedLengthObject>(column)) {
+        DCHECK_EQ(fixed_length_column->item_size(), type_length);
+        return {fixed_length_column->get_data().data(), fixed_length_column->byte_size(),
+                fixed_length_column->size()};
+    }
+
+    const auto& uint8_column = assert_cast<const ColumnUInt8&>(column);
+    DCHECK_EQ(uint8_column.size() % type_length, 0);
+    return {uint8_column.get_data().data(), uint8_column.size(), uint8_column.size() / type_length};
+}
 
 /**
  * Convert parquet physical column to logical column
@@ -132,11 +293,12 @@ struct ConvertParams {
  * Ultimate performance optimization:
  * 1. If process of (First => Second) is consistent, eg. from BYTE_ARRAY to string, no additional copies and conversions will be introduced;
  * 2. If process of (Second => Third) is consistent, no additional copies and conversions will be introduced;
- * 3. Null map is share among all processes, no additional copies and conversions will be introduced in null map;
+ * 3. Null maps are owned by each temporary nullable column, and only appended null slices are
+ *    copied between conversion stages;
  * 4. Only create one physical column in physical conversion, and reused in each loop;
  * 5. Only create one logical column in logical conversion, and reused in each loop;
- * 6. FIXED_LENGTH_BYTE_ARRAY is read as ColumnUInt8 instead of ColumnString, so the underlying decoder has no process to decode string
- *    and use memory copy to read the data as a whole, and the conversion has no need to resolve the Offsets in ColumnString.
+ * 6. FIXED_LENGTH_BYTE_ARRAY is read as ColumnFixedLengthObject instead of ColumnString, so
+ *    the decoder can copy fixed-size values as a whole while keeping nullable row counts valid.
  */
 class PhysicalToLogicalConverter {
 protected:
@@ -173,26 +335,46 @@ public:
                     PrimitiveType::TYPE_INT, dst_logical_type->is_nullable());
         }
         if (is_consistent() && _logical_converter->is_consistent()) {
+            dst_logical_col = std::move(src_physical_col);
             return Status::OK();
         }
+        if (_logical_converter->is_consistent()) {
+            const size_t old_rows = get_mutable_inner_column_size(dst_logical_col);
+            const size_t old_null_map_size =
+                    get_null_map_size_or_inner_column_size(dst_logical_col);
+            RETURN_IF_ERROR(physical_convert(src_physical_col, dst_logical_col));
+            const size_t new_rows = get_mutable_inner_column_size(dst_logical_col) - old_rows;
+            align_null_map(src_physical_col, dst_logical_col, old_null_map_size, new_rows,
+                           get_appended_null_map_start(src_physical_col, new_rows));
+            return Status::OK();
+        }
+
         ColumnPtr src_logical_column;
         if (is_consistent()) {
-            if (dst_logical_type->is_nullable()) {
-                auto doris_nullable_column =
-                        assert_cast<const ColumnNullable*>(dst_logical_col.get());
-                src_logical_column =
-                        ColumnNullable::create(_cached_src_physical_column,
-                                               doris_nullable_column->get_null_map_column_ptr());
-            } else {
-                src_logical_column = _cached_src_physical_column;
-            }
+            src_logical_column = src_physical_col;
         } else {
             src_logical_column = _logical_converter->get_column(src_logical_type, dst_logical_col,
                                                                 dst_logical_type);
         }
+        const size_t src_old_rows = get_mutable_inner_column_size(src_logical_column);
+        const size_t src_old_null_map_size =
+                get_null_map_size_or_inner_column_size(src_logical_column);
         RETURN_IF_ERROR(physical_convert(src_physical_col, src_logical_column));
-        auto converted_column = dst_logical_col->assume_mutable();
-        return _logical_converter->convert(src_logical_column, converted_column);
+        const size_t src_new_rows =
+                get_mutable_inner_column_size(src_logical_column) - src_old_rows;
+        align_null_map(src_physical_col, src_logical_column, src_old_null_map_size, src_new_rows,
+                       get_appended_null_map_start(src_physical_col, src_new_rows));
+
+        dst_logical_col = IColumn::mutate(std::move(dst_logical_col));
+        const size_t dst_old_rows = get_mutable_inner_column_size(dst_logical_col);
+        const size_t dst_old_null_map_size =
+                get_null_map_size_or_inner_column_size(dst_logical_col);
+        auto converted_column = dst_logical_col->assert_mutable();
+        RETURN_IF_ERROR(_logical_converter->convert(src_logical_column, converted_column));
+        const size_t dst_new_rows = get_mutable_inner_column_size(dst_logical_col) - dst_old_rows;
+        align_null_map(src_logical_column, dst_logical_col, dst_old_null_map_size, dst_new_rows,
+                       get_appended_null_map_start(src_logical_column, dst_new_rows));
+        return Status::OK();
     }
 
     virtual ColumnPtr get_physical_column(tparquet::Type::type src_physical_type,
@@ -201,6 +383,11 @@ public:
                                           const DataTypePtr& dst_logical_type, bool is_dict_filter);
 
     DataTypePtr& get_physical_type() { return _cached_src_physical_type; }
+
+    bool read_directly_into_dst_logical_column() {
+        return !_convert_params->is_type_compatibility && is_consistent() &&
+               _logical_converter->is_consistent();
+    }
 
     virtual bool is_consistent() { return false; }
 
@@ -238,14 +425,14 @@ class LittleIntPhysicalConverter : public PhysicalToLogicalConverter {
         using DstCppType = typename PrimitiveTypeTraits<IntPrimitiveType>::CppType;
         using DstColumnType = typename PrimitiveTypeTraits<IntPrimitiveType>::ColumnType;
         ColumnPtr from_col = remove_nullable(src_physical_col);
-        MutableColumnPtr to_col = remove_nullable(src_logical_column)->assume_mutable();
+        IColumn* to_col = get_mutable_inner_column(src_logical_column);
 
         size_t rows = from_col->size();
         // always comes from tparquet::Type::INT32
         auto& src_data = assert_cast<const ColumnInt32*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = assert_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = assert_cast<DstColumnType&>(*to_col).get_data();
         for (int i = 0; i < rows; ++i) {
             data[start_idx + i] = static_cast<DstCppType>(src_data[i]);
         }
@@ -297,13 +484,13 @@ class UnsignedIntegerConverter : public PhysicalToLogicalConverter {
         using DstColumnType = typename PrimitiveTypeTraits<IntPrimitiveType>::ColumnType;
 
         ColumnPtr from_col = remove_nullable(src_physical_col);
-        MutableColumnPtr to_col = remove_nullable(src_logical_column)->assume_mutable();
+        IColumn* to_col = get_mutable_inner_column(src_logical_column);
         auto& src_data = assert_cast<const StorageColumnType*>(from_col.get())->get_data();
 
         size_t rows = src_data.size();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = assert_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = assert_cast<DstColumnType&>(*to_col).get_data();
 
         for (int i = 0; i < rows; i++) {
             StorageCppType src_value = src_data[i];
@@ -324,18 +511,18 @@ public:
 
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr from_col = remove_nullable(src_physical_col);
-        MutableColumnPtr to_col = remove_nullable(src_logical_column)->assume_mutable();
+        IColumn* to_col = get_mutable_inner_column(src_logical_column);
 
-        auto* src_data = assert_cast<const ColumnUInt8*>(from_col.get());
-        size_t length = src_data->size();
-        size_t num_values = length / _type_length;
-        auto& string_col = static_cast<ColumnString&>(*to_col.get());
+        const auto src_data = get_fixed_length_physical_data(*from_col, _type_length);
+        size_t length = src_data.byte_size;
+        size_t num_values = src_data.rows;
+        auto& string_col = static_cast<ColumnString&>(*to_col);
         auto& offsets = string_col.get_offsets();
         auto& chars = string_col.get_chars();
 
         size_t origin_size = chars.size();
         chars.resize(origin_size + length);
-        memcpy(chars.data() + origin_size, src_data->get_data().data(), length);
+        memcpy(chars.data() + origin_size, src_data.data, length);
 
         origin_size = offsets.size();
         offsets.resize(origin_size + num_values);
@@ -360,16 +547,15 @@ public:
 
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr from_col = remove_nullable(src_physical_col);
-        MutableColumnPtr to_col = remove_nullable(src_logical_column)->assume_mutable();
+        IColumn* to_col = get_mutable_inner_column(src_logical_column);
 
-        const auto* src_data = assert_cast<const ColumnUInt8*>(from_col.get());
-        size_t length = src_data->size();
-        size_t num_values = length / _type_length;
-        auto* to_float_column = assert_cast<ColumnFloat32*>(to_col.get());
+        const auto src_data = get_fixed_length_physical_data(*from_col, _type_length);
+        size_t num_values = src_data.rows;
+        auto* to_float_column = assert_cast<ColumnFloat32*>(to_col);
         size_t start_idx = to_float_column->size();
         to_float_column->resize(start_idx + num_values);
         auto& to_float_column_data = to_float_column->get_data();
-        const auto* ptr = src_data->get_data().data();
+        const auto* ptr = src_data.data;
         for (int i = 0; i < num_values; ++i) {
             size_t offset = i * _type_length;
             const auto* data_ptr = ptr + offset;
@@ -439,26 +625,13 @@ public:
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         DCHECK(!is_column_const(*src_physical_col)) << src_physical_col->dump_structure();
         DCHECK(!is_column_const(*src_logical_column)) << src_logical_column->dump_structure();
-        const ColumnUInt8* uint8_col = nullptr;
-        if (is_column_nullable(*src_physical_col)) {
-            const auto& nullable = assert_cast<const ColumnNullable*>(src_physical_col.get());
-            uint8_col = &assert_cast<const ColumnUInt8&>(nullable->get_nested_column());
-        } else {
-            uint8_col = &assert_cast<const ColumnUInt8&>(*src_physical_col);
-        }
+        const ColumnPtr from_col = remove_nullable(src_physical_col);
+        const auto src_data = get_fixed_length_physical_data(*from_col, _type_length);
 
-        MutableColumnPtr to_col = nullptr;
-        // nullmap flag seems have been handled in upper level
-        if (src_logical_column->is_nullable()) {
-            const auto* nullable = assert_cast<const ColumnNullable*>(src_logical_column.get());
-            to_col = nullable->get_nested_column_ptr()->assume_mutable();
-        } else {
-            to_col = src_logical_column->assume_mutable();
-        }
-        auto* to_varbinary_column = assert_cast<ColumnVarbinary*>(to_col.get());
-        size_t length = uint8_col->size();
-        size_t num_values = length / _type_length;
-        const auto* ptr = uint8_col->get_data().data();
+        IColumn* to_col = get_mutable_inner_column(src_logical_column);
+        auto* to_varbinary_column = assert_cast<ColumnVarbinary*>(to_col);
+        size_t num_values = src_data.rows;
+        const auto* ptr = src_data.data;
 
         for (int i = 0; i < num_values; ++i) {
             auto offset = i * _type_length;
@@ -480,7 +653,7 @@ public:
 
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr src_col = remove_nullable(src_physical_col);
-        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
+        IColumn* dst_col = get_mutable_inner_column(src_logical_column);
 
 #define M(FixedTypeLength, ValueCopyType) \
     case FixedTypeLength:                 \
@@ -531,13 +704,14 @@ public:
     }
 
     template <int fixed_type_length, typename ValueCopyType>
-    Status _convert_internal(ColumnPtr& src_col, MutableColumnPtr& dst_col) {
-        size_t rows = src_col->size() / fixed_type_length;
-        auto* buf = static_cast<const ColumnUInt8*>(src_col.get())->get_data().data();
+    Status _convert_internal(ColumnPtr& src_col, IColumn* dst_col) {
+        const auto src_data = get_fixed_length_physical_data(*src_col, fixed_type_length);
+        size_t rows = src_data.rows;
+        const auto* buf = src_data.data;
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
-        auto& data = static_cast<ColumnDecimal<DecimalPType>*>(dst_col.get())->get_data();
+        auto& data = static_cast<ColumnDecimal<DecimalPType>*>(dst_col)->get_data();
         size_t offset = 0;
         for (int i = 0; i < rows; i++) {
             // When Decimal in parquet is stored in byte arrays, binary and fixed,
@@ -564,7 +738,7 @@ class StringToDecimal : public PhysicalToLogicalConverter {
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = DecimalType::NativeType;
         ColumnPtr src_col = remove_nullable(src_physical_col);
-        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
+        IColumn* dst_col = get_mutable_inner_column(src_logical_column);
 
         size_t rows = src_col->size();
         auto buf = static_cast<const ColumnString*>(src_col.get())->get_chars().data();
@@ -572,7 +746,7 @@ class StringToDecimal : public PhysicalToLogicalConverter {
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
-        auto& data = static_cast<ColumnDecimal<DecimalPType>*>(dst_col.get())->get_data();
+        auto& data = static_cast<ColumnDecimal<DecimalPType>*>(dst_col)->get_data();
         for (int i = 0; i < rows; i++) {
             size_t len = offset[i] - offset[i - 1];
             // When Decimal in parquet is stored in byte arrays, binary and fixed,
@@ -597,7 +771,7 @@ class NumberToDecimal : public PhysicalToLogicalConverter {
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = typename DecimalType::NativeType;
         ColumnPtr src_col = remove_nullable(src_physical_col);
-        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
+        IColumn* dst_col = get_mutable_inner_column(src_logical_column);
 
         size_t rows = src_col->size();
         auto* src_data =
@@ -605,7 +779,7 @@ class NumberToDecimal : public PhysicalToLogicalConverter {
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
-        auto* data = static_cast<ColumnDecimal<DecimalPType>*>(dst_col.get())->get_data().data();
+        auto* data = static_cast<ColumnDecimal<DecimalPType>*>(dst_col)->get_data().data();
 
         for (int i = 0; i < rows; i++) {
             ValueCopyType value;
@@ -625,14 +799,14 @@ class NumberToDecimal : public PhysicalToLogicalConverter {
 class Int32ToDate : public PhysicalToLogicalConverter {
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr src_col = remove_nullable(src_physical_col);
-        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
+        IColumn* dst_col = get_mutable_inner_column(src_logical_column);
 
         size_t rows = src_col->size();
         size_t start_idx = dst_col->size();
         dst_col->reserve(start_idx + rows);
 
         auto& src_data = static_cast<const ColumnInt32*>(src_col.get())->get_data();
-        auto& data = static_cast<ColumnDateV2*>(dst_col.get())->get_data();
+        auto& data = static_cast<ColumnDateV2*>(dst_col)->get_data();
         date_day_offset_dict& date_dict = date_day_offset_dict::get();
 
         for (int i = 0; i < rows; i++) {
@@ -646,20 +820,29 @@ class Int32ToDate : public PhysicalToLogicalConverter {
 struct Int64ToTimestamp : public PhysicalToLogicalConverter {
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr src_col = remove_nullable(src_physical_col);
-        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
+        IColumn* dst_col = get_mutable_inner_column(src_logical_column);
 
         size_t rows = src_col->size();
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
         auto src_data = static_cast<const ColumnInt64*>(src_col.get())->get_data().data();
-        auto& data = static_cast<ColumnDateTimeV2*>(dst_col.get())->get_data();
+        auto& data = static_cast<ColumnDateTimeV2*>(dst_col)->get_data();
 
         for (int i = 0; i < rows; i++) {
             int64_t x = src_data[i];
             auto& num = data[start_idx + i];
             auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
-            value.from_unixtime(x / _convert_params->second_mask, *_convert_params->ctz);
+            const int64_t epoch_seconds = x / _convert_params->second_mask;
+            if (_convert_params->is_fixed_offset) {
+                if (!detail::try_convert_timestamp_with_fixed_offset(
+                            value, epoch_seconds, _convert_params->fixed_offset_seconds)) {
+                    value.from_unixtime(epoch_seconds, *_convert_params->ctz);
+                }
+            } else if (!detail::try_convert_timestamp_with_lookup(value, epoch_seconds,
+                                                                  *_convert_params->ctz)) {
+                value.from_unixtime(epoch_seconds, *_convert_params->ctz);
+            }
             value.set_microsecond((x % _convert_params->second_mask) *
                                   (_convert_params->scale_to_nano_factor / 1000));
         }
@@ -670,14 +853,14 @@ struct Int64ToTimestamp : public PhysicalToLogicalConverter {
 struct Int64ToTimestampTz : public PhysicalToLogicalConverter {
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr src_col = remove_nullable(src_physical_col);
-        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
+        IColumn* dst_col = get_mutable_inner_column(src_logical_column);
 
         size_t rows = src_col->size();
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
         const auto& src_data = assert_cast<const ColumnInt64*>(src_col.get())->get_data();
-        auto& dest_data = assert_cast<ColumnTimeStampTz*>(dst_col.get())->get_data();
+        auto& dest_data = assert_cast<ColumnTimeStampTz*>(dst_col)->get_data();
         static const cctz::time_zone UTC = cctz::utc_time_zone();
 
         for (int i = 0; i < rows; i++) {
@@ -694,14 +877,14 @@ struct Int64ToTimestampTz : public PhysicalToLogicalConverter {
 struct Int96toTimestamp : public PhysicalToLogicalConverter {
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr src_col = remove_nullable(src_physical_col);
-        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
+        IColumn* dst_col = get_mutable_inner_column(src_logical_column);
 
         size_t rows = src_col->size() / sizeof(ParquetInt96);
         auto& src_data = static_cast<const ColumnInt8*>(src_col.get())->get_data();
         auto ParquetInt96_data = (ParquetInt96*)src_data.data();
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
-        auto& data = static_cast<ColumnDateTimeV2*>(dst_col.get())->get_data();
+        auto& data = static_cast<ColumnDateTimeV2*>(dst_col)->get_data();
 
         for (int i = 0; i < rows; i++) {
             ParquetInt96 src_cell_data = ParquetInt96_data[i];
@@ -709,7 +892,16 @@ struct Int96toTimestamp : public PhysicalToLogicalConverter {
                     reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[start_idx + i]);
 
             int64_t timestamp_with_micros = src_cell_data.to_timestamp_micros();
-            dst_value.from_unixtime(timestamp_with_micros / 1000000, *_convert_params->ctz);
+            const int64_t epoch_seconds = timestamp_with_micros / 1000000;
+            if (_convert_params->is_fixed_offset) {
+                if (!detail::try_convert_timestamp_with_fixed_offset(
+                            dst_value, epoch_seconds, _convert_params->fixed_offset_seconds)) {
+                    dst_value.from_unixtime(epoch_seconds, *_convert_params->ctz);
+                }
+            } else if (!detail::try_convert_timestamp_with_lookup(dst_value, epoch_seconds,
+                                                                  *_convert_params->ctz)) {
+                dst_value.from_unixtime(epoch_seconds, *_convert_params->ctz);
+            }
             dst_value.set_microsecond(timestamp_with_micros % 1000000);
         }
         return Status::OK();
@@ -719,14 +911,14 @@ struct Int96toTimestamp : public PhysicalToLogicalConverter {
 struct Int96toTimestampTz : public PhysicalToLogicalConverter {
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr src_col = remove_nullable(src_physical_col);
-        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
+        IColumn* dst_col = get_mutable_inner_column(src_logical_column);
 
         size_t rows = src_col->size() / sizeof(ParquetInt96);
         const auto& src_data = assert_cast<const ColumnInt8*>(src_col.get())->get_data();
         auto* ParquetInt96_data = (ParquetInt96*)src_data.data();
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
-        auto& data = assert_cast<ColumnTimeStampTz*>(dst_col.get())->get_data();
+        auto& data = assert_cast<ColumnTimeStampTz*>(dst_col)->get_data();
         static const cctz::time_zone UTC = cctz::utc_time_zone();
 
         for (int i = 0; i < rows; i++) {
@@ -739,6 +931,5 @@ struct Int96toTimestampTz : public PhysicalToLogicalConverter {
         return Status::OK();
     }
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris::parquet

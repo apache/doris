@@ -24,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -133,7 +134,7 @@ class IntegrationRegistryTest {
         // Given
         AuthenticationIntegration i1 = AuthenticationIntegration.builder().name("i1").type("t").build();
         AuthenticationIntegration i2 = AuthenticationIntegration.builder().name("i2").type("t").build();
-        List<AuthenticationIntegration> chain = List.of(i1, i2);
+        List<AuthenticationIntegration> chain = Arrays.asList(i1, i2);
 
         // When
         integrationRegistry.setAuthenticationChain(chain);

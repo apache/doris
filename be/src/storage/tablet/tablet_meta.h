@@ -51,7 +51,6 @@
 #include "util/uid_util.h"
 
 namespace json2pb {
-#include "common/compile_check_begin.h"
 struct Pb2JsonOptions;
 } // namespace json2pb
 
@@ -111,7 +110,7 @@ public:
                std::optional<TBinlogConfig> binlog_config = {},
                std::string compaction_policy = "size_based",
                int64_t time_series_compaction_goal_size_mbytes = 1024,
-               int64_t time_series_compaction_file_count_threshold = 2000,
+               int64_t time_series_compaction_file_count_threshold = 1000,
                int64_t time_series_compaction_time_threshold_seconds = 3600,
                int64_t time_series_compaction_empty_rowsets_threshold = 5,
                int64_t time_series_compaction_level_threshold = 1,
@@ -119,7 +118,8 @@ public:
                        TInvertedIndexFileStorageFormat::V2,
                TEncryptionAlgorithm::type tde_algorithm = TEncryptionAlgorithm::PLAINTEXT,
                TStorageFormat::type storage_format = TStorageFormat::V2,
-               int32_t vertical_compaction_num_columns_per_group = 5);
+               int32_t vertical_compaction_num_columns_per_group = 5,
+               const TTabletSchema* row_binlog_schema = nullptr);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -174,6 +174,7 @@ public:
     size_t tablet_local_size() const;
     // Remote disk space occupied by tablet.
     size_t tablet_remote_size() const;
+    size_t binlog_size() const;
 
     size_t tablet_local_index_size() const;
     size_t tablet_local_segment_size() const;
@@ -182,6 +183,7 @@ public:
 
     size_t version_count() const;
     size_t stale_version_count() const;
+    size_t binlog_file_num() const;
     size_t version_count_cross_with_range(const Version& range) const;
     Version max_version() const;
 
@@ -205,8 +207,13 @@ public:
     void modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
                          const std::vector<RowsetMetaSharedPtr>& to_delete,
                          bool same_version = false);
+    void modify_row_binlog_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
+                                    const std::vector<RowsetMetaSharedPtr>& to_delete);
     void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
+    void revise_row_binlog_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
     void revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap);
+    // Revise delete vector used by binlog<row> rowsets.
+    void revise_binlog_delvec_unlocked(const DeleteBitmap& binlog_delvec);
 
     const RowsetMetaMapContainer& all_stale_rs_metas() const;
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
@@ -246,8 +253,23 @@ public:
     static void init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                          ColumnPB* column);
 
+    struct SchemaCreateOptions {
+        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id;
+        TCompressionType::type compression_type;
+        TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format;
+        uint32_t next_unique_id;
+    };
+
+    static void init_schema_from_thrift(const TTabletSchema& tablet_schema,
+                                        const SchemaCreateOptions& schema_create_options,
+                                        TabletSchemaPB* tablet_schema_pb);
+
     DeleteBitmapPtr delete_bitmap_ptr() { return _delete_bitmap; }
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
+
+    DeleteBitmapPtr binlog_delvec_ptr() { return _binlog_delvec; }
+    DeleteBitmap& binlog_delvec() { return *_binlog_delvec; }
+
     void remove_rowset_delete_bitmap(const RowsetId& rowset_id, const Version& version);
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
@@ -261,6 +283,12 @@ public:
     void set_binlog_config(BinlogConfig binlog_config) {
         _binlog_config = std::move(binlog_config);
     }
+
+    const TabletSchemaSPtr& row_binlog_schema() const { return _row_binlog_schema; }
+    int32_t row_binlog_schema_hash() const { return _row_binlog_schema_hash; }
+    const RowsetMetaMapContainer& all_row_binlog_rs_metas() const;
+    RowsetMetaSharedPtr acquire_row_binlog_rs_meta_by_version(const Version& version) const;
+    Status add_row_binlog_rs_meta(const RowsetMetaSharedPtr& rs_meta);
 
     void set_compaction_policy(std::string compaction_policy) {
         _compaction_policy = compaction_policy;
@@ -363,6 +391,11 @@ private:
     // query performance significantly.
     bool _enable_unique_key_merge_on_write = false;
     std::shared_ptr<DeleteBitmap> _delete_bitmap;
+    std::shared_ptr<DeleteBitmap> _binlog_delvec;
+
+    int32_t _row_binlog_schema_hash = 0;
+    TabletSchemaSPtr _row_binlog_schema;
+    RowsetMetaMapContainer _row_binlog_rs_metas;
 
     // binlog config
     BinlogConfig _binlog_config {};
@@ -498,6 +531,7 @@ public:
      * @return true if marked deleted
      */
     bool contains(const BitmapKey& bmk, uint32_t row_id) const;
+    bool contain_rowsets(const RowsetIdUnorderedSet& rowset_ids) const;
 
     /**
      * Checks if this delete bitmap is empty
@@ -717,6 +751,8 @@ inline size_t TabletMeta::tablet_local_size() const {
             total_size += rs->total_disk_size();
         }
     }
+    // if we need to split data and binlog or not
+    total_size += binlog_size();
     return total_size;
 }
 
@@ -725,6 +761,16 @@ inline size_t TabletMeta::tablet_remote_size() const {
     for (const auto& [_, rs] : _rs_metas) {
         if (!rs->is_local()) {
             total_size += rs->total_disk_size();
+        }
+    }
+    return total_size;
+}
+
+inline size_t TabletMeta::binlog_size() const {
+    size_t total_size = 0;
+    for (auto& [_, rs] : _row_binlog_rs_metas) {
+        if (rs->is_local()) {
+            total_size += rs->data_disk_size();
         }
     }
     return total_size;
@@ -778,6 +824,10 @@ inline size_t TabletMeta::stale_version_count() const {
     return _rs_metas.size();
 }
 
+inline size_t TabletMeta::binlog_file_num() const {
+    return _row_binlog_rs_metas.size();
+}
+
 inline TabletState TabletMeta::tablet_state() const {
     return _tablet_state;
 }
@@ -814,6 +864,10 @@ inline const RowsetMetaMapContainer& TabletMeta::all_stale_rs_metas() const {
     return _stale_rs_metas;
 }
 
+inline const RowsetMetaMapContainer& TabletMeta::all_row_binlog_rs_metas() const {
+    return _row_binlog_rs_metas;
+}
+
 inline bool TabletMeta::all_beta() const {
     for (const auto& [_, rs] : _rs_metas) {
         if (rs->rowset_type() != RowsetTypePB::BETA_ROWSET) {
@@ -821,6 +875,11 @@ inline bool TabletMeta::all_beta() const {
         }
     }
     for (const auto& [_, rs] : _stale_rs_metas) {
+        if (rs->rowset_type() != RowsetTypePB::BETA_ROWSET) {
+            return false;
+        }
+    }
+    for (const auto& [_, rs] : _row_binlog_rs_metas) {
         if (rs->rowset_type() != RowsetTypePB::BETA_ROWSET) {
             return false;
         }
@@ -834,5 +893,4 @@ std::string tablet_state_name(TabletState state);
 bool operator==(const TabletMeta& a, const TabletMeta& b);
 bool operator!=(const TabletMeta& a, const TabletMeta& b);
 
-#include "common/compile_check_end.h"
 } // namespace doris

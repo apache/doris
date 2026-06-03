@@ -148,7 +148,7 @@ static void fill_varaint_column(auto& variant_column, int size, int uid) {
 }
 
 static void fill_block_with_test_data(Block* block, int size) {
-    auto columns = block->mutate_columns();
+    auto columns = std::move(*block).mutate_columns();
     // insert key
     for (int i = 0; i < size; i++) {
         auto field = Field::create_field<PrimitiveType::TYPE_INT>(i);
@@ -172,6 +172,7 @@ static void fill_block_with_test_data(Block* block, int size) {
         auto v4 = Field::create_field<PrimitiveType::TYPE_INT>(i);
         columns[4]->insert(v4);
     }
+    block->set_columns(std::move(columns));
 }
 static int64_t inc_id = 1000;
 static RowsetWriterContext rowset_writer_context(const std::unique_ptr<DataDir>& data_dir,
@@ -228,7 +229,9 @@ TEST_F(SchemaUtilRowsetTest, check_path_stats_agg_key) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    tablet_schema->set_storage_format(external_segment_meta_used_default
+                                              ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                              : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     std::string absolute_dir = _curreent_dir + std::string("/ut_dir/schema_util_rows");
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(absolute_dir).ok());
@@ -278,7 +281,9 @@ TEST_F(SchemaUtilRowsetTest, check_path_stats_agg_delete) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    tablet_schema->set_storage_format(external_segment_meta_used_default
+                                              ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                              : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     std::string absolute_dir = _curreent_dir + std::string("/ut_dir/schema_util_rows1");
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(absolute_dir).ok());
@@ -328,7 +333,7 @@ TEST_F(SchemaUtilRowsetTest, mixed_external_segment_meta_old_new) {
     // 2. create tablet and data dir
     TabletMetaSharedPtr tablet_meta(new TabletMeta(tablet_schema));
     // First write a few rowsets with external_segment_meta_used_default = false (old format)
-    tablet_schema->set_external_segment_meta_used_default(false);
+    tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     std::string absolute_dir = _curreent_dir + std::string("/ut_dir/schema_util_rows_mixed");
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(absolute_dir).ok());
@@ -361,7 +366,7 @@ TEST_F(SchemaUtilRowsetTest, mixed_external_segment_meta_old_new) {
     }
 
     // 3.2 flip tablet default to enable external column meta for subsequent segments
-    tablet_schema->set_external_segment_meta_used_default(true);
+    tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
 
     // 3.3 write a few new-format rowsets (external meta enabled)
     for (int i = 0; i < 3; ++i) {
@@ -394,7 +399,9 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    tablet_schema->set_storage_format(external_segment_meta_used_default
+                                              ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                              : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 12345;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -601,7 +608,9 @@ TabletSchemaSPtr create_compaction_schema_common(StorageEngine* _engine_ref,
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    tablet_schema->set_storage_format(external_segment_meta_used_default
+                                              ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                              : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_absolute_dir).ok());
     std::unique_ptr<DataDir> _data_dir = std::make_unique<DataDir>(*_engine_ref, _absolute_dir);
@@ -694,7 +703,9 @@ TEST_F(SchemaUtilRowsetTest, some_test_for_subcolumn_writer) {
     std::cout << compaction_schema->dump_structure() << std::endl;
     // this is v1.key1
     TabletColumn column = compaction_schema->column(2);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(
             ColumnWriter::create_variant_writer(opts, &column, file_writer.get(), &writer).ok());
@@ -706,7 +717,7 @@ TEST_F(SchemaUtilRowsetTest, some_test_for_subcolumn_writer) {
     auto size = variant_subcolumn_writer->estimate_buffer_size();
     std::cout << "size: " << size << std::endl;
     // append data
-    auto insert_object = ColumnVariant::create(true);
+    auto insert_object = ColumnVariant::create(0, false);
     fill_varaint_column(insert_object, 1, 1);
     std::cout << insert_object->debug_string() << std::endl;
     std::unique_ptr<VariantColumnData> _variant_column_data = std::make_unique<VariantColumnData>();
@@ -735,7 +746,9 @@ TEST_F(SchemaUtilRowsetTest, typed_path_to_sparse_column) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    tablet_schema->set_storage_format(external_segment_meta_used_default
+                                              ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                              : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());

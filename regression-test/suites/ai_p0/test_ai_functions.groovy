@@ -100,7 +100,10 @@ suite("test_ai_functions") {
             sql """${sql_text}"""
             assertTrue(false)
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("timeout") || e.getMessage().contains("requested URL returned error"))
+            assertTrue(e.getMessage().contains("timeout")
+                    || e.getMessage().contains("requested URL returned error")
+                    || e.getMessage().contains("http status code is not 200"),
+                    "Unexpected exception message: " + e.getMessage())
         } finally {
             sql """UNSET VARIABLE query_timeout;"""
         }
@@ -132,6 +135,27 @@ suite("test_ai_functions") {
     
     res = sql """SHOW RESOURCES WHERE NAME = '${embedResourceName}'"""
     assertTrue(res.size() > 0)
+
+    sql """SET embed_max_batch_size = 1;"""
+    sql """SET ai_context_window_size = 1;"""
+    test {
+        sql """SET embed_max_batch_size = 0;"""
+        exception "embed_max_batch_size"
+    }
+    test {
+        sql """SET embed_max_batch_size = -1;"""
+        exception "embed_max_batch_size"
+    }
+    test {
+        sql """SET ai_context_window_size = 0;"""
+        exception "ai_context_window_size"
+    }
+    test {
+        sql """SET ai_context_window_size = -1;"""
+        exception "ai_context_window_size"
+    }
+    sql """UNSET VARIABLE embed_max_batch_size;"""
+    sql """UNSET VARIABLE ai_context_window_size;"""
 
     test_query_timeout_exception("SELECT EMBED('${embedResourceName}', text) FROM ${test_table_for_ai_functions};")
 

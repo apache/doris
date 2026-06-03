@@ -39,7 +39,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class BufferWritable;
 class IColumn;
@@ -49,7 +48,7 @@ class IColumn;
 template <PrimitiveType T>
 class DataTypeNumberBase : public IDataType {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
-                  T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ);
+                  T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ);
 
 public:
     static constexpr bool is_parametric = false;
@@ -120,8 +119,6 @@ public:
         throw Exception(Status::FatalError("__builtin_unreachable"));
     }
 
-    Field get_default() const override;
-
     Field get_field(const TExprNode& node) const override;
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
@@ -150,5 +147,4 @@ protected:
 private:
     bool _is_null_literal = false;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

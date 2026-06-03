@@ -33,7 +33,6 @@
 #include "exprs/function/cast/cast_to_string.h"
 #include "gtest/gtest_pred_impl.h"
 #include "storage/olap_common.h"
-#include "storage/types.h"
 
 namespace doris {
 
@@ -47,6 +46,25 @@ public:
         test_data_dir = root_dir + "/be/test/data/olap";
     }
 };
+
+template <typename CheckField>
+void expect_from_storage_string_paths(const DataTypePtr& data_type, const std::string& input,
+                                      CheckField&& check_field) {
+    auto serde = data_type->get_serde();
+    for (int path = 0; path < 3; ++path) {
+        Field field;
+        const char* path_name = path == 0   ? "from_olap_string"
+                                : path == 1 ? "from_fe_string"
+                                            : "from_zonemap_string";
+        auto status =
+                path == 0   ? serde->from_olap_string(input, field, DataTypeSerDe::FormatOptions())
+                : path == 1 ? serde->from_fe_string(input, field)
+                            : serde->from_zonemap_string(input, field);
+        ASSERT_TRUE(status.ok()) << data_type->get_name() << " " << path_name
+                                 << " failed: " << status.to_string();
+        check_field(field);
+    }
+}
 
 // deserialize float string serialized by old version of Doris
 TEST_F(OlapTypeTest, deser_float_old) {
@@ -101,21 +119,28 @@ TEST_F(OlapTypeTest, deser_float_old) {
                                                std::numeric_limits<float>::quiet_NaN()};
     test_input_values.insert(test_input_values.end(), special_input_values.begin(),
                              special_input_values.end());
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
+    auto data_type_serde = data_type_ptr->get_serde();
     std::ifstream input_file(test_data_dir + "/ser_float_3.0.txt");
     EXPECT_TRUE(input_file.is_open());
     std::string line;
     int line_index = 0;
     while (std::getline(input_file, line)) {
-        float deser_float_value = 0.0F;
-        auto status = FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>::from_string(
-                &deser_float_value, line, 0, 0);
+        Field restored_field;
+        auto status = data_type_serde->from_fe_string(line, restored_field);
+        // from_fe_string rejects NaN/Infinity strings
+        if (std::isnan(test_input_values[line_index]) ||
+            std::isinf(test_input_values[line_index])) {
+            EXPECT_FALSE(status.ok());
+            line_index++;
+            continue;
+        }
         EXPECT_TRUE(status.ok()) << status.to_string();
+        float deser_float_value = restored_field.get<TYPE_FLOAT>();
         float diff_ratio = std::abs(deser_float_value - test_input_values[line_index]) /
                            abs(test_input_values[line_index]);
         EXPECT_TRUE((test_input_values[line_index] == 0 && deser_float_value == 0) ||
-                    diff_ratio < 1e-6 ||
-                    (std::isnan(deser_float_value) && std::isnan(test_input_values[line_index])) ||
-                    (std::isinf(deser_float_value) && std::isinf(test_input_values[line_index])))
+                    diff_ratio < 1e-6)
                 << "expected float value: " << fmt::format("{:.9g}", test_input_values[line_index])
                 << ", deser float value: " << fmt::format("{:.9g}", deser_float_value)
                 << ", diff_ratio: " << fmt::format("{:.9g}", diff_ratio);
@@ -182,24 +207,29 @@ TEST_F(OlapTypeTest, deser_double_old) {
                                                 std::numeric_limits<float>::quiet_NaN()};
     test_input_values.insert(test_input_values.end(), special_input_values.begin(),
                              special_input_values.end());
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
+    auto data_type_serde = data_type_ptr->get_serde();
     std::ifstream input_file(test_data_dir + "/ser_double_3.0.txt");
     EXPECT_TRUE(input_file.is_open());
     std::string line;
     int line_index = 0;
     while (std::getline(input_file, line)) {
-        double deser_float_value = 0.0;
-        auto status = FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>::from_string(
-                &deser_float_value, line, 0, 0);
+        Field restored_field;
+        auto status = data_type_serde->from_fe_string(line, restored_field);
+        // from_fe_string rejects NaN/Infinity strings, and also rejects
+        // double::max()/lowest() whose string representation parses to Infinity
+        if (std::isnan(test_input_values[line_index]) ||
+            std::isinf(test_input_values[line_index])) {
+            EXPECT_FALSE(status.ok());
+            line_index++;
+            continue;
+        }
         EXPECT_TRUE(status.ok()) << status.to_string();
+        double deser_float_value = restored_field.get<TYPE_DOUBLE>();
         double diff_ratio = std::abs(deser_float_value - test_input_values[line_index]) /
                             abs(test_input_values[line_index]);
         EXPECT_TRUE((test_input_values[line_index] == 0 && deser_float_value == 0) ||
-                    diff_ratio < 1e-15 ||
-                    (std::isnan(deser_float_value) && std::isnan(test_input_values[line_index])) ||
-                    (std::isinf(deser_float_value) &&
-                     (std::isinf(test_input_values[line_index]) ||
-                      test_input_values[line_index] == std::numeric_limits<double>::max() ||
-                      test_input_values[line_index] == std::numeric_limits<double>::lowest())))
+                    diff_ratio < 1e-15)
                 << "expected double value: "
                 << fmt::format("{:.17g}", test_input_values[line_index])
                 << ", deser double value: " << fmt::format("{:.17g}", deser_float_value)
@@ -372,14 +402,17 @@ TEST_F(OlapTypeTest, ser_deser_float) {
         auto field = Field::create_field<TYPE_FLOAT>(float_value);
         auto result_str = data_type_serde->to_olap_string(field);
         EXPECT_EQ(result_str, expected_str);
-        float deser_float_value = 0.0F;
-        auto status = FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>::from_string(
-                &deser_float_value, result_str, 0, 0);
+        Field restored_field;
+        auto status = data_type_serde->from_fe_string(result_str, restored_field);
+        // from_fe_string rejects NaN/Infinity strings
+        if (std::isnan(float_value) || std::isinf(float_value)) {
+            EXPECT_FALSE(status.ok());
+            continue;
+        }
         EXPECT_TRUE(status.ok()) << status.to_string();
+        float deser_float_value = restored_field.get<TYPE_FLOAT>();
         float diff_ratio = std::abs(deser_float_value - float_value) / abs(float_value);
-        EXPECT_TRUE((float_value == 0 && deser_float_value == 0) || diff_ratio < 1e-6 ||
-                    (std::isnan(deser_float_value) && std::isnan(float_value)) ||
-                    (std::isinf(deser_float_value) && std::isinf(float_value)))
+        EXPECT_TRUE((float_value == 0 && deser_float_value == 0) || diff_ratio < 1e-6)
                 << "expected float value: " << fmt::format("{:.9g}", float_value)
                 << ", expected float str: " << expected_str
                 << ", deser float value: " << fmt::format("{:.9g}", deser_float_value)
@@ -572,22 +605,66 @@ TEST_F(OlapTypeTest, ser_deser_double) {
         auto field = Field::create_field<TYPE_DOUBLE>(float_value);
         auto result_str = data_type_serde->to_olap_string(field);
         EXPECT_EQ(result_str, expected_str);
-        double deser_float_value = 0.0;
-        auto status = FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>::from_string(
-                &deser_float_value, result_str, 0, 0);
+        Field restored_field;
+        auto status = data_type_serde->from_fe_string(result_str, restored_field);
+        // from_fe_string rejects NaN/Infinity strings, and also rejects
+        // double::max()/lowest() whose string representation parses to Infinity
+        if (std::isnan(float_value) || std::isinf(float_value) ||
+            float_value == std::numeric_limits<double>::max() ||
+            float_value == std::numeric_limits<double>::lowest()) {
+            EXPECT_FALSE(status.ok());
+            continue;
+        }
         EXPECT_TRUE(status.ok()) << status.to_string();
+        double deser_float_value = restored_field.get<TYPE_DOUBLE>();
         double diff_ratio = std::abs(deser_float_value - float_value) / abs(float_value);
-        EXPECT_TRUE(
-                (float_value == 0 && deser_float_value == 0) || diff_ratio < 1e-15 ||
-                (std::isnan(deser_float_value) && std::isnan(float_value)) ||
-                (std::isinf(deser_float_value) &&
-                 (std::isinf(float_value) || float_value == std::numeric_limits<double>::max() ||
-                  float_value == std::numeric_limits<double>::lowest())))
+        EXPECT_TRUE((float_value == 0 && deser_float_value == 0) || diff_ratio < 1e-15)
                 << "expected double value: " << fmt::format("{:.17g}", float_value)
                 << ", expected double str: " << expected_str
                 << ", deser double value: " << fmt::format("{:.17g}", deser_float_value)
                 << ", diff_ratio: " << fmt::format("{:.17g}", diff_ratio);
     }
+}
+
+TEST_F(OlapTypeTest, datelike_storage_string_parse_failure_defaults) {
+    const std::string invalid = "not-a-valid-value";
+
+    VecDateTimeValue datev1_default = VecDateTimeValue::FIRST_DAY;
+    datev1_default.cast_to_date();
+    const auto expected_datev1 = Field::create_field<TYPE_DATE>(datev1_default);
+    expect_from_storage_string_paths(DataTypeFactory::instance().create_data_type(TYPE_DATE, false),
+                                     invalid, [&](const Field& field) {
+                                         ASSERT_EQ(field.get_type(), TYPE_DATE);
+                                         EXPECT_TRUE(field == expected_datev1);
+                                     });
+
+    VecDateTimeValue datetimev1_default = VecDateTimeValue::FIRST_DAY;
+    datetimev1_default.to_datetime();
+    const auto expected_datetimev1 = Field::create_field<TYPE_DATETIME>(datetimev1_default);
+    expect_from_storage_string_paths(
+            DataTypeFactory::instance().create_data_type(TYPE_DATETIME, false), invalid,
+            [&](const Field& field) {
+                ASSERT_EQ(field.get_type(), TYPE_DATETIME);
+                EXPECT_TRUE(field == expected_datetimev1);
+            });
+
+    const auto expected_datev2 =
+            Field::create_field<TYPE_DATEV2>(DateV2Value<DateV2ValueType>(MIN_DATE_V2));
+    expect_from_storage_string_paths(
+            DataTypeFactory::instance().create_data_type(TYPE_DATEV2, false), invalid,
+            [&](const Field& field) {
+                ASSERT_EQ(field.get_type(), TYPE_DATEV2);
+                EXPECT_TRUE(field == expected_datev2);
+            });
+
+    const auto expected_datetimev2 =
+            Field::create_field<TYPE_DATETIMEV2>(DateV2Value<DateTimeV2ValueType>(MIN_DATETIME_V2));
+    expect_from_storage_string_paths(
+            DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6), invalid,
+            [&](const Field& field) {
+                ASSERT_EQ(field.get_type(), TYPE_DATETIMEV2);
+                EXPECT_TRUE(field == expected_datetimev2);
+            });
 }
 
 // =============================================================================
@@ -2005,5 +2082,53 @@ TEST_F(OlapTypeTest, timestamptz_type) {
         EXPECT_EQ(tc.expected_serde, serde_str)
                 << "serde mismatch for TIMESTAMPTZ expected=" << tc.expected;
     }
+}
+
+// from_olap_string for string types (CHAR / VARCHAR / STRING) strnlens the
+// input so any trailing '\0' bytes that came from a fixed-width CHAR write
+// are dropped before the value lands in the Field. VARCHAR / STRING ZoneMap
+// values do not normally carry trailing '\0' (the writers store the natural
+// byte length), so strnlen is a no-op for them.
+TEST_F(OlapTypeTest, from_olap_string_strings) {
+    struct Case {
+        PrimitiveType type;
+        std::string input;
+        std::string expected;
+    };
+    std::vector<Case> cases = {
+            // CHAR(N) ZoneMap min/max from the convertor is padded with '\0'
+            // — strnlen recovers the logical content.
+            {TYPE_CHAR, std::string("abc", 3) + std::string(7, '\0'), "abc"},
+            {TYPE_CHAR, std::string(10, '\0'), ""},
+            {TYPE_CHAR, "alpha", "alpha"},
+            // VARCHAR / STRING never carry trailing '\0' in their ZoneMap
+            // representation, so the helper is a transparent pass-through
+            // for the typical case.
+            {TYPE_VARCHAR, "hello", "hello"},
+            {TYPE_STRING, "world\nline2", "world\nline2"},
+            {TYPE_STRING, "", ""},
+    };
+
+    for (const auto& tc : cases) {
+        auto data_type = DataTypeFactory::instance().create_data_type(
+                tc.type, /*is_nullable=*/false, /*precision=*/0, /*scale=*/0,
+                /*length=*/static_cast<int>(tc.input.size()));
+        expect_from_storage_string_paths(data_type, tc.input, [&](const Field& field) {
+            EXPECT_EQ(field.get<TYPE_STRING>(), tc.expected)
+                    << "type=" << static_cast<int>(tc.type) << " input.size=" << tc.input.size();
+        });
+    }
+}
+
+// VARCHAR / STRING values containing an embedded '\0' are truncated at the
+// first '\0' — the same strnlen behaviour applies to all string types. This
+// is acceptable in practice because Doris string columns do not store
+// embedded NULs in their ZoneMap representation; the test pins the contract.
+TEST_F(OlapTypeTest, from_olap_string_strings_embedded_null_truncates) {
+    auto data_type = DataTypeFactory::instance().create_data_type(
+            TYPE_VARCHAR, /*is_nullable=*/false, 0, 0, /*length=*/32);
+    expect_from_storage_string_paths(data_type, std::string("ab\0cd", 5), [](const Field& field) {
+        EXPECT_EQ(field.get<TYPE_STRING>(), "ab");
+    });
 }
 } // namespace doris

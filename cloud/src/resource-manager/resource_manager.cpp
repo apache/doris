@@ -64,7 +64,7 @@ int ResourceManager::init() {
     std::vector<std::tuple<std::string, InstanceInfoPB>> instances;
     int limit = 10000;
     TEST_SYNC_POINT_CALLBACK("ResourceManager:init:limit", &limit);
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         TxnErrorCode err = txn->get(key0, key1, &it, false, limit);
         TEST_SYNC_POINT_CALLBACK("ResourceManager:init:get_err", &err);
         if (err == TxnErrorCode::TXN_TOO_OLD) {
@@ -105,7 +105,7 @@ int ResourceManager::init() {
             ++num_instances;
         }
         key0.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
 
     std::unique_lock l(mtx_);
     for (auto& [inst_id, inst] : instances) {
@@ -1414,18 +1414,19 @@ std::pair<MetaServiceCode, std::string> ResourceManager::refresh_instance(
 void ResourceManager::refresh_instance(const std::string& instance_id,
                                        const InstanceInfoPB& instance) {
     bool is_successor_instance = instance.has_original_instance_id();
-    std::string source_instance_id = is_successor_instance ? instance.source_instance_id() : "";
+    std::string predecessor_instance_id =
+            is_successor_instance ? instance.predecessor_instance_id() : "";
 
     std::lock_guard l(mtx_);
     for (auto i = node_info_.begin(); i != node_info_.end();) {
-        // erase all nodes not belong to this instance_id
-        if (i->second.instance_id != instance_id &&
-            // ... or, if is_successor_instance, erase nodes belong to source_instance_id
-            (!is_successor_instance || i->second.instance_id != source_instance_id)) {
+        // erase all nodes belong to this instance_id
+        if (i->second.instance_id == instance_id ||
+            // ... or, if is_successor_instance, erase nodes belong to predecessor_instance_id
+            (is_successor_instance && i->second.instance_id == predecessor_instance_id)) {
+            i = node_info_.erase(i);
+        } else {
             ++i;
-            continue;
         }
-        i = node_info_.erase(i);
     }
 
     // If successor_instance_id is set, it means this instance has a successor instance,

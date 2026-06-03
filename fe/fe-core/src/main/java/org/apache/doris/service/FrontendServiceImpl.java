@@ -43,6 +43,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
@@ -82,8 +83,8 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSource;
+import org.apache.doris.datasource.maxcompute.MCTransaction;
 import org.apache.doris.encryption.EncryptionKey;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
@@ -96,7 +97,6 @@ import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.meta.MetaContext;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
@@ -120,6 +120,7 @@ import org.apache.doris.qe.MysqlConnectProcessor;
 import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
@@ -241,6 +242,8 @@ import org.apache.doris.thrift.TMasterAddressResult;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
+import org.apache.doris.thrift.TMaxComputeBlockIdRequest;
+import org.apache.doris.thrift.TMaxComputeBlockIdResult;
 import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TNodeInfo;
@@ -306,6 +309,7 @@ import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.Transaction;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
@@ -1004,7 +1008,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (ctx == null) {
             return result;
         }
-        vars = VariableMgr.dump(SetType.fromThrift(params.getVarType()), ctx.getSessionVariable(), null);
+        // SHOW VARIABLES can be evaluated through an internal schema query. Planning that
+        // internal query may call setVarOnce() and temporarily change the live session
+        // variable (for example disable_join_reorder). Cloning alone is not enough,
+        // because the clone would keep both the temporary value and its recorded origin.
+        // Revert only the clone so Changed reflects user-visible session settings,
+        // while the real session remains untouched.
+        SessionVariable sessionVariable = VariableMgr.cloneSessionVariable(ctx.getSessionVariable());
+        try {
+            VariableMgr.revertSessionValue(sessionVariable);
+        } catch (DdlException e) {
+            throw new TException(e);
+        }
+        vars = VariableMgr.dump(SetType.fromThrift(params.getVarType()), sessionVariable, null);
         result.setVariables(vars);
         return result;
     }
@@ -1456,6 +1472,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
         TStatus status = checkMaster();
         result.setStatus(status);
+        if (status.getStatusCode() != TStatusCode.OK) {
+            return result;
+        }
 
         try {
             loadTxnPreCommitImpl(request);
@@ -1737,7 +1756,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
-            checkToken(request.getToken());
+            checkTokenOrThrow(request.getToken());
         } else {
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
                 checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
@@ -1874,7 +1893,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
-            checkToken(request.getToken());
+            checkTokenOrThrow(request.getToken());
         } else {
             List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
             checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(), tables,
@@ -1959,7 +1978,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
-            checkToken(request.getToken());
+            checkTokenOrThrow(request.getToken());
         } else {
             // multi table load
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
@@ -2078,7 +2097,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
-            checkToken(request.getToken());
+            checkTokenOrThrow(request.getToken());
         } else {
             List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
             checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(), tables,
@@ -2089,6 +2108,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Env.getCurrentGlobalTransactionMgr().abortTransaction(db.getId(), request.getTxnId(),
                 request.isSetReason() ? request.getReason() : "system cancel",
                 TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()), tableList);
+    }
+
+    private void checkTokenOrThrow(String token) throws AuthenticationException {
+        if (!checkToken(token)) {
+            throw new AuthenticationException("Invalid token");
+        }
     }
 
     @Override
@@ -2582,7 +2607,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             if (request.is_success) {
                 if (request.isSetGroupId()) {
-                    taskGroupSuccessImpl(request.getDb(), request.getTbl(), request.getGroupId());
+                    taskGroupSuccessImpl(request.getDb(), request.getTbl(),
+                            request.getGroupId(), request.isForceDropPartition());
                 } else if (request.isSetTaskId()) {
                     taskSuccessImpl(request.getTaskId());
                 }
@@ -2607,7 +2633,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    private void taskGroupSuccessImpl(String dbName, String tblName, long groupId) throws Exception {
+    private void taskGroupSuccessImpl(String dbName, String tblName,
+            long groupId, boolean forceDropPartition) throws Exception {
         DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
         if (db == null) {
             throw new DdlException("Database not found: " + dbName);
@@ -2619,7 +2646,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (tbl == null) {
             throw new DdlException("Table not found: " + tblName);
         }
-        Env.getCurrentEnv().getInsertOverwriteManager().taskGroupSuccess(groupId, (OlapTable) tbl);
+        Env.getCurrentEnv().getInsertOverwriteManager().taskGroupSuccess(groupId, (OlapTable) tbl, forceDropPartition);
     }
 
     private void taskSuccessImpl(long taskId) throws Exception {
@@ -3486,7 +3513,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     .getCloudWarmUpJob(request.getWarmUpJobId());
             if (job == null || job.isDone()) {
                 LOG.info("warmup job {} is not running, notify caller BE {} to cancel job",
-                        job.getJobId(), clientAddr);
+                        request.getWarmUpJobId(), clientAddr);
                 // notify client to cancel this job
                 result.setStatus(new TStatus(TStatusCode.CANCELLED));
                 return result;
@@ -3587,6 +3614,50 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
             LOG.warn("[auto-inc] catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
+        }
+        return result;
+    }
+
+    @Override
+    public TMaxComputeBlockIdResult getMaxComputeBlockIdRange(TMaxComputeBlockIdRequest request) {
+        String clientAddr = getClientAddrAsString();
+        LOG.info("receive getMaxComputeBlockIdRange request: {}, backend: {}", request, clientAddr);
+
+        TMaxComputeBlockIdResult result = new TMaxComputeBlockIdResult();
+        TStatus status = checkMaster();
+        result.setStatus(status);
+
+        if (status.getStatusCode() != TStatusCode.OK) {
+            result.setMasterAddress(getMasterAddress());
+            return result;
+        }
+
+        try {
+            Transaction transaction = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr()
+                    .getTxnById(request.getTxnId());
+            if (!(transaction instanceof MCTransaction)) {
+                throw new UserException("Transaction " + request.getTxnId()
+                        + " is not a MaxCompute transaction");
+            }
+
+            long start = ((MCTransaction) transaction).allocateBlockIdRange(
+                    request.getWriteSessionId(), request.getLength());
+            result.setStart(start);
+            result.setLength(request.getLength());
+        } catch (UserException e) {
+            LOG.warn("failed to allocate MaxCompute block_id, txnId={}, sessionId={}, errmsg={}",
+                    request.getTxnId(), request.getWriteSessionId(), e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (RuntimeException e) {
+            LOG.warn("failed to allocate MaxCompute block_id, txnId={}, sessionId={}, errmsg={}",
+                    request.getTxnId(), request.getWriteSessionId(), e.getMessage(), e);
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result when allocating MaxCompute block_id.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
         }
@@ -3917,13 +3988,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetTableRefs()) {
             for (TTableRef tTableRef : request.getTableRefs()) {
                 tableRefs.add(new TableRefInfo(new TableNameInfo(tTableRef.getTable()),
-                        null,
-                        null,
-                        null,
-                        new ArrayList<>(),
-                        tTableRef.getAliasName(),
-                        null,
-                        new ArrayList<>()));
+                        tTableRef.getAliasName()));
             }
         }
 
@@ -4407,9 +4472,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("Table {}.{} auto partition count {} is approaching limit {} (>80%)."
                         + " Consider increasing max_auto_partition_num.",
                     db.getFullName(), olapTable.getName(), partitionNum, autoPartitionLimit);
-            if (MetricRepo.isInit) {
-                MetricRepo.COUNTER_AUTO_PARTITION_NEAR_LIMIT.increase(1L);
-            }
         }
 
         // build partition & tablets
@@ -5389,82 +5451,40 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             MetaContext metaContext = new MetaContext();
             metaContext.setMetaVersion(FeConstants.meta_version);
             metaContext.setThreadLocalInfo();
-            table.readLock();
             try (ByteArrayOutputStream bOutputStream = new ByteArrayOutputStream(8192)) {
-                OlapTable copyTable = table.copyTableMeta();
-                try (DataOutputStream out = new DataOutputStream(bOutputStream)) {
-                    copyTable.write(out);
-                    out.flush();
-                    result.setTableMeta(bOutputStream.toByteArray());
-                }
-                Set<Long> updatedPartitionIds = Sets.newHashSet(table.getPartitionIds());
-                List<TPartitionMeta> partitionMetas = request.getPartitionsSize() == 0 ? Lists.newArrayList()
-                        : request.getPartitions();
-                for (TPartitionMeta partitionMeta : partitionMetas) {
-                    if (request.getTableId() != table.getId()) {
-                        result.addToRemovedPartitions(partitionMeta.getId());
-                        continue;
-                    }
-                    Partition partition = table.getPartition(partitionMeta.getId());
-                    if (partition == null) {
-                        result.addToRemovedPartitions(partitionMeta.getId());
-                        continue;
-                    }
-                    if (partition.getVisibleVersion() == partitionMeta.getVisibleVersion()
-                            && partition.getVisibleVersionTime() == partitionMeta.getVisibleVersionTime()) {
-                        updatedPartitionIds.remove(partitionMeta.getId());
-                    }
-                }
-
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("receive getOlapTableMeta  db: {} table:{} update partitions: {} removed partition:{}",
-                            request.getDb(), request.getTable(), updatedPartitionIds.size(),
-                            result.getRemovedPartitionsSize());
-                }
-                for (Long partitionId : updatedPartitionIds) {
-                    bOutputStream.reset();
-                    Partition partition = table.getPartition(partitionId);
+                Set<Long> updatedPartitionIds;
+                Set<Long> updatedTempPartitionIds;
+                Map<Long, String> partitionChecksums = Maps.newHashMap();
+                Map<Long, String> tempPartitionChecksums = Maps.newHashMap();
+                table.readLock();
+                try {
+                    OlapTable copyTable = table.copyTableMeta();
                     try (DataOutputStream out = new DataOutputStream(bOutputStream)) {
-                        Text.writeString(out, GsonUtils.GSON.toJson(partition));
+                        copyTable.write(out);
                         out.flush();
-                        result.addToUpdatedPartitions(ByteBuffer.wrap(bOutputStream.toByteArray()));
+                        result.setTableMeta(bOutputStream.toByteArray());
                     }
-                }
-                // temp partitions
-                updatedPartitionIds = Sets.newHashSet(table.getTempPartitions().getPartitionIds());
-                partitionMetas = request.getTempPartitionsSize() == 0 ? Lists.newArrayList()
-                        : request.getTempPartitions();
-                for (TPartitionMeta partitionMeta : partitionMetas) {
-                    if (request.getTableId() != table.getId()) {
-                        result.addToRemovedTempPartitions(partitionMeta.getId());
-                        continue;
+                    updatedPartitionIds = Sets.newHashSet(table.getPartitionIds());
+                    collectPartitionChanges(table, request.getTableId(), request.getPartitions(), false,
+                            updatedPartitionIds, partitionChecksums, result);
+                    updatedTempPartitionIds = Sets.newHashSet(table.getTempPartitions().getPartitionIds());
+                    collectPartitionChanges(table, request.getTableId(), request.getTempPartitions(), true,
+                            updatedTempPartitionIds, tempPartitionChecksums, result);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("receive getOlapTableMeta db: {} table:{} update partitions: {} "
+                                        + "removed partition:{} update temp partitions: {} removed temp partition:{}",
+                                request.getDb(), request.getTable(), updatedPartitionIds.size(),
+                                result.getRemovedPartitionsSize(), updatedTempPartitionIds.size(),
+                                result.getRemovedTempPartitionsSize());
                     }
-                    Partition tempPartition = table.getTempPartitions().getPartition(partitionMeta.getId());
-                    if (tempPartition == null) {
-                        result.addToRemovedTempPartitions(partitionMeta.getId());
-                        continue;
-                    }
-                    if (tempPartition.getVisibleVersion() == partitionMeta.getVisibleVersion()
-                            && tempPartition.getVisibleVersionTime() == partitionMeta.getVisibleVersionTime()) {
-                        updatedPartitionIds.remove(partitionMeta.getId());
-                    }
-                }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("update temp partitions: {},  removed temp partition:{}",
-                            updatedPartitionIds.size(), result.getRemovedPartitionsSize());
-                }
-                for (Long partitionId : updatedPartitionIds) {
-                    bOutputStream.reset();
-                    Partition partition = table.getTempPartitions().getPartition(partitionId);
-                    try (DataOutputStream out = new DataOutputStream(bOutputStream)) {
-                        Text.writeString(out, GsonUtils.GSON.toJson(partition));
-                        out.flush();
-                        result.addToUpdatedTempPartitions(ByteBuffer.wrap(bOutputStream.toByteArray()));
-                    }
+                    addUpdatedPartitions(table, updatedPartitionIds, false, partitionChecksums, bOutputStream, result);
+                    addUpdatedPartitions(table, updatedTempPartitionIds, true, tempPartitionChecksums,
+                            bOutputStream, result);
+                } finally {
+                    table.readUnlock();
                 }
                 return result;
             } finally {
-                table.readUnlock();
                 MetaContext.remove();
             }
         } catch (AuthenticationException e) {
@@ -5485,6 +5505,79 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs(e.getMessage());
             return result;
         }
+    }
+
+    private void collectPartitionChanges(OlapTable table, long requestTableId,
+            List<TPartitionMeta> partitionMetas, boolean tempPartition, Set<Long> updatedPartitionIds,
+            Map<Long, String> partitionChecksums, TGetOlapTableMetaResult result) {
+        if (partitionMetas == null) {
+            return;
+        }
+        for (TPartitionMeta partitionMeta : partitionMetas) {
+            long partitionId = partitionMeta.getId();
+            if (requestTableId != table.getId()) {
+                addRemovedPartition(result, partitionId, tempPartition);
+                continue;
+            }
+            Partition partition = getPartition(table, partitionId, tempPartition);
+            if (partition == null) {
+                addRemovedPartition(result, partitionId, tempPartition);
+                continue;
+            }
+            if (isPartitionVersionMatched(partition, partitionMeta)) {
+                if (!partitionMeta.isSetMetaChecksum()) {
+                    updatedPartitionIds.remove(partitionId);
+                    continue;
+                }
+                String metaChecksum = getPartitionMetaChecksum(partition, partitionChecksums);
+                if (metaChecksum.equals(partitionMeta.getMetaChecksum())) {
+                    updatedPartitionIds.remove(partitionId);
+                }
+            }
+        }
+    }
+
+    private void addUpdatedPartitions(OlapTable table, Set<Long> updatedPartitionIds, boolean tempPartition,
+            Map<Long, String> partitionChecksums, ByteArrayOutputStream bOutputStream,
+            TGetOlapTableMetaResult result) throws IOException {
+        for (Long partitionId : updatedPartitionIds) {
+            Partition partition = getPartition(table, partitionId, tempPartition);
+            Preconditions.checkState(partition != null);
+            String metaChecksum = getPartitionMetaChecksum(partition, partitionChecksums);
+            bOutputStream.reset();
+            try (DataOutputStream out = new DataOutputStream(bOutputStream)) {
+                Text.writeString(out, GsonUtils.GSON.toJson(partition));
+                out.flush();
+                if (tempPartition) {
+                    result.addToUpdatedTempPartitions(ByteBuffer.wrap(bOutputStream.toByteArray()));
+                    result.addToUpdatedTempPartitionChecksums(metaChecksum);
+                } else {
+                    result.addToUpdatedPartitions(ByteBuffer.wrap(bOutputStream.toByteArray()));
+                    result.addToUpdatedPartitionChecksums(metaChecksum);
+                }
+            }
+        }
+    }
+
+    private String getPartitionMetaChecksum(Partition partition, Map<Long, String> partitionChecksums) {
+        return partitionChecksums.computeIfAbsent(partition.getId(), key -> partition.getMetaChecksum());
+    }
+
+    private Partition getPartition(OlapTable table, long partitionId, boolean tempPartition) {
+        return tempPartition ? table.getTempPartitions().getPartition(partitionId) : table.getPartition(partitionId);
+    }
+
+    private void addRemovedPartition(TGetOlapTableMetaResult result, long partitionId, boolean tempPartition) {
+        if (tempPartition) {
+            result.addToRemovedTempPartitions(partitionId);
+        } else {
+            result.addToRemovedPartitions(partitionId);
+        }
+    }
+
+    private boolean isPartitionVersionMatched(Partition partition, TPartitionMeta partitionMeta) {
+        return partition.getVisibleVersion() == partitionMeta.getVisibleVersion()
+                && partition.getVisibleVersionTime() == partitionMeta.getVisibleVersionTime();
     }
 
     @Override

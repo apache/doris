@@ -44,7 +44,7 @@ suite("join_elim_star_pattern") {
     DUPLICATE KEY(`o_orderkey`)
     COMMENT 'OLAP'
     auto partition by range (date_trunc(`o_orderdate`, 'day')) ()
-    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -74,7 +74,7 @@ suite("join_elim_star_pattern") {
     DUPLICATE KEY(l_orderkey)
     COMMENT 'OLAP'
     auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
-    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -92,7 +92,7 @@ suite("join_elim_star_pattern") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`ps_partkey`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`ps_partkey`) BUCKETS 24
+    DISTRIBUTED BY HASH(`ps_partkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -151,10 +151,20 @@ suite("join_elim_star_pattern") {
     sql """alter table partsupp_1 modify column ps_comment set stats ('row_count'='10');"""
 
 
+    def baselineResultCache = [:]
+    def getBaselineRes = { def stmt, int orderByColumns ->
+        def cacheKey = "${orderByColumns}:${stmt}"
+        if (!baselineResultCache.containsKey(cacheKey)) {
+            sql "SET enable_materialized_view_rewrite=false"
+            def orderStmt = " order by " + (1..orderByColumns).join(", ")
+            baselineResultCache[cacheKey] = sql stmt + orderStmt
+        }
+        return baselineResultCache[cacheKey]
+    }
+
     def compare_res = { def stmt, int orderByColumns = 1 ->
-        sql "SET enable_materialized_view_rewrite=false"
         def orderStmt = " order by " + (1..orderByColumns).join(", ")
-        def origin_res = sql stmt + orderStmt
+        def origin_res = getBaselineRes(stmt, orderByColumns)
         logger.info("origin_res: " + origin_res)
         sql "SET enable_materialized_view_rewrite=true"
         def mv_origin_res = sql stmt + orderStmt
@@ -295,7 +305,7 @@ suite("join_elim_star_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13]) {
+        if (j in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]) {
             mv_rewrite_success(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 4)
         } else {
@@ -326,7 +336,7 @@ suite("join_elim_star_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [9, 11, 13]) {
+        if (j in [8, 9, 10, 11, 12, 13]) {
             mv_rewrite_success(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 4)
         } else {
@@ -358,7 +368,7 @@ suite("join_elim_star_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [3, 5, 7]) {
+        if (j in [2, 3, 4, 5, 6, 7]) {
             mv_rewrite_success(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 4)
         } else {
@@ -393,7 +403,7 @@ suite("join_elim_star_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13]) {
+        if (j in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]) {
             mv_rewrite_success(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 4)
         } else {
@@ -428,7 +438,7 @@ suite("join_elim_star_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [1, 2, 3, 4, 5, 6, 7, 9, 11, 13]) {
+        if (j in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]) {
             mv_rewrite_success(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 4)
         } else {
@@ -462,7 +472,7 @@ suite("join_elim_star_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [1, 2, 3, 4, 5, 6, 7, 9, 11, 13]) {
+        if (j in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]) {
             mv_rewrite_success(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 4)
         } else {
@@ -492,7 +502,7 @@ suite("join_elim_star_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [9, 11, 13]) {
+        if (j in [8, 9, 10, 11, 12, 13]) {
             mv_rewrite_success(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 4)
         } else {
@@ -523,7 +533,7 @@ suite("join_elim_star_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [3, 5, 7]) {
+        if (j in [2, 3, 4, 5, 6, 7]) {
             mv_rewrite_success(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 4)
         } else {

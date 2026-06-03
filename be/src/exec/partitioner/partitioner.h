@@ -24,7 +24,6 @@
 #include "exprs/vexpr_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class PartitionerBase {
 public:
@@ -54,6 +53,34 @@ public:
 
 protected:
     const HashValType _partition_count;
+};
+
+class PartitionFunction {
+public:
+    using HashValType = PartitionerBase::HashValType;
+
+    virtual ~PartitionFunction() = default;
+
+    virtual Status init(const std::vector<TExpr>& texprs) = 0;
+
+    virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc) = 0;
+
+    virtual Status open(RuntimeState* state) = 0;
+
+    virtual Status close(RuntimeState* state) = 0;
+
+    virtual Status get_partitions(RuntimeState* state, Block* block, size_t partition_count,
+                                  std::vector<HashValType>& partitions) const = 0;
+
+    virtual HashValType partition_count() const = 0;
+
+    virtual Status clone(RuntimeState* state,
+                         std::unique_ptr<PartitionFunction>& function) const = 0;
+};
+
+enum class ShuffleHashMethod {
+    CRC32,
+    CRC32C,
 };
 
 template <typename ChannelIds>
@@ -164,5 +191,4 @@ private:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

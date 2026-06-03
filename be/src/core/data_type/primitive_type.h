@@ -37,7 +37,6 @@
 #include "util/json/path_in_data.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <typename T>
 class ColumnStr;
 class IColumnDummy;
@@ -48,7 +47,7 @@ class ColumnVarbinary;
 using ColumnString = ColumnStr<UInt32>;
 class JsonbField;
 struct Array;
-struct Tuple;
+struct Struct;
 struct Map;
 struct FieldWithDataType;
 using VariantMap = std::map<PathInData, FieldWithDataType>;
@@ -93,10 +92,12 @@ class DataTypeHLL;
 class DataTypeJsonb;
 class DataTypeArray;
 class DataTypeMap;
+class DataTypeNullable;
 class DataTypeVariant;
 class DataTypeStruct;
 class DataTypeBitMap;
 class DataTypeQuantileState;
+using DataTypeNullablePtr = std::shared_ptr<const DataTypeNullable>;
 template <PrimitiveType T>
 class ColumnVector;
 using ColumnUInt8 = ColumnVector<TYPE_BOOLEAN>;
@@ -115,7 +116,6 @@ using ColumnFloat32 = ColumnVector<TYPE_FLOAT>;
 using ColumnFloat64 = ColumnVector<TYPE_DOUBLE>;
 using ColumnIPv4 = ColumnVector<TYPE_IPV4>;
 using ColumnIPv6 = ColumnVector<TYPE_IPV6>;
-using ColumnTime = ColumnVector<TYPE_TIME>;
 using ColumnTimeV2 = ColumnVector<TYPE_TIMEV2>;
 using ColumnOffset32 = ColumnVector<TYPE_UINT32>;
 using ColumnOffset64 = ColumnVector<TYPE_UINT64>;
@@ -179,7 +179,7 @@ constexpr bool is_date_type(PrimitiveType type) {
 }
 
 constexpr bool is_time_type(PrimitiveType type) {
-    return type == TYPE_TIME || type == TYPE_TIMEV2;
+    return type == TYPE_TIMEV2;
 }
 
 constexpr bool is_timestamptz_type(PrimitiveType type) {
@@ -344,13 +344,6 @@ struct PrimitiveTypeTraits<TYPE_TIMEV2> {
     using ColumnType = ColumnTimeV2;
 };
 template <>
-struct PrimitiveTypeTraits<TYPE_TIME> {
-    using CppType = Float64;
-    using StorageFieldType = CppType;
-    using DataType = DataTypeTimeV2;
-    using ColumnType = ColumnTime;
-};
-template <>
 struct PrimitiveTypeTraits<TYPE_DATE> {
     using CppType = doris::VecDateTimeValue;
     /// Different with compute layer, the DateV1 was stored as uint24_t(3 bytes).
@@ -496,7 +489,7 @@ struct PrimitiveTypeTraits<TYPE_MAP> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_STRUCT> {
-    using CppType = Tuple;
+    using CppType = Struct;
     using StorageFieldType = CppType;
     using DataType = DataTypeStruct;
     using ColumnType = ColumnStruct;
@@ -595,5 +588,4 @@ inline TTypeDesc create_type_desc(PrimitiveType type, int precision = 0, int sca
     return type_desc;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

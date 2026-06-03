@@ -36,6 +36,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TimeZone;
 
 /**
  * Iceberg rollback to timestamp action implementation.
@@ -103,7 +104,7 @@ public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
         Long previousSnapshotId = previousSnapshot != null ? previousSnapshot.snapshotId() : null;
 
         try {
-            long targetTimestamp = TimeUtils.msTimeStringToLong(timestampStr, TimeUtils.getTimeZone());
+            long targetTimestamp = parseTimestampMillis(timestampStr, TimeUtils.getTimeZone());
             icebergTable.manageSnapshots().rollbackToTime(targetTimestamp).commit();
 
             Snapshot currentSnapshot = icebergTable.currentSnapshot();
@@ -132,5 +133,23 @@ public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
     @Override
     public String getDescription() {
         return "Rollback Iceberg table to the snapshot that was current at a specific timestamp";
+    }
+
+    static long parseTimestampMillis(String timestampStr, TimeZone timeZone) {
+        String trimmed = timestampStr.trim();
+        try {
+            long timestampMs = Long.parseLong(trimmed);
+            if (timestampMs < 0) {
+                throw new IllegalArgumentException("Timestamp must be non-negative: " + timestampMs);
+            }
+            return timestampMs;
+        } catch (NumberFormatException e) {
+            long parsedTimestamp = TimeUtils.msTimeStringToLong(trimmed, timeZone);
+            if (parsedTimestamp < 0) {
+                throw new IllegalArgumentException("Invalid timestamp format. Expected ISO datetime "
+                        + "(yyyy-MM-dd HH:mm:ss.SSS) or timestamp in milliseconds: " + trimmed, e);
+            }
+            return parsedTimestamp;
+        }
     }
 }

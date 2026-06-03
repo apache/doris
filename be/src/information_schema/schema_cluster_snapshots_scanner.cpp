@@ -30,7 +30,6 @@
 #include "storage/storage_engine.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 class Block;
 
@@ -47,6 +46,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaClusterSnapshotsScanner::_s_tbls_co
         {"LABEL", TYPE_STRING, sizeof(StringRef), true},
         {"MSG", TYPE_STRING, sizeof(StringRef), true},
         {"COUNT", TYPE_INT, sizeof(int32_t), true},
+        {"VAULT_ID", TYPE_STRING, sizeof(StringRef), true},
 };
 
 SchemaClusterSnapshotsScanner::SchemaClusterSnapshotsScanner()
@@ -247,8 +247,20 @@ Status SchemaClusterSnapshotsScanner::_fill_block_impl(Block* block) {
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));
     }
+    // resource_id
+    {
+        for (int i = 0; i < row_num; ++i) {
+            auto& snapshot = _snapshots[i];
+            if (snapshot.has_resource_id()) {
+                strs[i] = StringRef(snapshot.resource_id().c_str(), snapshot.resource_id().size());
+                datas[i] = strs.data() + i;
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, datas));
+    }
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

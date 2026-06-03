@@ -41,44 +41,7 @@
 #include "util/trace.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
-
-void CumulativeCompaction::find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
-                                                            std::vector<Version>* missing_version) {
-    if (rowsets->empty()) {
-        return;
-    }
-
-    RowsetSharedPtr prev_rowset = rowsets->front();
-    int i = 1;
-    int max_start = 0;
-    int max_length = 1;
-
-    int start = 0;
-    int length = 1;
-    for (; i < rowsets->size(); ++i) {
-        RowsetSharedPtr rowset = (*rowsets)[i];
-        if (rowset->start_version() != prev_rowset->end_version() + 1) {
-            if (missing_version != nullptr) {
-                missing_version->push_back(prev_rowset->version());
-                missing_version->push_back(rowset->version());
-            }
-            start = i;
-            length = 1;
-        } else {
-            length++;
-        }
-
-        if (length > max_length) {
-            max_start = start;
-            max_length = length;
-        }
-
-        prev_rowset = rowset;
-    }
-    *rowsets = {rowsets->begin() + max_start, rowsets->begin() + max_start + max_length};
-}
 
 CumulativeCompaction::CumulativeCompaction(StorageEngine& engine, const TabletSharedPtr& tablet)
         : CompactionMixin(engine, tablet,
@@ -290,6 +253,5 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
 
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

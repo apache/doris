@@ -134,8 +134,7 @@ suite("test_json_load", "p0,nonConcurrent") {
                             "is_being_synced" = "false",
                             "storage_format" = "V2",
                             "light_schema_change" = "true",
-                            "disable_auto_compaction" = "false",
-                            "enable_single_replica_compaction" = "false"
+                            "disable_auto_compaction" = "false"
                             ); 
                         """
     }
@@ -680,7 +679,6 @@ suite("test_json_load", "p0,nonConcurrent") {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
 
-        // case25: import json with enable_simdjson_reader=false
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
 
@@ -696,7 +694,6 @@ suite("test_json_load", "p0,nonConcurrent") {
         } 
     }
 
-    // case26: import json with enable_simdjson_reader=false
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
 

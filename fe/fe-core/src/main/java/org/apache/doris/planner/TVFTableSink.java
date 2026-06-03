@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
@@ -58,6 +59,22 @@ public class TVFTableSink extends DataSink {
         this.tvfName = tvfName;
         this.properties = properties;
         this.cols = cols;
+    }
+
+    public String getTvfName() {
+        return tvfName;
+    }
+
+    /**
+     * Returns the backend_id specified in properties, or -1 if not set.
+     * For local TVF, this indicates the specific BE node where data should be written.
+     */
+    public long getBackendId() {
+        String backendIdStr = properties.get("backend_id");
+        if (backendIdStr != null) {
+            return Long.parseLong(backendIdStr);
+        }
+        return -1;
     }
 
     public void bindDataSink() throws AnalysisException {
@@ -116,7 +133,7 @@ public class TVFTableSink extends DataSink {
         // Set columns
         List<TColumn> tColumns = new ArrayList<>();
         for (Column col : cols) {
-            tColumns.add(col.toThrift());
+            tColumns.add(ColumnToThrift.toThrift(col));
         }
         tSink.setColumns(tColumns);
 

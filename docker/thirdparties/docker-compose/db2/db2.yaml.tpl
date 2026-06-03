@@ -27,7 +27,8 @@ services:
       test: ["CMD-SHELL", "su - db2inst1 -c \"source ~/.bash_profile; db2 connect to doris && db2 'select 1 from sysibm.sysdummy1'\""]
       interval: 20s
       timeout: 60s
-      retries: 10
+      retries: 30
+      start_period: 300s
     volumes:
       - ./init:/docker-entrypoint-initdb.d
     environment:

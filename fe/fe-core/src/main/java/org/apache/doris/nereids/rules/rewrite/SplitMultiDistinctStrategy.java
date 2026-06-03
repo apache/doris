@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
-import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -147,19 +146,6 @@ public class SplitMultiDistinctStrategy {
         replacedGroupBy.addAll(ExpressionUtils.replace(cloneAgg.getGroupByExpressions(), producerToConsumerSlotMap));
         outputExpressions.addAll(replacedGroupBy.stream().map(Slot.class::cast).collect(Collectors.toList()));
         return consumer;
-    }
-
-    private static boolean isDistinctMultiColumns(AggregateFunction func) {
-        if (func.arity() <= 1) {
-            return false;
-        }
-        for (int i = 1; i < func.arity(); ++i) {
-            // think about group_concat(distinct col_1, ',')
-            if (!(func.child(i) instanceof OrderExpression) && !func.child(i).getInputSlots().isEmpty()) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static void collectDistinctAndNonDistinctFunctions(LogicalAggregate<? extends Plan> agg,

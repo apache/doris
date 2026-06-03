@@ -50,7 +50,6 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace {
@@ -253,5 +252,4 @@ void DeleteBitmapAction::handle(HttpRequest* req) {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

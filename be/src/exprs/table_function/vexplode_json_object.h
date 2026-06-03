@@ -24,7 +24,6 @@
 #include "exprs/table_function/table_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Block;
 
 // explode_json_object("{\"a\": 1, \"b\": 2}") ->
@@ -50,5 +49,4 @@ private:
     std::pair<MutableColumnPtr, MutableColumnPtr> _object_pairs; // ColumnNullable<ColumnString>
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

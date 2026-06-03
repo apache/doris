@@ -42,7 +42,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 DataTypeNullable::DataTypeNullable(const DataTypePtr& nested_data_type_)
         : nested_data_type {nested_data_type_} {
     if (!nested_data_type) {
@@ -108,24 +107,30 @@ const char* DataTypeNullable::deserialize(const char* buf, MutableColumnPtr* col
     size_t real_have_saved_num = 0;
     buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
-    auto* col = assert_cast<ColumnNullable*>(origin_column);
-    // null flags
     auto mem_size = real_have_saved_num * sizeof(bool);
-    col->get_null_map_data().resize(real_have_saved_num);
+    auto* col = assert_cast<ColumnNullable*>(origin_column);
+    // A nullable column can be exclusive while its subcolumns are still shared
+    // after a shallow COW clone. Detach both owner slots before writing into them.
+    const auto& const_col = *col;
+    auto nested = std::move(*const_col.get_nested_column_ptr()).mutate();
+    auto null_map = std::move(*const_col.get_null_map_column_ptr()).mutate();
+    auto& null_map_data = assert_cast<ColumnUInt8&>(*null_map).get_data();
+
+    null_map_data.resize(real_have_saved_num);
     if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
-        memcpy(col->get_null_map_data().data(), buf, mem_size);
+        memcpy(null_map_data.data(), buf, mem_size);
         buf += mem_size;
     } else {
         size_t encode_size = unaligned_load<size_t>(buf);
         buf += sizeof(size_t);
         // Throw exception if mem_size is large than UINT32_MAX
-        streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(col->get_null_map_data().data()),
+        streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(null_map_data.data()),
                            cast_set<UInt32>(upper_int32(mem_size)));
         buf += encode_size;
     }
-    // column data values
-    auto nested = col->get_nested_column_ptr();
+
     buf = nested_data_type->deserialize(buf, &nested, be_exec_version);
+    col->replace_columns(std::move(nested), std::move(null_map));
     return buf;
 }
 
@@ -141,10 +146,6 @@ MutableColumnPtr DataTypeNullable::create_column() const {
 Status DataTypeNullable::check_column(const IColumn& column) const {
     const auto* column_nullable = DORIS_TRY(check_column_nested_type<ColumnNullable>(column));
     return nested_data_type->check_column(column_nullable->get_nested_column());
-}
-
-Field DataTypeNullable::get_default() const {
-    return Field();
 }
 
 bool DataTypeNullable::equals(const IDataType& rhs) const {

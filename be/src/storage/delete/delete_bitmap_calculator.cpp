@@ -27,7 +27,6 @@
 #include "storage/tablet/tablet_meta.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 MergeIndexDeleteBitmapCalculatorContext::MergeIndexDeleteBitmapCalculatorContext(
         std::unique_ptr<segment_v2::IndexedColumnIterator> iter, DataTypePtr index_type,
@@ -165,14 +164,12 @@ Status MergeIndexDeleteBitmapCalculator::init(RowsetId rowset_id,
             auto pk_idx = segment->get_primary_key_index();
             std::unique_ptr<segment_v2::IndexedColumnIterator> index;
             RETURN_IF_ERROR(pk_idx->new_iterator(&index, nullptr));
-            auto index_type =
-                    DataTypeFactory::instance().create_data_type(pk_idx->type_info()->type(), 1, 0);
+            auto index_type = DataTypeFactory::instance().create_data_type(pk_idx->type(), 1, 0);
             _contexts.emplace_back(std::move(index), index_type, segment->id(), pk_idx->num_rows());
             _heap->push(&_contexts.back());
         }
         if (_rowid_length > 0) {
-            _rowid_coder = get_key_coder(
-                    get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>()->type());
+            _rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
         }
     });
     return Status::OK();
@@ -241,5 +238,4 @@ Status MergeIndexDeleteBitmapCalculator::calculate_all(DeleteBitmapPtr delete_bi
     });
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

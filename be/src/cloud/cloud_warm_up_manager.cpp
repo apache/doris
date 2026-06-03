@@ -34,6 +34,7 @@
 #include "cloud/config.h"
 #include "common/cast_set.h"
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/inverted_index_desc.h"
@@ -46,7 +47,6 @@
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_skipped_rowset_num(
         "file_cache_event_driven_warm_up_skipped_rowset_num");
@@ -129,7 +129,8 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                                                io::FileSystemSPtr file_system,
                                                int64_t expiration_time,
                                                std::shared_ptr<bthread::CountdownEvent> wait,
-                                               bool is_index, std::function<void(Status)> done_cb) {
+                                               bool is_index, std::function<void(Status)> done_cb,
+                                               int64_t tablet_id) {
     VLOG_DEBUG << "submit warm up task for file: " << path << ", file_size: " << file_size
                << ", expiration_time: " << expiration_time
                << ", is_index: " << (is_index ? "true" : "false");
@@ -184,6 +185,7 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                             }
                             wait->signal();
                         },
+                .tablet_id = tablet_id,
         });
 
         offset += current_chunk_size;
@@ -256,7 +258,8 @@ void CloudWarmUpManager::handle_jobs() {
                         submit_download_tasks(
                                 storage_resource.value()->remote_segment_path(*rs, seg_id),
                                 rs->segment_file_size(cast_set<int>(seg_id)), rs->fs(),
-                                expiration_time, wait, false, [tablet, rs, seg_id](Status st) {
+                                expiration_time, wait, false,
+                                [tablet, rs, seg_id](Status st) {
                                     VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
                                                << seg_id << " completed";
                                     if (tablet->complete_rowset_segment_warmup(
@@ -266,7 +269,8 @@ void CloudWarmUpManager::handle_jobs() {
                                         VLOG_DEBUG << "warmup rowset " << rs->version()
                                                    << " completed";
                                     }
-                                });
+                                },
+                                tablet_id);
                     }
 
                     // 2nd. download inverted index files
@@ -313,7 +317,8 @@ void CloudWarmUpManager::handle_jobs() {
                                             VLOG_DEBUG << "warmup rowset " << rs->version()
                                                        << " completed";
                                         }
-                                    });
+                                    },
+                                    tablet_id);
                         }
                     } else {
                         if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
@@ -336,7 +341,8 @@ void CloudWarmUpManager::handle_jobs() {
                                             VLOG_DEBUG << "warmup rowset " << rs->version()
                                                        << " completed";
                                         }
-                                    });
+                                    },
+                                    tablet_id);
                         }
                     }
                 }
@@ -541,7 +547,7 @@ std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id
 
         auto st = Status::create(result.status);
         if (!st.ok()) {
-            if (st.is<CANCELED>()) {
+            if (st.is<ErrorCode::CANCELLED>()) {
                 LOG(INFO) << "get_replica_info: warm up job cancelled, tablet_id=" << tablet_id
                           << ", job_id=" << job_id;
                 cancelled_jobs.push_back(job_id);
@@ -576,23 +582,50 @@ std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id
 }
 
 void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms) {
+    if (sync_wait_timeout_ms <= 0) {
+        auto rs_meta_pb = std::make_shared<RowsetMetaPB>(rs_meta.get_rowset_pb());
+        auto st = _thread_pool_token->submit_func([this, rs_meta_pb, sync_wait_timeout_ms]() {
+            RowsetMeta async_rs_meta;
+            bool init_succeed = async_rs_meta.init_from_pb(*rs_meta_pb);
+            TEST_SYNC_POINT_CALLBACK("CloudWarmUpManager::warm_up_rowset.async_init_from_pb",
+                                     &init_succeed);
+            if (!init_succeed) {
+                LOG(WARNING) << "Failed to init rowset meta when warming up rowset asynchronously";
+                return;
+            }
+            _warm_up_rowset(async_rs_meta, sync_wait_timeout_ms);
+        });
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to submit warm up rowset task: " << st;
+            file_cache_warm_up_failed_task_num << 1;
+        }
+        return;
+    }
+
     bthread::Mutex mu;
     bthread::ConditionVariable cv;
+    bool finished = false;
     std::unique_lock<bthread::Mutex> lock(mu);
     auto st = _thread_pool_token->submit_func([&, this]() {
-        std::unique_lock<bthread::Mutex> l(mu);
         _warm_up_rowset(rs_meta, sync_wait_timeout_ms);
+        std::unique_lock<bthread::Mutex> l(mu);
+        finished = true;
         cv.notify_one();
     });
     if (!st.ok()) {
         LOG(WARNING) << "Failed to submit warm up rowset task: " << st;
         file_cache_warm_up_failed_task_num << 1;
     } else {
-        cv.wait(lock);
+        while (!finished) {
+            TEST_SYNC_POINT_CALLBACK("CloudWarmUpManager::warm_up_rowset.before_wait", &cv);
+            cv.wait(lock);
+        }
     }
 }
 
 void CloudWarmUpManager::_warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms) {
+    TEST_SYNC_POINT_CALLBACK("CloudWarmUpManager::_warm_up_rowset.enter", &rs_meta,
+                             &sync_wait_timeout_ms);
     bool cache_hit = false;
     auto replicas = get_replica_info(rs_meta.tablet_id(), false, cache_hit);
     if (replicas.empty()) {
@@ -902,5 +935,4 @@ CloudWarmUpManager::get_all_balanced_tablets() const {
     return result;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

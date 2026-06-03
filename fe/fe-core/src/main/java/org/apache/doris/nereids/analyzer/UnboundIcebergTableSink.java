@@ -37,14 +37,21 @@ import java.util.Optional;
  * Represent an iceberg table sink plan node that has not been bound.
  */
 public class UnboundIcebergTableSink<CHILD_TYPE extends Plan> extends UnboundBaseExternalTableSink<CHILD_TYPE> {
+    private boolean rewrite = false;
+
     // Static partition key-value pairs for INSERT OVERWRITE ... PARTITION
     // (col='val', ...)
     private final Map<String, Expression> staticPartitionKeyValues;
 
     public UnboundIcebergTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
                                    List<String> partitions, CHILD_TYPE child) {
+        this(nameParts, colNames, hints, partitions, child, false);
+    }
+
+    public UnboundIcebergTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
+                                   List<String> partitions, CHILD_TYPE child, boolean rewrite) {
         this(nameParts, colNames, hints, partitions, DMLCommandType.NONE,
-                Optional.empty(), Optional.empty(), child, null);
+                Optional.empty(), Optional.empty(), child, null, rewrite);
     }
 
     /**
@@ -59,7 +66,22 @@ public class UnboundIcebergTableSink<CHILD_TYPE extends Plan> extends UnboundBas
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child) {
         this(nameParts, colNames, hints, partitions, dmlCommandType,
-                groupExpression, logicalProperties, child, null);
+                groupExpression, logicalProperties, child, false);
+    }
+
+    /**
+     * constructor
+     */
+    public UnboundIcebergTableSink(List<String> nameParts,
+                                   List<String> colNames,
+                                   List<String> hints,
+                                   List<String> partitions,
+                                   DMLCommandType dmlCommandType,
+                                   Optional<GroupExpression> groupExpression,
+                                   Optional<LogicalProperties> logicalProperties,
+                                   CHILD_TYPE child, boolean rewrite) {
+        this(nameParts, colNames, hints, partitions, dmlCommandType,
+                groupExpression, logicalProperties, child, null, rewrite);
     }
 
     /**
@@ -73,12 +95,14 @@ public class UnboundIcebergTableSink<CHILD_TYPE extends Plan> extends UnboundBas
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child,
-            Map<String, Expression> staticPartitionKeyValues) {
+            Map<String, Expression> staticPartitionKeyValues,
+            boolean rewrite) {
         super(nameParts, PlanType.LOGICAL_UNBOUND_ICEBERG_TABLE_SINK, ImmutableList.of(), groupExpression,
                 logicalProperties, colNames, dmlCommandType, child, hints, partitions);
         this.staticPartitionKeyValues = staticPartitionKeyValues != null
                 ? ImmutableMap.copyOf(staticPartitionKeyValues)
                 : null;
+        this.rewrite = rewrite;
     }
 
     public Map<String, Expression> getStaticPartitionKeyValues() {
@@ -94,7 +118,7 @@ public class UnboundIcebergTableSink<CHILD_TYPE extends Plan> extends UnboundBas
         Preconditions.checkArgument(children.size() == 1,
                 "UnboundIcebergTableSink only accepts one child");
         return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
-                dmlCommandType, groupExpression, Optional.empty(), children.get(0), staticPartitionKeyValues);
+                dmlCommandType, groupExpression, Optional.empty(), children.get(0), staticPartitionKeyValues, rewrite);
     }
 
     @Override
@@ -106,13 +130,17 @@ public class UnboundIcebergTableSink<CHILD_TYPE extends Plan> extends UnboundBas
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
                 dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child(),
-                staticPartitionKeyValues);
+                staticPartitionKeyValues, rewrite);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
-                dmlCommandType, groupExpression, logicalProperties, children.get(0), staticPartitionKeyValues);
+                dmlCommandType, groupExpression, logicalProperties, children.get(0), staticPartitionKeyValues, rewrite);
+    }
+
+    public boolean isRewrite() {
+        return rewrite;
     }
 }

@@ -35,8 +35,7 @@ suite("array_agg") {
     "replication_allocation" = "tag.location.default: 1",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false"
+    "disable_auto_compaction" = "false"
     );
     """
 
@@ -54,8 +53,7 @@ suite("array_agg") {
     "replication_allocation" = "tag.location.default: 1",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false"
+    "disable_auto_compaction" = "false"
     );
     """
 
@@ -75,8 +73,7 @@ suite("array_agg") {
     "replication_allocation" = "tag.location.default: 1",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false"
+    "disable_auto_compaction" = "false"
     );
     """
 
@@ -210,8 +207,7 @@ suite("array_agg") {
     "replication_allocation" = "tag.location.default: 1",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false"
+    "disable_auto_compaction" = "false"
     ); """
 
     sql """
@@ -252,8 +248,6 @@ suite("array_agg") {
     """
 
     // only support nereids
-    sql "SET enable_nereids_planner=true;"
-    sql "SET enable_fallback_to_original_planner=false;"
 	sql """ CREATE TABLE IF NOT EXISTS test_array_agg_complex (id int, kastr array<string>, km map<string, int>, ks STRUCT<id: int>) engine=olap
                                                                                          DISTRIBUTED BY HASH(`id`) BUCKETS 4
                                                                                          properties("replication_num" = "1") """

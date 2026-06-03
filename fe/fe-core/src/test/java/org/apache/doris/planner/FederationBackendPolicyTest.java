@@ -32,13 +32,14 @@ import org.apache.doris.system.SystemInfoService;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Multimap;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.apache.hadoop.fs.Path;
+import org.junit.After;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -53,8 +54,20 @@ import java.util.Set;
 import java.util.UUID;
 
 public class FederationBackendPolicyTest {
-    @Mocked
-    private Env env;
+    private Env env = Mockito.mock(Env.class);
+    private MockedStatic<Env> mockedEnvStatic;
+
+    @Before
+    public void setUp() {
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(org.apache.doris.persist.EditLog.class));
+    }
+
+    @After
+    public void tearDown() {
+        mockedEnvStatic.close();
+    }
 
     @Test
     public void testRemoteSplits() throws UserException {
@@ -71,17 +84,8 @@ public class FederationBackendPolicyTest {
         service.addBackend(backend3);
 
         ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
-        new MockUp<Env>() {
-            @Mock
-            public SystemInfoService getCurrentSystemInfo() {
-                return service;
-            }
-
-            @Mock
-            public ComputeGroupMgr getComputeGroupMgr() {
-                return cgmgr;
-            }
-        };
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(cgmgr);
 
         List<Split> splits = new ArrayList<>();
         splits.add(new FileSplit(LocationPath.of("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00000-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"), 0, 112140970, 112140970, 0, null, Collections.emptyList()));
@@ -126,17 +130,8 @@ public class FederationBackendPolicyTest {
         service.addBackend(backend3);
 
         ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
-        new MockUp<Env>() {
-            @Mock
-            public SystemInfoService getCurrentSystemInfo() {
-                return service;
-            }
-
-            @Mock
-            public ComputeGroupMgr getComputeGroupMgr() {
-                return cgmgr;
-            }
-        };
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(cgmgr);
 
         List<Split> splits = new ArrayList<>();
         splits.add(new FileSplit(LocationPath.of("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00000-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"), 0, 112140970, 112140970, 0, new String[]{"172.30.0.100"}, Collections.emptyList()));
@@ -208,17 +203,8 @@ public class FederationBackendPolicyTest {
         service.addBackend(backend3);
 
         ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
-        new MockUp<Env>() {
-            @Mock
-            public SystemInfoService getCurrentSystemInfo() {
-                return service;
-            }
-
-            @Mock
-            public ComputeGroupMgr getComputeGroupMgr() {
-                return cgmgr;
-            }
-        };
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(cgmgr);
 
         List<Split> splits = new ArrayList<>();
         splits.add(new FileSplit(LocationPath.of("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00000-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"), 0, 112140970, 112140970, 0, null, Collections.emptyList()));
@@ -277,17 +263,8 @@ public class FederationBackendPolicyTest {
     public void testGenerateRandomly() throws UserException {
         SystemInfoService service = new SystemInfoService();
         ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
-        new MockUp<Env>() {
-            @Mock
-            public SystemInfoService getCurrentSystemInfo() {
-                return service;
-            }
-
-            @Mock
-            public ComputeGroupMgr getComputeGroupMgr() {
-                return cgmgr;
-            }
-        };
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(cgmgr);
 
         Random random = new Random();
         int backendNum = random.nextInt(100 - 1) + 1;
@@ -396,17 +373,8 @@ public class FederationBackendPolicyTest {
     public void testNonAliveNodes() throws UserException {
         SystemInfoService service = new SystemInfoService();
         ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
-        new MockUp<Env>() {
-            @Mock
-            public SystemInfoService getCurrentSystemInfo() {
-                return service;
-            }
-
-            @Mock
-            public ComputeGroupMgr getComputeGroupMgr() {
-                return cgmgr;
-            }
-        };
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(cgmgr);
 
         Random random = new Random();
         int backendNum = random.nextInt(100 - 1) + 1;
@@ -571,17 +539,8 @@ public class FederationBackendPolicyTest {
         service.addBackend(backend3);
 
         ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
-        new MockUp<Env>() {
-            @Mock
-            public SystemInfoService getCurrentSystemInfo() {
-                return service;
-            }
-
-            @Mock
-            public ComputeGroupMgr getComputeGroupMgr() {
-                return cgmgr;
-            }
-        };
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(cgmgr);
 
         List<Split> splits = new ArrayList<>();
         splits.add(new FileSplit(LocationPath.of("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00000-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"), 0, 112140970, 112140970, 0, null, Collections.emptyList()));
@@ -728,17 +687,8 @@ public class FederationBackendPolicyTest {
         service.addBackend(backend3);
 
         ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
-        new MockUp<Env>() {
-            @Mock
-            public SystemInfoService getCurrentSystemInfo() {
-                return service;
-            }
-
-            @Mock
-            public ComputeGroupMgr getComputeGroupMgr() {
-                return cgmgr;
-            }
-        };
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(cgmgr);
 
         List<Split> splits = new ArrayList<>();
         splits.add(genFileSplit("s1", 1000000L, 1000L)); // belong 2

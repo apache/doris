@@ -79,10 +79,6 @@ public class SortInfo {
         return isAscOrder;
     }
 
-    public List<Boolean> getNullsFirstParams() {
-        return nullsFirstParams;
-    }
-
     public void setUseTwoPhaseRead() {
         useTwoPhaseRead = true;
     }

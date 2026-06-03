@@ -24,7 +24,6 @@
 #include "core/string_ref.h"
 
 namespace doris::time_format_type {
-#include "common/compile_check_begin.h"
 // Used to optimize commonly used date formats.
 
 inline StringRef rewrite_specific_format(const char* raw_str, size_t str_size) {
@@ -339,5 +338,4 @@ inline FormatImplVariant string_to_impl(const std::string& format) {
         return UserDefinedImpl {};
     }
 }
-#include "common/compile_check_end.h"
 } // namespace doris::time_format_type

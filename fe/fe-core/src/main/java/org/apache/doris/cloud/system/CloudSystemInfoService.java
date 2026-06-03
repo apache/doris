@@ -871,6 +871,9 @@ public class CloudSystemInfoService extends SystemInfoService {
                     if (acg == null || System.currentTimeMillis() - acg.getUnavailableSince()
                             > policy.getFailoverFailureThreshold() * Config.heartbeat_interval_second * 1000) {
                         switchActiveStandby(cg, acgName, scgName);
+                        String acgId = acg == null ? clusterNameToId.get(acgName) : acg.getId();
+                        MetricRepo.increaseVirtualComputeGroupSwitch(cg.getId(), cg.getName(), acgId,
+                                acgName, scg.getId(), scgName);
                         policy.setActiveComputeGroup(scgName);
                         policy.setStandbyComputeGroup(acgName);
                         cg.setNeedRebuildFileCache(true);
@@ -1060,7 +1063,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                         .filter(i -> i.getTagMap().containsKey(Tag.CLOUD_CLUSTER_NAME))
                         .collect(Collectors.toList());
                 // The larger bakendId the later it was added, the order matters
-                toAdd.sort((x, y) -> (int) (x.getId() - y.getId()));
+                toAdd.sort((x, y) -> Long.compare(x.getId(), y.getId()));
                 updateCloudClusterMapNoLock(toAdd, new ArrayList<>());
             }
 

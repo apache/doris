@@ -32,7 +32,6 @@
 #include "runtime/thread_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 /// The minimum reduction factor (input rows divided by output rows) to grow hash tables
 /// in a streaming preaggregation, given that the hash tables are currently the given
 /// size or above. The sizes roughly correspond to hash table sizes where the bucket
@@ -300,16 +299,20 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(Block* block) {
 
     for (int i = 0; i < key_size; ++i) {
         if constexpr (for_spill) {
-            key_columns[i] = block->get_by_position(i).column.get();
             key_locs[i] = i;
         } else {
             int& result_column_id = key_locs[i];
             RETURN_IF_ERROR(
                     Base::_shared_state->probe_expr_ctxs[i]->execute(block, &result_column_id));
             block->replace_by_position_if_const(result_column_id);
-            key_columns[i] = block->get_by_position(result_column_id).column.get();
         }
-        key_columns[i]->assume_mutable()->replace_float_special_values();
+        {
+            auto mutable_col =
+                    IColumn::mutate(std::move(block->get_by_position(key_locs[i]).column));
+            mutable_col->replace_float_special_values();
+            block->get_by_position(key_locs[i]).column = std::move(mutable_col);
+            key_columns[i] = block->get_by_position(key_locs[i]).column.get();
+        }
     }
 
     size_t rows = block->rows();
@@ -492,8 +495,13 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(Block* block) {
             block->get_by_position(result_column_id).column =
                     block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
+            {
+                auto mutable_col =
+                        IColumn::mutate(std::move(block->get_by_position(result_column_id).column));
+                mutable_col->replace_float_special_values();
+                block->get_by_position(result_column_id).column = std::move(mutable_col);
+            }
             key_columns[i] = block->get_by_position(result_column_id).column.get();
-            key_columns[i]->assume_mutable()->replace_float_special_values();
         }
     }
 
@@ -872,6 +880,7 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
                 tnode.agg_node.__isset.agg_sort_infos ? tnode.agg_node.agg_sort_infos[i] : dummy,
                 tnode.agg_node.grouping_exprs.empty(), false, &evaluator));
         _aggregate_evaluators.push_back(evaluator);
+        _is_merge |= evaluator->is_merge();
     }
 
     if (tnode.agg_node.__isset.agg_sort_info_by_group_key) {
@@ -944,7 +953,6 @@ Status AggSinkOperatorX::_init_aggregate_evaluators(RuntimeState* state) {
 
 Status AggSinkOperatorX::_calc_aggregate_evaluators() {
     _offsets_of_aggregate_states.resize(_aggregate_evaluators.size());
-    _is_merge = false;
     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
         _offsets_of_aggregate_states[i] = _total_size_of_aggregate_states;
 
@@ -966,9 +974,6 @@ Status AggSinkOperatorX::_calc_aggregate_evaluators() {
             _total_size_of_aggregate_states =
                     (_total_size_of_aggregate_states + alignment_of_next_state - 1) /
                     alignment_of_next_state * alignment_of_next_state;
-        }
-        if (_aggregate_evaluators[i]->is_merge()) {
-            _is_merge = true;
         }
     }
     return Status::OK();

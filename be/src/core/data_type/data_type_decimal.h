@@ -57,7 +57,6 @@ class IColumn;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 constexpr size_t default_decimal_scale() {
@@ -243,8 +242,6 @@ public:
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
-
-    Field get_default() const override;
 
     Field get_field(const TExprNode& node) const override {
         DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
@@ -524,5 +521,4 @@ static_assert(!has_original_precision_and_scale<DataTypeDecimal64>);
 static_assert(!has_original_precision_and_scale<DataTypeDecimal128>);
 static_assert(!has_original_precision_and_scale<DataTypeDecimal256>);
 
-#include "common/compile_check_end.h"
 } // namespace doris

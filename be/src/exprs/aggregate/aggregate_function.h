@@ -37,7 +37,6 @@
 #include "util/defer_op.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Arena;
 class IColumn;
@@ -47,6 +46,7 @@ struct AggregateFunctionAttr {
     bool is_window_function {false};
     bool is_foreach {false};
     bool enable_aggregate_function_null_v2 {false};
+    bool new_version_percentile {false};
     std::vector<std::string> column_names;
 };
 
@@ -108,7 +108,11 @@ public:
     /// Reset aggregation state
     virtual void reset(AggregateDataPtr place) const = 0;
 
-    /// It is not necessary to delete data.
+    /// Indicates that the aggregate state can be safely zero-initialized (memset to 0) instead of
+    /// calling create(). When true, callers may skip create() and destroy() for the state.
+    /// This is only valid when zero-initialized memory is a correct initial state for the function.
+    /// For example, sum/count/avg can use zero-init (identity element is 0), but min/max cannot
+    /// because they require sentinel values (MAX_VALUE for min, MIN_VALUE for max) set by create().
     virtual bool is_trivial() const = 0;
 
     /// Get `sizeof` of structure with data.
@@ -300,12 +304,42 @@ protected:
     int version {};
 };
 
+/// Marker base for aggregate function classes that intentionally form an inheritance
+/// hierarchy (e.g. AggregateStateUnion -> AggregateStateMerge, or
+/// AggregateFunctionForEach -> AggregateFunctionForEachV2) and therefore cannot be
+/// marked 'final'. Classes that inherit this marker are exempt from the
+/// static_assert in IAggregateFunctionHelper.
+struct AggregateFunctionNonFinalBase {};
+
 /// Implement method to obtain an address of 'add' function.
 template <typename Derived>
 class IAggregateFunctionHelper : public IAggregateFunction {
 public:
     IAggregateFunctionHelper(const DataTypes& argument_types_)
-            : IAggregateFunction(argument_types_) {}
+            : IAggregateFunction(argument_types_) {
+        // NOTE: This static_assert is placed in the constructor body (not at class scope)
+        // because at class-scope instantiation time Derived is still an incomplete type,
+        // whereas the constructor body is instantiated lazily when a concrete object is
+        // constructed, at which point Derived is fully defined.
+        //
+        // Marking Derived as 'final' is an *optimization hint*, not a correctness
+        // requirement. add() is virtual in IAggregateFunction, so subclasses always
+        // dispatch correctly through the vtable regardless. However, when Derived is
+        // final, the compiler can see that assert_cast<const Derived*>(this)->add(...)
+        // inside add_batch() / add_batch_single_place() etc. has no further overrides,
+        // allowing it to devirtualize (and potentially inline) the add() call -- which
+        // is critical for hot aggregation paths.
+        //
+        // Classes that intentionally form inheritance hierarchies (and therefore accept
+        // the vtable overhead) must inherit AggregateFunctionNonFinalBase to opt out.
+        static_assert(
+                std::is_final_v<Derived> ||
+                        std::is_base_of_v<AggregateFunctionNonFinalBase, Derived>,
+                "Derived should be marked 'final' to allow the compiler to devirtualize "
+                "add() calls inside add_batch() and related hot paths. "
+                "If the class intentionally has subclasses, inherit AggregateFunctionNonFinalBase "
+                "to opt out of this check.");
+    }
 
     void destroy_vec(AggregateDataPtr __restrict place,
                      const size_t num_rows) const noexcept override {
@@ -447,19 +481,21 @@ public:
                          size_t num_rows) const override {
         const Derived* derived = assert_cast<const Derived*>(this);
         const auto size_of_data = derived->size_of_data();
-        for (size_t i = 0; i != num_rows; ++i) {
-            try {
+        size_t created_count = 0;
+        try {
+            for (size_t i = 0; i != num_rows; ++i) {
                 auto place = places + size_of_data * i;
                 VectorBufferReader buffer_reader(column->get_data_at(i));
                 derived->create(place);
+                ++created_count;
                 derived->deserialize(place, buffer_reader, arena);
-            } catch (...) {
-                for (int j = 0; j < i; ++j) {
-                    auto place = places + size_of_data * j;
-                    derived->destroy(place);
-                }
-                throw;
             }
+        } catch (...) {
+            for (size_t j = 0; j < created_count; ++j) {
+                auto place = places + size_of_data * j;
+                derived->destroy(place);
+            }
+            throw;
         }
     }
 
@@ -470,19 +506,21 @@ public:
         const auto size_of_data = derived->size_of_data();
         const auto* column_string = assert_cast<const ColumnString*>(column);
 
-        for (size_t i = 0; i != num_rows; ++i) {
-            try {
+        size_t created_count = 0;
+        try {
+            for (size_t i = 0; i != num_rows; ++i) {
                 auto rhs_place = rhs + size_of_data * i;
                 VectorBufferReader buffer_reader(column_string->get_data_at(i));
                 derived->create(rhs_place);
+                ++created_count;
                 derived->deserialize_and_merge(places[i] + offset, rhs_place, buffer_reader, arena);
-            } catch (...) {
-                for (int j = 0; j < i; ++j) {
-                    auto place = rhs + size_of_data * j;
-                    derived->destroy(place);
-                }
-                throw;
             }
+        } catch (...) {
+            for (size_t j = 0; j < created_count; ++j) {
+                auto place = rhs + size_of_data * j;
+                derived->destroy(place);
+            }
+            throw;
         }
 
         derived->destroy_vec(rhs, num_rows);
@@ -494,22 +532,24 @@ public:
         const auto* derived = assert_cast<const Derived*>(this);
         const auto size_of_data = derived->size_of_data();
         const auto* column_string = assert_cast<const ColumnString*>(column);
-        for (size_t i = 0; i != num_rows; ++i) {
-            try {
+        size_t created_count = 0;
+        try {
+            for (size_t i = 0; i != num_rows; ++i) {
                 auto rhs_place = rhs + size_of_data * i;
                 VectorBufferReader buffer_reader(column_string->get_data_at(i));
                 derived->create(rhs_place);
+                ++created_count;
                 if (places[i]) {
                     derived->deserialize_and_merge(places[i] + offset, rhs_place, buffer_reader,
                                                    arena);
                 }
-            } catch (...) {
-                for (int j = 0; j < i; ++j) {
-                    auto place = rhs + size_of_data * j;
-                    derived->destroy(place);
-                }
-                throw;
             }
+        } catch (...) {
+            for (size_t j = 0; j < created_count; ++j) {
+                auto place = rhs + size_of_data * j;
+                derived->destroy(place);
+            }
+            throw;
         }
         derived->destroy_vec(rhs, num_rows);
     }
@@ -672,5 +712,3 @@ struct MultiExpression {};   // Must have multiple parameters (more than 1)
 struct VarargsExpression {}; // Uncertain number of parameters
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

@@ -17,18 +17,31 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.SystemInfoService;
 
-import mockit.Mock;
-import mockit.MockUp;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
-public class FakeEnv extends MockUp<Env> {
+public class FakeEnv implements AutoCloseable {
 
     private static Env env;
     private static int metaVersion;
     private static SystemInfoService systemInfo = new SystemInfoService();
+    private MockedStatic<Env> mockedStatic;
+
+    public FakeEnv() {
+        mockedStatic = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS);
+        mockedStatic.when(Env::getCurrentEnv).thenAnswer(inv -> env);
+        mockedStatic.when(Env::getServingEnv).thenAnswer(inv -> env);
+        mockedStatic.when(Env::getCurrentEnvJournalVersion).thenAnswer(inv -> metaVersion);
+        mockedStatic.when(Env::getCurrentSystemInfo).thenAnswer(inv -> systemInfo);
+    }
 
     public static void setEnv(Env env) {
+        // Set feType to MASTER to replicate original isMaster() mock behavior
+        Deencapsulation.setField(env, "feType", FrontendNodeType.MASTER);
         FakeEnv.env = env;
     }
 
@@ -40,29 +53,12 @@ public class FakeEnv extends MockUp<Env> {
         FakeEnv.systemInfo = systemInfo;
     }
 
-    @Mock
-    public static Env getCurrentEnv() {
-        return env;
-    }
-
-    @Mock
-    public static Env getInstance() {
-        return env;
-    }
-
-    @Mock
-    public static int getCurrentEnvJournalVersion() {
-        return metaVersion;
-    }
-
-    @Mock
-    public static SystemInfoService getCurrentSystemInfo() {
-        return systemInfo;
-    }
-
-    @Mock
-    public boolean isMaster() {
-        return true;
+    @Override
+    public void close() {
+        if (mockedStatic != null) {
+            mockedStatic.close();
+            mockedStatic = null;
+        }
     }
 
 }

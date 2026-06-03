@@ -30,7 +30,6 @@
 using namespace lucene::analysis;
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 class DorisTokenizer;
 using TokenizerPtr = std::shared_ptr<DorisTokenizer>;
@@ -91,4 +90,3 @@ private:
 using TokenStreamComponentsPtr = std::shared_ptr<TokenStreamComponents>;
 
 }; // namespace doris::segment_v2::inverted_index
-#include "common/compile_check_end.h"

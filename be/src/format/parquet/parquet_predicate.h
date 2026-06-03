@@ -37,7 +37,6 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ParquetPredicate {
 private:
     static inline bool _is_ascii(uint8_t byte) { return byte < 128; }
@@ -484,6 +483,5 @@ public:
         return Status::OK();
     }
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris
