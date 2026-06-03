@@ -284,9 +284,6 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
             batch->rep_levels[level_idx] > value_slot_repetition_level) {
             continue;
         }
-        if (batch->def_levels[level_idx] != max_definition_level) {
-            continue;
-        }
         if (dense_value_slots) {
             batch->value_indices[level_idx] = level_idx;
         } else {
